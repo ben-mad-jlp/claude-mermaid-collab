@@ -51,6 +51,107 @@ describe('getInjectionFlags', () => {
   });
 });
 
+describe('payload B — PREVIOUS ATTEMPT FAILED', () => {
+  test('attempt 1 (first attempt) ⇒ no retry block', () => {
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: true, activeConstraints: false },
+      attempt: 1,
+      priorRun: { terminal: { reason: 'some failure', gateReasons: [] }, reviewVerdict: 'fail' },
+    });
+    expect(out).toBe('');
+  });
+
+  test('priorRun undefined ⇒ no retry block', () => {
+    const out = composeInjectedContext({
+      kind: 'implement',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: true, activeConstraints: false },
+      attempt: 2,
+      priorRun: null,
+    });
+    expect(out).toBe('');
+  });
+
+  test('retryContext flag OFF ⇒ no retry block even on attempt>1', () => {
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: false, activeConstraints: false },
+      attempt: 2,
+      priorRun: { terminal: { reason: 'prior failed', gateReasons: [] }, reviewVerdict: 'fail' },
+    });
+    expect(out).toBe('');
+  });
+
+  test('populated + verbatim + marker block (blueprint kind)', () => {
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: true, activeConstraints: false },
+      attempt: 2,
+      priorRun: {
+        terminal: { reason: 'compile failed', gateReasons: ['syntax error', 'type mismatch'] },
+        reviewVerdict: 'fail',
+        finalOutcome: 'rejected',
+      },
+    });
+    expect(out).toContain('=== PREVIOUS ATTEMPT FAILED (advisory — verify against the tree) ===');
+    expect(out).toContain('compile failed');
+    expect(out).toContain('syntax error');
+    expect(out).toContain('type mismatch');
+    expect(out).toContain('review verdict: fail');
+  });
+
+  test('over-long reason ⇒ capped + truncation marker', () => {
+    const longReason = 'a'.repeat(2500) + 'END_SENTINEL';
+    const out = composeInjectedContext({
+      kind: 'implement',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: true, activeConstraints: false },
+      attempt: 2,
+      priorRun: {
+        terminal: { reason: longReason, gateReasons: [] },
+        reviewVerdict: null,
+      },
+    });
+    expect(out).toContain('=== PREVIOUS ATTEMPT FAILED (advisory — verify against the tree) ===');
+    expect(out).toContain('…[truncated');
+    expect(out).not.toContain('END_SENTINEL');
+    expect(out.length).toBeLessThan(longReason.length);
+  });
+
+  test('review kind is excluded (not a retry kind)', () => {
+    const out = composeInjectedContext({
+      kind: 'review',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: true, activeConstraints: false },
+      attempt: 2,
+      priorRun: { terminal: { reason: 'prior failed' }, reviewVerdict: 'fail' },
+    });
+    expect(out).toBe('');
+  });
+
+  test('priorRunFailed false (no failure indicators) ⇒ no block', () => {
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: 'e1',
+      flags: { digest: false, retryContext: true, activeConstraints: false },
+      attempt: 2,
+      priorRun: { terminal: { reason: '', gateReasons: [] }, reviewVerdict: 'pass', finalOutcome: 'accepted' },
+    });
+    expect(out).toBe('');
+  });
+});
+
 describe('payload C — ACTIVE CONSTRAINTS', () => {
   let project: string;
   beforeEach(() => { project = mkdtempSync(join(tmpdir(), 'prompt-inject-')); });

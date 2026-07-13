@@ -36,7 +36,7 @@ import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, gr
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation } from './supervisor-store';
-import { composeInjectedContext } from './prompt-injection';
+import { composeInjectedContext, type PriorRunInput } from './prompt-injection';
 import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
@@ -1355,6 +1355,10 @@ export async function runLeaf(
   // decided. See LeafGateResult.declared.
   let gateDeclared: boolean | null = null;
 
+  // Payload B (retryContext): prior run's terminal info for retry-context block.
+  // Populated before the attempt loop via lazy import of ledger-stats.
+  let priorRun: PriorRunInput | null = null;
+
   // Per-(project, node-kind) model + effort overrides, resolved once per run.
   // model  : per-kind override → NODE_PROFILE default.
   // effort : per-kind override → per-project blanket (getProjectEffort) →
@@ -1617,7 +1621,7 @@ export async function runLeaf(
     blueprintText?: string,
     reviewFindings?: string,
   ): NodeSpec => {
-    const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project) });
+    const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
       model: nodeModel(kind),
@@ -1977,6 +1981,16 @@ export async function runLeaf(
   let unbackedNote: string | undefined;
   // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive constraint id.
   let constraintCiteNote: string | undefined;
+
+  // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
+  // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
+  // import breaks the static cycle (ledger-stats imports NODE_BUDGET from leaf-executor).
+  try {
+    const { getLeafRun } = await import('./ledger-stats');
+    const pr = getLeafRun(leaf.id);
+    if (pr) priorRun = { terminal: pr.terminal ?? null, reviewVerdict: pr.reviewVerdict, finalOutcome: pr.finalOutcome };
+  } catch { priorRun = null; }
+
   for (state.attempt = 0; state.attempt < ATTEMPT_CAP; ) {
     state.attempt += 1; // 1-based count for telemetry/escalation
     const isLastAttempt = state.attempt >= ATTEMPT_CAP;
