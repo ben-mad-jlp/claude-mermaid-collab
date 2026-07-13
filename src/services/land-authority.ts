@@ -19,10 +19,7 @@ import { isEpicTodo, isLandTodo } from './invariant-check';
 import { epicBranchName } from './epic-branch-status';
 import { isMission } from './todo-kind.ts';
 import { getMission, isMissionTerminal } from './mission-store';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { realRunners } from './steward-proof';
 
 /** Actor types for land authority checking */
 export type LandActor =
@@ -80,6 +77,8 @@ export interface LandProbes {
     mergeClean: boolean;
   };
   todos?: (project: string) => Todo[];
+  /** Resolves the epic accumulation worktree cwd; tsc + merge run HERE, not the repo root. */
+  worktreeCwd?: (project: string, epicId: string) => Promise<string> | string;
 }
 
 /**
@@ -258,65 +257,28 @@ function sanitizeTrailerValue(value: string): string {
 
 /**
  * Tri-mode merge probe: tsc + merge-dry-run.
- * Used when probes.merge is not injected (test or default).
+ * Delegates to the shared, memoized runners in steward-proof.
  */
 function defaultMergeProbe(
   project: string,
   epicBranch: string,
   epicWorktreeCwd: string,
 ): { tscClean: boolean; mergeClean: boolean } {
-  let tscClean = true;
-  let mergeClean = true;
-
-  // Check tsc in the epic worktree
-  try {
-    execFileSync('tsc', ['--noEmit'], { cwd: epicWorktreeCwd, encoding: 'utf8', stdio: 'pipe' });
-  } catch {
-    tscClean = false;
-  }
-
-  // Dry-merge in an isolated trial worktree
-  const masterCwd = project;
-  const trial = join(tmpdir(), `collab-land-trial-${process.pid}-${process.hrtime.bigint()}`);
-
-  const teardown = () => {
-    try {
-      execFileSync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial], { stdio: 'pipe' });
-    } catch {
-      /* gone */
-    }
-    try {
-      execFileSync('git', ['-C', masterCwd, 'worktree', 'prune'], { stdio: 'pipe' });
-    } catch {
-      /* best-effort */
-    }
+  return {
+    tscClean: realRunners.tscClean(epicWorktreeCwd),
+    mergeClean: realRunners.epicMergeClean(project, epicBranch),
   };
+}
 
-  try {
-    // Create detached worktree at master HEAD
-    execFileSync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master'], { stdio: 'pipe' });
-
-    try {
-      // Attempt merge (no commit)
-      execFileSync('git', ['-C', trial, 'merge', '--no-commit', '--no-ff', epicBranch], {
-        stdio: 'pipe',
-      });
-      // Abort to leave trial pristine
-      try {
-        execFileSync('git', ['-C', trial, 'merge', '--abort'], { stdio: 'pipe' });
-      } catch {
-        /* nothing to abort */
-      }
-    } catch {
-      mergeClean = false;
-    }
-  } catch {
-    mergeClean = false;
-  } finally {
-    teardown();
-  }
-
-  return { tscClean, mergeClean };
+/**
+ * Default epic-worktree-cwd resolver — mirrors deriveEpicLandProof's callers
+ * (coordinator-live.ts:1635-1638). Falls back to the project root when the epic worktree
+ * can't be ensured (non-git / error).
+ */
+async function resolveEpicWorktreeCwd(project: string, epicId: string): Promise<string> {
+  const { getWorktreeManager } = await import('./coordinator-live');
+  const wt = await getWorktreeManager(project).ensureEpic(epicId).catch(() => null);
+  return wt?.path ?? project;
 }
 
 /**
@@ -343,9 +305,13 @@ export async function landReadiness(
     blockers.push(depBlocker);
   }
 
+  // Resolve the epic worktree cwd for merge and tsc probes
+  const cwdProbe = probes.worktreeCwd ?? resolveEpicWorktreeCwd;
+  const epicWorktreeCwd = await cwdProbe(project, epicId);
+
   // Step 2: Check merge and tsc
   const mergeProbe = probes.merge || ((p, b, w) => defaultMergeProbe(p, b, w));
-  const mergeResult = mergeProbe(project, epicBranch, project);
+  const mergeResult = mergeProbe(project, epicBranch, epicWorktreeCwd);
 
   if (!mergeResult.tscClean) {
     blockers.push({
@@ -381,7 +347,7 @@ export async function landReadiness(
     repo: project,
     epicId,
     epicBranch,
-    epicWorktreeCwd: project,
+    epicWorktreeCwd,
   };
 
   gate = await gateProbe(gateOpts);
