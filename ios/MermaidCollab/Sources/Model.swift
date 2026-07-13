@@ -53,6 +53,54 @@ struct EscalationGoneMsg: Codable {
     let id: String?
 }
 
+// MARK: Mission drill-in (GET /api/supervisor/missions)
+// Mirrors src/services/mission-store.ts MissionSummary. Read-only. Extra JSON
+// fields are ignored by Codable — decode only what the drill-in view reads.
+
+struct MissionsResponse: Codable { let missions: [MissionSummary] }
+
+struct MissionSummary: Codable, Identifiable {
+    let node: MissionNode
+    let ownerSession: String?
+    let assigneeSession: String?
+    let mission: MissionRow
+    let rollup: MissionRollup
+    let criteria: [MissionCriterion]
+    let epics: [MissionEpic]
+
+    var id: String { node.id }
+}
+
+struct MissionNode: Codable { let id: String; let title: String; let status: String }
+
+struct MissionRow: Codable { let active: Bool; let status: String? }
+
+struct MissionRollup: Codable {
+    let mechanical: GaugeDone
+    let capability: GaugeMet
+    let converged: Bool
+    let stopped: Bool
+    let status: String
+}
+
+struct GaugeDone: Codable { let done: Int; let total: Int }
+struct GaugeMet: Codable { let met: Int; let total: Int }
+
+struct MissionCriterion: Codable, Identifiable {
+    let id: String
+    let text: String
+    let met: Bool
+    let evidence: String?
+    let verifiedBy: String?
+}
+
+struct MissionEpic: Codable, Identifiable {
+    let id: String
+    let title: String
+    let status: String
+    let acceptanceStatus: String?
+}
+
 /// One `session_summary_updated` message (also the hydrate snapshot shape).
 struct ZenSummary: Codable, Equatable, Identifiable {
     let type: String
