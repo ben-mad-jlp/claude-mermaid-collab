@@ -15,7 +15,7 @@ import {
   getMission,
   collectMissionStatusFacts,
 } from '../mission-store';
-import { createTodo, _closeProject } from '../todo-store';
+import { createTodo, updateTodo, _closeProject } from '../todo-store';
 
 describe('verification-as-event', () => {
   let projectDir: string;
@@ -196,5 +196,128 @@ describe('verification-as-event', () => {
     // Mission status should reflect the unverified criterion
     const mission = getMission(projectId, missionTodoId);
     expect(mission).toBeDefined();
+  });
+});
+
+describe('F8 per-criterion serving-epic state', () => {
+  let projectDir: string;
+  let projectId: string;
+  let missionTodoId: string;
+
+  beforeEach(async () => {
+    projectDir = mkdtempSync(join(tmpdir(), 'mission-test-f8-'));
+    projectId = projectDir;
+    process.env.MERMAID_SUPERVISOR_DIR = projectDir;
+    _resetMissionDbCache();
+
+    // Create mission node + mission control state
+    const m = await createTodo(projectId, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[MISSION] Test Mission',
+      kind: 'mission',
+    });
+    missionTodoId = m.id;
+    upsertMission(projectId, missionTodoId);
+  });
+
+  afterEach(() => {
+    _closeProject(projectId);
+    _resetMissionDbCache(projectId);
+    delete process.env.MERMAID_SUPERVISOR_DIR;
+    try {
+      rmSync(projectDir, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test('(a) building-not-verify: a second criterion serving-epic open does not trigger needs-verify', () => {
+    // One verified criterion serving landed epic
+    const now = Date.now();
+    const facts = {
+      abandonedAt: null,
+      budgetUsd: null,
+      spendUsd: 0,
+      hasBlockedLeaf: false,
+      hasBuildingLeaf: true, // Building precedes needs-verify
+      hasLandedEpic: true,
+      hasOpenEpic: true,
+      criteria: [
+        { met: true, verifiedAt: now, servingEpicState: 'landed' as const },
+        { met: false, verifiedAt: null, servingEpicState: 'open' as const }, // second criterion serving open epic
+      ],
+    };
+    expect(deriveMissionStatus(facts)).toBe('building');
+
+    // Without building, it should still not trigger needs-verify (no landed epic serves it)
+    const factsNoBuild = { ...facts, hasBuildingLeaf: false };
+    expect(deriveMissionStatus(factsNoBuild)).not.toBe('needs-verify');
+  });
+
+  test('(b) legit case preserved: a landed-serving unverified criterion → needs-verify', () => {
+    const now = Date.now();
+    const facts = {
+      abandonedAt: null,
+      budgetUsd: null,
+      spendUsd: 0,
+      hasBlockedLeaf: false,
+      hasBuildingLeaf: false,
+      hasLandedEpic: true,
+      hasOpenEpic: false,
+      criteria: [{ met: true, verifiedAt: null, servingEpicState: 'landed' as const }],
+    };
+    expect(deriveMissionStatus(facts)).toBe('needs-verify');
+  });
+
+  test('(c) undecomposed: undecomposed criterion (servingEpicState none) → needs-discovery', () => {
+    const now = Date.now();
+    const facts = {
+      abandonedAt: null,
+      budgetUsd: null,
+      spendUsd: 0,
+      hasBlockedLeaf: false,
+      hasBuildingLeaf: false,
+      hasLandedEpic: false,
+      hasOpenEpic: false,
+      criteria: [
+        { met: false, verifiedAt: null, servingEpicState: 'none' as const },
+        { met: true, verifiedAt: now, servingEpicState: 'landed' as const },
+      ],
+    };
+    expect(deriveMissionStatus(facts)).toBe('needs-discovery');
+  });
+
+  test('(d) approve→claim gap: ready (unapproved-claim) leaf under live epic → hasBuildingLeaf true', async () => {
+    // Create an open epic serving a criterion
+    const criterion = addCriterion(projectId, missionTodoId, 'Test criterion');
+    const epicTodo = await createTodo(projectId, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[EPIC] Test Epic',
+      parentId: missionTodoId,
+      kind: 'epic',
+      servesCriterionId: criterion.id,
+    });
+
+    // Approve the epic (release it)
+    await updateTodo(projectId, epicTodo.id, { status: 'ready' });
+
+    // Create a leaf child under the epic
+    const leafTodo = await createTodo(projectId, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: 'Implement feature',
+      parentId: epicTodo.id,
+      kind: 'leaf',
+    });
+
+    // Approve the leaf by setting status to 'ready' (which stamps approvedAt, no ledger rows yet)
+    await updateTodo(projectId, leafTodo.id, { status: 'ready' });
+
+    // Collect facts — should show hasBuildingLeaf = true due to ready leaf under live epic
+    const m = getMission(projectId, missionTodoId)!;
+    const facts = collectMissionStatusFacts(projectId, m);
+    expect(facts.hasBuildingLeaf).toBe(true);
   });
 });
