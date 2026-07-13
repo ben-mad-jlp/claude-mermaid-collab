@@ -1478,15 +1478,25 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
           detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'skip', reason: `build-proof-red:${proof.reason}` }) });
         continue;
       }
-      await completeTodo(project, decision.landLeafId, 'accepted', 'daemon:auto');
       recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
-        detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'land-leaf-promoted', landLeafId: decision.landLeafId, armed: true }) });
-      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator', preferLinkTodoId: buildIds[0] });
+        detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'land-leaf-land-decided', landLeafId: decision.landLeafId, stamped: false, armed: true }) });
+      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator', preferLinkTodoId: buildIds[0], landLeafId: decision.landLeafId });
     } catch (e) {
       recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
         detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'error', reason: e instanceof Error ? e.message : String(e) }) });
     }
   }
+}
+
+/** Stamp the epic's [LAND] leaf done ONLY on an observed merge. Guarded: a missing
+ *  landLeafId or a non-landed outcome is a no-op — the leaf stays not-done and the
+ *  next reconcile tick retries. Best-effort; the caller already wraps in try/catch. */
+export async function stampLandLeafOnMerge(
+  project: string, landLeafId: string | undefined, landed: boolean,
+): Promise<boolean> {
+  if (!landed || !landLeafId) return false;
+  await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
+  return true;
 }
 
 /**
@@ -1506,7 +1516,7 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
 export async function surfaceEpicLand(
   project: string,
   epicId: string,
-  opts: { sessionHint?: string; preferLinkTodoId?: string } = {},
+  opts: { sessionHint?: string; preferLinkTodoId?: string; landLeafId?: string } = {},
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
   const id = opts.preferLinkTodoId;
@@ -1594,7 +1604,16 @@ export async function surfaceEpicLand(
           continue; // card is already surfaced above — a human lands it
         }
         const outcome = await landEpic(project, escalation.id);
-        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason }) });
+        const stamped = await stampLandLeafOnMerge(project, opts.landLeafId, outcome.landed);
+        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason, landLeafId: opts.landLeafId ?? null, stamped }) });
+      } else {
+        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({
+          epicId, epicBranch, landSurface: 'land-skipped',
+          proofGreen, landAuthorized, escalationId: escalation?.id ?? null,
+          failedConjunct: !proofGreen ? 'proof-red'
+            : !landAuthorized ? 'land-unauthorized'
+            : 'escalation-id-missing',
+        }) });
       }
     }
   } catch (e) {
