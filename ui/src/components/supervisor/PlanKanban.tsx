@@ -23,6 +23,7 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
+import { isMission } from '@/lib/todoKind';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
@@ -169,6 +170,7 @@ interface Lane {
   key: string;
   title: string;
   epic: SessionTodo | null;
+  group: 'epic' | 'mission' | 'orphan';
   items: SessionTodo[];
   /** leaf id → its auto-split sub-tasks, for the expandable sub-task row. */
   subtasks: ReadonlyMap<string, SessionTodo[]>;
@@ -210,11 +212,15 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     // One lane per declared epic (sorted children).
     for (const epicId of h.epicIds) {
       const epic = h.byId.get(epicId)!;
+      if (epic.status === 'dropped') continue;
       const items = (h.childrenByEpic.get(epicId) ?? []).slice().sort(byWaveOrder);
+      const nonDroppedChildCount = items.filter((t) => t.status !== 'dropped').length;
+      if (nonDroppedChildCount === 0) continue;
       out.push({
         key: `epic:${epicId}`,
         title: epic.title,
         epic,
+        group: 'epic',
         items,
         subtasks: h.subtasksByParent,
         counts: tally(items),
@@ -223,13 +229,30 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       });
     }
 
-    // "No epic" lane: orphans.
-    const orphans = h.orphans.slice().sort(byWaveOrder);
+    // Missions lane: orphans that are missions.
+    const missions = h.orphans.filter((t) => isMission(t)).slice().sort(byWaveOrder);
+    if (missions.length > 0) {
+      out.push({
+        key: 'missions',
+        title: 'Missions',
+        epic: null,
+        group: 'mission',
+        items: missions,
+        subtasks: h.subtasksByParent,
+        counts: tally(missions),
+        completed: missions.every((t) => TERMINAL.has(t.status)),
+        rank: minWave(missions),
+      });
+    }
+
+    // "No epic" lane: non-mission orphans.
+    const orphans = h.orphans.filter((t) => !isMission(t)).slice().sort(byWaveOrder);
     if (orphans.length > 0) {
       out.push({
         key: 'orphans',
         title: 'No epic',
         epic: null,
+        group: 'orphan',
         items: orphans,
         subtasks: h.subtasksByParent,
         counts: tally(orphans),
@@ -278,7 +301,13 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
         {visibleLanes.map((lane) => (
           <section
             key={lane.key}
-            data-testid={lane.epic ? `epic-lane-${lane.epic.id}` : 'orphan-lane'}
+            data-testid={
+              lane.group === 'epic'
+                ? `epic-lane-${lane.epic!.id}`
+                : lane.group === 'mission'
+                  ? 'missions-lane'
+                  : 'orphan-lane'
+            }
             className={`rounded-lg border bg-gray-50/60 dark:bg-gray-800/30 ${
               lane.completed
                 ? 'border-success-300 dark:border-success-800'
@@ -322,7 +351,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
               {(() => {
                 const clearableEpicId =
                   lane.epic && lane.epic.isBucket ? lane.epic.id
-                  : lane.epic === null ? null
+                  : lane.group === 'orphan' ? null
                   : undefined;
                 const canClear = onClearCompleted && clearableEpicId !== undefined && lane.counts.done > 0;
                 return canClear ? (

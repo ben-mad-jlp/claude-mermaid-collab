@@ -46,11 +46,12 @@ import { epicIdSet, isEpic } from '@/lib/todoKind';
 import { SignalsStrip } from './SignalsStrip';
 import { BridgeRail } from './rail/BridgeRail';
 import type { RailKey } from './rail/RailNav';
-import { MissionBlock } from './rail/MissionBlock';
 import { ProjectFooter } from './rail/ProjectFooter';
 import { WorkPanel } from './rail/panels/WorkPanel';
 import { BridgeStage } from './stage/BridgeStage';
 import { BridgeInspector } from './inspector/BridgeInspector';
+import { MissionStrip } from './MissionStrip';
+import { UnlandedStrip } from './UnlandedStrip';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
 // Escalations inbox and the worker roster refresh on the SAME clock — a
@@ -459,6 +460,43 @@ export const BridgeDashboard: React.FC = () => {
     setSelectedTodoId(null);
   };
 
+  // crit 4: single dismiss path shared by the drawer's close button, a backdrop
+  // click, and the Escape key. Clears both selections → inspectorOpen goes false.
+  const closeInspector = useCallback(() => {
+    setSelectedEpic(null);
+    setSelectedTodoId(null);
+  }, []);
+
+  // crit 4: Esc closes the inspector drawer (only wired while open so it doesn't
+  // swallow Escape used elsewhere).
+  const inspectorOpen = Boolean(selectedEpic || selectedTodoId);
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeInspector(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [inspectorOpen, closeInspector]);
+
+  const panels = useMemo<Partial<Record<RailKey, React.ReactNode>>>(
+    () => ({
+      escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
+      land: <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
+      work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
+      stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
+      stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
+      executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
+      subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
+      dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
+    }),
+    [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump],
+  );
+
+  const activePanel = railPanel ? panels[railPanel] : undefined;
+
+  const handleRailSelect = (k: RailKey | null) => {
+    setRailPanel(k === 'plan' ? null : k);
+  };
+
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
   const flags = useFeatureFlags();
   const focalEscalationId = useDeckStore((s) => s.focalEscalationId);
@@ -507,8 +545,8 @@ export const BridgeDashboard: React.FC = () => {
         }
         rail={
           <BridgeRail
-            selected={railPanel}
-            onSelect={setRailPanel}
+            selected={railPanel ?? 'plan'}
+            onSelect={handleRailSelect}
             counts={{
               escalations: blockerEscalations.length,
               land: landEscalations.length,
@@ -516,7 +554,6 @@ export const BridgeDashboard: React.FC = () => {
               ready: daemonCounts.claimable ?? readyCount,
               stranded: strandedCount,
             }}
-            header={<MissionBlock serverId={serverScope} project={project} session={currentSession?.name} />}
             footer={
               <ProjectFooter
                 unlandedEpics={unlandedEpicsByProject[project]}
@@ -524,16 +561,19 @@ export const BridgeDashboard: React.FC = () => {
                 onSelectPanel={setRailPanel}
               />
             }
-            panels={{
-              escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
-              land: <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
-              work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
-              stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
-              stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
-              executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
-              subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
-              dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
-            }}
+          />
+        }
+        unlandedStrip={
+          <UnlandedStrip
+            unlandedEpics={unlandedEpicsByProject[project]}
+            onSelectPanel={setRailPanel}
+          />
+        }
+        missionStrip={
+          <MissionStrip
+            serverId={serverScope}
+            project={project}
+            session={currentSession?.name}
           />
         }
         stage={
@@ -541,6 +581,7 @@ export const BridgeDashboard: React.FC = () => {
             serverId={serverScope}
             project={project}
             events={projectStreamEvents}
+            activePanel={activePanel}
             titleByTodoId={titleByTodoId}
             onSelectTodo={handleSelectTodo}
             onSelectEpic={handleSelectEpic}
@@ -555,6 +596,8 @@ export const BridgeDashboard: React.FC = () => {
             serverScope={serverScope}
           />
         }
+        inspectorOpen={inspectorOpen}
+        onInspectorClose={closeInspector}
       />
 
       {flags.jsonRenderDecisionCard && focalEscalation && (
