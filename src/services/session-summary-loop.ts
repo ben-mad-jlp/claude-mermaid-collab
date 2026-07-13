@@ -1042,8 +1042,13 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
   // Prune cache entries whose session is no longer supervised/watched.
   for (const key of cache.keys()) {
     if (!liveKeys.has(key)) {
+      const pruned = cache.get(key); // durable {project, session} — never hand-split the key
       cache.delete(key);
       scheduleSave();
+      if (pruned) {
+        // Tell connected clients to drop the stale card without a reconnect.
+        broadcast({ type: 'session_deleted', project: pruned.project, session: pruned.session });
+      }
     }
   }
 
