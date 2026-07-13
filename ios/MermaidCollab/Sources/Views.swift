@@ -7,31 +7,31 @@ struct ContentView: View {
     @State private var now = Date().timeIntervalSince1970 * 1000
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private let columns = [GridItem(.adaptive(minimum: 300, maximum: 520), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 300, maximum: 520), spacing: Space.m)]
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if store.ordered.isEmpty {
-                    EmptyState(connected: store.connected)
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 12) {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.m) {
+                    if !store.connected {
+                        HStack(spacing: Space.xs) {
+                            Circle().fill(.secondary).frame(width: 7, height: 7)
+                            Text("Connecting…").font(.zenMeta).foregroundStyle(.secondary)
+                        }
+                        .accessibilityLabel("Connecting to the sidecar")
+                    }
+                    if store.ordered.isEmpty {
+                        EmptyState(connected: store.connected)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: Space.m) {
                             ForEach(store.ordered) { s in
                                 ZenCardView(summary: s, escalation: store.openEscalation(for: s), now: now)
                             }
                         }
-                        .padding(12)
                     }
                 }
-            }
-            .navigationTitle("Zen")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Circle()
-                        .fill(store.connected ? Color.green : Color.gray)
-                        .frame(width: 9, height: 9)
-                }
+                .padding(Space.m)
             }
         }
         .onReceive(tick) { _ in now = Date().timeIntervalSince1970 * 1000 }
@@ -41,11 +41,14 @@ struct ContentView: View {
 private struct EmptyState: View {
     let connected: Bool
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: connected ? "moon.zzz" : "wifi.slash")
-                .font(.largeTitle).foregroundStyle(.secondary)
-            Text(connected ? "No watched sessions yet" : "Connecting to the sidecar…")
-                .foregroundStyle(.secondary)
+        VStack(spacing: Space.l) {
+            Circle().fill(.quaternary).frame(width: 44, height: 44)
+                .overlay(Image(systemName: connected ? "moon.zzz" : "wifi.slash")
+                    .foregroundStyle(.secondary))
+            Text(connected ? "No watched sessions yet" : "Connecting…")
+                .font(.headline)
+            Text(connected ? "Add a session from the Zen dashboard." : "Waiting to connect to the server.")
+                .font(.subheadline).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -65,34 +68,41 @@ struct ZenCardView: View {
     /// A "green" card = a session actively working (design: green card = approve & push).
     private var isGreen: Bool { summary.statusKey == "working" || summary.statusKey == "active" }
 
+    private var zenStatus: ZenStatus { ZenStatus(statusKey: summary.statusKey) }
+    private var railOpacity: CGFloat {
+        summary.statusKey == "needs-input" || summary.statusKey == "asking" ||
+        summary.statusKey == "stuck" || summary.statusKey == "wedged" ? 1.0 : 0.5
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Project bar
-            HStack {
+        HStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(zenStatus.accent.opacity(railOpacity))
+                .frame(width: 3)
+
+            VStack(alignment: .leading, spacing: Space.m) {
+                // Project eyebrow
                 Text(summary.projectName.uppercased())
-                    .font(.caption2).fontWeight(.semibold)
+                    .font(.zenProjectEyebrow)
                     .foregroundStyle(.secondary).lineLimit(1)
-                Spacer()
-            }
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Color.primary.opacity(0.04))
 
-            Divider()
-
-            // Body — status + glance/detail
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Circle().fill(summary.statusColor).frame(width: 7, height: 7)
-                    Text(summary.sessionName.uppercased())
-                        .font(.caption2).foregroundStyle(.secondary)
+                // Session name with status dot and label
+                HStack(spacing: Space.xs) {
+                    Circle().fill(zenStatus.accent).frame(width: 7, height: 7)
+                    Text(summary.sessionName)
+                        .font(.zenSessionName)
+                    Text(zenStatus.label)
+                        .font(.zenMeta).foregroundStyle(.secondary)
                 }
+
+                // Glance/detail
                 if summary.paragraph.isEmpty {
                     Text("No summary yet · \(summary.statusLabel)")
                         .font(.callout).italic().foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity)
                 } else {
                     Text(expanded ? summary.expanded : summary.glance)
-                        .font(.title3).fontWeight(.medium).lineSpacing(6)
+                        .font(.zenGlance).lineSpacing(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if summary.hasMore {
                         Text(expanded ? "less" : "more")
@@ -100,44 +110,34 @@ struct ZenCardView: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
+
+                // Question + answers (only when the session is asking)
+                if showQuestion {
+                    VStack(spacing: Space.m) {
+                        if let q = questionText {
+                            Text(q).font(.subheadline).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        answerButtons
+                    }
+                }
+
+                // Green, not asking → the one act: approve & push (hold to confirm)
+                if isGreen && !showQuestion {
+                    ApprovePushButton {
+                        store.approvePush(project: summary.project, session: summary.session)
+                    }
+                }
             }
-            .padding(16).frame(maxWidth: .infinity)
+            .padding(Space.l).frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .onTapGesture { if summary.hasMore { Haptics.tick(); withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { expanded.toggle() } } }
-
-            // Question + answers (only when the session is asking)
-            if showQuestion {
-                Divider()
-                VStack(spacing: 10) {
-                    if let q = questionText {
-                        Text(q).font(.subheadline).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    answerButtons
-                }
-                .padding(16)
-            }
-
-            // Green, not asking → the one act: approve & push (hold to confirm). design §2 Q1.
-            if isGreen && !showQuestion {
-                Divider()
-                ApprovePushButton {
-                    store.approvePush(project: summary.project, session: summary.session)
-                }
-                .padding(16)
-            }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .overlay(RoundedRectangle(cornerRadius: 16).fill(Color.blue.opacity(summary.freshnessOpacity(now: now))))
-        )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(showQuestion ? Color.orange.opacity(0.6) : Color.primary.opacity(0.08),
-                              lineWidth: showQuestion ? 1.5 : 1)
+                .fill(zenStatus.accent.opacity(min(summary.freshnessOpacity(now: now), 0.10)))
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .zenCard()
     }
 
     @ViewBuilder private var answerButtons: some View {
@@ -165,9 +165,9 @@ struct ZenCardView: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Text(label).font(.subheadline)
-                if recommended { Text("★").font(.caption2) }
+                if recommended { Image(systemName: "star.fill").font(.caption2).foregroundStyle(zenStatus.accent) }
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, Space.m).padding(.vertical, Space.s)
             .background(
                 Capsule().fill(recommended ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06))
             )
@@ -225,23 +225,24 @@ struct ApprovePushButton: View {
     @State private var progress: CGFloat = 0
     @State private var firing = false
     private let holdDuration: Double = 0.6
+    private let accentColor = ZenStatus(statusKey: "working").accent
 
     var body: some View {
         ZStack {
-            Capsule().fill(Color.green.opacity(0.14))
+            Capsule().fill(accentColor.opacity(0.14))
             GeometryReader { geo in
-                Capsule().fill(Color.green.opacity(0.28))
+                Capsule().fill(accentColor.opacity(0.28))
                     .frame(width: geo.size.width * progress)
             }
             .clipShape(Capsule())
-            HStack(spacing: 6) {
+            HStack(spacing: Space.s) {
                 Image(systemName: "checkmark.circle.fill")
                 Text(firing ? "Pushing…" : "Hold to approve & push").font(.subheadline).fontWeight(.semibold)
             }
-            .foregroundStyle(Color.green)
+            .foregroundStyle(accentColor)
         }
-        .frame(height: 44)
-        .overlay(Capsule().strokeBorder(Color.green.opacity(0.5)))
+        .frame(height: Space.xl)
+        .overlay(Capsule().strokeBorder(accentColor.opacity(0.5)))
         .contentShape(Capsule())
         .gesture(
             LongPressGesture(minimumDuration: holdDuration)
