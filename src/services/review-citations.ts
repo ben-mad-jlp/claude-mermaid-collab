@@ -46,6 +46,11 @@ export interface ReviewGrounding {
 
 const CRITERION_RE = /^\s*[-*]?\s*\[\s*(MET|UNMET|N\/?A|NOT[-_ ]?APPLICABLE)\s*\]\s*(.+?)\s*$/i;
 
+// A list line: leading `-`/`*` or `<n>.`/`<n>)` bullet, capturing the remaining content.
+const LIST_LINE_RE = /^\s*(?:[-*]|\d+[.)])\s+(.*)$/;
+// A bracketed outcome marker anywhere in a string (non-global: we use `.index`).
+const OUTCOME_MARKER_RE = /\[\s*(MET|UNMET|N\/?A|NOT[-_ ]?APPLICABLE)\s*\]/i;
+
 // Requires a file extension so prose like "step 3:12" never matches. Accepts a `:12-40`
 // range (uses the start line). Anchors on a preceding boundary so it doesn't match mid-word.
 const CITATION_RE = /(?:^|[\s(`'"[,])((?:\.\/)?[\w.@-]+(?:\/[\w.@-]+)*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?/g;
@@ -79,13 +84,30 @@ export function extractCitations(line: string): Citation[] {
 export function parseCriterionResults(text: string): CriterionResult[] {
   const results: CriterionResult[] = [];
   for (const rawLine of text.split('\n')) {
-    const m = rawLine.match(CRITERION_RE);
-    if (!m) continue;
-    const outcome = outcomeFromMarker(m[1]);
+    let outcome: CriterionOutcome | null = null;
+    let body: string | null = null;
+
+    // (a) Marker-first (existing, unchanged): `- [MET] <text> — <path>:<line>`.
+    const markerFirst = rawLine.match(CRITERION_RE);
+    if (markerFirst) {
+      outcome = outcomeFromMarker(markerFirst[1]);
+      body = markerFirst[2];
+    } else {
+      // (b) List-anchored: a `-`/`*`/`<n>.` line whose marker sits ANYWHERE, e.g.
+      //     `1. <criterion> — [MET] <path>:<line>` (H4's real shape).
+      const list = rawLine.match(LIST_LINE_RE);
+      if (list) {
+        const marker = list[1].match(OUTCOME_MARKER_RE);
+        if (marker) {
+          outcome = outcomeFromMarker(marker[1]);
+          body = list[1].slice(0, marker.index); // criterion text sits before the marker
+        }
+      }
+    }
+    if (outcome === null || body === null) continue;
+
     const citations = extractCitations(rawLine);
-    // The criterion text sans the citation tail: cut at the first citation's raw token,
-    // or at an em/en-dash separator, whichever comes first.
-    let body = m[2];
+    // Cut the criterion text at an em/en-dash separator if present.
     const dashIdx = body.search(/\s[—-]\s/);
     if (dashIdx >= 0) body = body.slice(0, dashIdx);
     results.push({ outcome, text: body.trim(), citations });
