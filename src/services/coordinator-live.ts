@@ -2529,6 +2529,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (session) markIdle(t.targetProject ?? project, session);
         if (next === 'ready') reclaimed.push(t.id);
         else if (next === 'blocked') exhausted.push(t.id);
+        // Invariant 2: every reclaim decision logs a reason. This loop was audit-silent
+        // (see :2503) → the re-mint was invisible in the trace. Record one line per decision.
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: 'coordinator',
+          detail: JSON.stringify({ todoId: t.id, reap: 'reapDeadClaims', priorClaimant: session ?? null, decision: next }),
+        });
       }
       return { reclaimed, exhausted };
     },

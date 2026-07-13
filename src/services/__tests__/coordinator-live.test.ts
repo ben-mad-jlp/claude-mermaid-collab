@@ -47,7 +47,7 @@ mock.module('../todo-store', () => ({
 }));
 
 import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle, strandedEpicCandidates } from '../coordinator-live';
-import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
+import { isSupervised, removeSupervised, listSupervised, listSupervisorAudit } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
 import type { Todo } from '../todo-store';
@@ -189,6 +189,26 @@ describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', 
     const res = await deps.reapDeadClaims!(TEST_ROOT);
     // isHeadlessLeaf(land) === false → not skipped → dead-lane reclaim proceeds (mock → 'ready').
     expect(res.reclaimed).toContain('land-leaf-1');
+  });
+
+  it('records a supervisor-audit reconcile row for the reclaim decision (invariant 2: no audit-silent reclaim)', async () => {
+    const land = {
+      id: 'land-leaf-audit', kind: 'land', type: 'backend', title: 'merge epic to master',
+      assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
+      sessionName: 'worker-prior-lane', claimedBy: 'coordinator', claimToken: 'tok-C',
+    } as unknown as Todo;
+    mockListTodosImpl = () => [land];
+    const deps = makeCoordinatorDeps();
+    await deps.reapDeadClaims!(TEST_ROOT);
+    const rows = listSupervisorAudit({ project: TEST_ROOT, kind: 'reconcile', limit: 1000 });
+    const row = rows.find((r) => {
+      try { const d = JSON.parse(r.detail ?? '{}'); return d.reap === 'reapDeadClaims' && d.todoId === 'land-leaf-audit'; }
+      catch { return false; }
+    });
+    expect(row).toBeDefined();
+    const detail = JSON.parse(row!.detail!);
+    expect(detail.priorClaimant).toBe('worker-prior-lane');
+    expect(detail.decision).toBe('ready'); // mocked reclaimClaim → 'ready'
   });
 });
 
