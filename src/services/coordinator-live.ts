@@ -1456,6 +1456,63 @@ export function surfaceDirtyLandBlocker(
   });
 }
 
+/** PURE transition for the consecutive-red counter. Given the prior counter entry (or
+ *  undefined/null) and the new derivation, returns the next entry plus the actions the impure
+ *  driver must take: `surface` (file the stuck card now) and `resolvePrevious` (close the
+ *  previously-open card because the reason changed or the epic went green). No DB, no git. */
+export function deriveStuckAutoLandAction(
+  prev: { reason: string; count: number; escalationId?: string } | null | undefined,
+  derivation: { green: true } | { green: false; reason: string },
+): {
+  next: { reason: string; count: number; escalationId?: string } | null;
+  surface: boolean;
+  resolvePrevious: boolean;
+} {
+  if (derivation.green) {
+    // GREEN: clear the counter, resolve any open card.
+    return { next: null, surface: false, resolvePrevious: !!prev?.escalationId };
+  }
+  if (prev && prev.reason === derivation.reason) {
+    // SAME red reason recurs: increment; surface EXACTLY at the threshold tick.
+    const count = prev.count + 1;
+    return {
+      next: { reason: derivation.reason, count, escalationId: prev.escalationId },
+      surface: count === STUCK_AUTOLAND_THRESHOLD,
+      resolvePrevious: false,
+    };
+  }
+  // DIFFERING red reason (or first-ever red): reset to count 1, resolve the prior card.
+  return {
+    next: { reason: derivation.reason, count: 1 },
+    surface: false,
+    resolvePrevious: !!prev?.escalationId,
+  };
+}
+
+/** Operator-visible card raised when the daemon auto-land has been stuck on the SAME red
+ *  land-proof reason for STUCK_AUTOLAND_THRESHOLD consecutive reconcile ticks. Mirrors
+ *  surfaceDirtyLandBlocker's stable-dedup discipline: questionText is composed ONLY from
+ *  epicId.slice(0,8), epicBranch, and reason — NO tick count, NO timestamp, NO per-run
+ *  token — so createEscalation's (project,session,questionText) dedup collapses repeats to
+ *  ONE card. Pure add of a visible signal — no land/proof behaviour changes. */
+export function surfaceStuckAutoLand(
+  project: string,
+  session: string,
+  ctx: { epicId: string; epicBranch: string; reason: string },
+): ReturnType<typeof createEscalation> {
+  const questionText =
+    `⚠️ Auto-land of epic ${ctx.epicBranch} (${ctx.epicId.slice(0, 8)}) is STUCK: `
+    + `its land proof has stayed red on the same reason — ${ctx.reason}. `
+    + `The daemon has retried ${STUCK_AUTOLAND_THRESHOLD}× without progress; a human should look.`;
+  return createEscalation({
+    project,
+    session,
+    todoId: null,
+    kind: 'blocker',
+    questionText,
+  });
+}
+
 /**
  * The daemon's auto-land safety proof. There is ONE land proof (`landReadiness`) shared by
  * the human click, the conductor call, and this daemon auto-land. The ACTOR decides
@@ -1490,6 +1547,15 @@ export async function autoLandReadiness(
  * orchestrator off.
  */
 const MISSION_AUTOLAND_ARMED = true;
+
+/** Consecutive same-reason red-derivation counter for the auto-land path (H4).
+ *  Keyed by epicId. Tracks the last red `reason`, how many ticks in a row it has
+ *  recurred, and the id of the stuck-auto-land card once surfaced (so a green /
+ *  reason-change can resolve it). Module scope so it survives across reconcile ticks. */
+const stuckAutoLandCounters = new Map<string, { reason: string; count: number; escalationId?: string }>();
+
+/** Threshold of consecutive identical red reasons before the operator card surfaces. */
+const STUCK_AUTOLAND_THRESHOLD = 3;
 
 /** An epic is a "mission epic" when it has an owning mission that is active and non-terminal.
  *  Mirrors land-authority Rules 3-4 (findOwningMission + active/non-terminal), minus the
@@ -1575,10 +1641,26 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
       if (!proofGreen) {
         recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
           detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'skip', reason: `build-proof-red:${proof.reason}` }) });
+        const reason = `build-proof-red:${proof.reason}`;
+        const prev = stuckAutoLandCounters.get(epic.id);
+        const action = deriveStuckAutoLandAction(prev, { green: false, reason });
+        if (action.resolvePrevious && prev?.escalationId) resolveEscalation(prev.escalationId, 'resolved', 'ai');
+        if (action.surface) {
+          const card = surfaceStuckAutoLand(project, 'coordinator', { epicId: epic.id, epicBranch, reason });
+          if (action.next) action.next.escalationId = card.escalation.id;
+        }
+        if (action.next) stuckAutoLandCounters.set(epic.id, action.next);
+        else stuckAutoLandCounters.delete(epic.id);
         continue;
       }
       recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
         detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'land-leaf-land-decided', landLeafId: decision.landLeafId, stamped: false, armed: true }) });
+      {
+        const prev = stuckAutoLandCounters.get(epic.id);
+        const action = deriveStuckAutoLandAction(prev, { green: true });
+        if (action.resolvePrevious && prev?.escalationId) resolveEscalation(prev.escalationId, 'resolved', 'ai');
+        stuckAutoLandCounters.delete(epic.id);
+      }
       await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator', preferLinkTodoId: buildIds[0], landLeafId: decision.landLeafId });
     } catch (e) {
       recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
