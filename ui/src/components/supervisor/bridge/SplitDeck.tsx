@@ -44,20 +44,27 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({
           {missionStrip && <div data-testid="split-mission-strip" className="shrink-0">{missionStrip}</div>}
           <div data-testid="split-stage" className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{stage}</div>
           {inspectorOpen && (
-            <div data-testid="split-inspector" className="absolute inset-y-0 right-0 w-[420px] max-w-full min-h-0 overflow-y-auto z-20 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl">
-              {onInspectorClose && (
-                <button
-                  type="button"
-                  data-testid="split-inspector-close"
-                  aria-label="Close inspector"
-                  onClick={onInspectorClose}
-                  className="absolute top-1 right-1 z-10 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                >
-                  ×
-                </button>
-              )}
-              {inspector}
-            </div>
+            <>
+              <div
+                data-testid="split-inspector-backdrop"
+                onClick={onInspectorClose}
+                className="absolute inset-0 z-10"
+              />
+              <div data-testid="split-inspector" className="absolute inset-y-0 right-0 w-[420px] max-w-full min-h-0 overflow-y-auto z-20 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl">
+                {onInspectorClose && (
+                  <button
+                    type="button"
+                    data-testid="split-inspector-close"
+                    aria-label="Close inspector"
+                    onClick={onInspectorClose}
+                    className="absolute top-1 right-1 z-10 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    ×
+                  </button>
+                )}
+                {inspector}
+              </div>
+            </>
           )}
         </div>
       </div>
