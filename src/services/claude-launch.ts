@@ -5,7 +5,7 @@
  * throwing.
  */
 import { tmuxBaseName } from './tmux-naming.js';
-import { sendTmuxKeysRaw } from './tmux-send.ts';
+import { sendTmuxKeysRaw, sendNudgeGuarded } from './tmux-send.ts';
 import { healStaleTmuxSession } from './tmux-session.ts';
 import { registerLaneClaudeSession } from './lane-session-register.ts';
 import { mux, argvCapturePane, argvKillSession, argvHasSession, argvNewSession } from './session-mux/index.ts';
@@ -57,7 +57,8 @@ export async function nudgeSession(project: string, session: string, text: strin
   const pane = capturePane(tmux);
   if (!pane) return 'no-tmux';
   if (!isTuiReady(pane)) return 'busy';
-  await sendTmuxKeysRaw(tmux, text);
+  const res = await sendNudgeGuarded(tmux, text, pane);
+  if (!res.sent && res.reason === 'prompt-open') return 'busy';
   return 'sent';
 }
 
