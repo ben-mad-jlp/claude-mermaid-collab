@@ -187,6 +187,16 @@ export function pendingCount(project: string, session: string): number {
   return r.c;
 }
 
+/** Peek unseen notifications for a session WITHOUT draining (marking seen). The tick uses
+ *  this to carry the top-N summaries in a nudge; draining stays a pull-side action. */
+export function listPending(project: string, session: string, limit?: number): SessionNotification[] {
+  const lim = limit && limit > 0 ? ` LIMIT ${Math.floor(limit)}` : '';
+  const rows = openDb()
+    .query(`SELECT * FROM session_notification WHERE project=? AND session=? AND seen=0 ORDER BY ts DESC${lim}`)
+    .all(project, session) as any[];
+  return rows.map((r) => ({ id: r.id, project: r.project, session: r.session, scope: r.scope, targetId: r.targetId, event: r.event, summary: r.summary, payload: r.payload, ts: r.ts, seen: false }));
+}
+
 /** Drain the inbox: return all unseen notifications for the session and mark them seen. The
  *  FULL drain is what makes a missed nudge self-heal — any later nudge delivers everything. */
 export function drainInbox(project: string, session: string): SessionNotification[] {
