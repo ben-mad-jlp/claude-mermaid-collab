@@ -88,17 +88,36 @@ describe('PlanKanban [kind E] acceptance spec', () => {
     expect(within(lane).getByText('1')).toBeTruthy();
   });
 
-  it('a childless epic renders as an empty lane', () => {
+  it('a childless epic is hidden (board hygiene, crit 13)', () => {
     render(
       <PlanKanban
         todos={[todo({ id: 'NEW', title: 'Brand-new epic', kind: 'epic' })]}
         showCompleted={false}
       />,
     );
-    const lane = screen.getByTestId('epic-lane-NEW');
-    expect(lane).toBeTruthy();
-    expect(within(lane).getByText('Brand-new epic')).toBeTruthy();
-    expect(within(lane).queryAllByTestId('plan-card')).toHaveLength(0);
+    expect(screen.queryByTestId('epic-lane-NEW')).toBeNull();
+  });
+
+  it('a dropped epic is hidden', () => {
+    const epic = todo({ id: 'DROP', title: 'Dead epic', kind: 'epic', status: 'dropped' });
+    const child = todo({ id: 'c1', title: 'child', kind: 'leaf', parentId: 'DROP' });
+    render(<PlanKanban todos={[epic, child]} showCompleted={false} />);
+    expect(screen.queryByTestId('epic-lane-DROP')).toBeNull();
+  });
+
+  it('an epic whose only children are dropped is hidden', () => {
+    const epic = todo({ id: 'E2', title: 'Stale epic', kind: 'epic' });
+    const d1 = todo({ id: 'd1', title: 'x', kind: 'leaf', parentId: 'E2', status: 'dropped' });
+    render(<PlanKanban todos={[epic, d1]} showCompleted={false} />);
+    expect(screen.queryByTestId('epic-lane-E2')).toBeNull();
+  });
+
+  it('mission nodes render in a dedicated Missions lane, not No-epic', () => {
+    const mission = todo({ id: 'M', title: 'Converge X', kind: 'mission' });
+    render(<PlanKanban todos={[mission]} showCompleted={false} />);
+    const lane = screen.getByTestId('missions-lane');
+    expect(within(lane).getByText('Converge X')).toBeTruthy();
+    expect(within(lane).getByText('Missions')).toBeTruthy();
     expect(screen.queryByTestId('orphan-lane')).toBeNull();
   });
 
@@ -107,6 +126,7 @@ describe('PlanKanban [kind E] acceptance spec', () => {
       id: 'INBOX',
       title: '[EPIC] Inbox',
       kind: 'epic',
+      isBucket: true,
     });
     const done = todo({
       id: 'd1',
