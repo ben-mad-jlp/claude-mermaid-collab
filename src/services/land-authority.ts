@@ -17,7 +17,7 @@ import type { EpicLandGateResult, EpicLandGateOpts } from './epic-land-gate';
 import { runEpicLandGate, landGateTrailer, landGateSummary } from './epic-land-gate';
 import { isEpicTodo, isLandTodo } from './invariant-check';
 import { epicBranchName } from './epic-branch-status';
-import { isMission } from './todo-kind.ts';
+import { isMission, stripLabel } from './todo-kind.ts';
 import { getMission, isMissionTerminal } from './mission-store';
 import { realRunners } from './steward-proof';
 
@@ -81,15 +81,27 @@ export interface LandProbes {
   worktreeCwd?: (project: string, epicId: string) => Promise<string> | string;
 }
 
+/** The canonical singleton bucket epics — durable intake roots, never landable.
+ *  Matched fail-CLOSED as a case-insensitive PREFIX on the stripLabel-normalized
+ *  title, so a stripped/legacy/replayed row with an unset isBucket column still refuses. */
+const BUCKET_TITLE_PREFIXES: readonly string[] = ['Inbox', 'Bugfix inbox', 'Collab gaps'];
+
+/** True when the title, with any [EPIC] label stripped, begins with a bucket name. */
+function matchesBucketTitle(title: string | null | undefined): boolean {
+  const norm = stripLabel(title).toLowerCase();
+  return BUCKET_TITLE_PREFIXES.some((b) => norm.startsWith(b.toLowerCase()));
+}
+
 /**
  * Check if a todo is a bucket epic.
  *
- * Bucket-ness is the `isBucket` column (the single marker), read fail-CLOSED-by-construction —
- * a bucket row is `isBucket=1` regardless of title suffix, so the fail-open is closed by data,
- * not by regex. The buckets (Inbox, Bugfix inbox) are curated and backfilled by id at stage C.
+ * Bucket-ness is the `isBucket` column OR a normalized-title prefix match (fail-CLOSED for
+ * stripped/legacy rows). The buckets (Inbox, Bugfix inbox, Collab gaps) are durable intake
+ * roots, never landable. Title matching ensures rows without an explicit `isBucket` marker
+ * (replayed frames, stripped legacy rows, old fixtures) still refuse to land.
  */
 export function isBucketEpic(t: Todo): boolean {
-  return isEpicTodo(t) && t.isBucket;
+  return isEpicTodo(t) && (t.isBucket || matchesBucketTitle(t.title));
 }
 
 /**
