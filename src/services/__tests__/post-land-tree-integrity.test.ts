@@ -86,10 +86,21 @@ describe('post-land tree integrity — restorePostLandTree + deploy refusal', ()
     await runGit(epicInfo.path, ['add', '-A']);
     await runGit(epicInfo.path, ['commit', '-q', '-m', 'epic commit adds file']);
 
+    // repo (projectRoot) is on master at the base commit before the land.
+    const preLandSha = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout;
+
     // Land the epic → master. This will leave the main checkout with a stale tree.
     const res = await mgr.landEpicToMaster(epicId);
     expect(res.landed).toBe(true);
     const landSha = res.masterSha!;
+
+    // landEpicToMaster now self-heals the checkout at the source (P0 0949289b Part 2:
+    // reset --hard masterSha, treeSynced:'reset-hard'), so the tree is NOT stale here.
+    // Reproduce the ORIGINAL post-land corruption at the seam so restorePostLandTree is
+    // exercised: HEAD stays at the land commit, but index + working tree roll back to the
+    // pre-land tree (epic-added.txt absent). This does NOT weaken the source self-heal.
+    await runGit(repo, ['reset', '--hard', preLandSha]); // index+worktree -> pre-land tree
+    await runGit(repo, ['reset', '--soft', landSha]);    // HEAD -> land commit, tree stays stale
 
     // PRE-CONDITION assert: tree is stale (write-tree !== HEAD^{tree})
     const staleStatus = treeStatus(repo);
