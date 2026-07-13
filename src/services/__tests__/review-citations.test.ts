@@ -84,6 +84,25 @@ describe('validateReviewGrounding', () => {
     const g = validateReviewGrounding(text, []);
     expect(g.status).toBe('vacuous');
   });
+
+  it('ok: a criterion with ≥1 resolving citation tolerates an extra out-of-change-set citation', () => {
+    const text = '- [MET] both sites agree — src/a.ts:1, src/ghost.ts:9\n\nVERDICT: PASS';
+    const g = validateReviewGrounding(text, ['src/a.ts']);
+    expect(g.status).toBe('ok');
+  });
+
+  it('vacuous: a criterion whose citations ALL fail to resolve rejects', () => {
+    const text = '- [MET] does the thing — src/ghost.ts:1, src/other.ts:2\n\nVERDICT: PASS';
+    const g = validateReviewGrounding(text, ['src/a.ts']);
+    expect(g.status).toBe('vacuous');
+  });
+
+  it('vacuous: a [MET] criterion citing nothing is still vacuous (placebo-hole preserved)', () => {
+    const text = '- [MET] server and UI agree on gate order\n\nVERDICT: PASS';
+    const g = validateReviewGrounding(text, ['src/a.ts']);
+    expect(g.status).toBe('vacuous');
+    expect(g.reasons.join(' ')).toContain('cites nothing');
+  });
 });
 
 describe('parseCriterionResults', () => {
