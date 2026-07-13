@@ -449,27 +449,38 @@ export const BridgeDashboard: React.FC = () => {
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
+  // Mission detail reuses the same on-demand inspector pane (design 2026-07-13):
+  // clicking the MissionStrip opens the MissionDetailPanel here.
+  const [showMissions, setShowMissions] = useState(false);
   const [railPanel, setRailPanel] = useState<RailKey | null>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
     setSelectedEpic(null);
+    setShowMissions(false);
   };
   const handleSelectEpic = (epic: { id: string; label: string }) => {
     setSelectedEpic(epic);
     setSelectedTodoId(null);
+    setShowMissions(false);
   };
-
-  // crit 4: single dismiss path shared by the drawer's close button, a backdrop
-  // click, and the Escape key. Clears both selections → inspectorOpen goes false.
-  const closeInspector = useCallback(() => {
+  const handleOpenMissions = useCallback(() => {
+    setShowMissions(true);
     setSelectedEpic(null);
     setSelectedTodoId(null);
   }, []);
 
+  // crit 4: single dismiss path shared by the drawer's close button, a backdrop
+  // click, and the Escape key. Clears every selection → inspectorOpen goes false.
+  const closeInspector = useCallback(() => {
+    setSelectedEpic(null);
+    setSelectedTodoId(null);
+    setShowMissions(false);
+  }, []);
+
   // crit 4: Esc closes the inspector drawer (only wired while open so it doesn't
   // swallow Escape used elsewhere).
-  const inspectorOpen = Boolean(selectedEpic || selectedTodoId);
+  const inspectorOpen = Boolean(selectedEpic || selectedTodoId || showMissions);
   useEffect(() => {
     if (!inspectorOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeInspector(); };
@@ -574,6 +585,7 @@ export const BridgeDashboard: React.FC = () => {
             serverId={serverScope}
             project={project}
             session={currentSession?.name}
+            onOpenMissions={handleOpenMissions}
           />
         }
         stage={
@@ -590,10 +602,12 @@ export const BridgeDashboard: React.FC = () => {
         }
         inspector={
           <BridgeInspector
+            missionsOpen={showMissions}
             selectedEpic={selectedEpic}
             selectedTodoId={selectedTodoId}
             project={project}
             serverScope={serverScope}
+            session={currentSession?.name}
           />
         }
         inspectorOpen={inspectorOpen}
