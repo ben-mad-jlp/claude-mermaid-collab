@@ -266,6 +266,32 @@ describe('runSessionSummaryTick', () => {
     expect(listSessionSummaries()).toHaveLength(0);
   });
 
+  it('prune: a cached-but-no-longer-live session is pruned AND emits session_deleted {project, session}', async () => {
+    // Seed: one tick with the default watched session populates the cache.
+    await runSessionSummaryTick(makeDeps({ now: () => 1000 }));
+    expect(getSessionSummary(P, S)).toBeTruthy();
+
+    // Second tick: session gone from both live sources → prune path.
+    const broadcasts: unknown[] = [];
+    await runSessionSummaryTick(makeDeps({
+      listSessions: () => [],
+      listKnownSessions: () => [],
+      broadcast: (m) => broadcasts.push(m),
+      now: () => 2000,
+    }));
+
+    // Pruned from the cache.
+    expect(getSessionSummary(P, S)).toBeUndefined();
+
+    // A session_deleted broadcast with the pruned {project, session} was observed.
+    const removed = broadcasts.find(
+      (m) => (m as { type?: string }).type === 'session_deleted',
+    ) as { type: string; project: string; session: string } | undefined;
+    expect(removed).toBeTruthy();
+    expect(removed!.project).toBe(P);
+    expect(removed!.session).toBe(S);
+  });
+
   it('rebuildable: __resetSummaryState clears cache; next tick re-seeds to active', async () => {
     const deps = makeDeps({ capture: async () => 'static' });
     await runSessionSummaryTick(deps); // seed → active
