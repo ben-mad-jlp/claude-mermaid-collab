@@ -20,6 +20,7 @@ import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns } from './ledger-stats.ts';
+import { derivedStatus } from './claimability.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
  *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
@@ -475,7 +476,7 @@ export interface MissionStatusFacts {
   hasBuildingLeaf: boolean;  // a leaf run in flight (pending/paused)
   hasLandedEpic: boolean;    // a mission epic reached status 'done'
   hasOpenEpic: boolean;      // a mission epic is neither done nor dropped
-  criteria: { met: boolean; verifiedAt: number | null }[];
+  criteria: { met: boolean; verifiedAt: number | null; servingEpicState: 'landed' | 'open' | 'none' }[];
 }
 
 /** First-match-wins precedence exactly as specified in the A2 brief. */
@@ -484,7 +485,7 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
   if (f.hasBlockedLeaf) return 'blocked';
   if (f.hasBuildingLeaf) return 'building';
-  if (f.hasLandedEpic && f.criteria.some((c) => c.verifiedAt == null)) return 'needs-verify';
+  if (f.criteria.some((c) => c.verifiedAt == null && c.servingEpicState === 'landed')) return 'needs-verify';
   if (f.criteria.some((c) => !c.met) && !f.hasOpenEpic) return 'needs-discovery';
   if (f.criteria.length > 0 && f.criteria.every((c) => c.met)) return 'converged';
   return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
@@ -504,7 +505,8 @@ export function liveRunsOf<T extends { epicId: string | null }>(
 }
 
 export function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
-  const epics = listTodos(project, { includeCompleted: true }).filter(
+  const allTodos = listTodos(project, { includeCompleted: true });
+  const epics = allTodos.filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
   );
   // getMission is a hot, fundamental read — it must NOT crash because the OPTIONAL worker-ledger
@@ -520,16 +522,32 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
   // mission that once had a parked leaf under a since-landed epic must not read "blocked" forever
   // (and nudge). Spend still counts ALL runs (total cost is historical by nature).
   const liveRuns = liveRunsOf(runs, epics);
+  const liveEpicIds = new Set(epics.filter((e) => e.status !== 'done').map((e) => e.id));
+  const byId = new Map(allTodos.map((t) => [t.id, t]));
+  // A leaf (non-epic) child of a LIVE epic that is ready-to-claim or in-flight is
+  // building even before any ledger run exists — closes the approve→claim gap and
+  // the ready-unclaimed case that pending/paused ledger runs alone miss.
+  const hasBuildingChildLeaf = allTodos.some(
+    (t) => t.parentId != null && liveEpicIds.has(t.parentId) && !isEpic(t) &&
+      (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'),
+  );
   const criteria = listCriteria(project, m.todoId);
   return {
     abandonedAt: m.abandonedAt,
     budgetUsd: m.budgetUsd,
     spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
     hasBlockedLeaf: liveRuns.some((r) => r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
-    hasBuildingLeaf: liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused'),
+    hasBuildingLeaf: liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused') || hasBuildingChildLeaf,
     hasLandedEpic: epics.some((e) => e.status === 'done'),
     hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
-    criteria: criteria.map((c) => ({ met: c.met, verifiedAt: c.verifiedAt })),
+    criteria: criteria.map((c) => {
+      const serving = epics.filter((e) => e.servesCriterionId === c.id);
+      const servingEpicState: 'landed' | 'open' | 'none' =
+        serving.some((e) => e.status !== 'done') ? 'open'
+        : serving.some((e) => e.status === 'done') ? 'landed'
+        : 'none';
+      return { met: c.met, verifiedAt: c.verifiedAt, servingEpicState };
+    }),
   };
 }
 
