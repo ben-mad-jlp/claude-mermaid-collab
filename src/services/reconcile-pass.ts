@@ -32,7 +32,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
 import { getTodo, sweepEpicRollups } from './todo-store.ts';
-import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
@@ -167,6 +167,20 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] corrupt-epic sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3f. DROPPED-EPIC worktree release (H6a): a dropped epic's accumulation
+  // worktree is dead weight on disk — reclaim the checkout dir but KEEP the
+  // branch. A dirty worktree is skipped + friction-noted. Throttled + bounded.
+  // -------------------------------------------------------------------------
+  try {
+    await releaseDroppedEpicWorktrees(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] dropped-epic worktree-release sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
