@@ -18,6 +18,12 @@ export interface LastTurn {
   found: boolean;
 }
 
+export interface RecentTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  stopReason?: string | null;
+}
+
 export async function readBinding(
   claudeSessionId: string,
 ): Promise<{ project: string; session: string; claudePid: string } | null> {
@@ -92,4 +98,68 @@ export async function lastAssistantTurn(claudeSessionId: string): Promise<LastTu
   }
 
   return { text: '', stopReason: null, found: false };
+}
+
+export async function recentTurns(
+  claudeSessionId: string,
+  limit = 20,
+): Promise<{ turns: RecentTurn[]; found: boolean }> {
+  const binding = await readBinding(claudeSessionId);
+  if (!binding) return { turns: [], found: false };
+
+  const p = transcriptPath(binding.project, claudeSessionId);
+
+  let text: string;
+  try {
+    const fh = await fsp.open(p, 'r');
+    try {
+      const { size } = await fh.stat();
+      if (size === 0) return { turns: [], found: false };
+      const readLen = Math.min(size, 256 * 1024);
+      const start = size - readLen;
+      const buf = Buffer.alloc(readLen);
+      await fh.read(buf, 0, readLen, start);
+      text = buf.toString('utf8');
+      if (start > 0) {
+        const nl = text.indexOf('\n');
+        if (nl >= 0) text = text.slice(nl + 1);
+      }
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return { turns: [], found: false };
+  }
+
+  const MAX_TEXT = 4 * 1024; // cap each turn to keep the response small
+  const turns: RecentTurn[] = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    let o: any;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (o.isSidechain === true) continue;
+    if (o.type !== 'user' && o.type !== 'assistant') continue;
+    const content = o.message && o.message.content;
+    // content may be a plain string (user turns) or an array of blocks.
+    let body: string;
+    if (typeof content === 'string') {
+      body = content;
+    } else if (Array.isArray(content)) {
+      body = content
+        .filter((c: any) => c && c.type === 'text')
+        .map((c: any) => c.text)
+        .join('\n');
+    } else {
+      continue;
+    }
+    if (!body) continue;
+    const turn: RecentTurn = {
+      role: o.type,
+      text: body.length > MAX_TEXT ? body.slice(0, MAX_TEXT) : body,
+    };
+    if (o.type === 'assistant') turn.stopReason = o.message?.stop_reason ?? null;
+    turns.push(turn);
+  }
+
+  return { turns: turns.slice(-limit), found: true };
 }
