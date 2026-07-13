@@ -8,6 +8,14 @@ import { getConfig } from './config-service.ts';
 /** Default unlanded-epic backlog threshold; override via FRICTION_UNLANDED_THRESHOLD. */
 const DEFAULT_UNLANDED_THRESHOLD = 5;
 
+/** The stale-worktree scan (listStaleWorktrees) is an O(N-worktrees) subprocess sweep, far
+ *  too heavy to run on every ~30s orchestrator tick. Run it at most once per this interval. */
+const STALE_WORKTREE_SCAN_INTERVAL_MS = 300_000; // 5 min
+
+/** Module-level per-project epoch (ms) of the last stale-worktree scan; keyed by project so
+ *  the throttle survives across ticks yet stays isolated per project (and per test). */
+const lastStaleScanAt = new Map<string, number>();
+
 // Durable dedup KV kept in the SAME per-project friction.db (NOT polluting
 // friction_notes with under-threshold/cleared rows). Mirrors friction-store's
 // openDb/withLock patterns so a standing condition records once, not every tick.
@@ -73,6 +81,7 @@ type FrictionWatchManager = {
 export async function runFrictionWatchPass(
   project: string,
   wm: FrictionWatchManager = getWorktreeManager(project) as unknown as FrictionWatchManager,
+  opts: { now?: number; force?: boolean } = {},
 ): Promise<void> {
   // (a) unlanded-epic backlog over threshold — record on the under→over edge only.
   try {
@@ -91,18 +100,24 @@ export async function runFrictionWatchPass(
     await setWatchState(project, key, over ? 'over' : 'under');
   } catch { /* best-effort */ }
 
-  // (b) stale worktrees — record once per newly-stale worktree identity (path).
-  try {
-    const stale = await wm.listStaleWorktrees();
-    for (const wt of stale) {
-      const key = `watch:stale-wt:${wt.path}`;
-      if (getWatchState(project, key) === wt.reason) continue;
-      await recordFriction(project, {
-        layer: 'operational',
-        retryReason: 'stale-worktree',
-        detail: `stale worktree (${wt.reason}) ${wt.path}${wt.branch ? ` [branch ${wt.branch}]` : ''}, age ${Math.round(wt.ageMs / 3_600_000)}h`,
-      });
-      await setWatchState(project, key, wt.reason);
-    }
-  } catch { /* best-effort */ }
+  // (b) stale worktrees — throttled: the O(N-worktrees) listStaleWorktrees subprocess scan runs
+  //     at most once per STALE_WORKTREE_SCAN_INTERVAL_MS, not on every ~30s tick. force bypasses.
+  const now = opts.now ?? Date.now();
+  const last = lastStaleScanAt.get(project);
+  if (opts.force || last === undefined || now - last >= STALE_WORKTREE_SCAN_INTERVAL_MS) {
+    lastStaleScanAt.set(project, now);
+    try {
+      const stale = await wm.listStaleWorktrees();
+      for (const wt of stale) {
+        const key = `watch:stale-wt:${wt.path}`;
+        if (getWatchState(project, key) === wt.reason) continue;
+        await recordFriction(project, {
+          layer: 'operational',
+          retryReason: 'stale-worktree',
+          detail: `stale worktree (${wt.reason}) ${wt.path}${wt.branch ? ` [branch ${wt.branch}]` : ''}, age ${Math.round(wt.ageMs / 3_600_000)}h`,
+        });
+        await setWatchState(project, key, wt.reason);
+      }
+    } catch { /* best-effort */ }
+  }
 }
