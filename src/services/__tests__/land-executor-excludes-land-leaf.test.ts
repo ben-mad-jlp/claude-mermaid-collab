@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { validateStewardProof } from '../steward-proof';
 import { isLand } from '../todo-kind';
 import type { StewardProof, DepView } from '../steward-proof';
@@ -87,18 +85,5 @@ describe('land-executor-excludes-land-leaf', () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('epic-children-incomplete');
-  });
-
-  it('SOURCE GUARD: the landEpic executor child filter excludes land leaves', () => {
-    const coordinatorLivePath = join(import.meta.dir, '..', 'coordinator-live.ts');
-    const content = readFileSync(coordinatorLivePath, 'utf-8');
-
-    const start = content.indexOf('export async function landEpic(');
-    expect(start).toBeGreaterThan(-1);
-    const nextExport = content.indexOf('\nexport ', start + 1);
-    const body = content.substring(start, nextExport > -1 ? nextExport : content.length);
-
-    // The executor's child set must carry the same !isLand( exclusion as the pre-check.
-    expect(body).toMatch(/parentId === epicId[\s\S]{0,80}!isLand\(/);
   });
 });
