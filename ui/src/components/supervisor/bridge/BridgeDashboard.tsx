@@ -50,6 +50,8 @@ import { ProjectFooter } from './rail/ProjectFooter';
 import { WorkPanel } from './rail/panels/WorkPanel';
 import { BridgeStage } from './stage/BridgeStage';
 import { BridgeInspector } from './inspector/BridgeInspector';
+import { MissionStrip } from './MissionStrip';
+import { UnlandedStrip } from './UnlandedStrip';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
 // Escalations inbox and the worker roster refresh on the SAME clock — a
@@ -542,6 +544,19 @@ export const BridgeDashboard: React.FC = () => {
                 onSelectPanel={setRailPanel}
               />
             }
+          />
+        }
+        unlandedStrip={
+          <UnlandedStrip
+            unlandedEpics={unlandedEpicsByProject[project]}
+            onSelectPanel={setRailPanel}
+          />
+        }
+        missionStrip={
+          <MissionStrip
+            serverId={serverScope}
+            project={project}
+            session={currentSession?.name}
           />
         }
         stage={
