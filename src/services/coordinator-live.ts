@@ -12,7 +12,8 @@ import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInf
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
-import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
+import { regenerateProjectDigest } from './project-digest';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
 
 /** P1 breaker memory: lanes already SOFT-warned this process, so a soft (non-parking)
@@ -1985,6 +1986,33 @@ export async function revalidateStaleEpic(
 }
 
 /**
+ * Advisory project-digest refresh, invoked on a successful epic land.
+ * Gated behind the per-project projectDigestEnabled flag. Deterministic
+ * digest sections always regenerate; the LLM map is reused unless the
+ * skeleton hash changed (handled inside regenerateProjectDigest). A refresh
+ * failure is swallowed — it must NEVER fail a completed land.
+ * deps are injectable purely so this is unit-testable without a real land.
+ */
+export async function refreshProjectDigestOnLand(
+  project: string,
+  deps?: {
+    refreshDigest?: (project: string) => void | Promise<void>;
+    digestEnabled?: (project: string) => boolean;
+  },
+): Promise<void> {
+  try {
+    const enabled = deps?.digestEnabled ?? getProjectDigestEnabled;
+    if (!enabled(project)) return;
+    const refresh =
+      deps?.refreshDigest ??
+      ((p: string) => regenerateProjectDigest(p).then(() => {}));
+    await refresh(project);
+  } catch {
+    /* advisory — a digest refresh must never fail a completed land */
+  }
+}
+
+/**
  * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
  * land-readiness server-side at click time (never trust the summary baked into the
  * card at roll-up) and, on a green proof, perform ONE --no-ff epic→master merge behind
@@ -2217,6 +2245,9 @@ export async function landEpic(
       // binary as stale even when the version string didn't change.
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
+      // Advisory: refresh the landed project's digest (gated on the flag, never
+      // fails the land). See refreshProjectDigestOnLand.
+      await refreshProjectDigestOnLand(targetProject);
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
