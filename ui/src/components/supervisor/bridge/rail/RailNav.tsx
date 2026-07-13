@@ -1,6 +1,7 @@
 import React from 'react';
 
 export type RailKey =
+  | 'plan'                                            // HOME
   | 'escalations' | 'land'          // ACT
   | 'work' | 'stranded'             // WORK
   | 'stream' | 'executor' | 'subscribers' | 'dogfood'; // TELEMETRY
@@ -19,7 +20,7 @@ export interface RailItem {
 }
 
 export interface RailSection {
-  id: 'act' | 'work' | 'telemetry';
+  id: 'home' | 'act' | 'work' | 'telemetry';
   label: string;
   items: RailItem[];
 }
@@ -30,7 +31,7 @@ export interface RailNavProps {
   onSelect: (key: RailKey) => void;
 }
 
-export const RAIL_SECTION_ORDER: ReadonlyArray<RailSection['id']> = ['act', 'work', 'telemetry'];
+export const RAIL_SECTION_ORDER: ReadonlyArray<RailSection['id']> = ['home', 'act', 'work', 'telemetry'];
 
 const hasBadge = (i: RailItem) => (i.count ?? 0) > 0 || (i.secondaryCount ?? 0) > 0;
 

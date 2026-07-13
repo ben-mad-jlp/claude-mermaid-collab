@@ -10,6 +10,7 @@ export interface BridgeStageProps {
   project: string;
   /** Fleet events — feed the collapsed ticker pinned to the stage's bottom edge. */
   events: StreamEvent[];
+  activePanel?: React.ReactNode;
   onSelectTodo?: (todo: SessionTodo) => void;
   onSelectEpic?: (epic: { id: string; label: string }) => void;
   /** Clicking the ticker expands it: select the Stream rail panel. */
@@ -21,6 +22,7 @@ export const BridgeStage: React.FC<BridgeStageProps> = ({
   serverId,
   project,
   events,
+  activePanel,
   onSelectTodo,
   onSelectEpic,
   onSelectRailPanel,
@@ -29,12 +31,14 @@ export const BridgeStage: React.FC<BridgeStageProps> = ({
   return (
     <section data-testid="bridge-stage" className="flex-1 min-h-0 flex flex-col">
       <div className="flex-1 min-h-0 overflow-hidden">
-        <PlanPanel
-          serverId={serverId}
-          project={project}
-          onSelectTodo={onSelectTodo}
-          onSelectEpic={onSelectEpic}
-        />
+        {activePanel ?? (
+          <PlanPanel
+            serverId={serverId}
+            project={project}
+            onSelectTodo={onSelectTodo}
+            onSelectEpic={onSelectEpic}
+          />
+        )}
       </div>
       <button
         type="button"
