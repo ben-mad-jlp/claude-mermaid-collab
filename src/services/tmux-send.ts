@@ -3,10 +3,28 @@ import { mux, argvHasSession, argvSendKeysLiteral, argvSendKeysEnter, argvSendKe
 
 export interface TmuxSendResult {
   sent: boolean;
-  reason?: 'no-session' | 'no-tmux' | 'bad-selection';
+  reason?: 'no-session' | 'no-tmux' | 'bad-selection' | 'prompt-open';
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Signatures of an OPEN interactive Claude Code prompt in a captured tmux pane —
+ *  an AskUserQuestion prompt, a permission dialog, or a plan-approval prompt.
+ *  Matching any means a standalone Enter would auto-submit the highlighted default. */
+const PROMPT_SIGNATURES: RegExp[] = [
+  /Do you want to proceed\?/i,
+  /Would you like to proceed\?/i,
+  /No,\s+keep planning/i,
+  /Submit answers?/i,
+  /❯\s*\d+\.\s/,
+];
+
+/** Pure: does this captured pane show an interactive prompt whose default a stray
+ *  Enter would auto-submit? String in → boolean out, so it is unit-testable with no tmux. */
+export function paneShowsPrompt(paneText: string): boolean {
+  if (!paneText) return false;
+  return PROMPT_SIGNATURES.some((re) => re.test(paneText));
+}
 
 /**
  * Send text to a tmux session and submit it with a SEPARATE Enter keystroke.
@@ -59,6 +77,21 @@ export async function sendTmuxKeys(
   opts?: TmuxSendOpts,
 ): Promise<TmuxSendResult> {
   return sendTmuxKeysRaw(tmuxBaseName(project, session), text, opts);
+}
+
+/** Guarded AUTO-nudge send: given the target session's already-captured pane text, DEFER
+ *  (soft no-op {sent:false, reason:'prompt-open'}, no send-keys) when the pane shows an
+ *  interactive prompt so an automatic nudge never auto-submits the highlighted default;
+ *  otherwise send normally. For automatic notification nudges ONLY — never the intended
+ *  answer drive (sendTmuxSelection) or user-initiated sends. It re-fires on a later tick. */
+export async function sendNudgeGuarded(
+  tmuxSession: string,
+  text: string,
+  pane: string,
+  opts?: TmuxSendOpts,
+): Promise<TmuxSendResult> {
+  if (paneShowsPrompt(pane)) return { sent: false, reason: 'prompt-open' };
+  return sendTmuxKeysRaw(tmuxSession, text, opts);
 }
 
 // ---------------------------------------------------------------------------
