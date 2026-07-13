@@ -139,24 +139,72 @@ export function memoizedMergeClean(deps: {
   return clean;
 }
 
+/**
+ * Memo for tsc compile checks. A pristine worktree at HEAD X fully determines the tsc
+ * input, so ${cwd}:${HEAD} is a safe cache key. But a DIRTY tree (staged, unstaged,
+ * untracked) changes tsc input WITHOUT moving HEAD, so dirty trees must NEVER cache.
+ * The porcelain-empty guard gates BOTH read and store: a dirty tree yields resolveKey()
+ * return '', which skips the cache entirely (mirrors memoizedMergeClean's empty-key path).
+ */
+export const TSC_CLEAN_TTL_MS = 10 * 60 * 1000;
+const tscCleanCache = new Map<string, { pass: boolean; at: number }>();
+/** Test seam: clear the tsc-compile memo so the next call recomputes. */
+export function _resetTscCleanCache(): void {
+  tscCleanCache.clear();
+}
+/** Pure memo wrapper (injectable clock) — unit-testable without a live repo. */
+export function memoizedTscClean(deps: {
+  resolveKey: () => string; // '' → skip the cache entirely (dirty tree or rev-parse failed)
+  compute: () => { pass: boolean; cacheable: boolean };
+  now?: () => number;
+}): boolean {
+  const now = deps.now ?? Date.now;
+  const key = deps.resolveKey();
+  if (key) {
+    const hit = tscCleanCache.get(key);
+    if (hit && now() - hit.at < TSC_CLEAN_TTL_MS) return hit.pass;
+  }
+  const { pass, cacheable } = deps.compute();
+  if (key && cacheable) tscCleanCache.set(key, { pass, at: now() });
+  return pass;
+}
+
 const realRunners: ProofRunners = {
   commitsBehindMaster(cwd, baseRef = 'master') {
     const out = execFileSync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd, encoding: 'utf8' });
     return parseInt(out.trim(), 10) || 0;
   },
   tscClean(cwd) {
-    // Language-aware: tsc for TS, dotnet build for .NET, and TRUE (no compile blocker)
-    // for languages with no static compile step (e.g. Python) — running tsc there is a
-    // false-fail. The land still rests on the other proofs (merge-clean, children-done).
-    const check = detectCompileCheck(cwd);
-    if (!check) return true;
-    const [bin, ...args] = check.cmd.split(' ');
-    try {
-      execFileSync(bin, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    // MEMOIZED on (cwd, HEAD): a pristine tree at HEAD X fully determines tsc input, so
+    // ${cwd}:${HEAD} is a safe key. A dirty tree (staged/unstaged/untracked) changes
+    // input WITHOUT moving HEAD, so it must never cache — resolveKey returns '' for
+    // dirty/untracked/failed-to-resolve, which gates BOTH read and store.
+    return memoizedTscClean({
+      resolveKey: () => {
+        try {
+          const dirty = execFileSync('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', stdio: 'pipe' }).trim();
+          if (dirty) return ''; // dirty/untracked → run uncached (gate BOTH read and store)
+          const head = execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: 'pipe' }).trim();
+          return head ? `${cwd}:${head}` : '';
+        } catch {
+          return ''; // no repo / rev-parse failed → run uncached (behavior unchanged)
+        }
+      },
+      compute: () => {
+        // Language-aware: tsc for TS, dotnet build for .NET, and TRUE (no compile blocker)
+        // for languages with no static compile step (e.g. Python) — running tsc there is a
+        // false-fail. The land still rests on the other proofs (merge-clean, children-done).
+        const check = detectCompileCheck(cwd);
+        if (!check) return { pass: true, cacheable: true };
+        const [bin, ...args] = check.cmd.split(' ');
+        try {
+          execFileSync(bin, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
+          return { pass: true, cacheable: true };
+        } catch {
+          return { pass: false, cacheable: true };
+        }
+      },
+    });
   },
   epicMergeClean(masterCwd, epicBranch) {
     // MEMOIZED on (masterSha, epicBranchSha): the trial below is a pure function of the
