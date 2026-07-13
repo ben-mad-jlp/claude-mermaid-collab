@@ -1395,6 +1395,37 @@ async function deriveEpicLandProof(a: {
 }
 
 /**
+ * Surface an operator-visible warning when an AUTO-LAND was refused because the main
+ * checkout is dirty (landEpic clean-tree guard, :1798). The audit row alone is invisible
+ * on the auto path — no one reads it live. questionText is built from STABLE facts only
+ * (epicId, epicBranch, sorted dirtyPaths) with NO per-run token, so createEscalation's
+ * (project,session,questionText) dedup collapses repeats to ONE card (mirrors the F4
+ * stable-dedup discipline). Pure add of a visible signal — no land/landEpic behaviour
+ * changes. Returns null when the outcome is not a dirty-tree refusal (nothing to surface).
+ */
+export function surfaceDirtyLandBlocker(
+  project: string,
+  session: string,
+  outcome: LandEpicOutcome,
+  ctx: { epicId: string; epicBranch: string; todoId?: string | null },
+): ReturnType<typeof createEscalation> | null {
+  if (outcome.landed !== false || outcome.reason !== 'dirty-tree') return null;
+  const dirty = [...(outcome.dirtyPaths ?? [])].sort();          // STABLE: sorted, dedup-safe
+  const paths = dirty.length > 0 ? dirty.join(', ') : '(unknown)';
+  const questionText =
+    `⚠️ Auto-land of epic ${ctx.epicBranch} (${ctx.epicId.slice(0, 8)}) was blocked: `
+    + `the main checkout has ${dirty.length} uncommitted path(s) — ${paths}. `
+    + `Commit or stash them, then re-land. (master untouched)`;
+  return createEscalation({
+    project,
+    session,
+    todoId: ctx.todoId ?? null,
+    kind: 'blocker',
+    questionText,
+  });
+}
+
+/**
  * The daemon's auto-land safety proof. There is ONE land proof (`landReadiness`) shared by
  * the human click, the conductor call, and this daemon auto-land. The ACTOR decides
  * AUTHORITY; the PROOF decides SAFETY. `auto` is a user preference about who is asked —
@@ -1679,6 +1710,9 @@ export async function surfaceEpicLand(
         const outcome = await landEpic(project, escalation.id);
         const stamped = await stampLandLeafOnMerge(project, opts.landLeafId, outcome.landed);
         recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason, landLeafId: opts.landLeafId ?? null, stamped }) });
+        // Dirty-tree auto-land refusals are otherwise audit-only + invisible on the auto
+        // path — surface an operator-visible blocker naming the uncommitted path(s).
+        surfaceDirtyLandBlocker(project, session, outcome, { epicId, epicBranch, todoId: linkTodoId });
       } else {
         recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({
           epicId, epicBranch, landSurface: 'land-skipped',
