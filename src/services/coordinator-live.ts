@@ -1292,6 +1292,37 @@ export function partitionEpicChildrenByRepo(
   return { byRepo, ambiguous };
 }
 
+// --- FBPE P3: the single source of epic gating children ----------------------
+export interface EpicGatingChildren {
+  /** Non-dropped, non-[LAND] direct children of the epic — the required-done set. */
+  buildChildren: Todo[];
+  /** Non-dropped [LAND] direct children of the epic — excluded from every proof. */
+  landLeaves: Todo[];
+  /** buildChildren partitioned by their resolved target repo (see partitionEpicChildrenByRepo). */
+  byRepo: Map<string, string[]>;
+  /** repo-less buildChildren in a genuinely cross-repo epic — unplaceable. */
+  ambiguous: string[];
+}
+
+/** THE single source of an epic's gating children. Every land/promotion path derives its
+ *  child sets from here so the `parentId === epicId` + isLand split lives in ONE place.
+ *  The combined inline filter below is the ONE production copy (see the source-guard test).
+ *  Exported for unit testing. */
+export function epicGatingChildren(
+  allTodos: Todo[],
+  epicId: string,
+  trackingProject: string,
+): EpicGatingChildren {
+  const buildChildren = allTodos.filter(
+    (t) => t.parentId === epicId && t.status !== 'dropped' && !isLand(t),
+  );
+  const landLeaves = allTodos.filter(
+    (t) => t.parentId === epicId && t.status !== 'dropped' && isLand(t),
+  );
+  const { byRepo, ambiguous } = partitionEpicChildrenByRepo(buildChildren, trackingProject);
+  return { buildChildren, landLeaves, byRepo, ambiguous };
+}
+
 // --- FBPE P4: the land click — human-gated epic→master land ---------------------
 // Per-project land mutex: concurrent LAND clicks for the same target repo must not
 // race two merges into master. Each land chains onto the previous one for that
@@ -1482,13 +1513,12 @@ export function missionLandLeafPromotion(
   if (!epic || epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) {
     return { promote: false, reason: 'epic-terminal-or-held', buildChildIds: [] };
   }
-  const children = allTodos.filter((t) => t.parentId === epicId && t.status !== 'dropped');
-  const landLeaf = children.find((c) => isLand(c));
+  const { buildChildren, landLeaves } = epicGatingChildren(allTodos, epicId, '');
+  const landLeaf = landLeaves[0];
   if (!landLeaf) return { promote: false, reason: 'no-land-leaf', buildChildIds: [] };
   if (landLeaf.status === 'done') {
     return { promote: false, reason: 'land-leaf-already-done', landLeafId: landLeaf.id, buildChildIds: [] };
   }
-  const buildChildren = children.filter((c) => c.id !== landLeaf.id);
   const buildChildIds = buildChildren.map((c) => c.id);
   if (buildChildren.length === 0) return { promote: false, reason: 'no-build-children', buildChildIds };
   const allGreen = buildChildren.every(
@@ -1628,9 +1658,7 @@ export async function surfaceEpicLand(
   try {
     const allTodos = listTodos(project, { includeCompleted: true });
     const missionEpic = isMissionEpic(project, epicId, allTodos);
-    const children = allTodos
-      .filter((t) => t.parentId === epicId && t.status !== 'dropped' && !isLand(t));
-    const { byRepo, ambiguous } = partitionEpicChildrenByRepo(children, project);
+    const { byRepo, ambiguous } = epicGatingChildren(allTodos, epicId, project);
 
     // Can't cleanly partition (cross-repo epic with repo-less children) → escalate a
     // decision instead of guessing which repo's branch to land. Never auto-landed.
@@ -1853,10 +1881,10 @@ export async function landEpic(
       // Exclude the epic's own [LAND] leaf: it is stamped done AFTER the merge lands
       // (stampLandLeafOnMerge), so counting it as a required-done child would deadlock every
       // auto-land (epic-children-incomplete). Mirrors surfaceEpicLand's pre-check filter.
-      const epicChildren = listTodos(project, { includeCompleted: true })
-        .filter((t) => t.parentId === epicId && t.status !== 'dropped' && !isLand(t));
-      const { byRepo } = partitionEpicChildrenByRepo(epicChildren, project);
-      const epicChildIds = byRepo.get(targetProject) ?? epicChildren.map((t) => t.id);
+      const { buildChildren, byRepo } = epicGatingChildren(
+        listTodos(project, { includeCompleted: true }), epicId, project,
+      );
+      const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
       const verdict = validateStewardProof(
         'land_epic',
