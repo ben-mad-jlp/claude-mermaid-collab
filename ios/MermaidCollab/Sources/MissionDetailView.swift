@@ -56,6 +56,10 @@ struct MissionDetailView: View {
                         }
                     }
                 }
+
+                NavigationLink("Artifacts") {
+                    ArtifactListView(project: project, session: session)
+                }
             }
             .padding(Space.l)
         }
