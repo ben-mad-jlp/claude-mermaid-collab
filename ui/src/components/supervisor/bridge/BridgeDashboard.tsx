@@ -459,6 +459,26 @@ export const BridgeDashboard: React.FC = () => {
     setSelectedTodoId(null);
   };
 
+  const panels = useMemo<Partial<Record<RailKey, React.ReactNode>>>(
+    () => ({
+      escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
+      land: <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
+      work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
+      stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
+      stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
+      executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
+      subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
+      dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
+    }),
+    [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump],
+  );
+
+  const activePanel = railPanel ? panels[railPanel] : undefined;
+
+  const handleRailSelect = (k: RailKey | null) => {
+    setRailPanel(k === 'plan' ? null : k);
+  };
+
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
   const flags = useFeatureFlags();
   const focalEscalationId = useDeckStore((s) => s.focalEscalationId);
@@ -507,8 +527,8 @@ export const BridgeDashboard: React.FC = () => {
         }
         rail={
           <BridgeRail
-            selected={railPanel}
-            onSelect={setRailPanel}
+            selected={railPanel ?? 'plan'}
+            onSelect={handleRailSelect}
             counts={{
               escalations: blockerEscalations.length,
               land: landEscalations.length,
@@ -524,16 +544,6 @@ export const BridgeDashboard: React.FC = () => {
                 onSelectPanel={setRailPanel}
               />
             }
-            panels={{
-              escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
-              land: <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
-              work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
-              stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
-              stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
-              executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
-              subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
-              dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
-            }}
           />
         }
         stage={
@@ -541,6 +551,7 @@ export const BridgeDashboard: React.FC = () => {
             serverId={serverScope}
             project={project}
             events={projectStreamEvents}
+            activePanel={activePanel}
             titleByTodoId={titleByTodoId}
             onSelectTodo={handleSelectTodo}
             onSelectEpic={handleSelectEpic}
@@ -555,6 +566,8 @@ export const BridgeDashboard: React.FC = () => {
             serverScope={serverScope}
           />
         }
+        inspectorOpen={Boolean(selectedEpic || selectedTodoId)}
+        onInspectorClose={() => { setSelectedEpic(null); setSelectedTodoId(null); }}
       />
 
       {flags.jsonRenderDecisionCard && focalEscalation && (

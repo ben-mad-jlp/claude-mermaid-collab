@@ -11,8 +11,6 @@ export interface BridgeRailCounts {
 
 export interface BridgeRailProps {
   counts?: BridgeRailCounts;
-  /** One node per key. The rail mounts ONLY the selected one. */
-  panels?: Partial<Record<RailKey, React.ReactNode>>;
   /** Controlled selection; omit for uncontrolled. */
   selected?: RailKey | null;
   defaultSelected?: RailKey | null;
@@ -25,7 +23,6 @@ export interface BridgeRailProps {
 
 export const BridgeRail: React.FC<BridgeRailProps> = ({
   counts = {},
-  panels = {},
   selected: controlledSelected,
   defaultSelected,
   onSelect,
@@ -44,6 +41,19 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
 
   const sections = useMemo<RailSection[]>(() => {
     const result: RailSection[] = [];
+
+    // HOME section
+    result.push({
+      id: 'home',
+      label: 'HOME',
+      items: [
+        {
+          key: 'plan',
+          label: 'Plan',
+          icon: '▤',
+        },
+      ],
+    });
 
     // ACT section
     result.push({
@@ -132,16 +142,6 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
         </div>
       )}
       <RailNav sections={sections} selected={active} onSelect={handleSelect} />
-
-      {active && panels[active] && (
-        <div
-          data-testid="bridge-rail-panel"
-          data-panel={active}
-          className="flex-1 min-h-0 overflow-y-auto border-t border-gray-200 dark:border-gray-700"
-        >
-          {panels[active]}
-        </div>
-      )}
 
       {footer && (
         <div
