@@ -9,7 +9,7 @@
  * writeProjectDigest, ProjectDigest interface.
  */
 
-import { mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -24,6 +24,32 @@ export interface ProjectDigest {
   markdown: string;
   tokens: number;
 }
+
+/** LLM-produced synthesis: one-line purpose per dir + seam bullet lines. */
+export interface DigestSynthesis {
+  dirPurposes: Record<string, string>;
+  seams: string[];
+}
+
+/** Injected LLM node. Single bounded call. Mocked in tests. */
+export type DigestLlm = (input: {
+  claudeMd: string;
+  dirs: string[];
+  sample: string;
+}) => DigestSynthesis | Promise<DigestSynthesis>;
+
+/** Sidecar metadata including skeleton hash and persisted synthesis. */
+interface DigestMeta {
+  tokens: number;
+  generatedAt: string;
+  generatedAtSha: string;
+  skeletonHash: string;
+  synthesis?: DigestSynthesis;
+}
+
+const MAX_PURPOSE_CHARS = 100;
+const MAX_SEAMS = 8;
+const MAX_SEAM_CHARS = 160;
 
 /** Token estimator: ceil(chars / 4). */
 export function estimateTokens(s: string): number {
@@ -48,42 +74,100 @@ function runGit(
   }
 }
 
+/** Sorted, deduped top-level dirs from `git ls-files` merged with HOT_DIRS. */
+export function topLevelDirs(project: string): string[] {
+  const result = runGit(project, ['ls-files']);
+  const dirs = new Set<string>();
+  if (result.code === 0 && result.stdout) {
+    for (const filePath of result.stdout.split('\n')) {
+      const first = filePath.trim().split('/')[0];
+      if (first) dirs.add(first);
+    }
+  }
+  HOT_DIRS.forEach((d) => dirs.add(d));
+  return Array.from(dirs).sort();
+}
+
+/** Read CLAUDE.md content ('' if absent). */
+function readClaudeMd(project: string): string {
+  try {
+    return readFileSync(join(project, 'CLAUDE.md'), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Path-inclusive skeleton hash: sha256 over the sorted dir path list AND
+ * the CLAUDE.md content. A renamed/added dir OR a CLAUDE.md edit changes it.
+ */
+export function computeSkeletonHash(project: string): string {
+  const dirs = topLevelDirs(project);
+  const claudeMd = readClaudeMd(project);
+  return createHash('sha256')
+    .update(JSON.stringify(dirs))
+    .update(' ')
+    .update(claudeMd)
+    .digest('hex');
+}
+
+/** Clamp synthesis so the assembled digest stays under budget. */
+export function boundSynthesis(s: DigestSynthesis): DigestSynthesis {
+  const dirPurposes: Record<string, string> = {};
+  for (const [k, v] of Object.entries(s.dirPurposes ?? {})) {
+    dirPurposes[k] = String(v).replace(/\s+/g, ' ').slice(0, MAX_PURPOSE_CHARS);
+  }
+  const seams = (s.seams ?? [])
+    .slice(0, MAX_SEAMS)
+    .map((l) => String(l).replace(/\s+/g, ' ').slice(0, MAX_SEAM_CHARS));
+  return { dirPurposes, seams };
+}
+
+/** Read the sidecar metadata file, returning null if absent or invalid. */
+function readMeta(project: string): DigestMeta | null {
+  try {
+    const raw = readFileSync(
+      join(project, '.collab', 'project-digest.meta.json'),
+      'utf-8',
+    );
+    return JSON.parse(raw) as DigestMeta;
+  } catch {
+    return null;
+  }
+}
+
 /** Section: Where things live. Derives top-level dirs from git ls-files. */
-function whereThingsLive(project: string): string {
+function whereThingsLive(
+  project: string,
+  synthesis?: DigestSynthesis,
+): string {
   const lines: string[] = [];
   lines.push('## Where things live');
 
-  // Get files from git, extract top-level dirs.
-  const result = runGit(project, ['ls-files']);
-  const dirs = new Set<string>();
+  const dirs = topLevelDirs(project);
 
-  if (result.code === 0 && result.stdout) {
-    for (const filePath of result.stdout.split('\n')) {
-      if (filePath.trim()) {
-        const firstSegment = filePath.split('/')[0];
-        if (firstSegment) {
-          dirs.add(firstSegment);
-        }
-      }
-    }
-  }
-
-  // Merge with HOT_DIRS and sort deterministically.
-  HOT_DIRS.forEach((d) => dirs.add(d));
-  const sortedDirs = Array.from(dirs).sort();
-
-  for (const dir of sortedDirs) {
-    lines.push(`- \`${dir}/\` — `);
+  for (const dir of dirs) {
+    const purpose = synthesis?.dirPurposes[dir] ?? '';
+    lines.push(`- \`${dir}/\` — ${purpose}`);
   }
 
   return lines.join('\n');
 }
 
 /** Section: Key seams & conventions. Placeholder + pointer to CLAUDE.md. */
-function keySeams(_project: string): string {
+function keySeams(
+  _project: string,
+  synthesis?: DigestSynthesis,
+): string {
   const lines: string[] = [];
   lines.push('## Key seams & conventions');
-  lines.push('- see `CLAUDE.md` for conventions');
+  if (synthesis?.seams?.length) {
+    for (const seam of synthesis.seams) {
+      lines.push(`- ${seam}`);
+    }
+  } else {
+    lines.push('- see `CLAUDE.md` for conventions');
+  }
   return lines.join('\n');
 }
 
@@ -175,15 +259,69 @@ export function assembleDigest(body: string): ProjectDigest {
  * Returns { markdown, tokens } with markdown ≤ 5000 tokens.
  */
 export function generateProjectDigest(project: string): ProjectDigest {
-  const sections = [
-    whereThingsLive(project),
-    keySeams(project),
+  return generateProjectDigestWith(project, undefined);
+}
+
+/**
+ * Generate project digest with optional synthesis (dirPurposes + seams).
+ * Returns { markdown, tokens } with markdown ≤ 5000 tokens.
+ */
+export function generateProjectDigestWith(
+  project: string,
+  synthesis?: DigestSynthesis,
+): ProjectDigest {
+  const body = [
+    whereThingsLive(project, synthesis),
+    keySeams(project, synthesis),
     artifacts(project),
     deeperDocs(project),
-  ];
-
-  const body = sections.join('\n\n');
+  ].join('\n\n');
   return assembleDigest(body);
+}
+
+/**
+ * Regenerate the digest. Deterministic sections always rebuilt. The LLM node
+ * (opts.llm) is invoked EXACTLY ONCE only when the skeleton hash changed (or no
+ * prior meta); on an unchanged hash the persisted synthesis is reused and the LLM
+ * is NOT called.
+ */
+export async function regenerateProjectDigest(
+  project: string,
+  opts?: { llm?: DigestLlm },
+): Promise<ProjectDigest> {
+  const currentHash = computeSkeletonHash(project);
+  const prior = readMeta(project);
+
+  let synthesis: DigestSynthesis | undefined;
+  if (prior && prior.skeletonHash === currentHash && prior.synthesis) {
+    synthesis = prior.synthesis; // SKIP: reuse, no LLM call
+  } else if (opts?.llm) {
+    synthesis = boundSynthesis(
+      await opts.llm({
+        claudeMd: readClaudeMd(project),
+        dirs: topLevelDirs(project),
+        sample: '', // bounded sample (empty for now)
+      }),
+    ); // EXACTLY ONE bounded call
+  }
+
+  const digest = generateProjectDigestWith(project, synthesis);
+
+  const dir = join(project, '.collab');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'project-digest.md'), digest.markdown);
+  const meta: DigestMeta = {
+    tokens: digest.tokens,
+    generatedAt: new Date().toISOString(),
+    generatedAtSha: runGit(project, ['rev-parse', 'HEAD']).stdout.trim(),
+    skeletonHash: currentHash,
+    synthesis,
+  };
+  writeFileSync(
+    join(dir, 'project-digest.meta.json'),
+    JSON.stringify(meta, null, 2),
+  );
+  return digest;
 }
 
 /**
