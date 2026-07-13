@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var store: ZenStore
     // Re-tick so the freshness wash + recency ordering refresh each second.
     @State private var now = Date().timeIntervalSince1970 * 1000
+    @State private var drillInTarget: ZenSummary?
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private let columns = [GridItem(.adaptive(minimum: 300, maximum: 520), spacing: Space.m)]
@@ -26,7 +27,7 @@ struct ContentView: View {
                     } else {
                         LazyVGrid(columns: columns, spacing: Space.m) {
                             ForEach(store.ordered) { s in
-                                ZenCardView(summary: s, escalation: store.openEscalation(for: s), now: now)
+                                ZenCardView(summary: s, escalation: store.openEscalation(for: s), now: now, onDrillIn: { drillInTarget = $0 })
                             }
                         }
                     }
@@ -35,6 +36,10 @@ struct ContentView: View {
             }
         }
         .onReceive(tick) { _ in now = Date().timeIntervalSince1970 * 1000 }
+        .sheet(item: $drillInTarget) { s in
+            MissionDetailView(project: s.project, session: s.session)
+                .environmentObject(store)
+        }
     }
 }
 
@@ -58,6 +63,7 @@ struct ZenCardView: View {
     let summary: ZenSummary
     let escalation: Escalation?
     let now: Double
+    var onDrillIn: (ZenSummary) -> Void
     @EnvironmentObject var store: ZenStore
     @State private var expanded = false
 
@@ -93,6 +99,12 @@ struct ZenCardView: View {
                         .font(.zenSessionName)
                     Text(zenStatus.label)
                         .font(.zenMeta).foregroundStyle(.secondary)
+                    Spacer()
+                    Button { onDrillIn(summary) } label: {
+                        Image(systemName: "chevron.right.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open mission detail")
                 }
 
                 // Glance/detail
