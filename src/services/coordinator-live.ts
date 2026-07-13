@@ -1225,10 +1225,24 @@ export async function sweepStrandedEpics(
 // REVERT the false stamp — reset the land leaf to `ready` — so F1's observed-merge path
 // re-attempts the land. Guarded STRICTLY on the git-derived `corrupt` flag (ahead>0),
 // never on the stamp alone. Best-effort; one bad epic never aborts the sweep.
+export const CORRUPT_EPIC_SWEEP_INTERVAL_MS = 90 * 1000; // ~3 ticks — prompt but not per-tick
+/** module-level last-corrupt-sweep-time per project (key = tracking project root). */
+const lastCorruptEpicSweepAt = new Map<string, number>();
+
+/** Exported for tests: reset the corrupt-sweep throttle so the next sweep runs immediately. */
+export function _resetCorruptEpicSweepState(): void {
+  lastCorruptEpicSweepAt.clear();
+}
+
 export async function sweepCorruptEpics(
   project: string,
-  opts?: { report?: EpicBranchStatusReport },
+  opts?: { force?: boolean; now?: number; report?: EpicBranchStatusReport },
 ): Promise<string[]> {
+  const now = opts?.now ?? Date.now();
+  const last = lastCorruptEpicSweepAt.get(project) ?? 0;
+  if (!opts?.force && now - last < CORRUPT_EPIC_SWEEP_INTERVAL_MS) return [];
+  lastCorruptEpicSweepAt.set(project, now);
+
   const report = opts?.report ?? getEpicBranchStatus(project);
   const reopened: string[] = [];
   for (const e of report.epics) {
