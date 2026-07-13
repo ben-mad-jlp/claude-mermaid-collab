@@ -32,7 +32,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
 import { getTodo, sweepEpicRollups } from './todo-store.ts';
-import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
@@ -154,6 +154,19 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] stranded-epic sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3e. CORRUPT-EPIC self-heal: a land leaf stamped done while its branch is still
+  // ahead>0 is a false stamp — reopen it so the land re-attempts. Best-effort.
+  // -------------------------------------------------------------------------
+  try {
+    await sweepCorruptEpics(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] corrupt-epic sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }

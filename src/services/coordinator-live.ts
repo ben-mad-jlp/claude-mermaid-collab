@@ -41,6 +41,7 @@ import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executo
 import { leafAbortReason } from './leaf-abort';
 import { listOpenSplitProposals } from './split-proposal';
 import { getLeafRun } from './ledger-stats';
+import { getEpicBranchStatus, type EpicBranchStatusReport } from './epic-branch-status.ts';
 import {
   breakerOpen,
   tripBreaker,
@@ -1215,6 +1216,36 @@ export async function sweepStrandedEpics(
     });
   }
   return resurfaced;
+}
+
+// --- Corrupt-epic self-heal (falsely-stamped land leaf) --------------------------
+// A land leaf marked done while its epic branch is STILL ahead of master (corrupt)
+// is the false-stamp incident: the graph reads landed but master never got the work.
+// buildEpicBranchStatus flags it git-derived (landLeafDone===true && ahead>0). Here we
+// REVERT the false stamp — reset the land leaf to `ready` — so F1's observed-merge path
+// re-attempts the land. Guarded STRICTLY on the git-derived `corrupt` flag (ahead>0),
+// never on the stamp alone. Best-effort; one bad epic never aborts the sweep.
+export async function sweepCorruptEpics(
+  project: string,
+  opts?: { report?: EpicBranchStatusReport },
+): Promise<string[]> {
+  const report = opts?.report ?? getEpicBranchStatus(project);
+  const reopened: string[] = [];
+  for (const e of report.epics) {
+    if (!e.corrupt) continue;          // git-derived: landLeafDone===true && ahead>0
+    if (!e.landLeafId) continue;       // nothing to reopen
+    try {
+      await resetTodo(project, e.landLeafId, 'ready'); // revert the false stamp
+      reopened.push(e.landLeafId);
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({ landLeaf: 'reopened-corrupt', epicId: e.epicId, landLeafId: e.landLeafId, ahead: e.ahead }),
+      });
+    } catch { /* one bad epic never aborts the sweep */ }
+  }
+  return reopened;
 }
 
 // --- FBPE P5: cross-repo epics --------------------------------------------------
