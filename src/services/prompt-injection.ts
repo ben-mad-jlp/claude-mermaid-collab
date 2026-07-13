@@ -10,6 +10,7 @@
 import type { LeafNodeKind } from './leaf-executor';
 import type { InjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
+import { readProjectDigest } from './project-digest';
 
 /** Structural subset of ledger-stats LeafRunStats the retry payload needs. */
 export interface PriorRunInput {
@@ -25,6 +26,8 @@ export interface ComposeInjectedContextArgs {
   flags: InjectionFlags;
   attempt?: number;
   priorRun?: PriorRunInput | null;
+  /** Override for the cached-digest read (test seam). Defaults to readProjectDigest. */
+  readDigest?: (project: string) => string | null;
 }
 
 /** Distinctive advisory marker — the source-guard test asserts it lives in exactly this file. */
@@ -35,6 +38,9 @@ const CONSTRAINTS_KINDS = new Set<LeafNodeKind>(['implement', 'wimplement', 'fix
 
 /** Node kinds eligible for retry-context payload B (prior-attempt fail info). */
 const RETRY_KINDS = new Set<LeafNodeKind>(['blueprint', 'implement']);
+
+/** Node kinds eligible for the project-digest payload A (v1 scope — NOT implement). */
+const DIGEST_KINDS = new Set<LeafNodeKind>(['blueprint', 'research']);
 
 /** Hard cap on retry block body (chars); ~500 tokens. */
 const RETRY_BLOCK_CHAR_CAP = 2000;
@@ -104,7 +110,15 @@ export function composeInjectedContext(args: ComposeInjectedContextArgs): string
       blocks.push(_wrapBlock('ACTIVE CONSTRAINTS', body));
     }
   }
-  // TODO(payload A — serves projectDigest criterion, later leaf): when args.flags.digest,
-  //   push _wrapBlock('PROJECT DIGEST', <digest payload>).
+  // Payload A — serves the projectDigest criterion. When the digest flag is ON and the kind is
+  // orientation-eligible (blueprint/research, NOT implement — v1 scope), read the CACHED digest
+  // (.collab/project-digest.md; never regenerate here) and emit it as an advisory block.
+  if (args.flags.digest && DIGEST_KINDS.has(args.kind)) {
+    const read = args.readDigest ?? readProjectDigest;
+    const digest = read(args.project);
+    if (digest && digest.trim().length > 0) {
+      blocks.push(_wrapBlock('PROJECT DIGEST', digest));
+    }
+  }
   return joinBlocks(blocks);
 }

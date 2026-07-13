@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { composeInjectedContext, _wrapBlock } from '../prompt-injection';
 import { getInjectionFlags } from '../runtime-config';
 import { createDecisionRecord, approveDecisionRecord, _closeProject } from '../decision-record-store';
+import { DIGEST_HEADER } from '../project-digest';
 
 const OFF = { digest: false, retryContext: false, activeConstraints: false } as const;
 
@@ -206,6 +207,68 @@ describe('payload C — ACTIVE CONSTRAINTS', () => {
       project,
       epicId: 'X',
       flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(out).toBe('');
+  });
+});
+
+describe('payload A — PROJECT DIGEST', () => {
+  test('flags.digest=true, kind=blueprint, digest present ⇒ contains digest header + delimited block', () => {
+    const stubDigest = DIGEST_HEADER + '\n\n## Where things live\n- `src/` — backend';
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: null,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
+      readDigest: () => stubDigest,
+    });
+    expect(out).toContain('orientation hints — VERIFY against the tree');
+    expect(out).toContain('=== PROJECT DIGEST (advisory — verify against the tree) ===');
+  });
+
+  test('flags.digest=true, kind=research, digest present ⇒ contains digest header', () => {
+    const stubDigest = DIGEST_HEADER + '\n\n## Where things live\n- `src/` — backend';
+    const out = composeInjectedContext({
+      kind: 'research',
+      project: '/x',
+      epicId: null,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
+      readDigest: () => stubDigest,
+    });
+    expect(out).toContain('orientation hints — VERIFY against the tree');
+  });
+
+  test('flags.digest=true, kind=implement, digest present ⇒ does NOT contain digest (v1 scope excludes implement)', () => {
+    const stubDigest = DIGEST_HEADER + '\n\n## Where things live\n- `src/` — backend';
+    const out = composeInjectedContext({
+      kind: 'implement',
+      project: '/x',
+      epicId: null,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
+      readDigest: () => stubDigest,
+    });
+    expect(out).toBe('');
+  });
+
+  test('flags.digest=false, kind=blueprint, digest present ⇒ empty', () => {
+    const stubDigest = DIGEST_HEADER + '\n\n## Where things live\n- `src/` — backend';
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: null,
+      flags: { digest: false, retryContext: false, activeConstraints: false },
+      readDigest: () => stubDigest,
+    });
+    expect(out).toBe('');
+  });
+
+  test('flags.digest=true, kind=blueprint, reader returns null ⇒ empty', () => {
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project: '/x',
+      epicId: null,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
+      readDigest: () => null,
     });
     expect(out).toBe('');
   });
