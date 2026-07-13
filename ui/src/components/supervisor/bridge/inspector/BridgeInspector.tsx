@@ -9,6 +9,7 @@ import React from 'react';
 import { EpicHistoryView } from '../EpicHistoryView';
 import { TodoWorkerPanel } from '../LaneCallout';
 import { TodoDetailView } from '@/components/editors/TodoDetailView';
+import { MissionDetailPanel } from './MissionDetailPanel';
 
 export interface InspectorEpicSelection {
   id: string;
@@ -16,22 +17,29 @@ export interface InspectorEpicSelection {
 }
 
 export interface BridgeInspectorProps {
-  /** Epic selection wins over todo selection (matches BridgeDashboard precedence). */
+  /** Precedence: mission view > epic > todo (matches BridgeDashboard). */
+  missionsOpen?: boolean;
   selectedEpic?: InspectorEpicSelection | null;
   selectedTodoId?: string | null;
   project: string;
   serverScope: string;
+  /** Session that owns the Bridge — passed to the mission panel for New-mission defaults. */
+  session?: string;
 }
 
 export const BridgeInspector: React.FC<BridgeInspectorProps> = ({
+  missionsOpen,
   selectedEpic,
   selectedTodoId,
   project,
   serverScope,
+  session,
 }) => {
   return (
     <div data-testid="bridge-inspector" className="flex flex-col h-full min-h-0 overflow-y-auto">
-      {selectedEpic ? (
+      {missionsOpen ? (
+        <MissionDetailPanel serverId={serverScope} project={project} session={session} />
+      ) : selectedEpic ? (
         <div data-testid="inspector-epic">
           <EpicHistoryView
             epicId={selectedEpic.id}

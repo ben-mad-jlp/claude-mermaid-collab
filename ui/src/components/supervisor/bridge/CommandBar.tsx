@@ -6,13 +6,14 @@
  * ▲ K needs you` (fleet-summed). The "needs you" count is the single earned red;
  * everything else stays calm. Project switching moved to the ProjectRail
  * (design-tabbed-bridge §3b) — the dropdown that used to live here is gone.
+ *
+ * Design feedback 2026-07-13: the header is a clean, well-spaced STATUS line only.
+ * The per-project daemon controls (⚙ nodes matrix, concurrency, autonomy ladder)
+ * that used to crowd this row now live in the mission inspector pane
+ * (MissionDetailPanel), reachable by clicking the mission strip.
  */
 
-import React, { useState } from 'react';
-import { OrchestratorLadder } from './OrchestratorLadder';
-import { PoolSizeControl } from './PoolSizeControl';
-import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
-import { DaemonProviderControl } from '@/components/settings/DaemonProviderControl';
+import React from 'react';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -44,21 +45,20 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   onRefresh,
 }) => {
   const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : null;
-  const [showNodes, setShowNodes] = useState(false);
   return (
     <div
       data-testid="bridge-command-bar"
-      className="px-4 py-2 border-b border-gray-200 dark:border-gray-700"
+      className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700"
     >
-      {/* Row 1 — identity + project + the Orchestrator level ladder. */}
-      <div className="flex items-center gap-3">
+      {/* Row 1 — identity + project. Controls (nodes/conc/autonomy) moved to the
+          mission inspector pane, keeping this line uncluttered. */}
+      <div className="flex items-center gap-2.5">
         <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
-        {/* Active project — the Bridge is per-project. */}
         {projectName && (
           <span
             data-testid="bridge-project-name"
             title={project}
-            className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[160px]"
+            className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[220px]"
           >
             {projectName}
           </span>
@@ -70,7 +70,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             title="Refresh bridge data"
             aria-label="Refresh bridge data"
             onClick={onRefresh}
-            className="p-1 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 shrink-0"
+            className="ml-auto p-1 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 shrink-0"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="23 4 23 10 17 10" />
@@ -78,42 +78,12 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             </svg>
           </button>
         )}
-
-        {/* Per-project Orchestrator level ladder — moved here from the sidebar
-            rows (it crowded the supervisor cards). Scoped to the active project. */}
-        {project && (
-          <div className="ml-auto flex items-center gap-1.5">
-            <button
-              type="button"
-              data-testid="bridge-nodes-toggle"
-              data-open={showNodes}
-              onClick={() => setShowNodes((v) => !v)}
-              title="Per-node model & effort for this project's daemon workers"
-              className={`flex items-center rounded border px-1.5 py-0.5 text-3xs font-medium shrink-0 cursor-pointer border-gray-300 dark:border-gray-600 ${showNodes ? 'bg-info-500 dark:bg-info-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-            >
-              ⚙ nodes
-            </button>
-            <PoolSizeControl project={project} />
-            <OrchestratorLadder project={project} />
-          </div>
-        )}
       </div>
-
-      {/* Per-node-kind model + effort matrix for the leaf-executor's claude workers,
-          scoped to the active project. Toggled from the ⚙ nodes button above. */}
-      {project && showNodes && (
-        <div className="mt-2 rounded border border-gray-200 dark:border-gray-700 p-2 bg-white/60 dark:bg-gray-900/40">
-          <div className="mb-2 pb-2 border-b border-gray-200/70 dark:border-gray-700/70">
-            <DaemonProviderControl project={project} />
-          </div>
-          <DaemonNodesMatrix project={project} />
-        </div>
-      )}
 
       {/* Row 2 — glanceable totals. Mirrors the left-column project card's row-2
           indicators (same glyphs + colors) so the Bridge top line and the card
           never disagree: ● live · in-flight · ▲ needs-you · ⬇ to-land · open · ▶ · ⊘ · ⚠ parked. */}
-      <div data-testid="bridge-glance" className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+      <div data-testid="bridge-glance" className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
         <span className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
           <span className="text-success-500" aria-hidden="true">●</span>
           {liveCount} live
