@@ -1,8 +1,10 @@
-import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { readdirSync, readFileSync, statSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { composeInjectedContext, _wrapBlock } from '../prompt-injection';
 import { getInjectionFlags } from '../runtime-config';
+import { createDecisionRecord, approveDecisionRecord, _closeProject } from '../decision-record-store';
 
 const OFF = { digest: false, retryContext: false, activeConstraints: false } as const;
 
@@ -46,5 +48,64 @@ describe('getInjectionFlags', () => {
   test('a project with no config resolves all three flags false', () => {
     const f = getInjectionFlags('/tmp/__no_such_project_injection_flags__');
     expect(f).toEqual({ digest: false, retryContext: false, activeConstraints: false });
+  });
+});
+
+describe('payload C — ACTIVE CONSTRAINTS', () => {
+  let project: string;
+  beforeEach(() => { project = mkdtempSync(join(tmpdir(), 'prompt-inject-')); });
+  afterEach(() => { _closeProject(project); rmSync(project, { recursive: true, force: true }); });
+
+  test('flag off ⇒ empty (constraints present)', () => {
+    const c = createDecisionRecord(project, { kind: 'constraint', title: 'no cross-epic imports', epicId: 'X' });
+    approveDecisionRecord(project, c.id, 'h');
+    const out = composeInjectedContext({
+      kind: 'implement',
+      project,
+      epicId: 'X',
+      flags: { digest: false, retryContext: false, activeConstraints: false },
+    });
+    expect(out).toBe('');
+  });
+
+  test('flag on + constraint present ⇒ populated block (build path)', () => {
+    const c = createDecisionRecord(project, { kind: 'constraint', title: 'no cross-epic imports', epicId: 'X' });
+    approveDecisionRecord(project, c.id, 'h');
+    const out = composeInjectedContext({
+      kind: 'implement',
+      project,
+      epicId: 'X',
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(out).toContain('=== ACTIVE CONSTRAINTS (advisory — verify against the tree) ===');
+    expect(out).toContain(c.id);
+    expect(out).toContain('no cross-epic imports');
+    expect(out).not.toBe('');
+  });
+
+  test('flag on + constraint present ⇒ populated block (review path)', () => {
+    const c = createDecisionRecord(project, { kind: 'constraint', title: 'no cross-epic imports', epicId: 'X' });
+    approveDecisionRecord(project, c.id, 'h');
+    const out = composeInjectedContext({
+      kind: 'review',
+      project,
+      epicId: 'X',
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(out).toContain('=== ACTIVE CONSTRAINTS (advisory — verify against the tree) ===');
+    expect(out).toContain(c.id);
+    expect(out).toContain('no cross-epic imports');
+    expect(out).not.toBe('');
+  });
+
+  test('flag on but no active constraints ⇒ empty', () => {
+    createDecisionRecord(project, { kind: 'constraint', title: 'proposed only', epicId: 'X' });
+    const out = composeInjectedContext({
+      kind: 'implement',
+      project,
+      epicId: 'X',
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(out).toBe('');
   });
 });
