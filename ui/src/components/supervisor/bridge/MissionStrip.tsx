@@ -74,26 +74,18 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, o
       data-testid="mission-strip"
       onClick={onOpenMissions}
       title="Open mission detail"
-      className="flex w-full items-center gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors overflow-x-auto"
+      className="flex w-full items-center gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
     >
       {/* Mission title */}
-      <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 shrink-0 whitespace-nowrap">
+      <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 min-w-0 truncate">
         {stripKindPrefix(m.node?.title ?? 'Mission')}
       </span>
 
       {/* Status pill */}
       <StatusPill status={view.status} />
 
-      {/* Iteration + terminal badges */}
+      {/* Terminal badges */}
       <div className="flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 shrink-0">
-        <span className="font-mono whitespace-nowrap">
-          iter {view.iteration}{view.maxIterations != null ? `/${view.maxIterations}` : ''}
-        </span>
-        {view.converged && (
-          <span data-testid="mission-converged" className="text-success-600 dark:text-success-400 font-semibold whitespace-nowrap">
-            converged ✓
-          </span>
-        )}
         {view.stopped && !view.converged && (
           <span data-testid="mission-stopped" className="text-gray-500 dark:text-gray-400 font-semibold whitespace-nowrap">
             stopped{view.stopReason === 'max-iterations' ? ' (max iters)' : ''}
@@ -104,8 +96,6 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, o
       {/* Read-only mini gauges */}
       <MiniGauge label="Goal" met={view.cap.met} total={view.cap.total} tone="goal" />
       <MiniGauge label="Build" met={view.mech.done} total={view.mech.total} tone="build" />
-
-      <span className="ml-auto shrink-0 text-3xs text-gray-400 dark:text-gray-500">details ›</span>
     </button>
   );
 };
