@@ -9,13 +9,12 @@
 import React, { useEffect, useState } from 'react';
 import type { OrchestratorLevel } from './OrchestratorLadder';
 
-const LEVELS: OrchestratorLevel[] = ['off', 'on', 'auto'];
+const LEVELS: OrchestratorLevel[] = ['off', 'on'];
 
-/** Heat dot per level (matches the ladder: gray ▸ green ▸ red). */
+/** Heat dot per level (matches the ladder: gray ▸ green). */
 const LEVEL_DOT: Record<OrchestratorLevel, string> = {
   off: 'bg-gray-400 dark:bg-gray-500',
   on: 'bg-success-500',
-  auto: 'bg-danger-500',
 };
 
 export interface OrchestratorLevelBadgeProps {

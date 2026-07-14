@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'bun:sqlite';
 
 // Isolate the supervisor.db BEFORE the store module opens it.
 const dir = mkdtempSync(join(tmpdir(), 'orch-config-'));
@@ -23,46 +24,51 @@ import {
   listNodeProfileOverrides,
   setNodeProfileOverride,
   copyNodeProfilesTo,
+  emitAutoCollapseNotices,
   _closeDb,
 } from '../orchestrator-config';
+import { listEscalations, _closeDb as supervisorCloseDb } from '../supervisor-store';
 import { POOL_CONFIG, POOL_TYPES, MAX_POOL_SIZE } from '../worker-pool';
 
-beforeAll(() => { _closeDb(); });
+beforeAll(() => {
+  _closeDb();
+  supervisorCloseDb();
+});
 afterAll(() => {
   _closeDb();
+  supervisorCloseDb();
   rmSync(dir, { recursive: true, force: true });
   delete process.env.MERMAID_SUPERVISOR_DIR;
 });
 
 describe('ORCH_LEVELS', () => {
-  it('contains exactly the three canonical levels in order', () => {
-    expect(ORCH_LEVELS).toEqual(['off', 'on', 'auto']);
+  it('contains exactly the two canonical levels in order', () => {
+    expect(ORCH_LEVELS).toEqual(['off', 'on']);
   });
 });
 
 describe('levelRank', () => {
-  it('off=0, on=1, auto=2', () => {
+  it('off=0, on=1', () => {
     expect(levelRank('off')).toBe(0);
     expect(levelRank('on')).toBe(1);
-    expect(levelRank('auto')).toBe(2);
   });
 
-  it('ranks are strictly ordered (off < on < auto)', () => {
+  it('ranks are strictly ordered (off < on)', () => {
     for (let i = 0; i < ORCH_LEVELS.length - 1; i++) {
       expect(levelRank(ORCH_LEVELS[i])).toBeLessThan(levelRank(ORCH_LEVELS[i + 1]));
     }
   });
 });
 
-describe('coalesceLevel — legacy 5-rung → off/on/auto', () => {
-  it('collapses build|nudge|propose → on, drive → auto, off/on/auto pass through', () => {
+describe('coalesceLevel — legacy 5-rung → off|on', () => {
+  it('collapses auto, build, nudge, propose, drive → on; off → off', () => {
     expect(coalesceLevel('off')).toBe('off');
+    expect(coalesceLevel('on')).toBe('on');
+    expect(coalesceLevel('auto')).toBe('on');
     expect(coalesceLevel('build')).toBe('on');
     expect(coalesceLevel('nudge')).toBe('on');
     expect(coalesceLevel('propose')).toBe('on');
-    expect(coalesceLevel('drive')).toBe('auto');
-    expect(coalesceLevel('on')).toBe('on');
-    expect(coalesceLevel('auto')).toBe('auto');
+    expect(coalesceLevel('drive')).toBe('on');
   });
   it('unknown / undefined → on (supervised default)', () => {
     expect(coalesceLevel('totally-unknown')).toBe('on');
@@ -89,17 +95,17 @@ describe('set → get round-trip', () => {
     const project = '/proj/update-test';
     setOrchestratorLevel(project, 'off');
     expect(getOrchestratorLevel(project)).toBe('off');
-    setOrchestratorLevel(project, 'auto');
-    expect(getOrchestratorLevel(project)).toBe('auto');
+    setOrchestratorLevel(project, 'on');
+    expect(getOrchestratorLevel(project)).toBe('on');
   });
 });
 
 describe('legacy read coalescing', () => {
-  it('a row persisted as a legacy value reads back coalesced', () => {
+  it('a row persisted as a legacy value reads back coalesced to on|off', () => {
     // getOrchestratorLevel coalesces on read even if a legacy value lingers
     // (the backfill collapses stored rows; this guards the read seam too).
     setOrchestratorLevel('/proj/legacy', 'drive' as never);
-    expect(getOrchestratorLevel('/proj/legacy')).toBe('auto');
+    expect(getOrchestratorLevel('/proj/legacy')).toBe('on');
     setOrchestratorLevel('/proj/legacy2', 'build' as never);
     expect(getOrchestratorLevel('/proj/legacy2')).toBe('on');
   });
@@ -220,6 +226,52 @@ describe('per-(project,node-kind) model + effort overrides', () => {
   it('an invalid effort coerces to null', () => {
     setNodeProfileOverride('/proj/np-c', 'implement', 'haiku', 'turbo' as never);
     expect(listNodeProfileOverrides('/proj/np-c').implement).toEqual({ model: 'haiku', effort: null, provider: null });
+  });
+});
+
+describe('auto-collapse notices', () => {
+  it('coalesceLevel maps auto to on', () => {
+    // Verify that the coalesce function maps all legacy levels to on.
+    expect(coalesceLevel('auto')).toBe('on');
+    expect(coalesceLevel('drive')).toBe('on');
+    expect(coalesceLevel('build')).toBe('on');
+  });
+
+  it('a stored auto row folds to on and emits a one-time escalation notice', () => {
+    const project = '/proj/auto-collapse-test';
+
+    // Manually insert an 'auto' row before triggering the migration.
+    // This simulates a scenario where an auto row already exists in the database
+    // (e.g., from a previous deployment).
+    _closeDb();
+    const dbPath = join(process.env.MERMAID_SUPERVISOR_DIR!, 'supervisor.db');
+    const manualDb = new Database(dbPath);
+    manualDb.prepare(
+      'INSERT OR REPLACE INTO orchestrator_config (project, level, updatedAt) VALUES (?, ?, ?)'
+    ).run(project, 'auto', Date.now());
+    manualDb.close();
+
+    // Verify before emitting: no escalations yet
+    const beforeEscalations = listEscalations().filter(e => e.kind === 'orchestrator-level-collapse' && e.project === project);
+    expect(beforeEscalations.length).toBe(0);
+
+    // Emit notices: triggers openDb() which runs the migration, captures the auto
+    // project into the notice table, folds it to 'on', and emits the escalation.
+    emitAutoCollapseNotices();
+
+    // Verify escalation was created
+    const afterFirstCall = listEscalations().filter(e => e.kind === 'orchestrator-level-collapse' && e.project === project);
+    expect(afterFirstCall.length).toBe(1);
+    expect(afterFirstCall[0].questionText).toContain('Autonomy collapsed to off/on');
+
+    // Verify the row is now 'on' (not 'auto')
+    expect(getOrchestratorLevel(project)).toBe('on');
+
+    // Second call should dedupe via the notified flag.
+    emitAutoCollapseNotices();
+
+    const afterSecondCall = listEscalations().filter(e => e.kind === 'orchestrator-level-collapse' && e.project === project);
+    expect(afterSecondCall.length).toBe(1); // still only one, not two
   });
 });
 
