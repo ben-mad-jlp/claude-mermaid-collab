@@ -6,12 +6,11 @@
  * and the MissionDetailPanel's "Daemon controls" toggle into one grouped,
  * dismissible modal scoped to the active project.
  *
- * Groups: Autonomy · Concurrency · Node models & provider · Watchdog ·
+ * Groups: Concurrency · Node models & provider · Watchdog ·
  * Context recycle · Prompt injection (advisory). Each control talks to its own
  * per-project REST route; nothing here is global.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { OrchestratorLadder } from './OrchestratorLadder';
 import { PoolSizeControl } from './PoolSizeControl';
 import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
 import { DaemonProviderControl } from '@/components/settings/DaemonProviderControl';
@@ -280,11 +279,6 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ proj
 
         {/* Body */}
         <div className="flex flex-col gap-5 p-4">
-          <Section label="Autonomy">
-            <OrchestratorLadder project={project} />
-            <p className="text-3xs italic text-gray-400 dark:text-gray-500">Raising to ‘auto’ is human-gated.</p>
-          </Section>
-
           <Section label="Concurrency">
             <PoolSizeControl project={project} />
           </Section>
