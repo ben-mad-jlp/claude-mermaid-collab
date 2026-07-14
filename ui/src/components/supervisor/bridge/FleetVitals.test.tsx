@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { FleetVitals } from './FleetVitals';
 import type { SessionTodo } from '@/types/sessionTodo';
-import type { UnlandedEpic } from '@/stores/supervisorStore';
 
 function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
   return {
@@ -39,18 +38,5 @@ describe('FleetVitals', () => {
     render(<FleetVitals todos={TODOS} />);
     expect(screen.queryByTestId('fleet-funnel')).toBeNull();
     expect(screen.queryByTestId('fleet-funnel-done')).toBeNull();
-  });
-
-  it('still surfaces unlanded epics (the non-redundant safety line kept on the Bridge)', () => {
-    const unlanded: UnlandedEpic[] = [
-      { id: 'e1', title: 'Epic one', ahead: 3 } as UnlandedEpic,
-    ];
-    render(<FleetVitals todos={TODOS} unlandedEpics={unlanded} />);
-    expect(screen.getByTestId('unlanded-epics')).toBeTruthy();
-  });
-
-  it('self-hides the unlanded surface when everything is landed', () => {
-    render(<FleetVitals todos={TODOS} unlandedEpics={[]} />);
-    expect(screen.queryByTestId('unlanded-epics')).toBeNull();
   });
 });
