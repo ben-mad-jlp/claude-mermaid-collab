@@ -36,7 +36,7 @@ export type ClaimReason =
   | 'in-flight'       // claim != null
   | 'rejected'        // this todo's OWN acceptanceStatus==='rejected' — ran but failed the gate; held for a human, never auto-reclaimed
   | 'human-assignee'  // fully-unblocked + approved HUMAN todo (incl. [GATE]) → actionable in HumanInbox, NOT daemon-claimed
-  | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
+  | 'bucket-planning'  // parent is a bucket epic (bucketType != null, or a fail-closed legacy bucket title) — planning-only; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
   | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
@@ -85,10 +85,10 @@ export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): Cla
   if (t.claim != null) return 'in-flight';
   // Self-rejected (gate failed) — held for a human, never auto-reclaimed (80f85190).
   if (t.acceptanceStatus === 'rejected') return 'rejected';
-  // Inbox = planning-only: a triage child of [EPIC] Inbox must NEVER be auto-run,
+  // Buckets = planning-only: a child of any bucket epic must NEVER be auto-run,
   // regardless of approval. ABOVE the approval check so the hard reason surfaces
-  // even for approved-in-Inbox todos. The Inbox epic itself (root) is unaffected.
-  if (parentIsInbox(t, byId)) return 'inbox-planning';
+  // even for approved-in-bucket todos. The bucket epic itself (root) is unaffected.
+  if (parentIsInbox(t, byId)) return 'bucket-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {

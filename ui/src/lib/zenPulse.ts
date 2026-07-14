@@ -145,7 +145,7 @@ export function nextWorkSuggestions(todos: SessionTodo[], cap = 5): NextWork {
   const ready = todos.filter((t) => !isEpic(t) && isReady(t)).sort(byPriority).slice(0, cap);
 
   const inbox = todos
-    .filter((t) => claimReason(t, byId) === 'inbox-planning')
+    .filter((t) => claimReason(t, byId) === 'bucket-planning')
     .sort(byPriority)
     .slice(0, cap);
 
