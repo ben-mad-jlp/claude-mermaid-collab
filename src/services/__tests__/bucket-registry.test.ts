@@ -9,6 +9,7 @@ import {
   createTodo,
   _closeProject,
   TODO_BUCKET_TYPE_V5,
+  TODO_TRIAGE_TAG_V6,
 } from '../todo-store';
 import { addSessionTodo } from '../../mcp/tools/session-todos';
 import { ensureBucket, isBucketEpic, bucketTypeOfTitle } from '../bucket-registry';
@@ -191,5 +192,61 @@ describe('bucket-registry: V5 dedup migration', () => {
       `SELECT COUNT(*) AS n FROM todos WHERE bucketType = 'bugfix'`,
     ).get() as { n: number };
     expect(anyBugfix.n).toBe(1);
+  });
+});
+
+describe('bucket-registry: V6 fold migration (triageTag + bugfix dedup)', () => {
+  test('Collab gaps child stamped with triageTag, re-homed to bugfix survivor, duplicate dropped', () => {
+    const project = freshProject();
+    projects.push(project);
+    const dbPath = join(project, '.collab', 'todos.db');
+
+    const raw = new Database(dbPath);
+    raw.exec(LEGACY_DDL);
+
+    const bugfixKeep = 'aaaaaaaa-0000-0000-0000-000000000001';
+    const collabGaps = 'bbbbbbbb-0000-0000-0000-000000000002';
+    const gapChild = 'cccccccc-0000-0000-0000-000000000003';
+    const bugfixDupe = 'dddddddd-0000-0000-0000-000000000004';
+    const ins = raw.prepare(
+      `INSERT INTO todos (id, ownerSession, parentId, title, status, ord, createdAt, updatedAt, kind, isBucket)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    ins.run(bugfixKeep, 'o', null, 'Bugfix inbox', 'planned', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'epic', 1);
+    ins.run(collabGaps, 'o', null, 'Collab gaps', 'planned', 2, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'epic', 1);
+    ins.run(gapChild, 'o', collabGaps, '[gap] Recurring friction: x (orchestration, ×4)', 'planned', 3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'leaf', 0);
+    ins.run(bugfixDupe, 'o', null, 'Bugfix inbox', 'planned', 4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'epic', 1);
+
+    raw.exec('PRAGMA user_version = 4'); // so both V5 and V6 run
+    raw.close();
+
+    const db = openDb(project); // runs V5 and V6 migrations; must NOT throw UNIQUE
+
+    expect((db.query('PRAGMA user_version').get() as { user_version: number }).user_version)
+      .toBeGreaterThanOrEqual(TODO_TRIAGE_TAG_V6);
+
+    // Exactly one non-dropped bugfix bucket survives
+    const bugfixSurvivors = db.query(
+      `SELECT id FROM todos WHERE bucketType = 'bugfix' AND status != 'dropped'`,
+    ).all() as Array<{ id: string }>;
+    expect(bugfixSurvivors.length).toBe(1);
+    const survivorId = bugfixSurvivors[0]!.id;
+
+    // The Collab gaps child is re-homed to the bugfix survivor
+    const childRow = getTodo(project, gapChild)!;
+    expect(childRow.parentId).toBe(survivorId);
+
+    // The child's triageTag is stamped from the title suffix
+    expect(childRow.triageTag).toBe('orchestration');
+
+    // The duplicate bugfix is dropped (status=dropped, bucketType=null)
+    const dupRow = getTodo(project, bugfixDupe)!;
+    expect(dupRow.status).toBe('dropped');
+    expect(dupRow.bucketType).toBe(null);
+
+    // The Collab gaps epic is also dropped (it's a duplicate bucket)
+    const collabRow = getTodo(project, collabGaps)!;
+    expect(collabRow.status).toBe('dropped');
+    expect(collabRow.bucketType).toBe(null);
   });
 });
