@@ -201,6 +201,32 @@ describe('runTriagePass — autoResolve (level drive, Phase 3)', () => {
     // TRIAGE_CAP suggestions written, but auto-resolutions capped at AUTO_RESOLVE_CAP.
     expect(confirmed).toBe(AUTO_RESOLVE_CAP);
   });
+
+  it('A3: mission escalation auto-resolves via autoResolveScope', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
+    const confirmed: string[] = [];
+    await runTriagePass(project, {
+      callGrok: async () => HI, commitsBehindMaster: () => 0,
+      autoResolveScope: () => true, // mission-scoped predicate says YES
+      confirm: async (_p, id) => { confirmed.push(id); return { ok: true, reason: 'applied' }; },
+    });
+    expect(confirmed).toEqual([escalation.id]);
+  });
+
+  it('A3: non-mission escalation stays SUGGEST (no confirm), but suggestion is written', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
+    const confirmed: string[] = [];
+    await runTriagePass(project, {
+      callGrok: async () => HI, commitsBehindMaster: () => 0,
+      autoResolveScope: () => false, // mission-scoped predicate says NO
+      confirm: async (_p, id) => { confirmed.push(id); return { ok: true, reason: 'applied' }; },
+    });
+    expect(confirmed).toEqual([]); // no auto-resolve
+    const after = getEscalation(escalation.id);
+    expect(after?.suggestedAction?.bucket).toBe('now-buildable'); // but suggestion is written
+  });
 });
 
 describe('confirmSuggestion / dismissSuggestion', () => {

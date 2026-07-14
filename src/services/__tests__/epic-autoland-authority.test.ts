@@ -43,7 +43,7 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async () => null,
 }));
 
-import { epicAutoLandAuthority } from '../coordinator-live';
+import { epicAutoLandAuthority, todoIsMissionScoped } from '../coordinator-live';
 import type { Todo } from '../todo-store';
 
 afterAll(() => {
@@ -177,6 +177,32 @@ describe('epicAutoLandAuthority', () => {
     const e1 = todo({ id: 'e1', title: '[EPIC] the work', parentId: 'm1', status: 'ready' });
     missions.clear();
     const result = epicAutoLandAuthority(PROJECT, 'e1', [m1, e1]);
+    expect(result).toBe(false);
+  });
+});
+
+describe('todoIsMissionScoped', () => {
+  beforeEach(() => {
+    seq = 0;
+    missions.clear();
+  });
+
+  it('mission leaf → true', () => {
+    const { m1, e1 } = mkActiveGraph();
+    const l1 = todo({ id: 'l1', title: 'leaf', parentId: 'e1', status: 'ready' });
+    const result = todoIsMissionScoped(PROJECT, 'l1', [m1, e1, l1]);
+    expect(result).toBe(true);
+  });
+
+  it('non-mission leaf → false', () => {
+    const e1 = todo({ id: 'e1', title: '[EPIC] orphan epic', status: 'ready' });
+    const l1 = todo({ id: 'l1', title: 'leaf', parentId: 'e1', status: 'ready' });
+    const result = todoIsMissionScoped(PROJECT, 'l1', [e1, l1]);
+    expect(result).toBe(false);
+  });
+
+  it('unknown todoId → false', () => {
+    const result = todoIsMissionScoped(PROJECT, 'nope', []);
     expect(result).toBe(false);
   });
 });
