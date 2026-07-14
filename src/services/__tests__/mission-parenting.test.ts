@@ -9,6 +9,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   BUGFIX_INBOX_EPIC_TITLE,
   isBucketEpic,
+  isBucketEpicTitle,
   isDeliverableEpic,
   missionParentId,
   resolveEpicParent,
@@ -120,5 +121,25 @@ describe('epicBackfillSkipReason — ladder', () => {
   it('a rootless deliverable epic is eligible to move (null)', () => {
     expect(epicBackfillSkipReason({ kind: 'epic', title: 'E', isBucket: false, parentId: null })).toBe(null);
     expect(epicBackfillSkipReason({ kind: 'epic', title: 'E', isBucket: false })).toBe(null);
+  });
+});
+
+describe('isBucketEpicTitle — prefix match', () => {
+  it('suffixed bucket rows match by prefix', () => {
+    expect(isBucketEpicTitle('Bugfix inbox — foo')).toBe(true);
+    expect(isBucketEpicTitle('Inbox — bar')).toBe(true);
+  });
+
+  it('bare exact titles still match (regression)', () => {
+    expect(isBucketEpicTitle('Inbox')).toBe(true);
+    expect(isBucketEpicTitle('Bugfix inbox')).toBe(true);
+  });
+
+  it('unrelated titles do not match', () => {
+    expect(isBucketEpicTitle('Shipping epic')).toBe(false);
+  });
+
+  it('legacy prefixed literal is tolerated via stripLabel', () => {
+    expect(isBucketEpicTitle('[EPIC] Inbox — x')).toBe(true);
   });
 });

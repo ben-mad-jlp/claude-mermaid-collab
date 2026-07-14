@@ -10,6 +10,7 @@ import {
   isClaimable,
   derivedStatus,
   isInboxEpic,
+  isInboxEpicTitle,
   parentIsInbox,
   INBOX_EPIC_TITLE,
 } from '../claimability';
@@ -43,6 +44,24 @@ function mk(over: Partial<Todo> = {}): Todo {
 const APPROVED = '2026-06-17T00:00:00Z';
 const CLAIM = { by: 'coordinator', token: 'tok', at: APPROVED, leaseMs: 1000 };
 const map = (...todos: Todo[]) => new Map(todos.map((t) => [t.id, t]));
+
+describe('isInboxEpicTitle — prefix match', () => {
+  it('suffixed Inbox rows match by prefix', () => {
+    expect(isInboxEpicTitle('Inbox — bar')).toBe(true);
+  });
+
+  it('bare exact title still matches (regression)', () => {
+    expect(isInboxEpicTitle('Inbox')).toBe(true);
+  });
+
+  it('unrelated titles do not match', () => {
+    expect(isInboxEpicTitle('Backlog')).toBe(false);
+  });
+
+  it('legacy prefixed literal is tolerated via stripLabel', () => {
+    expect(isInboxEpicTitle('[EPIC] Inbox')).toBe(true);
+  });
+});
 
 describe('depSatisfied', () => {
   it('done + not-rejected = satisfied; everything else not', () => {
