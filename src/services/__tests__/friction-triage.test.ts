@@ -154,145 +154,94 @@ describe('friction-triage: threshold gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('friction-triage: layer routing', () => {
-  it('routes domain friction to the Bugfix inbox epic with category bug', async () => {
+  it('routes domain friction with category bug tag and sets triageTag to domain', async () => {
     const { deps, created } = makeDeps([
       { layer: 'domain', retryReason: 'missing-model', count: 4 },
     ]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => c.input.kind === 'epic');
-    expect(epicCreate?.input.title).toBe('Bugfix inbox');
-
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.title).toContain('[bug]');
     expect(todoCreate?.input.title).toContain('missing-model');
+    expect(todoCreate?.input.triageTag).toBe('domain');
   });
 
-  it('routes orchestration friction to the Collab gaps epic with category gap', async () => {
+  it('routes orchestration friction with category gap tag and sets triageTag to orchestration', async () => {
     const { deps, created } = makeDeps([
       { layer: 'orchestration', retryReason: 'gate-format', count: 4 },
     ]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => c.input.kind === 'epic');
-    expect(epicCreate?.input.title).toBe('Collab gaps');
-
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.title).toContain('[gap]');
+    expect(todoCreate?.input.triageTag).toBe('orchestration');
   });
 
-  it('routes operational friction to the Collab gaps epic with category gap', async () => {
+  it('routes operational friction with category gap tag and sets triageTag to operational', async () => {
     const { deps, created } = makeDeps([
       { layer: 'operational', retryReason: 'unlanded-epics-over-threshold', count: 5 },
     ]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => c.input.kind === 'epic');
-    expect(epicCreate?.input.title).toBe('Collab gaps');
-
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.title).toContain('[gap]');
+    expect(todoCreate?.input.triageTag).toBe('operational');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 3. Find-or-create epic
+// 3. Ensure-bucket routing and triageTag
 // ---------------------------------------------------------------------------
 
-describe('friction-triage: find-or-create epic', () => {
-  it('reuses an existing bucket epic, does not create a second one', async () => {
-    const existingEpic = makeTodo({ id: 'epic-1', title: 'Bugfix inbox', kind: 'epic', status: 'planned', parentId: null });
-    const { deps, created } = makeDeps([
-      { layer: 'domain', retryReason: 'missing-model', count: 4 },
-    ], [existingEpic]);
+describe('friction-triage: ensure-bucket and triageTag', () => {
+  it('files both domain and orchestration frictions under the same bugfix bucket with correct triageTags', async () => {
+    const todos: Todo[] = [];
+    const ensureBucketCalls: string[] = [];
+
+    const deps: FrictionTriageDeps = {
+      trends: () => ({
+        total: 2,
+        considered: 2,
+        byLayer: [],
+        recurring: [
+          { layer: 'domain' as FrictionLayer, retryReason: 'domain-issue', count: 4 },
+          { layer: 'orchestration' as FrictionLayer, retryReason: 'orchestration-issue', count: 3 },
+        ],
+      }),
+      listTodos: () => todos,
+      createTodo: async (_p, input) => {
+        const todo = makeTodo({ ...input, id: 'created-' + todos.length });
+        todos.push(todo);
+        return todo;
+      },
+      ensureBucket: async (_p, type) => {
+        ensureBucketCalls.push(type);
+        return 'bugfix-epic-id';
+      },
+      isActioned: () => false,
+      markActioned: async () => {},
+      threshold: 3,
+    };
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreates = created.filter((c) => c.input.kind === 'epic');
-    expect(epicCreates.length).toBe(0); // no new epic created
-
-    const todoCreate = created.find((c) => c.input.parentId != null);
-    expect(todoCreate?.input.parentId).toBe('epic-1');
-  });
-
-  it('does not reuse a bucket-titled todo whose kind is not epic', async () => {
-    const impostor = makeTodo({ id: 'not-an-epic', title: 'Bugfix inbox', kind: 'leaf', status: 'planned', parentId: null });
-    const { deps, created } = makeDeps([
-      { layer: 'domain', retryReason: 'missing-model', count: 4 },
-    ], [impostor]);
-
-    await runFrictionTriagePass(project, deps);
-
-    const epicCreates = created.filter((c) => c.input.kind === 'epic');
-    expect(epicCreates.length).toBe(1); // impostor is not reused; a real epic is created
-  });
-
-  it('creates the epic when it does not exist and uses its id as parentId', async () => {
-    const { deps, created } = makeDeps([
-      { layer: 'domain', retryReason: 'missing-model', count: 4 },
-    ]);
-
-    await runFrictionTriagePass(project, deps);
-
-    const epicCreate = created.find((c) => c.input.kind === 'epic');
-    expect(epicCreate).toBeDefined();
-    expect(epicCreate?.input.status).toBe('planned');
-    expect(epicCreate?.input.title).toBe('Bugfix inbox');
-    expect(epicCreate?.input.title).not.toMatch(/^\s*\[(EPIC|MISSION|LAND)\]/);
-
-    const todoCreate = created.find((c) => c.input.parentId != null);
-    expect(todoCreate?.input.parentId).toBeTruthy();
-  });
-
-  it('post-strip idempotence: reuses a bare-titled epic across two passes, no new epic creates', async () => {
-    const existingEpic = makeTodo({ id: 'epic-bare', title: 'Bugfix inbox', kind: 'epic', status: 'planned', parentId: null });
-    const { deps, created } = makeDeps([
-      { layer: 'domain', retryReason: 'reason-one', count: 4 },
-    ], [existingEpic]);
-
-    await runFrictionTriagePass(project, deps);
-
-    const deps2 = { ...deps, trends: () => ({
-      total: 1, considered: 1, byLayer: [],
-      recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'reason-two', count: 4 }],
-    }) };
-    await runFrictionTriagePass(project, deps2);
-
-    const epicCreates = created.filter((c) => c.input.kind === 'epic');
-    expect(epicCreates.length).toBe(0);
-
-    const filedTodos = created.filter((c) => c.input.parentId != null);
+    const filedTodos = todos.filter((t) => t.parentId != null);
     expect(filedTodos.length).toBe(2);
+
+    // Both file under the same bugfix bucket
     for (const t of filedTodos) {
-      expect(t.input.parentId).toBe('epic-bare');
+      expect(t.parentId).toBe('bugfix-epic-id');
     }
-  });
 
-  it('pre-strip tolerance: reuses a legacy [EPIC]-prefixed epic, no new epic creates', async () => {
-    const existingEpic = makeTodo({ id: 'epic-legacy', title: '[EPIC] Bugfix inbox', kind: 'epic', status: 'planned', parentId: null });
-    const { deps, created } = makeDeps([
-      { layer: 'domain', retryReason: 'reason-one', count: 4 },
-    ], [existingEpic]);
+    // triageTags are set correctly
+    const domainTodo = filedTodos.find((t) => t.title.includes('domain-issue'));
+    expect(domainTodo?.triageTag).toBe('domain');
 
-    await runFrictionTriagePass(project, deps);
-
-    const deps2 = { ...deps, trends: () => ({
-      total: 1, considered: 1, byLayer: [],
-      recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'reason-two', count: 4 }],
-    }) };
-    await runFrictionTriagePass(project, deps2);
-
-    const epicCreates = created.filter((c) => c.input.kind === 'epic');
-    expect(epicCreates.length).toBe(0);
-
-    const filedTodos = created.filter((c) => c.input.parentId != null);
-    expect(filedTodos.length).toBe(2);
-    for (const t of filedTodos) {
-      expect(t.input.parentId).toBe('epic-legacy');
-    }
+    const orchTodo = filedTodos.find((t) => t.title.includes('orchestration-issue'));
+    expect(orchTodo?.triageTag).toBe('orchestration');
   });
 });
 
@@ -435,7 +384,52 @@ describe('friction-triage: fail-open', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. Real-store dedup integration (durable actioned marker)
+// 8. V6 integration: real todo store with real ensureBucket & triageTag
+// ---------------------------------------------------------------------------
+
+describe('friction-triage: V6 triageTag + bugfix-bucket integration', () => {
+  it('files domain and orchestration frictions under the same singleton bugfix bucket with triageTag set', async () => {
+    const { createTodo, listTodos } = await import('../todo-store');
+    const { ensureBucket } = await import('../bucket-registry');
+
+    const deps: FrictionTriageDeps = {
+      trends: () => ({
+        total: 2,
+        considered: 2,
+        byLayer: [],
+        recurring: [
+          { layer: 'domain' as FrictionLayer, retryReason: 'domain-issue', count: 4 },
+          { layer: 'orchestration' as FrictionLayer, retryReason: 'orchestration-issue', count: 3 },
+        ],
+      }),
+      // Use real listTodos, createTodo, ensureBucket
+      listTodos: (p) => listTodos(p),
+      createTodo: (p, input) => createTodo(p, input),
+      ensureBucket: (p, type) => ensureBucket(p, type),
+      isActioned: () => false,
+      markActioned: async () => {},
+      threshold: 2,
+    };
+
+    await runFrictionTriagePass(project, deps);
+
+    const allTodos = listTodos(project);
+    const bucketEpics = allTodos.filter((t) => t.bucketType === 'bugfix' && t.status !== 'dropped');
+    expect(bucketEpics.length).toBe(1); // exactly one bugfix bucket survives
+
+    const filedTodos = allTodos.filter((t) => t.parentId === bucketEpics[0].id);
+    expect(filedTodos.length).toBe(2);
+
+    const domainTodo = filedTodos.find((t) => t.title.includes('domain-issue'));
+    expect(domainTodo?.triageTag).toBe('domain');
+
+    const orchTodo = filedTodos.find((t) => t.title.includes('orchestration-issue'));
+    expect(orchTodo?.triageTag).toBe('orchestration');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Real-store dedup integration (durable actioned marker)
 // ---------------------------------------------------------------------------
 
 describe('friction-triage: real-store dedup (integration)', () => {

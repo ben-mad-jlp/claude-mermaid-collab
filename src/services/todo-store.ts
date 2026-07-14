@@ -148,6 +148,10 @@ export interface Todo {
    *  OPTIONAL on purpose: existing Todo literals/fixtures must compile unchanged, and a
    *  pre-migration row reads null (isBucketEpic falls back to the legacy title match). */
   bucketType?: 'inbox' | 'bugfix' | null;
+  /** R2 friction-triage layer tag: discriminates recurring-friction children filed under
+   *  the same `bugfix` bucket by their originating layer. OPTIONAL for the same reason as
+   *  bucketType; pre-V6 rows read null. */
+  triageTag?: 'domain' | 'orchestration' | 'operational' | null;
 }
 
 export interface TodoFilter {
@@ -212,6 +216,9 @@ export interface CreateTodoInput {
   /** INTERNAL ONLY — set exclusively by bucket-registry.ensureBucket, the sole writer of
    *  a non-null `bucketType`. Never populate from a public/MCP surface. */
   _ensureBucketType?: 'inbox' | 'bugfix';
+  /** R2 friction-triage layer tag: set by friction-triage when filing recurring-friction
+   *  children under the `bugfix` bucket. Caller-settable (unlike bucketType). */
+  triageTag?: 'domain' | 'orchestration' | 'operational' | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -379,6 +386,7 @@ interface TodoRow {
   inheritedFiles: string | null;
   isBucket: number;
   bucketType: string | null;
+  triageTag: string | null;
 }
 
 const DDL = `
@@ -499,6 +507,7 @@ export function openDb(project: string): Database {
   // bucket-registry.ensureBucket; uniqued per (targetProject, bucketType) by a partial
   // index created inside the V5 backfill AFTER duplicate bucket rows are collapsed.
   addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
+  addColumnIfMissing(db, 'todos', 'triageTag', 'triageTag TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -594,6 +603,10 @@ export function openDb(project: string): Database {
     backfillBucketTypeV5(db);
     db.exec(`PRAGMA user_version = ${TODO_BUCKET_TYPE_V5}`);
   }
+  if (ver < TODO_TRIAGE_TAG_V6) {
+    backfillTriageTagV6(db);
+    db.exec(`PRAGMA user_version = ${TODO_TRIAGE_TAG_V6}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -644,6 +657,9 @@ export const TODO_BUCKET_DEDUPE_V4 = 4;
 
 /** user_version marker for the R1 bucketType backfill + dedup + partial UNIQUE index. */
 export const TODO_BUCKET_TYPE_V5 = 5;
+
+/** user_version marker for the R2 triageTag backfill (stamp from layer suffix + bugfix dedup). */
+export const TODO_TRIAGE_TAG_V6 = 6;
 
 /**
  * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
@@ -713,6 +729,60 @@ export function backfillBucketTypeV5(db: Database): void {
   db.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_bucket_singleton
        ON todos(targetProject, bucketType) WHERE bucketType IS NOT NULL`
+  );
+}
+
+/**
+ * R2 one-shot, idempotent triageTag backfill. Runs ONCE (gated by user_version).
+ *   1. Stamp triageTag from the filed-title layer suffix (the child title format is
+ *      `[<cat>] Recurring friction: <reason> (<layer>, ×<n>)`).
+ *   2. Re-home residual `Collab gaps` children under the per-project MIN(rowid) `bugfix`
+ *      survivor, mirroring backfillBucketTypeV5's 2a pattern.
+ *   3. Tombstone duplicate bugfix buckets, mirroring V5 2b pattern: exactly one
+ *      `bucketType='bugfix'` survives per project.
+ * All SQL is set-based with correlated subqueries — no unbound placeholders.
+ */
+export function backfillTriageTagV6(db: Database): void {
+  // 1. Stamp triageTag from the LIKE '%(<layer>, ×%' title suffix.
+  db.exec(
+    `UPDATE todos SET triageTag='domain'
+       WHERE triageTag IS NULL AND status != 'dropped' AND title LIKE '%(domain, ×%'`
+  );
+  db.exec(
+    `UPDATE todos SET triageTag='orchestration'
+       WHERE triageTag IS NULL AND status != 'dropped' AND title LIKE '%(orchestration, ×%'`
+  );
+  db.exec(
+    `UPDATE todos SET triageTag='operational'
+       WHERE triageTag IS NULL AND status != 'dropped' AND title LIKE '%(operational, ×%'`
+  );
+  // 2. Re-home each loser's children to their group's MIN(rowid) survivor.
+  db.exec(
+    `UPDATE todos
+       SET parentId = (
+         SELECT s.id FROM todos s
+          WHERE s.bucketType IS NOT NULL
+            AND s.targetProject = (SELECT p.targetProject FROM todos p WHERE p.id = todos.parentId)
+            AND s.bucketType    = (SELECT p.bucketType    FROM todos p WHERE p.id = todos.parentId)
+          ORDER BY s.rowid ASC LIMIT 1
+       )
+     WHERE parentId IN (
+       SELECT l.id FROM todos l
+        WHERE l.bucketType IS NOT NULL
+          AND l.rowid > (SELECT MIN(m.rowid) FROM todos m
+                          WHERE m.bucketType IS NOT NULL
+                            AND m.targetProject = l.targetProject
+                            AND m.bucketType    = l.bucketType)
+     )`
+  );
+  // 3. Tombstone duplicate bugfix buckets so exactly one non-null bucketType survives per group.
+  db.exec(
+    `UPDATE todos SET bucketType=NULL, isBucket=0, status='dropped'
+      WHERE bucketType IS NOT NULL
+        AND rowid > (SELECT MIN(m.rowid) FROM todos m
+                      WHERE m.bucketType IS NOT NULL
+                        AND m.targetProject = todos.targetProject
+                        AND m.bucketType    = todos.bucketType)`
   );
 }
 
@@ -1054,6 +1124,7 @@ function rowToTodo(row: TodoRow): Todo {
     inheritedFiles,
     isBucket: row.isBucket === 1,
     bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
+    triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
   };
 }
 
@@ -1177,8 +1248,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType, triageTag)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1189,7 +1260,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType, input.triageTag ?? null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).

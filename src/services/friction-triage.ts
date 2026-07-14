@@ -3,6 +3,7 @@ import { type FrictionLayer, isReasonActioned, markReasonActioned } from './fric
 import { listTodos, createTodo, type Todo } from './todo-store.ts';
 import { getConfig } from './config-service.ts';
 import { isEpic, stripLabel } from './todo-kind.ts';
+import { ensureBucket } from './bucket-registry.ts';
 
 /**
  * DF3 friction triage — periodic, deterministic (no-LLM) pass that reads the
@@ -10,13 +11,12 @@ import { isEpic, stripLabel } from './todo-kind.ts';
  * retryReason that hasn't been actioned yet.
  *
  * Anti-spam: threshold + actioned marker (permanent per MVP) + per-tick cap.
- * Bucket routing: domain → the 'Bugfix inbox' todo; orchestration/operational →
- * 'Collab gaps'. Those two strings are bare bucket IDENTITIES (looked up via
- * `stripLabel`, tolerating pre-strip rows), not role markers — the role check
- * goes through isEpic()/`kind` (decision e852fb0c).
+ * All layers (domain, orchestration, operational) file under the singleton `bugfix`
+ * bucket per project, discriminated by triageTag. Title labels ([bug] / [gap]) are
+ * structural but do not route the parent.
  *
  * Caveats:
- * - invariant-check will flag bucket epics (Bugfix inbox, Collab gaps) as stranded-epic
+ * - invariant-check will flag bucket epics (Bugfix inbox) as stranded-epic
  *   because they have no [LAND] leaf — this is pre-existing bucket behavior (same as Inbox).
  * - Actioned marker is permanent (MVP). Re-arming when count grows after the prior todo is
  *   resolved is a future enhancement, not built here.
@@ -25,53 +25,33 @@ import { isEpic, stripLabel } from './todo-kind.ts';
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_FILE_CAP = 5;
 
-const BUGFIX_INBOX_TITLE = 'Bugfix inbox';
-const COLLAB_GAPS_TITLE  = 'Collab gaps';
-
-interface LayerRoute { epicTitle: string; category: 'bug' | 'gap'; }
+interface LayerRoute { category: 'bug' | 'gap'; }
 const LAYER_ROUTE: Record<FrictionLayer, LayerRoute> = {
-  domain:        { epicTitle: BUGFIX_INBOX_TITLE, category: 'bug' },
-  orchestration: { epicTitle: COLLAB_GAPS_TITLE,  category: 'gap' },
-  operational:   { epicTitle: COLLAB_GAPS_TITLE,  category: 'gap' },
+  domain:        { category: 'bug' },
+  orchestration: { category: 'gap' },
+  operational:   { category: 'gap' },
 };
 
 export interface FrictionTriageDeps {
   trends?: (project: string) => FrictionTrends;
   listTodos?: (project: string) => Todo[];
   createTodo?: (project: string, input: Parameters<typeof createTodo>[1]) => Promise<Todo>;
+  ensureBucket?: (project: string, type: 'inbox' | 'bugfix') => Promise<string>;
   isActioned?: (project: string, layer: FrictionLayer, reason: string) => boolean;
   markActioned?: (project: string, layer: FrictionLayer, reason: string, todoId: string) => Promise<void>;
   threshold?: number;
   cap?: number;
 }
 
-async function findOrCreateEpic(
-  project: string,
-  title: string,
-  listTodosFn: (p: string) => Todo[],
-  createTodoFn: (p: string, i: Parameters<typeof createTodo>[1]) => Promise<Todo>,
-): Promise<Todo> {
-  const want = stripLabel(title);
-  const existing = listTodosFn(project).find(
-    (t) => isEpic(t) && stripLabel(t.title) === want,
-  );
-  if (existing) return existing;
-  return createTodoFn(project, {
-    ownerSession: '__steward_friction_triage__',
-    title,
-    kind: 'epic',
-    status: 'planned',
-  });
-}
-
 export async function runFrictionTriagePass(project: string, deps: FrictionTriageDeps = {}): Promise<void> {
-  const trendsFn    = deps.trends      ?? ((p: string) => frictionTrends(p));
-  const listTodosFn = deps.listTodos   ?? ((p: string) => listTodos(p));
-  const createTodoFn= deps.createTodo  ?? createTodo;
-  const isActioned  = deps.isActioned  ?? isReasonActioned;
-  const markActioned= deps.markActioned ?? markReasonActioned;
-  const threshold   = deps.threshold   ?? (Number(getConfig('FRICTION_TRIAGE_THRESHOLD', '') || 0) || DEFAULT_THRESHOLD);
-  const cap         = deps.cap         ?? DEFAULT_FILE_CAP;
+  const trendsFn      = deps.trends      ?? ((p: string) => frictionTrends(p));
+  const listTodosFn   = deps.listTodos   ?? ((p: string) => listTodos(p));
+  const createTodoFn  = deps.createTodo  ?? createTodo;
+  const ensureBucketFn= deps.ensureBucket ?? ensureBucket;
+  const isActioned    = deps.isActioned  ?? isReasonActioned;
+  const markActioned  = deps.markActioned ?? markReasonActioned;
+  const threshold     = deps.threshold   ?? (Number(getConfig('FRICTION_TRIAGE_THRESHOLD', '') || 0) || DEFAULT_THRESHOLD);
+  const cap           = deps.cap         ?? DEFAULT_FILE_CAP;
 
   const candidates = trendsFn(project).recurring
     .filter((r) => r.count >= threshold)
@@ -88,12 +68,13 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
   for (const r of batch) {
     try {
       const route = LAYER_ROUTE[r.layer];
-      const epic  = await findOrCreateEpic(project, route.epicTitle, listTodosFn, createTodoFn);
+      const epicId = await ensureBucketFn(project, 'bugfix');
       // Priority: 1 (high) when count ≥ double threshold, 2 (medium) otherwise.
       const priority: 1 | 2 = r.count >= threshold * 2 ? 1 : 2;
+      const triageTag = r.layer;
       const filed = await createTodoFn(project, {
         ownerSession: '__steward_friction_triage__',
-        parentId: epic.id,
+        parentId: epicId,
         title: `[${route.category}] Recurring friction: ${r.retryReason} (${r.layer}, ×${r.count})`,
         description:
           `Auto-filed by DF3 friction triage.\n\n` +
@@ -103,6 +84,7 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
           `Filed 'planned' — a human approves it to 'ready' (planner-promotes-ready).`,
         status: 'planned',
         priority,
+        triageTag,
       });
       await markActioned(project, r.layer, r.retryReason, filed.id);
     } catch (err) {
