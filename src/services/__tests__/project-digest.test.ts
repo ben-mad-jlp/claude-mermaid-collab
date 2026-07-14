@@ -10,6 +10,7 @@ import {
   computeSkeletonHash,
   regenerateProjectDigest,
   boundSynthesis,
+  topLevelDirs,
   DigestSynthesis,
 } from '../project-digest';
 
@@ -210,6 +211,65 @@ describe('project-digest generator', () => {
       expect(bounded.seams.length).toBeLessThanOrEqual(8);
       for (const seam of bounded.seams) {
         expect(seam.length).toBeLessThanOrEqual(160);
+      }
+    });
+  });
+
+  describe('topLevelDirs — excludes top-level files', () => {
+    function initRepo(dir: string, claudeMd: string) {
+      const git = (args: string[]) =>
+        Bun.spawnSync(['git', ...args], {
+          cwd: dir,
+          stdout: 'ignore',
+          stderr: 'ignore',
+        });
+      git(['init']);
+      git(['config', 'user.email', 't@t']);
+      git(['config', 'user.name', 't']);
+      writeFileSync(join(dir, 'CLAUDE.md'), claudeMd);
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'services'), 'export const a = 1;');
+      git(['add', '-A']);
+      git(['commit', '-m', 'init']);
+    }
+
+    test('includes directories from git ls-files but excludes top-level files', () => {
+      const tmpDir = mkdtempSync(join(os.tmpdir(), 'digest-topdirs-'));
+      try {
+        initRepo(tmpDir, '# CLAUDE.md');
+        const dirs = topLevelDirs(tmpDir);
+
+        expect(dirs).toContain('src');
+        expect(dirs).not.toContain('CLAUDE.md');
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test('excludes top-level package.json', () => {
+      const tmpDir = mkdtempSync(join(os.tmpdir(), 'digest-topdirs-'));
+      try {
+        const git = (args: string[]) =>
+          Bun.spawnSync(['git', ...args], {
+            cwd: tmpDir,
+            stdout: 'ignore',
+            stderr: 'ignore',
+          });
+        git(['init']);
+        git(['config', 'user.email', 't@t']);
+        git(['config', 'user.name', 't']);
+        writeFileSync(join(tmpDir, 'package.json'), '{}');
+        mkdirSync(join(tmpDir, 'src'), { recursive: true });
+        writeFileSync(join(tmpDir, 'src', 'index.ts'), 'export const a = 1;');
+        git(['add', '-A']);
+        git(['commit', '-m', 'init']);
+
+        const dirs = topLevelDirs(tmpDir);
+
+        expect(dirs).toContain('src');
+        expect(dirs).not.toContain('package.json');
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
       }
     });
   });

@@ -80,8 +80,9 @@ export function topLevelDirs(project: string): string[] {
   const dirs = new Set<string>();
   if (result.code === 0 && result.stdout) {
     for (const filePath of result.stdout.split('\n')) {
-      const first = filePath.trim().split('/')[0];
-      if (first) dirs.add(first);
+      const trimmed = filePath.trim();
+      const slash = trimmed.indexOf('/');
+      if (slash > 0) dirs.add(trimmed.slice(0, slash));
     }
   }
   HOT_DIRS.forEach((d) => dirs.add(d));
