@@ -11,6 +11,7 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(path.join(os.tmpdir(), 'mc-bp1-
 import { bp1FilterStrandedFoundations, getWorktreeManager, classifyClaimSuppression } from '../coordinator-live';
 import { createTodo, completeTodo, getTodo } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
+import { upsertMission } from '../mission-store';
 
 /**
  * BP1 — a ready dependent must NOT be claimed while its foundation is
@@ -87,13 +88,46 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     expect(admittedPostLand.map((t) => t.id)).toContain(dependent.id);
   });
 
-  it('TRUE STRAND: at auto, a foundation reachable from NEITHER the epic branch NOR trunk is DROPPED', async () => {
+  it('NON-MISSION epic KEEPS its stranded foundation regardless of level (A1 per-epic-authority pin)', async () => {
+    // Under A1 per-epic-authority: a non-mission epic has NO authority (epicAutoLandAuthority === false),
+    // so bp1FilterStrandedFoundations early-returns and KEEPS the dependent even though the
+    // foundation is genuinely stranded. This pins the A1 early-return at coordinator-live.ts:912.
+    setOrchestratorLevel(repo, 'auto'); // level is now irrelevant — no mission → no authority
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 non-mission strand', kind: 'epic', status: 'planned' });
+    const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'phantom foundation', parentId: epic.id, status: 'planned' });
+    const dependent = await createTodo(repo, { allowOrphan: true,
+      ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
+    });
+    await completeTodo(repo, foundation.id, 'accepted');
+
+    // Epic branch EXISTS but does NOT contain the foundation commit (forked off master, empty).
+    const epicBranch = getWorktreeManager(repo).epicBranchName(epic.id);
+    await runGit(repo, ['branch', epicBranch, 'master']);
+    // The foundation's commit lives on an unrelated lane branch — reachable from neither
+    // the epic branch nor master.
+    const laneWt = await fs.mkdtemp(path.join(os.tmpdir(), 'mc-bp1-nm-lanewt-'));
+    await runGit(repo, ['worktree', 'add', '-q', '-b', `collab/leaf-exec-${foundation.id.slice(0, 8)}`, laneWt, 'master']);
+    await fs.writeFile(path.join(laneWt, 'phantom.txt'), 'P\n');
+    await runGit(laneWt, ['add', '-A']);
+    await runGit(laneWt, ['commit', '-q', '-m', `phantom foundation\n\nCollab-Todo: ${foundation.id}`]);
+    await runGit(repo, ['worktree', 'remove', '--force', laneWt]);
+
+    const dep = getTodo(repo, dependent.id)!;
+    const out = await bp1FilterStrandedFoundations(repo, [dep]);
+    expect(out.map((t) => t.id)).toContain(dependent.id); // non-mission epic → authority FALSE → early-return keeps it
+  });
+
+  it('TRUE STRAND (mission-armed epic): a foundation reachable from NEITHER the epic branch NOR trunk is DROPPED', async () => {
     // The genuine phantom-base case the filter exists for: the foundation's commit landed
     // out-of-band (e.g. on a lane branch) carrying its trailer, but never reached the epic
     // accumulation branch OR master. The dependent's lane (forked from the epic-branch tip)
     // would NOT contain it → building on it is unsafe → drop it this tick.
+    // Re-cast under A1 per-epic-authority: the epic is MISSION-ARMED so
+    // epicAutoLandAuthority returns TRUE and the drop path fires.
     setOrchestratorLevel(repo, 'auto');
-    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 true-strand', kind: 'epic', status: 'planned' });
+    const mission = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[MISSION] converge', kind: 'mission', status: 'planned' });
+    upsertMission(repo, mission.id); // active (default) + non-terminal → live mission epic
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 true-strand', kind: 'epic', status: 'planned', parentId: mission.id });
     const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'phantom foundation', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
       ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
@@ -114,7 +148,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
 
     const dep = getTodo(repo, dependent.id)!;
     const out = await bp1FilterStrandedFoundations(repo, [dep]);
-    expect(out.map((t) => t.id)).not.toContain(dependent.id); // both arms false → dropped
+    expect(out.map((t) => t.id)).not.toContain(dependent.id); // mission-armed → authority TRUE → dropped
   });
 
   it('BELOW DRIVE (build): does NOT block — a stranded-vs-integration foundation is the NORMAL on-epic-branch state', async () => {
