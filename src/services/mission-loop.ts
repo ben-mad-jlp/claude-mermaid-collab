@@ -23,19 +23,21 @@ import { nudgeSession } from './claude-launch.ts';
 import { fireStamp } from './nudge-stamp.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
+export const MISSION_NUDGE_ESCALATION_MS = 2 * 60 * 60 * 1000; // 2 hour escalation ceiling
 
 export type MissionLoopAction =
   | { kind: 'none'; reason: string }
-  | { kind: 'nudge'; session: string; message: string; reason: string };
+  | { kind: 'nudge'; session: string; message: string; reason: string; key: string };
 
 export interface MissionLoopStepInput {
-  mission: { todoId: string; status: MissionStatus; lastNudgeAt: number | null; title: string; active: boolean };
+  mission: { todoId: string; status: MissionStatus; lastNudgeAt: number | null; lastNudgeKey: string | null; title: string; active: boolean };
   rollup: { capability: { met: number; total: number } };
   ownerSession: string | null;
   /** Is the steward session idle (safe to nudge without interrupting active work)? */
   idle: boolean;
   now: number;
   cooldownMs: number;
+  escalationMs: number;
 }
 
 function goalOf(title: string): string {
@@ -73,13 +75,13 @@ function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'],
  *  - terminal (converged or abandoned) → none.
  *  - building / over-budget → none (wait or address the budget).
  *  - blocked: nudge ONCE (blocked-silenced if already nudged).
- *  - needs-discovery / needs-verify: nudge (debounced).
+ *  - needs-discovery / needs-verify: nudge (debounced by fingerprint + cooldown + escalation).
  *
  * Driving is gated by the mission's `active` flag (one active mission per session) —
  * NOT a per-project mode. The orchestrator only calls the pass for WATCHED projects.
  */
 export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAction {
-  const { mission, rollup, ownerSession, idle, now, cooldownMs } = input;
+  const { mission, rollup, ownerSession, idle, now, cooldownMs, escalationMs } = input;
   if (!mission.active) return { kind: 'none', reason: 'inactive' };
   if (mission.status === 'converged') return { kind: 'none', reason: 'converged' };
   if (mission.status === 'abandoned') return { kind: 'none', reason: 'abandoned' };
@@ -97,20 +99,42 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
       session: ownerSession,
       message: nudgeMessage(mission.status, mission, rollup, now),
       reason: 'nudge:blocked',
+      key: `${mission.status}:${rollup.capability.met}/${rollup.capability.total}`,
     };
   }
 
-  // needs-discovery / needs-verify: nudge if past cooldown
+  // needs-discovery / needs-verify: nudge if fingerprint changed or escalation ceiling reached
   if (mission.status === 'needs-discovery' || mission.status === 'needs-verify') {
-    if (mission.lastNudgeAt != null && now - mission.lastNudgeAt < cooldownMs) {
-      return { kind: 'none', reason: 'nudge-cooldown' };
+    const key = `${mission.status}:${rollup.capability.met}/${rollup.capability.total}`;
+
+    // First nudge (no prior nudge).
+    if (mission.lastNudgeAt == null) {
+      return {
+        kind: 'nudge',
+        session: ownerSession,
+        message: nudgeMessage(mission.status, mission, rollup, now),
+        reason: `nudge:${mission.status}`,
+        key,
+      };
     }
-    return {
-      kind: 'nudge',
-      session: ownerSession,
-      message: nudgeMessage(mission.status, mission, rollup, now),
-      reason: `nudge:${mission.status}`,
-    };
+
+    const changed = mission.lastNudgeKey !== key;
+    const pastCooldown = now - mission.lastNudgeAt >= cooldownMs;
+    const escalated = now - mission.lastNudgeAt >= escalationMs;
+
+    // Nudge only if past cooldown AND (state changed OR escalation ceiling hit).
+    if (pastCooldown && (changed || escalated)) {
+      return {
+        kind: 'nudge',
+        session: ownerSession,
+        message: nudgeMessage(mission.status, mission, rollup, now),
+        reason: `nudge:${mission.status}`,
+        key,
+      };
+    }
+
+    // Silence unchanged within cooldown and escalation ceiling.
+    return { kind: 'none', reason: changed ? 'nudge-cooldown' : 'nudge-fingerprint-unchanged' };
   }
 
   return { kind: 'none', reason: `no-action:${mission.status}` };
@@ -120,9 +144,10 @@ export interface MissionLoopDeps {
   list?: (project: string) => MissionSummary[];
   isIdle?: (project: string, session: string) => boolean;
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
-  stampNudge?: (project: string, todoId: string) => void;
+  stampNudge?: (project: string, todoId: string, key?: string) => void;
   now?: number;
   cooldownMs?: number;
+  escalationMs?: number;
 }
 
 export interface MissionLoopResult {
@@ -143,6 +168,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
   const stampNudge = deps.stampNudge ?? stampMissionNudge;
   const now = deps.now ?? Date.now();
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;
+  const escalationMs = deps.escalationMs ?? MISSION_NUDGE_ESCALATION_MS;
 
   const result: MissionLoopResult = { project, nudged: [], skipped: 0 };
 
@@ -154,20 +180,21 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
     const action = planMissionLoopStep({
       mission: {
         todoId: m.node.id, status: m.mission.status ?? 'needs-discovery',
-        lastNudgeAt: m.mission.lastNudgeAt ?? null, title: m.node.title,
-        active: m.mission.active !== false,
+        lastNudgeAt: m.mission.lastNudgeAt ?? null, lastNudgeKey: m.mission.lastNudgeKey ?? null,
+        title: m.node.title, active: m.mission.active !== false,
       },
       rollup: { capability: m.rollup.capability },
       ownerSession: session,
       idle: session ? isIdle(project, session) : false,
       now,
       cooldownMs,
+      escalationMs,
     });
 
     try {
       if (action.kind === 'nudge') {
         await nudge(project, action.session, action.message);
-        stampNudge(project, m.node.id);
+        stampNudge(project, m.node.id, action.key);
         result.nudged.push(m.node.id);
       } else {
         result.skipped++;

@@ -29,9 +29,11 @@ import { isEpic, isMission, stripLabel } from './todo-kind.ts';
 export const INBOX_EPIC_TITLE = 'Inbox';
 
 /** Identity check on the named singleton — NOT a role decision (role comes from `kind`).
- *  Tolerates the legacy prefixed literal via the render-only `stripLabel`. */
+ *  Tolerates the legacy prefixed literal via `stripLabel`, and PREFIX-matches so a real
+ *  suffixed row ("Inbox — …") still resolves to the singleton; mirrors
+ *  land-authority.ts:90-92. Do NOT revert to exact match. */
 export const isInboxEpicTitle = (title: string | null | undefined): boolean =>
-  stripLabel(title) === INBOX_EPIC_TITLE;
+  stripLabel(title).toLowerCase().startsWith(INBOX_EPIC_TITLE.toLowerCase());
 
 /** The role a work-graph node plays. This is the stored `kind` column's domain —
  *  the type-only pivot that lets `todo-kind.ts` import `TodoKind` from this module

@@ -42,16 +42,18 @@ const pausedLeaves = new Map<string, PausedEntry>(); // key = `${project}:${todo
 const key = (project: string, todoId: string): string => `${project}:${todoId}`;
 
 /**
- * Trip the breaker. Sets `openUntil` to `capReset` if the CLI surfaced a real reset
- * time (UNCONFIRMED — see node-invoker CAP_RESET stub), else to `now + backoff`
- * where backoff is exponential in `consecutiveTrips`, capped at MAX_BACKOFF_MS.
- * Always takes the LATER of the current and new `openUntil` (never shortens a hold).
+ * Trip the breaker. Sets `openUntil` to `now + bounded` where `bounded` is the real
+ * reset time offset (UNCONFIRMED — see node-invoker CAP_RESET stub) clamped to
+ * MAX_BACKOFF_MS as a re-probe ceiling; else to `now + backoff` where backoff is
+ * exponential in `consecutiveTrips`, also capped at MAX_BACKOFF_MS. Always takes
+ * the LATER of the current and new `openUntil` (never shortens a hold).
  */
 export function tripBreaker(capReset?: number, now: number = Date.now()): void {
   consecutiveTrips += 1;
   if (firstTrippedAt === 0) firstTrippedAt = now;
   if (capReset && capReset > now) {
-    openUntil = Math.max(openUntil, capReset);
+    const bounded = Math.min(capReset - now, MAX_BACKOFF_MS);
+    openUntil = Math.max(openUntil, now + bounded);
   } else {
     const backoff = Math.min(
       BASE_BACKOFF_MS * 2 ** (consecutiveTrips - 1),

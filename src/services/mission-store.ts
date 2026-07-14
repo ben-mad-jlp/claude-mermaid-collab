@@ -49,6 +49,9 @@ export interface MissionRow {
   /** Last time the mission-loop pass nudged the steward for this mission (ms epoch),
    *  or null — the nudge debounce so the pass doesn't spam every tick. */
   lastNudgeAt: number | null;
+  /** Fingerprint (status:met/total) of the last nudge, or null. Used to suppress
+   *  re-nudges when the mission state hasn't changed materially. */
+  lastNudgeKey: string | null;
   /** Whether this is the ACTIVE mission for its owning session. A steward drives ONE
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
@@ -116,6 +119,7 @@ CREATE TABLE IF NOT EXISTS mission (
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
   lastNudgeAt INTEGER,
+  lastNudgeKey TEXT,
   active INTEGER NOT NULL DEFAULT 1,
   abandonedAt INTEGER,
   budgetUsd REAL
@@ -155,9 +159,9 @@ function migrateDropPhaseMachine(db: Database): void {
   db.exec('BEGIN');
   db.exec(`CREATE TABLE mission_new (
     todoId TEXT PRIMARY KEY, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
-    lastNudgeAt INTEGER, active INTEGER NOT NULL DEFAULT 1, abandonedAt INTEGER, budgetUsd REAL);`);
-  db.exec(`INSERT INTO mission_new (todoId, createdAt, updatedAt, lastNudgeAt, active, abandonedAt, budgetUsd)
-           SELECT todoId, createdAt, updatedAt, lastNudgeAt, active, abandonedAt, budgetUsd FROM mission;`);
+    lastNudgeAt INTEGER, lastNudgeKey TEXT, active INTEGER NOT NULL DEFAULT 1, abandonedAt INTEGER, budgetUsd REAL);`);
+  db.exec(`INSERT INTO mission_new (todoId, createdAt, updatedAt, lastNudgeAt, lastNudgeKey, active, abandonedAt, budgetUsd)
+           SELECT todoId, createdAt, updatedAt, lastNudgeAt, NULL, active, abandonedAt, budgetUsd FROM mission;`);
   db.exec('DROP TABLE mission');
   db.exec('ALTER TABLE mission_new RENAME TO mission');
   db.exec('COMMIT');
@@ -176,6 +180,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'verifiedBy', 'verifiedBy TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'lastNudgeKey', 'lastNudgeKey TEXT');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
@@ -207,6 +212,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     createdAt: row.createdAt as number,
     updatedAt: row.updatedAt as number,
     lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
+    lastNudgeKey: (row.lastNudgeKey as string | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
@@ -214,10 +220,10 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
 }
 
 /** Stamp that the mission-loop pass nudged the steward (the nudge debounce). */
-export function stampMissionNudge(project: string, todoId: string): void {
+export function stampMissionNudge(project: string, todoId: string, key?: string): void {
   openDb(project)
-    .prepare('UPDATE mission SET lastNudgeAt = ?, updatedAt = ? WHERE todoId = ?')
-    .run(nowMs(), nowMs(), todoId);
+    .prepare('UPDATE mission SET lastNudgeAt = ?, lastNudgeKey = ?, updatedAt = ? WHERE todoId = ?')
+    .run(nowMs(), key ?? null, nowMs(), todoId);
 }
 
 /** Read a mission's control state, or undefined if the node has none yet. */

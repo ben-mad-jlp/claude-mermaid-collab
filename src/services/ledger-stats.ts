@@ -117,7 +117,7 @@ function safeParseCommands(json: string | null | undefined): ReturnType<typeof i
 
 /** Inter-row gap (ms) that marks a re-run boundary. Matches the ad-hoc watcher
  *  heuristic seen in L4/L6 monitoring. */
-const RUN_GAP_MS = 120_000;
+export const RUN_GAP_MS = 120_000;
 
 /**
  * Given a leaf's rows in ASCENDING chronological order (ts,id), return only the
@@ -126,13 +126,16 @@ const RUN_GAP_MS = 120_000;
  * terminal), or (b) an inter-row gap >= RUN_GAP_MS. The run start is the index just
  * after the LAST such boundary; if none, all rows are one run.
  */
-function latestRunRows<T extends { ts: number; nodeKind?: string | null }>(asc: T[]): T[] {
+export function latestRunRows<T extends { ts: number; durationMs?: number | null; nodeKind?: string | null }>(asc: T[]): T[] {
   if (asc.length <= 1) return asc;
   let start = 0;
   for (let i = 1; i < asc.length; i++) {
     const prev = asc[i - 1];
-    const gap = asc[i].ts - prev.ts;
-    if (isOutcomeMarker(prev) || gap >= RUN_GAP_MS) start = i;
+    // Idle gap = wall-clock gap MINUS the current node's own duration. `ts` is
+    // stamped at node COMPLETION, so a long-running node's raw gap ≈ its own
+    // durationMs and must NOT be read as a re-run boundary (bug 890578bc).
+    const idleGap = asc[i].ts - (asc[i].durationMs ?? 0) - prev.ts;
+    if (isOutcomeMarker(prev) || idleGap >= RUN_GAP_MS) start = i;
   }
   return asc.slice(start);
 }

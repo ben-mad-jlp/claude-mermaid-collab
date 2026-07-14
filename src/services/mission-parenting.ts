@@ -16,9 +16,13 @@ import { isEpic, isMission, stripLabel, kindOf, type KindBearing } from './todo-
 export const BUGFIX_INBOX_EPIC_TITLE = 'Bugfix inbox';
 export const BUCKET_EPIC_TITLES: readonly string[] = [INBOX_EPIC_TITLE, BUGFIX_INBOX_EPIC_TITLE];
 
-/** Identity on the named singleton (stripLabel-tolerant, case-insensitive). Not a role decision. */
-export const isBucketEpicTitle = (title: string | null | undefined): boolean =>
-  BUCKET_EPIC_TITLES.some((b) => stripLabel(title ?? '').toLowerCase() === b.toLowerCase());
+/** Identity on the named singleton (stripLabel-tolerant, case-insensitive, PREFIX-match
+ *  so a real suffixed bucket row — "Bugfix inbox — …" — still matches; mirrors
+ *  land-authority.ts:90-92. Do NOT revert to exact match. Not a role decision. */
+export const isBucketEpicTitle = (title: string | null | undefined): boolean => {
+  const norm = stripLabel(title ?? '').toLowerCase();
+  return BUCKET_EPIC_TITLES.some((b) => norm.startsWith(b.toLowerCase()));
+};
 
 /** kind:'epic' AND isBucket=true — bucket epics are roots, not mission children. */
 export const isBucketEpic = (t: KindBearing): boolean => isEpic(t) && !!t.isBucket;

@@ -6,12 +6,13 @@ const NOW = 1_000_000_000_000;
 
 function inp(over: Partial<MissionLoopStepInput> = {}): MissionLoopStepInput {
   return {
-    mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, title: '[MISSION] ship X', active: true },
+    mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, lastNudgeKey: null, title: '[MISSION] ship X', active: true },
     rollup: { capability: { met: 0, total: 2 } },
     ownerSession: 'design',
     idle: true,
     now: NOW,
     cooldownMs: 15 * 60 * 1000,
+    escalationMs: 2 * 60 * 60 * 1000,
     ...over,
   };
 }
@@ -90,10 +91,12 @@ test('busy session → none (never interrupt active work)', () => {
   expect(planMissionLoopStep(inp({ idle: false })).kind).toBe('none');
 });
 
-test('within nudge cooldown → none (debounce)', () => {
-  const a = planMissionLoopStep(inp({ mission: { ...inp().mission, lastNudgeAt: NOW - 60_000 } }));
-  expect(a.kind).toBe('none');
-  expect((a as { reason: string }).reason).toBe('nudge-cooldown');
+test('first nudge (no prior lastNudgeAt) → nudge', () => {
+  const a = planMissionLoopStep(inp({ mission: { ...inp().mission, lastNudgeAt: null, lastNudgeKey: null } }));
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    expect(a.key).toBe('needs-discovery:0/2');
+  }
 });
 
 test('past cooldown → nudge again', () => {
@@ -111,7 +114,7 @@ function summary(over: Record<string, unknown> = {}) {
   return {
     node: { id: 'm1', title: '[MISSION] ship X', status: 'planned' },
     ownerSession: 'design', assigneeSession: 'design',
-    mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, active: true },
+    mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, lastNudgeKey: null, active: true },
     rollup: { converged: false, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 2 } },
     criteria: [], epics: [], ...over,
   } as never;
@@ -141,9 +144,109 @@ test('runner: nudges an idle needs-discovery mission + stamps the debounce', asy
 
 test('runner: skips a building mission', async () => {
   const r = await runMissionLoopPass('/p', {
-    list: () => [summary({ mission: { todoId: 'm1', status: 'building', lastNudgeAt: null, active: true } })],
+    list: () => [summary({ mission: { todoId: 'm1', status: 'building', lastNudgeAt: null, lastNudgeKey: null, active: true } })],
     isIdle: () => true, nudge: async () => 'sent',
   });
   expect(r.nudged).toEqual([]);
   expect(r.skipped).toBe(1);
+});
+
+// ---- fingerprint-gated nudge tests ----
+
+test('unchanged fingerprint within ceiling → nudge-fingerprint-unchanged', () => {
+  const key = 'needs-verify:2/2';
+  const a = planMissionLoopStep(inp({
+    mission: {
+      ...inp().mission,
+      status: 'needs-verify',
+      lastNudgeAt: NOW - 30 * 60 * 1000, // 30 min ago (within cooldown)
+      lastNudgeKey: key,
+    },
+    rollup: { capability: { met: 2, total: 2 } },
+  }));
+  expect(a.kind).toBe('none');
+  expect((a as { reason: string }).reason).toBe('nudge-fingerprint-unchanged');
+});
+
+test('changed fingerprint (met/total) within cooldown → nudge-cooldown', () => {
+  const oldKey = 'needs-discovery:1/3';
+  const a = planMissionLoopStep(inp({
+    mission: {
+      ...inp().mission,
+      status: 'needs-discovery',
+      lastNudgeAt: NOW - 60 * 1000, // 1 min ago (within 15-min cooldown)
+      lastNudgeKey: oldKey,
+    },
+    rollup: { capability: { met: 2, total: 3 } }, // capability changed
+  }));
+  expect(a.kind).toBe('none');
+  expect((a as { reason: string }).reason).toBe('nudge-cooldown');
+});
+
+test('changed fingerprint past cooldown → re-nudge', () => {
+  const oldKey = 'needs-discovery:1/3';
+  const a = planMissionLoopStep(inp({
+    mission: {
+      ...inp().mission,
+      status: 'needs-discovery',
+      lastNudgeAt: NOW - 20 * 60 * 1000, // 20 min ago (past 15-min cooldown)
+      lastNudgeKey: oldKey,
+    },
+    rollup: { capability: { met: 2, total: 3 } }, // capability changed
+  }));
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    expect(a.key).toBe('needs-discovery:2/3');
+    expect(a.message).toContain('NOT converged');
+  }
+});
+
+test('status transition within cooldown → nudge-cooldown', () => {
+  const oldKey = 'needs-discovery:0/2';
+  const a = planMissionLoopStep(inp({
+    mission: {
+      ...inp().mission,
+      status: 'needs-verify',
+      lastNudgeAt: NOW - 60 * 1000, // 1 min ago (within cooldown)
+      lastNudgeKey: oldKey,
+    },
+    rollup: { capability: { met: 0, total: 2 } },
+  }));
+  expect(a.kind).toBe('none');
+  expect((a as { reason: string }).reason).toBe('nudge-cooldown');
+});
+
+test('past escalation ceiling unchanged → re-nudge', () => {
+  const key = 'needs-discovery:1/3';
+  const escalationMs = 2 * 60 * 60 * 1000;
+  const a = planMissionLoopStep(inp({
+    mission: {
+      ...inp().mission,
+      status: 'needs-discovery',
+      lastNudgeAt: NOW - (escalationMs + 10 * 60 * 1000), // past escalation ceiling
+      lastNudgeKey: key,
+    },
+    rollup: { capability: { met: 1, total: 3 } },
+    escalationMs,
+  }));
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    expect(a.key).toBe('needs-discovery:1/3');
+  }
+});
+
+
+test('runner: stamps the fingerprint on nudge', async () => {
+  const stampCalls: Array<{ todoId: string; key?: string }> = [];
+  const r = await runMissionLoopPass('/p', {
+    list: () => [summary()],
+    isIdle: () => true,
+    nudge: async () => 'sent',
+    stampNudge: (_p, todoId, key) => { stampCalls.push({ todoId, key }); },
+    now: NOW,
+  });
+  expect(r.nudged).toEqual(['m1']);
+  expect(stampCalls).toHaveLength(1);
+  expect(stampCalls[0].todoId).toBe('m1');
+  expect(stampCalls[0].key).toBe('needs-discovery:0/2');
 });
