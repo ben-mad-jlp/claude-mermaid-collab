@@ -28,7 +28,7 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
   const [showCompleted, setShowCompleted] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'goal' | 'build' | 'missions'>('goal');
+  const [activeTab, setActiveTab] = useState<'goal' | 'build'>('goal');
 
   const completedCount = missions.filter(isMissionCompleted).length;
   // Active mission first, then the rest; completed hidden unless toggled.
@@ -88,44 +88,40 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
             tabs={[
               { key: 'goal', label: 'Goal', testid: 'mission-tab-goal' },
               { key: 'build', label: 'Build', testid: 'mission-tab-build' },
-              { key: 'missions', label: 'Missions', testid: 'mission-tab-missions' },
             ]}
             active={activeTab}
-            onChange={(key) => setActiveTab(key as 'goal' | 'build' | 'missions')}
+            onChange={(key) => setActiveTab(key as 'goal' | 'build')}
           />
-          {activeTab === 'missions' ? (
-            <div data-testid="mission-switcher" className="flex flex-col gap-1">
-              {shown.map((m) => {
-                const isSel = m.node?.id === selected.node?.id;
-                return (
+          <MissionDetail
+            m={selected}
+            serverId={serverId}
+            project={project}
+            tab={activeTab === 'build' ? 'build' : 'goals'}
+            onChanged={(next: MissionSummary[]) => setMissions(next)}
+            onDropped={() => setSelectedId(null)}
+          />
+          {selected && shown.filter((m) => m.node?.id !== selected.node?.id).length > 0 && (
+            <div data-testid="mission-other-section" className="mt-auto pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+              <span className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                Other missions
+              </span>
+              {shown
+                .filter((m) => m.node?.id !== selected.node?.id)
+                .map((m) => (
                   <button
                     key={m.node?.id}
                     type="button"
                     data-testid="mission-switcher-row"
-                    onClick={() => { setSelectedId(m.node?.id ?? null); setActiveTab('goal'); }}
-                    className={`flex items-center justify-between gap-2 rounded border px-2 py-1 text-left transition-colors ${
-                      isSel
-                        ? 'border-info-300 dark:border-info-700 bg-info-50 dark:bg-info-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'
-                    }`}
+                    onClick={() => setSelectedId(m.node?.id ?? null)}
+                    className="flex items-center justify-between gap-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60 px-2 py-1 text-left transition-colors"
                   >
                     <span className="text-3xs font-medium text-gray-700 dark:text-gray-200 truncate">
                       {stripKindPrefix(m.node?.title ?? 'Mission')}
                     </span>
                     <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
                   </button>
-                );
-              })}
+                ))}
             </div>
-          ) : (
-            <MissionDetail
-              m={selected}
-              serverId={serverId}
-              project={project}
-              tab={activeTab === 'build' ? 'build' : 'goals'}
-              onChanged={(next: MissionSummary[]) => setMissions(next)}
-              onDropped={() => { setSelectedId(null); setActiveTab('missions'); }}
-            />
           )}
         </>
       ) : null}
