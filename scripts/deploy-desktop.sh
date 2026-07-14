@@ -50,6 +50,56 @@ die() { printf '\033[1;31m[deploy] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 port_pid() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1; }
 app_running() { pgrep -f "$APP_PATH/Contents/MacOS" >/dev/null 2>&1; }
 
+# ── deploy-outcome status file (deploy sidecar-death fix) ─────────────────────
+# The server (deploy-service.ts readSelfDeployStatus) reads this to turn a SILENT
+# cosmetic deploy into a detectable one. Same default dir as deploy-service, with
+# the same MERMAID_DEPLOY_LOG_DIR override so both halves agree.
+STATUS_DIR="${MERMAID_DEPLOY_LOG_DIR:-$HOME/.mermaid-collab/deploy-logs}"
+STATUS_FILE="$STATUS_DIR/self-deploy-status.json"
+mkdir -p "$STATUS_DIR" 2>/dev/null || true
+ESCALATED=0   # set to 1 when a "successful" hot-swap had to fall back to full relaunch
+# write_status <ok:true|false> <mode> <servedPid> <shadow:true|false> <message>
+write_status() {
+  local ok="$1" mode="$2" spid="$3" shadow="$4" msg="$5"
+  local pidfield="null"; [ -n "$spid" ] && pidfield="$spid"
+  printf '{"phase":"done","ok":%s,"mode":"%s","servedPid":%s,"escalated":%s,"shadow":%s,"message":%s,"ts":%s}\n' \
+    "$ok" "$mode" "$pidfield" \
+    "$([ "$ESCALATED" = 1 ] && echo true || echo false)" \
+    "$shadow" \
+    "$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/')" \
+    "$(( $(date +%s) * 1000 ))" \
+    > "$STATUS_FILE" 2>/dev/null || true
+}
+
+# served_owner_ok: true iff the process LISTENING on :$PORT is the deployed app's
+# own sidecar (Contents/Resources/mc-server) and NOT a stray source shadow
+# (bun run src/server.ts from the plugin cache). A shadow answering 200 is exactly
+# the Mode-C cosmetic deploy — the new binary never took the port.
+served_owner_ok() {
+  local pid cmd
+  pid="$(port_pid)"
+  [ -z "$pid" ] && return 1
+  cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$cmd" in
+    *"src/server.ts"*) return 1 ;;              # a source-run shadow — not the deployed binary
+    *"$APP_PATH/Contents/"*) return 0 ;;        # the installed app's own sidecar
+    *"Resources/mc-server"*) return 0 ;;        # compiled sidecar (path may be relativized)
+    *) return 1 ;;                              # unknown owner — treat as not-ours (fail loud)
+  esac
+}
+
+# main_alive: true iff the Electron MAIN event loop answers /main/ping promptly.
+# A healthy sidecar on :$PORT with an UNRESPONSIVE main is the Mode-B cosmetic
+# deploy (stuck app window). Only meaningful in hot-swap mode (control URL present).
+main_alive() {
+  [ -n "${MC_DESKTOP_CONTROL_URL:-}" ] && [ -n "${MC_DESKTOP_CONTROL_TOKEN:-}" ] || return 0
+  local code
+  code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' \
+    -H "authorization: Bearer $MC_DESKTOP_CONTROL_TOKEN" \
+    "$MC_DESKTOP_CONTROL_URL/main/ping" 2>/dev/null || echo 000)"
+  [ "$code" = "200" ]
+}
+
 # Settle/kill loop: a detached/source-spawned sidecar (bun run src/server.ts from
 # the plugin cache, or the app's own detached mc-server) can survive the app kill
 # and keep re-grabbing the port. Rather than wait-then-die, actively kill whatever
@@ -147,21 +197,45 @@ hot_swap() {
   return 0
 }
 
+MODE="full"
 if hot_swap; then
+  MODE="hot-swap"
   log "waiting for the swapped sidecar on :$PORT (up to ${HEALTH_TIMEOUT}s)…"
-  wait_health || die "swapped sidecar never reached health 200 on :$PORT"
+  wait_health || { write_status false hot-swap "$(port_pid)" false "swapped sidecar never reached health 200"; die "swapped sidecar never reached health 200 on :$PORT"; }
+  # A 200 on :$PORT is NOT proof the deploy took. Two cosmetic-deploy traps the
+  # bare health check misses, both recovered ONLY by the external full relaunch
+  # (a wedged main can't self-kill — decision dcbdc49f):
+  #   • Mode C: a stale source server shadows :$PORT (served_owner_ok=false)
+  #   • Mode B: the Electron main event loop is wedged (main_alive=false)
+  if ! served_owner_ok; then
+    log "hot-swap: :$PORT is owned by a SHADOW (not the deployed app sidecar) — escalating to full relaunch"
+    ESCALATED=1; MODE="full"
+    restart
+    wait_health || { write_status false full "$(port_pid)" true "shadow owned port; full relaunch failed health"; die "sidecar never reached health 200 on :$PORT after shadow escalation"; }
+  elif ! main_alive; then
+    log "hot-swap: sidecar healthy but Electron main is UNRESPONSIVE (/main/ping) — wedged main, escalating to full relaunch"
+    ESCALATED=1; MODE="full"
+    restart
+    wait_health || { write_status false full "$(port_pid)" false "wedged main; full relaunch failed health"; die "sidecar never reached health 200 on :$PORT after wedged-main escalation"; }
+  fi
 else
   restart
   log "waiting for the sidecar on :$PORT (up to ${HEALTH_TIMEOUT}s)…"
   if ! wait_health; then
     log "sidecar didn't come up — retrying restart once…"
     restart
-    wait_health || die "sidecar never reached health 200 on :$PORT after retry"
+    wait_health || { write_status false full "$(port_pid)" false "full relaunch never reached health 200"; die "sidecar never reached health 200 on :$PORT after retry"; }
   fi
 fi
 
 # ── 5. verify ────────────────────────────────────────────────────────────────
 SIDECAR_PID="$(port_pid)"
+# Hard gate: the port must be owned by the deployed app sidecar, not a shadow. A
+# shadow here means the deploy went cosmetic — fail LOUD instead of the old warning.
+if ! served_owner_ok; then
+  write_status false "$MODE" "$SIDECAR_PID" true "port :$PORT still owned by a shadow after deploy — cosmetic"
+  die "port :$PORT is owned by a non-app process (shadow) — deploy is cosmetic; kill it and re-deploy"
+fi
 SERVED="$(curl -s "http://localhost:$PORT/" 2>/dev/null | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
 if [ -n "$SERVED" ] && [ -f "$RES/ui/dist/assets/$SERVED" ]; then
   UI_OK="UI bundle $SERVED matches deployed dist"
@@ -169,6 +243,7 @@ else
   UI_OK="WARNING: served bundle '$SERVED' not found in deployed dist"
 fi
 
-printf '\033[1;32m[deploy] DONE\033[0m — sidecar PID %s on :%s, health 200\n' "${SIDECAR_PID:-?}" "$PORT"
+write_status true "$MODE" "$SIDECAR_PID" false "$UI_OK"
+printf '\033[1;32m[deploy] DONE\033[0m — sidecar PID %s on :%s, health 200 (mode %s, escalated %s)\n' "${SIDECAR_PID:-?}" "$PORT" "$MODE" "$([ "$ESCALATED" = 1 ] && echo yes || echo no)"
 log "$UI_OK"
 log "backups: $RES/mc-server.bak-$TS , $RES/ui/dist.bak-$TS"

@@ -23,12 +23,65 @@
  * on the SERVER, not in the UI, so a crafted request can't bypass it.
  */
 import { spawn } from 'node:child_process';
-import { openSync, existsSync, readFileSync } from 'node:fs';
+import { openSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
 import { listLeafInflight, reapStaleInflight } from './worker-ledger';
 import { treeStatus } from './tree-integrity';
+
+/**
+ * Directory the deploy script + this service share for logs and the outcome
+ * status file. Defaults to `~/.mermaid-collab/deploy-logs`; `MERMAID_DEPLOY_LOG_DIR`
+ * overrides it (the deploy script honors the same env) so tests can point both
+ * halves at a tmp dir. Keep this the SINGLE source of the path — the shell script
+ * derives the identical default independently.
+ */
+export function deployLogDir(): string {
+  return process.env.MERMAID_DEPLOY_LOG_DIR || join(homedir(), '.mermaid-collab', 'deploy-logs');
+}
+
+/** Absolute path of the machine-readable deploy-outcome file the script writes. */
+export function deployStatusPath(): string {
+  return join(deployLogDir(), 'self-deploy-status.json');
+}
+
+/**
+ * Outcome of the most recent self-deploy, written by deploy-desktop.sh at its end
+ * (and a `phase:'started'` marker written here at spawn). This is the signal that
+ * turns a SILENT cosmetic deploy into a detectable one:
+ *  - `ok:false` / `shadow:true` — a stale server shadowed :9002; the new binary
+ *    never took over (Mode C).
+ *  - `escalated:true` — a hot-swap left a wedged Electron main and the script had
+ *    to fall back to the external full relaunch (Mode B).
+ *  - `phase:'started'` with no later terminal write — the deploy was killed mid-run.
+ */
+export interface SelfDeployStatus {
+  phase: 'started' | 'done';
+  ok: boolean | null;
+  mode?: 'hot-swap' | 'full';
+  servedPid?: number | null;
+  escalated?: boolean;
+  shadow?: boolean;
+  message?: string;
+  ts: number;
+  pid?: number;
+}
+
+/** Read the last self-deploy outcome, or null if none/unreadable/malformed. */
+export function readSelfDeployStatus(): SelfDeployStatus | null {
+  try {
+    const raw = readFileSync(deployStatusPath(), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const s = parsed as Record<string, unknown>;
+    if (s.phase !== 'started' && s.phase !== 'done') return null;
+    if (typeof s.ts !== 'number') return null;
+    return parsed as SelfDeployStatus;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * package.json `name` of this very app. The self-project is identified by this
@@ -160,7 +213,7 @@ export function requestSelfDeploy(
 
   const scriptPath = join(project, DEPLOY_SCRIPT_REL);
 
-  const logDir = join(homedir(), '.mermaid-collab', 'deploy-logs');
+  const logDir = deployLogDir();
   try {
     mkdirSync(logDir, { recursive: true });
   } catch {
@@ -177,6 +230,17 @@ export function requestSelfDeploy(
   const scriptArgs = underElectron ? [scriptPath, '--hot-swap'] : [scriptPath];
 
   try {
+    // Stamp a 'started' marker so a deploy killed mid-run (before the script writes
+    // its terminal outcome) is detectable as an incomplete deploy rather than
+    // reading a stale prior 'done'. The script overwrites this at the end.
+    try {
+      writeFileSync(
+        deployStatusPath(),
+        JSON.stringify({ phase: 'started', ok: null, mode: underElectron ? 'hot-swap' : 'full', ts: Date.now() }),
+      );
+    } catch {
+      /* best-effort — a missing status file just reads as null downstream */
+    }
     const out = openSync(logPath, 'a');
     const child = spawn('bash', scriptArgs, {
       cwd: project,

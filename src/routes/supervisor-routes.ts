@@ -42,7 +42,7 @@ import { specCoverage, decideRequirement, type RequirementDecision } from '../se
 import { landEpic, getWorktreeManager } from '../services/coordinator-live.ts';
 import { landReadiness, landAuthority, type LandActor } from '../services/land-authority.ts';
 import { isEpicTodo } from '../services/invariant-check.ts';
-import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt } from '../services/deploy-service.ts';
+import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDeployStatus } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
 import { execFileSync } from 'node:child_process';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
@@ -680,6 +680,11 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         modifiedTrackedCount = 0;
       }
       const stale = versionDrift || selfLandPending || modifiedTrackedCount > 0;
+      // Outcome of the LAST deploy (deploy sidecar-death fix): surfaces a cosmetic
+      // deploy that used to be silent — shadow-owned :9002 (ok:false/shadow) or a
+      // hot-swap that had to escalate past a wedged Electron main (escalated), or a
+      // deploy killed mid-run (phase:'started' with no terminal write).
+      const lastDeploy = readSelfDeployStatus();
       return Response.json({
         ...status.deploy,
         selfLandPending,
@@ -689,6 +694,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         stale,
         canDeploy: gate.eligible,
         deployBlockedReason: gate.eligible ? null : gate.reason,
+        lastDeploy,
       });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
