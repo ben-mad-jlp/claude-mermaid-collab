@@ -24,6 +24,7 @@ import { useDiveIn, useSelectSessionInPlace } from '@/hooks/useDiveIn';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
+import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { isOrchestratorSession } from '@/lib/liveness';
 import { useSessionStatuses } from '@/hooks/useSessionStatuses';
 import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
@@ -455,6 +456,8 @@ export const BridgeDashboard: React.FC = () => {
   // MissionDetailPanel, the same window where Plan/Stream/Escalations render.
   const [missionInStage, setMissionInStage] = useState(false);
   const [railPanel, setRailPanel] = useState<RailKey | null>('escalations');
+  // Per-project settings modal (gear button in the CommandBar header).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -550,6 +553,7 @@ export const BridgeDashboard: React.FC = () => {
             parked={planStats.idleWithWork}
             project={project}
             onRefresh={onManualRefresh}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         }
         signals={
@@ -615,6 +619,12 @@ export const BridgeDashboard: React.FC = () => {
         }
         inspectorOpen={inspectorOpen}
         onInspectorClose={closeInspector}
+      />
+
+      <ProjectSettingsModal
+        project={project}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
 
       {flags.jsonRenderDecisionCard && focalEscalation && (

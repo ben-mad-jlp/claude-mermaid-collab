@@ -11,10 +11,6 @@
 
 import React, { useState } from 'react';
 import { useSupervisorStore, type MissionSummary } from '@/stores/supervisorStore';
-import { OrchestratorLadder } from '../OrchestratorLadder';
-import { PoolSizeControl } from '../PoolSizeControl';
-import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
-import { DaemonProviderControl } from '@/components/settings/DaemonProviderControl';
 import { MissionCard, MissionCreateDialog, isMissionCompleted } from '../rail/missionShared';
 import { useMissions } from '../rail/useMissions';
 
@@ -30,7 +26,6 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
 
   const [showCompleted, setShowCompleted] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [showControls, setShowControls] = useState(false);
 
   const completedCount = missions.filter(isMissionCompleted).length;
   // Active mission first, then the rest; completed hidden unless toggled.
@@ -92,35 +87,6 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
           ))}
         </div>
       )}
-
-      {/* Per-project daemon controls — moved out of the CommandBar header. */}
-      <div className="mt-1 border-t border-gray-200 dark:border-gray-700 pt-3">
-        <button
-          type="button"
-          onClick={() => setShowControls((v) => !v)}
-          data-testid="mission-controls-toggle"
-          aria-expanded={showControls}
-          className="flex w-full items-center justify-between text-3xs uppercase tracking-wide text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-          title="Per-project daemon autonomy, concurrency, and per-node model/effort."
-        >
-          <span>Daemon controls</span>
-          <span className="inline-block w-2 text-gray-400 dark:text-gray-500">{showControls ? '▾' : '▸'}</span>
-        </button>
-        {showControls && (
-          <div className="mt-2 flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <OrchestratorLadder project={project} />
-              <PoolSizeControl project={project} />
-            </div>
-            <div className="rounded border border-gray-200 dark:border-gray-700 p-2 bg-white/60 dark:bg-gray-900/40">
-              <div className="mb-2 pb-2 border-b border-gray-200/70 dark:border-gray-700/70">
-                <DaemonProviderControl project={project} />
-              </div>
-              <DaemonNodesMatrix project={project} />
-            </div>
-          </div>
-        )}
-      </div>
 
       {creating && (
         <MissionCreateDialog
