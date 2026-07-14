@@ -54,8 +54,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       data-testid="bridge-command-bar"
       className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700"
     >
-      {/* Row 1 — identity + project. Controls (nodes/conc/autonomy) moved to the
-          mission inspector pane, keeping this line uncluttered. */}
+      {/* Row 1 — identity + project + per-project autonomy off/on/auto ladder
+          (OrchestratorLadder), rendered inline in this header row. */}
       <div className="flex items-center gap-2.5">
         <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
         {projectName && (
