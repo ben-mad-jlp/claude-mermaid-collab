@@ -17,6 +17,7 @@ import type { Todo } from './todo-store';
 // fallback and that function are both gone. Do not add a value import in todo-kind.ts
 // from this module — it would re-form the cycle.
 import { isEpic, isMission, stripLabel } from './todo-kind.ts';
+import { isBucketEpic as registryIsBucketEpic } from './bucket-registry.ts';
 
 /** The per-project default epic that orphan/triage todos auto-file under
  *  (constraint 373a2d52). Planning-only: its children must never be auto-executed.
@@ -49,7 +50,9 @@ export const isInboxEpic = (t: Todo | undefined): boolean =>
 
 /** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
 export const parentIsInbox = (t: Todo, byId: Map<string, Todo>): boolean =>
-  t.parentId != null && isInboxEpic(byId.get(t.parentId));
+  // R1: the planning-only gate now consults the ONE bucket predicate (any bucket parent,
+  // not just the Inbox). The claim reason stays 'inbox-planning' (R3 renames it).
+  t.parentId != null && registryIsBucketEpic(byId.get(t.parentId));
 
 /**
  * True iff some EPIC ancestor on this todo's PARENT chain has approvedAt == null.

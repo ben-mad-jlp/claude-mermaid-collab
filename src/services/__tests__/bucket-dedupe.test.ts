@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
-import { openDb, getTodo, createTodo, listTodos, TODO_BUCKET_DEDUPE_V4, _closeProject, DuplicateBucketError } from '../todo-store';
+import { openDb, getTodo, createTodo, listTodos, TODO_BUCKET_DEDUPE_V4, TODO_BUCKET_TYPE_V5, _closeProject, DuplicateBucketError } from '../todo-store';
 import { findViolations } from '../invariant-check';
 
 describe('bugfix bucket deduplication (DR-bugfix-bucket-dedupe)', () => {
@@ -232,6 +232,6 @@ describe('bugfix bucket deduplication (DR-bugfix-bucket-dedupe)', () => {
 
     // Verify user_version is set to V4
     const ver = (openedDb2.query('PRAGMA user_version').get() as { user_version: number }).user_version;
-    expect(ver).toBe(TODO_BUCKET_DEDUPE_V4);
+    expect(ver).toBe(TODO_BUCKET_TYPE_V5);
   });
 });

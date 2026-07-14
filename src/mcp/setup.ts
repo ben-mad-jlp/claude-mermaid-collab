@@ -1748,6 +1748,9 @@ export async function setupMCPServer(): Promise<Server> {
               servesCriterionId?: string | null;
             };
             if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
+            if (args && typeof args === 'object' && 'bucketType' in (args as Record<string, unknown>)) {
+              throw new Error('add_session_todo: `bucketType` is not caller-settable — buckets are created via ensureBucket');
+            }
             // `kind` is the ONLY role signal (stage C, decision e852fb0c). It is never inferred from the
             // title. Absent means a plain work leaf — the caller creating an epic/mission/[LAND] node must
             // say so. An out-of-domain value is a caller bug and fails here, not silently downstream.

@@ -16,6 +16,7 @@ import { getEpicLandReadiness } from './epic-land-readiness';
 import type { EpicLandGateResult, EpicLandGateOpts } from './epic-land-gate';
 import { runEpicLandGate, landGateTrailer, landGateSummary } from './epic-land-gate';
 import { isEpicTodo, isLandTodo } from './invariant-check';
+import { isBucketEpic as registryIsBucketEpic } from './bucket-registry.ts';
 import { epicBranchName } from './epic-branch-status';
 import { isMission, stripLabel } from './todo-kind.ts';
 import { getMission, isMissionTerminal } from './mission-store';
@@ -101,7 +102,8 @@ function matchesBucketTitle(title: string | null | undefined): boolean {
  * (replayed frames, stripped legacy rows, old fixtures) still refuse to land.
  */
 export function isBucketEpic(t: Todo): boolean {
-  return isEpicTodo(t) && (t.isBucket || matchesBucketTitle(t.title));
+  // R1: delegate to the ONE code-owned predicate (bucket-registry).
+  return registryIsBucketEpic(t);
 }
 
 /**

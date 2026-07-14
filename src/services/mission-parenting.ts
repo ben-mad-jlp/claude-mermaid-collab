@@ -12,6 +12,7 @@
  */
 import { INBOX_EPIC_TITLE } from './claimability.ts';
 import { isEpic, isMission, stripLabel, kindOf, type KindBearing } from './todo-kind.ts';
+import { isBucketEpic as registryIsBucketEpic } from './bucket-registry.ts';
 
 export const BUGFIX_INBOX_EPIC_TITLE = 'Bugfix inbox';
 export const BUCKET_EPIC_TITLES: readonly string[] = [INBOX_EPIC_TITLE, BUGFIX_INBOX_EPIC_TITLE];
@@ -24,8 +25,8 @@ export const isBucketEpicTitle = (title: string | null | undefined): boolean => 
   return BUCKET_EPIC_TITLES.some((b) => norm.startsWith(b.toLowerCase()));
 };
 
-/** kind:'epic' AND isBucket=true — bucket epics are roots, not mission children. */
-export const isBucketEpic = (t: KindBearing): boolean => isEpic(t) && !!t.isBucket;
+/** R1: delegate to the ONE code-owned bucket predicate. */
+export const isBucketEpic = (t: KindBearing): boolean => registryIsBucketEpic(t);
 
 /** kind:'epic' AND isBucket=false → the epics that belong under a mission. */
 export const isDeliverableEpic = (t: KindBearing): boolean => isEpic(t) && !t.isBucket;
