@@ -30,6 +30,8 @@ export interface CommandBarProps {
   project?: string;
   /** Re-fetch all Bridge data for the current scope. */
   onRefresh?: () => void;
+  /** Open the per-project settings modal (gear button). */
+  onOpenSettings?: () => void;
 }
 
 export const CommandBar: React.FC<CommandBarProps> = ({
@@ -43,6 +45,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   parked = false,
   project,
   onRefresh,
+  onOpenSettings,
 }) => {
   const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : null;
   return (
@@ -75,6 +78,21 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </button>
+        )}
+        {onOpenSettings && (
+          <button
+            type="button"
+            data-testid="bridge-settings"
+            title="Project settings"
+            aria-label="Project settings"
+            onClick={onOpenSettings}
+            className={`${onRefresh ? '' : 'ml-auto '}p-1 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 shrink-0`}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
           </button>
         )}

@@ -25,7 +25,11 @@ import {
   type ContextRecycleMode,
   setEscalationRoute,
   setEscalationOperatorGated,
+  setProjectDigestEnabled,
+  setPromptInjectRetryContext,
+  setPromptInjectActiveConstraints,
 } from '../services/supervisor-store.ts';
+import { getInjectionFlags } from '../services/runtime-config.ts';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo } from '../services/todo-store.ts';
@@ -860,6 +864,34 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       }
       setContextRecycleMode(project, mode as ContextRecycleMode);
       return Response.json({ ok: true, project, mode: getContextRecycleMode(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/injection-flags?project= — the per-project prompt-injection
+  // flags (digest / retryContext / activeConstraints), all default OFF (no config ⇒ false).
+  if (url.pathname === '/api/supervisor/injection-flags' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, ...getInjectionFlags(project) });
+  }
+
+  // POST /api/supervisor/injection-flags — set ONE flag. body { project, flag, value }.
+  // Mirrors the watchdog-threshold / context-recycle GET+POST shape. Returns the updated
+  // trio so the client can re-seed its local state from the response.
+  if (url.pathname === '/api/supervisor/injection-flags' && req.method === 'POST') {
+    try {
+      const { project, flag, value } = (await req.json()) as {
+        project?: string; flag?: string; value?: boolean;
+      };
+      if (!project) return jsonError('project is required', 400);
+      if (typeof value !== 'boolean') return jsonError('value must be a boolean', 400);
+      if (flag === 'digest') setProjectDigestEnabled(project, value);
+      else if (flag === 'retryContext') setPromptInjectRetryContext(project, value);
+      else if (flag === 'activeConstraints') setPromptInjectActiveConstraints(project, value);
+      else return jsonError('flag must be one of: digest, retryContext, activeConstraints', 400);
+      return Response.json({ ok: true, project, ...getInjectionFlags(project) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
