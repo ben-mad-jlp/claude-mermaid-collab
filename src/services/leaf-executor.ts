@@ -32,7 +32,7 @@ import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-confi
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
+import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation } from './supervisor-store';
@@ -974,6 +974,17 @@ export function leafExecutionMode(leaf: Todo): 'code' | 'verify' | 'review' {
   return 'code';
 }
 
+/** The node kinds a leaf's run will actually execute, keyed off leafExecutionMode. Drives the
+ *  kind-scoped grok/xai auth pre-flight (bug 3764675c) so a dead-kind override can't gate a
+ *  floor leaf. Pure. */
+export function leafRunKinds(leaf: Todo): LeafNodeKind[] {
+  switch (leafExecutionMode(leaf)) {
+    case 'verify': return ['driveplan', 'driveexec', 'report'];
+    case 'review': return ['review'];
+    default: return ['blueprint', 'implement', 'review']; // floor
+  }
+}
+
 /** The verify pipeline's domain gate, made PLUGGABLE in L3 (epic f5c7fc46 e9ce8693). A gate
  *  is a deterministic VERB (an MCP tool the execute node calls — its returned geometry/DOF/
  *  clearance verdicts are parsed by {@link parseVerifyGate}) and/or an optional COMMAND (a
@@ -1296,8 +1307,9 @@ export async function runLeaf(
   // grok auth too so a MIXED leaf fails fast rather than stranding after the cheap grok work
   // (Grok review risk #3).
   deps.assertAuth();
-  if (anyGrokNodeConfigured(project)) (deps.assertGrokAuth ?? assertGrokAuth)();
-  if (anyXaiApiNodeConfigured(project)) (deps.assertXaiApiAuth ?? assertXaiApiAuth)();
+  const runKinds = leafRunKinds(leaf);
+  if (grokNeededForKinds(project, runKinds)) (deps.assertGrokAuth ?? assertGrokAuth)();
+  if (xaiApiNeededForKinds(project, runKinds)) (deps.assertXaiApiAuth ?? assertXaiApiAuth)();
 
   const sessionKey = leafSessionKey(leaf);
   const { epicId, epicBranch } = deps;

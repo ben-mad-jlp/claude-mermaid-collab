@@ -104,6 +104,18 @@ export function anyXaiApiNodeConfigured(project?: string): boolean {
   return false;
 }
 
+/** True when at least one of the GIVEN node kinds resolves to grok-build for this project —
+ *  the kind-scoped pre-flight so a grok override on a retired/dead kind can't gate a leaf whose
+ *  live kinds are all claude (bug 3764675c). Reuses the full resolveNodeProvider precedence. */
+export function grokNeededForKinds(project: string | undefined, kinds: readonly string[]): boolean {
+  return kinds.some((k) => resolveNodeProvider(project, k, undefined) === 'grok-build');
+}
+
+/** grok-api (xAI API) analogue of grokNeededForKinds — kind-scoped XAI_API_KEY pre-flight. */
+export function xaiApiNeededForKinds(project: string | undefined, kinds: readonly string[]): boolean {
+  return kinds.some((k) => resolveNodeProvider(project, k, undefined) === 'grok-api');
+}
+
 /** The model recorded in the ledger for a grok-api node — the flagship reasoner. */
 export function xaiApiLedgerModel(_kind: string): string {
   return 'grok-4.3';
