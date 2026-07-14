@@ -11,7 +11,7 @@
 
 import React, { useState } from 'react';
 import { useSupervisorStore, type MissionSummary, type MissionStatus } from '@/stores/supervisorStore';
-import { MissionTabs, StatusPill, MissionCreateDialog, MissionDetail, isMissionCompleted } from '../rail/missionShared';
+import { StatusPill, MissionCreateDialog, MissionDetail, isMissionCompleted } from '../rail/missionShared';
 import { stripKindPrefix } from '@/lib/todoKind';
 import { useMissions } from '../rail/useMissions';
 
@@ -84,19 +84,12 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
         </div>
       ) : selected ? (
         <>
-          <MissionTabs
-            tabs={[
-              { key: 'goal', label: 'Goal', testid: 'mission-tab-goal' },
-              { key: 'build', label: 'Build', testid: 'mission-tab-build' },
-            ]}
-            active={activeTab}
-            onChange={(key) => setActiveTab(key as 'goal' | 'build')}
-          />
           <MissionDetail
             m={selected}
             serverId={serverId}
             project={project}
-            tab={activeTab === 'build' ? 'build' : 'goals'}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
             onChanged={(next: MissionSummary[]) => setMissions(next)}
             onDropped={() => setSelectedId(null)}
           />
