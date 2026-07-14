@@ -588,27 +588,8 @@ export const MissionDetail: React.FC<{
         </div>
       )}
 
-      <div className="flex items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
-        <span
-          className="font-mono"
-          title={
-            view.maxIterations != null
-              ? `Iteration ${view.iteration} of a max ${view.maxIterations} (STOP-WHEN cap).`
-              : `Iteration ${view.iteration} — laps around the loop (no cap set).`
-          }
-        >
-          iter {view.iteration}{view.maxIterations != null ? `/${view.maxIterations}` : ''}
-        </span>
-        {view.converged && (
-          <span
-            data-testid="mission-converged"
-            className="text-success-600 dark:text-success-400 font-semibold"
-            title="All criteria met — goal achieved (VERIFY passed)."
-          >
-            converged ✓
-          </span>
-        )}
-        {view.stopped && !view.converged && (
+      {view.stopped && !view.converged && (
+        <div className="flex items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
           <span
             data-testid="mission-stopped"
             className="text-gray-500 dark:text-gray-400 font-semibold"
@@ -616,8 +597,8 @@ export const MissionDetail: React.FC<{
           >
             stopped{view.stopReason === 'max-iterations' ? ' (max iters)' : ''}
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {view.procedure && (
         <div
