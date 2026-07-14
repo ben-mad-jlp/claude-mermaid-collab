@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'sup-store-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
-import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, createEscalation, listOpenEscalations, resolveEscalationsForTodo, _closeDb } from '../supervisor-store';
+import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, createEscalation, listOpenEscalations, resolveEscalationsForTodo, _closeDb, setProjectDigestEnabled, getProjectDigestEnabled } from '../supervisor-store';
 
 beforeAll(() => { _closeDb(); });
 afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); delete process.env.MERMAID_SUPERVISOR_DIR; });
@@ -23,26 +23,51 @@ describe('per-project watchdog threshold', () => {
   });
 
   it('set then get round-trips', () => {
+    addWatchedProject('/proj/b');
     setWatchdogThreshold('/proj/b', 70);
     expect(getWatchdogThreshold('/proj/b')).toBe(70);
   });
 
-  it('setWatchdogThreshold upserts (creates the watched_project row if absent)', () => {
+  it('setWatchdogThreshold is UPDATE-only (does not create watched_project row if absent)', () => {
     setWatchdogThreshold('/proj/c', 65);
-    expect(getWatchdogThreshold('/proj/c')).toBe(65);
-    expect(listWatchedProjects().some((p) => p.project === '/proj/c')).toBe(true);
+    expect(getWatchdogThreshold('/proj/c')).toBeNull();
+    expect(listWatchedProjects().some((p) => p.project === '/proj/c')).toBe(false);
   });
 
   it('clearing with null reverts to default', () => {
+    addWatchedProject('/proj/d');
     setWatchdogThreshold('/proj/d', 90);
     setWatchdogThreshold('/proj/d', null);
     expect(getWatchdogThreshold('/proj/d')).toBeNull();
   });
 
   it('listWatchedProjects exposes watchdogThresholdPercent', () => {
+    addWatchedProject('/proj/e');
     setWatchdogThreshold('/proj/e', 55);
     const row = listWatchedProjects().find((p) => p.project === '/proj/e');
     expect(row?.watchdogThresholdPercent).toBe(55);
+  });
+});
+
+describe('per-project setters are UPDATE-only (never watch)', () => {
+  it('setter on unwatched project creates no row, setter on watched project updates', () => {
+    // Seed watched project A
+    addWatchedProject('/scope/A');
+
+    // Call setProjectDigestEnabled on unwatched B → no row created
+    setProjectDigestEnabled('/scope/B', true);
+    expect(listWatchedProjects().some((p) => p.project === '/scope/B')).toBe(false);
+
+    // A's row is still present and unchanged
+    expect(listWatchedProjects().some((p) => p.project === '/scope/A')).toBe(true);
+    expect(getProjectDigestEnabled('/scope/A')).toBe(false);
+
+    // Call setProjectDigestEnabled on A → updates the row
+    setProjectDigestEnabled('/scope/A', true);
+    expect(getProjectDigestEnabled('/scope/A')).toBe(true);
+
+    // B still doesn't exist
+    expect(listWatchedProjects().some((p) => p.project === '/scope/B')).toBe(false);
   });
 });
 
