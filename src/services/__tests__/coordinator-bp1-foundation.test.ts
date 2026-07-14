@@ -55,7 +55,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // branch and reach master only at the human LAND. bp1's claim-time reachability must
     // test the DEPENDENT's epic-branch tip (the base its lane forks from), NOT trunk only.
     // (Trunk-only wrongly stranded EVERY in-epic sibling until the human landed — the bug.)
-    setOrchestratorLevel(repo, 'auto');
+    setOrchestratorLevel(repo, 'on');
     const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 test', kind: 'epic', status: 'planned' });
     const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
@@ -92,7 +92,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // Under A1 per-epic-authority: a non-mission epic has NO authority (epicAutoLandAuthority === false),
     // so bp1FilterStrandedFoundations early-returns and KEEPS the dependent even though the
     // foundation is genuinely stranded. This pins the A1 early-return at coordinator-live.ts:912.
-    setOrchestratorLevel(repo, 'auto'); // level is now irrelevant — no mission → no authority
+    setOrchestratorLevel(repo, 'on'); // level is now irrelevant — no mission → no authority
     const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 non-mission strand', kind: 'epic', status: 'planned' });
     const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'phantom foundation', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
@@ -124,7 +124,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // would NOT contain it → building on it is unsafe → drop it this tick.
     // Re-cast under A1 per-epic-authority: the epic is MISSION-ARMED so
     // epicAutoLandAuthority returns TRUE and the drop path fires.
-    setOrchestratorLevel(repo, 'auto');
+    setOrchestratorLevel(repo, 'on');
     const mission = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[MISSION] converge', kind: 'mission', status: 'planned' });
     upsertMission(repo, mission.id); // active (default) + non-terminal → live mission epic
     const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 true-strand', kind: 'epic', status: 'planned', parentId: mission.id });
@@ -166,7 +166,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     const dep = getTodo(repo, dependent.id)!;
     const out = await bp1FilterStrandedFoundations(repo, [dep]);
     expect(out.map((t) => t.id)).toContain(dependent.id); // admitted below drive
-    setOrchestratorLevel(repo, 'auto'); // restore for the failsafe case below
+    setOrchestratorLevel(repo, 'on'); // restore for the failsafe case below
   });
 
   it('FAIL-SAFE: a dependent whose done dep carries no commit is admitted (indeterminate)', async () => {
