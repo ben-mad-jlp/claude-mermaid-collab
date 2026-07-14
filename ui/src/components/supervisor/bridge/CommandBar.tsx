@@ -14,6 +14,7 @@
  */
 
 import React from 'react';
+import { OrchestratorLadder } from './OrchestratorLadder';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -66,6 +67,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             {projectName}
           </span>
         )}
+        {project && <OrchestratorLadder project={project} />}
         {onRefresh && (
           <button
             type="button"
