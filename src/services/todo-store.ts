@@ -6,7 +6,7 @@ import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { hostname } from 'node:os';
 import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
@@ -1984,12 +1984,14 @@ export async function splitLeafInto(
   const ordered = topoSortSplitItems(normalised);
   const idOf = new Map<string, string>();              // item id -> created todo id
   const childIds: string[] = [];
-  for (const item of ordered) {
+  const total = ordered.length;
+  for (const [i, item] of ordered.entries()) {
+    const basenames = item.files.map((f) => basename(f)).join(', ');
     const child = await createTodo(project, {
       ownerSession: leaf.ownerSession ?? 'coordinator',
       assigneeSession: leaf.assigneeSession ?? null,
       assigneeKind: 'agent',
-      title: `${leaf.title ?? leaf.id} — ${item.files.join(', ')}`,
+      title: `${basenames} — ${leaf.title ?? leaf.id} (part ${i + 1}/${total})`,
       description:
         `Split child of leaf ${leaf.id.slice(0, 8)} (decomposed by its blueprint).\n` +
         `Implement ONLY these files: ${item.files.join(', ')}\n` +
