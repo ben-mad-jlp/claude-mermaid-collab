@@ -82,6 +82,22 @@ describe('tripBreaker / breakerOpen — exponential backoff', () => {
     tripBreaker(undefined, T0); // streak reset → back to 1× base
     expect(breakerOpenUntil()).toBe(T0 + BASE_BACKOFF_MS);
   });
+
+  it('clamps a far-future capReset to MAX_BACKOFF_MS (re-probe ceiling), and re-trips on a second 429', () => {
+    const farReset = T0 + 2 * 60 * 60_000; // 2h out — unconfirmed cap
+    tripBreaker(farReset, T0);
+    // Hold is capped at the 30-min re-probe ceiling, NOT the claimed 2h.
+    expect(breakerOpenUntil()).toBe(T0 + MAX_BACKOFF_MS);
+    expect(breakerOpen(T0 + MAX_BACKOFF_MS - 1)).toBe(true);
+    expect(breakerOpen(T0 + MAX_BACKOFF_MS)).toBe(false); // probe allowed once ceiling passes
+
+    // A second 429 after the probe re-trips on a fresh (still far) capReset.
+    const now2 = T0 + MAX_BACKOFF_MS;
+    const farReset2 = now2 + 2 * 60 * 60_000;
+    tripBreaker(farReset2, now2);
+    expect(breakerOpenUntil()).toBe(now2 + MAX_BACKOFF_MS);
+    expect(breakerOpen(now2)).toBe(true);
+  });
 });
 
 describe('paused-leaf registry', () => {
