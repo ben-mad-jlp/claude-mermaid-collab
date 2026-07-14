@@ -1,10 +1,10 @@
 // Runs via `bun test` (uses bun:sqlite) — excluded from vitest (Node) in vitest.config.ts.
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordNode, _closeLedgerDb, type LedgerEntry } from '../worker-ledger';
-import { getLeafRun, getFleetStats } from '../ledger-stats';
+import { getLeafRun, getFleetStats, latestRunRows, RUN_GAP_MS } from '../ledger-stats';
 import { NODE_BUDGET } from '../leaf-executor';
 
 let dir: string;
@@ -152,5 +152,47 @@ describe('getFleetStats', () => {
     node({ leafId: 'B', ts: 100, nodeKind: 'blueprint', model: 'opus', project: '/y', todoId: 'B' });
     expect(getFleetStats({ project: '/x' }).leafCount).toBe(1);
     expect(getFleetStats({}).authModeAlarm).toBe(false);
+  });
+});
+
+// Minimal row shape latestRunRows reads.
+type Row = { ts: number; durationMs?: number | null; nodeKind?: string | null; id: number };
+
+describe('latestRunRows idle-gap boundary (bug 890578bc)', () => {
+  it('keeps a long-running node contiguous with its predecessor (does not drop earlier nodes)', () => {
+    // blueprint completes at t=1000 (dur 1s); implement runs ~10min so its ts
+    // jumps >2min from prev, but its OWN duration accounts for the whole gap →
+    // idle gap ≈ 0 → SAME run.
+    const rows: Row[] = [
+      { id: 1, ts: 1_000, durationMs: 1_000, nodeKind: 'blueprint' },
+      { id: 2, ts: 1_000 + 600_000, durationMs: 600_000, nodeKind: 'implement' },
+      { id: 3, ts: 1_000 + 600_000 + 5_000, durationMs: 5_000, nodeKind: 'review' },
+    ];
+    const run = latestRunRows(rows);
+    expect(run).toHaveLength(3);
+    expect(run.map((r) => r.nodeKind)).toEqual(['blueprint', 'implement', 'review']);
+  });
+
+  it('still splits on a genuine idle gap (a real new run)', () => {
+    // Second node's own duration is tiny, but its ts is >2min after prev's ts →
+    // real idle gap → NEW run starts at that node.
+    const rows: Row[] = [
+      { id: 1, ts: 1_000, durationMs: 1_000, nodeKind: 'blueprint' },
+      { id: 2, ts: 1_000 + RUN_GAP_MS + 10_000, durationMs: 2_000, nodeKind: 'blueprint' },
+      { id: 3, ts: 1_000 + RUN_GAP_MS + 12_000, durationMs: 2_000, nodeKind: 'implement' },
+    ];
+    const run = latestRunRows(rows);
+    expect(run).toHaveLength(2);
+    expect(run.map((r) => r.id)).toEqual([2, 3]);
+  });
+
+  it('treats a durationMs-less row (undefined) as zero idle offset', () => {
+    // Backfilled/legacy row with no durationMs and a >2min ts jump → still splits.
+    const rows: Row[] = [
+      { id: 1, ts: 1_000, nodeKind: 'blueprint' },
+      { id: 2, ts: 1_000 + RUN_GAP_MS + 1, nodeKind: 'implement' },
+    ];
+    expect(latestRunRows(rows)).toHaveLength(1);
+    expect(latestRunRows(rows)[0].id).toBe(2);
   });
 });
