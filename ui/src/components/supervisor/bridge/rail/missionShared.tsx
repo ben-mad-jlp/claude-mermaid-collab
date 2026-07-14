@@ -517,9 +517,9 @@ export const EpicList: React.FC<{ epics: MissionView['epics'] }> = ({ epics }) =
       <span className="text-3xs text-gray-400 dark:text-gray-500 italic">No epics yet for this mission</span>
     ) : (
       epics.map((e) => (
-        <div key={e.id} className="flex items-start gap-1 text-3xs leading-snug" title={`${e.status}${e.acceptanceStatus ? ` · ${e.acceptanceStatus}` : ''}`}>
+        <div key={e.id} className="flex items-start gap-1 text-sm leading-relaxed py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0" title={`${e.status}${e.acceptanceStatus ? ` · ${e.acceptanceStatus}` : ''}`}>
           <span className={`mt-1 shrink-0 h-1.5 w-1.5 rounded-full ${epicDotClass(e.status)}`} aria-hidden />
-          <span className="text-gray-600 dark:text-gray-300 truncate">
+          <span className="text-gray-900 dark:text-gray-100 truncate">
             {stripKindPrefix(e.title)}
           </span>
           <span className="ml-auto shrink-0 text-gray-400 dark:text-gray-500 lowercase">

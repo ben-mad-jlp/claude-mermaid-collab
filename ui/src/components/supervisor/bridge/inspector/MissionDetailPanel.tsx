@@ -113,9 +113,9 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
                     type="button"
                     data-testid="mission-switcher-row"
                     onClick={() => setSelectedId(m.node?.id ?? null)}
-                    className="flex items-center justify-between gap-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60 px-2 py-1 text-left transition-colors"
+                    className="flex items-center justify-between gap-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60 px-2 py-1.5 text-left transition-colors"
                   >
-                    <span className="text-3xs font-medium text-gray-700 dark:text-gray-200 truncate">
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {stripKindPrefix(m.node?.title ?? 'Mission')}
                     </span>
                     <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
