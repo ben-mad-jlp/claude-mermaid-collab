@@ -39,6 +39,9 @@ Thumbs.db
 # Generated leaf-executor artifacts (blueprints + per-node transcripts; runtime, not source)
 /.collab/leaf-blueprints/
 /.collab/leaf-transcripts/
+# Generated project-digest artifacts (digest + metadata; runtime, not source)
+/.collab/project-digest.md
+/.collab/project-digest.meta.json
 # Desktop app local runtime collab data
 /desktop/.collab/
 # Scheduled-tasks runtime lock

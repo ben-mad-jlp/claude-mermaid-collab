@@ -51,9 +51,12 @@ const LIST_LINE_RE = /^\s*(?:[-*]|\d+[.)])\s+(.*)$/;
 // A bracketed outcome marker anywhere in a string (non-global: we use `.index`).
 const OUTCOME_MARKER_RE = /\[\s*(MET|UNMET|N\/?A|NOT[-_ ]?APPLICABLE)\s*\]/i;
 
-// Requires a file extension so prose like "step 3:12" never matches. Accepts a `:12-40`
-// range (uses the start line). Anchors on a preceding boundary so it doesn't match mid-word.
-const CITATION_RE = /(?:^|[\s(`'"[,])((?:\.\/)?[\w.@-]+(?:\/[\w.@-]+)*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?/g;
+// The filename must look like a real file so prose like "step 3:12" never matches:
+// either it carries an extension (name.ext) OR it is a leading-dot dotfile (.gitignore,
+// .env). This covers TOP-LEVEL files with no slash — e.g. `.gitignore:43`, `package.json:12`
+// — which a slash-only path would miss (that miss false-blocks reviews as "vacuous").
+// Accepts a `:12-40` range (uses the start line). Anchors on a preceding boundary.
+const CITATION_RE = /(?:^|[\s(`'"[,])((?:\.\/)?(?:[\w.@-]+\/)*(?:[\w.@-]*\.[A-Za-z0-9]+|\.[A-Za-z][\w.-]*)):(\d+)(?:-\d+)?/g;
 
 function outcomeFromMarker(marker: string): CriterionOutcome {
   const m = marker.toUpperCase().replace(/[-_ ]/g, '');

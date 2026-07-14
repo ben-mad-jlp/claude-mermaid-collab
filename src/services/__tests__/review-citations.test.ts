@@ -134,6 +134,23 @@ describe('parseCriterionResults', () => {
     expect(cites[0].path).toBe('src/my_file_name.ts');
   });
 
+  it('a TOP-LEVEL dotfile citation is recognized — .gitignore:43 (regression: no-slash path false-blocked reviews as vacuous)', () => {
+    const cites = extractCitations('- [MET] ignore digest — .gitignore:43');
+    expect(cites.length).toBe(1);
+    expect(cites[0].path).toBe('.gitignore');
+    expect(cites[0].line).toBe(43);
+  });
+
+  it('a TOP-LEVEL extension file citation is recognized — package.json:12', () => {
+    const cites = extractCitations('- [MET] bump — package.json:12');
+    expect(cites[0].path).toBe('package.json');
+    expect(cites[0].line).toBe(12);
+  });
+
+  it('prose "line:43" still yields no citation (no extension, no leading-dot file)', () => {
+    expect(extractCitations('see line:43 above').length).toBe(0);
+  });
+
   it('absolute path resolves against change-set via suffix rule', () => {
     expect(citationResolves('/tmp/wt/src/a.ts', ['src/a.ts'])).toBe(true);
   });
