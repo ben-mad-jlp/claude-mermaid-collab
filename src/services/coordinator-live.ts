@@ -2261,6 +2261,8 @@ export async function landEpic(
 
 /** Wire the Coordinator daemon to the real todo-store + a live worker launcher. */
 export function makeCoordinatorDeps(): CoordinatorDeps {
+  // Progress reader for 0-node kill detection: durable nodesSpent === 0 ⇒ no progress.
+  const leafHadProgress = (project: string) => (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
   return {
     // Push daemon-driven todo-status changes to the UI (the Bridge otherwise only
     // hears session_todos_updated from MCP tool calls, so a server-side block/reclaim
@@ -2313,7 +2315,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // HARDENING: pass run-liveness so a live leaf's claim is never lease-reaped (which
     // would spawn a duplicate run). isRunLive = whole run (incl. between nodes);
     // isLeafInflightLive = an active node. Either ⇒ skip the lease release for that row.
-    releaseExpiredClaims: (project, now) => releaseExpiredClaims(project, now, (id) => isRunLive(id) || isLeafInflightLive(id)),
+    releaseExpiredClaims: (project, now) => releaseExpiredClaims(project, now, (id) => isRunLive(id) || isLeafInflightLive(id), leafHadProgress(project)),
     completeTodo: async (project, id, acceptance, claimToken) => {
       // E2 ownership-CAS + token-scope (bf2eaf84): this is the fire-and-track worker
       // continuation. A run can finish minutes after it claimed — requireInProgress AND
@@ -2779,7 +2781,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // healthy in-process worker reads as dead (§6.7 bootstrap).
         if (session && await inProcessLaneAlive(session)) continue; // live in-process lane
         if (session && await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
-        const next = await reclaimClaim(project, t.id);
+        const next = await reclaimClaim(project, t.id, leafHadProgress(project));
         // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
         // The slot lives in the project the worker's lane ran in (target for cross-project).
         if (session) markIdle(t.targetProject ?? project, session);
@@ -2862,7 +2864,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const priorEpochReaped = new Set<string>();
       for (const id of planPriorEpochReap(inProgress, COORDINATOR_EPOCH)) {
         const t = inProgress.find((x) => x.id === id)!;
-        const next = await reclaimOrphan(project, id);
+        const next = await reclaimOrphan(project, id, leafHadProgress(project));
         if (next == null) continue;                 // raced to terminal
         clearLeafInflight(id);                        // drop the dead executor's inflight row
         if (t.sessionName) markIdle(t.targetProject ?? project, t.sessionName); // free pool slot
@@ -2900,7 +2902,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         const tmux = tmuxBaseName(project, session);
         const dead = await laneConfirmedDead(tmux, snap);
         if (!shouldPulseReap(pulseAt, nowMs, PULSE_STALE_MS, dead)) continue;
-        const next = await reclaimOrphan(project, t.id);
+        const next = await reclaimOrphan(project, t.id, leafHadProgress(project));
         if (next == null) continue; // raced to a terminal state
         markIdle(t.targetProject ?? project, session);          // free any pool slot it held
         fastReaped.add(t.id);
@@ -2932,7 +2934,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // reclaimOrphan (NOT reclaimClaim) reclaims regardless of claimToken — an
         // orphan's whole problem is the missing token. Retry-budget-aware: → ready,
         // or blocked once the retry cap is exceeded.
-        const next = await reclaimOrphan(project, c.id);
+        const next = await reclaimOrphan(project, c.id, leafHadProgress(project));
         if (next == null) continue; // raced to a terminal state — nothing to reap
         if (c.sessionName) {
           // The slot lives in the project the worker's lane ran in (target for cross-project).
@@ -3026,7 +3028,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // reclaim the claim (retry-budget-aware → ready or blocked).
             await killTmuxSession(tmux);
             markIdle(t.targetProject ?? project, session);
-            await reclaimClaim(project, t.id);
+            await reclaimClaim(project, t.id, leafHadProgress(project));
             prev.escalated = true;
             stalled.push(t.id);
           } catch { /* escalation/recovery best-effort; never abort the tick */ }

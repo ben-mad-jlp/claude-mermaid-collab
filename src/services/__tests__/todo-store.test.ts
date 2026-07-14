@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
+  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
 import { isClaimable, claimReason } from '../claimability';
+import { recordLeafResume, getLeafResume, _closeLedgerDb } from '../worker-ledger';
 import type { Todo } from '../todo-store';
 import Database from 'bun:sqlite';
 
@@ -1654,5 +1655,112 @@ describe('`kind` column — stage C of title-prefix migration (decision e852fb0c
     db2.close();
     expect(before.kind).toBe('epic');
     expect(changes.c).toBe(0);
+  });
+});
+
+describe('Parallel-burst starvation fix: 0-node kill must not charge a retry', () => {
+  let ledgerDir: string;
+
+  beforeEach(() => {
+    ledgerDir = mkdtempSync(join(tmpdir(), 'ledger-'));
+    process.env.MERMAID_SUPERVISOR_DIR = ledgerDir;
+    _closeLedgerDb();
+  });
+
+  afterEach(() => {
+    _closeLedgerDb();
+    delete process.env.MERMAID_SUPERVISOR_DIR;
+    rmSync(ledgerDir, { recursive: true, force: true });
+  });
+
+  test('releaseExpiredClaims: nodesSpent===0 releases without retry bump', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    const claimed = await claimTodo(project, t.id, 'agent-1', 100); // tiny lease so it expires fast
+
+    // Record 0 nodes spent (0-node kill before blueprint runs)
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 0 });
+
+    // Manually advance time so the lease expires
+    const future = new Date(new Date().getTime() + 200).toISOString();
+    const hadProgress = (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
+
+    const result = await releaseExpiredClaims(project, future, undefined, hadProgress);
+
+    const after = await getTodo(project, t.id);
+    expect(after!.retryCount).toBe(0); // no retry bump for 0-node kill
+    expect(after!.heldReason).toBeNull(); // not held
+    expect(result.released).toContain(t.id);
+    expect(result.exhausted).not.toContain(t.id);
+  });
+
+  test('releaseExpiredClaims: nodesSpent>=1 releases with retry bump (normal path)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    const claimed = await claimTodo(project, t.id, 'agent-1', 100); // tiny lease
+
+    // Record 2 nodes spent (had progress)
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 2 });
+
+    // Advance time so lease expires
+    const future = new Date(new Date().getTime() + 200).toISOString();
+    const hadProgress = (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
+
+    const result = await releaseExpiredClaims(project, future, undefined, hadProgress);
+
+    const after = await getTodo(project, t.id);
+    expect(after!.retryCount).toBe(1); // retry bump (normal path)
+    expect(after!.heldReason).toBeNull(); // not held (under retry cap)
+    expect(result.released).toContain(t.id);
+  });
+
+  test('reclaimNow: nodesSpent===0 reclaims to ready without retry bump', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    // Record 0 nodes spent
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 0 });
+
+    const hadProgress = (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
+    const result = await reclaimNow(project, t.id, hadProgress);
+
+    expect(result).toBe('ready'); // returns ready, not blocked
+    const after = await getTodo(project, t.id);
+    expect(after!.retryCount).toBe(0); // no retry bump for 0-node kill
+    expect(after!.heldReason).toBeNull(); // not held
+  });
+
+  test('reclaimNow: nodesSpent>=1 reclaims with retry bump (normal path)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    // Record 2 nodes spent
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 2 });
+
+    const hadProgress = (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
+    const result = await reclaimNow(project, t.id, hadProgress);
+
+    expect(result).toBe('ready'); // below retry cap
+    const after = await getTodo(project, t.id);
+    expect(after!.retryCount).toBe(1); // retry bump (normal path)
+    expect(after!.heldReason).toBeNull(); // not held
+  });
+
+  test('reclaimNow: hadProgress absent = backwards-compat (normal retry bump logic)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    // Record 0 nodes spent (but we don't pass hadProgress reader)
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 0 });
+
+    // Without hadProgress reader, should apply normal retry bump logic
+    const result = await reclaimNow(project, t.id);
+
+    const after = await getTodo(project, t.id);
+    expect(after!.retryCount).toBe(1); // still bumps (backwards-compat)
+    expect(result).toBe('ready');
   });
 });
