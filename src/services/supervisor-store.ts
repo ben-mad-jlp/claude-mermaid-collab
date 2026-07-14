@@ -414,13 +414,11 @@ export function getWatchdogThreshold(project: string): number | null {
   return row?.watchdogThresholdPercent ?? null;
 }
 
-/** Set (or clear, with null) a project's watchdog threshold. Upserts the watched_project row. */
+/** Updates the watched_project row if the project is watched; a no-op otherwise. */
 export function setWatchdogThreshold(project: string, percent: number | null): void {
   const d = openDb();
-  d.prepare(
-    `INSERT INTO watched_project (project, addedAt, watchdogThresholdPercent) VALUES (?, ?, ?)
-     ON CONFLICT(project) DO UPDATE SET watchdogThresholdPercent = excluded.watchdogThresholdPercent`,
-  ).run(project, Date.now(), percent);
+  d.prepare('UPDATE watched_project SET watchdogThresholdPercent = ? WHERE project = ?')
+    .run(percent, project);
 }
 
 /** Per-project context-auto-recycle mode. Absent/unknown → 'off' (inert default). */
@@ -432,13 +430,11 @@ export function getContextRecycleMode(project: string): ContextRecycleMode {
   return m === 'notify' || m === 'force' ? m : 'off';
 }
 
-/** Set a project's context-auto-recycle mode. Upserts the watched_project row. */
+/** Updates the watched_project row if the project is watched; a no-op otherwise. */
 export function setContextRecycleMode(project: string, mode: ContextRecycleMode): void {
   const d = openDb();
-  d.prepare(
-    `INSERT INTO watched_project (project, addedAt, contextRecycleMode) VALUES (?, ?, ?)
-     ON CONFLICT(project) DO UPDATE SET contextRecycleMode = excluded.contextRecycleMode`,
-  ).run(project, Date.now(), mode);
+  d.prepare('UPDATE watched_project SET contextRecycleMode = ? WHERE project = ?')
+    .run(mode, project);
 }
 
 /** Per-project project-digest injection flag (default OFF). */
@@ -450,10 +446,8 @@ export function getProjectDigestEnabled(project: string): boolean {
 }
 export function setProjectDigestEnabled(project: string, on: boolean): void {
   const d = openDb();
-  d.prepare(
-    `INSERT INTO watched_project (project, addedAt, projectDigestEnabled) VALUES (?, ?, ?)
-     ON CONFLICT(project) DO UPDATE SET projectDigestEnabled = excluded.projectDigestEnabled`,
-  ).run(project, Date.now(), on ? 1 : 0);
+  d.prepare('UPDATE watched_project SET projectDigestEnabled = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
 }
 
 /** Per-project retry-context injection flag (default OFF). */
@@ -465,10 +459,8 @@ export function getPromptInjectRetryContext(project: string): boolean {
 }
 export function setPromptInjectRetryContext(project: string, on: boolean): void {
   const d = openDb();
-  d.prepare(
-    `INSERT INTO watched_project (project, addedAt, promptInjectRetryContext) VALUES (?, ?, ?)
-     ON CONFLICT(project) DO UPDATE SET promptInjectRetryContext = excluded.promptInjectRetryContext`,
-  ).run(project, Date.now(), on ? 1 : 0);
+  d.prepare('UPDATE watched_project SET promptInjectRetryContext = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
 }
 
 /** Per-project active-constraints injection flag (default OFF). */
@@ -480,10 +472,8 @@ export function getPromptInjectActiveConstraints(project: string): boolean {
 }
 export function setPromptInjectActiveConstraints(project: string, on: boolean): void {
   const d = openDb();
-  d.prepare(
-    `INSERT INTO watched_project (project, addedAt, promptInjectActiveConstraints) VALUES (?, ?, ?)
-     ON CONFLICT(project) DO UPDATE SET promptInjectActiveConstraints = excluded.promptInjectActiveConstraints`,
-  ).run(project, Date.now(), on ? 1 : 0);
+  d.prepare('UPDATE watched_project SET promptInjectActiveConstraints = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
 }
 
 // Phase-2b mission-loop driving is no longer a per-project mode. It's governed by

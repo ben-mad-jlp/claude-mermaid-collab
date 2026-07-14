@@ -88,16 +88,18 @@ served_owner_ok() {
   esac
 }
 
-# main_alive: true iff the Electron MAIN event loop answers /main/ping promptly.
+# main_alive: true iff the Electron MAIN event loop responds with any HTTP status.
 # A healthy sidecar on :$PORT with an UNRESPONSIVE main is the Mode-B cosmetic
 # deploy (stuck app window). Only meaningful in hot-swap mode (control URL present).
+# The main is alive on any real HTTP response (200, 401, 404, etc.) and wedged only
+# when there is no response within the timeout.
 main_alive() {
   [ -n "${MC_DESKTOP_CONTROL_URL:-}" ] && [ -n "${MC_DESKTOP_CONTROL_TOKEN:-}" ] || return 0
   local code
   code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' \
     -H "authorization: Bearer $MC_DESKTOP_CONTROL_TOKEN" \
     "$MC_DESKTOP_CONTROL_URL/main/ping" 2>/dev/null || echo 000)"
-  [ "$code" = "200" ]
+  [ -n "$code" ] && [ "$code" != "000" ]
 }
 
 # Settle/kill loop: a detached/source-spawned sidecar (bun run src/server.ts from
