@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from '../node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokNeededForKinds, xaiApiNeededForKinds, grokLedgerModel, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from '../node-provider';
 import { setNodeProfileOverride, setProjectNodeProvider, _closeDb } from '../orchestrator-config';
 
 // resolveNodeProvider precedence: mcp → per-kind DB → project DB → per-kind env → project
@@ -115,6 +115,44 @@ describe('anyGrokNodeConfigured', () => {
   it('true on an env knob', () => {
     process.env.MERMAID_NODE_PROVIDER_IMPLEMENT = 'grok-build';
     expect(anyGrokNodeConfigured(P)).toBe(true);
+  });
+});
+
+describe('grokNeededForKinds', () => {
+  const FLOOR = ['blueprint', 'implement', 'review'] as const;
+  const DEAD_KINDS = ['research', 'wimplement', 'verify', 'fix'] as const;
+
+  it('false when grok override is only on a dead kind, floor kinds all claude', () => {
+    setNodeProfileOverride(P, 'wimplement', null, null, 'grok-build');
+    expect(grokNeededForKinds(P, FLOOR)).toBe(false);
+  });
+
+  it('true when grok override is on a floor kind', () => {
+    setNodeProfileOverride(P, 'implement', null, null, 'grok-build');
+    expect(grokNeededForKinds(P, FLOOR)).toBe(true);
+  });
+
+  it('false when no grok override on any of the given kinds', () => {
+    expect(grokNeededForKinds(P, FLOOR)).toBe(false);
+  });
+});
+
+describe('xaiApiNeededForKinds', () => {
+  const FLOOR = ['blueprint', 'implement', 'review'] as const;
+  const DEAD_KINDS = ['research', 'wimplement', 'verify', 'fix'] as const;
+
+  it('true when grok-api override is on a floor kind', () => {
+    setNodeProfileOverride(P, 'review', null, null, 'grok-api');
+    expect(xaiApiNeededForKinds(P, FLOOR)).toBe(true);
+  });
+
+  it('false when grok-api override is only on a dead kind', () => {
+    setNodeProfileOverride(P, 'wimplement', null, null, 'grok-api');
+    expect(xaiApiNeededForKinds(P, FLOOR)).toBe(false);
+  });
+
+  it('false when no grok-api override on any of the given kinds', () => {
+    expect(xaiApiNeededForKinds(P, FLOOR)).toBe(false);
   });
 });
 
