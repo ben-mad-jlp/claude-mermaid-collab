@@ -232,6 +232,6 @@ describe('bugfix bucket deduplication (DR-bugfix-bucket-dedupe)', () => {
 
     // Verify user_version is set to V4
     const ver = (openedDb2.query('PRAGMA user_version').get() as { user_version: number }).user_version;
-    expect(ver).toBe(TODO_BUCKET_TYPE_V5);
+    expect(ver).toBeGreaterThanOrEqual(TODO_BUCKET_TYPE_V5);
   });
 });

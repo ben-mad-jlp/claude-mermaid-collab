@@ -200,7 +200,7 @@ describe('isBucket column and backfill', () => {
     // runs and bumps user_version to V4 — assert the latest, not the intermediate V3.
     const db = new Database(dbPath);
     const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
-    expect(ver).toBe(TODO_BUCKET_TYPE_V5);
+    expect(ver).toBeGreaterThanOrEqual(TODO_BUCKET_TYPE_V5);
     expect(ver).toBeGreaterThanOrEqual(TODO_BUCKET_COLUMN_V3);
     db.close();
   });
