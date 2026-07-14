@@ -13,7 +13,8 @@ import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
-import { regenerateProjectDigest } from './project-digest';
+import { regenerateProjectDigest, type DigestLlm } from './project-digest';
+import { makeDigestLlm } from './digest-llm';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
 
 /** P1 breaker memory: lanes already SOFT-warned this process, so a soft (non-parking)
@@ -1998,6 +1999,7 @@ export async function refreshProjectDigestOnLand(
   deps?: {
     refreshDigest?: (project: string) => void | Promise<void>;
     digestEnabled?: (project: string) => boolean;
+    digestLlm?: DigestLlm;
   },
 ): Promise<void> {
   try {
@@ -2005,7 +2007,8 @@ export async function refreshProjectDigestOnLand(
     if (!enabled(project)) return;
     const refresh =
       deps?.refreshDigest ??
-      ((p: string) => regenerateProjectDigest(p).then(() => {}));
+      ((p: string) =>
+        regenerateProjectDigest(p, { llm: deps?.digestLlm ?? makeDigestLlm(p) }).then(() => {}));
     await refresh(project);
   } catch {
     /* advisory — a digest refresh must never fail a completed land */
