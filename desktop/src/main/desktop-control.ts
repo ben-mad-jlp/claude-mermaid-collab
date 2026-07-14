@@ -30,13 +30,27 @@ export class DesktopControl {
       res.end(JSON.stringify(obj));
     };
 
-    if (req.method !== 'POST' || (req.url !== '/panes/ensure' && req.url !== '/sidecar/hot-swap')) {
+    if (
+      !(req.method === 'GET' && req.url === '/main/ping') &&
+      !(req.method === 'POST' && (req.url === '/panes/ensure' || req.url === '/sidecar/hot-swap'))
+    ) {
       send(404, { error: 'not found' });
       return;
     }
 
     if (req.headers.authorization !== `Bearer ${this.token}`) {
       send(401, { error: 'unauthorized' });
+      return;
+    }
+
+    // Main-liveness probe (deploy sidecar-death fix, leaf 0f2cc486). This handler
+    // runs ON the Electron main event loop, so a wedged main (pegged loop, frozen
+    // HTTP) cannot answer it. The deploy script pings this AFTER a "successful"
+    // hot-swap: a healthy sidecar on :9002 with an UNRESPONSIVE main is the Mode-B
+    // cosmetic deploy (app window stuck) — the script escalates to a full external
+    // relaunch when this doesn't answer 200 in time. `pid` lets the caller correlate.
+    if (req.method === 'GET' && req.url === '/main/ping') {
+      send(200, { ok: true, pid: process.pid, ts: Date.now() });
       return;
     }
 
