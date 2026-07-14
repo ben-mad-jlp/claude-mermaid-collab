@@ -10,8 +10,9 @@
  */
 
 import React, { useState } from 'react';
-import { useSupervisorStore, type MissionSummary } from '@/stores/supervisorStore';
-import { MissionCard, MissionCreateDialog, MissionDetail, isMissionCompleted } from '../rail/missionShared';
+import { useSupervisorStore, type MissionSummary, type MissionStatus } from '@/stores/supervisorStore';
+import { MissionTabs, StatusPill, MissionCreateDialog, MissionDetail, isMissionCompleted } from '../rail/missionShared';
+import { stripKindPrefix } from '@/lib/todoKind';
 import { useMissions } from '../rail/useMissions';
 
 export interface MissionDetailPanelProps {
@@ -27,6 +28,7 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
   const [showCompleted, setShowCompleted] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'goal' | 'build' | 'missions'>('goal');
 
   const completedCount = missions.filter(isMissionCompleted).length;
   // Active mission first, then the rest; completed hidden unless toggled.
@@ -82,33 +84,48 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
         </div>
       ) : selected ? (
         <>
-          <MissionDetail
-            m={selected}
-            serverId={serverId}
-            project={project}
-            onChanged={(next: MissionSummary[]) => setMissions(next)}
+          <MissionTabs
+            tabs={[
+              { key: 'goal', label: 'Goal', testid: 'mission-tab-goal' },
+              { key: 'build', label: 'Build', testid: 'mission-tab-build' },
+              { key: 'missions', label: 'Missions', testid: 'mission-tab-missions' },
+            ]}
+            active={activeTab}
+            onChange={(key) => setActiveTab(key as 'goal' | 'build' | 'missions')}
           />
-
-          {/* Inactive missions carousel */}
-          {shown.length > 1 && (
-            <div data-testid="mission-inactive-carousel" className="flex gap-2 overflow-x-auto pb-2">
-              {shown
-                .filter((m) => m.node?.id !== selected.node?.id)
-                .map((m) => (
-                  <div
+          {activeTab === 'missions' ? (
+            <div data-testid="mission-switcher" className="flex flex-col gap-1">
+              {shown.map((m) => {
+                const isSel = m.node?.id === selected.node?.id;
+                return (
+                  <button
                     key={m.node?.id}
-                    onClick={() => setSelectedId(m.node?.id ?? null)}
-                    className="cursor-pointer"
+                    type="button"
+                    data-testid="mission-switcher-row"
+                    onClick={() => { setSelectedId(m.node?.id ?? null); setActiveTab('goal'); }}
+                    className={`flex items-center justify-between gap-2 rounded border px-2 py-1 text-left transition-colors ${
+                      isSel
+                        ? 'border-info-300 dark:border-info-700 bg-info-50 dark:bg-info-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                    }`}
                   >
-                    <MissionCard
-                      m={m}
-                      serverId={serverId}
-                      project={project}
-                      onChanged={(next: MissionSummary[]) => setMissions(next)}
-                    />
-                  </div>
-                ))}
+                    <span className="text-3xs font-medium text-gray-700 dark:text-gray-200 truncate">
+                      {stripKindPrefix(m.node?.title ?? 'Mission')}
+                    </span>
+                    <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
+                  </button>
+                );
+              })}
             </div>
+          ) : (
+            <MissionDetail
+              m={selected}
+              serverId={serverId}
+              project={project}
+              tab={activeTab === 'build' ? 'build' : 'goals'}
+              onChanged={(next: MissionSummary[]) => setMissions(next)}
+              onDropped={() => { setSelectedId(null); setActiveTab('missions'); }}
+            />
           )}
         </>
       ) : null}
