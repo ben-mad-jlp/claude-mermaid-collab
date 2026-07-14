@@ -1377,7 +1377,16 @@ export async function runLeaf(
   //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
   const nodeOverrides = listNodeProfileOverrides(project);
   const projectEffort = getProjectEffort(project);
+  // Escalation set: kinds whose model has been bumped to the blueprint model
+  // (a higher tier) instead of its normal pinned model. Set on an implement start-failure
+  // so the in-place retry runs stronger — coherent everywhere nodeModel is used (spec
+  // build, ledger recordedModel, setInflight).
+  const escalatedKinds = new Set<LeafNodeKind>();
   const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools): string => {
+    if (escalatedKinds.has(kind)) {
+      const bpTools = NODE_PROFILE['blueprint'].allowedTools;
+      return resolveNodeModel(project, 'blueprint', resolveNodeProvider(project, 'blueprint', bpTools), NODE_PROFILE['blueprint'].model);
+    }
     const provider = resolveNodeProvider(project, kind, allowedTools);
     return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
   };
@@ -2236,8 +2245,21 @@ export async function runLeaf(
     // shouldUseFloor machinery was deleted in the WAVES dead-code sweep.)
     pathTaken = 'floor';
     // IMPLEMENT (byte-identical to the prior FLOOR path):
-    const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
-    if (impl.startFailure) return parkNodeStartFailure('implement', impl);
+    let impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
+    if (impl.startFailure) {
+      // Reactive escalation: a start-failure (timeout + zero tokens) on the pinned
+      // implement model is usually the refactor overrunning the per-node ceiling, not a
+      // real start failure. Retry ONCE in-place on the blueprint model (a higher tier);
+      // otherwise the daemon re-claims and re-runs the SAME model → identical failure → churn.
+      const baseImpl = nodeModel('implement');
+      const bpModel = nodeModel('blueprint');
+      if (!escalatedKinds.has('implement') && baseImpl !== bpModel && checkBudget()) {
+        console.warn(`[leaf-executor] implement start-failure on ${baseImpl} → escalating in-place retry to ${bpModel}`);
+        escalatedKinds.add('implement'); // nodeModel('implement') now returns bpModel
+        impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody)); // rebuilt spec uses the escalated model
+      }
+      if (impl.startFailure) return parkNodeStartFailure('implement', impl);
+    }
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
