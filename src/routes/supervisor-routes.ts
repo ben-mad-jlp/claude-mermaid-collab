@@ -259,11 +259,11 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       // Edit the mission node (title/description).
       try {
         const body = (await req.json()) as {
-          project?: string; todoId?: string; title?: string; description?: string;
+          project?: string; todoId?: string; title?: string; description?: string; abandonedAt?: number | null;
         };
         if (!body.project || !body.todoId) return jsonError('project and todoId are required', 400);
         const { handleMissionTool } = await import('../mcp/mission-tools.ts');
-        await handleMissionTool('update_mission', { project: body.project, todoId: body.todoId, title: body.title, description: body.description });
+        await handleMissionTool('update_mission', { project: body.project, todoId: body.todoId, title: body.title, description: body.description, abandonedAt: body.abandonedAt });
         const { getMission, listCriteria, getMissionRollup } = await import('../services/mission-store.ts');
         return Response.json({ mission: getMission(body.project, body.todoId), criteria: listCriteria(body.project, body.todoId), rollup: getMissionRollup(body.project, body.todoId) });
       } catch (err) {
