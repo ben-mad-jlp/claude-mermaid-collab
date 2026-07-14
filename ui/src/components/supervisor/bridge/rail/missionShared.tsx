@@ -388,65 +388,76 @@ export const CriteriaEditor: React.FC<{
     <>
       {sorted.length === 0 && <span className="text-3xs text-gray-400 dark:text-gray-500 italic">none yet</span>}
       {sorted.map((c) => (
-        <div key={c.id} className="flex items-start gap-1 text-3xs leading-snug group/crit" data-testid="criterion-row">
-          <span className={c.met ? 'text-success-600 dark:text-success-400' : 'text-gray-400 dark:text-gray-500'} title={c.met ? 'Met (verdict set by the independent verifier)' : 'Not yet met'} data-testid="criterion-marker">
-            {c.met ? '✓' : '○'}
-          </span>
-          {editingId === c.id ? (
-            <input
-              autoFocus
-              className="flex-1 rounded border border-info-300 dark:border-info-700 bg-white dark:bg-gray-900 px-1 py-0.5 text-3xs"
-              value={editText}
-              disabled={busy}
-              onChange={(e) => setEditText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void commitEdit(c.id); if (e.key === 'Escape') setEditingId(null); }}
-              onBlur={() => void commitEdit(c.id)}
-              data-testid="criterion-edit-input"
-            />
-          ) : (
-            <div className="flex-1 flex items-center gap-1">
-              <span className={`${c.met ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
-                {c.text}
-              </span>
-              {c.met && c.verifiedAtSha && (
-                <span
-                  data-testid="criterion-provenance"
-                  className="text-3xs text-gray-400 dark:text-gray-500 font-mono"
-                  title={`Independently checked at ${c.verifiedAtSha}; files uncited since.`}
-                >
-                  @{c.verifiedAtSha.slice(0, 7)}
-                </span>
-              )}
-              {c.met && !c.verifiedAtSha && (
-                <span
-                  data-testid="criterion-provenance"
-                  className="text-3xs text-gray-400 dark:text-gray-500 italic"
-                  title="Marked met without an independent verify — provenance unknown."
-                >
-                  (unverified)
-                </span>
-              )}
-            </div>
-          )}
-          {editingId !== c.id && (
-            <span className="opacity-0 group-hover/crit:opacity-100 flex gap-0.5 shrink-0">
-              <button
-                type="button"
-                title="Edit assertion text (clears the verdict — re-verify)"
-                className="text-gray-400 hover:text-info-600"
-                onClick={() => { setEditingId(c.id); setEditText(c.text); }}
-                data-testid="criterion-edit-btn"
-              >✎</button>
-              <button
-                type="button"
-                title="Remove criterion"
-                className="text-gray-400 hover:text-danger-600"
-                disabled={busy}
-                onClick={() => void onRemove(c.id)}
-                data-testid="criterion-remove-btn"
-              >✕</button>
+        <div key={c.id}>
+          <div className="flex items-start gap-1 text-3xs leading-snug group/crit" data-testid="criterion-row">
+            <span className={c.met ? 'text-success-600 dark:text-success-400' : 'text-gray-400 dark:text-gray-500'} title={c.met ? 'Met (verdict set by the independent verifier)' : 'Not yet met'} data-testid="criterion-marker">
+              {c.met ? '✓' : '○'}
             </span>
-          )}
+            {editingId === c.id ? (
+              <input
+                autoFocus
+                className="flex-1 rounded border border-info-300 dark:border-info-700 bg-white dark:bg-gray-900 px-1 py-0.5 text-3xs"
+                value={editText}
+                disabled={busy}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void commitEdit(c.id); if (e.key === 'Escape') setEditingId(null); }}
+                onBlur={() => void commitEdit(c.id)}
+                data-testid="criterion-edit-input"
+              />
+            ) : (
+              <div className="flex-1 flex items-center gap-1">
+                <span className={`${c.met ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {c.text}
+                </span>
+                {c.met && c.verifiedAtSha && (
+                  <span
+                    data-testid="criterion-provenance"
+                    className="text-3xs text-gray-400 dark:text-gray-500 font-mono"
+                    title={`Independently checked at ${c.verifiedAtSha}; files uncited since.`}
+                  >
+                    @{c.verifiedAtSha.slice(0, 7)}
+                  </span>
+                )}
+                {c.met && !c.verifiedAtSha && (
+                  <span
+                    data-testid="criterion-provenance"
+                    className="text-3xs text-gray-400 dark:text-gray-500 italic"
+                    title="Marked met without an independent verify — provenance unknown."
+                  >
+                    (unverified)
+                  </span>
+                )}
+              </div>
+            )}
+            {editingId !== c.id && (
+              <span className="opacity-0 group-hover/crit:opacity-100 flex gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  title="Edit assertion text (clears the verdict — re-verify)"
+                  className="text-gray-400 hover:text-info-600"
+                  onClick={() => { setEditingId(c.id); setEditText(c.text); }}
+                  data-testid="criterion-edit-btn"
+                >✎</button>
+                <button
+                  type="button"
+                  title="Remove criterion"
+                  className="text-gray-400 hover:text-danger-600"
+                  disabled={busy}
+                  onClick={() => void onRemove(c.id)}
+                  data-testid="criterion-remove-btn"
+                >✕</button>
+              </span>
+            )}
+          </div>
+          {editingId !== c.id && c.evidencePaths?.length ? (
+            <div data-testid="criterion-evidence" className="ml-5 mt-0.5 text-3xs text-gray-400 dark:text-gray-500 font-mono leading-snug">
+              {c.evidencePaths.map((path, idx) => (
+                <div key={idx} className="truncate" title={path}>
+                  {path}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ))}
       <div className="flex items-center gap-1 mt-0.5">
@@ -468,6 +479,233 @@ export const CriteriaEditor: React.FC<{
         >add</button>
       </div>
     </>
+  );
+};
+
+// ── Mission detail components ─────────────────────────────────────────────────
+
+/** MissionTabs — a tab bar primitive. */
+export const MissionTabs: React.FC<{
+  tabs: Array<{ key: string; label: string; testid?: string }>;
+  active: string;
+  onChange: (key: string) => void;
+}> = ({ tabs, active, onChange }) => (
+  <div role="tablist" data-testid="mission-detail-tabs" className="flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-2">
+    {tabs.map((tab) => (
+      <button
+        key={tab.key}
+        role="tab"
+        aria-selected={active === tab.key}
+        data-testid={tab.testid}
+        onClick={() => onChange(tab.key)}
+        className={`px-2 py-1 text-3xs font-medium border-b-2 transition-colors ${
+          active === tab.key
+            ? 'border-info-500 text-info-700 dark:text-info-300'
+            : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300'
+        }`}
+      >
+        {tab.label}
+      </button>
+    ))}
+  </div>
+);
+
+/** EpicList — renders the epics from a mission. */
+export const EpicList: React.FC<{ epics: MissionView['epics'] }> = ({ epics }) => (
+  <div data-testid="mission-epic-list" className="flex flex-col gap-0.5">
+    {epics.length === 0 ? (
+      <span className="text-3xs text-gray-400 dark:text-gray-500 italic">none yet</span>
+    ) : (
+      epics.map((e) => (
+        <div key={e.id} className="flex items-start gap-1 text-3xs leading-snug" title={`${e.status}${e.acceptanceStatus ? ` · ${e.acceptanceStatus}` : ''}`}>
+          <span className={`mt-1 shrink-0 h-1.5 w-1.5 rounded-full ${epicDotClass(e.status)}`} aria-hidden />
+          <span className="text-gray-600 dark:text-gray-300 truncate">
+            {stripKindPrefix(e.title)}
+          </span>
+          <span className="ml-auto shrink-0 text-gray-400 dark:text-gray-500 lowercase">
+            {e.status}
+          </span>
+        </div>
+      ))
+    )}
+  </div>
+);
+
+/** MissionDetail — the descriptive detail view for a selected mission. */
+export const MissionDetail: React.FC<{
+  m: MissionSummary;
+  serverId: string;
+  project: string;
+  onChanged: (next: MissionSummary[]) => void;
+}> = ({ m, serverId, project, onChanged }) => {
+  const [activeTab, setActiveTab] = useState<'goals' | 'build'>('goals');
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmActivate, setConfirmActivate] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const activateMission = useSupervisorStore((s) => s.activateMission);
+  const updateMission = useSupervisorStore((s) => s.updateMission);
+  const deleteMission = useSupervisorStore((s) => s.deleteMission);
+  const addMissionCriterion = useSupervisorStore((s) => s.addMissionCriterion);
+  const updateMissionCriterion = useSupervisorStore((s) => s.updateMissionCriterion);
+  const removeMissionCriterion = useSupervisorStore((s) => s.removeMissionCriterion);
+
+  const view = missionView(m);
+
+  const run = async (fn: () => Promise<MissionSummary[]>) => {
+    setBusy(true);
+    try { onChanged(await fn()); } finally { setBusy(false); }
+  };
+
+  const doActivate = () => {
+    if (!view.missionId) return;
+    if (isTerminalPhase(view.phase)) { setConfirmActivate(true); return; }
+    void run(() => activateMission(serverId, project, view.missionId!));
+  };
+
+  return (
+    <div data-testid="mission-detail" className="flex flex-col gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <span
+          className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-snug flex-1"
+          title={m.node?.title}
+        >
+          {stripKindPrefix(m.node?.title ?? 'Mission')}
+        </span>
+        <StatusPill status={view.status} />
+      </div>
+
+      {view.owner && (
+        <div
+          className="flex items-center gap-1 text-3xs text-gray-400 dark:text-gray-500"
+          title="The session that owns / drives this mission."
+        >
+          <span aria-hidden>◷</span>
+          <span className="font-mono truncate">session: {view.owner}</span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
+        <span
+          className="font-mono"
+          title={
+            view.maxIterations != null
+              ? `Iteration ${view.iteration} of a max ${view.maxIterations} (STOP-WHEN cap).`
+              : `Iteration ${view.iteration} — laps around the loop (no cap set).`
+          }
+        >
+          iter {view.iteration}{view.maxIterations != null ? `/${view.maxIterations}` : ''}
+        </span>
+        {view.converged && (
+          <span
+            data-testid="mission-converged"
+            className="text-success-600 dark:text-success-400 font-semibold"
+            title="All criteria met — goal achieved (VERIFY passed)."
+          >
+            converged ✓
+          </span>
+        )}
+        {view.stopped && !view.converged && (
+          <span
+            data-testid="mission-stopped"
+            className="text-gray-500 dark:text-gray-400 font-semibold"
+            title={`Loop stopped: ${view.stopReason ?? 'reached a terminal state'}.`}
+          >
+            stopped{view.stopReason === 'max-iterations' ? ' (max iters)' : ''}
+          </span>
+        )}
+      </div>
+
+      {view.procedure && (
+        <div
+          className="text-3xs text-gray-500 dark:text-gray-400 leading-snug border-l-2 border-gray-200 dark:border-gray-700 pl-1.5"
+          title={`Each iteration:\n${view.procedure}`}
+        >
+          <span className="uppercase tracking-wide text-gray-400 dark:text-gray-500">each iter:</span> {view.procedure}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <MissionTabs
+        tabs={[
+          { key: 'goals', label: 'Goals', testid: 'mission-tab-goals' },
+          { key: 'build', label: 'Build', testid: 'mission-tab-build' },
+        ]}
+        active={activeTab}
+        onChange={(key) => setActiveTab(key as 'goals' | 'build')}
+      />
+
+      {/* Goals tab body */}
+      {activeTab === 'goals' && (
+        <div data-testid="mission-goals-tab">
+          <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
+            <span className="font-mono">{view.cap.met}/{view.cap.total}</span> acceptance criteria met
+          </div>
+          <CriteriaEditor
+            criteria={view.criteria}
+            onAdd={(text) => run(() => addMissionCriterion(serverId, project, view.missionId!, text))}
+            onEdit={(id, text) => run(() => updateMissionCriterion(serverId, project, id, text))}
+            onRemove={(id) => run(() => removeMissionCriterion(serverId, project, id))}
+          />
+        </div>
+      )}
+
+      {/* Build tab body */}
+      {activeTab === 'build' && (
+        <div data-testid="mission-build-tab">
+          <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
+            <span className="font-mono">{view.mech.done}/{view.mech.total}</span> epics done (mechanical) · <span className="font-mono">{view.cap.met}/{view.cap.total}</span> capability met
+          </div>
+          <EpicList epics={view.epics} />
+        </div>
+      )}
+
+      {/* Controls row */}
+      <div className="flex items-center gap-1 pt-2 border-t border-gray-100 dark:border-gray-700/60">
+        {!view.active && (
+          <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
+            Activate
+          </MiniButton>
+        )}
+        {view.active && (
+          <span className="text-3xs text-success-600 dark:text-success-400 px-1" title="This is the active mission for its session.">● active</span>
+        )}
+        <MiniButton onClick={() => setEditing(true)} disabled={busy} title="Edit goal / description / procedure / cap" testid="mission-edit-btn">
+          Edit
+        </MiniButton>
+        <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Delete this mission (irreversible)" testid="mission-delete-btn">
+          Delete
+        </MiniButton>
+      </div>
+
+      {editing && (
+        <MissionEditDialog
+          m={m}
+          onClose={() => setEditing(false)}
+          onSave={(patch) => run(() => updateMission(serverId, project, view.missionId!, patch))}
+        />
+      )}
+
+      <ConfirmDialog
+        isOpen={confirmDelete}
+        title="Delete mission?"
+        message={<>Permanently delete <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong>? This drops the mission node, its loop state, and all criteria. This cannot be undone.</>}
+        confirmLabel="Delete permanently"
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => { setConfirmDelete(false); void run(() => deleteMission(serverId, project, view.missionId!)); }}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmActivate}
+        title="Re-activate a completed mission?"
+        message={<>This mission has already <strong>{view.phase}</strong>. Re-activating it makes it the session's active mission, but the loop won't re-drive a terminal mission. Continue?</>}
+        confirmLabel="Activate anyway"
+        onCancel={() => setConfirmActivate(false)}
+        onConfirm={() => { setConfirmActivate(false); void run(() => activateMission(serverId, project, view.missionId!)); }}
+      />
+    </div>
   );
 };
 
