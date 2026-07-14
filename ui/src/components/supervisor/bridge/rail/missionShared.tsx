@@ -388,8 +388,8 @@ export const CriteriaEditor: React.FC<{
     <>
       {sorted.length === 0 && <span className="text-3xs text-gray-400 dark:text-gray-500 italic">none yet</span>}
       {sorted.map((c) => (
-        <div key={c.id}>
-          <div className="flex items-start gap-1 text-3xs leading-snug group/crit" data-testid="criterion-row">
+        <div key={c.id} className="py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+          <div className="flex items-start gap-1.5 text-sm leading-relaxed group/crit" data-testid="criterion-row">
             <span className={c.met ? 'text-success-600 dark:text-success-400' : 'text-gray-400 dark:text-gray-500'} title={c.met ? 'Met (verdict set by the independent verifier)' : 'Not yet met'} data-testid="criterion-marker">
               {c.met ? '✓' : '○'}
             </span>
@@ -406,7 +406,7 @@ export const CriteriaEditor: React.FC<{
               />
             ) : (
               <div className="flex-1 flex items-center gap-1">
-                <span className={`${c.met ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                <span className={`leading-relaxed ${c.met ? 'text-gray-900 dark:text-gray-100' : 'text-gray-800 dark:text-gray-200'}`}>
                   {c.text}
                 </span>
                 {c.met && c.verifiedAtSha && (
