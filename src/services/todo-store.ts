@@ -1375,7 +1375,7 @@ export interface ReleaseResult {
  * it for a human. Stored status is the non-derived 'planned' in both cases —
  * readiness/hold are DERIVED from the cleared claim / heldAt, not the enum.
  */
-export function releaseExpiredClaims(project: string, now: string = nowIso(), isLive?: (id: string) => boolean): Promise<ReleaseResult> {
+export function releaseExpiredClaims(project: string, now: string = nowIso(), isLive?: (id: string) => boolean, hadProgress?: (id: string) => boolean): Promise<ReleaseResult> {
   return withLock(project, () => {
     const db = openDb(project);
     const nowMs = new Date(now).getTime();
@@ -1400,6 +1400,10 @@ export function releaseExpiredClaims(project: string, now: string = nowIso(), is
     // 'planned' and the decision fields carry the real state. ONE write per row.
     // (cleanup-605d6fc0: was status='ready'/'blocked' — behavior-neutral, since
     // claimReason ignores those enum values; this just stops the status lying.)
+    const toReadyNoPenalty = db.prepare(
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
+       updatedAt=? WHERE id=?`
+    );
     const toReady = db.prepare(
       `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
@@ -1412,6 +1416,7 @@ export function releaseExpiredClaims(project: string, now: string = nowIso(), is
     const exhausted: string[] = [];
     db.transaction(() => {
       for (const { r } of expired) {
+        if (hadProgress && hadProgress(r.id) === false) { toReadyNoPenalty.run(ts, r.id); released.push(r.id); continue; }
         if ((r.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES) { toHeld.run(ts, ts, r.id); exhausted.push(r.id); }
         else { toReady.run(ts, r.id); released.push(r.id); }
       }
@@ -1439,7 +1444,7 @@ export function releaseExpiredClaims(project: string, now: string = nowIso(), is
  * 'ready' means "claim cleared, will re-derive claimable" and 'blocked' means
  * "parked via heldAt", matching the new decision model.
  */
-export function reclaimNow(project: string, id: string): Promise<'ready' | 'blocked' | null> {
+export function reclaimNow(project: string, id: string, hadProgress?: (id: string) => boolean): Promise<'ready' | 'blocked' | null> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -1464,6 +1469,14 @@ export function reclaimNow(project: string, id: string): Promise<'ready' | 'bloc
     if (row.acceptanceStatus === 'accepted') return null;
     const hasClaim = readClaim(row) != null;
     if (!hasClaim && row.status !== 'in_progress') return null;
+    // 0-node kill (hadProgress returns false): release without retry penalty and never park
+    if (hadProgress && hadProgress(id) === false) {
+      db.prepare(
+        `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
+         updatedAt=? WHERE id=?`
+      ).run(nowIso(), id);
+      return 'ready';
+    }
     const exhausted = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES;
     const next: 'ready' | 'blocked' = exhausted ? 'blocked' : 'ready';
     // cleanup-605d6fc0: store the non-derived 'planned' + decision fields, never
