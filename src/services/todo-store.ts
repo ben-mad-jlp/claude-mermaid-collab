@@ -11,6 +11,7 @@ import { hostname } from 'node:os';
 import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
 import { topoSortSplitItems } from './split-decision';
+import { ensureBucket } from './bucket-registry.ts';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -142,6 +143,11 @@ export interface Todo {
    *  never lands / has no branch / no mission / is not conductor-landable. Backfilled by
    *  id for the 5 known buckets; predicates migrate to consult this in leaf 4. */
   isBucket: boolean;
+  /** R1 structural bucket singleton. When non-null this row IS the (project, type)
+   *  bucket — uniqued by a partial index and written ONLY by bucket-registry.ensureBucket.
+   *  OPTIONAL on purpose: existing Todo literals/fixtures must compile unchanged, and a
+   *  pre-migration row reads null (isBucketEpic falls back to the legacy title match). */
+  bucketType?: 'inbox' | 'bugfix' | null;
 }
 
 export interface TodoFilter {
@@ -203,6 +209,9 @@ export interface CreateTodoInput {
   /** Explicit bucket declaration for an epic create (default false; only meaningful
    *  with `kind:'epic'`). When omitted, bucket-ness is inferred from `isBucketEpicTitle`. */
   isBucket?: boolean;
+  /** INTERNAL ONLY — set exclusively by bucket-registry.ensureBucket, the sole writer of
+   *  a non-null `bucketType`. Never populate from a public/MCP surface. */
+  _ensureBucketType?: 'inbox' | 'bugfix';
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -233,6 +242,12 @@ export class DuplicateBucketError extends Error {
     );
     this.name = 'DuplicateBucketError';
   }
+}
+
+/** Narrowing helper so bucket-registry.ensureBucket can catch the app-level dup error
+ *  without a static import through the module cycle. */
+export function isDuplicateBucketError(e: unknown): e is DuplicateBucketError {
+  return e instanceof DuplicateBucketError;
 }
 
 /** Thrown by updateTodo when a mission-homed `kind:'epic'` is APPROVED (status→ready)
@@ -363,6 +378,7 @@ interface TodoRow {
   inheritedBlueprintFrom: string | null;
   inheritedFiles: string | null;
   isBucket: number;
+  bucketType: string | null;
 }
 
 const DDL = `
@@ -479,6 +495,10 @@ export function openDb(project: string): Database {
   // NOT NULL DEFAULT 0 so every existing row reads false until the backfill below
   // flips the 5 known bucket ids. Predicates keep reading titles until leaf 4.
   addColumnIfMissing(db, 'todos', 'isBucket', 'isBucket INTEGER NOT NULL DEFAULT 0');
+  // R1 structural bucket singleton (bucketType) — additive, nullable. Written ONLY by
+  // bucket-registry.ensureBucket; uniqued per (targetProject, bucketType) by a partial
+  // index created inside the V5 backfill AFTER duplicate bucket rows are collapsed.
+  addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -567,6 +587,13 @@ export function openDb(project: string): Database {
     }
     db.exec(`PRAGMA user_version = ${TODO_BUCKET_DEDUPE_V4}`);
   }
+  if (ver < TODO_BUCKET_TYPE_V5) {
+    // R1: type existing bucket rows, COLLAPSE duplicates per (targetProject, bucketType),
+    // THEN create the partial UNIQUE index (order matters — dedup first so index creation
+    // never violates). Idempotent + gated by user_version.
+    backfillBucketTypeV5(db);
+    db.exec(`PRAGMA user_version = ${TODO_BUCKET_TYPE_V5}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -614,6 +641,80 @@ export const TODO_BUCKET_COLUMN_V3 = 3;
 
 /** user_version marker for the bugfix bucket deduplication (merge 3 non-canonical rows to a41c8051, retire them). */
 export const TODO_BUCKET_DEDUPE_V4 = 4;
+
+/** user_version marker for the R1 bucketType backfill + dedup + partial UNIQUE index. */
+export const TODO_BUCKET_TYPE_V5 = 5;
+
+/**
+ * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
+ *   1. Type existing bucket rows -> bucketType (Inbox->'inbox'; Bugfix inbox / Collab
+ *      gaps->'bugfix'). isBucket=1 rows are discriminated by title; legacy title-only
+ *      epics are matched EXACTLY (normalized) so a deliverable like 'Inbox rendering
+ *      bugs' (isBucket=0, non-canonical title) is NEVER swept in.
+ *   2. DEDUP per (targetProject, bucketType) BEFORE the UNIQUE index: pick the MIN(rowid)
+ *      survivor in each group, re-home each loser's children to that survivor, then
+ *      null-out + drop the losers so exactly one non-null bucketType remains per group.
+ *   3. Create the partial UNIQUE index (now that the singleton holds).
+ * All SQL is set-based with correlated subqueries — no unbound placeholders.
+ */
+export function backfillBucketTypeV5(db: Database): void {
+  // 1a. isBucket=1 canonical buckets — discriminate inbox vs bugfix by title.
+  db.exec(
+    `UPDATE todos SET bucketType='inbox'
+       WHERE bucketType IS NULL AND status != 'dropped' AND isBucket=1
+         AND (TRIM(title) LIKE 'Inbox%' OR TRIM(title) LIKE '[EPIC] Inbox%')`
+  );
+  db.exec(
+    `UPDATE todos SET bucketType='bugfix'
+       WHERE bucketType IS NULL AND status != 'dropped' AND isBucket=1
+         AND (TRIM(title) LIKE 'Bugfix inbox%' OR TRIM(title) LIKE 'Collab gaps%'
+              OR TRIM(title) LIKE '[EPIC] Bugfix inbox%' OR TRIM(title) LIKE '[EPIC] Collab gaps%')`
+  );
+  // 1b. Legacy title-only epics (isBucket never set): EXACT normalized-title match only.
+  db.exec(
+    `UPDATE todos SET bucketType='inbox'
+       WHERE bucketType IS NULL AND status != 'dropped' AND kind='epic'
+         AND lower(TRIM(title)) IN ('inbox','[epic] inbox')`
+  );
+  db.exec(
+    `UPDATE todos SET bucketType='bugfix'
+       WHERE bucketType IS NULL AND status != 'dropped' AND kind='epic'
+         AND lower(TRIM(title)) IN ('bugfix inbox','[epic] bugfix inbox','collab gaps','[epic] collab gaps')`
+  );
+  // 2a. Re-home each loser's children to their group's MIN(rowid) survivor.
+  db.exec(
+    `UPDATE todos
+       SET parentId = (
+         SELECT s.id FROM todos s
+          WHERE s.bucketType IS NOT NULL
+            AND s.targetProject = (SELECT p.targetProject FROM todos p WHERE p.id = todos.parentId)
+            AND s.bucketType    = (SELECT p.bucketType    FROM todos p WHERE p.id = todos.parentId)
+          ORDER BY s.rowid ASC LIMIT 1
+       )
+     WHERE parentId IN (
+       SELECT l.id FROM todos l
+        WHERE l.bucketType IS NOT NULL
+          AND l.rowid > (SELECT MIN(m.rowid) FROM todos m
+                          WHERE m.bucketType IS NOT NULL
+                            AND m.targetProject = l.targetProject
+                            AND m.bucketType    = l.bucketType)
+     )`
+  );
+  // 2b. Null-out + drop the losers so exactly one non-null bucketType remains per group.
+  db.exec(
+    `UPDATE todos SET bucketType=NULL, isBucket=0, status='dropped'
+      WHERE bucketType IS NOT NULL
+        AND rowid > (SELECT MIN(m.rowid) FROM todos m
+                      WHERE m.bucketType IS NOT NULL
+                        AND m.targetProject = todos.targetProject
+                        AND m.bucketType    = todos.bucketType)`
+  );
+  // 3. Singleton now holds — create the partial UNIQUE index.
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_bucket_singleton
+       ON todos(targetProject, bucketType) WHERE bucketType IS NOT NULL`
+  );
+}
 
 /**
  * One-shot, idempotent de-conflate S1 backfill (design-todo-model-refactor §S1).
@@ -952,6 +1053,7 @@ function rowToTodo(row: TodoRow): Todo {
     inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
     inheritedFiles,
     isBucket: row.isBucket === 1,
+    bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
   };
 }
 
@@ -1041,15 +1143,17 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
   // Compare via stripLabel so this matches both the pre-strip row (`[EPIC] Inbox`)
   // and the post-strip row (`Inbox`) — else the find-or-create forks a duplicate
   // Inbox epic across the migration boundary.
-  const inboxTitle = stripLabel(INBOX_EPIC_TITLE);
-  const existing = listTodos(project, { includeCompleted: true })
-    .find((t) => isEpic(t) && stripLabel(t.title) === inboxTitle && t.status !== 'dropped');
-  if (existing) return existing.id;
-  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic', isBucket: true });
-  return inbox.id;
+  // R1: route the Inbox find-or-create through the ONE bucket writer so its structural
+  // bucketType is set and only one Inbox can exist per project.
+  return await ensureBucket(project, 'inbox');
 }
 
 export async function createTodo(project: string, input: CreateTodoInput): Promise<Todo> {
+  // R1: `bucketType` is NOT caller-settable — bucket-registry.ensureBucket is the sole
+  // writer (via the internal `_ensureBucketType`). A caller passing it is a bug.
+  if ((input as { bucketType?: unknown }).bucketType !== undefined) {
+    throw new Error('createTodo: `bucketType` is not caller-settable — buckets are created via bucket-registry.ensureBucket');
+  }
   const resolvedParentId = await resolveTodoParent(project, input);
   return withLock(project, () => {
     const db = openDb(project);
@@ -1067,13 +1171,14 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
-    const isBucket = isEpicInput(input) && (input.isBucket === true || isBucketEpicTitle(input.title)) ? 1 : 0;
+    const bucketType = input._ensureBucketType ?? null;
+    const isBucket = isEpicInput(input) && (input.isBucket === true || bucketType != null || isBucketEpicTitle(input.title)) ? 1 : 0;
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1084,7 +1189,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).

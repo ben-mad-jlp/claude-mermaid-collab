@@ -25,6 +25,7 @@ import {
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
 import { INBOX_EPIC_TITLE, isInboxEpic, isInboxEpicTitle } from '../../services/claimability.js';
+import { ensureBucket } from '../../services/bucket-registry.js';
 import { labelFor, type TodoKind } from '../../services/todo-kind.js';
 import type { ToolDef } from './registry.js';
 
@@ -354,28 +355,11 @@ export { INBOX_EPIC_TITLE };
  *  epic stays a root (no parent) because it is a BUCKET epic (isBucketEpicTitle),
  *  not because epics are roots in general — a non-bucket epic still resolves
  *  through the §4d mission ladder. */
-async function ensureInboxEpic(project: string, session: string): Promise<string> {
-  const all = listTodos(project, { includeCompleted: true }).filter(
-    (t) => isInboxEpicTitle(t.title) && t.kind === 'epic',
-  );
-  // Prefer a live (non-terminal) Inbox.
-  const live = all.find((t) => t.status !== 'done' && t.status !== 'dropped');
-  if (live) return live.id;
-  // All existing Inboxes are terminal — reopen the first rather than proliferating a second.
-  if (all.length > 0) {
-    await updateTodo(project, all[0].id, { status: 'planned' });
-    return all[0].id;
-  }
-  const epic = await createTodo(project, {
-    ownerSession: session,
-    kind: 'epic',
-    title: INBOX_EPIC_TITLE,
-    description:
-      'Default container for work todos created without an explicit epic (every work todo needs an epic — constraint 373a2d52). Re-parent these under a real epic during planning.',
-    link: null,
-    type: null,
-  });
-  return epic.id;
+async function ensureInboxEpic(project: string, _session: string): Promise<string> {
+  // R1: the Inbox is a bucket singleton — route through the ONE writer so its structural
+  // bucketType is always set (unifies this path with resolveTodoParent's inbox auto-home
+  // and prevents a second, bucketType-less Inbox from forking).
+  return ensureBucket(project, 'inbox');
 }
 
 export async function addSessionTodo(
@@ -639,6 +623,9 @@ export const sessionTodoToolDefs: ToolDef[] = [
         kind?: TodoKind;
       };
       if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
+      if (args && typeof args === 'object' && 'bucketType' in (args as Record<string, unknown>)) {
+        throw new Error('add_session_todo: `bucketType` is not caller-settable — buckets are created via ensureBucket');
+      }
       const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
