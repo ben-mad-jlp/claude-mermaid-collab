@@ -583,6 +583,7 @@ interface SupervisorState {
   activateMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
   updateMission: (serverId: string, project: string, todoId: string, patch: { title?: string; description?: string; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
   deleteMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
+  abandonMission: (serverId: string, project: string, todoId: string, abandonedAt: number | null) => Promise<MissionSummary[]>;
   addMissionCriterion: (serverId: string, project: string, todoId: string, text: string) => Promise<MissionSummary[]>;
   updateMissionCriterion: (serverId: string, project: string, criterionId: string, text: string) => Promise<MissionSummary[]>;
   removeMissionCriterion: (serverId: string, project: string, criterionId: string) => Promise<MissionSummary[]>;
@@ -981,6 +982,12 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
   deleteMission: async (serverId, project, todoId) => {
     const res = await invoke(serverId, '/api/supervisor/missions', 'DELETE', { project, todoId });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  abandonMission: async (serverId, project, todoId, abandonedAt) => {
+    const res = await invoke(serverId, '/api/supervisor/missions', 'PATCH', { project, todoId, abandonedAt });
     if (!res?.ok) return [];
     return get().fetchMissions(serverId, project);
   },

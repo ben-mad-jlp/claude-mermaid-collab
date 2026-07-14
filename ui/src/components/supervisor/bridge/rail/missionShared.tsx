@@ -514,7 +514,7 @@ export const MissionTabs: React.FC<{
 export const EpicList: React.FC<{ epics: MissionView['epics'] }> = ({ epics }) => (
   <div data-testid="mission-epic-list" className="flex flex-col gap-0.5">
     {epics.length === 0 ? (
-      <span className="text-3xs text-gray-400 dark:text-gray-500 italic">none yet</span>
+      <span className="text-3xs text-gray-400 dark:text-gray-500 italic">No epics yet for this mission</span>
     ) : (
       epics.map((e) => (
         <div key={e.id} className="flex items-start gap-1 text-3xs leading-snug" title={`${e.status}${e.acceptanceStatus ? ` · ${e.acceptanceStatus}` : ''}`}>
@@ -536,9 +536,10 @@ export const MissionDetail: React.FC<{
   m: MissionSummary;
   serverId: string;
   project: string;
+  tab: 'goals' | 'build';
   onChanged: (next: MissionSummary[]) => void;
-}> = ({ m, serverId, project, onChanged }) => {
-  const [activeTab, setActiveTab] = useState<'goals' | 'build'>('goals');
+  onDropped?: () => void;
+}> = ({ m, serverId, project, tab, onChanged, onDropped }) => {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
@@ -546,7 +547,7 @@ export const MissionDetail: React.FC<{
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
   const updateMission = useSupervisorStore((s) => s.updateMission);
-  const deleteMission = useSupervisorStore((s) => s.deleteMission);
+  const abandonMission = useSupervisorStore((s) => s.abandonMission);
   const addMissionCriterion = useSupervisorStore((s) => s.addMissionCriterion);
   const updateMissionCriterion = useSupervisorStore((s) => s.updateMissionCriterion);
   const removeMissionCriterion = useSupervisorStore((s) => s.removeMissionCriterion);
@@ -627,18 +628,8 @@ export const MissionDetail: React.FC<{
         </div>
       )}
 
-      {/* Tabs */}
-      <MissionTabs
-        tabs={[
-          { key: 'goals', label: 'Goals', testid: 'mission-tab-goals' },
-          { key: 'build', label: 'Build', testid: 'mission-tab-build' },
-        ]}
-        active={activeTab}
-        onChange={(key) => setActiveTab(key as 'goals' | 'build')}
-      />
-
       {/* Goals tab body */}
-      {activeTab === 'goals' && (
+      {tab === 'goals' && (
         <div data-testid="mission-goals-tab">
           <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
             <span className="font-mono">{view.cap.met}/{view.cap.total}</span> acceptance criteria met
@@ -653,7 +644,7 @@ export const MissionDetail: React.FC<{
       )}
 
       {/* Build tab body */}
-      {activeTab === 'build' && (
+      {tab === 'build' && (
         <div data-testid="mission-build-tab">
           <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
             <span className="font-mono">{view.mech.done}/{view.mech.total}</span> epics done (mechanical) · <span className="font-mono">{view.cap.met}/{view.cap.total}</span> capability met
@@ -675,8 +666,8 @@ export const MissionDetail: React.FC<{
         <MiniButton onClick={() => setEditing(true)} disabled={busy} title="Edit goal / description / procedure / cap" testid="mission-edit-btn">
           Edit
         </MiniButton>
-        <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Delete this mission (irreversible)" testid="mission-delete-btn">
-          Delete
+        <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Drop this mission (soft-abandon — kept as a record, removed from the active view)" testid="mission-drop-btn">
+          Drop
         </MiniButton>
       </div>
 
@@ -690,11 +681,11 @@ export const MissionDetail: React.FC<{
 
       <ConfirmDialog
         isOpen={confirmDelete}
-        title="Delete mission?"
-        message={<>Permanently delete <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong>? This drops the mission node, its loop state, and all criteria. This cannot be undone.</>}
-        confirmLabel="Delete permanently"
+        title="Drop mission?"
+        message={<>Drop <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong>? It is soft-abandoned — the record and its criteria are kept but it leaves the active view. You can re-activate it later.</>}
+        confirmLabel="Drop"
         onCancel={() => setConfirmDelete(false)}
-        onConfirm={() => { setConfirmDelete(false); void run(() => deleteMission(serverId, project, view.missionId!)); }}
+        onConfirm={() => { setConfirmDelete(false); void run(() => abandonMission(serverId, project, view.missionId!, Date.now())).then(() => onDropped?.()); }}
       />
 
       <ConfirmDialog
@@ -959,5 +950,5 @@ export const MissionCard: React.FC<{
  *  phase — converged (goal met) or stopped (STOP-WHEN cap hit). */
 export function isMissionCompleted(m: MissionSummary): boolean {
   const phase = m.rollup?.phase ?? m.mission?.phase;
-  return !!m.rollup?.stopped || phase === 'converged' || phase === 'stopped';
+  return !!m.rollup?.stopped || phase === 'converged' || phase === 'stopped' || m.rollup?.status === 'abandoned';
 }
