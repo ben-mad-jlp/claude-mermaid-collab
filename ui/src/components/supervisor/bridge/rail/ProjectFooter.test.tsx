@@ -1,12 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { ProjectFooter } from './ProjectFooter';
-import type { UnlandedEpic, CoverageRollup } from '@/stores/supervisorStore';
-
-const EPICS: UnlandedEpic[] = [
-  { branch: 'collab/epic/aaa', epicId8: 'aaaaaaaa', ahead: 3 },
-  { branch: 'collab/epic/bbb', epicId8: 'bbbbbbbb', ahead: 1 },
-];
+import type { CoverageRollup } from '@/stores/supervisorStore';
 
 const cov = (o: Partial<CoverageRollup> = {}): CoverageRollup => ({
   total: 4,
@@ -32,52 +27,6 @@ describe('ProjectFooter', () => {
       />
     );
     expect(b.querySelector('[data-testid="project-footer"]')).toBeNull();
-  });
-
-  it('unlanded warning appears with a nonzero count', () => {
-    render(<ProjectFooter unlandedEpics={EPICS} />);
-    const warning = screen.getByTestId('unlanded-epics');
-    expect(warning).toHaveTextContent('2 epics');
-    expect(warning).toHaveTextContent('4 commits');
-  });
-
-  it('clicking the unlanded warning selects the Land panel', () => {
-    const onSelectPanel = vi.fn();
-    render(
-      <ProjectFooter unlandedEpics={EPICS} onSelectPanel={onSelectPanel} />
-    );
-
-    const button = within(screen.getByTestId('unlanded-epics')).getByRole(
-      'button'
-    );
-    fireEvent.click(button);
-
-    expect(onSelectPanel).toHaveBeenCalledWith('land');
-  });
-
-  it('branch list collapses and expands', () => {
-    render(<ProjectFooter unlandedEpics={EPICS} />);
-
-    const button = within(screen.getByTestId('unlanded-epics')).getByRole(
-      'button'
-    );
-
-    // Initially expanded
-    expect(button).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('collab/epic/aaa')).toBeInTheDocument();
-    expect(screen.getByText('collab/epic/bbb')).toBeInTheDocument();
-
-    // Click to collapse
-    fireEvent.click(button);
-    expect(button).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('collab/epic/aaa')).not.toBeInTheDocument();
-    expect(screen.queryByText('collab/epic/bbb')).not.toBeInTheDocument();
-
-    // Click to expand
-    fireEvent.click(button);
-    expect(button).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('collab/epic/aaa')).toBeInTheDocument();
-    expect(screen.getByText('collab/epic/bbb')).toBeInTheDocument();
   });
 
   it('spec coverage renders forced-visible with sliver buckets', () => {
