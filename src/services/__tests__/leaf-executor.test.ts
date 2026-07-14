@@ -23,6 +23,7 @@ import {
   VERIFY_EXEC_TIMEOUT_MS,
   FILE_THRESHOLD,
   NODE_BUDGET,
+  NODE_PROFILE,
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
@@ -2374,6 +2375,74 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
     }
     // stable dedup key: identical across all runs despite varying durationMs
     expect(new Set(texts).size).toBe(1);
+  });
+});
+
+describe('implement start-failure → reactive in-place model escalation', () => {
+  const implStartFailure: NodeResult = {
+    ok: false,
+    exitCode: 1,
+    stdout: '',
+    durationMs: 2000,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    rateLimited: false,
+    authMode: 'subscription',
+    text: 'timed out',
+    parseError: 'timed out',
+  };
+  // implement node = has Edit, not Write (blueprint) and not the readonly review set.
+  const isImplement = (spec: NodeSpec): boolean =>
+    (spec.allowedTools ?? '').includes('Edit') && !(spec.allowedTools ?? '').includes('Write');
+
+  it('escalates ONCE in-place to the blueprint model, then parks if the retry also start-fails', async () => {
+    const { deps, spies } = makeDeps({});
+    const implModels: string[] = [];
+    const originalInvoke = deps.invoker.invoke;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      if (isImplement(spec)) {
+        implModels.push(spec.model ?? '');
+        return implStartFailure; // every implement invocation start-fails
+      }
+      return originalInvoke(spec);
+    };
+
+    const res = await runLeaf('proj', makeLeaf(), deps);
+
+    // Exactly ONE in-place retry: two implement invocations, no more.
+    expect(implModels.length).toBe(2);
+    // First ran on the pinned (cheap) implement model; the retry ran on the blueprint model.
+    expect(implModels[0]).toBe(NODE_PROFILE.implement.model); // sonnet (pinned)
+    expect(implModels[1]).toBe(NODE_PROFILE.blueprint.model); // opus (escalated)
+    expect(implModels[1]).not.toBe(implModels[0]);
+
+    // The retry also start-failed → the leaf parks as node-could-not-start.
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('node-could-not-start:');
+    expect(spies.escalations.filter((e) => e.kind === 'blocker').length).toBe(1);
+    expect(spies.completeCalls).toEqual([]);
+  });
+
+  it('recovers when the escalated retry starts: one start-fail then success → leaf proceeds', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const implModels: string[] = [];
+    let implCount = 0;
+    const originalInvoke = deps.invoker.invoke;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      if (isImplement(spec)) {
+        implCount += 1;
+        implModels.push(spec.model ?? '');
+        if (implCount === 1) return implStartFailure; // first (cheap model) start-fails
+        return originalInvoke(spec); // escalated retry succeeds
+      }
+      return originalInvoke(spec);
+    };
+
+    const res = await runLeaf('proj', makeLeaf(), deps);
+
+    expect(implModels[0]).toBe(NODE_PROFILE.implement.model); // sonnet
+    expect(implModels[1]).toBe(NODE_PROFILE.blueprint.model); // escalated to opus
+    expect(res.outcome).toBe('accepted');
+    expect(spies.escalations.filter((e) => e.kind === 'blocker').length).toBe(0);
   });
 });
 
