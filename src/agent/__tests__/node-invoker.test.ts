@@ -54,6 +54,13 @@ describe('buildNodeArgv', () => {
     expect(argv).not.toContain('hello');
   });
 
+  it('always loads project,local settings only — never the user ~/.claude hooks (headless has no tty; a SessionStart cosmetic tty hook would hang the node 600s)', () => {
+    const argv = buildNodeArgv(base);
+    const i = argv.indexOf('--setting-sources');
+    expect(i).toBeGreaterThan(-1);
+    expect(argv[i + 1]).toBe('project,local');
+  });
+
   it('pushes optional flags only when set', () => {
     const argv = buildNodeArgv({ ...base, model: 'sonnet', appendSystemPrompt: 'sys' });
     expect(argv).toEqual(expect.arrayContaining(['--model', 'sonnet']));

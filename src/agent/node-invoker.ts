@@ -252,6 +252,13 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
     '--verbose',
     '--no-session-persistence',
     '--permission-mode', spec.permissionMode ?? 'bypassPermissions',
+    // Load ONLY project + local settings, never the user's ~/.claude/settings.json.
+    // A headless build node has no controlling tty, so an interactive user hook like
+    // `printf '\e]11;…' > /dev/tty` (SessionStart/SessionEnd cosmetics) hangs the node
+    // until its 600s timeout — zero tokens, then a false `blocked` + re-blueprint churn.
+    // The interactive child path already excludes user settings the same way
+    // (child-manager.ts). Keep these two in sync.
+    '--setting-sources', 'project,local',
   ];
   if (spec.model) argv.push('--model', spec.model);
   if (spec.effort) argv.push('--effort', spec.effort);
