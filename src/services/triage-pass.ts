@@ -98,6 +98,10 @@ export interface TriagePassDeps extends TriageDeps {
    *  actionable suggestions it writes, unattended, behind the proof gate +
    *  AUTO_RESOLVE_CAP. False (level `on`) → write-only, human confirms. */
   autoResolve?: boolean;
+  /** A3 (crit_f1404796_8): per-escalation predicate — true iff THIS escalation may auto-resolve
+   *  (its todo chain resolves to an active-mission epic). All non-mission escalations stay
+   *  SUGGEST. Defaults to () => false (opt-in). OR'd with the legacy blanket `autoResolve`. */
+  autoResolveScope?: (esc: Escalation) => boolean;
   /** Confirm executor (defaults to the real proof-gated confirm). Injectable so the
    *  auto-resolve path is unit-testable without shelling out to git/tsc. */
   confirm?: (project: string, escalationId: string) => Promise<{ ok: boolean; reason: string }>;
@@ -172,6 +176,7 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
       const t = getTodo(p, id);
       return t ? { updatedAt: t.updatedAt } : null;
     });
+  const autoResolveScope = deps.autoResolveScope ?? (() => false);
 
   // Drive-only: land ready epics deterministically FIRST (decision 647beb2b), before
   // spending Grok on the remaining blocker/question cards. Self-gated by landEpic; a
@@ -242,8 +247,9 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
       // unattended — but only behind the proof gate (confirm re-derives the proof,
       // so a wrong classification still cannot mutate state) and within the per-tick
       // cap. Anything not auto-resolved stays as an inline suggestion (propose).
+      const mayAutoResolve = Boolean(deps.autoResolve) || autoResolveScope(esc);
       if (
-        deps.autoResolve &&
+        mayAutoResolve &&
         suggestion.verb &&
         suggestion.confidence >= AUTO_RESOLVE_MIN_CONFIDENCE &&
         autoResolved < AUTO_RESOLVE_CAP
