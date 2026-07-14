@@ -812,17 +812,14 @@ export async function acceptTimeAncestorGate(
   title: string,
   session: string,
 ): Promise<boolean> {
-  // OI-1/BUILD MISMATCH FIX: the master-reachability gate (and its acceptance
-  // reversal) only makes sense where the daemon AUTO-LANDS the epic to master —
-  // i.e. at `auto`. At `on` there is NO auto-land, so accepted work
-  // legitimately lives on the epic/lane branch and never reaches origin/master;
-  // reversing acceptance for that re-surfaces the todo `ready` → it is re-claimed
-  // and re-built forever (the infinite re-claim loop behind escalation 0ca77927,
-  // reproduced live by the grok-build trial). Empty/hallucinated completions are
-  // STILL caught independently by resolveCompletion's work-committed re-verify, so
-  // skipping the master gate below `auto` never lets fake work through.
-  if (getOrchestratorLevel(project) !== 'auto') {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-below-auto-accept' }) });
+  // OI-1 A1 re-key: the master-reachability gate accompanies AUTO-LANDING, so it applies exactly
+  // when the epic is auto-land-authorized (a live mission epic + armed) — NOT keyed on level.
+  // A mission epic at level `on` now GETS the gate (previously skipped because level != 'auto'),
+  // closing the silent-strand class. Empty/hallucinated completions are STILL caught by
+  // resolveCompletion's work-committed re-verify, so skipping here is safe.
+  const allTodos = listTodos(project, { includeCompleted: true });
+  if (!epicAutoLandAuthority(project, epicId, allTodos)) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-not-autoland-authorized' }) });
     return true;
   }
   const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
@@ -906,20 +903,13 @@ export async function acceptTimeAncestorGate(
 // integration ref / no commit) is treated as satisfied — uncertainty never blocks.
 export async function bp1FilterStrandedFoundations(project: string, todos: Todo[]): Promise<Todo[]> {
   if (todos.length === 0) return todos;
-  // BUILD-LEVEL FIX (mirrors OI-1 acceptTimeAncestorGate's skip-below-auto): the
-  // integration-reachability test only makes sense where the daemon AUTO-LANDS the epic
-  // to integration — i.e. at `auto`. BELOW auto there is NO auto-land, so a done
-  // foundation's commit legitimately lives on its epic accumulation branch and NEVER
-  // reaches the integration ref; checking commitOnIntegration there flags EVERY done
-  // dependency as "stranded" and blocks the whole wave forever (the dependent is dropped
-  // every tick and never claimed — observed live on build123d build_assembly_plan: T2
-  // blocked on a done+accepted T1 whose commit was on the epic branch, not origin/<int>).
-  // The dependent's lane branches off the epic-branch TIP, so an on-epic-branch foundation
-  // IS already visible to it; and a foundation that never reached the epic branch is
-  // caught at accept time by reopenStrandedAccept (which runs at every level). Skip below auto.
-  if (getOrchestratorLevel(project) !== 'auto') return todos;
+  const allTodos = listTodos(project, { includeCompleted: true });
   const out: Todo[] = [];
   for (const t of todos) {
+    // A1 re-key (per-epic): the integration-reachability test only makes sense where the
+    // dependent's OWN epic auto-lands (live mission epic + armed). Otherwise the foundation
+    // legitimately lives on the epic accumulation branch — keep the todo (fail-safe preserved).
+    if (!epicAutoLandAuthority(project, resolveEpicId(t, project), allTodos)) { out.push(t); continue; }
     let foundationStranded = false;
     for (const depId of t.dependsOn ?? []) {
       const dep = getTodo(project, depId);
@@ -1644,6 +1634,15 @@ function isMissionEpic(project: string, epicId: string, todos: Todo[]): boolean 
   return !!row?.active && !isMissionTerminal(row);
 }
 
+/** Single source of truth for "may the daemon AUTO-LAND this epic?" (mission criterion A1).
+ *  TRUE iff the epic is a live mission epic AND the mission-autoland path is armed. PURE apart
+ *  from the mission-row read inside isMissionEpic. Deliberately level-agnostic: the off/on/auto
+ *  ladder no longer gates the reachability sites (OI-1 accept gate, bp1 claim filter,
+ *  surfaceEpicLand). The `off` brake lives in the reconcile pass being level-gated, not here. */
+export function epicAutoLandAuthority(project: string, epicId: string, todos: Todo[]): boolean {
+  return MISSION_AUTOLAND_ARMED && isMissionEpic(project, epicId, todos);
+}
+
 /** Store-truth decision: should the daemon settle this epic's [LAND] leaf so the
  *  MISSION_AUTOLAND_ARMED path can land it? PURE — structural checks only (no DB,
  *  no git). The mission/active gate and the real tsc/merge/gate proof are applied
@@ -1813,7 +1812,6 @@ export async function surfaceEpicLand(
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
   const id = opts.preferLinkTodoId;
-  const autoLand = getOrchestratorLevel(project) === 'auto';
   try {
     const allTodos = listTodos(project, { includeCompleted: true });
     const missionEpic = isMissionEpic(project, epicId, allTodos);
@@ -1853,8 +1851,8 @@ export async function surfaceEpicLand(
         epicWorktreeCwd: epic?.path ?? repo,
       });
       const proofGreen = proof.ok && proof.gate.status === 'pass';
-      const missionLandAuthority = missionEpic && proofGreen && MISSION_AUTOLAND_ARMED;
-      const landAuthorized = autoLand || missionLandAuthority;
+      const missionLandAuthority = epicAutoLandAuthority(project, epicId, allTodos) && proofGreen;
+      const landAuthorized = missionLandAuthority;
       // Staleness FLAG (never auto-rebase): how far behind master the epic base drifted.
       const behind = await wm.epicBehindBase(epicId).catch(() => 0);
       const staleFlag = behind > 0 ? ` ⚠️ ${behind} commit(s) behind master (flag only — no auto-rebase)` : '';
@@ -1872,7 +1870,7 @@ export async function surfaceEpicLand(
         kind: 'epic-ready-to-land',
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
       });
-      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proof.ok, reason: proof.reason, landGate: proof.gate.status, children: repoChildIds.length, behindMaster: behind, multiRepo, autoLand, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proof.ok, reason: proof.reason, landGate: proof.gate.status, children: repoChildIds.length, behindMaster: behind, multiRepo, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
 
       // AUTO-LAND at level>=drive on a green proof — reuse the safe landEpic path
       // (re-derives the proof, lands behind the mutex, conflict→rebase card). The
