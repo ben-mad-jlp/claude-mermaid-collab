@@ -536,17 +536,16 @@ export const MissionDetail: React.FC<{
   m: MissionSummary;
   serverId: string;
   project: string;
-  tab: 'goals' | 'build';
+  activeTab: 'goal' | 'build';
+  onTabChange: (key: 'goal' | 'build') => void;
   onChanged: (next: MissionSummary[]) => void;
   onDropped?: () => void;
-}> = ({ m, serverId, project, tab, onChanged, onDropped }) => {
-  const [editing, setEditing] = useState(false);
+}> = ({ m, serverId, project, activeTab, onTabChange, onChanged, onDropped }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
-  const updateMission = useSupervisorStore((s) => s.updateMission);
   const abandonMission = useSupervisorStore((s) => s.abandonMission);
   const addMissionCriterion = useSupervisorStore((s) => s.addMissionCriterion);
   const updateMissionCriterion = useSupervisorStore((s) => s.updateMissionCriterion);
@@ -567,26 +566,55 @@ export const MissionDetail: React.FC<{
 
   return (
     <div data-testid="mission-detail" className="flex flex-col gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <span
-          className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-snug flex-1"
-          title={m.node?.title}
-        >
-          {stripKindPrefix(m.node?.title ?? 'Mission')}
-        </span>
-        <StatusPill status={view.status} />
+      {/* Header block */}
+      <div data-testid="mission-detail-header" className="flex flex-col gap-2">
+        {/* Name + status row */}
+        <div className="flex items-start justify-between gap-2">
+          <span
+            className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-snug flex-1"
+            title={m.node?.title}
+          >
+            {stripKindPrefix(m.node?.title ?? 'Mission')}
+          </span>
+          <StatusPill status={view.status} />
+        </div>
+
+        {/* Session/owner line */}
+        {view.owner && (
+          <div
+            className="flex items-center gap-1 text-3xs text-gray-400 dark:text-gray-500"
+            title="The session that owns / drives this mission."
+          >
+            <span aria-hidden>◷</span>
+            <span className="font-mono truncate">session: {view.owner}</span>
+          </div>
+        )}
+
+        {/* Controls cluster */}
+        <div className="flex items-center gap-1">
+          {!view.active && (
+            <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
+              Activate
+            </MiniButton>
+          )}
+          {view.active && (
+            <span className="text-3xs text-success-600 dark:text-success-400 px-1" title="This is the active mission for its session.">● active</span>
+          )}
+          <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Drop this mission (soft-abandon — kept as a record, removed from the active view)" testid="mission-drop-btn">
+            Drop
+          </MiniButton>
+        </div>
       </div>
 
-      {view.owner && (
-        <div
-          className="flex items-center gap-1 text-3xs text-gray-400 dark:text-gray-500"
-          title="The session that owns / drives this mission."
-        >
-          <span aria-hidden>◷</span>
-          <span className="font-mono truncate">session: {view.owner}</span>
-        </div>
-      )}
+      {/* Tab bar */}
+      <MissionTabs
+        tabs={[
+          { key: 'goal', label: 'Goal', testid: 'mission-tab-goal' },
+          { key: 'build', label: 'Build', testid: 'mission-tab-build' },
+        ]}
+        active={activeTab}
+        onChange={(key) => onTabChange(key as 'goal' | 'build')}
+      />
 
       {view.stopped && !view.converged && (
         <div className="flex items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
@@ -609,8 +637,8 @@ export const MissionDetail: React.FC<{
         </div>
       )}
 
-      {/* Goals tab body */}
-      {tab === 'goals' && (
+      {/* Goal tab body */}
+      {activeTab === 'goal' && (
         <div data-testid="mission-goals-tab">
           <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
             <span className="font-mono">{view.cap.met}/{view.cap.total}</span> acceptance criteria met
@@ -625,39 +653,13 @@ export const MissionDetail: React.FC<{
       )}
 
       {/* Build tab body */}
-      {tab === 'build' && (
+      {activeTab === 'build' && (
         <div data-testid="mission-build-tab">
           <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
             <span className="font-mono">{view.mech.done}/{view.mech.total}</span> epics done (mechanical) · <span className="font-mono">{view.cap.met}/{view.cap.total}</span> capability met
           </div>
           <EpicList epics={view.epics} />
         </div>
-      )}
-
-      {/* Controls row */}
-      <div className="flex items-center gap-1 pt-2 border-t border-gray-100 dark:border-gray-700/60">
-        {!view.active && (
-          <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
-            Activate
-          </MiniButton>
-        )}
-        {view.active && (
-          <span className="text-3xs text-success-600 dark:text-success-400 px-1" title="This is the active mission for its session.">● active</span>
-        )}
-        <MiniButton onClick={() => setEditing(true)} disabled={busy} title="Edit goal / description / procedure / cap" testid="mission-edit-btn">
-          Edit
-        </MiniButton>
-        <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Drop this mission (soft-abandon — kept as a record, removed from the active view)" testid="mission-drop-btn">
-          Drop
-        </MiniButton>
-      </div>
-
-      {editing && (
-        <MissionEditDialog
-          m={m}
-          onClose={() => setEditing(false)}
-          onSave={(patch) => run(() => updateMission(serverId, project, view.missionId!, patch))}
-        />
       )}
 
       <ConfirmDialog
