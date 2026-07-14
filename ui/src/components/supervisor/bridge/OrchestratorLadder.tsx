@@ -1,29 +1,27 @@
 /**
- * OrchestratorLadder — per-project 3-stop segmented control for the Orchestrator
+ * OrchestratorLadder — per-project 2-stop segmented control for the Orchestrator
  * daemon level (epic 4b81ca59 — collapsed from the legacy off·build·nudge·propose·drive).
- * Levels: off · on · auto.
+ * Levels: off · on.
  *
  * GET /api/orchestrator/level?project=<abs> → { project, level }
  * POST /api/orchestrator/level body { project, level } → { project, level }
  */
 import React, { useEffect, useState, useCallback } from 'react';
 
-export type OrchestratorLevel = 'off' | 'on' | 'auto';
+export type OrchestratorLevel = 'off' | 'on';
 
-const LEVELS: OrchestratorLevel[] = ['off', 'on', 'auto'];
+const LEVELS: OrchestratorLevel[] = ['off', 'on'];
 
 const LEVEL_TITLE: Record<OrchestratorLevel, string> = {
   off: 'Off — no daemon activity for this project',
   on: 'On — supervised: builds todos, reconciles, and suggests an action per escalation (you confirm). Never acts unattended.',
-  auto: 'Auto — on + acts for you: auto-lands green epics, auto-resolves confident suggestions (behind the proof gate), reachability gates.',
 };
 
-/** Per-stop heat: off = neutral gray, on = green (safe/supervised), auto = red
- *  (acting unattended). Only the selected stop is bright. */
+/** Per-stop heat: off = neutral gray, on = green (safe/supervised).
+ *  Only the selected stop is bright. */
 const STOP_ACTIVE: Record<OrchestratorLevel, string> = {
   off: 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200',
   on: 'bg-success-500 dark:bg-success-600 text-white',
-  auto: 'bg-danger-500 dark:bg-danger-600 text-white',
 };
 
 export interface OrchestratorLadderProps {

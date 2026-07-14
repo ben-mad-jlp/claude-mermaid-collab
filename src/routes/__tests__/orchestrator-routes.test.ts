@@ -13,6 +13,7 @@ process.env.MERMAID_SUPERVISOR_DIR = dir;
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
 import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS } from '../../services/leaf-executor';
 import { _closeDb } from '../../services/orchestrator-config';
+import { _closeDb as supervisorCloseDb } from '../../services/supervisor-store';
 
 const PROJECT = '/tmp/orch-routes-proj';
 
@@ -26,10 +27,18 @@ function call(method: string, path: string, body?: unknown): Promise<Response | 
   return handleOrchestratorRoutes(req, new URL(req.url));
 }
 
-beforeAll(() => { _closeDb(); });
-beforeEach(() => { process.env.MERMAID_SUPERVISOR_DIR = dir; _closeDb(); });
+beforeAll(() => {
+  _closeDb();
+  supervisorCloseDb();
+});
+beforeEach(() => {
+  process.env.MERMAID_SUPERVISOR_DIR = dir;
+  _closeDb();
+  supervisorCloseDb();
+});
 afterAll(() => {
   _closeDb();
+  supervisorCloseDb();
   rmSync(dir, { recursive: true, force: true });
   delete process.env.MERMAID_SUPERVISOR_DIR;
 });
@@ -48,14 +57,14 @@ describe('handleOrchestratorRoutes', () => {
   });
 
   it('POST level persists and GET reads it back', async () => {
-    // Use a non-default level ('auto') so the round-trip proves persistence (the
+    // Use a non-default level ('off') so the round-trip proves persistence (the
     // unset default is 'on').
-    const post = await call('POST', '/api/orchestrator/level', { project: PROJECT, level: 'auto' });
+    const post = await call('POST', '/api/orchestrator/level', { project: PROJECT, level: 'off' });
     expect(post!.status).toBe(200);
-    expect(await post!.json()).toEqual({ project: PROJECT, level: 'auto' });
+    expect(await post!.json()).toEqual({ project: PROJECT, level: 'off' });
 
     const get = await call('GET', `/api/orchestrator/level?project=${encodeURIComponent(PROJECT)}`);
-    expect(await get!.json()).toEqual({ project: PROJECT, level: 'auto' });
+    expect(await get!.json()).toEqual({ project: PROJECT, level: 'off' });
   });
 
   it('POST level rejects an invalid level', async () => {
@@ -64,7 +73,7 @@ describe('handleOrchestratorRoutes', () => {
   });
 
   it('POST level requires project', async () => {
-    const res = await call('POST', '/api/orchestrator/level', { level: 'build' });
+    const res = await call('POST', '/api/orchestrator/level', { level: 'off' });
     expect(res!.status).toBe(400);
   });
 

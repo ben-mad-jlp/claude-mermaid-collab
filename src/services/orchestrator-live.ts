@@ -16,7 +16,7 @@
  *             (behind the proof gate + rate limits).
  */
 
-import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
 import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
@@ -170,9 +170,8 @@ export function kickOrchestrator(_reason?: string): void {
 // Pure helper (also exported for unit tests)
 // ---------------------------------------------------------------------------
 
-/** Which passes should run for a given level (epic 4b81ca59 — off/on/auto).
- *  `on` runs build + reconcile + triage SUGGEST (write-only); auto-resolve is the
- *  only thing reserved for `auto` (decided in the tick via `lvl === 'auto'`). */
+/** Which passes should run for a given level (epic 4b81ca59 — off/on).
+ *  `on` runs build + reconcile + triage SUGGEST (write-only). Off runs nothing. */
 export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): {
   build: boolean;
   reconcile: boolean;
@@ -182,8 +181,6 @@ export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): 
   return {
     build: active,
     reconcile: active,
-    // Always-on suggest at `on`+ (write-only; a human confirms). Auto-resolve of
-    // those suggestions stays gated to `auto`.
     triage: active,
   };
 }
@@ -371,11 +368,9 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     // Triage runs LAST (after reconcile auto-closes the deterministic stale/done
     // buckets), so Grok only sees escalations the cheap passes couldn't resolve.
-    // At `drive` (rank >= drive) the triage pass also auto-resolves the
-    // high-confidence actionable suggestions it writes (behind the proof gate);
-    // at `propose` it only writes them for human confirm.
+    // Write-only suggest at `on`; auto-resolve was folded away with the `auto` level.
     if (passes.triage) {
-      const autoResolve = lvl === 'auto';
+      const autoResolve = false;
       try {
         currentPhase = `${project}:triage`;
         await withPassTimeout(triage(project, { autoResolve }), TRIAGE_PASS_TIMEOUT_MS, `${project}:triage`);
@@ -394,6 +389,14 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 export function startOrchestrator(intervalMs = 30_000): void {
   if (timer !== null) return;
   configuredTickMs = intervalMs;
+
+  // One-time emission of escalation cards for projects that were formerly at auto/drive
+  // and collapsed to on (best-effort; wrap in try/catch so a bad project doesn't abort startup).
+  try {
+    emitAutoCollapseNotices();
+  } catch (err) {
+    console.warn('[orchestrator] Failed to emit auto-collapse notices:', err);
+  }
 
   // The interval is now the TIME-BASED safety net; the latency-sensitive claim path
   // is driven by kickOrchestrator() on ready-todo events. Both funnel through the

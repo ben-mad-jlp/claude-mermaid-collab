@@ -14,15 +14,34 @@
  * project. If a future change re-introduces a second module instance, the live
  * `running` here would diverge from the daemon's and this test would catch it.
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate the supervisor.db BEFORE the store modules open it.
+const dir = mkdtempSync(join(tmpdir(), 'status-recon-'));
+process.env.MERMAID_SUPERVISOR_DIR = dir;
 import {
   startOrchestrator,
   stopOrchestrator,
   getOrchestratorHealth,
 } from '../orchestrator-live.js';
 import { summarizeSystemStatus, type SystemStatusInputs } from '../system-status.js';
+import { _closeDb } from '../orchestrator-config.js';
+import { _closeDb as supervisorCloseDb } from '../supervisor-store.js';
 
+beforeAll(() => {
+  _closeDb();
+  supervisorCloseDb();
+});
 afterEach(() => stopOrchestrator());
+afterAll(() => {
+  _closeDb();
+  supervisorCloseDb();
+  rmSync(dir, { recursive: true, force: true });
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+});
 
 /** Minimal system-status inputs that carry the orchestrator health through. */
 function inputsFor(project: string, health: ReturnType<typeof getOrchestratorHealth>): SystemStatusInputs {
@@ -78,13 +97,13 @@ describe('orchestrator_status vs system_status reconciliation (7fb16985)', () =>
       lastTickAt: 123,
       currentPhase: null,
       tickRunningMs: null,
-      projects: [{ project: '/proj/drive', level: 'drive' }],
+      projects: [{ project: '/proj/on', level: 'on' }],
     };
-    const sys = summarizeSystemStatus(inputsFor('/proj/drive', health));
+    const sys = summarizeSystemStatus(inputsFor('/proj/on', health));
     // system_status derives its level from health.projects (the SAME array
     // orchestrator_status returns verbatim as `projects`).
-    expect(sys.orchestrator.level).toBe('drive');
-    const fromOrchStatus = health.projects.find((p) => p.project === '/proj/drive')?.level ?? 'build';
+    expect(sys.orchestrator.level).toBe('on');
+    const fromOrchStatus = health.projects.find((p) => p.project === '/proj/on')?.level ?? 'build';
     expect(sys.orchestrator.level).toBe(fromOrchStatus);
   });
 

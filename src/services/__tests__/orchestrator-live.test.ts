@@ -7,7 +7,14 @@
  * runBuildPass, and runReconcilePass so no FS/SQLite I/O is required.
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate the supervisor.db BEFORE the store modules open it.
+const dir = mkdtempSync(join(tmpdir(), 'orch-live-'));
+process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 // runOrchestratorTick takes injectable deps, so we drive it with plain spies —
 // NO `mock.module` (which is process-global in bun and would clobber the real
@@ -22,6 +29,19 @@ import {
   withPassTimeout,
   type TickDeps,
 } from '../orchestrator-live';
+import { _closeDb } from '../orchestrator-config';
+import { _closeDb as supervisorCloseDb } from '../supervisor-store';
+
+beforeAll(() => {
+  _closeDb();
+  supervisorCloseDb();
+});
+afterAll(() => {
+  _closeDb();
+  supervisorCloseDb();
+  rmSync(dir, { recursive: true, force: true });
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+});
 
 const buildCalls: string[] = [];
 const notifyCalls: string[] = [];
@@ -34,7 +54,7 @@ const levelOverrides = new Map<string, string>();
 const setLevelCalls: Array<{ project: string; level: string }> = [];
 // Config rows that exist in orchestrator_config but are NOT in the registry (e.g. stale /tmp
 // test projects) — the sweep must still force these off.
-const configOnly: Array<{ project: string; level: 'off' | 'on' | 'auto' }> = [];
+const configOnly: Array<{ project: string; level: 'off' | 'on' }> = [];
 // null → every registered project is treated as watched (existing tests' default); a Set
 // restricts the watched set so the unwatched-auto-off path can be exercised.
 let watchedOverride: Set<string> | null = null;
@@ -42,13 +62,13 @@ let watchedOverride: Set<string> | null = null;
 function makeDeps(): TickDeps {
   return {
     listProjects: async () => [...registeredProjects],
-    getLevel: (project: string) => (levelOverrides.get(project) ?? 'on') as 'off' | 'on' | 'auto',
+    getLevel: (project: string) => (levelOverrides.get(project) ?? 'on') as 'off' | 'on',
     watchedProjects: () => watchedOverride ?? new Set(registeredProjects.map((p) => p.path)),
     setLevel: (project: string, level) => { setLevelCalls.push({ project, level }); levelOverrides.set(project, level); },
     // Configured projects = the registered ones with their level (plus any config-only
     // entries the test injects via configOnly), mirroring orchestrator_config.
     listConfigured: () => [
-      ...registeredProjects.map((p) => ({ project: p.path, level: (levelOverrides.get(p.path) ?? 'on') as 'off' | 'on' | 'auto' })),
+      ...registeredProjects.map((p) => ({ project: p.path, level: (levelOverrides.get(p.path) ?? 'on') as 'off' | 'on' })),
       ...configOnly.map((c) => ({ project: c.project, level: c.level })),
     ],
     build: async (project: string) => {
@@ -94,10 +114,6 @@ describe('passesForLevel', () => {
 
   it('on → build + reconcile + triage (suggest write-only)', () => {
     expect(passesForLevel('on')).toEqual({ build: true, reconcile: true, triage: true });
-  });
-
-  it('auto → build + reconcile + triage', () => {
-    expect(passesForLevel('auto')).toEqual({ build: true, reconcile: true, triage: true });
   });
 });
 
@@ -165,7 +181,7 @@ describe('runOrchestratorTick', () => {
       { path: '/p/watched', name: 'w', lastAccess: '' },
       { path: '/p/orphan', name: 'o', lastAccess: '' }, // registered but unwatched
     );
-    levelOverrides.set('/p/watched', 'auto');
+    levelOverrides.set('/p/watched', 'on');
     levelOverrides.set('/p/orphan', 'on');
     configOnly.push({ project: '/tmp/stale', level: 'on' }); // config-only, not in the registry
     watchedOverride = new Set(['/p/watched']);
@@ -177,16 +193,16 @@ describe('runOrchestratorTick', () => {
     expect(setLevelCalls.every((c) => c.level === 'off')).toBe(true);
   });
 
-  it('auto level: triage runs with autoResolve=true', async () => {
+  it('on level: triage runs with autoResolve=false', async () => {
     registeredProjects.push({ path: '/proj/x', name: 'x', lastAccess: '' });
-    levelOverrides.set('/proj/x', 'auto');
+    levelOverrides.set('/proj/x', 'on');
 
     await runOrchestratorTick(makeDeps());
 
     expect(buildCalls).toEqual(['/proj/x']);
     expect(reconcileCalls).toEqual(['/proj/x']);
     expect(triageCalls).toEqual(['/proj/x']);
-    expect(triageAutoResolve).toEqual([{ project: '/proj/x', autoResolve: true }]);
+    expect(triageAutoResolve).toEqual([{ project: '/proj/x', autoResolve: false }]);
   });
 
   it('fail-open: a throwing build pass does NOT block other projects', async () => {

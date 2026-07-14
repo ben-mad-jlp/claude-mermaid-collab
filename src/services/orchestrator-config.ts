@@ -14,50 +14,48 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { POOL_CONFIG, poolConfigForSize, clampPoolSize, type PoolConfig } from './worker-pool';
 import type { EffortLevel } from '../agent/contracts';
+import { createEscalation, recordSupervisorAudit } from './supervisor-store.js';
 
 /** Valid reasoning-effort levels (mirrors the CLI --effort scale). */
 export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** How autonomously the Orchestrator acts for a project (epic 4b81ca59 — collapsed
- *  from the legacy 5-rung ladder off·build·nudge·propose·drive).
+ *  from the legacy 5-rung ladder off·build·nudge·propose·drive to off|on).
  *
  *  off  — daemon does nothing; coordinator not started.
  *  on   — supervised: build todos + reconcile (stale-close + land-surface) +
  *         always-on triage SUGGEST (write-only; a human confirms). Works and
- *         annotates, never acts unattended. (folds legacy build|nudge|propose)
- *  auto — on + auto-land + auto-resolve confident suggestions + the bp1/OI-1
- *         reachability gates. "act for me." (folds legacy drive)
+ *         annotates, never acts unattended. (folds legacy auto|build|nudge|propose|drive)
  */
-export type OrchestratorLevel = 'off' | 'on' | 'auto';
+export type OrchestratorLevel = 'off' | 'on';
 
-/** Legacy 5-rung values still readable from storage until backfilled. */
-export type LegacyOrchestratorLevel = 'build' | 'nudge' | 'propose' | 'drive';
+/** Legacy values (including formerly-canonical 'auto') still readable from storage until backfilled. */
+export type LegacyOrchestratorLevel = 'auto' | 'build' | 'nudge' | 'propose' | 'drive';
 
-export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'on', 'auto'];
+export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'on'];
 
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
   on: 1,
-  auto: 2,
 };
 
-/** Numeric rank for a level (off=0, on=1, auto=2). Higher = more autonomous. */
+/** Numeric rank for a level (off=0, on=1). Higher = more autonomous. */
 export function levelRank(l: OrchestratorLevel): number {
   return LEVEL_RANK[l];
 }
 
 /** Map ANY stored level string (legacy 5-rung OR canonical) to the canonical
- *  off/on/auto. The single read seam: build|nudge|propose→on, drive→auto, and
- *  off/on/auto pass through. Unknown → 'on' (the safe supervised default). */
+ *  off|on. The single read seam: auto, build, nudge, propose, drive all → on;
+ *  off → off; unknown → 'on' (the safe supervised default). */
 export function coalesceLevel(raw: unknown): OrchestratorLevel {
   switch (raw) {
     case 'off': return 'off';
     case 'on': return 'on';
-    case 'auto': return 'auto';
+    case 'auto': return 'on';
     case 'build': return 'on';
     case 'nudge': return 'on';
     case 'propose': return 'on';
-    case 'drive': return 'auto';
+    case 'drive': return 'on';
     default: return 'on';
   }
 }
@@ -69,6 +67,12 @@ CREATE TABLE IF NOT EXISTS orchestrator_config (
   project TEXT PRIMARY KEY,
   level   TEXT NOT NULL DEFAULT 'on',
   updatedAt INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orchestrator_auto_collapse_notice (
+  project TEXT PRIMARY KEY,
+  notified INTEGER NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL
 );
 `;
 
@@ -111,12 +115,26 @@ function openDb(): Database {
   // build nodes off the Claude plan). NULL = inherit the project default → env/config →
   // 'claude'. An mcp__-bearing kind is FORCED to claude at resolve time regardless.
   try { db.exec('ALTER TABLE node_profile_override ADD COLUMN provider TEXT'); } catch { /* already present */ }
-  // One-shot guarded backfill (epic 4b81ca59): collapse any legacy 5-rung rows to
-  // the canonical off/on/auto. Idempotent — once migrated, rows are on/auto and no
-  // longer match, so re-running is a no-op (cheap; only legacy rows are touched).
+  // One-shot guarded backfill (epic 4b81ca59): collapse all levels to off|on.
+  // Idempotent — once migrated, rows are off/on and no longer match, so re-running
+  // is a no-op. Before folding, capture formerly-auto/drive projects into the notice
+  // table so emitAutoCollapseNotices() can emit a one-time per-project escalation.
+  try {
+    const now = Date.now();
+    const autoOrDrive = db
+      .query('SELECT project FROM orchestrator_config WHERE level IN (\'auto\',\'drive\')')
+      .all() as Array<{ project: string }>;
+    for (const row of autoOrDrive) {
+      db.prepare(
+        'INSERT OR IGNORE INTO orchestrator_auto_collapse_notice (project, notified, createdAt) VALUES (?, 0, ?)',
+      ).run(row.project, now);
+    }
+  } catch (err) {
+    console.warn('[orchestrator-config] Failed to capture auto-collapse notice projects:', err);
+  }
+  // Fold all legacy + formerly-canonical values to 'on'.
   db.exec(
-    `UPDATE orchestrator_config SET level='on'   WHERE level IN ('build','nudge','propose');
-     UPDATE orchestrator_config SET level='auto' WHERE level='drive';`,
+    'UPDATE orchestrator_config SET level=\'on\' WHERE level IN (\'auto\',\'drive\',\'build\',\'nudge\',\'propose\');',
   );
   return db;
 }
@@ -365,4 +383,35 @@ export function copyNodeProfilesTo(sourceProject: string, targetProjects: string
 export function orchestratorOff(project: string): OrchestratorLevel {
   setOrchestratorLevel(project, 'off');
   return getOrchestratorLevel(project);
+}
+
+/** One-time emission of deduped escalation cards for projects that were formerly at
+ *  auto/drive level and have been collapsed to 'on'. Runs at daemon startup to notify
+ *  the human that non-mission epics now need the manual land click. Idempotent via the
+ *  notified flag: once a card is emitted for a project, subsequent calls are no-ops. */
+export function emitAutoCollapseNotices(): void {
+  const d = openDb();
+  const notices = d
+    .query('SELECT project FROM orchestrator_auto_collapse_notice WHERE notified = 0')
+    .all() as Array<{ project: string }>;
+  for (const { project } of notices) {
+    try {
+      createEscalation({
+        session: 'orchestrator',
+        kind: 'orchestrator-level-collapse',
+        project,
+        questionText:
+          'Autonomy collapsed to off/on: non-mission epics now need the human land click — give work a mission to restore autonomous landing.',
+      });
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'orchestrator',
+        detail: JSON.stringify({ autoCollapseNotice: project }),
+      });
+      d.prepare('UPDATE orchestrator_auto_collapse_notice SET notified = 1 WHERE project = ?').run(project);
+    } catch (err) {
+      console.warn(`[orchestrator-config] Failed to emit auto-collapse notice for ${project}:`, err);
+    }
+  }
 }
