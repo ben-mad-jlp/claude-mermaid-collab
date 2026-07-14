@@ -154,7 +154,7 @@ describe('claimReason — each branch', () => {
   });
 });
 
-describe('Inbox = planning-only (inbox-planning gate)', () => {
+describe('Buckets = planning-only (bucket-planning gate)', () => {
   const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic' });
   const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null, kind: 'epic', approvedAt: APPROVED });
 
@@ -179,14 +179,14 @@ describe('Inbox = planning-only (inbox-planning gate)', () => {
     expect(parentIsInbox(mk({ id: 'C', parentId: null }), map(inbox))).toBe(false);
   });
 
-  it("child of Inbox → 'inbox-planning' EVEN when approved + deps done (above unapproved)", () => {
+  it("child of Inbox → 'bucket-planning' EVEN when approved + deps done (above unapproved)", () => {
     const child = mk({ id: 'C', parentId: 'IB', approvedAt: APPROVED });
-    expect(claimReason(child, map(inbox))).toBe('inbox-planning');
+    expect(claimReason(child, map(inbox))).toBe('bucket-planning');
     expect(isClaimable(child, map(inbox))).toBe(false);
     // with deps satisfied too — still gated
     const dep = mk({ id: 'D', status: 'done', acceptanceStatus: 'accepted' });
     const child2 = mk({ id: 'C2', parentId: 'IB', approvedAt: APPROVED, dependsOn: ['D'] });
-    expect(claimReason(child2, map(inbox, dep))).toBe('inbox-planning');
+    expect(claimReason(child2, map(inbox, dep))).toBe('bucket-planning');
     expect(isClaimable(child2, map(inbox, dep))).toBe(false);
   });
 
@@ -212,16 +212,45 @@ describe('Inbox = planning-only (inbox-planning gate)', () => {
     expect(() => isInboxEpic(mk({ id: 'X', title: INBOX_EPIC_TITLE, kind: null }))).toThrow(MissingKindError);
   });
 
-  it("released Inbox child → 'inbox-planning', not 'parent-unreleased' (distinct-reason coexistence)", () => {
-    // A released Inbox (approvedAt set). The 'parent-unreleased' gate fires when
-    // an epic ancestor has approvedAt == null; a released Inbox has approvedAt set,
+  it("released bucket child → 'bucket-planning', not 'parent-unreleased' (distinct-reason coexistence)", () => {
+    // A released bucket (approvedAt set). The 'parent-unreleased' gate fires when
+    // an epic ancestor has approvedAt == null; a released bucket has approvedAt set,
     // so hasUnreleasedEpicAncestor returns false. Yet the child must STILL be gated
-    // by 'inbox-planning' (re-home reason, not release reason), proving the two are
+    // by 'bucket-planning' (re-home reason, not release reason), proving the two are
     // distinct and both necessary.
     const releasedInbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic', approvedAt: APPROVED });
     const child = mk({ id: 'C', parentId: 'IB', approvedAt: APPROVED });
-    expect(claimReason(child, map(releasedInbox))).toBe('inbox-planning');
+    expect(claimReason(child, map(releasedInbox))).toBe('bucket-planning');
     expect(isClaimable(child, map(releasedInbox))).toBe(false);
+  });
+
+  it('generalized bucket gate: child of bucketType=inbox epic → bucket-planning', () => {
+    // R3 generalization: a child of any bucket epic (bucketType != null) is blocked,
+    // not just the legacy Inbox epic by title. This proves the gate works for
+    // any bucket epic with an explicit bucketType field set.
+    const bucketEpic = mk({ id: 'B', title: 'Inbox', parentId: null, kind: 'epic', bucketType: 'inbox', approvedAt: APPROVED });
+    const child = mk({ id: 'C', parentId: 'B', approvedAt: APPROVED });
+    expect(claimReason(child, map(bucketEpic))).toBe('bucket-planning');
+    expect(isClaimable(child, map(bucketEpic))).toBe(false);
+  });
+
+  it('fail-closed bucket gate: child of legacy title-only Bugfix inbox → bucket-planning', () => {
+    // R3 generalization: a child of a legacy title-only bucket epic (title matches
+    // a fail-closed canonical title but bucketType is unset) is blocked. The
+    // registryIsBucketEpic predicate includes this as a fallback for pre-R1 rows.
+    const legacyBucket = mk({ id: 'BB', title: 'Bugfix inbox', parentId: null, kind: 'epic' });
+    const child = mk({ id: 'C', parentId: 'BB', approvedAt: APPROVED });
+    expect(claimReason(child, map(legacyBucket))).toBe('bucket-planning');
+    expect(isClaimable(child, map(legacyBucket))).toBe(false);
+  });
+
+  it('child re-homed to a real epic → claimable when approved', () => {
+    // Control: a child that is NOT under a bucket is claimable like any other leaf.
+    // This proves that only bucket children are caught by the gate.
+    const realEpic = mk({ id: 'E', title: 'Real Work', parentId: null, kind: 'epic', approvedAt: APPROVED });
+    const child = mk({ id: 'C', parentId: 'E', approvedAt: APPROVED });
+    expect(claimReason(child, map(realEpic))).toBe('claimable');
+    expect(isClaimable(child, map(realEpic))).toBe(true);
   });
 });
 

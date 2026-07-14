@@ -51,7 +51,7 @@ export const isInboxEpic = (t: Todo | undefined): boolean =>
 /** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
 export const parentIsInbox = (t: Todo, byId: Map<string, Todo>): boolean =>
   // R1: the planning-only gate now consults the ONE bucket predicate (any bucket parent,
-  // not just the Inbox). The claim reason stays 'inbox-planning' (R3 renames it).
+  // not just the Inbox).
   t.parentId != null && registryIsBucketEpic(byId.get(t.parentId));
 
 /**
@@ -86,7 +86,7 @@ export type ClaimReason =
   | 'in-flight'       // claim != null
   | 'rejected'        // this todo's OWN acceptanceStatus==='rejected' — ran but failed the gate; held for a human, never auto-reclaimed
   | 'human-assignee'  // fully-unblocked + approved HUMAN todo (incl. [GATE]) → actionable in HumanInbox, NOT daemon-claimed
-  | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
+  | 'bucket-planning'  // parent is a bucket epic (bucketType != null, or a fail-closed legacy bucket title) — planning-only; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
   | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
@@ -169,25 +169,26 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // was completeTodo's unblock-pass skip, deleted in S4; this derives it instead
   // (80f85190 — claimReason previously only checked a DEP's rejection, not its own).
   if (t.acceptanceStatus === 'rejected') return 'rejected';
-  // Inbox = planning-only: a triage child of [EPIC] Inbox must NEVER be auto-run,
+  // Buckets = planning-only: a child of any bucket epic (bucketType != null or a
+  // fail-closed legacy bucket title: Inbox / Bugfix inbox) must NEVER be auto-run,
   // regardless of approval. Placed ABOVE the approval check so the distinct, hard
-  // reason surfaces even for already-approved-in-Inbox todos (the backstop that
+  // reason surfaces even for already-approved-in-bucket todos (the backstop that
   // catches any approvedAt path the primary approval block didn't intercept). The
-  // Inbox epic ITSELF is a top-level root (parentId null) → unaffected; only its
+  // bucket epic ITSELF is a top-level root (parentId null) → unaffected; only its
   // CHILDREN are gated. Re-home to a real epic to make it claimable.
   //
   // WHY THIS GATE IS DISTINCT FROM 'parent-unreleased' (and both must coexist):
-  //   1. Buckets are NEVER released: the Inbox epic has no owner; releasing it
-  //      would auto-run all triage children, defeating the planning-only rule
+  //   1. Buckets are NEVER released: a bucket epic has no owner; releasing it
+  //      would auto-run all bucket children, defeating the planning-only rule
   //      (constraint 373a2d52). If deleted, 'parent-unreleased' would surface the
-  //      wrong remediation ("release the Inbox") instead of the right one ("re-home").
+  //      wrong remediation ("release the bucket") instead of the right one ("re-home").
   //   2. This gate sits ABOVE the approval/release gates (before 'unapproved'). If
-  //      an Inbox ever gets approvedAt set (stray approve, replayed frame),
+  //      a bucket ever gets approvedAt set (stray approve, replayed frame),
   //      hasUnreleasedEpicAncestor returns false → 'parent-unreleased' does NOT fire
   //      → children would become claimable. This gate still fires and keeps them
   //      gated, so it covers an accidentally-approved bucket that 'parent-unreleased'
   //      cannot (the approved-bucket backstop).
-  if (parentIsInbox(t, byId)) return 'inbox-planning';
+  if (parentIsInbox(t, byId)) return 'bucket-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {

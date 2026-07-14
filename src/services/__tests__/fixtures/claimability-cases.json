@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "$comment": "SHARED fixture proving src/services/claimability.ts and ui/src/lib/claimability.ts agree, byte for byte, on claimReason/derivedStatus/isClaimable. Decision 68b8bb09 (option A) added the DERIVED reason `dep-dropped`. Cascade order pinned here: terminal > in-flight > rejected > inbox-planning > unapproved > held > dep-rejected > dep-dropped > deps-pending > human-assignee > claimable. dep-rejected precedes dep-dropped because a rejected dep is a gate failure a human is already being asked to look at — the more actionable signal. Fix it, and the todo re-reports dep-dropped on the next read. Both precede deps-pending, the only dep state that resolves without a human. Each `todos[]` entry is a Partial<Todo> INTERSECT Partial<SessionTodo>: spread it through each suite's own mk() factory. Never add a field outside that intersection.",
+  "$comment": "SHARED fixture proving src/services/claimability.ts and ui/src/lib/claimability.ts agree, byte for byte, on claimReason/derivedStatus/isClaimable. Decision 68b8bb09 (option A) added the DERIVED reason `dep-dropped`. Cascade order pinned here: terminal > in-flight > rejected > bucket-planning > unapproved > held > dep-rejected > dep-dropped > deps-pending > human-assignee > claimable. dep-rejected precedes dep-dropped because a rejected dep is a gate failure a human is already being asked to look at — the more actionable signal. Fix it, and the todo re-reports dep-dropped on the next read. Both precede deps-pending, the only dep state that resolves without a human. Each `todos[]` entry is a Partial<Todo> INTERSECT Partial<SessionTodo>: spread it through each suite's own mk() factory. Never add a field outside that intersection.",
   "constants": {
     "APPROVED": "2026-06-17T00:00:00Z",
     "CLAIM": { "by": "coordinator", "token": "tok", "at": "2026-06-17T00:00:00Z", "leaseMs": 1000 }
@@ -31,14 +31,14 @@
       "expect": { "claimReason": "rejected", "derivedStatus": "blocked", "isClaimable": false }
     },
     {
-      "name": "inbox-planning-child",
-      "why": "an Inbox child is planning-only even when approved (373a2d52)",
+      "name": "bucket-planning-child",
+      "why": "a bucket child is planning-only even when approved (373a2d52) — buckets are never released",
       "subject": "T",
       "todos": [
         { "id": "INBOX", "kind": "epic", "title": "Inbox", "status": "planned" },
         { "id": "T", "kind": "leaf", "parentId": "INBOX", "status": "planned", "approvedAt": "2026-06-17T00:00:00Z" }
       ],
-      "expect": { "claimReason": "inbox-planning", "derivedStatus": "blocked", "isClaimable": false }
+      "expect": { "claimReason": "bucket-planning", "derivedStatus": "blocked", "isClaimable": false }
     },
     {
       "name": "unapproved",
