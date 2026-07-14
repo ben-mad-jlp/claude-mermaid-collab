@@ -17,8 +17,9 @@
  */
 
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
-import { listWatchedProjects } from './supervisor-store.js';
-import { runBuildPass } from './coordinator-live.js';
+import { listWatchedProjects, type Escalation } from './supervisor-store.js';
+import { runBuildPass, todoIsMissionScoped } from './coordinator-live.js';
+import { listTodos } from './todo-store.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
 import { runFrictionWatchPass } from './friction-watch.js';
@@ -218,7 +219,7 @@ export interface TickDeps {
    *  project's ACTIVE missions; runs for WATCHED projects only (the safety boundary —
    *  no per-project mode). Default: runMissionLoopPass. */
   missionLoop?: (project: string) => Promise<unknown>;
-  triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
+  triage?: (project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => Promise<void>;
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
    *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
   watchedProjects?: () => Set<string>;
@@ -240,7 +241,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? runMissionLoopPass;
-  const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
+  const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve, autoResolveScope: opts.autoResolveScope }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
   const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
@@ -370,10 +371,16 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // buckets), so Grok only sees escalations the cheap passes couldn't resolve.
     // Write-only suggest at `on`; auto-resolve was folded away with the `auto` level.
     if (passes.triage) {
-      const autoResolve = false;
       try {
         currentPhase = `${project}:triage`;
-        await withPassTimeout(triage(project, { autoResolve }), TRIAGE_PASS_TIMEOUT_MS, `${project}:triage`);
+        const missionTodos = listTodos(project, { includeCompleted: true });
+        const autoResolveScope = (esc: Escalation): boolean =>
+          esc.todoId != null && todoIsMissionScoped(project, esc.todoId, missionTodos);
+        await withPassTimeout(
+          triage(project, { autoResolve: false, autoResolveScope }),
+          TRIAGE_PASS_TIMEOUT_MS,
+          `${project}:triage`,
+        );
       } catch (err) {
         console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
       }

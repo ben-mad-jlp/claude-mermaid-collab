@@ -1643,6 +1643,27 @@ export function epicAutoLandAuthority(project: string, epicId: string, todos: To
   return MISSION_AUTOLAND_ARMED && isMissionEpic(project, epicId, todos);
 }
 
+/** A3 (crit_f1404796_8): may the daemon AUTO-RESOLVE a triage suggestion whose linked todo is
+ *  `todoId`? TRUE iff the todo chain resolves to an epic owned by an ACTIVE, non-terminal mission
+ *  (reuses isMissionEpic). Walks the passed `todos` array (cycle- + depth-guarded), so it is pure
+ *  over its inputs. Mission-scoped replacement for the removed per-project `auto` level: all
+ *  non-mission escalations stay SUGGEST. */
+export function todoIsMissionScoped(project: string, todoId: string, todos: Todo[]): boolean {
+  const byId = new Map(todos.map((t) => [t.id, t]));
+  let cur: Todo | undefined = byId.get(todoId);
+  const seen = new Set<string>();
+  let depth = 0;
+  while (cur && depth < 50) {
+    if (isEpic(cur)) return isMissionEpic(project, cur.id, todos);
+    if (seen.has(cur.id)) break;
+    seen.add(cur.id);
+    if (!cur.parentId) break;
+    cur = byId.get(cur.parentId);
+    depth++;
+  }
+  return false;
+}
+
 /** Store-truth decision: should the daemon settle this epic's [LAND] leaf so the
  *  MISSION_AUTOLAND_ARMED path can land it? PURE — structural checks only (no DB,
  *  no git). The mission/active gate and the real tsc/merge/gate proof are applied
