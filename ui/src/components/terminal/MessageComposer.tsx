@@ -4,6 +4,7 @@ import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
 import { SuggestionChip, type ChipSuggestion } from './SuggestionChip';
 import { useAutocorrect } from '@/hooks/useAutocorrect';
+import { peelAffixes } from '@/lib/autocorrect/engine';
 import { addToPersonalDict } from '@/lib/autocorrect/personalDict';
 
 /**
@@ -290,16 +291,22 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     while (start > 0 && !/\s/.test(next[start - 1])) start--;
     const token = next.slice(start, boundary);
     if (!token) { setPending(null); return; }
-    const sug = correct(token);
+    // Peel trailing/leading punctuation (e.g. "seperate,") so the core matches and
+    // only the core is replaced — the comma/period stays put.
+    const { core, lead, trail } = peelAffixes(token);
+    if (!core) { setPending(null); return; }
+    const coreStart = start + lead;
+    const coreEnd = boundary - trail;
+    const sug = correct(core);
     if (sug && mode === 'auto') {
-      const corrected = next.slice(0, start) + sug.to + next.slice(boundary);
+      const corrected = next.slice(0, coreStart) + sug.to + next.slice(coreEnd);
       undoRef.current = { before: next, after: corrected };
       setValue(corrected);
       setFlash(true);
       setPending(null);
       return;
     }
-    if (sug) setPending({ from: sug.from, to: sug.to, start, end: boundary });
+    if (sug) setPending({ from: sug.from, to: sug.to, start: coreStart, end: coreEnd });
     else setPending(null);
   };
 
