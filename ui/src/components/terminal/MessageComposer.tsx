@@ -40,7 +40,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
   const p = useTerminalPalette();
 
-  const { mode, correct, correctMessage } = useAutocorrect(project);
+  const { mode, correct, correctMessage, vocabWords } = useAutocorrect(project);
 
   const [value, setValue] = useState('');
   // When text file(s) are dropped, hold them here and offer a choice: paste their
@@ -50,6 +50,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   const [flash, setFlash] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const undoRef = useRef<{ before: string; after: string } | null>(null);
+  const sentSpellWordsRef = useRef<Set<string>>(new Set());
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
    *  surrounded by single spaces, and leave the caret right after it. */
@@ -185,6 +186,16 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, session, serverId, disabled]);
+
+  // Push new vocab words to the desktop spellchecker's custom dictionary.
+  useEffect(() => {
+    const add = (window as any).mc?.addSpellCheckWords;
+    if (typeof add !== 'function') return; // non-Electron no-op
+    const fresh = vocabWords.filter((w) => !sentSpellWordsRef.current.has(w));
+    if (fresh.length === 0) return;
+    for (const w of fresh) sentSpellWordsRef.current.add(w);
+    add(fresh);
+  }, [vocabWords]);
 
   // Auto-grow: reset to auto to measure scrollHeight, then clamp to MAX_HEIGHT.
   useLayoutEffect(() => {
@@ -397,6 +408,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
         ref={taRef}
         value={value}
         rows={1}
+        spellCheck={true}
         disabled={disabled}
         placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
         onChange={onChange}
