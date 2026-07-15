@@ -3,6 +3,22 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageComposer } from './MessageComposer';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 
+// Mock autocorrect hooks for deterministic testing.
+vi.mock('@/hooks/useAutocorrect', () => ({
+  useAutocorrect: () => ({
+    mode: 'suggest',
+    correct: (token: string) =>
+      token.toLowerCase() === 'beleive' ? { from: token, to: 'believe', strength: 'strong' } : null,
+    correctMessage: () => [],
+  }),
+}));
+
+const addSpy = vi.fn();
+vi.mock('@/lib/autocorrect/personalDict', () => ({
+  addToPersonalDict: (...a: any[]) => addSpy(...a),
+  getPersonalDict: () => new Set<string>(),
+}));
+
 /**
  * MessageComposer — the multi-line composer below the quick-reply chips. Verifies
  * the Enter-sends toggle, Shift+Enter newline, button send, empty-send guard, and
@@ -78,5 +94,55 @@ describe('MessageComposer', () => {
     expect(cb.checked).toBe(true);
     fireEvent.click(cb);
     expect(useQuickReplyStore.getState().sendOnEnter).toBe(false);
+  });
+});
+
+describe('MessageComposer — autocorrect suggest mode', () => {
+  beforeEach(() => {
+    delete (window as any).mc;
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
+    useQuickReplyStore.setState({ sendOnEnter: true });
+    addSpy.mockClear();
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  function typeWord(ta: HTMLTextAreaElement, text: string) {
+    fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
+  }
+
+  it('chip appears when a correctable word is followed by space', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'beleive ');
+    expect(screen.getByText(/believe/i)).toBeInTheDocument();
+  });
+
+  it('Tab applies the suggestion and preserves trailing space', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'beleive ');
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    expect(ta.value).toBe('believe ');
+  });
+
+  it('Escape dismisses the chip without applying', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'beleive ');
+    expect(screen.getByText(/believe/i)).toBeInTheDocument();
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    expect(screen.queryByText(/believe/i)).not.toBeInTheDocument();
+    expect(ta.value).toBe('beleive ');
+  });
+
+  it('[+] button adds to dict and dismisses', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'beleive ');
+    const addBtn = screen.getByRole('button', { name: /add to dict|\+/i });
+    fireEvent.mouseDown(addBtn);
+    fireEvent.click(addBtn);
+    expect(addSpy).toHaveBeenCalledWith('/p', 'beleive');
+    expect(screen.queryByText(/believe/i)).not.toBeInTheDocument();
   });
 });
