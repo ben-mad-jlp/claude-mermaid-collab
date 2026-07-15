@@ -135,14 +135,14 @@ interface QuickReplyState {
    *  Drives the xterm palette AND the chip bar + composer chrome. Persisted. */
   terminalTheme: TerminalThemeSetting;
   setTerminalTheme: (t: TerminalThemeSetting) => void;
-  /** Autocorrect mode: 'off' disables; 'suggest' shows suggestions; 'auto' applies
-   *  them automatically. Persisted. */
+  /** Autocorrect: 'off' disables; 'auto' corrects typed messages on send. Persisted.
+   *  (A two-state on/off toggle — the old 'suggest' preview mode was removed.) */
   autocorrectMode: AutocorrectMode;
   setAutocorrectMode: (m: AutocorrectMode) => void;
 }
 
 export type TerminalThemeSetting = 'match' | 'light' | 'dark' | 'sepia';
-export type AutocorrectMode = 'off' | 'suggest' | 'auto';
+export type AutocorrectMode = 'off' | 'auto';
 
 export const useQuickReplyStore = create<QuickReplyState>()(
   persist(
@@ -239,7 +239,14 @@ export const useQuickReplyStore = create<QuickReplyState>()(
     }),
     {
       name: 'mc.terminal.chips.v1',
-      version: 1,
+      version: 2,
+      // v2: autocorrect collapsed to on/off — coalesce a persisted 'suggest' → 'auto'.
+      migrate: (persisted: any, version) => {
+        if (persisted && version < 2 && persisted.autocorrectMode === 'suggest') {
+          persisted.autocorrectMode = 'auto';
+        }
+        return persisted;
+      },
       // Persist only the deltas — defaults are code-defined and re-derived.
       partialize: (s) => ({
         collapsed: s.collapsed,

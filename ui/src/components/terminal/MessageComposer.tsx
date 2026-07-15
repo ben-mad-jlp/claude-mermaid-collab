@@ -1,16 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useQuickReplyStore, type AutocorrectMode } from '@/stores/quickReplyStore';
+import { useQuickReplyStore } from '@/stores/quickReplyStore';
 import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
 import { useAutocorrect } from '@/hooks/useAutocorrect';
-
-/** A contiguous [start,end) span (in the CURRENT draft) that autocorrect changed —
- *  used to paint the green highlight in suggest mode. */
-export type HighlightRange = { start: number; end: number };
-
-/** How long the composer waits after the last keystroke before running the suggest
- *  pass (apply-inline + highlight). Long enough to mean "finished typing". */
-const SUGGEST_DEBOUNCE_MS = 650;
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -54,17 +46,8 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   // When text file(s) are dropped, hold them here and offer a choice: paste their
   // CONTENTS into the box, or insert their PATH. Non-text drops skip the chooser.
   const [pendingDrop, setPendingDrop] = useState<{ files: File[]; paths: string[] } | null>(null);
-  // suggest mode: the spans (in the current draft) that the last suggest pass changed,
-  // painted green via the backdrop overlay. Empty ⇒ no overlay, textarea shows normally.
-  const [highlightRanges, setHighlightRanges] = useState<HighlightRange[]>([]);
-  // suggest mode: the user pressed Undo (⌘Z / button) after a suggest pass — respect it,
-  // don't re-apply on the next debounce or on send until they edit again.
-  const [userReverted, setUserReverted] = useState(false);
   const [focused, setFocused] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
-  const undoRef = useRef<{ before: string; after: string } | null>(null);
-  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentSpellWordsRef = useRef<Set<string>>(new Set());
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
@@ -221,68 +204,13 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden';
   }, [value]);
 
-  // Suggest mode: after the typing pause, run one whole-message pass — apply the
-  // corrections inline and record the changed spans so they paint green. Skipped once
-  // the user has explicitly reverted (until they edit again, which clears the flag).
-  useEffect(() => {
-    if (mode !== 'suggest' || userReverted || disabled || !value.trim()) return;
-    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    suggestTimerRef.current = setTimeout(() => {
-      const { corrected, ranges } = computeCorrected(value);
-      if (ranges.length && corrected !== value) {
-        undoRef.current = { before: value, after: corrected };
-        setValue(corrected);
-        setHighlightRanges(ranges);
-      }
-    }, SUGGEST_DEBOUNCE_MS);
-    return () => {
-      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, mode, userReverted, disabled]);
-
-  // Keep the highlight backdrop scroll-aligned with the textarea (long messages scroll
-  // internally past MAX_HEIGHT).
-  useLayoutEffect(() => {
-    const ta = taRef.current;
-    const bd = backdropRef.current;
-    if (ta && bd) bd.scrollTop = ta.scrollTop;
-  }, [value, highlightRanges]);
-
-  /** Apply every correctMessage hit to `text`, returning the corrected string AND the
-   *  changed spans mapped into the NEW string (for the green highlight). Idempotent:
-   *  already-corrected text yields no hits → returns the text unchanged with no ranges. */
-  const computeCorrected = (text: string): { corrected: string; ranges: HighlightRange[] } => {
-    const hits = correctMessage(text);
-    if (!hits.length) return { corrected: text, ranges: [] };
-    const sorted = [...hits].sort((a, b) => a.start - b.start);
-    let out = '';
-    let cursor = 0;
-    let delta = 0;
-    const ranges: HighlightRange[] = [];
-    for (const h of sorted) {
-      out += text.slice(cursor, h.start);
-      const newStart = h.start + delta;
-      out += h.to;
-      ranges.push({ start: newStart, end: newStart + h.to.length });
-      delta += h.to.length - (h.end - h.start);
-      cursor = h.end;
-    }
-    out += text.slice(cursor);
-    return { corrected: out, ranges };
-  };
-
   /** Compose-then-submit invariant: the composer NEVER types keystroke-by-keystroke
    *  into tmux — it builds the whole message string and submits it in one POST
    *  (submit:true). That is what makes a batch autocorrect pass safe here: we correct
    *  the FINAL string once (covering the last, unspaced token) and send the result.
-   *   - off:     send verbatim.
-   *   - suggest: send verbatim after an explicit undo (respect the user's choice); else
-   *              flush/idempotent-apply so a send BEFORE the debounce still corrects.
-   *   - auto:    pre-send catch-all for the last, still-unspaced token. */
+   *  Autocorrect is on/off: 'off' sends verbatim, 'auto' corrects the whole message. */
   const correctForSend = (raw: string): string => {
     if (mode === 'off') return raw;
-    if (mode === 'suggest') return userReverted ? raw : computeCorrected(raw).corrected;
     const hits = correctMessage(raw);
     let out = raw;
     for (const h of [...hits].sort((a, b) => b.start - a.start)) {
@@ -291,25 +219,9 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     return out;
   };
 
-  /** Revert a suggest-mode pass back to exactly what the user typed (⌘Z or button). */
-  const revertCorrections = () => {
-    const u = undoRef.current;
-    if (!u) return;
-    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    setValue(u.before);
-    setHighlightRanges([]);
-    setUserReverted(true);
-    undoRef.current = null;
-    requestAnimationFrame(() => taRef.current?.focus());
-  };
-
-  /** Clear the draft and all suggest-mode overlay state after a send. */
+  /** Clear the draft after a send. */
   const resetDraft = () => {
-    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
     setValue('');
-    setHighlightRanges([]);
-    setUserReverted(false);
-    undoRef.current = null;
     requestAnimationFrame(() => taRef.current?.focus());
   };
 
@@ -359,26 +271,11 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const next = e.target.value;
-    setValue(next);
-    // suggest: the debounced effect runs the whole-message pass once typing pauses.
-    // Editing clears any stale green + the reverted flag so a fresh pass can run.
-    // auto/off: NEVER correct while typing — auto corrects only on send (correctForSend).
-    if (mode === 'suggest') {
-      if (highlightRanges.length) setHighlightRanges([]);
-      if (userReverted) setUserReverted(false);
-      undoRef.current = null;
-    }
+    // Autocorrect never touches text while typing — 'auto' corrects only on send.
+    setValue(e.target.value);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // suggest: ⌘/Ctrl+Z reverts the last debounced correction pass (no learning).
-    const u = undoRef.current;
-    if (u && value === u.after && e.key === 'z' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      revertCorrections();
-      return;
-    }
     // ⌘/Ctrl+Enter always sends, regardless of the toggle.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -393,45 +290,12 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   };
 
   const canSend = !disabled && value.trim().length > 0;
-  const showHighlight = mode === 'suggest' && highlightRanges.length > 0;
-
-  // Shared text-box metrics — the backdrop overlay MUST match the textarea exactly so
-  // the green marks sit under the right glyphs (monospace + pre-wrap keeps it aligned).
-  const boxFont: React.CSSProperties = {
-    padding: '6px 8px',
-    fontSize: 13,
-    lineHeight: 1.4,
-    fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    letterSpacing: 'normal',
-  };
-
-  /** Split the draft into plain + <mark> segments for the green-highlight backdrop. */
-  const renderHighlighted = (text: string, ranges: HighlightRange[]): React.ReactNode => {
-    const sorted = [...ranges].sort((a, b) => a.start - b.start);
-    const nodes: React.ReactNode[] = [];
-    let cursor = 0;
-    sorted.forEach((r, i) => {
-      if (r.start > cursor) nodes.push(<span key={`t${i}`}>{text.slice(cursor, r.start)}</span>);
-      nodes.push(
-        <mark key={`m${i}`} style={{ background: 'rgba(46,160,67,0.38)', color: 'inherit', borderRadius: 2 }}>
-          {text.slice(r.start, r.end)}
-        </mark>,
-      );
-      cursor = r.end;
-    });
-    // A trailing '\n' collapses the last line in a block box — pad it so heights match.
-    const tail = text.slice(cursor);
-    nodes.push(<span key="tail">{tail.endsWith('\n') ? `${tail} ` : tail}</span>);
-    return nodes;
-  };
 
   return (
     <div
       style={{
-        position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 8,
-        flex: '0 0 auto', padding: '12px 14px 16px',
+        position: 'relative', display: 'flex', flexDirection: 'column', gap: 6,
+        flex: '0 0 auto', padding: '10px 14px 12px',
         borderTop: `1px solid ${p.border}`, background: p.surface,
         opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto',
       }}
@@ -459,48 +323,10 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             style={{ ...btn('transparent', 'transparent', p.mutedFg), padding: '4px 8px' }}>✕</button>
         </div>
       )}
-      {/* Suggest mode: after the debounced pass applies corrections (painted green in the
-          box), offer a one-tap revert. ⌘/Ctrl+Z does the same from the keyboard. */}
-      {showHighlight && !pendingDrop && (
-        <div
-          style={{
-            position: 'absolute', left: 14, bottom: 'calc(100% - 2px)', zIndex: 20,
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '4px 10px', fontSize: 12, color: p.fg,
-            background: p.surface, border: `1px solid ${p.accent}`, borderRadius: 8,
-            boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-          }}
-        >
-          <span style={{ color: p.mutedFg }}>
-            Autocorrected {highlightRanges.length} word{highlightRanges.length === 1 ? '' : 's'}
-          </span>
-          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={revertCorrections}
-            title="Undo the corrections (⌘/Ctrl+Z)"
-            style={btn(p.chipBg, p.border, p.fg)}>Undo ⌘Z</button>
-        </div>
-      )}
-      {/* Text box: a backdrop mirror paints the green marks; the textarea sits on top with
-          transparent text (only while highlighting) so the marks show through, and keeps
-          the caret/selection. The wrapper carries the visible box (bg + border). */}
-      <div
-        style={{
-          position: 'relative', flex: '1 1 auto', minWidth: 0,
-          background: p.inputBg, border: `1px solid ${focused ? p.accent : p.border}`,
-          borderRadius: 6, transition: 'border-color 120ms',
-        }}
-      >
-        <div
-          ref={backdropRef}
-          aria-hidden="true"
-          style={{
-            ...boxFont,
-            position: 'absolute', inset: 0, margin: 0,
-            overflow: 'hidden', pointerEvents: 'none',
-            color: p.fg, opacity: showHighlight ? 1 : 0,
-          }}
-        >
-          {showHighlight ? renderHighlighted(value, highlightRanges) : null}
-        </div>
+
+      {/* Input row: the auto-growing textarea + a Send button that STRETCHES to the row
+          height (so it grows as the textarea grows to more lines). */}
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
         <textarea
           ref={taRef}
           value={value}
@@ -510,25 +336,25 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
           placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
           onChange={onChange}
           onKeyDown={onKeyDown}
-          onScroll={(e) => { const bd = backdropRef.current; if (bd) bd.scrollTop = e.currentTarget.scrollTop; }}
           title={disabled ? undefined : 'Drag a file anywhere in the terminal to insert its path (or paste its contents)'}
           style={{
-            ...boxFont,
-            position: 'relative', display: 'block', width: '100%', resize: 'none',
-            minHeight: 56, maxHeight: MAX_HEIGHT, margin: 0,
-            color: showHighlight ? 'transparent' : p.fg,
-            caretColor: p.fg, background: 'transparent',
-            border: 'none', borderRadius: 6, outline: 'none',
+            flex: '1 1 auto', minWidth: 0, width: '100%', resize: 'none',
+            minHeight: 38, maxHeight: MAX_HEIGHT,
+            padding: '8px 10px', margin: 0,
+            fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+            color: p.fg, background: p.inputBg,
+            border: `1px solid ${focused ? p.accent : p.border}`, borderRadius: 6,
+            outline: 'none', transition: 'border-color 120ms',
           }}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, flex: '0 0 auto' }}>
         <button
           type="button" disabled={!canSend} onClick={send} title="Send to the terminal"
           style={{
-            padding: '5px 14px', fontSize: 13, lineHeight: 1.4, fontWeight: 600,
+            flex: '0 0 auto', alignSelf: 'stretch', minWidth: 76,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 16px', fontSize: 13, lineHeight: 1.4, fontWeight: 600,
             cursor: canSend ? 'pointer' : 'default',
             color: canSend ? p.primaryFg : p.mutedFg,
             background: canSend ? p.primary : p.chipBg,
@@ -538,46 +364,25 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
         >
           Send
         </button>
-        <label
+      </div>
+
+      {/* Footer toggles — green = on, red = off. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          type="button" disabled={disabled} onClick={() => setSendOnEnter(!sendOnEnter)}
           title="When on, Enter sends and Shift+Enter inserts a newline"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 11, lineHeight: 1.2, color: p.mutedFg,
-            cursor: disabled ? 'default' : 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
-          }}
+          style={toggleChip(sendOnEnter, disabled)}
         >
-          <input
-            type="checkbox" checked={sendOnEnter} disabled={disabled}
-            onChange={(e) => setSendOnEnter(e.target.checked)}
-            style={{ cursor: disabled ? 'default' : 'pointer', margin: 0, accentColor: p.accent }}
-          />
-          Enter sends
-        </label>
-        <label
-          title="Autocorrect for typed messages: off · suggest (preview corrections in green after you pause, ⌘Z/Undo to revert) · auto (corrects silently on send)"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 11, lineHeight: 1.2, color: p.mutedFg,
-            cursor: disabled ? 'default' : 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
-          }}
+          Enter sends: {sendOnEnter ? 'on' : 'off'}
+        </button>
+        <button
+          type="button" data-testid="autocorrect-toggle" disabled={disabled}
+          onClick={() => setAutocorrectMode(autocorrectMode === 'auto' ? 'off' : 'auto')}
+          title="Autocorrect typed messages on send (corrects known typos using the project vocabulary)"
+          style={toggleChip(autocorrectMode === 'auto', disabled)}
         >
-          Autocorrect
-          <select
-            data-testid="autocorrect-mode-select"
-            value={autocorrectMode}
-            disabled={disabled}
-            onChange={(e) => setAutocorrectMode(e.target.value as AutocorrectMode)}
-            style={{
-              cursor: disabled ? 'default' : 'pointer', fontSize: 11, lineHeight: 1.2,
-              color: p.mutedFg, background: 'transparent',
-              border: `1px solid ${p.border}`, borderRadius: 4, padding: '1px 4px',
-            }}
-          >
-            <option value="off">off</option>
-            <option value="suggest">suggest</option>
-            <option value="auto">auto</option>
-          </select>
-        </label>
+          Autocorrect: {autocorrectMode === 'auto' ? 'on' : 'off'}
+        </button>
       </div>
     </div>
   );
@@ -589,6 +394,20 @@ function btn(bg: string, border: string, color: string): React.CSSProperties {
     flex: '0 0 auto', padding: '4px 10px', fontSize: 12, lineHeight: 1.3,
     fontWeight: 600, cursor: 'pointer', color,
     background: bg, border: `1px solid ${border}`, borderRadius: 6,
+  };
+}
+
+/** A pill toggle: solid GREEN when on, RED when off. */
+function toggleChip(on: boolean, disabled: boolean): React.CSSProperties {
+  const green = { bg: 'rgba(46,160,67,0.92)', border: '#2ea043' };
+  const red = { bg: 'rgba(198,60,60,0.88)', border: '#c63c3c' };
+  const c = on ? green : red;
+  return {
+    flex: '0 0 auto', padding: '3px 12px', fontSize: 11, lineHeight: 1.3,
+    fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+    color: '#fff', background: c.bg, border: `1px solid ${c.border}`,
+    borderRadius: 999, whiteSpace: 'nowrap', userSelect: 'none',
+    transition: 'background 120ms, border-color 120ms',
   };
 }
 
