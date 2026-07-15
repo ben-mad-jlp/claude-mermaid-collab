@@ -31,7 +31,7 @@ import {
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
-import { getTodo, sweepEpicRollups } from './todo-store.ts';
+import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
@@ -181,6 +181,19 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] dropped-epic worktree-release sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3g. BUCKET HYGIENE SWEEP: archive (status→'dropped') bucket children that are
+  // `done` and older than 7 days. Idempotent; only 'done' rows are selected.
+  // -------------------------------------------------------------------------
+  try {
+    await sweepTerminalBucketChildren(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] bucket-hygiene sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
