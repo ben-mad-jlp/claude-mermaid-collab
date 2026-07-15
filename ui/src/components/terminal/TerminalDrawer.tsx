@@ -295,17 +295,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         </div>
       </div>
 
-      {/* Quick-reply chip bar — welded to the bottom of the console. Reserves
-          ~26px once; the xterm viewport above keeps its flex:1. Reads the one
-          attached session; greys out when no console is attached. */}
-      <InputRail
-        project={activeTab?.project ?? ''}
-        session={activeTab?.session ?? ''}
-        serverId={activeTab?.serverId ?? ''}
-        disabled={!activeTab || isGrokLane}
-      />
-
-      {/* Multi-line composer — a real auto-growing textbox below the canned chips,
+      {/* Multi-line composer — a real auto-growing textbox directly below the console,
           for typing an actual message into the live REPL. Send button + a persisted
           "Enter sends" toggle. */}
       <MessageComposer
@@ -314,6 +304,15 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         serverId={activeTab?.serverId ?? ''}
         disabled={!activeTab}
         injectMode={isGrokLane}
+      />
+
+      {/* Quick-reply chip bar (canned responses) — welded to the very bottom, under the
+          composer. Reads the one attached session; greys out when no console attached. */}
+      <InputRail
+        project={activeTab?.project ?? ''}
+        session={activeTab?.session ?? ''}
+        serverId={activeTab?.serverId ?? ''}
+        disabled={!activeTab || isGrokLane}
       />
       </div>
   );
