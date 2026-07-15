@@ -50,10 +50,15 @@ export const COMMON_TYPOS: Record<string, string> = {
   didnt: 'did not',
   doesnt: 'does not',
   im: 'I am',
-  your: 'you are',
-  its: 'it is',
   thats: 'that is',
 };
+
+// Valid English words that must NEVER appear as COMMON_TYPOS keys — adding one would
+// rewrite correct input. The disjointness is asserted in wordlist.test.ts (fails CI).
+export const PROTECTED_VALID_WORDS: string[] = [
+  'your', 'its', 'were', 'well', 'id', 'ill', 'cant', 'wont',
+  'hell', 'dont', 'hes', 'shes', 'weve',
+];
 
 export async function loadCommonWords(): Promise<Set<string>> {
   const mod = await import('./common-words-en.json');
