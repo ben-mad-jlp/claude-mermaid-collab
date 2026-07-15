@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useQuickReplyStore } from '@/stores/quickReplyStore';
+import { useQuickReplyStore, type AutocorrectMode } from '@/stores/quickReplyStore';
 import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
 import { SuggestionChip, type ChipSuggestion } from './SuggestionChip';
@@ -38,6 +38,8 @@ interface MessageComposerProps {
 export function MessageComposer({ project, session, serverId, disabled = false, injectMode = false }: MessageComposerProps) {
   const sendOnEnter = useQuickReplyStore((s) => s.sendOnEnter);
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
+  const autocorrectMode = useQuickReplyStore((s) => s.autocorrectMode);
+  const setAutocorrectMode = useQuickReplyStore((s) => s.setAutocorrectMode);
   const p = useTerminalPalette();
 
   const { mode, correct, correctMessage, vocabWords } = useAutocorrect(project);
@@ -454,6 +456,31 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             style={{ cursor: disabled ? 'default' : 'pointer', margin: 0, accentColor: p.accent }}
           />
           Enter sends
+        </label>
+        <label
+          title="Autocorrect for typed messages: off · suggest (chip) · auto (applies on the fly, ⌘Z to undo)"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 11, lineHeight: 1.2, color: p.mutedFg,
+            cursor: disabled ? 'default' : 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
+          }}
+        >
+          Autocorrect
+          <select
+            data-testid="autocorrect-mode-select"
+            value={autocorrectMode}
+            disabled={disabled}
+            onChange={(e) => setAutocorrectMode(e.target.value as AutocorrectMode)}
+            style={{
+              cursor: disabled ? 'default' : 'pointer', fontSize: 11, lineHeight: 1.2,
+              color: p.mutedFg, background: 'transparent',
+              border: `1px solid ${p.border}`, borderRadius: 4, padding: '1px 4px',
+            }}
+          >
+            <option value="off">off</option>
+            <option value="suggest">suggest</option>
+            <option value="auto">auto</option>
+          </select>
         </label>
       </div>
     </div>
