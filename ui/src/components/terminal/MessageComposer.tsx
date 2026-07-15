@@ -324,8 +324,9 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
         </div>
       )}
 
-      {/* Input row: the auto-growing textarea + a Send button that STRETCHES to the row
-          height (so it grows as the textarea grows to more lines). */}
+      {/* Input row: the auto-growing textarea on the left; a right-hand COLUMN holding the
+          Send button (stretches/grows with the textarea height) above the two on/off
+          pill toggles (green = on, red = off — the colour is the state, no label text). */}
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
         <textarea
           ref={taRef}
@@ -349,40 +350,40 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
-        <button
-          type="button" disabled={!canSend} onClick={send} title="Send to the terminal"
-          style={{
-            flex: '0 0 auto', alignSelf: 'stretch', minWidth: 76,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            padding: '0 16px', fontSize: 13, lineHeight: 1.4, fontWeight: 600,
-            cursor: canSend ? 'pointer' : 'default',
-            color: canSend ? p.primaryFg : p.mutedFg,
-            background: canSend ? p.primary : p.chipBg,
-            border: `1px solid ${canSend ? p.primaryBorder : p.border}`,
-            borderRadius: 6, transition: 'background 120ms, color 120ms',
-          }}
-        >
-          Send
-        </button>
-      </div>
-
-      {/* Footer toggles — green = on, red = off. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button
-          type="button" disabled={disabled} onClick={() => setSendOnEnter(!sendOnEnter)}
-          title="When on, Enter sends and Shift+Enter inserts a newline"
-          style={toggleChip(sendOnEnter, disabled)}
-        >
-          Enter sends: {sendOnEnter ? 'on' : 'off'}
-        </button>
-        <button
-          type="button" data-testid="autocorrect-toggle" disabled={disabled}
-          onClick={() => setAutocorrectMode(autocorrectMode === 'auto' ? 'off' : 'auto')}
-          title="Autocorrect typed messages on send (corrects known typos using the project vocabulary)"
-          style={toggleChip(autocorrectMode === 'auto', disabled)}
-        >
-          Autocorrect: {autocorrectMode === 'auto' ? 'on' : 'off'}
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6, flex: '0 0 auto', minWidth: 96 }}>
+          <button
+            type="button" disabled={!canSend} onClick={send} title="Send to the terminal"
+            style={{
+              flex: '1 1 auto', minHeight: 34,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              padding: '0 16px', fontSize: 13, lineHeight: 1.4, fontWeight: 600,
+              cursor: canSend ? 'pointer' : 'default',
+              color: canSend ? p.primaryFg : p.mutedFg,
+              background: canSend ? p.primary : p.chipBg,
+              border: `1px solid ${canSend ? p.primaryBorder : p.border}`,
+              borderRadius: 6, transition: 'background 120ms, color 120ms',
+            }}
+          >
+            Send
+          </button>
+          <button
+            type="button" disabled={disabled} aria-pressed={sendOnEnter}
+            onClick={() => setSendOnEnter(!sendOnEnter)}
+            title={`Enter sends: ${sendOnEnter ? 'on' : 'off'} — when on, Enter sends and Shift+Enter inserts a newline`}
+            style={toggleChip(sendOnEnter, disabled)}
+          >
+            Enter sends
+          </button>
+          <button
+            type="button" data-testid="autocorrect-toggle" disabled={disabled}
+            aria-pressed={autocorrectMode === 'auto'}
+            onClick={() => setAutocorrectMode(autocorrectMode === 'auto' ? 'off' : 'auto')}
+            title={`Autocorrect: ${autocorrectMode === 'auto' ? 'on' : 'off'} — corrects known typos on send using the project vocabulary`}
+            style={toggleChip(autocorrectMode === 'auto', disabled)}
+          >
+            Autocorrect
+          </button>
+        </div>
       </div>
     </div>
   );
