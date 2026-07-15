@@ -221,4 +221,20 @@ describe('PlanKanban', () => {
     expect(onPromote).toHaveBeenCalledTimes(1);
     expect(onPromote.mock.calls[0][0].id).toBe('i1');
   });
+
+  it('enables promote-to-epic with a handler and forwards the full clicked todo', () => {
+    const todos = [
+      todo({ id: 'INBOX', kind: 'epic', bucketType: 'inbox' }),
+      todo({ id: 'i1', title: 'promote me', status: 'ready', parentId: 'INBOX' }),
+    ];
+    const onPromote = vi.fn();
+    render(<PlanKanban todos={todos} showCompleted={false} onPromoteToEpic={onPromote} />);
+    const promoteBtn = screen.getByTestId('promote-to-epic');
+    expect(promoteBtn).not.toBeDisabled();
+    fireEvent.click(promoteBtn);
+    expect(onPromote).toHaveBeenCalledTimes(1);
+    const arg = onPromote.mock.calls[0][0];
+    expect(arg.id).toBe('i1');
+    expect(arg.title).toBe('promote me');
+  });
 });
