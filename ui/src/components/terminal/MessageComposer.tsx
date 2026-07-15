@@ -2,6 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
+import { SuggestionChip, type ChipSuggestion } from './SuggestionChip';
+import { useAutocorrect } from '@/hooks/useAutocorrect';
+import { addToPersonalDict } from '@/lib/autocorrect/personalDict';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -37,10 +40,13 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
   const p = useTerminalPalette();
 
+  const { mode, correct } = useAutocorrect(project);
+
   const [value, setValue] = useState('');
   // When text file(s) are dropped, hold them here and offer a choice: paste their
   // CONTENTS into the box, or insert their PATH. Non-text drops skip the chooser.
   const [pendingDrop, setPendingDrop] = useState<{ files: File[]; paths: string[] } | null>(null);
+  const [pending, setPending] = useState<ChipSuggestion | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
@@ -233,7 +239,52 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     requestAnimationFrame(() => taRef.current?.focus());
   };
 
+  const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = e.target.value;
+    setValue(next);
+    if (mode === 'off') { setPending(null); return; }
+    const caret = e.target.selectionStart ?? next.length;
+    // just typed a boundary (space/newline) right before the caret?
+    const prevChar = next[caret - 1];
+    if (prevChar !== ' ' && prevChar !== '\n') { setPending(null); return; }
+    // token = the run of non-space chars ending just before that boundary
+    const boundary = caret - 1;
+    let start = boundary;
+    while (start > 0 && !/\s/.test(next[start - 1])) start--;
+    const token = next.slice(start, boundary);
+    if (!token) { setPending(null); return; }
+    const sug = correct(token);
+    if (sug) setPending({ from: sug.from, to: sug.to, start, end: boundary });
+    else setPending(null);
+  };
+
+  const applySuggestion = (s: ChipSuggestion) => {
+    setValue((prev) => {
+      const next = prev.slice(0, s.start) + s.to + prev.slice(s.end);
+      const caret = s.start + s.to.length;
+      requestAnimationFrame(() => {
+        const ta = taRef.current; if (!ta) return;
+        ta.focus(); ta.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+    setPending(null);
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle pending autocorrect suggestion before other keys.
+    if (pending) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        applySuggestion(pending);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPending(null);
+        return;
+      }
+    }
     // ⌘/Ctrl+Enter always sends, regardless of the toggle.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -244,6 +295,13 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     if (e.key === 'Enter' && !e.shiftKey && sendOnEnter) {
       e.preventDefault();
       send();
+    }
+  };
+
+  const onAddPending = () => {
+    if (pending) {
+      addToPersonalDict(project, pending.from);
+      setPending(null);
     }
   };
 
@@ -281,13 +339,27 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             style={{ ...btn('transparent', 'transparent', p.mutedFg), padding: '4px 8px' }}>✕</button>
         </div>
       )}
+      {/* Autocorrect is compose-time only: the chip mutates the DRAFT `value` before
+          submit. Send (line ~190) reads `value` verbatim, so an applied suggestion is
+          already baked in; a pending-but-unapplied suggestion is discarded on submit
+          (Enter with `sendOnEnter` sends; Tab/Esc are intercepted above while pending,
+          so a pending chip never leaks into a send). */}
+      {pending && mode === 'suggest' && !pendingDrop && (
+        <SuggestionChip
+          suggestion={pending}
+          textarea={taRef.current}
+          onApply={() => applySuggestion(pending)}
+          onDismiss={() => setPending(null)}
+          onAdd={onAddPending}
+        />
+      )}
       <textarea
         ref={taRef}
         value={value}
         rows={1}
         disabled={disabled}
         placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={onChange}
         onKeyDown={onKeyDown}
         title={disabled ? undefined : 'Drag a file anywhere in the terminal to insert its path (or paste its contents)'}
         style={{
