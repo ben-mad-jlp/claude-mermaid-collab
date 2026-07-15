@@ -87,6 +87,14 @@ describe('correctToken', () => {
     it('filters token starting with /', () => {
       expect(correctToken('/path/to/file', vocab)).toBeNull();
     });
+
+    it('your passes through as valid word', () => {
+      expect(correctToken('your', vocab)).toBeNull();
+    });
+
+    it('its passes through as valid word', () => {
+      expect(correctToken('its', vocab)).toBeNull();
+    });
   });
 
   describe('protected exact match', () => {
