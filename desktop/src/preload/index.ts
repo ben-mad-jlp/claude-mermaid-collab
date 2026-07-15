@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('mc', {
     return () => ipcRenderer.removeListener('mc:bootstrap-progress', h);
   },
   retryBootstrap: () => ipcRenderer.invoke('mc:retry-bootstrap'),
+  // Phase-1 dictionary injection: push words into the OS/Electron spellchecker's
+  // session dictionary so custom vocabulary stops squiggling. No return value needed.
+  addSpellCheckWords: (words: string[]) => ipcRenderer.invoke('mc:spellcheck-add-words', words),
   browser: {
     listTabs: () => ipcRenderer.invoke('mc:browser:listTabs'),
     openTab: (opts: { url?: string }) => ipcRenderer.invoke('mc:browser:openTab', opts),
