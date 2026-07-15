@@ -135,9 +135,14 @@ interface QuickReplyState {
    *  Drives the xterm palette AND the chip bar + composer chrome. Persisted. */
   terminalTheme: TerminalThemeSetting;
   setTerminalTheme: (t: TerminalThemeSetting) => void;
+  /** Autocorrect mode: 'off' disables; 'suggest' shows suggestions; 'auto' applies
+   *  them automatically. Persisted. */
+  autocorrectMode: AutocorrectMode;
+  setAutocorrectMode: (m: AutocorrectMode) => void;
 }
 
 export type TerminalThemeSetting = 'match' | 'light' | 'dark' | 'sepia';
+export type AutocorrectMode = 'off' | 'suggest' | 'auto';
 
 export const useQuickReplyStore = create<QuickReplyState>()(
   persist(
@@ -228,6 +233,9 @@ export const useQuickReplyStore = create<QuickReplyState>()(
 
       terminalTheme: 'match',
       setTerminalTheme: (t) => set({ terminalTheme: t }),
+
+      autocorrectMode: 'off',
+      setAutocorrectMode: (m) => set({ autocorrectMode: m }),
     }),
     {
       name: 'mc.terminal.chips.v1',
@@ -240,6 +248,7 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         order: s.order,
         sendOnEnter: s.sendOnEnter,
         terminalTheme: s.terminalTheme,
+        autocorrectMode: s.autocorrectMode,
       }),
     },
   ),
