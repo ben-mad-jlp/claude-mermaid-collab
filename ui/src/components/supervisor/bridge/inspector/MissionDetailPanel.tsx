@@ -7,6 +7,11 @@
  * detail already uses. This absorbs what used to be crammed into the CommandBar
  * (⚙ nodes matrix, concurrency, the autonomy ladder) and the MissionStrip's inline
  * `Missions ▾` dropdown + gauge popovers.
+ *
+ * The selected mission ALWAYS renders — including a completed (converged/stopped)
+ * one — so a just-converged active mission never disappears behind the filter. The
+ * "Show completed" toggle lives at the bottom, in the "Other missions" list, and
+ * only governs whether inactive/completed OTHER missions are browsable there.
  */
 
 import React, { useState } from 'react';
@@ -30,16 +35,25 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'goal' | 'build'>('goal');
 
-  const completedCount = missions.filter(isMissionCompleted).length;
-  // Active mission first, then the rest; completed hidden unless toggled.
-  const shown = (showCompleted ? missions : missions.filter((m) => !isMissionCompleted(m)))
+  // Active mission first, then the rest — used for the default selection and the
+  // "other missions" list. Completed missions are NOT dropped here; the filter
+  // below applies only to the non-selected "other" list.
+  const sorted = missions
     .slice()
     .sort((a, b) => Number(b.mission?.active !== false) - Number(a.mission?.active !== false));
 
-  // Effective selected mission: explicit selection, active mission, or first shown.
+  // Effective selected mission: explicit selection, active mission, or first.
+  // This ALWAYS renders, even when completed — the show-completed toggle never
+  // hides the mission you are currently looking at.
   const selected = missions.find((m) => m.node?.id === selectedId)
     ?? missions.find((m) => m.mission?.active !== false)
-    ?? shown[0];
+    ?? sorted[0];
+
+  // Everything except the selected mission, with completed ones hidden unless toggled.
+  const others = sorted.filter((m) => m.node?.id !== selected?.node?.id);
+  const shownOthers = showCompleted ? others : others.filter((m) => !isMissionCompleted(m));
+  // The toggle only matters for revealing OTHER completed (inactive) missions.
+  const otherCompletedCount = others.filter(isMissionCompleted).length;
 
   return (
     <div data-testid="inspector-missions" className="flex flex-col gap-3 p-3 h-full min-h-0 overflow-y-auto">
@@ -57,30 +71,10 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
         </button>
       </div>
 
-      {completedCount > 0 && (
-        <label
-          className="flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
-          title="Show missions that have converged or stopped."
-        >
-          <input
-            type="checkbox"
-            data-testid="missions-show-completed"
-            checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
-            className="h-3 w-3 rounded border-gray-300 dark:border-gray-600"
-          />
-          Show completed ({completedCount})
-        </label>
-      )}
-
-      {/* Mission detail view */}
+      {/* Mission detail view — the selected mission always shows, completed or not. */}
       {missions.length === 0 ? (
         <div className="text-3xs italic text-gray-400 dark:text-gray-500">
           No missions yet — click "+ New mission" to start a convergence loop.
-        </div>
-      ) : shown.length === 0 ? (
-        <div className="text-3xs italic text-gray-400 dark:text-gray-500">
-          All {completedCount} mission{completedCount === 1 ? '' : 's'} completed — check "Show completed" to view.
         </div>
       ) : selected ? (
         <>
@@ -93,27 +87,42 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
             onChanged={(next: MissionSummary[]) => setMissions(next)}
             onDropped={() => setSelectedId(null)}
           />
-          {selected && shown.filter((m) => m.node?.id !== selected.node?.id).length > 0 && (
+          {(shownOthers.length > 0 || otherCompletedCount > 0) && (
             <div data-testid="mission-other-section" className="mt-auto pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1">
-              <span className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                Other missions
-              </span>
-              {shown
-                .filter((m) => m.node?.id !== selected.node?.id)
-                .map((m) => (
-                  <button
-                    key={m.node?.id}
-                    type="button"
-                    data-testid="mission-switcher-row"
-                    onClick={() => setSelectedId(m.node?.id ?? null)}
-                    className="flex items-center justify-between gap-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60 px-2 py-1.5 text-left transition-colors"
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                  Other missions
+                </span>
+                {otherCompletedCount > 0 && (
+                  <label
+                    className="flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
+                    title="Show inactive missions that have converged or stopped."
                   >
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {stripKindPrefix(m.node?.title ?? 'Mission')}
-                    </span>
-                    <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
-                  </button>
-                ))}
+                    <input
+                      type="checkbox"
+                      data-testid="missions-show-completed"
+                      checked={showCompleted}
+                      onChange={(e) => setShowCompleted(e.target.checked)}
+                      className="h-3 w-3 rounded border-gray-300 dark:border-gray-600"
+                    />
+                    Show completed ({otherCompletedCount})
+                  </label>
+                )}
+              </div>
+              {shownOthers.map((m) => (
+                <button
+                  key={m.node?.id}
+                  type="button"
+                  data-testid="mission-switcher-row"
+                  onClick={() => setSelectedId(m.node?.id ?? null)}
+                  className="flex items-center justify-between gap-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60 px-2 py-1.5 text-left transition-colors"
+                >
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {stripKindPrefix(m.node?.title ?? 'Mission')}
+                  </span>
+                  <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
+                </button>
+              ))}
             </div>
           )}
         </>
