@@ -672,18 +672,24 @@ export function shouldAutoGate(kind: string, operatorGated: boolean): boolean {
 }
 
 /** Pause scope for the steward role (design §4): a single sentinel scope in the
- *  shared supervisor_pause table, parallel to GLOBAL_PAUSE_SCOPE. */
+ *  shared supervisor_pause table, parallel to GLOBAL_PAUSE_SCOPE.
+ *  @deprecated Use setSupervisorPause(GLOBAL_PAUSE_SCOPE, paused) instead; this scope is retained as vocabulary only. */
 export const STEWARD_PAUSE_SCOPE = '__steward__';
 
 /** Pause / resume the steward's auto-routing+acting. While paused the router
  *  forwards nothing (all→human) and the steward parks — the standin's
- *  "I've got it from here." */
+ *  "I've got it from here."
+ *  @deprecated Use setSupervisorPause(GLOBAL_PAUSE_SCOPE, paused) instead — unified brake. */
 export function setStewardPause(paused: boolean): void {
-  setSupervisorPause(STEWARD_PAUSE_SCOPE, paused);
+  setSupervisorPause(GLOBAL_PAUSE_SCOPE, paused);
 }
+
+/** Pause / resume the steward's auto-routing+acting. While paused the router
+ *  forwards nothing (all→human) and the steward parks — the standin's
+ *  "I've got it from here."
+ *  @deprecated Use isSupervisorPaused() instead — unified brake. */
 export function isStewardPaused(): boolean {
-  const d = openDb();
-  return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_PAUSE_SCOPE);
+  return isSupervisorPaused();
 }
 
 /** Runtime ON/OFF switch for the steward's ESCALATION AUTO-ANSWER (the live human
@@ -697,7 +703,6 @@ export function isStewardPaused(): boolean {
  *  running unconditionally. This switch never gates dogfooding. */
 export const STEWARD_DISABLED_SCOPE = '__steward_disabled__';
 export const STEWARD_ARMED_SCOPE = '__steward_armed__';
-export const STEWARD_DOGFOOD_SCOPE = '__steward_dogfood__';
 
 function hasSentinel(scope: string): boolean {
   const d = openDb();
@@ -722,29 +727,13 @@ export function isStewardArmed(): boolean {
 export function isStewardEnabled(): boolean {
   return isStewardArmed();
 }
-/** Legacy boolean on/off (the old /steward/enabled route). Arms or disarms. */
-export function setStewardEnabled(enabled: boolean): void {
-  setStewardMode(enabled ? 'auto' : 'off');
-}
 
-/** Steward operating mode (the human's control, persistent — folds the arm in):
- *  - 'off'     → disarmed: every escalation fails open to the human, steward idles.
- *  - 'auto'    → armed, answer-only: auto-triages routed escalations.
- *  - 'dogfood' → armed + PROACTIVE: also drives the queue / builds. */
-export type StewardMode = 'off' | 'auto' | 'dogfood';
-export function isStewardDogfood(): boolean {
-  return hasSentinel(STEWARD_DOGFOOD_SCOPE);
-}
-export function getStewardMode(): StewardMode {
-  if (!isStewardArmed()) return 'off';
-  return isStewardDogfood() ? 'dogfood' : 'auto';
-}
-export function setStewardMode(mode: StewardMode): void {
-  // Persist the explicit arm choice so it survives restart and overrides the env
-  // default. 'off' disarms; 'auto'/'dogfood' arm (dogfood adds the proactive flag).
-  setSupervisorPause(STEWARD_DISABLED_SCOPE, mode === 'off');
-  setSupervisorPause(STEWARD_ARMED_SCOPE, mode !== 'off');
-  setSupervisorPause(STEWARD_DOGFOOD_SCOPE, mode === 'dogfood');
+/** Runtime ON/OFF switch for the steward's escalation auto-answer (the A3 kill-switch).
+ *  Sets the persistent arm sentinels directly so the choice survives restart
+ *  and overrides the MERMAID_STEWARD_AUTO env default. */
+export function setStewardEnabled(enabled: boolean): void {
+  setSupervisorPause(STEWARD_DISABLED_SCOPE, !enabled);
+  setSupervisorPause(STEWARD_ARMED_SCOPE, enabled);
 }
 
 /** True iff a steward is registered AND its heartbeat is fresh (not stale/dead).

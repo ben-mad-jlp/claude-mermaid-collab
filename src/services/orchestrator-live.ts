@@ -18,7 +18,7 @@
 
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
 import { listWatchedProjects, type Escalation } from './supervisor-store.js';
-import { runBuildPass, todoIsMissionScoped } from './coordinator-live.js';
+import { runBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
 import { listTodos } from './todo-store.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
@@ -375,7 +375,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         currentPhase = `${project}:triage`;
         const missionTodos = listTodos(project, { includeCompleted: true });
         const autoResolveScope = (esc: Escalation): boolean =>
-          esc.todoId != null && todoIsMissionScoped(project, esc.todoId, missionTodos);
+          mayAutoAnswerEscalation(project, esc, missionTodos);
         await withPassTimeout(
           triage(project, { autoResolve: false, autoResolveScope }),
           TRIAGE_PASS_TIMEOUT_MS,

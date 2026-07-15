@@ -12,7 +12,7 @@ import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInf
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
-import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled, type Escalation } from './supervisor-store';
 import { regenerateProjectDigest, type DigestLlm } from './project-digest';
 import { makeDigestLlm } from './digest-llm';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
@@ -1662,6 +1662,13 @@ export function todoIsMissionScoped(project: string, todoId: string, todos: Todo
     depth++;
   }
   return false;
+}
+
+/** A4 (crit_f1404796_9): the single escalation-auto-answer rule — mission scope (A3)
+ *  AND NOT the per-escalation operator override. Pure over its inputs. */
+export function mayAutoAnswerEscalation(project: string, esc: Escalation, todos: Todo[]): boolean {
+  if (esc.operatorGated) return false;
+  return esc.todoId != null && todoIsMissionScoped(project, esc.todoId, todos);
 }
 
 /** Store-truth decision: should the daemon settle this epic's [LAND] leaf so the
