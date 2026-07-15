@@ -15,6 +15,7 @@ vi.mock('@/hooks/useAutocorrect', () => ({
       const m = /recieve/.exec(text);
       return m ? [{ start: m.index, end: m.index + 7, from: 'recieve', to: 'receive' }] : [];
     },
+    vocabWords: ['recieveproject', 'planner'],
   }),
 }));
 
@@ -100,6 +101,26 @@ describe('MessageComposer', () => {
     expect(cb.checked).toBe(true);
     fireEvent.click(cb);
     expect(useQuickReplyStore.getState().sendOnEnter).toBe(false);
+  });
+
+  it('enables spellCheck on the composer textarea', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(ta.getAttribute('spellcheck')).toBe('true');
+  });
+
+  it('pushes new vocab words to window.mc.addSpellCheckWords when the bridge is present', () => {
+    const push = vi.fn();
+    (window as any).mc = { addSpellCheckWords: push };
+    render(<MessageComposer {...PROPS} />);
+    expect(push).toHaveBeenCalled();
+    expect(push.mock.calls[0][0]).toEqual(expect.arrayContaining(['planner']));
+    delete (window as any).mc;
+  });
+
+  it('does not throw when window.mc is absent', () => {
+    delete (window as any).mc;
+    expect(() => render(<MessageComposer {...PROPS} />)).not.toThrow();
   });
 });
 

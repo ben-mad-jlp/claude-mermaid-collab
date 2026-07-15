@@ -67,6 +67,8 @@ export interface McBridge {
     serverId: string,
     opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }
   ): Promise<{ ok: boolean; status: number; body: unknown }>;
+  /** Push project-vocab words into the desktop spellchecker's custom dictionary (Electron only). */
+  addSpellCheckWords?: (words: string[]) => void;
 }
 
 declare global {
