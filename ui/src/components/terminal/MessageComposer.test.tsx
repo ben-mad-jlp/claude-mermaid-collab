@@ -1,10 +1,10 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageComposer } from './MessageComposer';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 
 // Mock autocorrect hooks for deterministic testing.
-let mockMode: 'off' | 'suggest' | 'auto' = 'suggest';
+let mockMode: 'off' | 'auto' = 'off';
 vi.mock('@/hooks/useAutocorrect', () => ({
   useAutocorrect: () => ({
     get mode() { return mockMode; },
@@ -41,21 +41,23 @@ function lastFetchBody(): any {
 
 describe('MessageComposer', () => {
   beforeEach(() => {
-    mockMode = 'suggest';
+    mockMode = 'off';
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
     useQuickReplyStore.setState({ sendOnEnter: true, autocorrectMode: 'off' });
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('the autocorrect-mode select reflects + updates the persisted mode', () => {
+  it('the autocorrect toggle reflects on/off and flips the persisted mode', () => {
     // Order-independent: the beforeEach above pins autocorrectMode to 'off'.
     render(<MessageComposer {...PROPS} />);
-    const sel = screen.getByTestId('autocorrect-mode-select') as HTMLSelectElement;
-    expect(sel.value).toBe('off');
-    fireEvent.change(sel, { target: { value: 'suggest' } });
-    expect(useQuickReplyStore.getState().autocorrectMode).toBe('suggest');
-    expect((screen.getByTestId('autocorrect-mode-select') as HTMLSelectElement).value).toBe('suggest');
+    const toggle = screen.getByTestId('autocorrect-toggle');
+    expect(toggle).toHaveTextContent(/off/i);
+    fireEvent.click(toggle);
+    expect(useQuickReplyStore.getState().autocorrectMode).toBe('auto');
+    expect(screen.getByTestId('autocorrect-toggle')).toHaveTextContent(/on/i);
+    fireEvent.click(screen.getByTestId('autocorrect-toggle'));
+    expect(useQuickReplyStore.getState().autocorrectMode).toBe('off');
   });
 
   it('Enter sends when "Enter sends" is on, with submit:true and the typed text', () => {
@@ -105,12 +107,12 @@ describe('MessageComposer', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('the Enter-sends checkbox reflects + updates the persisted toggle', () => {
+  it('the Enter-sends toggle reflects + updates the persisted toggle', () => {
     render(<MessageComposer {...PROPS} />);
-    const cb = screen.getByRole('checkbox') as HTMLInputElement;
-    expect(cb.checked).toBe(true);
-    fireEvent.click(cb);
+    const toggle = screen.getByRole('button', { name: /Enter sends: on/i });
+    fireEvent.click(toggle);
     expect(useQuickReplyStore.getState().sendOnEnter).toBe(false);
+    expect(screen.getByRole('button', { name: /Enter sends: off/i })).toBeInTheDocument();
   });
 
   it('enables spellCheck on the composer textarea', () => {
@@ -131,81 +133,6 @@ describe('MessageComposer', () => {
   it('does not throw when window.mc is absent', () => {
     delete (window as any).mc;
     expect(() => render(<MessageComposer {...PROPS} />)).not.toThrow();
-  });
-});
-
-describe('MessageComposer — suggest mode (deferred apply + green highlight + undo)', () => {
-  beforeEach(() => {
-    mockMode = 'suggest';
-    delete (window as any).mc;
-    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
-    useQuickReplyStore.setState({ sendOnEnter: true });
-    vi.useFakeTimers();
-  });
-  afterEach(() => { act(() => { vi.runOnlyPendingTimers(); }); vi.useRealTimers(); vi.restoreAllMocks(); });
-
-  function typeWord(ta: HTMLTextAreaElement, text: string) {
-    fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
-  }
-  const settle = () => act(() => { vi.advanceTimersByTime(700); });
-
-  it('does NOT correct while typing; applies + highlights after the pause', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'please recieve it');
-    expect(ta.value).toBe('please recieve it'); // untouched mid-typing
-    settle();
-    expect(ta.value).toBe('please receive it'); // corrected after debounce
-    expect(screen.getByText(/Autocorrected 1 word/i)).toBeInTheDocument();
-  });
-
-  it('Undo button reverts to exactly what was typed', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve');
-    settle();
-    expect(ta.value).toBe('receive');
-    fireEvent.click(screen.getByRole('button', { name: /Undo/i }));
-    expect(ta.value).toBe('recieve');
-    expect(screen.queryByText(/Autocorrected/i)).not.toBeInTheDocument();
-  });
-
-  it('⌘Z reverts the debounced correction pass', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve');
-    settle();
-    expect(ta.value).toBe('receive');
-    fireEvent.keyDown(ta, { key: 'z', metaKey: true });
-    expect(ta.value).toBe('recieve');
-  });
-
-  it('after Undo, Enter sends the ORIGINAL (no re-correct on send)', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve');
-    settle();
-    fireEvent.click(screen.getByRole('button', { name: /Undo/i }));
-    fireEvent.keyDown(ta, { key: 'Enter' });
-    expect(lastFetchBody().text).toBe('recieve');
-  });
-
-  it('Enter BEFORE the debounce still corrects (flush on send)', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve');
-    fireEvent.keyDown(ta, { key: 'Enter' }); // no timer advance
-    expect(lastFetchBody().text).toBe('receive');
-  });
-
-  it('editing after a pass clears the green + re-enables correcting', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve');
-    settle();
-    expect(screen.getByText(/Autocorrected/i)).toBeInTheDocument();
-    typeWord(ta, 'recieve x'); // keep typing
-    expect(screen.queryByText(/Autocorrected/i)).not.toBeInTheDocument();
   });
 });
 
