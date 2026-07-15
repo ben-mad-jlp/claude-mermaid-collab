@@ -11,7 +11,7 @@ import { hostname } from 'node:os';
 import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
 import { topoSortSplitItems } from './split-decision';
-import { ensureBucket } from './bucket-registry.ts';
+import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -152,6 +152,9 @@ export interface Todo {
    *  the same `bugfix` bucket by their originating layer. OPTIONAL for the same reason as
    *  bucketType; pre-V6 rows read null. */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
+  /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
+   *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
+  promotedTo?: string | null;
 }
 
 export interface TodoFilter {
@@ -257,6 +260,18 @@ export function isDuplicateBucketError(e: unknown): e is DuplicateBucketError {
   return e instanceof DuplicateBucketError;
 }
 
+/** Thrown by createTodo and updateTodo when the depth-1 bucket invariant is violated:
+ *  (a) an epic/mission parented under a bucket, (b) a grandchild — any child whose
+ *  resolved parent is itself a bucket child, or (c) re-parenting a node-that-has-children
+ *  into a bucket. Carries a `code` so HTTP/MCP callers can map it to a 4xx. */
+export class BucketDepthViolationError extends Error {
+  readonly code = 'bucket-depth-violation';
+  constructor(reason: string) {
+    super(`Bucket depth-1 invariant: ${reason}`);
+    this.name = 'BucketDepthViolationError';
+  }
+}
+
 /** Thrown by updateTodo when a mission-homed `kind:'epic'` is APPROVED (status→ready)
  *  without a servesCriterionId — the A3 epic→criterion edge. Carries a `code` so
  *  HTTP/MCP callers can map it to a 4xx. Models the create-time OrphanTodoError. */
@@ -331,6 +346,8 @@ export type UpdateTodoPatch = Partial<{
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
   inheritedFiles: string[];
+  /** R5 bucket promotion link: set when promoting a bucket item to a real epic. */
+  promotedTo: string | null;
   /** De-conflate S1 (additive). Decision axes; readers ignore these until S3.
    *  `claim` is intentionally NOT patchable here — it is mutated only via writeClaim. */
   approvedAt: string | null;
@@ -387,6 +404,7 @@ interface TodoRow {
   isBucket: number;
   bucketType: string | null;
   triageTag: string | null;
+  promotedTo: string | null;
 }
 
 const DDL = `
@@ -508,6 +526,9 @@ export function openDb(project: string): Database {
   // index created inside the V5 backfill AFTER duplicate bucket rows are collapsed.
   addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
   addColumnIfMissing(db, 'todos', 'triageTag', 'triageTag TEXT');
+  // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
+  // the epic's id. Nullable; non-null only on promoted items.
+  addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -1066,6 +1087,33 @@ const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimL
  *  legible from the node's label. */
 const isContainerKind = (t: KindBearing) => isMission(t) || isEpic(t);
 
+/** Buckets hold ONLY depth-1 leaves. Rejects: (a) an epic/mission under a bucket;
+ *  (b) a grandchild — any child whose resolved parent is itself a bucket child;
+ *  (c) re-parenting a node-that-has-children into a bucket. */
+function assertBucketDepthInvariant(
+  project: string,
+  opts: { parentId: string | null; child: KindBearing; childId?: string },
+): void {
+  const { parentId, child, childId } = opts;
+  if (!parentId) return;                                   // roots are always fine
+  const parent = getTodo(project, parentId);
+  if (!parent) return;
+  if (isBucketEpic(parent)) {
+    if (isEpic(child) || isMission(child))                 // (a)
+      throw new BucketDepthViolationError('an epic/mission may not be parented under a bucket');
+    if (childId) {                                         // (c) node-with-children into a bucket
+      const kid = openDb(project).query('SELECT 1 FROM todos WHERE parentId = ? LIMIT 1').get(childId);
+      if (kid) throw new BucketDepthViolationError('a node that has children may not be moved into a bucket');
+    }
+    return;
+  }
+  if (parent.parentId) {                                   // (b) grandchild under a bucket child
+    const grand = getTodo(project, parent.parentId);
+    if (grand && isBucketEpic(grand))
+      throw new BucketDepthViolationError('a bucket holds depth-1 leaves only — no grandchildren');
+  }
+}
+
 const DESCENDANTS_CTE = `WITH RECURSIVE descendants(did) AS (
     SELECT id FROM todos WHERE parentId = ?1
     UNION
@@ -1125,6 +1173,7 @@ function rowToTodo(row: TodoRow): Todo {
     isBucket: row.isBucket === 1,
     bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
+    promotedTo: row.promotedTo ?? null,
   };
 }
 
@@ -1226,6 +1275,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     throw new Error('createTodo: `bucketType` is not caller-settable — buckets are created via bucket-registry.ensureBucket');
   }
   const resolvedParentId = await resolveTodoParent(project, input);
+  assertBucketDepthInvariant(project, { parentId: resolvedParentId, child: { kind: kindOfInput(input), title: input.title } });
   return withLock(project, () => {
     const db = openDb(project);
     const maxOrd = (db.query('SELECT MAX(ord) AS m FROM todos').get() as { m: number | null }).m;
@@ -1390,7 +1440,14 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
       inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
       inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
+      promotedTo: patch.promotedTo !== undefined ? patch.promotedTo : (existing.promotedTo ?? null),
     };
+
+    // R5: bucket depth invariant when re-parenting
+    if (patch.parentId !== undefined) {
+      assertBucketDepthInvariant(project, { parentId: next.parentId, child: existing, childId: id });
+    }
+
     const db = openDb(project);
     // Claim invariant: claim fields are non-null IFF status==='in_progress'. Any
     // write that moves the todo to a non-in_progress status clears the claim
@@ -1407,13 +1464,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.transaction(() => {
       db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, decisionRef=?, claimProbe=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, decisionRef=?, claimProbe=?, promotedTo=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
           completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.servesCriterionId, next.decisionRef, next.claimProbe,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.servesCriterionId, next.decisionRef, next.claimProbe, next.promotedTo,
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
       );
@@ -1490,6 +1547,30 @@ export function reassignOwnerSession(
     else db.prepare(sql).run(s, nowIso(), id);
     return getTodo(project, id)!;
   });
+}
+
+/**
+ * Promote a bucket ITEM into a real deliverable epic: mint a NEW epic (root or
+ * mission-parented) and stamp the item done + promotedTo → epic.id, WITHOUT changing
+ * the item's kind. missionId: omit → active-mission default; null → root; string → that mission.
+ */
+export async function promoteBucketItemToEpic(
+  project: string,
+  itemId: string,
+  opts: { title?: string; missionId?: string | null; servesCriterionId?: string | null } = {},
+): Promise<{ epic: Todo; item: Todo }> {
+  const item = getTodo(project, itemId);
+  if (!item) throw new Error(`promoteBucketItemToEpic: todo not found: ${itemId}`);
+  const epic = await createTodo(project, {
+    ownerSession: item.ownerSession,
+    kind: 'epic',
+    title: opts.title ?? item.title,
+    description: item.description,
+    ...(opts.missionId !== undefined ? { missionId: opts.missionId } : {}),
+    servesCriterionId: opts.servesCriterionId ?? null,
+  });
+  const updated = await updateTodo(project, itemId, { status: 'done', promotedTo: epic.id });
+  return { epic, item: updated };
 }
 
 /**
@@ -2331,6 +2412,29 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
     }
 
     return { rolledUp, flagged };
+  });
+}
+
+export const BUCKET_CHILD_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Idempotent: archive (status→'dropped') bucket CHILDREN that are `done` and whose
+ *  updatedAt is older than the cutoff. Only 'done' rows are selected, so re-running is a no-op. */
+export function sweepTerminalBucketChildren(project: string, olderThanMs = BUCKET_CHILD_ARCHIVE_AFTER_MS): Promise<string[]> {
+  return withLock(project, () => {
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const db = openDb(project);
+    const buckets = listTodos(project, { includeCompleted: true }).filter((t) => isBucketEpic(t));
+    const archived: string[] = [];
+    for (const b of buckets) {
+      const rows = db.query(
+        `SELECT id FROM todos WHERE parentId = ? AND status = 'done' AND updatedAt < ?`,
+      ).all(b.id, cutoff) as { id: string }[];
+      for (const r of rows) {
+        db.prepare(`UPDATE todos SET status = 'dropped', updatedAt = ? WHERE id = ?`).run(nowIso(), r.id);
+        archived.push(r.id);
+      }
+    }
+    return archived;
   });
 }
 
