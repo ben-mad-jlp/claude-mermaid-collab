@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageComposer } from './MessageComposer';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
@@ -134,86 +134,101 @@ describe('MessageComposer', () => {
   });
 });
 
-describe('MessageComposer — autocorrect suggest mode', () => {
+describe('MessageComposer — suggest mode (deferred apply + green highlight + undo)', () => {
   beforeEach(() => {
     mockMode = 'suggest';
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
     useQuickReplyStore.setState({ sendOnEnter: true });
-    addSpy.mockClear();
+    vi.useFakeTimers();
   });
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => { act(() => { vi.runOnlyPendingTimers(); }); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   function typeWord(ta: HTMLTextAreaElement, text: string) {
     fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
   }
+  const settle = () => act(() => { vi.advanceTimersByTime(700); });
 
-  it('chip appears when a correctable word is followed by space', () => {
+  it('does NOT correct while typing; applies + highlights after the pause', () => {
     render(<MessageComposer {...PROPS} />);
     const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'beleive ');
-    expect(screen.getByText(/believe/i)).toBeInTheDocument();
+    typeWord(ta, 'please recieve it');
+    expect(ta.value).toBe('please recieve it'); // untouched mid-typing
+    settle();
+    expect(ta.value).toBe('please receive it'); // corrected after debounce
+    expect(screen.getByText(/Autocorrected 1 word/i)).toBeInTheDocument();
   });
 
-  it('Tab applies the suggestion and preserves trailing space', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'beleive ');
-    fireEvent.keyDown(ta, { key: 'Tab' });
-    expect(ta.value).toBe('believe ');
-  });
-
-  it('chip appears for a word with trailing punctuation, and Tab preserves the punctuation', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'beleive, ');
-    expect(screen.getByText(/believe/i)).toBeInTheDocument();
-    fireEvent.keyDown(ta, { key: 'Tab' });
-    expect(ta.value).toBe('believe, ');
-  });
-
-  it('Escape dismisses the chip without applying', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'beleive ');
-    expect(screen.getByText(/believe/i)).toBeInTheDocument();
-    fireEvent.keyDown(ta, { key: 'Escape' });
-    expect(screen.queryByText(/believe/i)).not.toBeInTheDocument();
-    expect(ta.value).toBe('beleive ');
-  });
-
-  it('[+] button adds to dict and dismisses', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'beleive ');
-    const addBtn = screen.getByRole('button', { name: /add to dict|\+/i });
-    fireEvent.mouseDown(addBtn);
-    fireEvent.click(addBtn);
-    expect(addSpy).toHaveBeenCalledWith('/p', 'beleive');
-    expect(screen.queryByText(/believe/i)).not.toBeInTheDocument();
-  });
-});
-
-describe('MessageComposer — autocorrect pre-send & auto mode', () => {
-  beforeEach(() => {
-    mockMode = 'suggest';
-    delete (window as any).mc;
-    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
-    useQuickReplyStore.setState({ sendOnEnter: true });
-    addSpy.mockClear();
-  });
-  afterEach(() => { vi.restoreAllMocks(); });
-
-  function typeWord(ta: HTMLTextAreaElement, text: string) {
-    fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
-  }
-
-  it('suggest/auto pre-send corrects the final unspaced token', () => {
+  it('Undo button reverts to exactly what was typed', () => {
     render(<MessageComposer {...PROPS} />);
     const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
     typeWord(ta, 'recieve');
+    settle();
+    expect(ta.value).toBe('receive');
+    fireEvent.click(screen.getByRole('button', { name: /Undo/i }));
+    expect(ta.value).toBe('recieve');
+    expect(screen.queryByText(/Autocorrected/i)).not.toBeInTheDocument();
+  });
+
+  it('⌘Z reverts the debounced correction pass', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve');
+    settle();
+    expect(ta.value).toBe('receive');
+    fireEvent.keyDown(ta, { key: 'z', metaKey: true });
+    expect(ta.value).toBe('recieve');
+  });
+
+  it('after Undo, Enter sends the ORIGINAL (no re-correct on send)', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve');
+    settle();
+    fireEvent.click(screen.getByRole('button', { name: /Undo/i }));
     fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(lastFetchBody().text).toBe('recieve');
+  });
+
+  it('Enter BEFORE the debounce still corrects (flush on send)', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve');
+    fireEvent.keyDown(ta, { key: 'Enter' }); // no timer advance
     expect(lastFetchBody().text).toBe('receive');
+  });
+
+  it('editing after a pass clears the green + re-enables correcting', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve');
+    settle();
+    expect(screen.getByText(/Autocorrected/i)).toBeInTheDocument();
+    typeWord(ta, 'recieve x'); // keep typing
+    expect(screen.queryByText(/Autocorrected/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageComposer — auto & off send semantics', () => {
+  beforeEach(() => {
+    mockMode = 'auto';
+    delete (window as any).mc;
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
+    useQuickReplyStore.setState({ sendOnEnter: true });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  function typeWord(ta: HTMLTextAreaElement, text: string) {
+    fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
+  }
+
+  it('auto corrects on SEND only, never while typing', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve '); // space would have triggered the old inline apply
+    expect(ta.value).toBe('recieve '); // NOT corrected while typing
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(lastFetchBody().text).toBe('receive '); // corrected on send
   });
 
   it('off mode passes through unchanged', () => {
@@ -223,16 +238,5 @@ describe('MessageComposer — autocorrect pre-send & auto mode', () => {
     typeWord(ta, 'recieve');
     fireEvent.keyDown(ta, { key: 'Enter' });
     expect(lastFetchBody().text).toBe('recieve');
-  });
-
-  it('auto mode inline-apply + undo without learning', () => {
-    mockMode = 'auto';
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve ');
-    expect(ta.value).toBe('receive ');
-    fireEvent.keyDown(ta, { key: 'z', metaKey: true });
-    expect(ta.value).toBe('recieve ');
-    expect(addSpy).not.toHaveBeenCalled();
   });
 });
