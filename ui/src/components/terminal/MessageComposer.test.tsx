@@ -44,9 +44,19 @@ describe('MessageComposer', () => {
     mockMode = 'suggest';
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
-    useQuickReplyStore.setState({ sendOnEnter: true });
+    useQuickReplyStore.setState({ sendOnEnter: true, autocorrectMode: 'off' });
   });
   afterEach(() => { vi.restoreAllMocks(); });
+
+  it('the autocorrect-mode select reflects + updates the persisted mode', () => {
+    // Order-independent: the beforeEach above pins autocorrectMode to 'off'.
+    render(<MessageComposer {...PROPS} />);
+    const sel = screen.getByTestId('autocorrect-mode-select') as HTMLSelectElement;
+    expect(sel.value).toBe('off');
+    fireEvent.change(sel, { target: { value: 'suggest' } });
+    expect(useQuickReplyStore.getState().autocorrectMode).toBe('suggest');
+    expect((screen.getByTestId('autocorrect-mode-select') as HTMLSelectElement).value).toBe('suggest');
+  });
 
   it('Enter sends when "Enter sends" is on, with submit:true and the typed text', () => {
     render(<MessageComposer {...PROPS} />);
