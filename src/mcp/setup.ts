@@ -1057,10 +1057,10 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'supervisor_pause', description: 'EMERGENCY OVERRIDE: pause supervisor driving-actions (nudge/clear/watchdog) — globally or for one project. Use when the supervisor is misbehaving. Resume with supervisor_resume.', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
       { name: 'supervisor_resume', description: 'Lift a supervisor pause (the scope you paused: "global" or a project path).', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
       { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_pause', description: "Pause the STEWARD's auto-routing+acting (design §4 human-reclaim). While paused the router forwards nothing (every new escalation → human) and the steward parks — the human standin's \"I've got it from here.\" Resume with steward_resume.", inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_resume', description: 'Lift the steward pause — auto-routing+acting resume (subject to the steward being live).', inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_pause', description: "Deprecated alias for supervisor_pause (unified brake). Pause the steward's auto-routing+acting (design §4 human-reclaim). While paused the router forwards nothing (every new escalation → human) and the steward parks — the human standin's \"I've got it from here.\" Resume with steward_resume.", inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_resume', description: 'Deprecated alias for supervisor_resume (unified brake). Lift the steward pause — auto-routing+acting resume (subject to the steward being live).', inputSchema: { type: 'object', properties: {} } },
       { name: 'steward_pause_status', description: 'Steward liveness + pause snapshot: { paused, live, autoEnabled (env arm), switchedOn (live human on/off) }. Drives the StewardPanel crashed/paused/off state.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_set_enabled', description: "Runtime ON/OFF for the steward — the live human off-switch (distinct from the MERMAID_STEWARD_AUTO env arm and the transient steward_pause). PERSISTENT. While OFF the router sends every escalation to the human and the running steward skill idles. The skill checks this each loop.", inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] } },
+      { name: 'steward_set_enabled', description: "Deprecated alias for the mission-scoped kill-switch (A3). Runtime ON/OFF for the steward escalation auto-answer — the live human off-switch (distinct from the MERMAID_STEWARD_AUTO env arm and the transient steward_pause). PERSISTENT. While OFF the router sends every escalation to the human and the running steward skill idles. The skill checks this each loop.", inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] } },
       { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns }. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: {} } },
@@ -2624,12 +2624,12 @@ export async function setupMCPServer(): Promise<Server> {
             return JSON.stringify({ pauses: supervisorStore.listSupervisorPauses() }, null, 2);
           }
           case 'steward_pause': {
-            supervisorStore.setStewardPause(true);
+            supervisorStore.setSupervisorPause(supervisorStore.GLOBAL_PAUSE_SCOPE, true);
             recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_pause' }));
             return JSON.stringify({ paused: true, scope: 'steward' }, null, 2);
           }
           case 'steward_resume': {
-            supervisorStore.setStewardPause(false);
+            supervisorStore.setSupervisorPause(supervisorStore.GLOBAL_PAUSE_SCOPE, false);
             recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_resume' }));
             return JSON.stringify({ paused: false, scope: 'steward' }, null, 2);
           }
