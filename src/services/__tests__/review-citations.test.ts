@@ -209,3 +209,100 @@ describe('checkConstraintCitations', () => {
     expect(Object.keys(result)).toEqual(['fabricated']);
   });
 });
+
+// ── Retained-code tolerance + retained mode (decision review-grounding-retained-mode) ──
+// Production false-block regressions: c8a58a92 (empty change-set after claim churn — work
+// already carried by the epic base) and 8dbbdc8d (two-line criterion format parsed as an
+// empty criterion). Grok-consulted design: worktree existence check per citation, change-set
+// floor kept, NO blanket abstain, NO whole-review-only grounding.
+
+describe('retained-code tolerance (citationExists)', () => {
+  const existsAll = () => true;
+  const existsNone = () => false;
+
+  it('retained mode: empty change-set + citations resolving in the worktree → ok + flagged', () => {
+    const text = [
+      '1. [MET] preload exposes abort — bsync-viewer/desktop/preload.cjs:86',
+      '2. [MET] chat-preload tracks turnId — bsync-viewer/desktop/assistant/chat-preload.cjs:5',
+    ].join('\n');
+    const g = validateReviewGrounding(text, [], { citationExists: existsAll });
+    expect(g.status).toBe('ok');
+    expect(g.retainedMode).toBe(true);
+    expect(g.reasons.join(' ')).toContain('retained mode');
+  });
+
+  it('retained mode: fabricated citations (not in worktree) still block', () => {
+    const text = '- [MET] does the thing — src/ghost.ts:12';
+    const g = validateReviewGrounding(text, [], { citationExists: existsNone });
+    expect(g.status).toBe('vacuous');
+    expect(g.reasons.join(' ')).toContain('does not resolve in the worktree');
+  });
+
+  it('retained mode WITHOUT a predicate stays strict (no silent tolerance)', () => {
+    const text = '- [MET] does the thing — src/real.ts:12';
+    const g = validateReviewGrounding(text, []);
+    expect(g.status).toBe('vacuous');
+  });
+
+  it('mixed leaf: retained-code criterion outside the change-set tolerated when it resolves in the worktree', () => {
+    const text = [
+      '- [MET] new flag wired — src/changed.ts:10',
+      '- [MET] legacy path untouched and still correct — src/retained.ts:99',
+    ].join('\n');
+    const g = validateReviewGrounding(text, ['src/changed.ts'], {
+      citationExists: (p) => p === 'src/retained.ts',
+    });
+    expect(g.status).toBe('ok');
+    expect(g.retainedMode).toBe(false);
+  });
+
+  it('change-set floor: worktree tolerance never substitutes for ALL delta contact', () => {
+    const text = [
+      '- [MET] one — src/retained-a.ts:5',
+      '- [MET] two — src/retained-b.ts:9',
+    ].join('\n');
+    const g = validateReviewGrounding(text, ['src/changed.ts'], { citationExists: existsAll });
+    expect(g.status).toBe('vacuous');
+    expect(g.reasons.join(' ')).toContain('never touched the delta');
+  });
+});
+
+describe('two-line criterion format (8dbbdc8d regression)', () => {
+  it('bare marker line adopts the preceding line text + citations', () => {
+    const text = [
+      '1. `McBridge.addSpellCheckWords` declared — ui/src/contexts/ServerContext.tsx:70',
+      '   - [MET]',
+      '2. hook exposes vocabWords — ui/src/hooks/useAutocorrect.ts:18, ui/src/hooks/useAutocorrect.ts:79',
+      '   - [MET]',
+    ].join('\n');
+    const criteria = parseCriterionResults(text);
+    expect(criteria).toHaveLength(2);
+    expect(criteria[0].citations.map((c) => c.path)).toEqual(['ui/src/contexts/ServerContext.tsx']);
+    expect(criteria[0].text).toContain('addSpellCheckWords');
+    expect(criteria[1].citations).toHaveLength(2);
+  });
+
+  it('the full 8dbbdc8d shape grounds against its change-set', () => {
+    const text = [
+      '## CRITERIA',
+      '1. `McBridge.addSpellCheckWords?: (words: string[]) => void;` declared — ui/src/contexts/ServerContext.tsx:70',
+      '   - [MET]',
+      '2. `useAutocorrect` return type includes `vocabWords` — ui/src/hooks/useAutocorrect.ts:18, ui/src/hooks/useAutocorrect.ts:79',
+      '   - [MET]',
+      '',
+      'VERDICT: PASS',
+    ].join('\n');
+    const g = validateReviewGrounding(text, [
+      'ui/src/contexts/ServerContext.tsx',
+      'ui/src/hooks/useAutocorrect.ts',
+    ]);
+    expect(g.status).toBe('ok');
+  });
+
+  it('a bare marker with no citable predecessor still reads as citing nothing', () => {
+    const text = 'prose line without citations\n- [MET]';
+    const g = validateReviewGrounding(text, ['src/a.ts']);
+    expect(g.status).toBe('vacuous');
+    expect(g.reasons.join(' ')).toContain('cites nothing');
+  });
+});

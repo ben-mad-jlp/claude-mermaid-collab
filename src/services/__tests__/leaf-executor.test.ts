@@ -25,6 +25,7 @@ import {
   NODE_BUDGET,
   NODE_PROFILE,
   IMPLEMENT_TIMEOUT_MS,
+  makeCitationExists,
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
@@ -2608,5 +2609,33 @@ describe('SR-7 inherited blueprint refresh', () => {
     expect(res.outcome).toBe('accepted');
     // The blueprint spec should respect per-project overrides (not checked in this simple test,
     // but the override would be honored by the actual nodeOverrides lookup).
+  });
+});
+
+describe('makeCitationExists (G3 worktree citation predicate)', () => {
+  it('bounds: rejects absolute paths and .. traversal outright', () => {
+    const exists = makeCitationExists('/tmp/nowhere');
+    expect(exists('/etc/passwd', 1)).toBe(false);
+    expect(exists('../../../etc/passwd', 1)).toBe(false);
+    expect(exists('a/../b.ts', 1)).toBe(false);
+    expect(exists('', 1)).toBe(false);
+  });
+
+  it('checks existence + line bound under the root', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'cite-'));
+    try {
+      writeFileSync(join(dir, 'real.ts'), 'a\nb\nc\n');
+      const exists = makeCitationExists(dir);
+      expect(exists('real.ts', 1)).toBe(true);
+      expect(exists('real.ts', 4)).toBe(true);  // trailing newline → 4 split segments
+      expect(exists('real.ts', 5)).toBe(false); // beyond EOF
+      expect(exists('real.ts', 0)).toBe(false); // lines are 1-based
+      expect(exists('ghost.ts', 1)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
