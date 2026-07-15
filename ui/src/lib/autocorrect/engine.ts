@@ -1,11 +1,23 @@
 import { damerauLevenshtein } from './distance';
+import { COMMON_TYPOS } from './wordlist';
 
 type Vocab = { protected: Set<string>; targets: Set<string> };
+
+type CorrectOpts = { l2?: Set<string> };
 
 export function correctToken(
   token: string,
   vocab: Vocab,
+  opts?: CorrectOpts,
 ): { from: string; to: string; strength: 'strong' } | null {
+  // (a) Curated common-typo map — EXACT key match on the lowercased token.
+  //     EXEMPT from the length-5 floor and from the digit/symbol filters
+  //     (the map is hand-curated, so a hit is always trusted).
+  const lowerKey = token.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(COMMON_TYPOS, lowerKey)) {
+    return { from: token, to: COMMON_TYPOS[lowerKey], strength: 'strong' };
+  }
+
   // Filter 1: too short
   if (token.length < 5) return null;
 
@@ -34,6 +46,8 @@ export function correctToken(
     }
   }
 
+  // (c) L1 already handled above (unique dist-1 target → strong).
+
   // Return only if exactly one candidate
   if (candidates.length === 1) {
     return {
@@ -43,12 +57,28 @@ export function correctToken(
     };
   }
 
+  // (d) NEW L2 fuzzy path: token passed all filters and had NO L1 hit.
+  //     If a wide L2 wordlist was supplied, look for a UNIQUE dist-1 candidate there.
+  if (opts?.l2) {
+    const l2candidates: string[] = [];
+    for (const word of opts.l2) {
+      if (damerauLevenshtein(lower, word, 1) === 1) {
+        l2candidates.push(word);
+        if (l2candidates.length > 1) break; // ambiguous → bail
+      }
+    }
+    if (l2candidates.length === 1) {
+      return { from: token, to: l2candidates[0], strength: 'strong' };
+    }
+  }
+
   return null;
 }
 
 export function correctMessage(
   text: string,
   vocab: Vocab,
+  opts?: CorrectOpts,
 ): { start: number; end: number; from: string; to: string }[] {
   const corrections: { start: number; end: number; from: string; to: string }[] = [];
 
@@ -103,7 +133,7 @@ export function correctMessage(
     if (isProtected) continue;
 
     // Try to correct
-    const correction = correctToken(tokenText, vocab);
+    const correction = correctToken(tokenText, vocab, opts);
     if (correction) {
       corrections.push({
         start,
