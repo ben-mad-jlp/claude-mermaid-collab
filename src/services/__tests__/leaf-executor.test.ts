@@ -24,6 +24,7 @@ import {
   FILE_THRESHOLD,
   NODE_BUDGET,
   NODE_PROFILE,
+  IMPLEMENT_TIMEOUT_MS,
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
@@ -341,6 +342,12 @@ describe('buildNodePrompt per-node specs', () => {
     expect(bp.cwd).toBe('/tmp/wt/1');
     expect(impl.cwd).toBe('/tmp/wt/1');
     expect(rev.cwd).toBe('/tmp/wt/1');
+    // implement gets the long wall-clock cap (Haiku pins routinely exceed the 600s
+    // invoker default); blueprint/review keep the default (undefined → 600s), so
+    // start-window stall detection latency is unchanged for them.
+    expect(impl.timeoutMs).toBe(IMPLEMENT_TIMEOUT_MS);
+    expect(bp.timeoutMs).toBeUndefined();
+    expect(rev.timeoutMs).toBeUndefined();
     // review prompt asks for the VERDICT contract
     expect(buildNodePrompt('review', makeLeaf())).toContain('VERDICT: PASS');
   });

@@ -31,7 +31,7 @@ export type MissionLoopAction =
 
 export interface MissionLoopStepInput {
   mission: { todoId: string; status: MissionStatus; lastNudgeAt: number | null; lastNudgeKey: string | null; title: string; active: boolean };
-  rollup: { capability: { met: number; total: number } };
+  rollup: { capability: { met: number; total: number }; gaps?: number; awaitingVerify?: number };
   ownerSession: string | null;
   /** Is the steward session idle (safe to nudge without interrupting active work)? */
   idle: boolean;
@@ -42,6 +42,13 @@ export interface MissionLoopStepInput {
 
 function goalOf(title: string): string {
   return title.replace(/^\s*\[MISSION\]\s*/i, '').trim() || 'mission';
+}
+
+/** Nudge-dedup fingerprint. Includes the open-gap + awaiting-verify counts (not just
+ *  met/total) so filing SOME of the needed epics — met/total unchanged — still reads as
+ *  material change and the remaining gaps get re-nudged after cooldown. */
+function fingerprint(m: MissionLoopStepInput['mission'], rollup: MissionLoopStepInput['rollup']): string {
+  return `${m.status}:${rollup.capability.met}/${rollup.capability.total}:g${rollup.gaps ?? 0}:v${rollup.awaitingVerify ?? 0}`;
 }
 
 /** The standing CONDUCTOR discipline, prepended to every nudge (lever #1). A mission
@@ -58,10 +65,13 @@ function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'],
   const stamp = fireStamp(now);
   const head = `${stamp} 🎯 Mission «${goal}»`;
   switch (status) {
-    case 'needs-discovery':
-      return `${head} is NOT converged — ${rollup.capability.met}/${rollup.capability.total} criteria met. ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact unmet criterion, and file it as an [EPIC] + leaves under this mission and approve it (make it ready).`;
+    case 'needs-discovery': {
+      const gaps = rollup.gaps ?? 0;
+      const gapText = gaps > 0 ? `${gaps} criteria have no live serving epic` : 'some criteria have no live serving epic';
+      return `${head} is NOT converged — ${rollup.capability.met}/${rollup.capability.total} criteria met; ${gapText}. ${CONDUCTOR_PREAMBLE}\nRead get_mission's per-criterion actions and serve EVERY 'discover' gap in this pass: one [EPIC] per criterion (its servesCriterionId edge), filed AND approved together — the daemon parallelizes safely; do not dribble one epic per pass or hand-manage file overlap. A 'discover' on a criterion that already has a filed-but-unapproved epic means FINISH that epic (approve it), not file a duplicate.`;
+    }
     case 'needs-verify':
-      return `${head} needs VERIFY. Run /verify-mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met).`;
+      return `${head} needs VERIFY. Run /verify-mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met${(rollup.awaitingVerify ?? 0) > 0 ? `, ${rollup.awaitingVerify} awaiting verdicts` : ''}). Then serve any remaining 'discover' gaps in the same pass.`;
     case 'blocked':
       return `${head} is BLOCKED — a mission leaf is parked/rejected/escalated or an unapproved split. ${CONDUCTOR_PREAMBLE}\nResolve the blocker (review the rejected leaf, approve the split, or handle the escalation).`;
     default:
@@ -99,13 +109,13 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
       session: ownerSession,
       message: nudgeMessage(mission.status, mission, rollup, now),
       reason: 'nudge:blocked',
-      key: `${mission.status}:${rollup.capability.met}/${rollup.capability.total}`,
+      key: fingerprint(mission, rollup),
     };
   }
 
   // needs-discovery / needs-verify: nudge if fingerprint changed or escalation ceiling reached
   if (mission.status === 'needs-discovery' || mission.status === 'needs-verify') {
-    const key = `${mission.status}:${rollup.capability.met}/${rollup.capability.total}`;
+    const key = fingerprint(mission, rollup);
 
     // First nudge (no prior nudge).
     if (mission.lastNudgeAt == null) {

@@ -30,9 +30,9 @@ export type MissionStatus =
   | 'abandoned'       // abandonedAt set
   | 'over-budget'     // spendUsd >= budgetUsd
   | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
-  | 'building'        // a mission leaf is in flight
-  | 'needs-verify'    // an unverified criterion while a serving epic has landed
-  | 'needs-discovery' // an unmet criterion with no open epic serving it
+  | 'building'        // leaves in flight AND nothing left to discover/verify (quietest non-terminal state)
+  | 'needs-verify'    // some criterion's serving epic landed, verdict not yet recorded
+  | 'needs-discovery' // some criterion has no LIVE serving epic (per-criterion — others may be building)
   | 'converged';      // every criterion met
 
 /** A mission is terminal (the loop has stopped) when it converged or a human abandoned it.
@@ -111,6 +111,11 @@ export interface MissionRollup {
   stopped: boolean;
   /** Derived capability status, first-match-wins precedence. */
   status: MissionStatus;
+  /** Criteria whose derived action is 'discover' — open gaps with no live serving epic.
+   *  The conductor files one epic PER gap, all in the same pass. */
+  gaps: number;
+  /** Criteria whose derived action is 'verify' — landed, awaiting the independent gate. */
+  awaitingVerify: number;
 }
 
 const SCHEMA = `
@@ -556,6 +561,20 @@ export function unverifyCriteriaForLandedPaths(
 
 // ── Convergence rollup ──────────────────────────────────────────────────────
 
+export interface MissionCriterionFacts {
+  /** Criterion id — lets consumers zip facts back onto listCriteria rows. */
+  id: string;
+  met: boolean;
+  verifiedAt: number | null;
+  servingEpicState: 'landed' | 'open' | 'none';
+  /** True when a serving OPEN epic has live motion (a pending/paused leaf run, or a
+   *  ready/in_progress child leaf). An open epic with NO motion — e.g. filed but never
+   *  approved, or orphaned by a conductor context recycle — is NOT live: its criterion
+   *  derives 'discover' so the nudge loop keeps pointing at it instead of a mission
+   *  sitting silently at 'building' forever (the unattended-stall trap). */
+  servingEpicLive: boolean;
+}
+
 export interface MissionStatusFacts {
   abandonedAt: number | null;
   budgetUsd: number | null;
@@ -564,18 +583,41 @@ export interface MissionStatusFacts {
   hasBuildingLeaf: boolean;  // a leaf run in flight (pending/paused)
   hasLandedEpic: boolean;    // a mission epic reached status 'done'
   hasOpenEpic: boolean;      // a mission epic is neither done nor dropped
-  criteria: { met: boolean; verifiedAt: number | null; servingEpicState: 'landed' | 'open' | 'none' }[];
+  criteria: MissionCriterionFacts[];
 }
 
-/** First-match-wins precedence exactly as specified in the A2 brief. */
+/** Per-criterion next action. The mission converges criterion by criterion,
+ *  CONCURRENTLY — the scalar MissionStatus is only the headline; this is the
+ *  actionable state the conductor drives from. */
+export type CriterionAction =
+  | 'met'       // criterion satisfied — nothing to do
+  | 'building'  // a serving epic is open WITH live motion — wait for it
+  | 'verify'    // a serving epic landed, verdict not yet recorded — run the independent gate
+  | 'discover'; // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
+
+export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction {
+  // verify BEFORE met: a met-but-unverified criterion still owes the independent gate a
+  // verdict (verification-as-event — `met` alone is a self-grade until verifiedAt stamps it).
+  if (c.servingEpicState === 'landed' && c.verifiedAt == null) return 'verify';
+  if (c.met) return 'met';
+  if (c.servingEpicState === 'open' && c.servingEpicLive) return 'building';
+  return 'discover';
+}
+
+/** First-match-wins. PER-CRITERION since decision mission-discovery-per-criterion (f9bc952f)
+ *  (supersedes the A2 brief's global `!hasOpenEpic` clause and its building>discovery
+ *  precedence): one epic building no longer masks discovery for OTHER criteria, so a
+ *  conductor can serve every open gap concurrently. 'building' is now the QUIETEST
+ *  non-terminal state — it only surfaces when nothing is left to discover or verify. */
 export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   if (f.abandonedAt != null) return 'abandoned';
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
   if (f.hasBlockedLeaf) return 'blocked';
-  if (f.hasBuildingLeaf) return 'building';
-  if (f.criteria.some((c) => c.verifiedAt == null && c.servingEpicState === 'landed')) return 'needs-verify';
-  if (f.criteria.some((c) => !c.met) && !f.hasOpenEpic) return 'needs-discovery';
-  if (f.criteria.length > 0 && f.criteria.every((c) => c.met)) return 'converged';
+  const actions = f.criteria.map(deriveCriterionAction);
+  if (actions.includes('verify')) return 'needs-verify';
+  if (actions.includes('discover')) return 'needs-discovery';
+  if (f.hasBuildingLeaf || actions.includes('building')) return 'building';
+  if (f.criteria.length > 0 && actions.every((a) => a === 'met')) return 'converged';
   return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
 }
 
@@ -634,9 +676,39 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
         serving.some((e) => e.status !== 'done') ? 'open'
         : serving.some((e) => e.status === 'done') ? 'landed'
         : 'none';
-      return { met: c.met, verifiedAt: c.verifiedAt, servingEpicState };
+      // Live = the serving open epic has actual motion: a pending/paused ledger run, or a
+      // ready/in_progress child leaf (covers approve→claim gap AND a ready land leaf).
+      // A filed-but-unapproved epic is NOT live — its criterion stays 'discover'.
+      const servingEpicLive = serving.some((e) =>
+        e.status !== 'done' && (
+          runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
+          allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
+            (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'))
+        ));
+      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive };
     }),
   };
+}
+
+/** listCriteria rows enriched with the derived per-criterion action + serving-epic state.
+ *  This is what get_mission exposes so a conductor can act on EVERY open gap in one pass
+ *  instead of driving off the scalar status alone. */
+export function listCriteriaWithActions(
+  project: string,
+  todoId: string,
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none' })[] {
+  const m = getMission(project, todoId);
+  if (!m) throw new Error(`mission not found: ${todoId}`);
+  const facts = collectMissionStatusFacts(project, m);
+  const byId = new Map(facts.criteria.map((c) => [c.id, c]));
+  return listCriteria(project, todoId).map((c) => {
+    const f = byId.get(c.id);
+    return {
+      ...c,
+      action: f ? deriveCriterionAction(f) : 'discover',
+      servingEpicState: f?.servingEpicState ?? 'none',
+    };
+  });
 }
 
 /**
@@ -714,6 +786,7 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
   const criteria = listCriteria(project, todoId);
   const capMet = criteria.filter((c) => c.met).length;
   const facts = collectMissionStatusFacts(project, m);
+  const actions = facts.criteria.map(deriveCriterionAction);
   return {
     todoId,
     mechanical: { done: mechDone, total: epics.length },
@@ -721,5 +794,7 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
     converged: criteria.length > 0 && capMet === criteria.length,
     stopped: isMissionTerminal(m),
     status: deriveMissionStatus(facts),
+    gaps: actions.filter((a) => a === 'discover').length,
+    awaitingVerify: actions.filter((a) => a === 'verify').length,
   };
 }

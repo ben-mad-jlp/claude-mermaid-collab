@@ -13,6 +13,8 @@ import {
   CONN_ERR_RE,
   parseCapReset,
   worktreeSpawnEnv,
+  startWindowPlan,
+  START_WINDOW_MS,
   type NodeSpec,
 } from '../node-invoker.ts';
 
@@ -243,5 +245,19 @@ describe('parseCapReset (subscription session-limit reset time)', () => {
 
   it('returns undefined for an unknown timezone (fail-safe → backoff)', () => {
     expect(parseCapReset('resets 8:50pm (Not/AZone)', '', Date.UTC(2026, 5, 18, 12, 0, 0))).toBeUndefined();
+  });
+});
+
+describe('startWindowPlan (two-phase wall-clock: start window + work cap)', () => {
+  it('cap ≤ start window → single timer with the full cap (historical behavior)', () => {
+    expect(startWindowPlan(600_000, 600_000)).toEqual({ firstDelayMs: 600_000, twoPhase: false, remainderMs: 0 });
+    expect(startWindowPlan(300_000, 600_000)).toEqual({ firstDelayMs: 300_000, twoPhase: false, remainderMs: 0 });
+  });
+  it('cap > start window → two-phase: 10-min zero-output stall check, then the remainder', () => {
+    expect(startWindowPlan(1_800_000, 600_000)).toEqual({ firstDelayMs: 600_000, twoPhase: true, remainderMs: 1_200_000 });
+  });
+  it('default start window is 10 minutes (stall-detection latency unchanged)', () => {
+    expect(START_WINDOW_MS).toBe(600_000);
+    expect(startWindowPlan(1_800_000).firstDelayMs).toBe(600_000);
   });
 });
