@@ -48,14 +48,14 @@ describe('MessageComposer', () => {
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('the autocorrect toggle reflects on/off and flips the persisted mode', () => {
+  it('the autocorrect toggle reflects on/off (aria-pressed) and flips the persisted mode', () => {
     // Order-independent: the beforeEach above pins autocorrectMode to 'off'.
     render(<MessageComposer {...PROPS} />);
     const toggle = screen.getByTestId('autocorrect-toggle');
-    expect(toggle).toHaveTextContent(/off/i);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(toggle);
     expect(useQuickReplyStore.getState().autocorrectMode).toBe('auto');
-    expect(screen.getByTestId('autocorrect-toggle')).toHaveTextContent(/on/i);
+    expect(screen.getByTestId('autocorrect-toggle')).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByTestId('autocorrect-toggle'));
     expect(useQuickReplyStore.getState().autocorrectMode).toBe('off');
   });
@@ -109,10 +109,11 @@ describe('MessageComposer', () => {
 
   it('the Enter-sends toggle reflects + updates the persisted toggle', () => {
     render(<MessageComposer {...PROPS} />);
-    const toggle = screen.getByRole('button', { name: /Enter sends: on/i });
+    const toggle = screen.getByRole('button', { name: /Enter sends/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(toggle);
     expect(useQuickReplyStore.getState().sendOnEnter).toBe(false);
-    expect(screen.getByRole('button', { name: /Enter sends: off/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Enter sends/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('enables spellCheck on the composer textarea', () => {
