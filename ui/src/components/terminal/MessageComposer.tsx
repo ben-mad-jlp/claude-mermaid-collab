@@ -40,14 +40,16 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
   const p = useTerminalPalette();
 
-  const { mode, correct } = useAutocorrect(project);
+  const { mode, correct, correctMessage } = useAutocorrect(project);
 
   const [value, setValue] = useState('');
   // When text file(s) are dropped, hold them here and offer a choice: paste their
   // CONTENTS into the box, or insert their PATH. Non-text drops skip the chooser.
   const [pendingDrop, setPendingDrop] = useState<{ files: File[]; paths: string[] } | null>(null);
   const [pending, setPending] = useState<ChipSuggestion | null>(null);
+  const [flash, setFlash] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const undoRef = useRef<{ before: string; after: string } | null>(null);
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
    *  surrounded by single spaces, and leave the caret right after it. */
@@ -193,16 +195,38 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden';
   }, [value]);
 
+  // Clear flash after 300ms.
+  useEffect(() => {
+    if (!flash) return;
+    const id = setTimeout(() => setFlash(false), 300);
+    return () => clearTimeout(id);
+  }, [flash]);
+
+  /** Compose-then-submit invariant: the composer NEVER types keystroke-by-keystroke
+   *  into tmux — it builds the whole message string and submits it in one POST
+   *  (submit:true). That is what makes a batch autocorrect pass safe here: we correct
+   *  the FINAL string once (covering the last, unspaced token) and send the result. */
+  const correctForSend = (raw: string): string => {
+    if (mode === 'off') return raw;
+    const hits = correctMessage(raw);
+    let out = raw;
+    for (const h of [...hits].sort((a, b) => b.start - a.start)) {
+      out = out.slice(0, h.start) + h.to + out.slice(h.end);
+    }
+    return out;
+  };
+
   const send = () => {
     if (disabled) return;
     const text = value;
     if (!text.trim()) return;
+    const outgoing = correctForSend(text);
     const mc = (window as any).mc;
 
     // grok-build lane: there is no tmux pane. Route the steer to the in-process
     // loop's inject queue (lands as a user turn at the next step boundary).
     if (injectMode) {
-      const injectBody = { project, session, text };
+      const injectBody = { project, session, text: outgoing };
       if (mc?.invokeOnServer) {
         void mc
           .invokeOnServer(serverId, { path: '/api/worker-inject', method: 'POST', body: injectBody })
@@ -221,7 +245,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
 
     // quiet:true — a user typing into their own session is not a supervisor nudge,
     // so suppress the nudge toast (the chips do the same).
-    const body = { project, session, text, submit: true, quiet: true };
+    const body = { project, session, text: outgoing, submit: true, quiet: true };
     // Mirror InputRail.sendChip's dispatch: per-server invoke, fetch fallback.
     if (mc?.invokeOnServer) {
       void mc
@@ -254,6 +278,14 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     const token = next.slice(start, boundary);
     if (!token) { setPending(null); return; }
     const sug = correct(token);
+    if (sug && mode === 'auto') {
+      const corrected = next.slice(0, start) + sug.to + next.slice(boundary);
+      undoRef.current = { before: next, after: corrected };
+      setValue(corrected);
+      setFlash(true);
+      setPending(null);
+      return;
+    }
     if (sug) setPending({ from: sug.from, to: sug.to, start, end: boundary });
     else setPending(null);
   };
@@ -272,6 +304,14 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Auto-mode undo: restore the pre-correction value without learning.
+    const u = undoRef.current;
+    if (u && value === u.after && ((e.key === 'z' && (e.metaKey || e.ctrlKey)) || e.key === 'Backspace')) {
+      e.preventDefault();
+      setValue(u.before);
+      undoRef.current = null;
+      return;
+    }
     // Handle pending autocorrect suggestion before other keys.
     if (pending) {
       if (e.key === 'Tab') {
@@ -369,6 +409,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
           color: p.fg, background: p.inputBg,
           border: `1px solid ${p.border}`, borderRadius: 6,
           outline: 'none', transition: 'background 120ms, border-color 120ms',
+          boxShadow: flash ? `0 0 0 2px ${p.accent}` : 'none',
         }}
         onFocus={(e) => { e.currentTarget.style.borderColor = p.accent; }}
         onBlur={(e) => { e.currentTarget.style.borderColor = p.border; }}

@@ -4,12 +4,17 @@ import { MessageComposer } from './MessageComposer';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 
 // Mock autocorrect hooks for deterministic testing.
+let mockMode: 'off' | 'suggest' | 'auto' = 'suggest';
 vi.mock('@/hooks/useAutocorrect', () => ({
   useAutocorrect: () => ({
-    mode: 'suggest',
-    correct: (token: string) =>
-      token.toLowerCase() === 'beleive' ? { from: token, to: 'believe', strength: 'strong' } : null,
-    correctMessage: () => [],
+    get mode() { return mockMode; },
+    correct: (t: string) =>
+      t.toLowerCase() === 'recieve' ? { from: t, to: 'receive', strength: 'strong' }
+      : t.toLowerCase() === 'beleive' ? { from: t, to: 'believe', strength: 'strong' } : null,
+    correctMessage: (text: string) => {
+      const m = /recieve/.exec(text);
+      return m ? [{ start: m.index, end: m.index + 7, from: 'recieve', to: 'receive' }] : [];
+    },
   }),
 }));
 
@@ -35,6 +40,7 @@ function lastFetchBody(): any {
 
 describe('MessageComposer', () => {
   beforeEach(() => {
+    mockMode = 'suggest';
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
     useQuickReplyStore.setState({ sendOnEnter: true });
@@ -99,6 +105,7 @@ describe('MessageComposer', () => {
 
 describe('MessageComposer — autocorrect suggest mode', () => {
   beforeEach(() => {
+    mockMode = 'suggest';
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
     useQuickReplyStore.setState({ sendOnEnter: true });
@@ -144,5 +151,48 @@ describe('MessageComposer — autocorrect suggest mode', () => {
     fireEvent.click(addBtn);
     expect(addSpy).toHaveBeenCalledWith('/p', 'beleive');
     expect(screen.queryByText(/believe/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageComposer — autocorrect pre-send & auto mode', () => {
+  beforeEach(() => {
+    mockMode = 'suggest';
+    delete (window as any).mc;
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
+    useQuickReplyStore.setState({ sendOnEnter: true });
+    addSpy.mockClear();
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  function typeWord(ta: HTMLTextAreaElement, text: string) {
+    fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
+  }
+
+  it('suggest/auto pre-send corrects the final unspaced token', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve');
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(lastFetchBody().text).toBe('receive');
+  });
+
+  it('off mode passes through unchanged', () => {
+    mockMode = 'off';
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve');
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(lastFetchBody().text).toBe('recieve');
+  });
+
+  it('auto mode inline-apply + undo without learning', () => {
+    mockMode = 'auto';
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'recieve ');
+    expect(ta.value).toBe('receive ');
+    fireEvent.keyDown(ta, { key: 'z', metaKey: true });
+    expect(ta.value).toBe('recieve ');
+    expect(addSpy).not.toHaveBeenCalled();
   });
 });
