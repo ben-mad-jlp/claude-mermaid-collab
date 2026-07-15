@@ -65,4 +65,8 @@ export interface SessionTodo {
   /** Bucket-ness marker for epics (Inbox, Bugfix inbox) that are curated intake
    *  containers and stay roots, never mission children. Read from the server column. */
   isBucket?: boolean;
+  /** Structural bucket-type marker (server column). null = not a typed bucket. */
+  bucketType?: 'inbox' | 'bugfix' | null;
+  /** Friction-triage classification of a bucket item (server column, R2). */
+  triageTag?: 'domain' | 'orchestration' | 'operational' | null;
 }
