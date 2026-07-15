@@ -10,7 +10,7 @@ import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
-  liveRunsOf,
+  liveRunsOf, deriveMissionStatus, deriveCriterionAction, type MissionCriterionFacts,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 
@@ -350,5 +350,85 @@ describe('liveRunsOf — a landed epic\'s historical parks are not a live blocke
     const epics = [{ id: 'e-done', status: 'done' }];
     const runs = [{ epicId: 'e-done', finalOutcome: 'rejected' }];
     expect(liveRunsOf(runs, epics)).toHaveLength(0);
+  });
+});
+
+// ── Per-criterion discovery (decision mission-discovery-per-criterion) ─────────────────
+// One epic building must NOT mask discovery for OTHER criteria — the conductor serves
+// every open gap concurrently. Pure-function tests over deriveMissionStatus/deriveCriterionAction.
+
+const crit = (over: Partial<MissionCriterionFacts>): MissionCriterionFacts => ({
+  id: 'c', met: false, verifiedAt: null, servingEpicState: 'none', servingEpicLive: false, ...over,
+});
+const baseFacts = {
+  abandonedAt: null, budgetUsd: null, spendUsd: 0,
+  hasBlockedLeaf: false, hasBuildingLeaf: false, hasLandedEpic: false, hasOpenEpic: false,
+};
+
+describe('per-criterion discovery', () => {
+  test('a building epic on one criterion does NOT mask discovery on an unserved one', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts, hasBuildingLeaf: true, hasOpenEpic: true,
+      criteria: [
+        crit({ id: 'c1', servingEpicState: 'open', servingEpicLive: true }),
+        crit({ id: 'c2' }), // no serving epic — an open gap
+      ],
+    })).toBe('needs-discovery');
+  });
+
+  test('all unmet criteria served by LIVE epics → building (quiet)', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts, hasBuildingLeaf: true, hasOpenEpic: true,
+      criteria: [
+        crit({ id: 'c1', servingEpicState: 'open', servingEpicLive: true }),
+        crit({ id: 'c2', met: true, verifiedAt: 1 }),
+      ],
+    })).toBe('building');
+  });
+
+  test('a filed-but-NOT-live serving epic (unapproved / conductor-recycled) stays a discover gap', () => {
+    const c = crit({ servingEpicState: 'open', servingEpicLive: false });
+    expect(deriveCriterionAction(c)).toBe('discover');
+    expect(deriveMissionStatus({ ...baseFacts, hasOpenEpic: true, criteria: [c] })).toBe('needs-discovery');
+  });
+
+  test('landed + verified + still unmet (verify said no) → a fresh discover gap', () => {
+    expect(deriveCriterionAction(crit({ servingEpicState: 'landed', verifiedAt: 5 }))).toBe('discover');
+  });
+
+  test('met-but-unverified landed criterion still owes verify (verification-as-event)', () => {
+    expect(deriveCriterionAction(crit({ met: true, servingEpicState: 'landed' }))).toBe('verify');
+  });
+
+  test('verify outranks discovery in the scalar headline; blocked outranks both', () => {
+    const criteria = [
+      crit({ id: 'c1', servingEpicState: 'landed' }), // verify
+      crit({ id: 'c2' }), // discover
+    ];
+    expect(deriveMissionStatus({ ...baseFacts, hasLandedEpic: true, criteria })).toBe('needs-verify');
+    expect(deriveMissionStatus({ ...baseFacts, hasLandedEpic: true, hasBlockedLeaf: true, criteria })).toBe('blocked');
+  });
+
+  test('rollup gaps/awaitingVerify count per-criterion actions', async () => {
+    // exercised through the store: mission with 2 criteria, none served
+    const dir = mkdtempSync(join(tmpdir(), 'mission-gaps-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] G', kind: 'mission' });
+      upsertMission(proj, m.id);
+      addCriterion(proj, m.id, 'one');
+      addCriterion(proj, m.id, 'two');
+      const r = getMissionRollup(proj, m.id);
+      expect(r.gaps).toBe(2);
+      expect(r.awaitingVerify).toBe(0);
+      expect(r.status).toBe('needs-discovery');
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

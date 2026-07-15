@@ -149,6 +149,27 @@ export interface NodeResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000;
+/** START WINDOW: when a node's wall-clock cap exceeds this, the node must produce its
+ *  FIRST stdout bytes within this window or it is killed as a start failure. This keeps
+ *  stall detection (SessionStart-hook hangs, spawn wedges — timeout with zero output/tokens)
+ *  at the historical 10-minute latency even for kinds whose WORK cap is longer: a healthy
+ *  `claude -p --output-format stream-json` emits its init event within seconds, so only a
+ *  node that never started trips this. */
+export const START_WINDOW_MS = 600_000;
+
+/** Pure kill-schedule decision for the wall-clock timers (exported for test). A cap
+ *  ≤ the start window is a single timer (exactly the historical behavior); a longer cap
+ *  is two-phase: start-window check first, then the remainder for a node that produced
+ *  output. */
+export function startWindowPlan(
+  timeoutMs: number,
+  startWindowMs: number = START_WINDOW_MS,
+): { firstDelayMs: number; twoPhase: boolean; remainderMs: number } {
+  if (timeoutMs > startWindowMs) {
+    return { firstDelayMs: startWindowMs, twoPhase: true, remainderMs: timeoutMs - startWindowMs };
+  }
+  return { firstDelayMs: timeoutMs, twoPhase: false, remainderMs: 0 };
+}
 
 /**
  * Rate-limit detection signal — HEURISTIC, runtime-unconfirmed.
@@ -512,22 +533,61 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   // grandchild holding the pipe open means `new Response(stream).text()` never EOFs, so
   // the await hangs forever and the single-flight tick guard never clears. Reading
   // concurrently captures partial output and lets us cap the wait below.
-  const stdoutP = new Response(proc.stdout as ReadableStream).text().catch(() => '');
+  // Drain stdout with FIRST-OUTPUT detection (start-window support): accumulate chunks
+  // manually instead of Response(stream).text() so the first byte is observable, WITHOUT
+  // changing the hardened shape — the drain still starts immediately/concurrently, still
+  // captures partial output on a kill, and the await below is still capped.
+  let sawOutput = false;
+  const drainStdout = async (stream: ReadableStream): Promise<string> => {
+    const reader = stream.getReader();
+    const td = new TextDecoder();
+    let acc = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value && (value as Uint8Array).length > 0) {
+          sawOutput = true;
+          acc += td.decode(value as Uint8Array, { stream: true });
+        }
+      }
+      acc += td.decode();
+    } catch {
+      // partial output is acceptable; a drain error must never fail the node here
+    }
+    return acc;
+  };
+  const stdoutP = drainStdout(proc.stdout as ReadableStream);
   const stderrP = new Response(proc.stderr as ReadableStream).text().catch(() => '');
 
   // Wall-clock kill with ESCALATION: SIGTERM, then SIGKILL after a grace period (a
   // process stuck in a network syscall ignores SIGTERM). race process exit vs timeout.
+  // START WINDOW: when the work cap exceeds START_WINDOW_MS, arm the window first — a
+  // node with ZERO stdout by then never started (hook stall / spawn wedge) and dies at
+  // the historical 10-min stall latency; a node that produced output gets the remainder
+  // of its full cap. A cap ≤ the window behaves exactly as before (single timer).
   let timedOut = false;
+  let startTimedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let hardTimer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(() => {
+    const kill = (isStartFailure: boolean) => {
       timedOut = true;
+      startTimedOut = isStartFailure;
       // E1: group-kill (detached → leader pid) so the model subprocess the CLI forked
       // dies too, not just the CLI leader. groupKillPid does the SIGTERM→SIGKILL grace.
       groupKillPid(proc.pid);
       resolve();
-    }, timeoutMs);
+    };
+    const plan = startWindowPlan(timeoutMs);
+    if (plan.twoPhase) {
+      timer = setTimeout(() => {
+        if (!sawOutput) return kill(true);
+        timer = setTimeout(() => kill(false), plan.remainderMs);
+      }, plan.firstDelayMs);
+    } else {
+      timer = setTimeout(() => kill(false), plan.firstDelayMs);
+    }
   });
 
   const exited = proc.exited.then(() => undefined);
@@ -572,7 +632,9 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       rateLimited: false,
       authMode,
       text: stdout,
-      parseError: `node timed out after ${timeoutMs}ms (killed)`,
+      parseError: startTimedOut
+        ? `node timed out after ${START_WINDOW_MS}ms (killed; ZERO output within the start window — start failure, not work)`
+        : `node timed out after ${timeoutMs}ms (killed)`,
       timedOut: true,
       commands,
     };

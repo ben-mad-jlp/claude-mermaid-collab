@@ -454,15 +454,21 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
   },
 ];
 
-export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
+/** Wall-clock cap for nodes that DO the build (implement-class). The invoker default
+ *  (600s) killed real work mid-build — long implement runs are routine, especially on a
+ *  Haiku node_profile_override pin. Stall detection is NOT slowed by this: the invoker's
+ *  START WINDOW still kills a zero-output node at 600s (see node-invoker START_WINDOW_MS). */
+export const IMPLEMENT_TIMEOUT_MS = 1_800_000;
+
+export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel; timeoutMs?: number }> = {
   blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
-  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
+  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS },
   review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // P5 waves:
   research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read-only (spec §12: sonnet for non-blueprint/review)
-  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' }, // read+edit
+  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
   verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read + bash-tsc
-  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' }, // read+edit
+  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
   // verify pipeline (epic f5c7fc46): plan authors an AssemblyBuildPlan; driveexec is
   // CONSTRAINED to the single deterministic gate verb (invokes, authors nothing); report
   // writes+commits findings and files one session-todo per finding.
@@ -1659,6 +1665,9 @@ export async function runLeaf(
       transcriptPath: leafTranscriptPath(project, leaf.id),
       transcriptLabel: kind,
       appendSystemPrompt: injected || undefined,
+      // Per-kind wall-clock cap (implement-class nodes get IMPLEMENT_TIMEOUT_MS);
+      // undefined → the invoker's 600s default. Start-window stall detection unaffected.
+      timeoutMs: NODE_PROFILE[kind].timeoutMs,
     };
   };
 

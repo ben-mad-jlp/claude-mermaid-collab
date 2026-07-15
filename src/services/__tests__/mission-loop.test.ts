@@ -95,7 +95,7 @@ test('first nudge (no prior lastNudgeAt) → nudge', () => {
   const a = planMissionLoopStep(inp({ mission: { ...inp().mission, lastNudgeAt: null, lastNudgeKey: null } }));
   expect(a.kind).toBe('nudge');
   if (a.kind === 'nudge') {
-    expect(a.key).toBe('needs-discovery:0/2');
+    expect(a.key).toBe('needs-discovery:0/2:g0:v0');
   }
 });
 
@@ -154,7 +154,7 @@ test('runner: skips a building mission', async () => {
 // ---- fingerprint-gated nudge tests ----
 
 test('unchanged fingerprint within ceiling → nudge-fingerprint-unchanged', () => {
-  const key = 'needs-verify:2/2';
+  const key = 'needs-verify:2/2:g0:v0';
   const a = planMissionLoopStep(inp({
     mission: {
       ...inp().mission,
@@ -169,7 +169,7 @@ test('unchanged fingerprint within ceiling → nudge-fingerprint-unchanged', () 
 });
 
 test('changed fingerprint (met/total) within cooldown → nudge-cooldown', () => {
-  const oldKey = 'needs-discovery:1/3';
+  const oldKey = 'needs-discovery:1/3:g0:v0';
   const a = planMissionLoopStep(inp({
     mission: {
       ...inp().mission,
@@ -184,7 +184,7 @@ test('changed fingerprint (met/total) within cooldown → nudge-cooldown', () =>
 });
 
 test('changed fingerprint past cooldown → re-nudge', () => {
-  const oldKey = 'needs-discovery:1/3';
+  const oldKey = 'needs-discovery:1/3:g0:v0';
   const a = planMissionLoopStep(inp({
     mission: {
       ...inp().mission,
@@ -196,13 +196,13 @@ test('changed fingerprint past cooldown → re-nudge', () => {
   }));
   expect(a.kind).toBe('nudge');
   if (a.kind === 'nudge') {
-    expect(a.key).toBe('needs-discovery:2/3');
+    expect(a.key).toBe('needs-discovery:2/3:g0:v0');
     expect(a.message).toContain('NOT converged');
   }
 });
 
 test('status transition within cooldown → nudge-cooldown', () => {
-  const oldKey = 'needs-discovery:0/2';
+  const oldKey = 'needs-discovery:0/2:g0:v0';
   const a = planMissionLoopStep(inp({
     mission: {
       ...inp().mission,
@@ -217,7 +217,7 @@ test('status transition within cooldown → nudge-cooldown', () => {
 });
 
 test('past escalation ceiling unchanged → re-nudge', () => {
-  const key = 'needs-discovery:1/3';
+  const key = 'needs-discovery:1/3:g0:v0';
   const escalationMs = 2 * 60 * 60 * 1000;
   const a = planMissionLoopStep(inp({
     mission: {
@@ -231,7 +231,7 @@ test('past escalation ceiling unchanged → re-nudge', () => {
   }));
   expect(a.kind).toBe('nudge');
   if (a.kind === 'nudge') {
-    expect(a.key).toBe('needs-discovery:1/3');
+    expect(a.key).toBe('needs-discovery:1/3:g0:v0');
   }
 });
 
@@ -248,5 +248,38 @@ test('runner: stamps the fingerprint on nudge', async () => {
   expect(r.nudged).toEqual(['m1']);
   expect(stampCalls).toHaveLength(1);
   expect(stampCalls[0].todoId).toBe('m1');
-  expect(stampCalls[0].key).toBe('needs-discovery:0/2');
+  expect(stampCalls[0].key).toBe('needs-discovery:0/2:g0:v0');
+});
+
+test('gap-count change alone (met/total unchanged) reads as changed fingerprint → re-nudge past cooldown', () => {
+  // Conductor filed 1 of 3 needed epics: met/total unchanged, gaps 3→2. The fingerprint
+  // must change so the REMAINING gaps get re-nudged after cooldown (not silenced until
+  // the 2h escalation ceiling).
+  const oldKey = 'needs-discovery:1/3:g3:v0';
+  const a = planMissionLoopStep(inp({
+    mission: {
+      ...inp().mission,
+      status: 'needs-discovery',
+      lastNudgeAt: NOW - 20 * 60 * 1000, // past 15-min cooldown
+      lastNudgeKey: oldKey,
+    },
+    rollup: { capability: { met: 1, total: 3 }, gaps: 2, awaitingVerify: 0 },
+  }));
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    expect(a.key).toBe('needs-discovery:1/3:g2:v0');
+  }
+});
+
+test('needs-discovery nudge message carries the per-criterion parallel instruction', () => {
+  const a = planMissionLoopStep(inp({
+    mission: { ...inp().mission, lastNudgeAt: null, lastNudgeKey: null },
+    rollup: { capability: { met: 0, total: 2 }, gaps: 2, awaitingVerify: 0 },
+  }));
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    expect(a.message).toContain("serve EVERY 'discover' gap");
+    expect(a.message).toContain('one [EPIC] per criterion');
+    expect(a.message).not.toContain('single highest-impact');
+  }
 });

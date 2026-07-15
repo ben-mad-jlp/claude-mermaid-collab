@@ -244,8 +244,8 @@ describe('F8 per-criterion serving-epic state', () => {
       hasLandedEpic: true,
       hasOpenEpic: true,
       criteria: [
-        { met: true, verifiedAt: now, servingEpicState: 'landed' as const },
-        { met: false, verifiedAt: null, servingEpicState: 'open' as const }, // second criterion serving open epic
+        { id: 'c1', met: true, verifiedAt: now, servingEpicState: 'landed' as const, servingEpicLive: false },
+        { id: 'c2', met: false, verifiedAt: null, servingEpicState: 'open' as const, servingEpicLive: true }, // second criterion serving open epic
       ],
     };
     expect(deriveMissionStatus(facts)).toBe('building');
@@ -265,7 +265,7 @@ describe('F8 per-criterion serving-epic state', () => {
       hasBuildingLeaf: false,
       hasLandedEpic: true,
       hasOpenEpic: false,
-      criteria: [{ met: true, verifiedAt: null, servingEpicState: 'landed' as const }],
+      criteria: [{ id: 'c3', met: true, verifiedAt: null, servingEpicState: 'landed' as const, servingEpicLive: false }],
     };
     expect(deriveMissionStatus(facts)).toBe('needs-verify');
   });
@@ -281,8 +281,8 @@ describe('F8 per-criterion serving-epic state', () => {
       hasLandedEpic: false,
       hasOpenEpic: false,
       criteria: [
-        { met: false, verifiedAt: null, servingEpicState: 'none' as const },
-        { met: true, verifiedAt: now, servingEpicState: 'landed' as const },
+        { id: 'c4', met: false, verifiedAt: null, servingEpicState: 'none' as const, servingEpicLive: false },
+        { id: 'c5', met: true, verifiedAt: now, servingEpicState: 'landed' as const, servingEpicLive: false },
       ],
     };
     expect(deriveMissionStatus(facts)).toBe('needs-discovery');
