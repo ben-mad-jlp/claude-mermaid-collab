@@ -170,6 +170,9 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
 
     const epics = todos.filter(isEpic).sort(sort);
     for (const epic of epics) {
+      // A dropped epic is a stale card — hidden from the board in every mode
+      // (matches the Kanban hygiene, crit 13), independent of Show completed.
+      if (epic.status === 'dropped') continue;
       const allKids = hierarchy.childrenByEpic.get(epic.id) ?? [];
       // A CHILDLESS epic is never "fully completed" — it must still show its (empty)
       // lane. Only an epic whose every child is terminal is gated by Show completed.
@@ -202,6 +205,8 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
     const TERMINAL = new Set(['done', 'dropped']);
     return todos
       .filter(isEpic)
+      // Dropped epics stay off the board in every mode (Kanban hygiene, crit 13).
+      .filter((epic) => epic.status !== 'dropped')
       .sort(sort)
       .map((epic) => {
         const desc = descendantsOf(epic.id, hierarchy);

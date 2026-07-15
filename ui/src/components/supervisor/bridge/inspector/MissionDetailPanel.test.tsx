@@ -1,24 +1,26 @@
 /**
  * MissionDetailPanel — the daemon-controls block has MOVED OUT to the
  * ProjectSettingsModal (gear button in the CommandBar header). The mission pane
- * now holds only the mission cards + New mission + show-completed toggle, so this
- * test covers just those surfaces.
+ * now holds the selected mission's detail + New mission + an "Other missions"
+ * list at the bottom whose "Show completed" toggle reveals inactive/completed
+ * OTHER missions. The SELECTED mission always renders — even when completed —
+ * so a just-converged active mission never disappears behind the filter.
  *
  * serverId="" makes useMissions' fetchMissions short-circuit to [] (store guard),
  * so the panel renders the empty missions state.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MissionDetailPanel } from './MissionDetailPanel';
 
-let mockMissions = [
-  {
-    node: { id: 'mission-1', title: '[MISSION] Test Mission' },
-    mission: { active: true, phase: 'plan', iteration: 1, maxIterations: null, description: '', procedure: '' },
-    criteria: [{ id: 'c1', text: 'Test criterion', met: false, order: 0 }],
-    epics: [{ id: 'e1', title: '[EPIC] Test Epic', status: 'in_progress' }],
-  },
-];
+const activeMission = {
+  node: { id: 'mission-1', title: '[MISSION] Active Mission' },
+  mission: { active: true, phase: 'plan', iteration: 1, maxIterations: null, description: '', procedure: '' },
+  criteria: [{ id: 'c1', text: 'Criterion 1', met: false, order: 0 }],
+  epics: [{ id: 'e1', title: '[EPIC] Epic 1', status: 'in_progress' }],
+};
+
+let mockMissions: any[] = [activeMission];
 
 // Mock useMissions to provide test data
 vi.mock('../rail/useMissions', () => ({
@@ -30,15 +32,7 @@ vi.mock('../rail/useMissions', () => ({
 
 afterEach(() => {
   vi.restoreAllMocks();
-  // Reset mock missions for next test
-  mockMissions = [
-    {
-      node: { id: 'mission-1', title: '[MISSION] Test Mission' },
-      mission: { active: true, phase: 'plan', iteration: 1, maxIterations: null, description: '', procedure: '' },
-      criteria: [{ id: 'c1', text: 'Test criterion', met: false, order: 0 }],
-      epics: [{ id: 'e1', title: '[EPIC] Test Epic', status: 'in_progress' }],
-    },
-  ];
+  mockMissions = [activeMission];
 });
 
 describe('MissionDetailPanel — mission list', () => {
@@ -64,15 +58,9 @@ describe('MissionDetailPanel — mission list', () => {
     expect(screen.queryByTestId('daemon-provider-control')).toBeNull();
   });
 
-  it('renders mission detail with tabs and inactive carousel', async () => {
-    // Mock multiple missions so carousel appears
+  it('renders the selected mission detail with tabs + an Other missions list', async () => {
     mockMissions = [
-      {
-        node: { id: 'mission-1', title: '[MISSION] Active Mission' },
-        mission: { active: true, phase: 'plan', iteration: 1, maxIterations: null, description: '', procedure: '' },
-        criteria: [{ id: 'c1', text: 'Criterion 1', met: false, order: 0 }],
-        epics: [{ id: 'e1', title: '[EPIC] Epic 1', status: 'in_progress' }],
-      },
+      activeMission,
       {
         node: { id: 'mission-2', title: '[MISSION] Inactive Mission' },
         mission: { active: false, phase: 'plan', iteration: 1, maxIterations: null, description: '', procedure: '' },
@@ -84,16 +72,59 @@ describe('MissionDetailPanel — mission list', () => {
     global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as any);
     render(<MissionDetailPanel serverId="test-server" project="/abs/p" session="design" />);
 
-    // The mocked useMissions returns missions, so detail should render
     await waitFor(() => expect(screen.getByTestId('mission-detail')).toBeTruthy());
-
-    // Check detail view renders
-    expect(screen.getByTestId('mission-detail')).toBeTruthy();
     expect(screen.getByTestId('mission-detail-tabs')).toBeTruthy();
-    expect(screen.getByTestId('mission-tab-goals')).toBeTruthy();
+    expect(screen.getByTestId('mission-tab-goal')).toBeTruthy();
     expect(screen.getByTestId('mission-tab-build')).toBeTruthy();
 
-    // Check carousel is present
-    expect(screen.getByTestId('mission-inactive-carousel')).toBeTruthy();
+    // The other (non-selected, non-completed) mission is browsable at the bottom.
+    expect(screen.getByTestId('mission-other-section')).toBeTruthy();
+    expect(screen.getByText('Inactive Mission')).toBeTruthy();
+  });
+
+  it('renders the SELECTED mission even when it is completed (converged)', async () => {
+    // The only mission is active but converged → previously the filter hid it
+    // behind an "All missions completed" placeholder. Now it must still show.
+    mockMissions = [
+      {
+        node: { id: 'mission-1', title: '[MISSION] Converged Mission' },
+        mission: { active: true, phase: 'converged', iteration: 3, maxIterations: null, description: '', procedure: '' },
+        criteria: [{ id: 'c1', text: 'Criterion 1', met: true, order: 0 }],
+        epics: [{ id: 'e1', title: '[EPIC] Epic 1', status: 'done' }],
+      },
+    ];
+    global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as any);
+    render(<MissionDetailPanel serverId="test-server" project="/abs/p" session="design" />);
+
+    await waitFor(() => expect(screen.getByTestId('mission-detail')).toBeTruthy());
+    // No "all completed" placeholder, and no toggle (there are no OTHER missions).
+    expect(screen.queryByText(/mission.*completed/i)).toBeNull();
+    expect(screen.queryByTestId('missions-show-completed')).toBeNull();
+  });
+
+  it('Show completed toggle at the bottom reveals inactive completed OTHER missions', async () => {
+    mockMissions = [
+      activeMission, // selected (active, not completed)
+      {
+        node: { id: 'mission-2', title: '[MISSION] Old Converged Mission' },
+        mission: { active: false, phase: 'converged', iteration: 5, maxIterations: null, description: '', procedure: '' },
+        criteria: [{ id: 'c2', text: 'Criterion 2', met: true, order: 0 }],
+        epics: [{ id: 'e2', title: '[EPIC] Epic 2', status: 'done' }],
+      },
+    ];
+    global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as any);
+    render(<MissionDetailPanel serverId="test-server" project="/abs/p" session="design" />);
+
+    await waitFor(() => expect(screen.getByTestId('mission-detail')).toBeTruthy());
+
+    // The completed OTHER mission is hidden by default; the toggle is present.
+    expect(screen.getByTestId('mission-other-section')).toBeTruthy();
+    const toggle = screen.getByTestId('missions-show-completed');
+    expect(toggle).toBeTruthy();
+    expect(screen.queryByText('Old Converged Mission')).toBeNull();
+
+    // Checking it reveals the completed inactive mission.
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByText('Old Converged Mission')).toBeTruthy());
   });
 });
