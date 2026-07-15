@@ -75,6 +75,23 @@ export function correctToken(
   return null;
 }
 
+/**
+ * Peel leading/trailing punctuation (any non letter/number, Unicode-aware) off a
+ * whitespace-delimited token so a curated typo like `seperate,` or `wierd.` still
+ * matches on its core word. INTERNAL punctuation is left intact, so path/identifier
+ * filters in correctToken still fire on the core (e.g. `src/foo.ts.` → core
+ * `src/foo.ts`, still rejected). Returns the core plus how many chars were peeled
+ * from each side, so callers can offset a replacement to cover only the core and
+ * preserve the surrounding punctuation.
+ */
+export function peelAffixes(token: string): { core: string; lead: number; trail: number } {
+  const lead = token.length - token.replace(/^[^\p{L}\p{N}]+/u, '').length;
+  const afterLead = token.slice(lead);
+  const trail = afterLead.length - afterLead.replace(/[^\p{L}\p{N}]+$/u, '').length;
+  const core = afterLead.slice(0, afterLead.length - trail);
+  return { core, lead, trail };
+}
+
 export function correctMessage(
   text: string,
   vocab: Vocab,
@@ -132,12 +149,19 @@ export function correctMessage(
 
     if (isProtected) continue;
 
+    // Peel leading/trailing punctuation so `seperate,` / `wierd.` match on their
+    // core, and offset the replacement to cover only the core (preserving punct).
+    const { core, lead, trail } = peelAffixes(tokenText);
+    if (!core) continue;
+    const coreStart = start + lead;
+    const coreEnd = end - trail;
+
     // Try to correct
-    const correction = correctToken(tokenText, vocab, opts);
+    const correction = correctToken(core, vocab, opts);
     if (correction) {
       corrections.push({
-        start,
-        end,
+        start: coreStart,
+        end: coreEnd,
         from: correction.from,
         to: correction.to,
       });

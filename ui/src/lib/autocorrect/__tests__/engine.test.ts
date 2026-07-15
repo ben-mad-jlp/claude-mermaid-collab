@@ -221,4 +221,49 @@ describe('correctMessage', () => {
       expect(result).toHaveLength(0);
     });
   });
+
+  describe('punctuation-adjacent typos (peel affixes, preserve punctuation)', () => {
+    it('corrects a curated typo before a trailing comma, replacing only the core', () => {
+      const result = correctMessage('are seperate, ok', vocab);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        start: 4, // 'seperate' starts after 'are '
+        end: 12, // excludes the comma at index 12
+        from: 'seperate',
+        to: 'separate',
+      });
+    });
+
+    it('corrects a curated typo before a trailing period at end-of-text', () => {
+      const result = correctMessage('this is wierd.', vocab);
+      expect(result).toHaveLength(1);
+      expect(result[0].from).toBe('wierd');
+      expect(result[0].to).toBe('weird');
+      expect(result[0].end).toBe(13); // excludes the '.' at index 13
+    });
+
+    it('corrects a typo wrapped in parentheses', () => {
+      const result = correctMessage('(recieve)', vocab);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        start: 1,
+        end: 8,
+        from: 'recieve',
+        to: 'receive',
+      });
+    });
+
+    it('applying the core-scoped hit preserves surrounding punctuation', () => {
+      const text = 'are seperate, ok';
+      const [h] = correctMessage(text, vocab);
+      const out = text.slice(0, h.start) + h.to + text.slice(h.end);
+      expect(out).toBe('are separate, ok');
+    });
+
+    it('still excludes internal-punctuation identifiers after peeling outer punct', () => {
+      // trailing period peeled, but internal dot/slash keeps it filtered out
+      expect(correctMessage('see src/foo.ts.', vocab)).toHaveLength(0);
+      expect(correctMessage('id (a8785f3d).', vocab)).toHaveLength(0);
+    });
+  });
 });

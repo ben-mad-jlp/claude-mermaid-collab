@@ -163,6 +163,15 @@ describe('MessageComposer — autocorrect suggest mode', () => {
     expect(ta.value).toBe('believe ');
   });
 
+  it('chip appears for a word with trailing punctuation, and Tab preserves the punctuation', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    typeWord(ta, 'beleive, ');
+    expect(screen.getByText(/believe/i)).toBeInTheDocument();
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    expect(ta.value).toBe('believe, ');
+  });
+
   it('Escape dismisses the chip without applying', () => {
     render(<MessageComposer {...PROPS} />);
     const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
