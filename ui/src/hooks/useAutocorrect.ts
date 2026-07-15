@@ -15,6 +15,7 @@ export function useAutocorrect(project: string): {
   mode: AutocorrectMode;
   correct: (token: string) => Suggestion | null;
   correctMessage: (text: string) => Hit[];
+  vocabWords: string[];
 } {
   const mode = useQuickReplyStore((s) => s.autocorrectMode);
 
@@ -75,5 +76,7 @@ export function useAutocorrect(project: string): {
     [vocab, l2],
   );
 
-  return { mode, correct, correctMessage: correctMessageBound };
+  const vocabWords = useMemo(() => Array.from(vocab.protected), [vocab]);
+
+  return { mode, correct, correctMessage: correctMessageBound, vocabWords };
 }
