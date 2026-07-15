@@ -11,6 +11,7 @@ import { useInflightLeafIds } from './bridge/useInflightLeafIds';
 import { derivedStatus, buildById } from '@/lib/claimability';
 import { isEpic } from '@/lib/todoKind';
 import { buildTodoHierarchy, descendantsOf } from '@/lib/todoHierarchy';
+import { api } from '@/lib/api';
 
 /**
  * PCS Phase 5 / Bridge P6 — the project Plan, backed by the UNIFIED work-graph
@@ -237,6 +238,11 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
     await loadProjectTodos(serverId, project);
   };
 
+  const handlePromoteToEpic = async (todo: SessionTodo) => {
+    await api.promoteBucketItemToEpic(project, todo.ownerSession, todo.id);
+    await loadProjectTodos(serverId, project);
+  };
+
   const modeButton = (m: Mode, label: string) => (
     <button
       key={m}
@@ -385,7 +391,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </div>
         ) : (
           <div className="h-full p-2">
-            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} inflightLeafIds={inflightLeafIds} />
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} onPromoteToEpic={handlePromoteToEpic} inflightLeafIds={inflightLeafIds} />
           </div>
         )}
       </div>

@@ -33,6 +33,7 @@ import {
   clearCompleted,
   collapseSplit,
   reorder,
+  promoteBucketItemToEpic,
   backfillEpicsUnderMission,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
@@ -3833,6 +3834,26 @@ export async function handleAPI(
       });
 
       return Response.json({ ok: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/session-todos/promote-to-epic - Promote a bucket item into a deliverable epic
+  if (path === '/api/session-todos/promote-to-epic' && req.method === 'POST') {
+    try {
+      const { project, id, title, missionId, servesCriterionId, session } = await req.json() as {
+        project?: string; id?: string; title?: string;
+        missionId?: string | null; servesCriterionId?: string | null; session?: string;
+      };
+      if (!project || !id) {
+        return Response.json({ error: 'project and id required' }, { status: 400 });
+      }
+      const result = await promoteBucketItemToEpic(project, id, { title, missionId, servesCriterionId });
+      if (session) {
+        wsHandler.broadcast({ type: 'session_todos_updated', project, session });
+      }
+      return Response.json({ epic: result.epic, item: result.item });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
