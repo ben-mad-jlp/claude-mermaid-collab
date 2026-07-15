@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
-import { app, BrowserWindow, ipcMain, nativeImage, Menu, screen, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, Menu, screen, dialog, session } from 'electron';
 import {
   loadWindowState,
   saveWindowState,
@@ -57,6 +57,25 @@ function registerIpc(): void {
   ipcMain.handle('mc:browser:setZoom', (_e, id: string, factor: number) => paneManager?.setZoom(id, factor) ?? 1);
   ipcMain.handle('mc:browser:getZoom', (_e, id: string) => paneManager?.getZoom(id) ?? 1);
   ipcMain.handle('mc:setZoomFactor', (_e, factor: number) => { mainWindow?.webContents.setZoomFactor(factor); });
+
+  // Phase-1 dictionary injection: add custom words to the spellchecker's session
+  // dictionary. Guarded so empty/blank strings and repeats are harmless, and a bad
+  // word never throws back to the renderer.
+  ipcMain.handle('mc:spellcheck-add-words', (_e, words: string[]) => {
+    if (!Array.isArray(words)) return;
+    const seen = new Set<string>();
+    for (const w of words) {
+      if (typeof w !== 'string') continue;
+      const word = w.trim();
+      if (!word || seen.has(word)) continue;
+      seen.add(word);
+      try {
+        session.defaultSession.addWordToSpellCheckerDictionary(word);
+      } catch {
+        // Ignore a single bad word; never propagate to the renderer.
+      }
+    }
+  });
 
   // Native folder picker for Add Project / Add Watching. 'createDirectory' gives the
   // macOS dialog its built-in New-Folder button. Returns the chosen absolute path, or
