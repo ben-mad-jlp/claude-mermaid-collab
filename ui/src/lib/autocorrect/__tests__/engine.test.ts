@@ -16,6 +16,25 @@ describe('correctToken', () => {
     });
   });
 
+  it('crit 5 amended: recieve corrects via typo map', () => {
+    expect(correctToken('recieve', vocab)).toEqual({
+      from: 'recieve',
+      to: 'receive',
+      strength: 'strong',
+    });
+  });
+
+  it('L2 fuzzy: unique dist-1 L2 candidate corrects when L1 misses', () => {
+    const result = correctToken('langauge', vocab, {
+      l2: new Set(['language', 'gauge', 'lounge']),
+    });
+    expect(result).toEqual({
+      from: 'langauge',
+      to: 'language',
+      strength: 'strong',
+    });
+  });
+
   describe('crit 5: never-touch cases return null', () => {
     it('filters src/ (contains /)', () => {
       expect(correctToken('src/', vocab)).toBeNull();
@@ -45,8 +64,20 @@ describe('correctToken', () => {
       expect(correctToken('camelCase', vocab)).toBeNull();
     });
 
-    it('filters teh (length < 5)', () => {
-      expect(correctToken('teh', vocab)).toBeNull();
+    it('crit 5 amended: teh is a curated typo, exempt from floor', () => {
+      expect(correctToken('teh', vocab)).toEqual({
+        from: 'teh',
+        to: 'the',
+        strength: 'strong',
+      });
+    });
+
+    it('crit 5 narrowed: short token NOT in map returns null (ref)', () => {
+      expect(correctToken('ref', vocab)).toBeNull();
+    });
+
+    it('crit 5 narrowed: short token NOT in map returns null (on)', () => {
+      expect(correctToken('on', vocab)).toBeNull();
     });
 
     it('filters ALLCAPS token', () => {
@@ -145,8 +176,8 @@ describe('correctMessage', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('excludes teh from output (too short)', () => {
-      const result = correctMessage('Did you mean teh word', vocab);
+    it('excludes ref from output (too short, not a curated typo)', () => {
+      const result = correctMessage('Please ref the doc', vocab);
       expect(result).toHaveLength(0);
     });
 
