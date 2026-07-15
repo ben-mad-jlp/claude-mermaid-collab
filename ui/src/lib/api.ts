@@ -171,6 +171,7 @@ export interface ApiClient {
   removeSessionTodo(project: string, session: string, id: string): Promise<void>;
   reorderSessionTodos(project: string, session: string, orderedIds: string[]): Promise<SessionTodo[]>;
   clearCompletedSessionTodos(project: string, session: string): Promise<{ removedCount: number }>;
+  promoteBucketItemToEpic(project: string, session: string, id: string, opts?: { title?: string; missionId?: string | null; servesCriterionId?: string | null }): Promise<{ epic: SessionTodo; item: SessionTodo }>;
   setDeprecated(project: string, session: string, id: string, deprecated: boolean): Promise<void>;
   setPinned(project: string, session: string, id: string, pinned: boolean): Promise<void>;
   setBlueprint(project: string, session: string, id: string, blueprint: boolean): Promise<void>;
@@ -808,6 +809,19 @@ export const api: ApiClient = {
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+    return response.json();
+  },
+
+  /**
+   * Promote a bucket item into a deliverable epic
+   */
+  async promoteBucketItemToEpic(project, session, id, opts = {}) {
+    const response = await fetch('/api/session-todos/promote-to-epic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, session, id, ...opts }),
+    });
+    if (!response.ok) throw new Error(response.statusText);
     return response.json();
   },
 
