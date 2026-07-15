@@ -20,8 +20,8 @@
  * executor is NEVER run against a live leaf in tests.
  */
 
-import { join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { join, isAbsolute } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -53,6 +53,27 @@ import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from 
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
+
+/** G3 worktree-existence predicate for review citations (retained-code tolerance).
+ *  Bounded to the lane worktree: rejects absolute paths and `..` segments outright, then
+ *  checks the cited file exists under `root` with at least `line` lines. Per-run cache —
+ *  a review cites a handful of files, each read at most once. Exported for test. */
+export function makeCitationExists(root: string): (path: string, line: number) => boolean {
+  const lineCount = new Map<string, number>(); // path → line count, -1 = missing/unreadable
+  return (path: string, line: number): boolean => {
+    if (!path || isAbsolute(path) || path.split('/').includes('..')) return false;
+    let n = lineCount.get(path);
+    if (n === undefined) {
+      try {
+        n = readFileSync(join(root, path), 'utf8').split('\n').length;
+      } catch {
+        n = -1;
+      }
+      lineCount.set(path, n);
+    }
+    return n >= 0 && line >= 1 && line <= n;
+  };
+}
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -2009,6 +2030,9 @@ export async function runLeaf(
   let carriedBlueprint: string | null = null;
   // C2: non-fatal unbacked-claim warning from the review pass — carried forward for recordOutcome.
   let unbackedNote: string | undefined;
+  // G3 retained-mode observability: set when grounding ran in retained mode (empty
+  // change-set, worktree-validated citations) so the accept is auditable in the ledger.
+  let groundingNote: string | undefined;
   // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive constraint id.
   let constraintCiteNote: string | undefined;
 
@@ -2366,7 +2390,12 @@ export async function runLeaf(
         // accepts, and forcing structure on it would turn a real finding into a park.
         if (llm === 'pass') {
           const cs = (await deps.changeSet?.(sessionKey)) ?? null;
-          const grounding = validateReviewGrounding(review.text ?? '', cs);
+          const grounding = validateReviewGrounding(review.text ?? '', cs, {
+            citationExists: makeCitationExists(cwd),
+          });
+          if (grounding.retainedMode && grounding.status === 'ok') {
+            groundingNote = grounding.reasons[0]; // 'retained mode …' — auditable, non-fatal
+          }
           if (grounding.status === 'vacuous') {
             // FLOOR-PATH FIX: a COMMAND-RESULT criterion (tsc/test/build/lint/grep) cannot be
             // cited to a diff line — verifying it is the command-evidence gate's job below, not
@@ -2480,7 +2509,7 @@ export async function runLeaf(
         : effective === 'rejected' ? 'gate-rejected'
         : undefined;
       recordOutcome(outcome, reviewVerdict, {
-        reason: reason ?? ([unbackedNote, constraintCiteNote].filter(Boolean).join('; ') || undefined),
+        reason: reason ?? ([unbackedNote, constraintCiteNote, groundingNote].filter(Boolean).join('; ') || undefined),
         pendingReason: gate.pendingReason,
         gateReasons: gate.gateReasons,
       });

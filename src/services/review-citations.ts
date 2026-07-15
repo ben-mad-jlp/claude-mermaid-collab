@@ -33,15 +33,28 @@ export interface CriterionResult {
 }
 
 export interface ReviewGrounding {
-  /** 'ok'      — structure present AND every citation resolves into the change-set.
-   *  'vacuous' — no per-criterion results, or a citation that resolves nowhere, or a
-   *              MET/UNMET criterion with no citation at all. An INFRA error (G1 sense).
+  /** 'ok'      — structure present AND grounding holds (see the rules on validateReviewGrounding).
+   *  'vacuous' — no per-criterion results, or a criterion whose citations resolve nowhere
+   *              (neither change-set nor worktree), or a MET/UNMET criterion with no citation
+   *              at all, or (non-empty diff) a review with zero change-set contact.
    *  'abstain' — the change-set was unreadable/unwired: we CANNOT validate grounding, so
    *              we do not pretend to. Caller treats it as today's behaviour (no park). */
   status: 'ok' | 'vacuous' | 'abstain';
   /** One-line human reasons, most specific first. The offending citation is NAMED. */
   reasons: string[];
   criteria: CriterionResult[];
+  /** True when the change-set was EMPTY (readable, zero files — a retained-work leaf whose
+   *  edits are already carried by the epic base after claim churn) and citations were
+   *  validated against the WORKTREE instead. Surfaced for observability: watch the rate. */
+  retainedMode?: boolean;
+}
+
+export interface GroundingOpts {
+  /** Does `path` exist under the lane worktree with at least `line` lines? Injected by the
+   *  caller (this module stays I/O-free). Used to tolerate RETAINED-CODE citations: a
+   *  criterion legitimately satisfied by code the leaf did not change cites a real
+   *  worktree location outside the change-set. Absent → no worktree fallback (strict). */
+  citationExists?: (path: string, line: number) => boolean;
 }
 
 const CRITERION_RE = /^\s*[-*]?\s*\[\s*(MET|UNMET|N\/?A|NOT[-_ ]?APPLICABLE)\s*\]\s*(.+?)\s*$/i;
@@ -86,7 +99,9 @@ export function extractCitations(line: string): Citation[] {
  *  `stripSentinelFmt` deletes `_` and would corrupt real filenames. */
 export function parseCriterionResults(text: string): CriterionResult[] {
   const results: CriterionResult[] = [];
-  for (const rawLine of text.split('\n')) {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
     let outcome: CriterionOutcome | null = null;
     let body: string | null = null;
 
@@ -109,7 +124,20 @@ export function parseCriterionResults(text: string): CriterionResult[] {
     }
     if (outcome === null || body === null) continue;
 
-    const citations = extractCitations(rawLine);
+    let citations = extractCitations(rawLine);
+    // (c) TWO-LINE format (8dbbdc8d): the criterion + citation on one line, the bare
+    //     marker alone on the NEXT (`1. <text> — <path>:<line>` \n `   - [MET]`).
+    //     A bare-marker line (no text, no citations) adopts the PRECEDING line's
+    //     text + citations instead of parsing as an empty criterion that "cites nothing".
+    if (body.trim() === '' && citations.length === 0 && i > 0) {
+      const prev = lines[i - 1];
+      const prevCites = extractCitations(prev);
+      if (prevCites.length > 0) {
+        citations = prevCites;
+        const prevList = prev.match(LIST_LINE_RE);
+        body = prevList ? prevList[1] : prev;
+      }
+    }
     // Cut the criterion text at an em/en-dash separator if present.
     const dashIdx = body.search(/\s[—-]\s/);
     if (dashIdx >= 0) body = body.slice(0, dashIdx);
@@ -132,14 +160,32 @@ export function citationResolves(path: string, changeSet: readonly string[]): bo
 const MAX_NAMED_OFFENDERS = 3;
 
 /** The gate: PASS-only in the caller (executor), but the validator itself doesn't need
- *  to know that — it only maps (text, changeSet) → ok/vacuous/abstain. */
+ *  to know that — it only maps (text, changeSet, opts) → ok/vacuous/abstain.
+ *
+ *  Grounding rules (per Grok-consulted design, decision review-grounding-retained-mode):
+ *  1. Unreadable change-set (null) → abstain (unchanged).
+ *  2. Every non-N/A criterion must cite something (unchanged).
+ *  3. Per-criterion: a non-N/A criterion is grounded iff ≥1 citation resolves into the
+ *     change-set, OR — the RETAINED-CODE tolerance — ≥1 citation resolves to a real
+ *     worktree file:line via opts.citationExists. Criteria satisfied by code the leaf
+ *     deliberately did not change cite real locations outside the change-set; fabricated
+ *     paths/lines still fail both checks and stay offenders.
+ *  4. Change-set FLOOR: when the change-set is NON-empty, ≥1 citation across the whole
+ *     review must resolve into it — proof the reviewer touched the actual delta. Worktree
+ *     tolerance never substitutes for all change-set contact.
+ *  5. RETAINED MODE: an EMPTY (readable) change-set — a retained-work leaf whose edits are
+ *     already carried by the epic base after claim churn (85058e61) — skips the floor and
+ *     validates every criterion against the worktree only. Flagged via retainedMode. */
 export function validateReviewGrounding(
   text: string,
   changeSet: readonly string[] | null,
+  opts?: GroundingOpts,
 ): ReviewGrounding {
   if (changeSet === null) {
     return { status: 'abstain', reasons: ['review-grounding: change-set unreadable'], criteria: [] };
   }
+  const retainedMode = changeSet.length === 0;
+  const exists = opts?.citationExists;
 
   const criteria = parseCriterionResults(text);
   if (criteria.length === 0) {
@@ -160,21 +206,23 @@ export function validateReviewGrounding(
     }
   }
 
-  // Per-criterion grounding: a non-N/A criterion is grounded iff ≥1 of its citations
-  // resolves into the change-set. Extra out-of-change-set citations on an already-grounded
-  // criterion are TOLERATED. A criterion whose citations ALL fail to resolve is the offender.
+  // Per-criterion grounding (rule 3). Extra unresolvable citations on an already-grounded
+  // criterion are TOLERATED. A criterion whose citations ALL fail both checks is the offender.
   const offenders: Citation[] = [];
   for (const c of criteria) {
     if (c.outcome === 'not-applicable') continue; // N/A citations are tolerated, never offenders
-    const grounded = c.citations.some((cite) => citationResolves(cite.path, changeSet));
+    const grounded =
+      c.citations.some((cite) => citationResolves(cite.path, changeSet)) ||
+      (exists != null && c.citations.some((cite) => exists(cite.path, cite.line)));
     if (!grounded) offenders.push(...c.citations);
   }
   if (offenders.length > 0) {
     const named = offenders.slice(0, MAX_NAMED_OFFENDERS).map((o) => `${o.raw}:${o.line}`);
     const rest = offenders.length - named.length;
-    const reasons = named.map((n) => `review: citation "${n}" is not in the change-set`);
+    const reasons = named.map((n) =>
+      `review: citation "${n}" is not in the change-set${exists != null ? ' and does not resolve in the worktree' : ''}`);
     if (rest > 0) reasons.push(`review: ${rest} more offending citation(s)`);
-    return { status: 'vacuous', reasons, criteria };
+    return { status: 'vacuous', reasons, criteria, retainedMode };
   }
 
   const totalCitations = criteria.reduce((n, c) => n + c.citations.length, 0);
@@ -184,10 +232,33 @@ export function validateReviewGrounding(
       status: 'vacuous',
       reasons: ['review: findings cite nothing in the change-set'],
       criteria,
+      retainedMode,
     };
   }
 
-  return { status: 'ok', reasons: [], criteria };
+  // Change-set floor (rule 4): tolerating retained-code criteria must not let a review
+  // pass with ZERO contact with the delta. Only applies when there IS a delta.
+  if (!retainedMode) {
+    const touchedDelta = criteria.some((c) =>
+      c.citations.some((cite) => citationResolves(cite.path, changeSet)));
+    if (!touchedDelta) {
+      return {
+        status: 'vacuous',
+        reasons: ['review: no citation resolves into the change-set (review never touched the delta)'],
+        criteria,
+        retainedMode,
+      };
+    }
+  }
+
+  return {
+    status: 'ok',
+    reasons: retainedMode
+      ? ['review-grounding: retained mode (empty change-set; citations validated against the worktree)']
+      : [],
+    criteria,
+    retainedMode,
+  };
 }
 
 /** Canonical-UUID-shaped token, boundary-anchored so it never matches mid-word. This is the
