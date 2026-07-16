@@ -5,7 +5,7 @@ import type { LeafRunSummary } from '../ledger-stats';
 function run(over: Partial<LeafRunSummary>): LeafRunSummary {
   return {
     leafId: 'l', project: '/p', epicId: 'e', finalOutcome: 'accepted', reviewVerdict: 'pass',
-    reason: null, pathTaken: 'floor', lastTs: 1, nodesSpent: 5, costUsd: 1, ...over,
+    reason: null, pathTaken: 'floor', lastTs: 1, nodesSpent: 5, costUsd: 1, tier: null, ...over,
   };
 }
 
