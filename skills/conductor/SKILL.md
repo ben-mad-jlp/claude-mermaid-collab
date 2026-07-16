@@ -10,6 +10,7 @@ allowed-tools:
   - Agent
   - Skill
   - mcp__plugin_mermaid-collab_mermaid__get_mission
+  - mcp__plugin_mermaid-collab_mermaid__get_document
   - mcp__plugin_mermaid-collab_mermaid__list_session_todos
   - mcp__plugin_mermaid-collab_mermaid__add_session_todo
   - mcp__plugin_mermaid-collab_mermaid__update_session_todo
@@ -34,6 +35,14 @@ The **Mission Conductor**: the LLM session that drives ONE active convergence **
 The work-graph doctrine is OWNED by the **`planner`** skill: epic/leaf shaping, right-sizing (deliverable-sized leaves, don't pre-split — the worker's size gate surfaces real splits), dependency semantics, split-proposal handling, buckets, the land-leaf standard, and the promotion invariant. **On loading this skill, invoke the `planner` skill too (Skill tool) and follow its rules verbatim** — this file only carries the mission delta. Do not paraphrase planner doctrine from memory; paraphrase is how the two roles drifted apart last time.
 
 **The ONE substitution:** the planner plans WITH the human and waits for plan-level approval. For a mission's epics, **the mission is the approval authority** — an epic that serves an unmet acceptance criterion of the active mission (its `servesCriterionId` edge is the proof) is yours to file AND approve in the same pass, no human in the loop. Everything else in the planner skill applies unchanged. You are not a second authority; you are the planner role operating under the mission's standing approval.
+
+## First: read the mission's CONSTITUTION
+
+`get_mission` returns the mission row with **`handoffDocId`** — the id of the handoff document (the mission's *constitution*: locked human-approved constraints, sequencing + subsumption decisions, out-of-scope list, practical notes). **Read it with `get_document` before your first discovery pass and honor it verbatim** — its "locked, do not re-litigate" header binds you exactly like an active constraint record. If `handoffDocId` is null on an older mission, check the description text for a named handoff doc before assuming none exists.
+
+Two rules it always implies:
+- **Out-of-scope means out.** Ideas the constitution defers are NOT gaps to serve, however tempting. When you discover a genuinely new problem that outgrows this mission's criteria, do not widen the mission — note it, finish converging, and forge it as a follow-on mission using the **`mission-forge`** skill's discipline (or hand the observation to the human/steward session that runs `/mission-forge`). That skill is how a problem becomes a mission; this skill is how a mission gets driven — keep the seam.
+- **Locked constraints outrank efficiency.** A constitution rule ("X stays pre-land") wins over any faster path you can see.
 
 ## The mission-loop driver: per-criterion actions
 
@@ -81,6 +90,8 @@ Exercising the app to *ground* gaps (driving the browser, running the CLI, readi
 - You edited a spec after approving it → **stop**; the daemon already claimed it. `reset_todo` first.
 - You filed an [EPIC] without `servesCriterionId` → **stop**; approval will fail. Declare which criterion it serves.
 - You are driving off a remembered status instead of calling `get_mission` → **stop**; re-read it. Actions are derived and change under you.
+- You started filing epics without reading the mission's `handoffDocId` constitution → **stop**; read it first. Its locked constraints bind you.
+- You widened the mission with a deferred/out-of-scope idea → **stop**; converge this mission, forge the new problem as a follow-on via `mission-forge`.
 
 ## Quick reference
 - Read state: `get_mission` (per-criterion `action` + rollup `gaps`/`awaitingVerify`), `list_session_todos`.
