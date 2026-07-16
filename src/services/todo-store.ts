@@ -12,6 +12,7 @@ import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './
 import type { LeafSplitItem } from './split-decision';
 import { topoSortSplitItems } from './split-decision';
 import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
+import { setOverride as setCorpusOverride } from './replay-corpus-store';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -2505,8 +2506,20 @@ export function resetTodo(
  * the ONLY difference is no gate runs. Records the steward as completer for
  * provenance. Returns the completion result (completed todo + promoted/rolledUp).
  */
-export function overrideAcceptTodo(project: string, id: string, completedBy: string = 'steward'): Promise<CompleteTodoResult> {
-  return completeTodo(project, id, 'accepted', completedBy);
+export async function overrideAcceptTodo(
+  project: string,
+  id: string,
+  completedBy: string = 'steward',
+): Promise<CompleteTodoResult> {
+  const result = await completeTodo(project, id, 'accepted', completedBy);
+  // Best-effort: stamp override provenance onto the leaf's replay-corpus row so the
+  // superseded gate verdict is auditable. A corpus MISS (no g3 row) must never break
+  // the override — setCorpusOverride's UPDATE simply matches 0 rows. try/catch guards any
+  // corpus-store failure (missing DB, etc.).
+  try {
+    await setCorpusOverride(project, id, JSON.stringify({ completedBy, at: nowIso() }));
+  } catch { /* corpus join is advisory — never fail the override */ }
+  return result;
 }
 
 export function assignTodo(project: string, id: string, assigneeSession: string | null): Promise<Todo> {
