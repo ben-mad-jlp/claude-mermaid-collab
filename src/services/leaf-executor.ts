@@ -236,6 +236,18 @@ export interface LeafExecutorDeps {
     todoId: string,
     scope?: { declaredFiles: string[]; untrackedAtStart: string[] },
   ) => Promise<unknown>;
+  /** crit 6 auto-revert seam: undo ONE optimistically-landed leaf's merge commit on the
+   *  epic branch when its POST-merge review returned a real FAIL. Reverts only THIS leaf's
+   *  merge (mainline-parent revert), leaving prior/subsequent epic commits intact. Best-effort
+   *  (`?.`): unwired ⇒ the optimistic path is never taken (small/test-pinned tiers only wire it
+   *  in the factory), so the floor/tests behave exactly as the pre-crit-6 pipeline. */
+  revertEpicMerge?: (
+    sessionKey: string,
+    epicId: string,
+    leafId: string,
+    mergeSha: string,
+    reason: string,
+  ) => Promise<{ reverted: boolean; revertSha?: string; error?: string }>;
   /** Raise an escalation card (blocker). */
   escalate: (input: {
     project: string;
@@ -1466,6 +1478,17 @@ export async function runLeaf(
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
 
+  // crit 6 OPTIMISTIC LANDING (small/test-pinned tiers only): the leaf merges to the epic
+  // branch immediately after a GREEN mechanical gate — BEFORE review — then review runs
+  // POST-merge. `optimisticallyLanded` gates two things: (1) the post-loop accept path skips
+  // a SECOND merge (the work is already on the branch), and (2) parkBlocked auto-reverts the
+  // merge (via deps.revertEpicMerge) before parking, so a real post-land review FAIL — or any
+  // terminal park after the merge — never leaves failed-review code stranded on the epic
+  // branch. `optimisticMergeSha` is the --no-ff merge commit to revert. Full tier: both stay
+  // untouched and the pipeline is byte-identical to pre-crit-6.
+  let optimisticallyLanded = false;
+  let optimisticMergeSha: string | undefined;
+
   // PROSE-GATE RETRY: a DURABLE per-leaf offense counter for the three prose gates
   // (review-unparseable, G3-vacuous, command-evidence). Declared OUTSIDE the attempt
   // loop (below) so 'repeat-within-leaf' is real across attempts — never reset.
@@ -1708,6 +1731,38 @@ export async function runLeaf(
     reason: string,
     verdict: 'pass' | 'fail' | null = null,
   ): Promise<LeafRunResult> => {
+    // crit 6 AUTO-REVERT: if this leaf optimistically landed (small/test-pinned merged
+    // BEFORE review), any terminal park — a real post-land review FAIL, a mechanical-gate
+    // regression on a revised pass, an exhausted prose-retry, an infra incident — must undo
+    // that merge so failed-review code is NEVER left stranded on the epic branch. Revert
+    // ONLY this leaf's merge commit, record an AUDITABLE REASON CARD (friction row naming
+    // the leaf, the reverted sha, and the finding), and re-tag the park reason. Done once
+    // (clears optimisticallyLanded) so a downstream park can't double-revert.
+    if (optimisticallyLanded && optimisticMergeSha) {
+      const mergeSha = optimisticMergeSha;
+      optimisticallyLanded = false;
+      let revertSha: string | undefined;
+      try {
+        const rev = await deps.revertEpicMerge?.(sessionKey, epicId, leaf.id, mergeSha, reason);
+        revertSha = rev?.revertSha;
+      } catch { /* best-effort revert — still park + record the card below */ }
+      try {
+        deps.recordNode({
+          project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+          nodeKind: 'optimistic-land-reverted', nodesSpent: 0, verdict: 'fail',
+          outcomeDetail: JSON.stringify({ mergeSha, revertSha, reason, tier: leaf.tier ?? 'full' }),
+          outputText: `optimistic-land-reverted: reverted ${mergeSha}${revertSha ? ` via ${revertSha}` : ''} — ${reason}`,
+        });
+      } catch { /* telemetry — never break the park */ }
+      try {
+        await recordFriction(project, {
+          todoId: leaf.id, session: sessionKey, layer: 'orchestration',
+          retryReason: 'optimistic-land-reverted',
+          detail: `Optimistically-landed leaf "${leaf.title ?? leaf.id}" (tier=${leaf.tier ?? 'full'}) reverted: post-land review/gate FAIL. Reverted merge ${mergeSha}${revertSha ? ` via ${revertSha}` : ''}. Finding: ${reason}`,
+        });
+      } catch { /* friction store best-effort — never break the park */ }
+      reason = `optimistic-land-reverted: ${reason}`;
+    }
     recordOutcome('blocked', verdict, { reason });
     // Land the reject intent DURABLY before the slow gate so a mid-gate process
     // restart can't reclaim+re-run this leaf (reclaimNow refuses acceptanceStatus
@@ -2559,6 +2614,68 @@ export async function runLeaf(
       if (mech.status === 'fail') {
         findings = gateFindingsText(mech);
       } else {
+        // crit 6 OPTIMISTIC LANDING (part 1): for the small / test-pinned tiers the GREEN
+        // mechanical gate IS the landing gate — merge to the epic branch NOW, before the
+        // review node, then review POST-merge. Strictly downstream of a proven-green mech
+        // (the error/fail arms above already returned/branched, so this runs only on
+        // mech.status==='pass'). test-pinned tier: the sha256 immutability of the pinned
+        // spec is part of "green" — a tampered pin must NEVER land, so check it FIRST and
+        // park (pre-merge, no optimistic land) on any violation. Full tier: skipped entirely
+        // (merge stays after review, unchanged). Done once per leaf (!optimisticallyLanded)
+        // so a revise pass never double-merges.
+        if ((smallTier || testPinnedTier) && !optimisticallyLanded) {
+          if (testPinnedTier) {
+            const violations = testPinViolations(
+              testPinBaseline,
+              hashPinnedFiles(cwd, Object.keys(testPinBaseline)),
+            );
+            if (violations.length) {
+              return parkBlocked(
+                `test-pinned-immutability: pinned test file(s) modified: ${violations.join(', ')}`,
+              );
+            }
+          }
+          try {
+            const mergeRes = (await deps.mergeToEpic(
+              sessionKey,
+              epicId,
+              `feat: ${leaf.title ?? leaf.id}`,
+              leaf.id,
+              { declaredFiles, untrackedAtStart },
+            )) as { merged?: boolean; conflict?: boolean; mergeSha?: string } | undefined;
+            if (mergeRes && mergeRes.merged === false) {
+              // Conflict / no-op — the epic branch is untouched. Do NOT set optimistically
+              // landed; park exactly as the post-review merge-failure path does.
+              return parkBlocked(
+                `merge-to-epic-failed (optimistic): conflict=${mergeRes.conflict === true}`,
+              );
+            }
+            optimisticMergeSha = mergeRes?.mergeSha;
+            optimisticallyLanded = true;
+            deps.markMerged?.(leaf.id);
+            try {
+              deps.recordNode({
+                project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                nodeKind: 'optimistic-land', nodesSpent: 0, verdict: 'pass',
+                outcomeDetail: JSON.stringify({ mergeSha: optimisticMergeSha, tier: leaf.tier }),
+                outputText: `optimistic-land: merged ${optimisticMergeSha ?? '(sha?)'} after GREEN mechanical gate, review runs post-merge`,
+              });
+            } catch { /* telemetry — never break the run */ }
+          } catch (e) {
+            if (e instanceof ScopeIncidentError) {
+              deps.escalate({
+                project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
+                questionText:
+                  `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
+                  `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. Nothing was committed.`,
+              });
+              return parkBlocked('scope-incident');
+            }
+            return parkBlocked(
+              `merge-to-epic-failed (optimistic): ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        }
         const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
@@ -2661,6 +2778,17 @@ export async function runLeaf(
       // returned, so at runtime composeVerdict can only yield 'pass' | 'fail' here.
       attemptFinalFindings = findings;
       reviewVerdict = composeVerdict(mech.status, llm) as 'pass' | 'fail';
+      // crit 6 (part 2) POST-LAND REVIEW FAIL → AUTO-REVERT. When this leaf optimistically
+      // landed (small/test-pinned merged before review), a REAL post-merge fault is terminal:
+      // revert the merge and park (parkBlocked owns the revert + reason card). A PROSE-GATE
+      // RETRY is NOT a real fault (proseRetryFindings set ⇒ first-offense synth findings), so
+      // it falls through to the normal revise loop and does NOT revert — only a terminal FAIL
+      // does (part 2 §3). A prose second-offense already parked inside the review block above,
+      // and that park reverts too (parkBlocked). Full tier: optimisticallyLanded is false, so
+      // this is inert and the revise loop is unchanged.
+      if (reviewVerdict === 'fail' && optimisticallyLanded && proseRetryFindings === null) {
+        return parkBlocked(findings || 'post-land review FAIL', reviewVerdict);
+      }
       // A PASS means the work is COMPLETE — accept it regardless of budget. The budget is a
       // runaway guard on doing MORE work, not a reason to DISCARD a finished, passing leaf.
       // (L6: a PASS landed on the node that tripped the budget and was wrongly thrown away
@@ -2690,41 +2818,48 @@ export async function runLeaf(
     }
 
     if (reviewVerdict === 'pass') {
-      // RISK (blueprint §"RISKS"): commit+merge the leaf worktree onto the epic
-      // branch BEFORE proposing acceptance, so the gate's work-committed re-verify
-      // sees committed work — else every PASS downgrades to 'pending'.
-      try {
-        await deps.mergeToEpic(
-          sessionKey,
-          epicId,
-          `feat: ${leaf.title ?? leaf.id}`,
-          leaf.id,
-          { declaredFiles, untrackedAtStart },
-        );
-      } catch (e) {
-        if (e instanceof ScopeIncidentError) {
-          deps.escalate({
-            project,
-            session: sessionKey,
-            kind: 'blocker',
-            todoId: leaf.id,
-            questionText:
-              `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
-              `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. The blueprint's scope is wrong, or a node edited ` +
-              `the wrong files. Nothing was committed.`,
-          });
-          return parkBlocked('scope-incident', reviewVerdict);
+      // crit 6 (part 2 §2 + part 3): an OPTIMISTICALLY-landed leaf is ALREADY merged (before
+      // review) — merge exactly ONCE, so skip this second merge and fall straight through to
+      // the SAME complete/recordOutcome/finishWith bookkeeping a full-tier PASS runs. That
+      // shared terminal path is what makes the accept record landing-order-invariant (the
+      // mission-VERIFY gate reads ground truth + this identical 'accepted' record either way).
+      if (!optimisticallyLanded) {
+        // RISK (blueprint §"RISKS"): commit+merge the leaf worktree onto the epic
+        // branch BEFORE proposing acceptance, so the gate's work-committed re-verify
+        // sees committed work — else every PASS downgrades to 'pending'.
+        try {
+          await deps.mergeToEpic(
+            sessionKey,
+            epicId,
+            `feat: ${leaf.title ?? leaf.id}`,
+            leaf.id,
+            { declaredFiles, untrackedAtStart },
+          );
+        } catch (e) {
+          if (e instanceof ScopeIncidentError) {
+            deps.escalate({
+              project,
+              session: sessionKey,
+              kind: 'blocker',
+              todoId: leaf.id,
+              questionText:
+                `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
+                `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. The blueprint's scope is wrong, or a node edited ` +
+                `the wrong files. Nothing was committed.`,
+            });
+            return parkBlocked('scope-incident', reviewVerdict);
+          }
+          // Merge-back failed (e.g. conflict) → can't safely accept. Park blocked.
+          return parkBlocked(
+            `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
+            reviewVerdict,
+          );
         }
-        // Merge-back failed (e.g. conflict) → can't safely accept. Park blocked.
-        return parkBlocked(
-          `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
-          reviewVerdict,
-        );
+        // Work is now committed onto the epic branch. Flag it durably so a kill in the
+        // narrow window before the gate completes can skip straight to the gate on a
+        // future claim instead of redoing the whole leaf (consumed in slice 2).
+        deps.markMerged?.(leaf.id);
       }
-      // Work is now committed onto the epic branch. Flag it durably so a kill in the
-      // narrow window before the gate completes can skip straight to the gate on a
-      // future claim instead of redoing the whole leaf (consumed in slice 2).
-      deps.markMerged?.(leaf.id);
       const gate = await deps.complete(project, leaf.id, 'accepted');
       const effective = gate.effective ?? 'accepted';
       // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
@@ -2924,6 +3059,10 @@ export async function makeLeafExecutorDeps(
         scope,
         commitBoundaries: manifestSource.manifest?.commitBoundaries,
       }),
+    // crit 6 auto-revert seam: undo one optimistically-landed leaf's merge on the epic
+    // branch (sessionKey/todoId/reason are for the executor's audit card, not the git op).
+    revertEpicMerge: (_sessionKey, eId, _leafId, mergeSha, _reason) =>
+      wm.revertEpicMerge(eId, mergeSha),
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,

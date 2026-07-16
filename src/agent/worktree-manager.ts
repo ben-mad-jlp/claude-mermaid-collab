@@ -77,6 +77,18 @@ export interface MergeBackResult {
   outOfScope?: string[];
 }
 
+/** Result of {@link WorktreeManager.revertEpicMerge}: undo of ONE optimistic merge
+ *  commit on the epic accumulation branch (crit 6 auto-revert). */
+export interface RevertMergeResult {
+  /** The merge was reverted (a new `Revert "…"` commit sits on the epic branch). */
+  reverted: boolean;
+  /** The revert commit sha (reverted === true). */
+  revertSha?: string;
+  /** Failure detail (reverted === false) — e.g. the revert hit a conflict and was aborted,
+   *  leaving the epic branch untouched. */
+  error?: string;
+}
+
 export interface CommitMergeOpts {
   message: string;
   /** Optional todo id → emitted as a `Collab-Todo` trailer on the epic merge commit. */
@@ -1459,6 +1471,53 @@ export class WorktreeManager {
       integrated,
       ...(outOfScopePaths.length > 0 ? { outOfScope: outOfScopePaths } : {}),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // revertEpicMerge — crit 6 auto-revert. Undo ONE optimistically-landed leaf's
+  // --no-ff merge commit on the epic accumulation branch when its POST-merge review
+  // came back a real FAIL. Reverts ONLY that merge commit (`git revert -m 1` picks the
+  // mainline parent, so prior AND subsequent epic commits stay intact); a conflict
+  // aborts, leaving the epic branch untouched. Serialised behind the per-project
+  // worktree lock — a revert on the shared epic worktree must not race a sibling merge.
+  // ---------------------------------------------------------------------------
+  async revertEpicMerge(
+    epicId: string,
+    mergeSha: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<RevertMergeResult> {
+    return this.withWorktreeLock(() => this._revertEpicMergeInner(epicId, mergeSha, opts));
+  }
+
+  private async _revertEpicMergeInner(
+    epicId: string,
+    mergeSha: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<RevertMergeResult> {
+    const epic = await this._ensureEpicInner(epicId);
+    if (!epic) throw new Error('cannot resolve epic worktree (non-git project)');
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    // A --no-ff merge commit has two parents; -m 1 reverts against the mainline (epic)
+    // parent so only the leaf's changes are undone. --no-edit keeps the default
+    // `Revert "<merge subject>"` message (auditable in the branch history).
+    const res = await this.runGit(
+      epic.path,
+      ['revert', '-m', '1', '--no-edit', mergeSha],
+      timeoutMs,
+    );
+    if (res.code !== 0) {
+      // Conflict or other failure — abort so the epic branch stays exactly as it was.
+      await this.runGit(epic.path, ['revert', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
+        code: 0,
+        stdout: '',
+        stderr: '',
+      }));
+      return { reverted: false, error: res.stderr.trim() || `git revert exited ${res.code}` };
+    }
+    let revertSha: string | undefined;
+    const shaRes = await this.runGit(epic.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
+    if (shaRes.code === 0) revertSha = shaRes.stdout.trim() || undefined;
+    return { reverted: true, revertSha };
   }
 
   // ---------------------------------------------------------------------------
