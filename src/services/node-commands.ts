@@ -25,9 +25,18 @@ export interface RecordedCommand {
  *  Flip to 'reject' after A2. One line. */
 export const UNBACKED_CLAIM_POLICY: 'warn' | 'reject' = 'warn';
 
+/** A criterion/claim that names a read-only command AND asserts its ABSENCE result
+ *  (e.g. "grep -c OrchestratorLadder Foo.tsx returns 0"). command = the command to
+ *  match against recorded commands; assertsAbsence = the criterion claims 0 matches. */
+export interface ResultAssertion {
+  command: string;
+  assertsAbsence: boolean;
+}
+
 export interface CommandEvidence {
   escapes: RecordedCommand[];
   unbackedClaims: string[];
+  contradictedClaims: string[];
   reject: boolean;
   reasons: string[];
 }
@@ -155,6 +164,7 @@ export function isCwdEscape(commandCwd: string, worktreeRoot: string): boolean {
  * Parse verification claims from the review text.
  * A claim is a structured line: `- ran: <exact command>`
  * Appears after a `VERIFICATION:` heading in the review text.
+ * Also harvests result-assertion claims from criteria (e.g. "grep returns 0").
  */
 export function parseVerificationClaims(criteria: any[], reviewText: string): string[] {
   const claims: string[] = [];
@@ -182,6 +192,14 @@ export function parseVerificationClaims(criteria: any[], reviewText: string): st
     }
   }
 
+  // Harvest result-assertion claims from criteria
+  for (const c of criteria ?? []) {
+    const t = typeof c === 'string' ? c : (c?.text ?? '');
+    if (typeof t === 'string' && parseResultAssertion(t)) {
+      claims.push(t.trim());
+    }
+  }
+
   return claims;
 }
 
@@ -190,6 +208,28 @@ export function parseVerificationClaims(criteria: any[], reviewText: string): st
  */
 function normalizeCommand(cmd: string): string {
   return cmd.replace(/\s+/g, ' ').trim();
+}
+
+/** Absence phrasing: "returns 0", "→ 0", "0 matches", "no matches", "exits non-zero". */
+const ABSENCE_RESULT =
+  /(?:returns?\s+0|→\s*0|produces?\s+0|0\s+match(?:es)?|no\s+match(?:es)?|exits?\s+non-?zero)/i;
+
+/** Detect a grep/rg count command paired with an absence assertion inside one line of
+ *  text. Returns the extracted command + assertsAbsence, or null when the text is not a
+ *  result-assertion claim (leaves every existing plain "ran:" claim on the old path). */
+export function parseResultAssertion(text: string): ResultAssertion | null {
+  if (!ABSENCE_RESULT.test(text)) return null;
+  // Prefer a backticked command; else grab the grep/rg invocation up to the assertion phrase.
+  const backtick = text.match(/`([^`]*\b(?:grep|rg|git\s+grep)\b[^`]*)`/i);
+  let command = backtick?.[1];
+  if (!command) {
+    const inline = text.match(
+      /\b((?:grep|rg|git\s+grep)\b[^`\n]*?)(?=\s+(?:returns?|→|produces?|0\s+match|no\s+match|exits?\s+non|,|;|\.|$))/i,
+    );
+    command = inline?.[1];
+  }
+  if (!command || !command.trim()) return null;
+  return { command: command.trim(), assertsAbsence: true };
 }
 
 /**
@@ -218,7 +258,8 @@ export function escapeIsFatal(cmd: string): boolean {
 /**
  * Evaluate command evidence against recorded commands and reviewer claims.
  * Returns escapes and unbacked claims; reject iff a VERIFICATION-command escape exists OR policy
- * is 'reject' and claims are unbacked. A read-only diagnostic escape is recorded but non-fatal.
+ * is 'reject' and claims are unbacked, OR a result-assertion claim is contradicted by the
+ * recorded exitCode. A read-only diagnostic escape is recorded but non-fatal.
  */
 export function evaluateCommandEvidence(opts: {
   commands: RecordedCommand[];
@@ -227,6 +268,7 @@ export function evaluateCommandEvidence(opts: {
 }): CommandEvidence {
   const { commands, claims, worktreeRoot } = opts;
   const escapes: RecordedCommand[] = [];
+  const contradictedClaims: string[] = [];
   const reasons: string[] = [];
 
   // A verification escape only fakes evidence if the work was NEVER verified in the worktree.
@@ -254,9 +296,25 @@ export function evaluateCommandEvidence(opts: {
     }
   }
 
-  // Check for unbacked claims
+  // Check claims: branch on result-assertion vs plain claim path
   const unbackedClaims: string[] = [];
   for (const claim of claims) {
+    const ra = parseResultAssertion(claim);
+    if (ra) {
+      const rec = commands.find((cmd) => claimMatches(ra.command, cmd));
+      if (!rec) {
+        unbackedClaims.push(claim);
+        reasons.push(`claim unbacked: no recorded command matched "${ra.command}"`);
+      } else if (ra.assertsAbsence && rec.exitCode === 0) {
+        // Command RAN but MATCHED (exit 0) — the asserted absence is FALSE.
+        contradictedClaims.push(claim);
+        reasons.push(
+          `claim contradicted: "${claim}" asserts absence but recorded "${rec.cmd}" exits 0 (matches found)`,
+        );
+      }
+      // else: recorded command exited non-zero → absence BACKED → nothing to record.
+      continue;
+    }
     const matched = commands.some((cmd) => claimMatches(claim, cmd));
     if (!matched) {
       unbackedClaims.push(claim);
@@ -264,7 +322,10 @@ export function evaluateCommandEvidence(opts: {
     }
   }
 
-  const reject = escapes.length > 0 || (UNBACKED_CLAIM_POLICY === 'reject' && unbackedClaims.length > 0);
+  const reject =
+    escapes.length > 0 ||
+    contradictedClaims.length > 0 ||
+    (UNBACKED_CLAIM_POLICY === 'reject' && unbackedClaims.length > 0);
 
-  return { escapes, unbackedClaims, reject, reasons };
+  return { escapes, unbackedClaims, contradictedClaims, reject, reasons };
 }
