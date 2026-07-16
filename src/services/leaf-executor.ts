@@ -44,7 +44,8 @@ import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-prop
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
-import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
+import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
+import { recordFriction } from './friction-store';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
@@ -74,6 +75,41 @@ export function makeCitationExists(root: string): (path: string, line: number) =
     }
     return n >= 0 && line >= 1 && line <= n;
   };
+}
+
+/** RETRY MODEL LADDER: a fresh attempt after a review FAIL re-runs implement one tier UP
+ *  (haiku→sonnet, sonnet→opus) instead of rolling the same dice twice — the leaf that
+ *  needed it: 6d67a801 burned 7 review cycles on haiku for executor control-flow surgery.
+ *  Non-Claude lanes (grok-*, composer-*) and already-opus never ladder; attempt 1 never
+ *  ladders (per-kind pins stay authoritative for the first try). Pure; exported for test. */
+export function escalateImplementModel(model: string, attempt: number): string {
+  if (attempt < 2) return model;
+  const m = model.toLowerCase();
+  if (m.includes('haiku')) return 'sonnet';
+  if (m.includes('sonnet')) return 'opus';
+  return model;
+}
+
+/** SAME-WALL detector: are two review findings substantially the SAME findings?
+ *  Line-set overlap after normalization (lowercase, digits→# so shifted line numbers
+ *  don't defeat the match, short/empty lines dropped) ≥ 0.5 of the smaller set.
+ *  Used (a) inside the revise loop — the old exact-equality isRepeat missed findings
+ *  that drift textually while saying the same thing, and (b) across fresh attempts —
+ *  a repeat wall parks with a reason that names the FORK (stronger tier / new-todo
+ *  re-spec / hand-build) instead of a generic cap-exhausted. Pure; exported for test. */
+export function sameReviewWall(a: string, b: string): boolean {
+  const norm = (t: string): Set<string> =>
+    new Set(
+      t.toLowerCase().split('\n')
+        .map((l) => l.replace(/\d+/g, '#').trim())
+        .filter((l) => l.length > 8),
+    );
+  const A = norm(a);
+  const B = norm(b);
+  if (A.size === 0 || B.size === 0) return false;
+  let inter = 0;
+  for (const l of A) if (B.has(l)) inter += 1;
+  return inter / Math.min(A.size, B.size) >= 0.5;
 }
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
@@ -1687,7 +1723,8 @@ export async function runLeaf(
     const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
-      model: nodeModel(kind),
+      // Retry ladder: attempt ≥2 implement runs one tier up (see escalateImplementModel).
+      model: kind === 'implement' ? escalateImplementModel(nodeModel(kind), state.attempt) : nodeModel(kind),
       effort: nodeEffort(kind),
       allowedTools: NODE_PROFILE[kind].allowedTools,
       // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
@@ -1989,6 +2026,11 @@ export async function runLeaf(
     return parkBlocked(reason);
   }
 
+  // Friction 552f95c2: the latest attempt's write-leak snapshot + lane cwd, hoisted so the
+  // ABORT path (outer LeafAborted catch) can sweep leaked main-checkout writes too — a run
+  // killed mid-implement otherwise never sweeps, and later runs grandfather its leak forever.
+  let lastRootSnap: { cwd: string; snap: RootSnapshot } | null = null;
+
   // Cooperative abort: everything past this point can spawn nodes via `runNode`, which
   // throws LeafAborted at either node boundary once the daemon has stopped the run
   // (ancestor drop / hold / claim loss). Catch it here — a SINGLE funnel for every
@@ -2050,6 +2092,9 @@ export async function runLeaf(
   let groundingNote: string | undefined;
   // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive constraint id.
   let constraintCiteNote: string | undefined;
+  // SAME-WALL-TWICE: the final review findings of the PREVIOUS failed attempt — a fresh
+  // attempt that dies on substantially the same findings parks with the fork named.
+  let lastAttemptFindings = '';
 
   // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
   // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
@@ -2301,6 +2346,7 @@ export async function runLeaf(
     // the main repo root (gitlink/common-dir root detection) instead of this worktree.
     let rootSnap: RootSnapshot | null = null;
     try { rootSnap = snapshotMainCheckout(cwd); } catch { /* best-effort */ }
+    if (rootSnap) lastRootSnap = { cwd, snap: rootSnap };
 
     // G12: Snapshot untracked files BEFORE the first writing node so we can later
     // distinguish files the leaf created (new) from pre-existing junk.
@@ -2311,6 +2357,25 @@ export async function runLeaf(
       ...(manifest ? [...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)] : []),
       ...parseDeclaredScope(leaf.description),
     ])];
+
+    // Friction 552f95c2: pre-existing MAIN-checkout dirt inside this leaf's declared scope is
+    // prior-attempt leak debris (a killed run never swept) — quarantine + restore the root now,
+    // or every later snapshot grandfathers it forever. Loud: warn + friction, never silent.
+    if (rootSnap && rootSnap.root) {
+      try {
+        const quarantineDir = join(rootSnap.root, '.collab', 'leak-quarantine', `${leaf.id.slice(0, 8)}-a${state.attempt}`);
+        const reclaimed = reclaimPreDirtyScopeOverlap(cwd, rootSnap, declaredFiles, quarantineDir);
+        if (reclaimed.length) {
+          console.warn(`[leaf-executor] main-checkout leak DEBRIS reclaimed (${reclaimed.join(', ')}) — dirty content quarantined at ${quarantineDir}, root restored to HEAD`);
+          recordFriction(project, {
+            layer: 'orchestration',
+            retryReason: 'main-checkout-leak-debris-reclaimed',
+            todoId: leaf.id,
+            detail: `Pre-existing dirty tracked files in the MAIN checkout overlapped this leaf's declared scope (prior-attempt write-leak, never swept because that run was killed/dropped). Reclaimed: ${reclaimed.join(', ')}. Dirty content quarantined at ${quarantineDir}; main checkout restored to HEAD. If a HUMAN was editing these files, recover from the quarantine.`,
+          }).catch(() => { /* friction is telemetry — never break the run */ });
+        }
+      } catch { /* never break the run on the mitigation */ }
+    }
 
     // WAVES RETIRED (2026-07-08): every claimed leaf runs LINEAR (FLOOR). A leaf too big
     // for one linear run (> SPLIT_CEILING = FILE_THRESHOLD enumerated files) was already
@@ -2349,6 +2414,9 @@ export async function runLeaf(
     let reviewVerdict: 'pass' | 'fail';
     let reuses = 0;
     let prevFindings = '';
+    // The FINAL findings this attempt produced (captured each review cycle) — read by the
+    // cross-attempt SAME-WALL check after the revise loop, where `findings` is out of scope.
+    let attemptFinalFindings = '';
     for (;;) {
       // Relocate any files the implement/wimplement/fix nodes leaked to the MAIN checkout
       // back into THIS worktree before the review node runs `git status` here — otherwise a
@@ -2498,6 +2566,7 @@ export async function runLeaf(
       // gate is red (the 84048309 shape).
       // mech.status/llm are statically 'error'-typed but both 'error' arms above already
       // returned, so at runtime composeVerdict can only yield 'pass' | 'fail' here.
+      attemptFinalFindings = findings;
       reviewVerdict = composeVerdict(mech.status, llm) as 'pass' | 'fail';
       // A PASS means the work is COMPLETE — accept it regardless of budget. The budget is a
       // runaway guard on doing MORE work, not a reason to DISCARD a finished, passing leaf.
@@ -2506,7 +2575,7 @@ export async function runLeaf(
       if (reviewVerdict === 'pass') break;
       // FAILED → we'd spend MORE nodes remediating. NOW gate on the budget.
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-      const isRepeat = findings !== '' && findings === prevFindings;
+      const isRepeat = findings !== '' && (findings === prevFindings || sameReviewWall(prevFindings, findings));
       if (reuses >= REVISE_REUSE_CAP || isRepeat) break; // exhausted / stuck → fresh attempt
       reuses += 1;
       prevFindings = findings;
@@ -2576,13 +2645,33 @@ export async function runLeaf(
     }
 
     // REVIEW FAIL → next fresh attempt, unless the cap is exhausted.
+    // SAME-WALL-TWICE first: if this attempt died on substantially the SAME findings as the
+    // last one, more attempts are noise — park with the FORK named so the conductor knows
+    // whether to reach for a stronger tier, a NEW-todo re-spec, or a hand-build. (Checked
+    // before the cap so the reason is the informative one, not generic cap-exhausted.)
+    if (lastAttemptFindings && sameReviewWall(lastAttemptFindings, attemptFinalFindings)) {
+      return parkBlocked(
+        'same-wall-twice: review findings repeat across fresh attempts — a different approach is needed (stronger implement tier / re-spec via a NEW todo id / hand-build), not another retry',
+        reviewVerdict,
+      );
+    }
     if (isLastAttempt) return parkBlocked('attempt-cap-exhausted', reviewVerdict);
+    lastAttemptFindings = attemptFinalFindings;
   }
 
   // Unreachable in practice (the loop returns), but keeps the type total.
   return parkBlocked('attempt-cap-exhausted');
   } catch (e) {
     if (e instanceof LeafAborted) {
+      // Friction 552f95c2: a run aborted mid-implement never reached the post-implement
+      // sweep — sweep NOW so its leaked main-checkout writes don't become permanent debris
+      // that later snapshots grandfather in. Idempotent (status-diff based); best-effort.
+      if (lastRootSnap) {
+        try {
+          const swept = sweepLeakedWrites(lastRootSnap.cwd, lastRootSnap.snap);
+          if (swept.length) console.warn(`[leaf-executor] abort-path write-leak sweep relocated ${swept.length} file(s): ${swept.slice(0, 5).join(', ')}${swept.length > 5 ? ', …' : ''}`);
+        } catch { /* never break the abort on the mitigation */ }
+      }
       recordOutcome('aborted', null, { reason: e.abortReason ?? undefined });
       return finishWith({ outcome: 'aborted', attempts: state.attempt, nodesSpent: state.nodesSpent, reason: e.abortReason ?? undefined });
     }

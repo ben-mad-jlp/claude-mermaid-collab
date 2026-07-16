@@ -26,6 +26,8 @@ import {
   NODE_PROFILE,
   IMPLEMENT_TIMEOUT_MS,
   makeCitationExists,
+  escalateImplementModel,
+  sameReviewWall,
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
@@ -2727,3 +2729,53 @@ describe('small-tier leaf execution (zero opus, skip blueprint, demote review)',
   });
 });
 
+
+describe('escalateImplementModel (retry ladder)', () => {
+  it('attempt 1 never ladders; attempt 2 bumps one tier; opus and non-Claude lanes never ladder', () => {
+    expect(escalateImplementModel('haiku', 1)).toBe('haiku');
+    expect(escalateImplementModel('haiku', 2)).toBe('sonnet');
+    expect(escalateImplementModel('sonnet', 2)).toBe('opus');
+    expect(escalateImplementModel('opus', 2)).toBe('opus');
+    expect(escalateImplementModel('claude-haiku-4-5-20251001', 2)).toBe('sonnet');
+    expect(escalateImplementModel('grok-build-0.1', 2)).toBe('grok-build-0.1');
+    expect(escalateImplementModel('composer-2.5', 2)).toBe('composer-2.5');
+  });
+});
+
+describe('sameReviewWall (fuzzy repeat-findings detector)', () => {
+  it('matches findings that drift in line numbers and case but say the same thing', () => {
+    const a = '1. [UNMET] retry path clobbers findings — leaf-executor.ts:2506\n2. [UNMET] breaks review-vacuous test at :519';
+    const b = '1. [UNMET] Retry path clobbers findings — leaf-executor.ts:2511\n2. [UNMET] breaks review-vacuous test at :528';
+    expect(sameReviewWall(a, b)).toBe(true);
+  });
+  it('does not match genuinely different findings or empty text', () => {
+    expect(sameReviewWall('the gate command is wrong for ui tests', 'missing null guard in resume decision path')).toBe(false);
+    expect(sameReviewWall('', 'anything here at all')).toBe(false);
+  });
+});
+
+describe('same-wall-twice cross-attempt park', () => {
+  it('two attempts dying on IDENTICAL findings park as same-wall-twice, not cap-exhausted', async () => {
+    // identical finding text across both attempts (and within each attempt, so the
+    // in-revise isRepeat bails each attempt after one reuse)
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — the retry path clobbers findings', 'VERDICT: FAIL — the retry path clobbers findings',
+                       'VERDICT: FAIL — the retry path clobbers findings', 'VERDICT: FAIL — the retry path clobbers findings'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('same-wall-twice');
+  });
+
+  it('attempt-2 implement runs one model tier up (retry ladder end-to-end)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — alpha wall', 'VERDICT: FAIL — beta wall', 'VERDICT: FAIL — gamma wall', 'VERDICT: FAIL — delta wall'],
+    });
+    await runLeaf('proj', makeLeaf(), deps);
+    const implSpecs = spies.invokeSpecs.filter((sp) => (sp.allowedTools ?? '').includes('Edit'));
+    const attempt1 = implSpecs[0];
+    const attempt2 = implSpecs.find((sp) => sp.model !== attempt1.model);
+    expect(attempt1.model).toBe(NODE_PROFILE.implement.model); // sonnet on attempt 1
+    expect(attempt2?.model).toBe('opus'); // laddered on attempt 2
+  });
+});

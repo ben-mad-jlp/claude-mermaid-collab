@@ -75,6 +75,8 @@ Exercising the app to *ground* gaps (driving the browser, running the CLI, readi
 
 **A finding is not a spec.** When VERIFY hands you a finding ("the config is missing this key"), you write the leaf — and you name the plausible-looking wrong fix in the leaf spec, because the builder will find it first and waste time on it. A reviewer's job ends at "here is what is wrong, with evidence". Converting that into "here is what to build" is the conductor's job.
 
+**A bootstrap trap gets a hand, not a third leaf.** A leaf that repairs pipeline machinery X and has FAILED TWICE through X (rejected/parked leaves, not infra flakes) is in a bootstrap trap — the broken machinery cannot be trusted to fix itself, and each re-file pays full price to hit the same wall. Stop re-filing: flag it for a HAND-BUILD (the steward/human EnterWorktree path — the same rule mission-forge applies before a mission starts, extended to mid-mission). A `same-wall-twice` park is this signal arriving early; read its named fork (stronger tier / NEW-todo re-spec / hand-build) instead of defaulting to retry.
+
 **Approval is publication.** The daemon claims a `ready` todo within seconds. A spec edited after the claim never reaches the builder. Finalize the leaf before you run `update_session_todo status=ready`. To revise after a claim: `reset_todo`, edit, re-approve.
 
 ## Anti-patterns (you are doing it wrong if…)
