@@ -21,7 +21,7 @@ import { addSessionTodo } from './tools/session-todos.js';
  * array in setup.ts via `...MISSION_TOOL_DEFS`.
  */
 export const MISSION_TOOL_DEFS = [
-      { name: 'create_mission', description: "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — do not prefix it. The role lives in the `kind` column and is rendered by the UI.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, budgetUsd: { type: 'number', description: 'Optional per-mission USD budget ceiling (null = project default).' } }, required: ['project', 'session', 'title'] } },
+      { name: 'create_mission', description: "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — do not prefix it. The role lives in the `kind` column and is rendered by the UI.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, budgetUsd: { type: 'number', description: 'Optional per-mission USD budget ceiling (null = project default).' }, handoffDocId: { type: 'string', description: "Optional handoff/brief DOCUMENT id (session doc) — the mission's constitution: locked constraints, sequencing rationale, out-of-scope list. Stored on the mission row so the conductor resolves it durably instead of by description-text convention." } }, required: ['project', 'session', 'title'] } },
       { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' } }, required: ['project', 'todoId'] } },
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
@@ -40,9 +40,9 @@ export const MISSION_TOOL_DEFS = [
 export async function handleMissionTool(name: string, args: any): Promise<string | null> {
   switch (name) {
     case 'create_mission': {
-      const { project, session, title, description, criteria, budgetUsd } = args as {
+      const { project, session, title, description, criteria, budgetUsd, handoffDocId } = args as {
         project: string; session: string; title: string; description?: string; criteria?: string[];
-        budgetUsd?: number | null;
+        budgetUsd?: number | null; handoffDocId?: string | null;
       };
       if (!project || !session || !title) throw new Error('Missing required: project, session, title');
       // Store the BARE goal. `kind` is the only role signal (stage C, decision e852fb0c);
@@ -56,7 +56,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         kind: 'mission',
         assigneeSession: session, description,
       });
-      upsertMission(project, node.id, { budgetUsd: budgetUsd ?? null });
+      upsertMission(project, node.id, { budgetUsd: budgetUsd ?? null, handoffDocId: handoffDocId ?? null });
       // One-active-per-session: if this session is already driving an active mission,
       // create the new one INACTIVE (don't steal focus). Otherwise it stays active.
       if (sessionHasActiveMission(project, session, node.id)) setMissionActive(project, node.id, false);
