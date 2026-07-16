@@ -50,6 +50,7 @@ import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFinding
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
+import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
@@ -191,6 +192,16 @@ export interface LeafExecutorDeps {
   resolveProposal?: (escalationId: string, status: string, resolvedBy?: 'ai' | 'human') => void;
   /** Append a best-effort node-ledger row. */
   recordNode: typeof recordNode;
+  /** SEAM (crit-5): persist each G3 / citability gate evaluation to the per-project
+   *  replay corpus. Best-effort telemetry — unwired in tests/floor; a throw NEVER
+   *  breaks the run. Called from the executor, NEVER from the pure validate* fns. */
+  recordGateEval?: (project: string, input: RecordGateEvalInput) => Promise<unknown>;
+  /** Per-project SHADOW MODE: when true, gate evals are still recorded but a
+   *  vacuous (G3) / uncitable (citability) verdict is RECORD-ONLY — the leaf does
+   *  NOT parkBlocked. abstain/error incidents are infra and are never suppressed.
+   *  Default reader is () => false; the sibling harness leaf replaces the factory
+   *  default with the runtime-config reader. */
+  gateShadowMode?: (project: string) => boolean;
   /** LIVE in-flight signal (optional): mark/clear the leaf as running a node so separate
    *  processes (UI, MCP, daemon_status) can see "on node X, Ns elapsed". Best-effort; the
    *  floor/tests run fine unwired. */
@@ -2146,6 +2157,16 @@ export async function runLeaf(
       ? [...new Set([...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)])]
       : [];
     let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria);
+    try {
+      await deps.recordGateEval?.(project, {
+        gate: 'citability',
+        leafId: leaf.id,
+        inputText: blueprintBody,
+        changeSet: declaredForCriteria,
+        verdict: citability.status,
+        reasons: citability.reasons.join('; '),
+      });
+    } catch { /* replay corpus is telemetry — never break the run */ }
     if (citability.status === 'uncitable') {
       // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
       // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
@@ -2184,8 +2205,19 @@ export async function runLeaf(
           ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
           : [];
         citability = validateCriteriaCitability(reBody, redeclaredForCriteria);
+        try {
+          await deps.recordGateEval?.(project, {
+            gate: 'citability',
+            leafId: leaf.id,
+            inputText: reBody,
+            changeSet: redeclaredForCriteria,
+            verdict: citability.status,
+            reasons: citability.reasons.join('; '),
+          });
+        } catch { /* replay corpus is telemetry — never break the run */ }
       }
-      if (citability.status === 'uncitable') {
+      const bpShadow = deps.gateShadowMode?.(project) ?? false;
+      if (citability.status === 'uncitable' && !bpShadow) {
         try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
         return parkBlocked(`blueprint-uncitable-criterion: ${citability.reasons.join('; ')}`);
       }
@@ -2393,6 +2425,17 @@ export async function runLeaf(
           const grounding = validateReviewGrounding(review.text ?? '', cs, {
             citationExists: makeCitationExists(cwd),
           });
+          try {
+            await deps.recordGateEval?.(project, {
+              gate: 'g3',
+              leafId: leaf.id,
+              inputText: review.text ?? '',
+              changeSet: cs ?? [],
+              verdict: grounding.status,
+              reasons: grounding.reasons.join('; '),
+            });
+          } catch { /* replay corpus is telemetry — never break the run */ }
+          const shadow = deps.gateShadowMode?.(project) ?? false;
           if (grounding.retainedMode && grounding.status === 'ok') {
             groundingNote = grounding.reasons[0]; // 'retained mode …' — auditable, non-fatal
           }
@@ -2404,7 +2447,7 @@ export async function runLeaf(
             // leaves B1/A*). Absence/non-goal criteria are NOT deferred — the reviewer marks those
             // [N/A]; auto-exempting them would false-pass a real negative check ("no regression").
             const deferToEvidence = uncitedCriteriaAreAllCommandResults(grounding.criteria, cs ?? []);
-            if (!deferToEvidence) {
+            if (!deferToEvidence && !shadow) {
               try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
               return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
             }
@@ -2684,6 +2727,11 @@ export async function makeLeafExecutorDeps(
     awaitSplitDecision,
     resolveProposal: resolveEscalation,
     recordNode,
+    // Replay corpus (crit-5): persist every G3 / citability evaluation. Best-effort.
+    recordGateEval: (p, input) => recordGateEval(p, input),
+    // Shadow mode default OFF. The sibling harness leaf replaces this with the
+    // runtime-config per-project reader; until then the gates behave exactly as before.
+    gateShadowMode: () => false,
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,
     persistResume: recordLeafResume,
