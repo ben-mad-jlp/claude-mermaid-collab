@@ -97,3 +97,24 @@ describe('runNotificationTick', () => {
     expect(listSubscriptionsForSession(P, 's1')).toEqual([]); // epic terminal → sub expired
   });
 });
+
+describe('re-announce nag (undrained inbox)', () => {
+  it('second re-announce of the SAME undrained queue carries the inbox()-is-the-ack warning', async () => {
+    addSubscription(P, 's1', 'project');
+    const before = [todo('a', { status: 'ready', kind: 'leaf' })];
+    await runNotificationTick(P, deps(before, 1000)); // seed
+    const after = [todo('a', { status: 'done', kind: 'leaf' })];
+    await runNotificationTick(P, deps(after, 2000)); // first nudge (growth) — no nag
+    expect(nudges[0].text).not.toContain('RE-ANNOUNCING');
+    // never drained; advance past the first re-announce backoff → re-announce #1 (no nag yet)
+    const t2 = 2000 + MIN_NUDGE_INTERVAL_MS + 10 * 60 * 1000;
+    await runNotificationTick(P, deps(after, t2));
+    // advance past the doubled backoff → re-announce #2 carries the nag
+    const t3 = t2 + MIN_NUDGE_INTERVAL_MS + 40 * 60 * 1000;
+    await runNotificationTick(P, deps(after, t3));
+    expect(nudges.length).toBeGreaterThanOrEqual(3);
+    const last = nudges[nudges.length - 1].text;
+    expect(last).toContain('RE-ANNOUNCING');
+    expect(last).toContain('inbox() is the acknowledgement');
+  });
+});

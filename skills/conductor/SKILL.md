@@ -65,6 +65,8 @@ The daemon **builds AND lands** green epics. The conductor **never lands**. You 
 
 You are nudged by the server's mission-loop pass (idle-gated, ~once per 15 min per mission; re-nudged when the open-gap count changes). Each nudge is stamped `[HH:MM TZ]`. A nudge is a prompt to act on the *current* per-criterion actions — not a new task.
 
+**📥 subscription nudges: drain FIRST — `inbox()` is the acknowledgement.** A `📥 N updates — call inbox()` nudge lists a few summaries as a preview, but the queue only clears when you CALL `inbox { project, session }`. Acting on the preview without draining means the SAME updates re-announce forever (they are unseen until pulled) and the queue grows unbounded. On every 📥 nudge: `inbox()` first, then act on what it returns.
+
 ## Interactive exercise is fine; implementation is not
 
 Exercising the app to *ground* gaps (driving the browser, running the CLI, reading code, running tests) is core to discovery — do it freely. What you must not do is **write the feature/fix yourself**. If a one-off spike genuinely needs hand-code, that is a leaf for the daemon, or an explicit `EnterWorktree` opt-in you flag to the human — not silent editing on the main checkout. The L1 land guard is the backstop.
