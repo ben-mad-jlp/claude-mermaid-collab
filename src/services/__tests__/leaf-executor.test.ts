@@ -128,6 +128,7 @@ interface Spies {
   inflightSeq: string[];
   /** Captured recordNode calls. */
   nodeRows: Array<any>;
+  gateEvals: Array<any>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -144,6 +145,7 @@ function makeDeps(opts: {
   ensureBaseGreen?: LeafExecutorDeps['ensureBaseGreen'];
   // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
   changeSet?: string[] | null;
+  gateShadowMode?: boolean;
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -158,6 +160,7 @@ function makeDeps(opts: {
     seq: [],
     inflightSeq: [],
     nodeRows: [],
+    gateEvals: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -230,6 +233,8 @@ function makeDeps(opts: {
     runGate: opts.runGate,
     ensureBaseGreen: opts.ensureBaseGreen,
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
+    recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
+    gateShadowMode: () => opts.gateShadowMode ?? false,
   };
   return { deps, spies };
 }
@@ -1655,6 +1660,7 @@ function makeVerifyDeps(opts: {
     seq: [] as Spies['seq'],
     inflightSeq: [] as Spies['inflightSeq'],
     nodeRows: [] as Spies['nodeRows'],
+    gateEvals: [] as Spies['gateEvals'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
@@ -1705,6 +1711,8 @@ function makeVerifyDeps(opts: {
     },
     escalate(input) { spies.escalations.push({ kind: input.kind, questionText: input.questionText }); },
     recordNode: () => null,
+    recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
+    gateShadowMode: () => false,
     async readArtifact(_cwd, relPath) {
       if (relPath.endsWith('.result.json')) return opts.resultJson;
       if (relPath.endsWith('.plan.json')) return opts.planJson;
@@ -2637,5 +2645,53 @@ describe('makeCitationExists (G3 worktree citation predicate)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('replay-corpus recording (G3 + citability)', () => {
+  it('G3 on PASS records the grounding verdict + change-set', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion 1 — src/foo.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/foo.ts', 'src/bar.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Assert G3 eval was recorded
+    const g3Eval = spies.gateEvals.find((e) => e.gate === 'g3');
+    expect(g3Eval).toBeDefined();
+    expect(typeof g3Eval.verdict).toBe('string');
+    expect(Array.isArray(g3Eval.changeSet)).toBe(true);
+    expect(g3Eval.changeSet).toEqual(['src/foo.ts', 'src/bar.ts']);
+  });
+
+  it('citability records at blueprint time', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Assert citability eval was recorded (fires on every run, pre-implement)
+    const citabilityEval = spies.gateEvals.find((e) => e.gate === 'citability');
+    expect(citabilityEval).toBeDefined();
+    expect(typeof citabilityEval.verdict).toBe('string');
+  });
+
+  it('shadow-on: a vacuous verdict records but does NOT park', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'], // No criteria = vacuous grounding
+      changeSet: [],
+      gateShadowMode: true,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Assert G3 eval with 'vacuous' verdict was recorded
+    const g3Eval = spies.gateEvals.find((e) => e.gate === 'g3' && e.verdict === 'vacuous');
+    expect(g3Eval).toBeDefined();
+
+    // Verify the run was accepted (not parked with review-vacuous)
+    expect(res.reason ?? '').not.toContain('review-vacuous');
   });
 });
