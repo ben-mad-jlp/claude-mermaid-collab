@@ -22,6 +22,7 @@
 
 import { join, isAbsolute } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -75,6 +76,43 @@ export function makeCitationExists(root: string): (path: string, line: number) =
     }
     return n >= 0 && line >= 1 && line <= n;
   };
+}
+
+/** LeafTier 'test-pinned' CODE-level immutability predicate: which declared-scope paths
+ *  are the pinned executable spec (design-grok-worker-discipline §2.3, TestSpecSchema —
+ *  "authored as the spec … must NOT weaken"). Pure; exported for test. */
+export function isTestPinnedPath(path: string): boolean {
+  return /(^|\/)__tests__\//.test(path) || /\.(test|spec)\.[A-Za-z0-9]+$/.test(path);
+}
+
+/** sha256 of each file's on-disk content under `cwd`, keyed by its declared (relative)
+ *  path. A missing/unreadable file hashes to null — that is a legitimate baseline state
+ *  (nothing pinned yet), never a throw. Pure I/O helper; exported for test. */
+export function hashPinnedFiles(cwd: string, files: string[]): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const f of files) {
+    try {
+      out[f] = createHash('sha256').update(readFileSync(join(cwd, f))).digest('hex');
+    } catch {
+      out[f] = null;
+    }
+  }
+  return out;
+}
+
+/** Diff two {@link hashPinnedFiles} snapshots of the SAME key set and return the paths
+ *  whose content changed. A file with no baseline hash (didn't exist yet) is never a
+ *  violation — only an EXISTING pinned test can be weakened. Pure; exported for test. */
+export function testPinViolations(
+  before: Record<string, string | null>,
+  after: Record<string, string | null>,
+): string[] {
+  const violations: string[] = [];
+  for (const [file, beforeHash] of Object.entries(before)) {
+    if (beforeHash === null) continue;
+    if (after[file] !== beforeHash) violations.push(file);
+  }
+  return violations;
 }
 
 /** RETRY MODEL LADDER: a fresh attempt after a review FAIL re-runs implement one tier UP
@@ -2384,6 +2422,15 @@ export async function runLeaf(
     // ~27 nodes / ~63%). The rare non-enumerable-big or many-task leaf that dodged the
     // split also runs linear (fail-safe). (The old runWaves/buildWavePrompt/wavesBudget/
     // shouldUseFloor machinery was deleted in the WAVES dead-code sweep.)
+    // LeafTier 'test-pinned' CODE-level immutability (41779cf0): the leaf's declared
+    // test file(s) are the pinned executable spec — hash them BEFORE implement runs so
+    // the merge-time check below can catch a weakened/edited pin structurally, never by
+    // relying on a prompt-level ban (a ban in a leaf spec is decoration).
+    const testPinnedTier = leaf.tier === 'test-pinned';
+    const testPinBaseline = testPinnedTier
+      ? hashPinnedFiles(cwd, declaredFiles.filter(isTestPinnedPath))
+      : {};
+
     pathTaken = 'floor';
     // IMPLEMENT (byte-identical to the prior FLOOR path):
     let impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
@@ -2583,6 +2630,17 @@ export async function runLeaf(
       if (fix.rateLimited) return pausedResult('implement', fix);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
       // loop → re-review the surgically-fixed tree
+    }
+
+    // LeafTier 'test-pinned' CODE-level immutability gate: a review PASS is never
+    // sufficient — the reviewer judges correctness, not whether the pinned spec itself
+    // was weakened. Checked structurally here, independent of and BEFORE the merge, so
+    // an edited/deleted pin can never reach the epic branch.
+    if (testPinnedTier && reviewVerdict === 'pass') {
+      const violations = testPinViolations(testPinBaseline, hashPinnedFiles(cwd, Object.keys(testPinBaseline)));
+      if (violations.length) {
+        return parkBlocked(`test-pinned-immutability: pinned test file(s) modified: ${violations.join(', ')}`, reviewVerdict);
+      }
     }
 
     if (reviewVerdict === 'pass') {
