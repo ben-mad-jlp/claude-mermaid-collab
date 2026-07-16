@@ -458,12 +458,15 @@ export function setProjectDigestEnabled(project: string, on: boolean): void {
     .run(on ? 1 : 0, project);
 }
 
-/** Per-project retry-context injection flag (default OFF). */
+/** Per-project retry-context injection flag. Default ON (6d67a801 lesson): unset/NULL reads
+ *  true — payload B is self-gating (emits ONLY on attempt ≥2 with a real prior failure,
+ *  ~500-token cap), and an attempt-2 node blind to why attempt 1 failed walks into the same
+ *  traps at full price. An explicit 0 (human toggled off) is honored. */
 export function getPromptInjectRetryContext(project: string): boolean {
   const d = openDb();
   const row = d.query('SELECT promptInjectRetryContext FROM watched_project WHERE project = ?')
     .get(project) as { promptInjectRetryContext: number | null } | undefined;
-  return !!row?.promptInjectRetryContext;
+  return row?.promptInjectRetryContext == null ? true : !!row.promptInjectRetryContext;
 }
 export function setPromptInjectRetryContext(project: string, on: boolean): void {
   const d = openDb();
