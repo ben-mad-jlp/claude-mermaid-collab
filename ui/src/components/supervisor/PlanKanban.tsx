@@ -52,6 +52,11 @@ const BUCKET_CARD: Record<FunnelKey, string> = {
   done: 'border-success-300 dark:border-success-700 bg-success-50 dark:bg-success-900/20',
 };
 
+// Dropped todos get their OWN distinct, faded look — clearly different from backlog
+// (gray, live) and from the funnel buckets: a muted rose with reduced opacity signals
+// "cancelled / not coming back".
+const DROPPED_CARD = 'border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 opacity-60';
+
 const TERMINAL = new Set(['done', 'dropped']);
 
 /**
@@ -102,17 +107,20 @@ function PlanCard({
 }) {
   const [open, setOpen] = useState(false);
   const bucket = liveBucketTodo(todo, byId, inflightLeafIds) ?? 'backlog';
+  const isDropped = todo.status === 'dropped';
+  const cardColor = isDropped ? DROPPED_CARD : BUCKET_CARD[bucket];
   const depCount = todo.dependsOn?.length ?? 0;
   return (
     <div className="w-56 shrink-0">
       <button
         type="button"
         data-testid="plan-card"
+        data-dropped={isDropped || undefined}
         data-todo-id={todo.id}
         onClick={onSelect ? () => onSelect(todo) : undefined}
-        className={`w-full text-left rounded-md border px-3 py-2.5 space-y-1.5 transition-colors hover:brightness-95 ${BUCKET_CARD[bucket]} ${onSelect ? 'cursor-pointer' : 'cursor-default'}`}
+        className={`w-full text-left rounded-md border px-3 py-2.5 space-y-1.5 transition-colors hover:brightness-95 ${cardColor} ${onSelect ? 'cursor-pointer' : 'cursor-default'}`}
       >
-        <div className="text-xs leading-tight text-gray-800 dark:text-gray-100 break-words">{todo.title}</div>
+        <div className={`text-xs leading-tight break-words ${isDropped ? 'line-through text-gray-500 dark:text-gray-500' : 'text-gray-800 dark:text-gray-100'}`}>{todo.title}</div>
         <div className="flex items-center gap-1.5 text-3xs text-gray-500 dark:text-gray-400">
           <CopyId id={todo.id} />
           {depCount > 0 && <span className="font-mono" title={`${depCount} dependencies`}>⊸{depCount}</span>}
@@ -442,11 +450,11 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   <header className="px-2 py-1 text-xs font-semibold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700">
                     {lane.label}
                   </header>
-                  <div className="space-y-1 p-1.5">
+                  <div className="flex flex-wrap gap-1.5 p-1.5">
                     {lane.items
                       .filter((t) => triageFilter === 'all' || t.triageTag === triageFilter)
                       .map((t) => (
-                        <div key={t.id} className="space-y-1">
+                        <div key={t.id} className="space-y-1 w-56">
                           <PlanCard todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={undefined} />
                           <button
                             type="button"
