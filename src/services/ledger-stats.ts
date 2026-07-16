@@ -79,6 +79,7 @@ export interface LeafRunStats {
     effectiveOutcome?: string;
     reviewVerdict?: 'pass' | 'fail' | null;
     pathTaken?: 'floor' | 'waves' | null;
+    tier?: string | null;
     reason?: string;
     pendingReason?: string;
     gateReasons?: string[];
@@ -343,6 +344,7 @@ export interface LeafRunSummary {
   /** Human reason from the atomic terminal record (reason ?? pendingReason). */
   reason: string | null;
   pathTaken: 'floor' | 'waves' | null;
+  tier: string | null;
   lastTs: number;
   nodesSpent: number;
   costUsd: number;
@@ -377,6 +379,7 @@ export function listLeafRuns(
       reviewVerdict: (lastMarker?.verdict as 'pass' | 'fail' | undefined) ?? null,
       reason: terminal?.reason ?? terminal?.pendingReason ?? null,
       pathTaken: terminal?.pathTaken ?? null,
+      tier: terminal?.tier ?? null,
       lastTs: Math.max(...run.map((r) => r.ts)),
       nodesSpent: nodeRows.reduce((s, r) => s + (r.nodesSpent ?? 0), 0) || nodeRows.length,
       costUsd: run.reduce((s, r) => s + (r.costUsd ?? 0), 0),
