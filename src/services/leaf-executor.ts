@@ -77,6 +77,41 @@ export function makeCitationExists(root: string): (path: string, line: number) =
   };
 }
 
+/** RETRY MODEL LADDER: a fresh attempt after a review FAIL re-runs implement one tier UP
+ *  (haiku→sonnet, sonnet→opus) instead of rolling the same dice twice — the leaf that
+ *  needed it: 6d67a801 burned 7 review cycles on haiku for executor control-flow surgery.
+ *  Non-Claude lanes (grok-*, composer-*) and already-opus never ladder; attempt 1 never
+ *  ladders (per-kind pins stay authoritative for the first try). Pure; exported for test. */
+export function escalateImplementModel(model: string, attempt: number): string {
+  if (attempt < 2) return model;
+  const m = model.toLowerCase();
+  if (m.includes('haiku')) return 'sonnet';
+  if (m.includes('sonnet')) return 'opus';
+  return model;
+}
+
+/** SAME-WALL detector: are two review findings substantially the SAME findings?
+ *  Line-set overlap after normalization (lowercase, digits→# so shifted line numbers
+ *  don't defeat the match, short/empty lines dropped) ≥ 0.5 of the smaller set.
+ *  Used (a) inside the revise loop — the old exact-equality isRepeat missed findings
+ *  that drift textually while saying the same thing, and (b) across fresh attempts —
+ *  a repeat wall parks with a reason that names the FORK (stronger tier / new-todo
+ *  re-spec / hand-build) instead of a generic cap-exhausted. Pure; exported for test. */
+export function sameReviewWall(a: string, b: string): boolean {
+  const norm = (t: string): Set<string> =>
+    new Set(
+      t.toLowerCase().split('\n')
+        .map((l) => l.replace(/\d+/g, '#').trim())
+        .filter((l) => l.length > 8),
+    );
+  const A = norm(a);
+  const B = norm(b);
+  if (A.size === 0 || B.size === 0) return false;
+  let inter = 0;
+  for (const l of A) if (B.has(l)) inter += 1;
+  return inter / Math.min(A.size, B.size) >= 0.5;
+}
+
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
  *  floor so floor ledger rows are byte-identical. */
@@ -1688,7 +1723,8 @@ export async function runLeaf(
     const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
-      model: nodeModel(kind),
+      // Retry ladder: attempt ≥2 implement runs one tier up (see escalateImplementModel).
+      model: kind === 'implement' ? escalateImplementModel(nodeModel(kind), state.attempt) : nodeModel(kind),
       effort: nodeEffort(kind),
       allowedTools: NODE_PROFILE[kind].allowedTools,
       // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
@@ -2056,6 +2092,9 @@ export async function runLeaf(
   let groundingNote: string | undefined;
   // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive constraint id.
   let constraintCiteNote: string | undefined;
+  // SAME-WALL-TWICE: the final review findings of the PREVIOUS failed attempt — a fresh
+  // attempt that dies on substantially the same findings parks with the fork named.
+  let lastAttemptFindings = '';
 
   // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
   // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
@@ -2375,6 +2414,9 @@ export async function runLeaf(
     let reviewVerdict: 'pass' | 'fail';
     let reuses = 0;
     let prevFindings = '';
+    // The FINAL findings this attempt produced (captured each review cycle) — read by the
+    // cross-attempt SAME-WALL check after the revise loop, where `findings` is out of scope.
+    let attemptFinalFindings = '';
     for (;;) {
       // Relocate any files the implement/wimplement/fix nodes leaked to the MAIN checkout
       // back into THIS worktree before the review node runs `git status` here — otherwise a
@@ -2524,6 +2566,7 @@ export async function runLeaf(
       // gate is red (the 84048309 shape).
       // mech.status/llm are statically 'error'-typed but both 'error' arms above already
       // returned, so at runtime composeVerdict can only yield 'pass' | 'fail' here.
+      attemptFinalFindings = findings;
       reviewVerdict = composeVerdict(mech.status, llm) as 'pass' | 'fail';
       // A PASS means the work is COMPLETE — accept it regardless of budget. The budget is a
       // runaway guard on doing MORE work, not a reason to DISCARD a finished, passing leaf.
@@ -2532,7 +2575,7 @@ export async function runLeaf(
       if (reviewVerdict === 'pass') break;
       // FAILED → we'd spend MORE nodes remediating. NOW gate on the budget.
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-      const isRepeat = findings !== '' && findings === prevFindings;
+      const isRepeat = findings !== '' && (findings === prevFindings || sameReviewWall(prevFindings, findings));
       if (reuses >= REVISE_REUSE_CAP || isRepeat) break; // exhausted / stuck → fresh attempt
       reuses += 1;
       prevFindings = findings;
@@ -2602,7 +2645,18 @@ export async function runLeaf(
     }
 
     // REVIEW FAIL → next fresh attempt, unless the cap is exhausted.
+    // SAME-WALL-TWICE first: if this attempt died on substantially the SAME findings as the
+    // last one, more attempts are noise — park with the FORK named so the conductor knows
+    // whether to reach for a stronger tier, a NEW-todo re-spec, or a hand-build. (Checked
+    // before the cap so the reason is the informative one, not generic cap-exhausted.)
+    if (lastAttemptFindings && sameReviewWall(lastAttemptFindings, attemptFinalFindings)) {
+      return parkBlocked(
+        'same-wall-twice: review findings repeat across fresh attempts — a different approach is needed (stronger implement tier / re-spec via a NEW todo id / hand-build), not another retry',
+        reviewVerdict,
+      );
+    }
     if (isLastAttempt) return parkBlocked('attempt-cap-exhausted', reviewVerdict);
+    lastAttemptFindings = attemptFinalFindings;
   }
 
   // Unreachable in practice (the loop returns), but keeps the type total.

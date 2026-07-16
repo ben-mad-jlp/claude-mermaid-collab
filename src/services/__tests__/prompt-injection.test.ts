@@ -46,9 +46,9 @@ describe('source-guard: single assembly site', () => {
 });
 
 describe('getInjectionFlags', () => {
-  test('a project with no config defaults digest+activeConstraints ON (self-gating payloads), retryContext OFF', () => {
+  test('a project with no config defaults ALL THREE flags ON (every payload is self-gating)', () => {
     const f = getInjectionFlags('/tmp/__no_such_project_injection_flags__');
-    expect(f).toEqual({ digest: true, retryContext: false, activeConstraints: true });
+    expect(f).toEqual({ digest: true, retryContext: true, activeConstraints: true });
   });
 });
 
