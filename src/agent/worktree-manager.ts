@@ -1892,6 +1892,25 @@ export class WorktreeManager {
     return { removed: true, wtPath };
   }
 
+  // ---------------------------------------------------------------------------
+  // renameEpicBranchToDropped — rename a dropped epic's accumulation branch
+  // from collab/epic/<id8> to collab/dropped/<id8> to remove it from the
+  // listUnlandedEpics() scan (which looks for 'collab/epic/*' branches). This
+  // preserves the epic's unlanded commits under the new namespace. Idempotent:
+  // if the source branch is already gone, the rename is a no-op and returns false.
+  // ---------------------------------------------------------------------------
+  async renameEpicBranchToDropped(epicId: string): Promise<boolean> {
+    if (!(await this.isGitRepo())) return false;
+    const sourceBranch = this.epicBranchName(epicId);
+    const targetBranch = `collab/dropped/${this.epicId8(epicId)}`;
+    const res = await this.runGit(
+      this.opts.projectRoot,
+      ['branch', '-m', sourceBranch, targetBranch],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    return res.code === 0;
+  }
+
   // ===========================================================================
   // Private helpers
   // ===========================================================================
