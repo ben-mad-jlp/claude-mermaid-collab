@@ -31,7 +31,7 @@ import {
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
-import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
+import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren, healMissionEpicLandLeaves } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
@@ -154,6 +154,24 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] stranded-epic sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3d-bis. LAND-LEAF self-heal (22c5ba8a): a mission epic with no [LAND] leaf can never
+  // surface for auto-land (missionLandLeafPromotion refuses `no-land-leaf`) — it strands
+  // build-green forever. Create the missing terminal land leaf so the promotion path works.
+  // -------------------------------------------------------------------------
+  try {
+    const healed = await healMissionEpicLandLeaves(project);
+    if (healed.length) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ landLeafHeal: healed }) });
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] land-leaf heal failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }

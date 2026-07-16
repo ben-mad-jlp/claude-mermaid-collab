@@ -1,6 +1,6 @@
 ---
 name: conductor
-description: Mission Conductor — drives ONE active convergence MISSION by reading its **per-criterion derived actions** and serving EVERY open gap concurrently. The conductor exercises the app to ground unmet acceptance criteria, files **one [EPIC] per unserved criterion — all in the same pass** — and approves them for the Orchestrator daemon to **build AND land**, then runs the independent VERIFY gate. The conductor **never lands** — landing is the daemon's mechanical job. It directs the players; it does not play the instruments (never hand-edits source).
+description: Mission Conductor — drives ONE active convergence MISSION by reading its **per-criterion derived actions** and serving EVERY open gap concurrently. The conductor exercises the app to ground unmet acceptance criteria, serves **EVERY unserved criterion in the same pass — one right-sized epic may serve several related criteria (`servesCriterionIds`)** — and approves them for the Orchestrator daemon to **build AND land**, then runs the independent VERIFY gate. The conductor **never lands** — landing is the daemon's mechanical job. It directs the players; it does not play the instruments (never hand-edits source).
 user-invocable: true
 allowed-tools:
   - Read
@@ -28,7 +28,7 @@ allowed-tools:
 The **Mission Conductor**: the LLM session that drives ONE active convergence **mission** to completion. A mission is a durable set of **acceptance criteria** the app must satisfy. The mission converges **criterion by criterion, CONCURRENTLY** — the conductor reads each criterion's derived `action` (computed on every `get_mission` call) and serves every open gap in the same pass.
 
 > **The one rule that defines the role: you CONDUCT, you do not PLAY.**
-> A conductor directs the players — it does not pick up the instruments. You **exercise the app**, ground every unmet criterion, file **one [EPIC] per unserved criterion** (all in one pass), and **approve them so the Orchestrator daemon BUILDS AND LANDS them**. You do **NOT** hand-edit source, and you do **NOT** land. If you find yourself opening an editor to write feature code, or calling `land_epic`, stop — that work belongs to the daemon.
+> A conductor directs the players — it does not pick up the instruments. You **exercise the app**, ground every unmet criterion, serve **every unserved criterion in one pass** (one right-sized epic may serve several related aspect criteria via `servesCriterionIds` — do not mint thin one-todo epics to satisfy a 1:1 edge), and **approve them so the Orchestrator daemon BUILDS AND LANDS them**. You do **NOT** hand-edit source, and you do **NOT** land. If you find yourself opening an editor to write feature code, or calling `land_epic`, stop — that work belongs to the daemon.
 
 ## You ARE the Planner, scoped to this mission — load it
 
@@ -50,12 +50,12 @@ Call `get_mission`. Each criterion carries a derived **`action`**; the scalar mi
 
 | Criterion `action` | Meaning | Your move |
 |---|---|---|
-| `discover` | No **live** serving epic: none filed, filed-but-unapproved (e.g. you were recycled mid-pass), or a landed epic whose VERIFY came back unmet | Serve it: ground the gap by exercising the app, file an `[EPIC]` child of the mission (`parentId=<mission id>`, `servesCriterionId=<this criterion>`), decompose per planner rules, approve epic + leaves. **If a filed-but-unapproved epic already serves it, FINISH that epic (approve it) — do not file a duplicate.** |
+| `discover` | No **live** serving epic: none filed, filed-but-unapproved (e.g. you were recycled mid-pass), or a landed epic whose VERIFY came back unmet | Serve it: ground the gap by exercising the app, file an `[EPIC]` child of the mission (`parentId=<mission id>`, `servesCriterionIds=[<every criterion this deliverable covers>]`) — aspect criteria of ONE deliverable (its idempotency, its fail-open, its UI surface) share ONE right-sized epic; decompose per planner rules (leaves, and the daemon self-heals a missing [LAND] leaf), approve epic + leaves. **If a filed-but-unapproved epic already serves it, FINISH that epic (approve it) — do not file a duplicate.** |
 | `building` | A serving epic has live motion (claimed/ready leaves) | Nothing for this criterion. The daemon is working. |
 | `verify` | A serving epic **landed**; the criterion has no recorded verdict (this includes met-looking ones — `met` without `verifiedAt` is a self-grade) | Run `/verify-mission` — the independent reviewer-per-criterion gate records verdicts. Never self-grade. |
 | `met` | Criterion satisfied and verified | Done. |
 
-**Serve every `discover` and every `verify` in the SAME pass** — one epic per criterion, filed and approved together. Do NOT dribble one epic per nudge: the daemon parallelizes safely (each leaf builds in its own isolated lane worktree off the epic branch; overlap resolves at merge-back, not at claim time — see the planner skill), and criteria with no epic just sit unserved while you wait.
+**Serve every `discover` and every `verify` in the SAME pass** — every gap served (grouping aspect criteria into shared right-sized epics), filed and approved together. Do NOT dribble one epic per nudge: the daemon parallelizes safely (each leaf builds in its own isolated lane worktree off the epic branch; overlap resolves at merge-back, not at claim time — see the planner skill), and criteria with no epic just sit unserved while you wait.
 
 Mission-level statuses that override everything: `blocked` (a mission leaf parked/rejected/escalated — resolve it, AND still serve any `discover` gaps on other criteria in the same pass), `over-budget` / `abandoned` (terminal — stop, surface to the human), `converged` (done).
 
@@ -90,14 +90,15 @@ Exercising the app to *ground* gaps (driving the browser, running the CLI, readi
 - You called a criterion green off a per-file test run with no base comparison → **stop**; get a baseline.
 - You pasted a reviewer's finding into a leaf spec verbatim → **stop**; a finding is not a spec.
 - You edited a spec after approving it → **stop**; the daemon already claimed it. `reset_todo` first.
-- You filed an [EPIC] without `servesCriterionId` → **stop**; approval will fail. Declare which criterion it serves.
+- You filed an [EPIC] without a criterion edge → **stop**; approval will fail. Declare which criteria it serves (`servesCriterionIds`).
+- You minted a thin one-todo epic per aspect criterion of one deliverable → **stop**; group them under one right-sized epic serving all of them.
 - You are driving off a remembered status instead of calling `get_mission` → **stop**; re-read it. Actions are derived and change under you.
 - You started filing epics without reading the mission's `handoffDocId` constitution → **stop**; read it first. Its locked constraints bind you.
 - You widened the mission with a deferred/out-of-scope idea → **stop**; converge this mission, forge the new problem as a follow-on via `mission-forge`.
 
 ## Quick reference
 - Read state: `get_mission` (per-criterion `action` + rollup `gaps`/`awaitingVerify`), `list_session_todos`.
-- Serve a gap: `add_session_todo parentId=<mission id> kind=epic servesCriterionId=<criterion>`, leaves under it per planner rules; approve: `update_session_todo status=ready`.
+- Serve gaps: `add_session_todo parentId=<mission id> kind=epic servesCriterionIds=[<criteria>]`, leaves under it per planner rules (the reconcile pass self-heals a missing [LAND] leaf); approve: `update_session_todo status=ready`.
 - Add/check criteria: `add_mission_criterion`, `set_mission_criterion`.
 - Independent gate: `/verify-mission`.
 - Switch which mission is active: `set_active_mission`.

@@ -97,7 +97,7 @@ function makeDeps(
     }),
     listTodos: () => todos,
     createTodo: async (_p: string, input: CreateTodoInput) => {
-      const todo = makeTodo({ ...input, id: 'created-' + created.length });
+      const todo = makeTodo({ ...input, servesCriterionIds: input.servesCriterionIds ?? [], id: 'created-' + created.length });
       todos.push(todo);
       created.push({ project: _p, input });
       return todo;
@@ -213,7 +213,7 @@ describe('friction-triage: ensure-bucket and triageTag', () => {
       }),
       listTodos: () => todos,
       createTodo: async (_p, input) => {
-        const todo = makeTodo({ ...input, id: 'created-' + todos.length });
+        const todo = makeTodo({ ...input, servesCriterionIds: input.servesCriterionIds ?? [], id: 'created-' + todos.length });
         todos.push(todo);
         return todo;
       },
@@ -359,7 +359,7 @@ describe('friction-triage: fail-open', () => {
       createTodo: async (_p, input) => {
         callCount++;
         if ((input.title ?? '').includes('bad-one')) throw new Error('simulated failure');
-        const todo = makeTodo({ ...input, id: 'created-' + callCount });
+        const todo = makeTodo({ ...input, servesCriterionIds: input.servesCriterionIds ?? [], id: 'created-' + callCount });
         todos.push(todo);
         return todo;
       },
@@ -447,7 +447,7 @@ describe('friction-triage: real-store dedup (integration)', () => {
       }),
       listTodos: () => todos,
       createTodo: async (_p, input) => {
-        const todo = makeTodo({ ...input, id: 'created-' + todos.length });
+        const todo = makeTodo({ ...input, servesCriterionIds: input.servesCriterionIds ?? [], id: 'created-' + todos.length });
         todos.push(todo);
         return todo;
       },
@@ -476,7 +476,7 @@ describe('friction-triage: real-store dedup (integration)', () => {
       }),
       listTodos: () => todos,
       createTodo: async (_p, input) => {
-        const todo = makeTodo({ ...input, id: 'created-' + todos.length });
+        const todo = makeTodo({ ...input, servesCriterionIds: input.servesCriterionIds ?? [], id: 'created-' + todos.length });
         todos.push(todo);
         return todo;
       },

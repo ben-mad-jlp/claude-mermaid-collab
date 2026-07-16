@@ -70,7 +70,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     retryCount: 0,
     completedBy: null,
     objectRef: null,
-    servesCriterionId: null,
+    servesCriterionId: null, servesCriterionIds: [],
     decisionRef: null,
     claimProbe: null,
     inheritedBlueprintFrom: null,
