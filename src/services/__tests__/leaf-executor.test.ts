@@ -511,33 +511,52 @@ describe('runLeaf state machine', () => {
     expect(spies.ensureCalls.length).toBe(0);
   });
 
-  it('unparseable verdict ⇒ INFRA error, not fail → blocked immediately as review-vacuous', async () => {
-    const { deps } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
+  it('unparseable verdict: first offense RETRIES, a repeat parks as review-vacuous', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('review-vacuous');
+    expect(res.reason).toBe('review-vacuous'); // parks on the SECOND unparseable offense, not the first
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(2); // initial + ONE retry fix node (first offense retried)
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(2);
   });
 
-  it('EMPTY review (bug 80bacbc4): blocked review-vacuous, implement runs once, no fix node, retryCount bumped', async () => {
-    const { deps, spies } = makeDeps({ reviewVerdicts: [''] });
+  it('EMPTY review (bug 80bacbc4): first offense RETRIES with synth findings, a repeat parks review-vacuous (bump only on park)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['', ''] });
     const leaf = makeLeaf();
     const res = await runLeaf('proj', leaf, deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('review-vacuous');
     const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
-    expect(implementSpecs.length).toBe(1); // no fix node spent on a phantom empty finding
-    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    expect(implementSpecs.length).toBe(2); // initial + ONE retry fix node (first offense retried, not parked)
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]); // bumped ONLY on the park
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(2);
   });
 
-  it('G3: vacuous PASS (no citations) ⇒ blocked review-vacuous, retryCount bumped, no fix node', async () => {
-    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], changeSet: ['src/a.ts'] });
+  it('G3: vacuous PASS (no citations): first offense RETRIES, a repeat parks review-vacuous', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS', 'VERDICT: PASS'], changeSet: ['src/a.ts'] });
     const leaf = makeLeaf();
     const res = await runLeaf('proj', leaf, deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toMatch(/^review-vacuous:/);
-    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]); // bumped only on park
     const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
-    expect(implementSpecs.length).toBe(1); // no fix node spawned on a vacuous PASS
+    expect(implementSpecs.length).toBe(2); // initial + ONE retry fix node
+  });
+
+  it('prose gate: a single vacuous offense retries, then a properly-cited PASS on retry ACCEPTS (+ records a grounding-audit)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS', '- [MET] x — src/a.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    // the first (vacuous) offense recorded an audit node and was NOT bumped (retry, not park)
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(1);
+    expect(spies.bumpRetryCalls).toEqual([]);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(2); // initial + the retry fix that produced the cited PASS
   });
 
   it('G3: a terse but CITED PASS accepts (no token floor, no tool-call floor)', async () => {
@@ -550,14 +569,14 @@ describe('runLeaf state machine', () => {
     expect(spies.mergeCalls).toBe(1);
   });
 
-  it('G3: a citation to a file outside the change-set ⇒ blocked, reason names the offending citation', async () => {
+  it('G3: a citation to a file outside the change-set ⇒ first offense retries, a repeat parks naming the offending citation', async () => {
     const { deps } = makeDeps({
-      reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
+      reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS', '- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
       changeSet: ['src/a.ts'],
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
-    expect(res.reason).toContain('src/ghost.ts:1');
+    expect(res.reason).toContain('src/ghost.ts:1'); // parks on the 2nd offense; reason still names the ghost citation
   });
 
   it('G3: a bare VERDICT: FAIL with no criteria is NOT parked as vacuous — the FAIL exemption is real', async () => {

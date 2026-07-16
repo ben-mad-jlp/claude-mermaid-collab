@@ -52,6 +52,7 @@ import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFinding
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
+import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
@@ -1465,6 +1466,30 @@ export async function runLeaf(
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
 
+  // PROSE-GATE RETRY: a DURABLE per-leaf offense counter for the three prose gates
+  // (review-unparseable, G3-vacuous, command-evidence). Declared OUTSIDE the attempt
+  // loop (below) so 'repeat-within-leaf' is real across attempts — never reset.
+  // First offense → record an audit note and RETRY (feed synthesized findings back to
+  // implement); second-or-later offense → park. A red MECHANICAL gate still parks
+  // unconditionally (that path never calls proseOffense). See prose-gate-retry.ts.
+  let proseGateOffenses = 0;
+  const proseOffense = async (reason: string): Promise<{ park: boolean; findings: string }> => {
+    proseGateOffenses += 1;
+    const park = proseGateDisposition({ offenseCountSoFar: proseGateOffenses }).action === 'park';
+    // Record the incident as a ledger node on EVERY offense (retry and park) so the
+    // graph shows it — retryCount alone previously hid first-offense prose incidents.
+    try {
+      deps.recordNode({
+        project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+        nodeKind: 'grounding-audit', nodesSpent: 0, verdict: 'fail',
+        outcomeDetail: reason, outputText: reason,
+      });
+    } catch { /* telemetry — never break the run */ }
+    // bumpRetry ONLY on the park (unchanged from the original per-site behavior).
+    if (park) { try { await deps.bumpRetry?.(project, leaf.id); } catch { /* never break the park */ } }
+    return { park, findings: synthProseFindings(reason) };
+  };
+
   // G12: Snapshot untracked files BEFORE the first writing node so we can later
   // distinguish files the leaf created (new) from pre-existing junk. Declared here so
   // it's available to all nested functions. Will be populated before the ATTEMPT loop.
@@ -2526,6 +2551,11 @@ export async function runLeaf(
       // code is worth exactly nothing, and it costs an opus call to obtain.
       let llm: LeafReviewVerdict | null = null;
       let findings: string;
+      // Set when a PROSE gate RETRIES (not parks): forces findings=synth + llm='fail' so
+      // the revise loop re-runs implement, and makes the unconditional
+      // `findings = (review.text).trim()` below MUTUALLY EXCLUSIVE with the retry path —
+      // otherwise it clobbers the synthesized findings (the defect that livelocked prior attempts).
+      let proseRetryFindings: string | null = null;
       if (mech.status === 'fail') {
         findings = gateFindingsText(mech);
       } else {
@@ -2538,8 +2568,9 @@ export async function runLeaf(
         // detector below, so it runs to node-budget exhaustion). Park, and RECORD it —
         // retryCount stayed 0 before, so the graph showed no incident at all.
         if (llm === 'error') {
-          try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-          return parkBlocked('review-vacuous');
+          const d = await proseOffense('review-vacuous');
+          if (d.park) return parkBlocked('review-vacuous');
+          proseRetryFindings = d.findings; // first offense → retry with synthesized findings
         }
         // --- G3 GROUNDING GATE -------------------------------------------------
         // A PASS is the ONLY path from an LLM string to an accept, so it is the only one
@@ -2574,36 +2605,51 @@ export async function runLeaf(
             // [N/A]; auto-exempting them would false-pass a real negative check ("no regression").
             const deferToEvidence = uncitedCriteriaAreAllCommandResults(grounding.criteria, cs ?? []);
             if (!deferToEvidence && !shadow) {
-              try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-              return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+              const d = await proseOffense(`review-vacuous: ${grounding.reasons.join('; ')}`);
+              if (d.park) return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+              proseRetryFindings = d.findings; // first offense → retry
             }
           }
-          // C2: evidence gate — the claim must be a fact the executor holds.
-          const evidence = evaluateCommandEvidence({
-            commands: recordedCommands,
-            claims: parseVerificationClaims(grounding.criteria, review.text ?? ''),
-            worktreeRoot: cwd,
-          });
-          if (evidence.reject) {
-            try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-            return parkBlocked(`command-evidence: ${evidence.reasons.join('; ')}`);
+          // C2: evidence gate — the claim must be a fact the executor holds. Skip when a
+          // prior prose gate (G3-vacuous) already chose to RETRY this cycle — one review
+          // cycle counts as at most ONE prose offense.
+          if (proseRetryFindings === null) {
+            const evidence = evaluateCommandEvidence({
+              commands: recordedCommands,
+              claims: parseVerificationClaims(grounding.criteria, review.text ?? ''),
+              worktreeRoot: cwd,
+            });
+            if (evidence.reject) {
+              const d = await proseOffense(`command-evidence: ${evidence.reasons.join('; ')}`);
+              if (d.park) return parkBlocked(`command-evidence: ${evidence.reasons.join('; ')}`);
+              proseRetryFindings = d.findings; // first offense → retry
+            } else {
+              unbackedNote = evidence.unbackedClaims.length
+                ? `unbacked-claim (non-fatal): ${evidence.reasons.join('; ')}`
+                : undefined;
+            }
           }
-          unbackedNote = evidence.unbackedClaims.length
-            ? `unbacked-claim (non-fatal): ${evidence.reasons.join('; ')}`
-            : undefined;
         }
-        findings = (review.text ?? '').trim();
-        // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive
-        // constraint id. Pairs Payload C's injected ACTIVE CONSTRAINTS block with a
-        // warn-only enforcement half. Result is surfaced/recorded ONLY — it does not
-        // touch `llm`, `reviewVerdict`, or composeVerdict.
-        const activeConstraintIds = getActiveConstraints(project, epicId).map((c) => c.id);
-        const citeCheck = checkConstraintCitations(review.text ?? '', activeConstraintIds);
-        if (citeCheck.fabricated.length > 0) {
-          constraintCiteNote =
-            `constraint-cite (advisory): review cites unknown/inactive constraint id(s): ` +
-            citeCheck.fabricated.join(', ');
-          console.warn(`[leaf-executor] ${constraintCiteNote}`);
+        if (proseRetryFindings !== null) {
+          // A prose gate RETRIED this cycle: feed the synthesized findings back to implement
+          // and force a FAIL compose. MUTUALLY EXCLUSIVE with the raw-review-text assignment
+          // below, so the synth findings are NOT clobbered (defect A).
+          findings = proseRetryFindings;
+          llm = 'fail';
+        } else {
+          findings = (review.text ?? '').trim();
+          // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive
+          // constraint id. Pairs Payload C's injected ACTIVE CONSTRAINTS block with a
+          // warn-only enforcement half. Result is surfaced/recorded ONLY — it does not
+          // touch `llm`, `reviewVerdict`, or composeVerdict.
+          const activeConstraintIds = getActiveConstraints(project, epicId).map((c) => c.id);
+          const citeCheck = checkConstraintCitations(review.text ?? '', activeConstraintIds);
+          if (citeCheck.fabricated.length > 0) {
+            constraintCiteNote =
+              `constraint-cite (advisory): review cites unknown/inactive constraint id(s): ` +
+              citeCheck.fabricated.join(', ');
+            console.warn(`[leaf-executor] ${constraintCiteNote}`);
+          }
         }
       }
 
