@@ -1301,6 +1301,7 @@ export async function releaseDroppedEpicWorktrees(
         continue;
       }
       await wm.removeEpicWorktree(epic.id, { keepBranch: true });
+      await wm.renameEpicBranchToDropped(epic.id);
       released.push(epic.id);
     } catch { /* one bad epic never aborts the sweep */ }
   }

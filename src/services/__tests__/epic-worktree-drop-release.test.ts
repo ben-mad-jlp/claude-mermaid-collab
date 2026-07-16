@@ -65,7 +65,7 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  it('test A: pristine dropped epic → worktree gone, branch survives', async () => {
+  it('test A: pristine dropped epic → worktree gone, branch renamed to collab/dropped/', async () => {
     _resetDroppedEpicSweepState();
     const wm = getWorktreeManager(repo);
 
@@ -79,6 +79,7 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     });
     const epicId = epic.id;
     const branch = wm.epicBranchName(epicId);
+    const droppedBranch = branch.replace('collab/epic/', 'collab/dropped/');
 
     // Ensure the epic accumulation worktree exists
     await wm.ensureEpic(epicId, undefined, 'master');
@@ -98,9 +99,13 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     // Assert: worktree is gone
     expect(existsSync(wtPath)).toBe(false);
 
-    // Assert: branch still exists
-    const branchCheck = await runGit(repo, ['rev-parse', '--verify', branch]);
-    expect(branchCheck.code).toBe(0);
+    // Assert: branch was renamed to collab/dropped/<id8>
+    const droppedCheck = await runGit(repo, ['rev-parse', '--verify', droppedBranch]);
+    expect(droppedCheck.code).toBe(0);
+
+    // Assert: original epic branch is gone
+    const epicCheck = await runGit(repo, ['rev-parse', '--verify', branch]);
+    expect(epicCheck.code).not.toBe(0);
 
     // Assert: epic id is in released array
     expect(released).toContain(epicId);
@@ -151,5 +156,53 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     const frictionNote = frictions.find((f) => f.retryReason === 'dropped-epic-worktree-dirty');
     expect(frictionNote).toBeTruthy();
     expect(frictionNote!.detail).toContain('dirty');
+  });
+
+  it('test C: dropped epic with commits → branch renamed to collab/dropped/, not counted as unlanded', async () => {
+    _resetDroppedEpicSweepState();
+    const wm = getWorktreeManager(repo);
+
+    // Create an epic todo
+    const epic = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'epic to be dropped',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const epicId = epic.id;
+    const branch = wm.epicBranchName(epicId);
+    const droppedBranch = branch.replace('collab/epic/', 'collab/dropped/');
+
+    // Ensure the epic accumulation worktree exists
+    await wm.ensureEpic(epicId, undefined, 'master');
+
+    // Commit a file on the epic worktree so the branch is ahead of master
+    const wtPath = wm.epicWorktreePath(epicId);
+    writeFileSync(join(wtPath, 'epic-work.txt'), 'work done\n');
+    await runGit(wtPath, ['add', '-A']);
+    await runGit(wtPath, ['commit', '-q', '-m', 'epic work']);
+
+    // Drop the epic todo
+    await updateTodo(repo, epicId, { status: 'dropped' });
+
+    // Run the sweep with force=true
+    const released = await releaseDroppedEpicWorktrees(repo, { force: true });
+
+    // Assert (a): listUnlandedEpics() does NOT include the epic's id8
+    const unlanded = await wm.listUnlandedEpics();
+    const id8 = branch.replace('collab/epic/', '');
+    expect(unlanded.map((e) => e.epicId8)).not.toContain(id8);
+
+    // Assert (b): collab/dropped/<id8> EXISTS (commits preserved)
+    const droppedCheck = await runGit(repo, ['rev-parse', '--verify', droppedBranch]);
+    expect(droppedCheck.code).toBe(0);
+
+    // Assert (c): collab/epic/<id8> no longer exists
+    const epicCheck = await runGit(repo, ['rev-parse', '--verify', branch]);
+    expect(epicCheck.code).not.toBe(0);
+
+    // Assert: epic id is in released array
+    expect(released).toContain(epicId);
   });
 });
