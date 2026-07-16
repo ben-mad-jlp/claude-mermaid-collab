@@ -2642,25 +2642,44 @@ export async function runLeaf(
               `feat: ${leaf.title ?? leaf.id}`,
               leaf.id,
               { declaredFiles, untrackedAtStart },
-            )) as { merged?: boolean; conflict?: boolean; mergeSha?: string } | undefined;
+            )) as { merged?: boolean; conflict?: boolean; integrated?: boolean; mergeSha?: string } | undefined;
             if (mergeRes && mergeRes.merged === false) {
-              // Conflict / no-op — the epic branch is untouched. Do NOT set optimistically
+              // Conflict — the epic branch is untouched. Do NOT set optimistically
               // landed; park exactly as the post-review merge-failure path does.
               return parkBlocked(
                 `merge-to-epic-failed (optimistic): conflict=${mergeRes.conflict === true}`,
               );
             }
-            optimisticMergeSha = mergeRes?.mergeSha;
-            optimisticallyLanded = true;
-            deps.markMerged?.(leaf.id);
-            try {
-              deps.recordNode({
-                project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
-                nodeKind: 'optimistic-land', nodesSpent: 0, verdict: 'pass',
-                outcomeDetail: JSON.stringify({ mergeSha: optimisticMergeSha, tier: leaf.tier }),
-                outputText: `optimistic-land: merged ${optimisticMergeSha ?? '(sha?)'} after GREEN mechanical gate, review runs post-merge`,
-              });
-            } catch { /* telemetry — never break the run */ }
+            // NO-OP / PHANTOM merge (integrated===false): a clean or stale worktree carried
+            // NOTHING to commit, so the merge was "already up to date" — its mergeSha is the
+            // epic TIP (an UNRELATED commit / a prior leaf's merge), NOT this leaf's. Setting
+            // optimisticallyLanded here would make a later review FAIL revert the WRONG commit
+            // (in a multi-leaf small-tier epic: revert a PRIOR leaf's real landed work). So
+            // this leaf landed nothing — leave optimisticallyLanded=false and fall through to
+            // review, which FAILs "nothing to review" and parks WITHOUT a revert (correct for
+            // an empty/stale leaf). Surfaced by a live small-tier run on an already-landed leaf.
+            if (mergeRes && mergeRes.integrated === false) {
+              try {
+                deps.recordNode({
+                  project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                  nodeKind: 'optimistic-land-skipped', nodesSpent: 0, verdict: 'fail',
+                  outcomeDetail: JSON.stringify({ reason: 'no-op-merge-nothing-integrated', tier: leaf.tier }),
+                  outputText: 'optimistic-land skipped: merge integrated nothing (clean/stale worktree) — review will park this empty leaf, no revert',
+                });
+              } catch { /* telemetry — never break the run */ }
+            } else {
+              optimisticMergeSha = mergeRes?.mergeSha;
+              optimisticallyLanded = true;
+              deps.markMerged?.(leaf.id);
+              try {
+                deps.recordNode({
+                  project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                  nodeKind: 'optimistic-land', nodesSpent: 0, verdict: 'pass',
+                  outcomeDetail: JSON.stringify({ mergeSha: optimisticMergeSha, tier: leaf.tier }),
+                  outputText: `optimistic-land: merged ${optimisticMergeSha ?? '(sha?)'} after GREEN mechanical gate, review runs post-merge`,
+                });
+              } catch { /* telemetry — never break the run */ }
+            }
           } catch (e) {
             if (e instanceof ScopeIncidentError) {
               deps.escalate({
