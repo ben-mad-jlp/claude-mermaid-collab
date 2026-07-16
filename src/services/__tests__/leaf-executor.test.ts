@@ -2798,3 +2798,154 @@ describe('same-wall-twice cross-attempt park', () => {
     expect(attempt2?.model).toBe('opus'); // laddered on attempt 2
   });
 });
+
+// ---------------------------------------------------------------------------
+// crit 6 — OPTIMISTIC LANDING for small / test-pinned tiers: merge after the GREEN
+// mechanical gate (before review), review post-merge, auto-revert on a real post-land
+// finding. The mechanical gate stays STRICTLY pre-land, and the accept bookkeeping is
+// identical to full-tier (landing-order-invariant).
+// ---------------------------------------------------------------------------
+describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
+  /** Wrap deps so every mergeToEpic + review-node invocation is logged in call order,
+   *  and mergeToEpic returns a real mergeSha the revert path can reference. Also wires a
+   *  revertEpicMerge spy. Returns the shared { order, reverts } logs. */
+  function instrument(deps: LeafExecutorDeps, mergeResult: Record<string, unknown> = { merged: true, mergeSha: 'MSHA' }) {
+    const order: string[] = [];
+    const reverts: Array<{ leafId: string; mergeSha: string; reason: string }> = [];
+    const origInvoke = deps.invoker.invoke.bind(deps.invoker);
+    deps.invoker = {
+      async invoke(spec: NodeSpec): Promise<NodeResult> {
+        if (spec.allowedTools === 'Read Grep Glob Bash') order.push('review');
+        return origInvoke(spec);
+      },
+    };
+    deps.mergeToEpic = async () => { order.push('merge'); return mergeResult; };
+    deps.revertEpicMerge = async (_s, _e, leafId, mergeSha, reason) => {
+      reverts.push({ leafId, mergeSha, reason });
+      order.push('revert');
+      return { reverted: true, revertSha: 'RSHA' };
+    };
+    return { order, reverts };
+  }
+
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('part 1a: small tier + GREEN mech gate → mergeToEpic runs BEFORE the review node; an optimistic-land node is recorded', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    // merge is optimistic — it precedes the review node.
+    expect(order).toEqual(['merge', 'review']);
+    // merged exactly ONCE (the optimistic merge; no second post-review merge).
+    expect(spies.mergeCalls).toBe(0); // real merge is the instrumented one; makeDeps counter untouched
+    const optNode = spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land');
+    expect(optNode).toBeTruthy();
+    expect(optNode.outcomeDetail).toContain('MSHA');
+  });
+
+  it('part 1b: small tier + RED mechanical gate (fail) → mergeToEpic is NOT called (mechanical gate is provably pre-land)', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — x', 'VERDICT: FAIL — x'],
+      runGate: async () => ({ status: 'fail', command: 'npx tsc --noEmit', output: '1 err', reasons: ['x'], declared: true }),
+    });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(order).not.toContain('merge'); // never optimistically landed on a red gate
+  });
+
+  it('part 1b: small tier + mechanical gate ERROR → no merge, parks (INCIDENT stays pre-land)', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'error', command: 'no-such-bin', output: 'ENOENT', reasons: [], declared: true }),
+    });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(order).not.toContain('merge');
+  });
+
+  it('part 1c: FULL tier + GREEN mech → merge runs only AFTER review (optimistic path NOT taken; unchanged)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'full' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(order).toEqual(['review', 'merge']); // review first, then merge — the pre-crit-6 order
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land')).toBeUndefined();
+  });
+
+  it('part 2a: small tier, GREEN mech, then post-merge review FAIL → revertEpicMerge is called for THIS leaf; a friction reason-card is recorded; outcome blocked, reason starts optimistic-land-reverted', async () => {
+    const { deps, spies } = makeDeps({
+      // Both attempts FAIL so no revise-to-pass; the first post-land FAIL is terminal (revert).
+      reviewVerdicts: ['VERDICT: FAIL — real fault', 'VERDICT: FAIL — real fault'],
+      runGate: greenGate,
+    });
+    const { order, reverts } = instrument(deps);
+    const leaf = makeLeaf({ tier: 'small' });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^optimistic-land-reverted:/);
+    // merged before review, then reverted on the fault — never revised in place.
+    expect(order).toEqual(['merge', 'review', 'revert']);
+    expect(reverts).toHaveLength(1);
+    expect(reverts[0].leafId).toBe(leaf.id);
+    expect(reverts[0].mergeSha).toBe('MSHA');
+    // an auditable reason-card ledger node names the reverted sha.
+    const card = spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-reverted');
+    expect(card).toBeTruthy();
+    expect(card.outputText).toContain('MSHA');
+  });
+
+  it('part 2b: small tier, GREEN mech, post-merge review PASS → merged exactly ONCE, NO revert, outcome accepted', async () => {
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order, reverts } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(order.filter((o) => o === 'merge')).toHaveLength(1); // exactly one merge
+    expect(reverts).toHaveLength(0); // no revert on a pass
+  });
+
+  it('part 3a: an optimistically-landed small-tier PASS records the SAME accept bookkeeping (finalOutcome accepted + one complete:accepted) as a full-tier PASS', async () => {
+    // small (optimistic) path
+    const small = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    instrument(small.deps);
+    const smallRes = await runLeaf('proj', makeLeaf({ tier: 'small' }), small.deps);
+    // full path
+    const full = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    instrument(full.deps);
+    const fullRes = await runLeaf('proj', makeLeaf({ tier: 'full' }), full.deps);
+
+    expect(smallRes.outcome).toBe('accepted');
+    expect(fullRes.outcome).toBe('accepted');
+    // identical acceptance funnel: exactly one complete:accepted, no reject pre-stamp.
+    expect(small.spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    expect(full.spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    expect(small.spies.markRejectingCalls).toHaveLength(0);
+    // the terminal 'outcome' ledger row is 'accepted' on both paths (landing-order-invariant).
+    const smallOutcome = small.spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    const fullOutcome = full.spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(smallOutcome.leafOutcome).toBe('accepted');
+    expect(fullOutcome.leafOutcome).toBe('accepted');
+  });
+
+  it('part 3b: the optimistic-path terminal outcome record carries tier:"small" and a clean accepted outcome', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow.outcomeDetail).toContain('"tier":"small"');
+    expect(outcomeRow.outcomeDetail).toContain('"effectiveOutcome":"accepted"');
+  });
+
+  it('a merge CONFLICT on the optimistic path parks without landing (merged:false ⇒ not optimistically landed, no revert)', async () => {
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order, reverts } = instrument(deps, { merged: false, conflict: true });
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('merge-to-epic-failed');
+    expect(order).toEqual(['merge']); // attempted merge, no review, no revert
+    expect(reverts).toHaveLength(0);
+  });
+});
