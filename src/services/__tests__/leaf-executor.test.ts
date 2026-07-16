@@ -2809,7 +2809,7 @@ describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
   /** Wrap deps so every mergeToEpic + review-node invocation is logged in call order,
    *  and mergeToEpic returns a real mergeSha the revert path can reference. Also wires a
    *  revertEpicMerge spy. Returns the shared { order, reverts } logs. */
-  function instrument(deps: LeafExecutorDeps, mergeResult: Record<string, unknown> = { merged: true, mergeSha: 'MSHA' }) {
+  function instrument(deps: LeafExecutorDeps, mergeResult: Record<string, unknown> = { merged: true, integrated: true, mergeSha: 'MSHA' }) {
     const order: string[] = [];
     const reverts: Array<{ leafId: string; mergeSha: string; reason: string }> = [];
     const origInvoke = deps.invoker.invoke.bind(deps.invoker);
@@ -2937,6 +2937,32 @@ describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
     const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
     expect(outcomeRow.outcomeDetail).toContain('"tier":"small"');
     expect(outcomeRow.outcomeDetail).toContain('"effectiveOutcome":"accepted"');
+  });
+
+  it('a NO-OP merge (integrated:false, clean/stale worktree) does NOT optimistically land and NEVER reverts — review parks the empty leaf, not optimistic-land-reverted', async () => {
+    // A clean/stale worktree → commitAndMergeToEpic returns merged:true but integrated:false
+    // with mergeSha = the epic TIP (an unrelated commit). Setting optimisticallyLanded here
+    // would make the review FAIL revert the WRONG commit (regression: live small-tier run on
+    // an already-landed leaf reverted the epic tip). Guarded: skip the optimistic land.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — nothing to review', 'VERDICT: FAIL — nothing to review'],
+      runGate: greenGate,
+    });
+    const { order, reverts } = instrument(deps, { merged: true, integrated: false, mergeSha: 'EPIC_TIP' });
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    // merge attempted + review ran (possibly across retries) but NEVER a revert — nothing was
+    // really landed, so there is no leaf-merge commit to revert.
+    expect(order).toContain('merge');
+    expect(order).toContain('review');
+    expect(order).not.toContain('revert');
+    expect(reverts).toHaveLength(0);
+    // reason is the plain review finding, NOT an optimistic-land-reverted tag.
+    expect(res.reason ?? '').not.toContain('optimistic-land-reverted');
+    // an optimistic-land-skipped audit node was recorded; NO optimistic-land node.
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land')).toBeUndefined();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-skipped')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-reverted')).toBeUndefined();
   });
 
   it('a merge CONFLICT on the optimistic path parks without landing (merged:false ⇒ not optimistically landed, no revert)', async () => {
