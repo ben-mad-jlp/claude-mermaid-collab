@@ -28,6 +28,9 @@ export interface WatchedProject {
   promptInjectRetryContext?: number | null;
   /** Per-project active-constraints injection flag (default OFF). */
   promptInjectActiveConstraints?: number | null;
+  /** Per-project gate SHADOW-MODE flag (default OFF). When on, a candidate gate runs
+   *  advisory-only alongside the live gate. */
+  gateShadowMode?: number | null;
 }
 
 /** Context-auto-recycle mode for a watched project:
@@ -197,7 +200,8 @@ CREATE TABLE IF NOT EXISTS watched_project (
   missionLoopMode TEXT,
   projectDigestEnabled INTEGER,
   promptInjectRetryContext INTEGER,
-  promptInjectActiveConstraints INTEGER
+  promptInjectActiveConstraints INTEGER,
+  gateShadowMode INTEGER
 );
 CREATE TABLE IF NOT EXISTS supervised_session (
   project TEXT NOT NULL,
@@ -318,6 +322,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectActiveConstraints', 'promptInjectActiveConstraints INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'gateShadowMode', 'gateShadowMode INTEGER');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
@@ -473,6 +478,20 @@ export function getPromptInjectActiveConstraints(project: string): boolean {
 export function setPromptInjectActiveConstraints(project: string, on: boolean): void {
   const d = openDb();
   d.prepare('UPDATE watched_project SET promptInjectActiveConstraints = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
+}
+
+/** Per-project gate SHADOW-MODE flag (default OFF). When on, a candidate gate runs
+ *  advisory-only alongside the live gate (the sibling leaf reads this for the shadow guard). */
+export function getGateShadowMode(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT gateShadowMode FROM watched_project WHERE project = ?')
+    .get(project) as { gateShadowMode: number | null } | undefined;
+  return !!row?.gateShadowMode;
+}
+export function setGateShadowMode(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare('UPDATE watched_project SET gateShadowMode = ? WHERE project = ?')
     .run(on ? 1 : 0, project);
 }
 
