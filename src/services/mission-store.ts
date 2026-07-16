@@ -62,6 +62,10 @@ export interface MissionRow {
   abandonedAt: number | null;
   /** Per-mission USD budget ceiling, or null = project default. */
   budgetUsd: number | null;
+  /** The mission's CONSTITUTION: the handoff/brief document id (session doc) carrying the
+   *  locked constraints, sequencing rationale, and out-of-scope list the conductor must
+   *  honor. Durable link, not description-text convention. Null = none recorded. */
+  handoffDocId: string | null;
   /** Derived-on-read: populated by getMission, absent on the raw rowToMission row. */
   status?: MissionStatus;
 }
@@ -127,7 +131,8 @@ CREATE TABLE IF NOT EXISTS mission (
   lastNudgeKey TEXT,
   active INTEGER NOT NULL DEFAULT 1,
   abandonedAt INTEGER,
-  budgetUsd REAL
+  budgetUsd REAL,
+  handoffDocId TEXT
 );
 CREATE TABLE IF NOT EXISTS mission_criterion (
   id TEXT PRIMARY KEY,
@@ -189,6 +194,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
+  addColumnIfMissing(db, 'mission', 'handoffDocId', 'handoffDocId TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
@@ -221,6 +227,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
+    handoffDocId: (row.handoffDocId as string | null) ?? null,
   };
 }
 
@@ -250,17 +257,17 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
 export function upsertMission(
   project: string,
   todoId: string,
-  opts: { budgetUsd?: number | null } = {},
+  opts: { budgetUsd?: number | null; handoffDocId?: string | null } = {},
 ): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(todoId, ts, ts, opts.budgetUsd ?? null);
+    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null);
   return getMission(project, todoId)!;
 }
 

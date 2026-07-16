@@ -432,3 +432,26 @@ describe('per-criterion discovery', () => {
     }
   });
 });
+
+describe('mission handoffDocId (constitution link)', () => {
+  test('upsertMission persists handoffDocId and getMission returns it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mission-handoff-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] H', kind: 'mission' });
+      upsertMission(proj, m.id, { handoffDocId: 'handoff-some-brief' });
+      expect(getMission(proj, m.id)?.handoffDocId).toBe('handoff-some-brief');
+      // default null when not provided
+      const m2 = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] H2', kind: 'mission' });
+      upsertMission(proj, m2.id);
+      expect(getMission(proj, m2.id)?.handoffDocId).toBeNull();
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
