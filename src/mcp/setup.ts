@@ -1538,7 +1538,7 @@ export async function setupMCPServer(): Promise<Server> {
           }
 
           case 'consult_grok': {
-            const { prompt, system, model = 'grok-build-0.1' } = args as { prompt: string; system?: string; model?: string };
+            const { prompt, system, model = 'grok-4.5' } = args as { prompt: string; system?: string; model?: string };
             if (!prompt) throw new Error('Missing required: prompt');
 
             // User-managed secret: config.json (Settings UI) is authoritative
