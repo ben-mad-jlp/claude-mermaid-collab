@@ -40,6 +40,7 @@ import {
   getProjectDigestEnabled,
   getPromptInjectRetryContext,
   getPromptInjectActiveConstraints,
+  getGateShadowMode,
 } from './supervisor-store';
 
 export interface RuntimeConfig {
@@ -66,6 +67,8 @@ export interface RuntimeConfig {
     };
     /** Self-summary nudge pass cadence/enable (daemon nudges quiet sessions to self-report). */
     selfSummaryNudge: { enabled: boolean; intervalMs: number };
+    /** Per-project gate SHADOW-MODE flag — candidate gate runs advisory-only. */
+    gateShadowMode: boolean;
   };
   /** Every pause / override state in the control plane. */
   overrides: {
@@ -111,6 +114,7 @@ export interface RuntimeConfigInputs {
   supervisorPauses: Array<{ scope: string; pausedAt: number }>;
   selfSummaryNudgeEnabled: boolean;
   selfSummaryNudgeIntervalMs: number;
+  gateShadowMode: boolean;
 }
 
 /**
@@ -133,6 +137,7 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
         defaultPercent: inp.defaultWatchdogThreshold,
       },
       selfSummaryNudge: { enabled: inp.selfSummaryNudgeEnabled, intervalMs: inp.selfSummaryNudgeIntervalMs },
+      gateShadowMode: inp.gateShadowMode,
     },
     overrides: {
       steward: {
@@ -187,6 +192,7 @@ export function runtimeConfig(project: string, now: number = Date.now()): Runtim
     supervisorPauses: listSupervisorPauses(),
     selfSummaryNudgeEnabled: selfNudge.enabled,
     selfSummaryNudgeIntervalMs: selfNudge.intervalMs,
+    gateShadowMode: getGateShadowMode(project),
   });
 }
 
