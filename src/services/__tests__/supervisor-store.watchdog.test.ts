@@ -58,11 +58,14 @@ describe('per-project setters are UPDATE-only (never watch)', () => {
     setProjectDigestEnabled('/scope/B', true);
     expect(listWatchedProjects().some((p) => p.project === '/scope/B')).toBe(false);
 
-    // A's row is still present and unchanged
+    // A's row is still present and unchanged (digest defaults ON when never set —
+    // the payload is self-gating; an explicit off below is honored)
     expect(listWatchedProjects().some((p) => p.project === '/scope/A')).toBe(true);
-    expect(getProjectDigestEnabled('/scope/A')).toBe(false);
+    expect(getProjectDigestEnabled('/scope/A')).toBe(true);
 
-    // Call setProjectDigestEnabled on A → updates the row
+    // Call setProjectDigestEnabled on A → updates the row; explicit OFF is honored over the default
+    setProjectDigestEnabled('/scope/A', false);
+    expect(getProjectDigestEnabled('/scope/A')).toBe(false);
     setProjectDigestEnabled('/scope/A', true);
     expect(getProjectDigestEnabled('/scope/A')).toBe(true);
 

@@ -442,12 +442,15 @@ export function setContextRecycleMode(project: string, mode: ContextRecycleMode)
     .run(mode, project);
 }
 
-/** Per-project project-digest injection flag (default OFF). */
+/** Per-project project-digest injection flag. Default ON (mission-forge wiring): unset/NULL
+ *  reads true — the payload is self-gating (no .collab/project-digest.md ⇒ zero bytes emitted),
+ *  so the default only activates once a digest producer (e.g. /mission-forge) writes one.
+ *  An explicit 0 (human toggled off) is honored. */
 export function getProjectDigestEnabled(project: string): boolean {
   const d = openDb();
   const row = d.query('SELECT projectDigestEnabled FROM watched_project WHERE project = ?')
     .get(project) as { projectDigestEnabled: number | null } | undefined;
-  return !!row?.projectDigestEnabled;
+  return row?.projectDigestEnabled == null ? true : !!row.projectDigestEnabled;
 }
 export function setProjectDigestEnabled(project: string, on: boolean): void {
   const d = openDb();
@@ -468,12 +471,15 @@ export function setPromptInjectRetryContext(project: string, on: boolean): void 
     .run(on ? 1 : 0, project);
 }
 
-/** Per-project active-constraints injection flag (default OFF). */
+/** Per-project active-constraints injection flag. Default ON (mission-forge wiring): unset/NULL
+ *  reads true — the payload is self-gating (no ACTIVE constraint records ⇒ zero bytes emitted),
+ *  so a mission's locked constraints reach the build nodes without a per-project toggle dance.
+ *  An explicit 0 (human toggled off) is honored. */
 export function getPromptInjectActiveConstraints(project: string): boolean {
   const d = openDb();
   const row = d.query('SELECT promptInjectActiveConstraints FROM watched_project WHERE project = ?')
     .get(project) as { promptInjectActiveConstraints: number | null } | undefined;
-  return !!row?.promptInjectActiveConstraints;
+  return row?.promptInjectActiveConstraints == null ? true : !!row.promptInjectActiveConstraints;
 }
 export function setPromptInjectActiveConstraints(project: string, on: boolean): void {
   const d = openDb();
