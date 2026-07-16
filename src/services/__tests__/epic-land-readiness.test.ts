@@ -58,6 +58,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     completedBy: null,
     objectRef: null,
     servesCriterionId: null,
+    servesCriterionIds: [],
     decisionRef: null,
     claimProbe: null,
     ...partial,

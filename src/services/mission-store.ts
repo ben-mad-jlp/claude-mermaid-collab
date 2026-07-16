@@ -678,7 +678,9 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
     hasLandedEpic: epics.some((e) => e.status === 'done'),
     hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
     criteria: criteria.map((c) => {
-      const serving = epics.filter((e) => e.servesCriterionId === c.id);
+      // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
+      // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
+      const serving = epics.filter((e) => e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id));
       const servingEpicState: 'landed' | 'open' | 'none' =
         serving.some((e) => e.status !== 'done') ? 'open'
         : serving.some((e) => e.status === 'done') ? 'landed'

@@ -37,7 +37,7 @@ function mk(over: Partial<Todo> = {}): Todo {
     executedBySession: null, blueprintId: null, type: null, kind: 'leaf', targetProject: null,
     acceptanceStatus: null, claimedBy: null, claimToken: null, claimedAt: null,
     claimLeaseMs: null, claim: null, approvedAt: null, approvedBy: null, heldAt: null,
-    heldReason: null, retryCount: 0, completedBy: null, objectRef: null, servesCriterionId: null, decisionRef: null,
+    heldReason: null, retryCount: 0, completedBy: null, objectRef: null, servesCriterionId: null, servesCriterionIds: [], decisionRef: null,
     claimProbe: null, inheritedBlueprintFrom: null, inheritedFiles: [], isBucket: false, ...over,
   };
 }

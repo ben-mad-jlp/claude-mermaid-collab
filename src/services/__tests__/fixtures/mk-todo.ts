@@ -41,6 +41,7 @@ function base(): Omit<Todo, 'kind'> {
     completedBy: null,
     objectRef: null,
     servesCriterionId: null,
+    servesCriterionIds: [],
     decisionRef: null,
     claimProbe: null,
     inheritedBlueprintFrom: null,
