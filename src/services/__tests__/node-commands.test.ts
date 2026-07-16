@@ -12,8 +12,10 @@ import {
   parseNodeCommands,
   isCwdEscape,
   parseVerificationClaims,
+  parseResultAssertion,
   evaluateCommandEvidence,
   type RecordedCommand,
+  type ResultAssertion,
 } from '../node-commands';
 
 describe('node-commands', () => {
@@ -200,6 +202,7 @@ describe('node-commands', () => {
       });
       expect(result.reject).toBe(true);
       expect(result.escapes).toHaveLength(1);
+      expect(result.contradictedClaims).toHaveLength(0);
       expect(result.reasons[0]).toContain('npx vitest run');
       expect(result.reasons[0]).toContain(mainCheckout);
     });
@@ -290,6 +293,7 @@ describe('node-commands', () => {
       expect(result.reasons).toHaveLength(0);
       expect(result.escapes).toHaveLength(0);
       expect(result.unbackedClaims).toHaveLength(0);
+      expect(result.contradictedClaims).toHaveLength(0);
     });
 
     it('combines escapes and unbacked claims in reasons', () => {
@@ -305,6 +309,127 @@ describe('node-commands', () => {
       expect(result.reasons.length).toBe(2);
       expect(result.reasons[0]).toContain('npx vitest run');
       expect(result.reasons[1]).toContain('unbacked_claim');
+    });
+  });
+
+  describe('result-assertion evidence', () => {
+    it('parseResultAssertion extracts grep command with "returns 0" phrasing', () => {
+      const text = 'grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0';
+      const ra = parseResultAssertion(text);
+      expect(ra).not.toBeNull();
+      expect(ra!.command).toBe('grep -c OrchestratorLadder ProjectSettingsModal.tsx');
+      expect(ra!.assertsAbsence).toBe(true);
+    });
+
+    it('parseResultAssertion extracts backticked command', () => {
+      const text = 'Verify that `grep -rn "missing-symbol" src` returns 0';
+      const ra = parseResultAssertion(text);
+      expect(ra).not.toBeNull();
+      expect(ra!.command).toContain('grep -rn');
+      expect(ra!.assertsAbsence).toBe(true);
+    });
+
+    it('parseResultAssertion recognizes "→ 0" phrasing', () => {
+      const text = 'grep -c missing-export index.ts → 0';
+      const ra = parseResultAssertion(text);
+      expect(ra).not.toBeNull();
+      expect(ra!.assertsAbsence).toBe(true);
+    });
+
+    it('parseResultAssertion recognizes "0 matches" phrasing', () => {
+      const text = 'rg "OldAPI" lib/ produces 0 matches';
+      const ra = parseResultAssertion(text);
+      expect(ra).not.toBeNull();
+      expect(ra!.assertsAbsence).toBe(true);
+    });
+
+    it('parseResultAssertion recognizes "no matches" phrasing', () => {
+      const text = 'grep -c deprecated src/ no matches';
+      const ra = parseResultAssertion(text);
+      expect(ra).not.toBeNull();
+      expect(ra!.assertsAbsence).toBe(true);
+    });
+
+    it('parseResultAssertion returns null for non-result-assertion text', () => {
+      const text = 'leaf compiles cleanly';
+      const ra = parseResultAssertion(text);
+      expect(ra).toBeNull();
+    });
+
+    it('parseResultAssertion returns null for text without absence phrasing', () => {
+      const text = 'grep -c something file.ts';
+      const ra = parseResultAssertion(text);
+      expect(ra).toBeNull();
+    });
+
+    it('BACKS absence claim when recorded grep exited non-zero', () => {
+      const commands: RecordedCommand[] = [
+        { cmd: 'grep -c OrchestratorLadder ProjectSettingsModal.tsx', cwd: worktreeRoot, exitCode: 1 },
+      ];
+      const claim = 'grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0';
+      const result = evaluateCommandEvidence({
+        commands,
+        claims: [claim],
+        worktreeRoot,
+      });
+      expect(result.reject).toBe(false);
+      expect(result.contradictedClaims).toHaveLength(0);
+      expect(result.unbackedClaims).toHaveLength(0);
+    });
+
+    it('REJECTS false absence when recorded grep exited 0 (matches found)', () => {
+      const commands: RecordedCommand[] = [
+        { cmd: 'grep -c OrchestratorLadder ProjectSettingsModal.tsx', cwd: worktreeRoot, exitCode: 0 },
+      ];
+      const claim = 'grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0';
+      const result = evaluateCommandEvidence({
+        commands,
+        claims: [claim],
+        worktreeRoot,
+      });
+      expect(result.reject).toBe(true);
+      expect(result.contradictedClaims).toHaveLength(1);
+      expect(result.contradictedClaims[0]).toBe(claim);
+      expect(result.reasons.some((r) => r.includes('contradicted'))).toBe(true);
+      expect(result.reasons.some((r) => r.includes('exits 0'))).toBe(true);
+    });
+
+    it('parseVerificationClaims harvests result-assertion from criteria', () => {
+      const criteria = [
+        {
+          text: 'grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0',
+        },
+      ];
+      const reviewText = ['VERIFICATION:', '- ran: bun run test'].join('\n');
+      const claims = parseVerificationClaims(criteria, reviewText);
+      expect(claims).toHaveLength(2);
+      expect(claims[0]).toBe('bun run test');
+      expect(claims[1]).toContain('grep -c OrchestratorLadder');
+    });
+
+    it('does not duplicate plain claims when criteria parsing', () => {
+      const criteria = [
+        {
+          text: 'some other criterion without absence assertion',
+        },
+      ];
+      const claims = parseVerificationClaims(criteria, '');
+      expect(claims).toHaveLength(0);
+    });
+
+    it('combines result-assertion contradiction with other rejections', () => {
+      const commands: RecordedCommand[] = [
+        { cmd: 'grep -c bug src/', cwd: worktreeRoot, exitCode: 0 }, // contradicts absence
+        { cmd: 'npx vitest run', cwd: mainCheckout, exitCode: 0 }, // escape
+      ];
+      const result = evaluateCommandEvidence({
+        commands,
+        claims: ['grep -c bug src/ returns 0'],
+        worktreeRoot,
+      });
+      expect(result.reject).toBe(true);
+      expect(result.contradictedClaims).toHaveLength(1);
+      expect(result.escapes).toHaveLength(1);
     });
   });
 });
