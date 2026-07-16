@@ -44,7 +44,8 @@ import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-prop
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
-import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
+import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
+import { recordFriction } from './friction-store';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
@@ -1989,6 +1990,11 @@ export async function runLeaf(
     return parkBlocked(reason);
   }
 
+  // Friction 552f95c2: the latest attempt's write-leak snapshot + lane cwd, hoisted so the
+  // ABORT path (outer LeafAborted catch) can sweep leaked main-checkout writes too — a run
+  // killed mid-implement otherwise never sweeps, and later runs grandfather its leak forever.
+  let lastRootSnap: { cwd: string; snap: RootSnapshot } | null = null;
+
   // Cooperative abort: everything past this point can spawn nodes via `runNode`, which
   // throws LeafAborted at either node boundary once the daemon has stopped the run
   // (ancestor drop / hold / claim loss). Catch it here — a SINGLE funnel for every
@@ -2301,6 +2307,7 @@ export async function runLeaf(
     // the main repo root (gitlink/common-dir root detection) instead of this worktree.
     let rootSnap: RootSnapshot | null = null;
     try { rootSnap = snapshotMainCheckout(cwd); } catch { /* best-effort */ }
+    if (rootSnap) lastRootSnap = { cwd, snap: rootSnap };
 
     // G12: Snapshot untracked files BEFORE the first writing node so we can later
     // distinguish files the leaf created (new) from pre-existing junk.
@@ -2311,6 +2318,25 @@ export async function runLeaf(
       ...(manifest ? [...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)] : []),
       ...parseDeclaredScope(leaf.description),
     ])];
+
+    // Friction 552f95c2: pre-existing MAIN-checkout dirt inside this leaf's declared scope is
+    // prior-attempt leak debris (a killed run never swept) — quarantine + restore the root now,
+    // or every later snapshot grandfathers it forever. Loud: warn + friction, never silent.
+    if (rootSnap && rootSnap.root) {
+      try {
+        const quarantineDir = join(rootSnap.root, '.collab', 'leak-quarantine', `${leaf.id.slice(0, 8)}-a${state.attempt}`);
+        const reclaimed = reclaimPreDirtyScopeOverlap(cwd, rootSnap, declaredFiles, quarantineDir);
+        if (reclaimed.length) {
+          console.warn(`[leaf-executor] main-checkout leak DEBRIS reclaimed (${reclaimed.join(', ')}) — dirty content quarantined at ${quarantineDir}, root restored to HEAD`);
+          recordFriction(project, {
+            layer: 'orchestration',
+            retryReason: 'main-checkout-leak-debris-reclaimed',
+            todoId: leaf.id,
+            detail: `Pre-existing dirty tracked files in the MAIN checkout overlapped this leaf's declared scope (prior-attempt write-leak, never swept because that run was killed/dropped). Reclaimed: ${reclaimed.join(', ')}. Dirty content quarantined at ${quarantineDir}; main checkout restored to HEAD. If a HUMAN was editing these files, recover from the quarantine.`,
+          }).catch(() => { /* friction is telemetry — never break the run */ });
+        }
+      } catch { /* never break the run on the mitigation */ }
+    }
 
     // WAVES RETIRED (2026-07-08): every claimed leaf runs LINEAR (FLOOR). A leaf too big
     // for one linear run (> SPLIT_CEILING = FILE_THRESHOLD enumerated files) was already
@@ -2583,6 +2609,15 @@ export async function runLeaf(
   return parkBlocked('attempt-cap-exhausted');
   } catch (e) {
     if (e instanceof LeafAborted) {
+      // Friction 552f95c2: a run aborted mid-implement never reached the post-implement
+      // sweep — sweep NOW so its leaked main-checkout writes don't become permanent debris
+      // that later snapshots grandfather in. Idempotent (status-diff based); best-effort.
+      if (lastRootSnap) {
+        try {
+          const swept = sweepLeakedWrites(lastRootSnap.cwd, lastRootSnap.snap);
+          if (swept.length) console.warn(`[leaf-executor] abort-path write-leak sweep relocated ${swept.length} file(s): ${swept.slice(0, 5).join(', ')}${swept.length > 5 ? ', …' : ''}`);
+        } catch { /* never break the abort on the mitigation */ }
+      }
       recordOutcome('aborted', null, { reason: e.abortReason ?? undefined });
       return finishWith({ outcome: 'aborted', attempts: state.attempt, nodesSpent: state.nodesSpent, reason: e.abortReason ?? undefined });
     }
