@@ -21,6 +21,7 @@ import {
   type TodoView,
   type TodoStatus,
   type TodoLink,
+  type LeafTier,
 } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
@@ -192,6 +193,11 @@ export const addSessionTodoSchema = {
       enum: ['leaf', 'epic', 'land', 'mission'],
       description: "The node's role in the work graph (default: leaf). Set 'epic' for a container, 'land' for the final merge-to-master leaf, 'mission' for a convergence mission root. NEVER encode the role in the title — the [EPIC]/[LAND]/[MISSION] label is rendered from this field.",
     },
+    tier: {
+      type: 'string',
+      enum: ['full', 'small', 'test-pinned'],
+      description: "Executor recipe tier (default: full). 'test-pinned' pins the leaf to a test-authoring recipe; 'small' to the small-change recipe. Settable at create and at approve (status:'ready').",
+    },
   },
   required: ['project', 'session', 'text'],
 };
@@ -234,6 +240,11 @@ export const updateSessionTodoSchema = {
     servesCriterionId: { type: ['string', 'null'], description: 'A3 epic→criterion edge: the acceptance criterion this epic serves. Set this on a mission-homed epic before approving it. Pass null to clear.' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
     targetProject: { type: ['string', 'null'], description: 'Absolute path to the repo where this todo is IMPLEMENTED, when different from the tracking project (the worker spawns with cwd=targetProject and its gate runs there). Pass null to clear. Steward use: reroute a cross-project todo (e.g. a yolox/build123d todo) that was created without it.' },
+    tier: {
+      type: 'string',
+      enum: ['full', 'small', 'test-pinned'],
+      description: "Set the executor recipe tier (full|small|test-pinned). Settable alongside status:'ready' to pin the tier at approve time.",
+    },
   },
   required: ['project', 'session', 'id'],
 };
@@ -395,6 +406,7 @@ export async function addSessionTodo(
      *  'leaf' is the default ONLY because the overwhelming majority of creates mean a leaf;
      *  epic/mission/land callers MUST say so. */
     kind?: TodoKind;
+    tier?: LeafTier;
   },
 ): Promise<Todo> {
   const { title: _extrasTitle, files, type, inbox, kind: kindArg, ...extrasRest } = extras ?? {};
@@ -454,6 +466,7 @@ export async function updateSessionTodo(
     servesCriterionId?: string | null;
     sessionName?: string | null;
     targetProject?: string | null;
+    tier?: LeafTier | null;
   }
 ): Promise<Todo & { previousAssigneeSession: string | null }> {
   const titleValue = updates.title ?? updates.text;
@@ -493,6 +506,7 @@ export async function updateSessionTodo(
     servesCriterionId: updates.servesCriterionId,
     sessionName: updates.sessionName,
     targetProject: updates.targetProject,
+    tier: updates.tier,
   });
   return Object.assign(updated, { previousAssigneeSession });
 }
@@ -600,7 +614,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
     inputSchema: addSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind } = args as {
+      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind, tier } = args as {
         project: string;
         session: string;
         text?: string;
@@ -621,12 +635,13 @@ export const sessionTodoToolDefs: ToolDef[] = [
         files?: string[];
         inbox?: boolean;
         kind?: TodoKind;
+        tier?: LeafTier;
       };
       if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
       if (args && typeof args === 'object' && 'bucketType' in (args as Record<string, unknown>)) {
         throw new Error('add_session_todo: `bucketType` is not caller-settable — buckets are created via ensureBucket');
       }
-      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind });
+      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind, tier });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
@@ -636,7 +651,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
     inputSchema: updateSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, sessionName, targetProject } = args as {
+      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, sessionName, targetProject, tier } = args as {
         project: string;
         session: string;
         id: string;
@@ -657,9 +672,10 @@ export const sessionTodoToolDefs: ToolDef[] = [
         servesCriterionId?: string | null;
         sessionName?: string | null;
         targetProject?: string | null;
+        tier?: LeafTier | null;
       };
       if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, sessionName, targetProject });
+      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, sessionName, targetProject, tier });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
