@@ -212,6 +212,28 @@ function convictOnAbsence(text: string): { uncitable: boolean; reason?: string }
   return { uncitable: false };
 }
 
+/** True when the criterion names a runnable READ-ONLY verification invocation WITH a real
+ *  argument AND asserts a checkable RESULT token. Such a criterion — even an absence-shaped
+ *  one ("X no longer appears — grep -c X file returns 0") — is a command-result the
+ *  command-evidence gate can honour, so it must be ACQUITTED, not convicted as an absence. */
+function namesVerificationCommand(text: string): boolean {
+  // (i) a runnable read-only verification invocation WITH a concrete argument
+  const hasInvocation =
+    /(?:^|[\s`(])(?:git\s+grep|git\s+ls-files|grep|rg)\s+(?:-\S+\s+)*\S/.test(text) ||
+    /(?:^|[\s`(])(?:npx\s+tsc|vitest|bun\s+test)\b/.test(text);
+  if (!hasInvocation) return false;
+
+  // (ii) an asserted checkable RESULT token
+  const hasResult =
+    /\breturns\s+0\b/i.test(text) ||
+    /-c\b[^.]*\b0\b/.test(text) ||
+    /\bno\s+matches\b/i.test(text) ||
+    /\b0\s+occurrences\b/i.test(text) ||
+    /\bcount\s+is\s+0\b/i.test(text) ||
+    /\bexits?\s+non-?zero\b/i.test(text);
+  return hasResult;
+}
+
 /** Classify a single criterion: Rule 0 (acquit-first), then Rules 1–3. */
 export function classifyCriterion(
   text: string,
@@ -226,6 +248,12 @@ export function classifyCriterion(
   const rule1 = convictOnOutOfDiffLocation(text, declaredFiles);
   if (rule1.uncitable) {
     return { text, citable: false, kind: 'out-of-diff-location', reason: rule1.reason };
+  }
+
+  // Rule 1.5: ACQUIT on a named runnable read-only verification command with a checkable result.
+  // Reuse the 'command-result' kind so the review-time defer predicate accepts it too.
+  if (namesVerificationCommand(text)) {
+    return { text, citable: true, kind: 'command-result' };
   }
 
   // Rule 2: CONVICT on command-result

@@ -363,3 +363,50 @@ test('classifyCriterion: no-longer/references-nothing/nothing-external/self-cont
     expect(v.kind).toBe('absence');
   }
 });
+
+test('classifyCriterion: ACQUITS an absence criterion that names grep -c … returns 0', () => {
+  const v = classifyCriterion(
+    'the modal no longer shows an Autonomy ladder — grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: ACQUITS a removal criterion that names grep -c … returns 0', () => {
+  const v = classifyCriterion(
+    'delete the per-module title lists — grep -c "const BUCKET_TITLES" todo-store.ts returns 0',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('validateCriteriaCitability: a blueprint of acquitted verification criteria is NOT uncitable', () => {
+  const bp = [
+    '## Acceptance Criteria',
+    '- the modal no longer shows an Autonomy ladder; grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0',
+    '- delete the per-module title lists; grep -c "const BUCKET_TITLES" todo-store.ts returns 0',
+  ].join('\n');
+  expect(validateCriteriaCitability(bp, []).status).not.toBe('uncitable');
+});
+
+test('uncitedCriteriaAreAllCommandResults: true for the acquitted verification shapes', () => {
+  const criteria = [
+    cr('the modal no longer shows an Autonomy ladder — grep -c OrchestratorLadder ProjectSettingsModal.tsx returns 0'),
+    cr('delete the per-module title lists — grep -c "const BUCKET_TITLES" todo-store.ts returns 0'),
+  ];
+  expect(uncitedCriteriaAreAllCommandResults(criteria, [])).toBe(true);
+});
+
+test('classifyCriterion: bare "No regression in the auth flow" STAYS uncitable absence', () => {
+  const v = classifyCriterion('No regression in the auth flow', []);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
+test('classifyCriterion: bare "tests pass" STAYS command-result (no invocation+arg)', () => {
+  const v = classifyCriterion('tests pass', []);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('command-result');
+});
