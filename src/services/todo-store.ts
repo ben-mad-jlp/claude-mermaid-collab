@@ -97,8 +97,10 @@ export interface Todo {
    *  (decision e852fb0c, stage A). Nullable ONLY for rows read from a DB opened by
    *  an older binary; the backfill + create path make it total. NO READER YET. */
   kind: TodoKind | null;
-  /** Executor recipe tier. null-coalesces to 'full' in rowToTodo; pre-migration rows read null. */
-  tier: LeafTier | null;
+  /** Executor recipe tier. null-coalesces to 'full' in rowToTodo; pre-migration rows read null.
+   *  Optional so existing Todo literals / test fixtures that predate the tier column still typecheck
+   *  (rowToTodo always populates it at runtime). */
+  tier?: LeafTier | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy: string | null;
   claimToken: string | null;
@@ -1457,7 +1459,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
       inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
       promotedTo: patch.promotedTo !== undefined ? patch.promotedTo : (existing.promotedTo ?? null),
-      tier: patch.tier !== undefined ? patch.tier : existing.tier,
+      tier: patch.tier !== undefined ? patch.tier : (existing.tier ?? null),
     };
 
     // R5: bucket depth invariant when re-parenting

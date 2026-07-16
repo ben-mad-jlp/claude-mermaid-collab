@@ -114,7 +114,9 @@ export interface RuntimeConfigInputs {
   supervisorPauses: Array<{ scope: string; pausedAt: number }>;
   selfSummaryNudgeEnabled: boolean;
   selfSummaryNudgeIntervalMs: number;
-  gateShadowMode: boolean;
+  /** Optional so pre-existing RuntimeConfigInputs fixtures that predate the flag still typecheck;
+   *  summarizeRuntimeConfig coalesces undefined → false. */
+  gateShadowMode?: boolean;
 }
 
 /**
@@ -137,7 +139,7 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
         defaultPercent: inp.defaultWatchdogThreshold,
       },
       selfSummaryNudge: { enabled: inp.selfSummaryNudgeEnabled, intervalMs: inp.selfSummaryNudgeIntervalMs },
-      gateShadowMode: inp.gateShadowMode,
+      gateShadowMode: inp.gateShadowMode ?? false,
     },
     overrides: {
       steward: {
