@@ -2695,3 +2695,35 @@ describe('replay-corpus recording (G3 + citability)', () => {
     expect(res.reason ?? '').not.toContain('review-vacuous');
   });
 });
+
+describe('small-tier leaf execution (zero opus, skip blueprint, demote review)', () => {
+  it('tier:small runs with zero opus and zero blueprint nodes, recording tier in ledger', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const leaf = makeLeaf({
+      tier: 'small',
+      description: 'implement a small feature',
+    });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Assert zero opus calls: blueprint and review must not be opus
+    const opusCalls = spies.invokeSpecs.filter((s) => s.model === 'opus');
+    expect(opusCalls.length).toBe(0);
+
+    // Assert zero blueprint nodeKind rows (small tier synthesizes the blueprint)
+    const blueprintRows = spies.nodeRows.filter((r) => r.nodeKind === 'blueprint');
+    expect(blueprintRows.length).toBe(0);
+
+    // Assert tier is recorded in the ledger outcome detail
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow).toBeDefined();
+    if (outcomeRow?.outcomeDetail) {
+      const detail = JSON.parse(outcomeRow.outcomeDetail);
+      expect(detail.tier).toBe('small');
+    }
+  });
+});
+

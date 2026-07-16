@@ -1421,6 +1421,9 @@ export async function runLeaf(
   // build, ledger recordedModel, setInflight).
   const escalatedKinds = new Set<LeafNodeKind>();
   const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools): string => {
+    if (kind === 'review' && leaf.tier === 'small') {
+      return NODE_PROFILE.implement.model; // 'sonnet' — demote off opus for the small tier
+    }
     if (escalatedKinds.has(kind)) {
       const bpTools = NODE_PROFILE['blueprint'].allowedTools;
       return resolveNodeModel(project, 'blueprint', resolveNodeProvider(project, 'blueprint', bpTools), NODE_PROFILE['blueprint'].model);
@@ -1586,6 +1589,7 @@ export async function runLeaf(
           effectiveOutcome: outcome,
           reviewVerdict: verdict,
           pathTaken,
+          tier: leaf.tier ?? 'full',
           attempts: state.attempt,
           nodesSpent: state.nodesSpent,
           ...(gateDeclared !== null ? { gateDeclared } : {}),
@@ -2073,6 +2077,7 @@ export async function runLeaf(
     // Reuse a durable blueprint EITHER from a cross-dispatch resume (attempt 1) OR from a
     // prior attempt of THIS run (attempt > 1, in-run carry) — both write the plan to the
     // fresh worktree and skip the blueprint node (no node spent).
+    const smallTier = leaf.tier === 'small';
     const reattach = state.attempt === 1 && deps.resumePlan?.mode === 'reattach-blueprint';
     const inRunCarry = state.attempt > 1 && carriedBlueprint != null && carriedBlueprint.trim().length > 0;
     const restored = reattach ? (deps.restoreBlueprint?.(leaf.id) ?? null) : (inRunCarry ? carriedBlueprint : null);
@@ -2081,6 +2086,10 @@ export async function runLeaf(
       // Synthetic OK result — no node spent (the whole point); text feeds the size
       // gate + implement just like a fresh blueprint node's final message.
       bp = { ok: true, exitCode: 0, stdout: restored, durationMs: 0, rateLimited: false, authMode: 'subscription', text: restored };
+    } else if (smallTier) {
+      const synthText = leaf.description ?? '';
+      await deps.writeArtifact?.(cwd, blueprintPath(leaf), synthText);
+      bp = { ok: true, exitCode: 0, stdout: synthText, durationMs: 0, rateLimited: false, authMode: 'subscription', text: synthText };
     } else {
       // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
       // must not interpret its empty/error output as a FAIL nor advance the attempt).
@@ -2157,69 +2166,71 @@ export async function runLeaf(
       ? [...new Set([...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)])]
       : [];
     let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria);
-    try {
-      await deps.recordGateEval?.(project, {
-        gate: 'citability',
-        leafId: leaf.id,
-        inputText: blueprintBody,
-        changeSet: declaredForCriteria,
-        verdict: citability.status,
-        reasons: citability.reasons.join('; '),
-      });
-    } catch { /* replay corpus is telemetry — never break the run */ }
-    if (citability.status === 'uncitable') {
-      // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
-      // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
-      const repairSpec = {
-        ...buildSpec('blueprint', cwd),
-        prompt: buildCriteriaRepairPrompt(leaf, blueprintBody, citability),
-      };
-      const repair = await runNode('blueprint', repairSpec);
-      if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
-      if (repair.rateLimited) return pausedResult('blueprint', repair);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-      if (repair.ok) {
-        const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
-        const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';
-        const reManifest = parseSizeManifest(reText, repair.text);
-        // Rebind manifest/blueprintBody to the revised blueprint for downstream use
-        if (reText && reText.trim()) manifestText = reText;
-        if (reManifest) manifest = reManifest;
-        blueprintBody = reBody;
-        // Re-persist the repaired blueprint (best-effort, same try/catch)
-        if (reText && reManifest) {
-          try {
-            await deps.persistBlueprint?.({
-              project,
-              leaf,
-              attempt: state.attempt,
-              manifest: reManifest,
-              blueprintMd: reText,
-            });
-          } catch {
-            /* persistence is durable-telemetry — never break the run */
+    if (!smallTier) {
+      try {
+        await deps.recordGateEval?.(project, {
+          gate: 'citability',
+          leafId: leaf.id,
+          inputText: blueprintBody,
+          changeSet: declaredForCriteria,
+          verdict: citability.status,
+          reasons: citability.reasons.join('; '),
+        });
+      } catch { /* replay corpus is telemetry — never break the run */ }
+      if (citability.status === 'uncitable') {
+        // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
+        // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
+        const repairSpec = {
+          ...buildSpec('blueprint', cwd),
+          prompt: buildCriteriaRepairPrompt(leaf, blueprintBody, citability),
+        };
+        const repair = await runNode('blueprint', repairSpec);
+        if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
+        if (repair.rateLimited) return pausedResult('blueprint', repair);
+        if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+        if (repair.ok) {
+          const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
+          const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';
+          const reManifest = parseSizeManifest(reText, repair.text);
+          // Rebind manifest/blueprintBody to the revised blueprint for downstream use
+          if (reText && reText.trim()) manifestText = reText;
+          if (reManifest) manifest = reManifest;
+          blueprintBody = reBody;
+          // Re-persist the repaired blueprint (best-effort, same try/catch)
+          if (reText && reManifest) {
+            try {
+              await deps.persistBlueprint?.({
+                project,
+                leaf,
+                attempt: state.attempt,
+                manifest: reManifest,
+                blueprintMd: reText,
+              });
+            } catch {
+              /* persistence is durable-telemetry — never break the run */
+            }
           }
+          // Re-validate the repaired criteria
+          const redeclaredForCriteria = reManifest
+            ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
+            : [];
+          citability = validateCriteriaCitability(reBody, redeclaredForCriteria);
+          try {
+            await deps.recordGateEval?.(project, {
+              gate: 'citability',
+              leafId: leaf.id,
+              inputText: reBody,
+              changeSet: redeclaredForCriteria,
+              verdict: citability.status,
+              reasons: citability.reasons.join('; '),
+            });
+          } catch { /* replay corpus is telemetry — never break the run */ }
         }
-        // Re-validate the repaired criteria
-        const redeclaredForCriteria = reManifest
-          ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
-          : [];
-        citability = validateCriteriaCitability(reBody, redeclaredForCriteria);
-        try {
-          await deps.recordGateEval?.(project, {
-            gate: 'citability',
-            leafId: leaf.id,
-            inputText: reBody,
-            changeSet: redeclaredForCriteria,
-            verdict: citability.status,
-            reasons: citability.reasons.join('; '),
-          });
-        } catch { /* replay corpus is telemetry — never break the run */ }
-      }
-      const bpShadow = deps.gateShadowMode?.(project) ?? false;
-      if (citability.status === 'uncitable' && !bpShadow) {
-        try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-        return parkBlocked(`blueprint-uncitable-criterion: ${citability.reasons.join('; ')}`);
+        const bpShadow = deps.gateShadowMode?.(project) ?? false;
+        if (citability.status === 'uncitable' && !bpShadow) {
+          try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+          return parkBlocked(`blueprint-uncitable-criterion: ${citability.reasons.join('; ')}`);
+        }
       }
     }
 
