@@ -4,6 +4,7 @@ description: Turn an observed problem or design discussion into a DRIVEN converg
 user-invocable: true
 allowed-tools:
   - Read
+  - Write
   - Glob
   - Grep
   - Bash
@@ -16,6 +17,7 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__consult_grok
   - mcp__plugin_mermaid-collab_mermaid__create_document
   - mcp__plugin_mermaid-collab_mermaid__create_decision_record
+  - mcp__plugin_mermaid-collab_mermaid__approve_decision_record
   - mcp__plugin_mermaid-collab_mermaid__create_mission
   - mcp__plugin_mermaid-collab_mermaid__set_mission_owner
   - mcp__plugin_mermaid-collab_mermaid__set_active_mission
@@ -66,6 +68,16 @@ Create the handoff document IN THE CONDUCTOR'S SESSION with this shape:
 4. **Anything displaced** — if activating this mission deactivated another, say so and tell the conductor to flag the human if priorities look wrong.
 
 Then `create_mission` with the criteria AND `handoffDocId` set to the handoff document's id — the mission row carries its constitution durably; description-text pointers rot. Assign/activate for the conductor session (`set_mission_owner` if created from elsewhere, `set_active_mission` — note it deactivates that session's other missions).
+
+## Step 6 — Inject what you learned into the BUILDERS, not just the conductor
+
+The handoff binds the conductor; the daemon's build nodes never read it. The prompt-injection seam (`composeInjectedContext`, payloads A/C/D — default-on, self-gating) is how forge knowledge reaches the blueprint/implement/review nodes. Feed it:
+
+1. **Locked constraints → constraint RECORDS.** For each locked rule in the constitution header, `create_decision_record { kind: 'constraint', title: <the rule, one line>, rationale }` then `approve_decision_record` (constraints start proposed; only ACTIVE ones inject). Payload C now delivers them to every blueprint/implement/review node, and the review cite-check has real ids to verify. A constitution rule that exists only as handoff prose is a prompt-prohibition — decoration to the builder who never sees it.
+2. **Consult synthesis → decision records WITH `alternatives`.** You already record design-changing consults (Step 2); make sure the REJECTED designs go in the `alternatives` array verbatim — payload D surfaces them to blueprint nodes as "do not re-propose", the automated half of the "name the plausible-looking wrong fix" rule.
+3. **Survey file map → the project digest.** Distill the structural inventory's orientation facts (where the subsystems live, the key seams, what is vestigial) into `.collab/project-digest.md` (Write tool, ≤ ~2k tokens, headline facts only — it is injected into every blueprint node, so every byte is a per-leaf tax). Payload A picks it up automatically.
+
+Skipping this step means the mission's own builders work blind to the mission's own rules — the friction you forged the mission to remove.
 
 ## Anti-patterns
 
