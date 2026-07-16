@@ -177,6 +177,20 @@ export function listFriction(project: string, filter: FrictionFilter = {}): Fric
   return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
 }
 
+/** True iff a friction note already exists for this retryReason (optionally scoped by
+ *  layer) whose detail CONTAINS `detailIncludes`. Durable dedup primitive: it reads
+ *  friction.db every call, so the guard survives daemon restarts (an in-memory Set would
+ *  not). Used by the worktree reaper to flag each orphan dir at most once. */
+export function hasFrictionNote(
+  project: string,
+  q: { retryReason: string; detailIncludes?: string; layer?: FrictionLayer },
+): boolean {
+  const matches = listFriction(project, q.layer ? { layer: q.layer } : {})
+    .filter((n) => n.retryReason === q.retryReason);
+  if (!q.detailIncludes) return matches.length > 0;
+  return matches.some((n) => (n.detail ?? '').includes(q.detailIncludes!));
+}
+
 /** Read durable watch-dedup state for a signal key (operational friction watcher
  *  uses this to record a STANDING condition once per edge, not every tick).
  *  Returns null if the key has never been set. Unlocked read, mirrors listFriction. */

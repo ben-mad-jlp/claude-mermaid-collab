@@ -5,7 +5,7 @@ import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
 import { isRunLive } from './leaf-subprocess-registry.js';
 import { getTodo, listTodos } from './todo-store.js';
 import { recordSupervisorAudit } from './supervisor-store.js';
-import { recordFriction } from './friction-store.js';
+import { recordFriction, hasFrictionNote } from './friction-store.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -272,11 +272,13 @@ export async function gcLeafWorktrees(
     sample: string[] = [],
   ): Promise<void> => {
     report.refused.push({ path: dir, reason, sample });
-    await recordFriction(project, {
-      layer: 'operational',
-      retryReason: reason,
-      detail: `orphan non-leaf worktree left in place: ${dir}`,
-    }).catch(() => {});
+    const detail = `orphan non-leaf worktree left in place: ${dir}`;
+    // Idempotent per (dir, reason): the reaper REFUSES these orphans, so the same dir is
+    // re-seen every pass. Query the durable friction store (survives daemon restarts) and
+    // record only the first time — crit 1: no new duplicate orphan notes after a full pass.
+    if (!hasFrictionNote(project, { layer: 'operational', retryReason: reason, detailIncludes: dir })) {
+      await recordFriction(project, { layer: 'operational', retryReason: reason, detail }).catch(() => {});
+    }
   };
 
   for (const entry of entries) {
