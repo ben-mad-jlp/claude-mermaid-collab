@@ -13,6 +13,7 @@ import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from 
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
 import { isClaimable, claimReason } from '../claimability';
 import { recordLeafResume, getLeafResume, _closeLedgerDb } from '../worker-ledger';
+import { recordGateEval, listGateEvals, _closeProject as _closeReplayCorpusProject } from '../replay-corpus-store';
 import type { Todo } from '../todo-store';
 import Database from 'bun:sqlite';
 
@@ -1062,6 +1063,41 @@ describe('steward verbs', () => {
     // Dependent unblocks exactly as a normal acceptance — now CLAIMABLE (derived),
     // even though the stored-blocked fan-out (`promoted`) no longer carries it.
     expect(listReadyTodos(project).map((x) => x.id)).toContain(child.id);
+  });
+
+  test('overrideAcceptTodo populates the corpus override field when a g3 eval row exists', async () => {
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'leaf-with-corpus', status: 'ready' });
+    // Record a g3 gate evaluation for this leaf.
+    await recordGateEval(project, {
+      leafId: leaf.id,
+      gate: 'g3',
+      inputText: 'test input',
+      changeSet: ['file1.ts', 'file2.ts'],
+      verdict: 'reject',
+      reasons: 'test reasons',
+    });
+    // Override-accept the leaf.
+    await overrideAcceptTodo(project, leaf.id, 'steward');
+    // Verify the corpus row was updated with the override provenance.
+    const evals = listGateEvals(project, { leafId: leaf.id });
+    expect(evals.length).toBe(1);
+    expect(evals[0].override).not.toBeNull();
+    const parsed = JSON.parse(evals[0].override!);
+    expect(parsed.completedBy).toBe('steward');
+    expect(parsed.at).toBeDefined();
+    expect(typeof parsed.at).toBe('string');
+  });
+
+  test('overrideAcceptTodo succeeds even when no corpus row exists', async () => {
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'leaf-no-corpus', status: 'ready' });
+    // Override-accept without any prior recordGateEval — no corpus row exists.
+    const result = await overrideAcceptTodo(project, leaf.id);
+    // The override should succeed (not throw).
+    expect(result).toBeDefined();
+    expect(result.completed.status).toBe('done');
+    // Verify no corpus rows were created.
+    const evals = listGateEvals(project, { leafId: leaf.id });
+    expect(evals.length).toBe(0);
   });
 
   test('openDb maps a worker-worktree path → the tracking repo db (same rows)', async () => {
