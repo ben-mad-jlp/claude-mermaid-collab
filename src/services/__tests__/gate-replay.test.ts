@@ -1,20 +1,34 @@
 import { test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { recordGateEval, setOverride, _closeProject } from '../replay-corpus-store';
 import { replayCorpus, type CandidateGate } from '../gate-replay';
 import { validateReviewGrounding } from '../review-citations';
-import { addWatchedProject, getGateShadowMode, setGateShadowMode, _closeDb } from '../supervisor-store';
+import { addWatchedProject, removeWatchedProject, getGateShadowMode, setGateShadowMode, _closeDb } from '../supervisor-store';
 
 let projectDir: string;
+// Isolate the supervisor DB to a throwaway dir so this test never writes
+// gate-replay-test-* rows into the real ~/.mermaid-collab/supervisor.db (which
+// the UI Projects list renders). openDb() caches its handle, so we must _closeDb()
+// AFTER setting the env for the change to take effect.
+let supDir: string;
+let priorSupDir: string | undefined;
 
 beforeEach(() => {
+  priorSupDir = process.env.MERMAID_SUPERVISOR_DIR;
+  supDir = mkdtempSync(`${tmpdir()}/gate-replay-supdir-`);
+  process.env.MERMAID_SUPERVISOR_DIR = supDir;
+  _closeDb(); // drop any cached handle so the next openDb() uses the isolated dir
   projectDir = mkdtempSync(`${tmpdir()}/gate-replay-test-`);
 });
 
 afterEach(() => {
   _closeProject(projectDir);
+  removeWatchedProject(projectDir); // belt-and-suspenders in the isolated dir
   _closeDb();
+  if (priorSupDir === undefined) delete process.env.MERMAID_SUPERVISOR_DIR;
+  else process.env.MERMAID_SUPERVISOR_DIR = priorSupDir;
+  try { rmSync(supDir, { recursive: true, force: true }); } catch { /* best-effort */ }
 });
 
 test('seed + current gate → 0 FP / 0 FN', async () => {
