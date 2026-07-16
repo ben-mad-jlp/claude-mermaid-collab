@@ -318,7 +318,7 @@ describe('splitLeafInto with items', () => {
       retryCount: 0,
       completedBy: null,
       objectRef: null,
-      servesCriterionId: null,
+      servesCriterionId: null, servesCriterionIds: [],
       decisionRef: null,
       claimProbe: null,
       inheritedBlueprintFrom: null,

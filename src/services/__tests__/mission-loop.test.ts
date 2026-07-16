@@ -279,7 +279,7 @@ test('needs-discovery nudge message carries the per-criterion parallel instructi
   expect(a.kind).toBe('nudge');
   if (a.kind === 'nudge') {
     expect(a.message).toContain("serve EVERY 'discover' gap");
-    expect(a.message).toContain('one [EPIC] per criterion');
+    expect(a.message).toContain('one right-sized epic MAY serve several related aspect criteria');
     expect(a.message).not.toContain('single highest-impact');
   }
 });
