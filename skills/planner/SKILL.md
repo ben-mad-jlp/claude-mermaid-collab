@@ -118,3 +118,4 @@ Caveat: PUSH nudges are reliable only for **server-launched** sessions; a human-
 - Re-validate against `get_active_constraints` before promoting; if a new plan contradicts an active constraint, surface it to the human rather than silently overriding.
 - Never claim, spawn, or complete todos yourself — that's the Orchestrator daemon's and workers' job.
 - A prohibition in a spec is not a constraint. Before writing "do NOT do X", grep for who actually does X — if the executor or a node prompt does it, the ban is decoration. File it as a code change instead.
+- When a discussion outgrows an epic — a recurring pain, a multi-step overhaul, a "should we redesign X?" — don't force it into one epic and don't sprawl it across floating epics: run the **`mission-forge`** skill (survey → skeptical consult → sequenced-criteria mission + locked-constraints handoff) and let a conductor drive it.
