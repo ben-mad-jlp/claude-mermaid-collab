@@ -311,6 +311,24 @@ function normalizeCriterionEdges(
   return { single: ids[0] ?? null, idsJson: ids.length ? JSON.stringify(ids) : null };
 }
 
+/** Thrown by createTodo when a kind:'land' leaf is created under an epic that ALREADY
+ *  has a live land leaf. Two land leaves wedge the epic: missionLandLeafPromotion
+ *  completes landLeaves[0] only, and the other stays forever-open so the epic never
+ *  rolls up done (observed live: build123d 2026-07-16, reconcile self-heal + a manual
+ *  conductor add raced to 7 duplicate pairs). The reconcile pass self-heals a MISSING
+ *  land leaf automatically — manual adds are only needed for non-mission epics. */
+export class DuplicateLandLeafError extends Error {
+  readonly code = 'duplicate-land-leaf';
+  constructor(epicId: string, existingLandLeafId: string) {
+    super(
+      `Epic ${epicId.slice(0, 8)} already has a live land leaf (${existingLandLeafId.slice(0, 8)}). ` +
+      `A second one would wedge the epic (only one gets promoted; the other stays open forever). ` +
+      `Note: the reconcile pass AUTO-CREATES a missing land leaf for mission epics — do not add one by hand.`,
+    );
+    this.name = 'DuplicateLandLeafError';
+  }
+}
+
 export class MissingCriterionEdgeError extends Error {
   readonly code = 'missing-criterion-edge';
   constructor(todoId: string, missionId: string) {
@@ -1343,6 +1361,13 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
+    // ONE live land leaf per epic — a duplicate wedges the epic (see DuplicateLandLeafError).
+    if (kindOfInput(input) === 'land' && input.parentId) {
+      const existingLand = db.query(
+        `SELECT id FROM todos WHERE parentId = ? AND kind = 'land' AND status != 'dropped' LIMIT 1`,
+      ).get(input.parentId) as { id: string } | undefined;
+      if (existingLand) throw new DuplicateLandLeafError(input.parentId, existingLand.id);
+    }
     const createEdges = normalizeCriterionEdges(input.servesCriterionId, input.servesCriterionIds);
     const bucketType = input._ensureBucketType ?? null;
     const isBucket = isEpicInput(input) && (input.isBucket === true || bucketType != null || isBucketEpicTitle(input.title)) ? 1 : 0;

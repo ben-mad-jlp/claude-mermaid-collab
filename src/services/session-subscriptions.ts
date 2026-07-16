@@ -175,6 +175,19 @@ export function enqueueNotification(
   const id = crypto.randomUUID();
   const ts = n.ts ?? Date.now();
   const payload = n.payload === undefined ? null : JSON.stringify(n.payload);
+  // DEDUPE-WHILE-PENDING: the same (target,event) re-emitted before the session drains
+  // (claim churn re-firing in_progress, repeated flags) previously stacked duplicate rows,
+  // so one nudge listed the same line twice and the count inflated (observed: 79-deep
+  // queue with doubled lines). An UNSEEN duplicate is refreshed in place (ts + summary),
+  // never re-inserted; a drained (seen) row never blocks a new event.
+  const dupe = openDb().query(
+    `SELECT id FROM session_notification WHERE project=? AND session=? AND scope=? AND targetId=? AND event=? AND seen=0 LIMIT 1`,
+  ).get(n.project, n.session, n.scope, n.targetId, n.event) as { id: string } | undefined;
+  if (dupe) {
+    openDb().prepare(`UPDATE session_notification SET ts=?, summary=?, payload=? WHERE id=?`)
+      .run(ts, n.summary, payload, dupe.id);
+    return { id: dupe.id, project: n.project, session: n.session, scope: n.scope, targetId: n.targetId, event: n.event, summary: n.summary, payload, ts, seen: false };
+  }
   openDb().prepare(
     `INSERT INTO session_notification (id, project, session, scope, targetId, event, summary, payload, ts, seen) VALUES (?,?,?,?,?,?,?,?,?,0)`,
   ).run(id, n.project, n.session, n.scope, n.targetId, n.event, n.summary, payload, ts);
