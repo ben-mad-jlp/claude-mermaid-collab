@@ -9,7 +9,7 @@
  */
 import type { LeafNodeKind } from './leaf-executor';
 import type { InjectionFlags } from './runtime-config';
-import { getActiveConstraints } from './decision-record-store';
+import { getActiveConstraints, listDecisionRecords } from './decision-record-store';
 import { readProjectDigest } from './project-digest';
 
 /** Structural subset of ledger-stats LeafRunStats the retry payload needs. */
@@ -33,8 +33,10 @@ export interface ComposeInjectedContextArgs {
 /** Distinctive advisory marker — the source-guard test asserts it lives in exactly this file. */
 const ADVISORY_SUFFIX = 'advisory — verify against the tree';
 
-/** Node kinds that can benefit from active constraints. */
-const CONSTRAINTS_KINDS = new Set<LeafNodeKind>(['implement', 'wimplement', 'fix', 'review']);
+/** Node kinds that can benefit from active constraints. Blueprint included (mission-forge
+ *  wiring): the PLAN author needs the locked constraints most — a plan drafted blind to a
+ *  "X stays pre-land" rule wastes the whole downstream pipeline. */
+const CONSTRAINTS_KINDS = new Set<LeafNodeKind>(['blueprint', 'implement', 'wimplement', 'fix', 'review']);
 
 /** Node kinds eligible for retry-context payload B (prior-attempt fail info). */
 const RETRY_KINDS = new Set<LeafNodeKind>(['blueprint', 'implement']);
@@ -44,6 +46,13 @@ const DIGEST_KINDS = new Set<LeafNodeKind>(['blueprint', 'research']);
 
 /** Hard cap on retry block body (chars); ~500 tokens. */
 const RETRY_BLOCK_CHAR_CAP = 2000;
+
+/** Payload D scope: rejected design alternatives orient the PLAN author only. */
+const REJECTED_ALTS_KINDS = new Set<LeafNodeKind>(['blueprint']);
+/** Most-recent decision records considered for payload D. */
+const REJECTED_ALTS_MAX_RECORDS = 8;
+/** Hard cap on the payload D body (chars); ~500 tokens. */
+const REJECTED_ALTS_CHAR_CAP = 2000;
 
 /** Marker appended when retry body exceeds the char cap. */
 const RETRY_TRUNCATION_MARKER = '…[truncated — see leaf ledger for full detail]';
@@ -108,6 +117,32 @@ export function composeInjectedContext(args: ComposeInjectedContextArgs): string
     if (constraints.length > 0) {
       const body = constraints.map((c) => `- ${c.id}: ${c.title}`).join('\n');
       blocks.push(_wrapBlock('ACTIVE CONSTRAINTS', body));
+    }
+  }
+  // Payload D — REJECTED ALTERNATIVES (mission-forge wiring). Design decisions carry the
+  // alternatives a skeptical consult killed; surfacing them to the PLAN author stops builders
+  // re-proposing designs already rejected (the automated half of the conductor's "name the
+  // plausible-looking wrong fix" rule). Same flag lever as payload C — one decision-context
+  // switch. Self-gating: no active decision records with alternatives ⇒ zero bytes.
+  if (args.flags.activeConstraints && REJECTED_ALTS_KINDS.has(args.kind)) {
+    let records: ReturnType<typeof listDecisionRecords> = [];
+    try {
+      records = listDecisionRecords(args.project, { kind: 'decision', status: 'active' });
+    } catch {
+      // advisory payload — a store read failure must never fail a node spawn
+    }
+    const withAlts = records
+      .filter((r) => (r.alternatives ?? []).length > 0)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, REJECTED_ALTS_MAX_RECORDS);
+    if (withAlts.length > 0) {
+      let body = withAlts
+        .map((r) => `- ${r.title}\n  rejected: ${(r.alternatives ?? []).join(' | ')}`)
+        .join('\n');
+      if (body.length > REJECTED_ALTS_CHAR_CAP) {
+        body = body.slice(0, REJECTED_ALTS_CHAR_CAP) + '\n' + RETRY_TRUNCATION_MARKER;
+      }
+      blocks.push(_wrapBlock('PRIOR DESIGN DECISIONS — REJECTED ALTERNATIVES (do not re-propose)', body));
     }
   }
   // Payload A — serves the projectDigest criterion. When the digest flag is ON and the kind is
