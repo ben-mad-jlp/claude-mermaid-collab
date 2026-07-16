@@ -57,6 +57,8 @@ export interface ClaimStruct {
  *  Attribution, NOT auth (B1): drives "who is expected to act / who acted". */
 export type AssigneeKind = 'agent' | 'human';
 
+export type LeafTier = 'full' | 'small' | 'test-pinned';
+
 export interface Todo {
   id: string;
   ownerSession: string;
@@ -95,6 +97,8 @@ export interface Todo {
    *  (decision e852fb0c, stage A). Nullable ONLY for rows read from a DB opened by
    *  an older binary; the backfill + create path make it total. NO READER YET. */
   kind: TodoKind | null;
+  /** Executor recipe tier. null-coalesces to 'full' in rowToTodo; pre-migration rows read null. */
+  tier: LeafTier | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy: string | null;
   claimToken: string | null;
@@ -223,6 +227,7 @@ export interface CreateTodoInput {
   /** R2 friction-triage layer tag: set by friction-triage when filing recurring-friction
    *  children under the `bugfix` bucket. Caller-settable (unlike bucketType). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
+  tier?: LeafTier;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -349,6 +354,7 @@ export type UpdateTodoPatch = Partial<{
   inheritedFiles: string[];
   /** R5 bucket promotion link: set when promoting a bucket item to a real epic. */
   promotedTo: string | null;
+  tier: LeafTier | null;
   /** De-conflate S1 (additive). Decision axes; readers ignore these until S3.
    *  `claim` is intentionally NOT patchable here — it is mutated only via writeClaim. */
   approvedAt: string | null;
@@ -406,6 +412,7 @@ interface TodoRow {
   bucketType: string | null;
   triageTag: string | null;
   promotedTo: string | null;
+  tier: string | null;
 }
 
 const DDL = `
@@ -530,6 +537,10 @@ export function openDb(project: string): Database {
   // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
   // the epic's id. Nullable; non-null only on promoted items.
   addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
+  // Executor recipe tier (full|small|test-pinned). Additive, nullable; rowToTodo
+  // coalesces null → 'full'. Existing DBs never re-run CREATE TABLE, so this ALTER
+  // is the only path the column reaches an already-created todos table.
+  addColumnIfMissing(db, 'todos', 'tier', 'tier TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -1152,6 +1163,7 @@ function rowToTodo(row: TodoRow): Todo {
     blueprintId: row.blueprintId ?? null,
     type: row.type ?? null,
     kind: (row.kind as TodoKind) ?? null,
+    tier: (row.tier as LeafTier) ?? 'full',
     targetProject: row.targetProject ?? null,
     acceptanceStatus: (row.acceptanceStatus as Todo['acceptanceStatus']) ?? null,
     claimedBy: row.claimedBy ?? null,
@@ -1275,6 +1287,9 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
   if ((input as { bucketType?: unknown }).bucketType !== undefined) {
     throw new Error('createTodo: `bucketType` is not caller-settable — buckets are created via bucket-registry.ensureBucket');
   }
+  if (input.tier !== undefined && !(['full', 'small', 'test-pinned'] as const).includes(input.tier)) {
+    throw new Error(`createTodo: invalid tier '${input.tier}' — must be one of full|small|test-pinned`);
+  }
   const resolvedParentId = await resolveTodoParent(project, input);
   assertBucketDepthInvariant(project, { parentId: resolvedParentId, child: { kind: kindOfInput(input), title: input.title } });
   return withLock(project, () => {
@@ -1299,8 +1314,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType, triageTag)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType, triageTag, tier)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1311,7 +1326,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType, input.triageTag ?? null
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -1442,6 +1457,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
       inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
       promotedTo: patch.promotedTo !== undefined ? patch.promotedTo : (existing.promotedTo ?? null),
+      tier: patch.tier !== undefined ? patch.tier : existing.tier,
     };
 
     // R5: bucket depth invariant when re-parenting
@@ -1465,13 +1481,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.transaction(() => {
       db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, decisionRef=?, claimProbe=?, promotedTo=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
           completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.servesCriterionId, next.decisionRef, next.claimProbe, next.promotedTo,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.servesCriterionId, next.decisionRef, next.claimProbe, next.promotedTo, next.tier,
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
       );

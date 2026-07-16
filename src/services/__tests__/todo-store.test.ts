@@ -1800,3 +1800,42 @@ describe('Parallel-burst starvation fix: 0-node kill must not charge a retry', (
     expect(result).toBe('ready');
   });
 });
+
+describe('tier schema', () => {
+  test('createTodo with tier:"small" asserts the readback todo.tier === "small"', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'test-small', tier: 'small' });
+    expect(t.tier).toBe('small');
+    const fetched = getTodo(project, t.id);
+    expect(fetched!.tier).toBe('small');
+  });
+
+  test('createTodo with no tier asserts the readback todo.tier === "full" (coalesce path)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'test-default' });
+    expect(t.tier).toBe('full');
+    const fetched = getTodo(project, t.id);
+    expect(fetched!.tier).toBe('full');
+  });
+
+  test('createTodo with tier:"bogus" asserts createTodo(...) rejects/throws a validation error', async () => {
+    expect(async () => {
+      await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'test-bogus', tier: 'bogus' as any });
+    }).toThrow(/invalid tier/);
+  });
+
+  test('idempotency: opens the same project DB twice, runs PRAGMA table_info(todos), and asserts exactly one row has name === "tier"', async () => {
+    // Create a todo to ensure the DB is initialized
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'test' });
+
+    // Close the cached connection
+    _closeProject(project);
+
+    // Open a fresh direct connection
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    const rows = db.query('PRAGMA table_info(todos)').all() as Array<{ name: string }>;
+    db.close();
+
+    // Assert exactly one row has name === 'tier'
+    const tierRows = rows.filter((r) => r.name === 'tier');
+    expect(tierRows.length).toBe(1);
+  });
+});
