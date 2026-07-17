@@ -1775,6 +1775,40 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
   }
 }
 
+/** D1 fix (friction 9312cb98): the armed sweep above only evaluates MISSION epics
+ *  (autoLandArmedMissionEpics filters on isMissionEpic), so a build-green NON-mission
+ *  epic whose [LAND] leaf is still open never rolls up (land leaf is a non-done child)
+ *  and is invisible to every existing sweep — it deadlocks forever. This sweep raises
+ *  the SAME human 'epic-ready-to-land' card via surfaceEpicLand for such epics. It never
+ *  promotes/completes the land leaf and never auto-lands: surfaceEpicLand's own
+ *  landAuthorized gate (epicAutoLandAuthority — MISSION_AUTOLAND_ARMED && isMissionEpic)
+ *  already refuses auto-land for a non-mission epic, so this sweep is surface-only by
+ *  construction — the auto-land authority boundary (constraint 55ee9d79) is enforced by
+ *  the callee, not duplicated here. Best-effort; never throws. */
+export async function surfaceBuildGreenNonMissionEpics(project: string): Promise<void> {
+  const allTodos = listTodos(project, { includeCompleted: true });
+  const nonMissionEpics = allTodos.filter(
+    (t) => isEpic(t) && t.status !== 'done' && t.status !== 'dropped'
+      && t.heldAt == null && !isMissionEpic(project, t.id, allTodos),
+  );
+  for (const epic of nonMissionEpics) {
+    try {
+      const decision = missionLandLeafPromotion(allTodos, epic.id);
+      if (!decision.promote) continue;
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ epicId: epic.id, nonMissionLandSurface: 'build-green', landLeafId: decision.landLeafId }) });
+      await surfaceEpicLand(project, epic.id, {
+        sessionHint: 'coordinator',
+        preferLinkTodoId: decision.buildChildIds[0],
+        landLeafId: decision.landLeafId,
+      });
+    } catch (e) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ epicId: epic.id, nonMissionLandSurface: 'error', reason: e instanceof Error ? e.message : String(e) }) });
+    }
+  }
+}
+
 /** Stamp the epic's [LAND] leaf done ONLY on an observed merge. Guarded: a missing
  *  landLeafId or a non-landed outcome is a no-op — the leaf stays not-done and the
  *  next reconcile tick retries. Best-effort; the caller already wraps in try/catch. */
@@ -2185,6 +2219,22 @@ export async function landEpic(
         recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: proof.reason, regressions: proof.gate.regressions.map(u => u.files).flat(), inherited: proof.gate.inherited.length }) });
         await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'land-gate-failed', todoId: epicId, detail: proof.detail ?? proof.reason }).catch(() => {});
         return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch };
+      }
+
+      // L4 — LAND-TIME OPEN-CHILDREN HOLD (friction c31ef24f): re-check the epic's
+      // children against LIVE store state, not the epicChildIds snapshot taken
+      // above (line ~2101) or any earlier promotion-time snapshot — a sibling
+      // leaf dropped-and-replaced (or any newly-filed child) between that
+      // snapshot and this point must not slip through. checkLandDeps already
+      // excludes the [LAND] leaf itself and treats a dropped child as
+      // non-gating while still requiring every OTHER open child closed. A
+      // blocker here HOLDS (defer, re-evaluated next tick) — it never parks a
+      // new escalation; the existing epic-ready-to-land card stays open.
+      const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
+      const openChildBlocker = checkLandDeps(freshTodosAtLandTime, epicId);
+      if (openChildBlocker) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'held', reason: 'open-children-at-land-time', detail: openChildBlocker.message }) });
+        return { ok: false, landed: false, reason: 'open-children-at-land-time', epicId, epicBranch };
       }
 
       // Green proof → perform the real single --no-ff epic→master merge.
