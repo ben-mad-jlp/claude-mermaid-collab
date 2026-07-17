@@ -1,9 +1,9 @@
 // Terminal composer draft-presence store.
 //
 // A tiny ephemeral flag that mirrors whether the terminal MessageComposer's
-// textarea currently holds any non-whitespace text. SuggestionChips reads it to
-// hide the AI-proposed reply chips while the user is typing their own message
-// (chips STAGE into the draft, so showing them over live text would be noise).
+// textarea currently holds any non-whitespace text. The composer's inline GHOST
+// suggestion is suppressed while the user is typing their own message (the ghost
+// only shows over an EMPTY composer, so live text must hide it).
 //
 // Deliberately separate from composerDraftStore (the per-session Lexical draft
 // with persistence/attachments): this is a single global boolean gate with no

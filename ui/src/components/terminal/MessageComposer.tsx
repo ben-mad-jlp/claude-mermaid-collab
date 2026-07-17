@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useTerminalComposerDraftStore } from '@/stores/terminalComposerDraftStore';
 import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
-import { registerComposerStage } from './composerStage';
+import { pickGhost } from './composerGhost';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -21,6 +22,25 @@ import { registerComposerStage } from './composerStage';
  */
 
 const MAX_HEIGHT = 160; // px — ~8 rows, then the textarea scrolls internally.
+
+/** Client-only desktop-presence check (mirrors the retired SuggestionChips gate) —
+ *  the ghost only shows while THIS window actually has focus, so a suggestion never
+ *  sits over an unfocused/background composer. */
+function useDesktopPresence(): boolean {
+  const [present, setPresent] = useState(() => (typeof document !== 'undefined' ? document.hasFocus() : true));
+  useEffect(() => {
+    const update = () => setPresent(document.hasFocus());
+    window.addEventListener('focus', update);
+    window.addEventListener('blur', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.removeEventListener('focus', update);
+      window.removeEventListener('blur', update);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, []);
+  return present;
+}
 
 interface MessageComposerProps {
   project: string;
@@ -149,25 +169,33 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   // file dropped anywhere in the terminal lands here (not just on the textarea).
   useEffect(() => registerComposerDrop(processDrop));
 
-  // Register this composer as the stage target for suggestion chips (structured
-  // AI-proposed replies) — 'append' space-joins/toggles a token onto the draft
-  // (multiSelect), 'replace' overwrites it (single-select / free-form).
-  useEffect(() => registerComposerStage((text, mode) => {
-    if (mode === 'append') {
-      setValue((prev) => {
-        const tokens = prev.split(/\s+/).filter(Boolean);
-        const next = tokens.includes(text)
-          ? tokens.filter((t) => t !== text).join(' ')
-          : [...tokens, text].join(' ');
-        useTerminalComposerDraftStore.getState().setHasText(next.trim().length > 0);
-        return next;
-      });
-    } else {
-      setValue(text);
-      useTerminalComposerDraftStore.getState().setHasText(text.trim().length > 0);
-    }
-    requestAnimationFrame(() => taRef.current?.focus());
-  }), []);
+  // ── Inline GHOST suggestion (replaces the old SuggestionChips chip row) ──────────
+  // The AI-proposed reply is rendered as ONE greyed inline overlay over the EMPTY
+  // textarea. Gate (mirrors the retired chip gate): a fresh structured suggestion for
+  // THIS focused session, turn-bound (paneHash === summaryPaneHash), this window has
+  // focus, and the composer is empty. Never over typed text, never stale/cross-session.
+  const present = useDesktopPresence();
+  const summary = useSupervisorStore((s) => s.sessionSummaries[`${project}::${session}`]);
+  const structured = summary?.structured;
+  const summaryFresh =
+    !!summary && summary.paneHash !== undefined && summary.paneHash === summary.summaryPaneHash;
+  const isEmpty = value.trim().length === 0;
+  const ghost =
+    !disabled && present && summaryFresh && isEmpty ? pickGhost(structured) : null;
+
+  /** Accept the ghost: fill the textarea with the real (editable) suggestion text,
+   *  which hides the ghost (no longer empty), and keep focus + caret at the end. */
+  const acceptGhost = () => {
+    if (!ghost) return;
+    setValue(ghost);
+    useTerminalComposerDraftStore.getState().setHasText(true);
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(ghost.length, ghost.length);
+    });
+  };
 
   // Raw-key dispatch to the live REPL (no nudge toast, no Enter unless asked).
   const postKeys = (text: string, submit: boolean) => {
@@ -221,7 +249,10 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
 
   const send = () => {
     if (disabled) return;
-    const text = value;
+    // Empty composer + a live ghost → send the SUGGESTION directly (the human-chosen
+    // behavior: Enter/Send accepts-and-sends the ghost in one step). Any typed text
+    // takes precedence and sends verbatim as before.
+    const text = value.trim() ? value : (ghost ?? '');
     if (!text.trim()) return;
     const outgoing = text;
     const mc = (window as any).mc;
@@ -270,6 +301,31 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ghost interactions (only while a ghost is showing — i.e. the composer is empty):
+    if (ghost) {
+      // Tab OR → (ArrowRight at the caret end) ACCEPTS the ghost into editable text.
+      // Empty textarea ⇒ caret is at 0 which is also the end, so → accepts.
+      const ta = taRef.current;
+      const atEnd = !ta || (ta.selectionStart === ta.selectionEnd && ta.selectionEnd === value.length);
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        acceptGhost();
+        return;
+      }
+      if (e.key === 'ArrowRight' && atEnd) {
+        e.preventDefault();
+        acceptGhost();
+        return;
+      }
+      // Plain Enter (no modifier/shift) SENDS the ghost directly — overrides the
+      // "Enter sends" toggle: an empty composer showing a ghost has nothing else Enter
+      // could mean. ⌘/Ctrl+Enter falls through to the always-send branch below.
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        send();
+        return;
+      }
+    }
     // ⌘/Ctrl+Enter always sends, regardless of the toggle.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -283,7 +339,8 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     }
   };
 
-  const canSend = !disabled && value.trim().length > 0;
+  // Send is enabled with typed text OR while a ghost is available (Send sends the ghost).
+  const canSend = !disabled && (value.trim().length > 0 || ghost != null);
 
   return (
     <div
@@ -322,28 +379,55 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
           Send button (stretches/grows with the textarea height) above the Enter-sends
           pill toggle (green = on, red = off — the colour is the state, no label text). */}
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
-        <textarea
-          ref={taRef}
-          value={value}
-          rows={1}
-          spellCheck={false}
-          disabled={disabled}
-          placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
-          onChange={onChange}
-          onKeyDown={onKeyDown}
-          title={disabled ? undefined : 'Drag a file anywhere in the terminal to insert its path (or paste its contents)'}
-          style={{
-            flex: '1 1 auto', minWidth: 0, width: '100%', resize: 'none',
-            minHeight: 38, maxHeight: MAX_HEIGHT,
-            padding: '8px 10px', margin: 0,
-            fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-            color: p.fg, background: p.inputBg,
-            border: `1px solid ${focused ? p.accent : p.border}`, borderRadius: 6,
-            outline: 'none', transition: 'border-color 120ms',
-          }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-        />
+        {/* Relative wrapper so the inline ghost overlay can align over the empty textarea. */}
+        <div style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, display: 'flex' }}>
+          <textarea
+            ref={taRef}
+            value={value}
+            rows={1}
+            spellCheck={false}
+            disabled={disabled}
+            placeholder={ghost ? '' : (sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)')}
+            onChange={onChange}
+            onKeyDown={onKeyDown}
+            title={disabled ? undefined : 'Drag a file anywhere in the terminal to insert its path (or paste its contents)'}
+            style={{
+              flex: '1 1 auto', minWidth: 0, width: '100%', resize: 'none',
+              minHeight: 38, maxHeight: MAX_HEIGHT,
+              padding: '8px 10px', margin: 0,
+              fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+              color: p.fg, background: p.inputBg,
+              border: `1px solid ${focused ? p.accent : p.border}`, borderRadius: 6,
+              outline: 'none', transition: 'border-color 120ms',
+              // Hide the native placeholder while a ghost occupies the same space.
+              ...(ghost ? { caretColor: p.fg } : null),
+            }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+          />
+          {/* Inline GHOST: a greyed, muted overlay showing the AI-proposed reply over the
+              empty textarea. Click accepts it. Aligned to the textarea's text box (1px
+              border + 8/10 padding). Not in the tab order; clicking accepts-into-editable. */}
+          {ghost && (
+            <div
+              role="button"
+              aria-label={`Suggested reply: ${ghost}`}
+              data-testid="composer-ghost"
+              onMouseDown={(e) => { e.preventDefault(); acceptGhost(); }}
+              title={`Suggested reply — Tab or → to edit, Enter to send: "${ghost}"`}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 2,
+                padding: '9px 11px', margin: 0,
+                fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                color: p.mutedFg, background: 'transparent',
+                whiteSpace: 'pre-wrap', overflow: 'hidden',
+                cursor: 'pointer', userSelect: 'none',
+              }}
+            >
+              {ghost}
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6, flex: '0 0 auto', minWidth: 96 }}>
           <button
             type="button" disabled={!canSend} onClick={send} title="Send to the terminal"

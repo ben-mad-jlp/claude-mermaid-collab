@@ -7,7 +7,7 @@ import { TerminalConsole } from './TerminalPane';
 import { GrokTranscript } from './GrokTranscript';
 import { InputRail } from './InputRail';
 import { MessageComposer } from './MessageComposer';
-import { SuggestionChips } from './SuggestionChips';
+import { ViewingHeartbeat } from './ViewingHeartbeat';
 import { TerminalThemePicker } from './TerminalThemePicker';
 import { useTerminalPalette } from './terminalTheme';
 import { routeComposerDrop } from './composerDrop';
@@ -296,23 +296,28 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         </div>
       </div>
 
+      {/* Desktop-view presence heartbeat: while a real session is bound + the tab is
+          visible, beat POST /api/zen/viewing so the summary interpret pass runs for
+          the viewed session (and the ghost suggestion below gets a payload). Stops
+          when unbound/hidden — never burns tokens unwatched. Renders nothing. A grok
+          lane has no tmux pane to interpret, so it doesn't drive the heartbeat. */}
+      <ViewingHeartbeat
+        serverId={activeTab?.serverId ?? ''}
+        project={activeTab?.project ?? ''}
+        session={activeTab?.session ?? ''}
+        disabled={!activeTab || isGrokLane}
+      />
+
       {/* Multi-line composer — a real auto-growing textbox directly below the console,
           for typing an actual message into the live REPL. Send button + a persisted
-          "Enter sends" toggle. */}
+          "Enter sends" toggle. Shows the AI-proposed reply as an inline GHOST over the
+          empty textarea (Tab/→ to edit, Enter/Send to send it directly). */}
       <MessageComposer
         project={activeTab?.project ?? ''}
         session={activeTab?.session ?? ''}
         serverId={activeTab?.serverId ?? ''}
         disabled={!activeTab}
         injectMode={isGrokLane}
-      />
-
-      {/* Structured suggestion chips (AI-proposed replies from the session summary) —
-          stages into the composer above; never sends. */}
-      <SuggestionChips
-        project={activeTab?.project ?? ''}
-        session={activeTab?.session ?? ''}
-        disabled={!activeTab || isGrokLane}
       />
 
       {/* Quick-reply chip bar (canned responses) — welded to the very bottom, under the
