@@ -53,16 +53,20 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({
 
   const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const target = e.currentTarget;
-    target.setPointerCapture?.(e.pointerId);
+    // Anchor to the drawer's fixed right edge (it's right-0 in its column),
+    // captured once at drag-start so the width tracks the pointer correctly.
+    // NOTE: we deliberately do NOT use setPointerCapture — the handle re-renders on
+    // every width change, which orphaned the capture mid-drag (drag stuck, handle
+    // stayed highlighted). Window-level pointer listeners capture the drag globally.
+    const drawerEl = e.currentTarget.parentElement as HTMLElement | null;
+    const rightEdge = drawerEl?.getBoundingClientRect().right || window.innerWidth;
     const prevUserSelect = document.body.style.userSelect;
     document.body.style.userSelect = 'none';
 
     const handleMove = (ev: PointerEvent) => {
-      setInspectorWidth(clampInspectorWidth(window.innerWidth - ev.clientX));
+      setInspectorWidth(clampInspectorWidth(rightEdge - ev.clientX));
     };
-    const handleUp = (ev: PointerEvent) => {
-      target.releasePointerCapture?.(ev.pointerId);
+    const handleUp = () => {
       document.body.style.userSelect = prevUserSelect;
       setInspectorWidth((w) => {
         window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(w));
