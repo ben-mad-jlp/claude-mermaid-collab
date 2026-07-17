@@ -10,6 +10,22 @@
 
 import React from 'react';
 
+const INSPECTOR_WIDTH_KEY = 'bridge.inspectorWidth';
+const INSPECTOR_MIN_WIDTH = 320;
+const INSPECTOR_DEFAULT_WIDTH = 420;
+
+function readPersistedInspectorWidth(): number {
+  if (typeof window === 'undefined') return INSPECTOR_DEFAULT_WIDTH;
+  const raw = window.localStorage.getItem(INSPECTOR_WIDTH_KEY);
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : INSPECTOR_DEFAULT_WIDTH;
+}
+
+function clampInspectorWidth(width: number): number {
+  const max = Math.min(window.innerWidth * 0.9, 900);
+  return Math.min(Math.max(width, INSPECTOR_MIN_WIDTH), max);
+}
+
 export interface SplitDeckProps {
   commandBar: React.ReactNode;
   signals?: React.ReactNode;   // SignalsStrip (zero-height when idle)
@@ -33,6 +49,32 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({
   inspectorOpen,
   onInspectorClose,
 }) => {
+  const [inspectorWidth, setInspectorWidth] = React.useState(readPersistedInspectorWidth);
+
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture?.(e.pointerId);
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+
+    const handleMove = (ev: PointerEvent) => {
+      setInspectorWidth(clampInspectorWidth(window.innerWidth - ev.clientX));
+    };
+    const handleUp = (ev: PointerEvent) => {
+      target.releasePointerCapture?.(ev.pointerId);
+      document.body.style.userSelect = prevUserSelect;
+      setInspectorWidth((w) => {
+        window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(w));
+        return w;
+      });
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  };
+
   return (
     <div data-testid="bridge-split-deck" className="flex flex-col h-full overflow-hidden bg-white dark:bg-gray-900">
       <div className="shrink-0">{commandBar}</div>
@@ -50,7 +92,16 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({
                 onClick={onInspectorClose}
                 className="absolute inset-0 z-10"
               />
-              <div data-testid="split-inspector" className="absolute inset-y-0 right-0 w-[420px] max-w-full min-h-0 overflow-y-auto z-20 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl">
+              <div
+                data-testid="split-inspector"
+                style={{ width: inspectorWidth }}
+                className="absolute inset-y-0 right-0 max-w-full min-h-0 overflow-y-auto z-20 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl"
+              >
+                <div
+                  data-testid="split-inspector-resize"
+                  onPointerDown={handleResizePointerDown}
+                  className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize z-30 hover:bg-blue-400/40 dark:hover:bg-blue-500/40"
+                />
                 {onInspectorClose && (
                   <button
                     type="button"

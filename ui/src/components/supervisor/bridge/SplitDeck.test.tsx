@@ -44,3 +44,78 @@ describe('SplitDeck', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('inspector resize', () => {
+  function makeStubStorage() {
+    const store = new Map<string, string>();
+    return {
+      getItem: vi.fn((key: string) => (store.has(key) ? store.get(key)! : null)),
+      setItem: vi.fn((key: string, value: string) => {
+        store.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => store.delete(key)),
+      clear: vi.fn(() => store.clear()),
+      key: vi.fn(() => null),
+      get length() {
+        return store.size;
+      },
+    };
+  }
+
+  it('renders the resize handle when open, absent when closed', () => {
+    renderDeck({ inspectorOpen: true });
+    expect(screen.getByTestId('split-inspector-resize')).toBeInTheDocument();
+  });
+
+  it('does not render the resize handle when closed', () => {
+    renderDeck({ inspectorOpen: false });
+    expect(screen.queryByTestId('split-inspector-resize')).toBeNull();
+  });
+
+  it('drags to change the inspector width', () => {
+    const stub = makeStubStorage();
+    Object.defineProperty(window, 'localStorage', { value: stub, configurable: true });
+
+    renderDeck({ inspectorOpen: true });
+    const handle = screen.getByTestId('split-inspector-resize');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 1024 - 420 });
+    fireEvent.pointerMove(window, { clientX: 1024 - 500 });
+
+    expect(screen.getByTestId('split-inspector').style.width).toBe('500px');
+  });
+
+  it('clamps the width at the minimum and maximum bounds', () => {
+    const stub = makeStubStorage();
+    Object.defineProperty(window, 'localStorage', { value: stub, configurable: true });
+
+    renderDeck({ inspectorOpen: true });
+    const handle = screen.getByTestId('split-inspector-resize');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 1024 - 420 });
+
+    // clientX near window width → width near 0 → clamps to min
+    fireEvent.pointerMove(window, { clientX: 1020 });
+    expect(screen.getByTestId('split-inspector').style.width).toBe('320px');
+
+    // clientX near 0 → width near window.innerWidth → clamps to max
+    const max = Math.min(window.innerWidth * 0.9, 900);
+    fireEvent.pointerMove(window, { clientX: 0 });
+    expect(screen.getByTestId('split-inspector').style.width).toBe(`${max}px`);
+  });
+
+  it('persists the dragged width and restores it on remount', () => {
+    const stub = makeStubStorage();
+    Object.defineProperty(window, 'localStorage', { value: stub, configurable: true });
+
+    const { unmount } = renderDeck({ inspectorOpen: true });
+    const handle = screen.getByTestId('split-inspector-resize');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 1024 - 420 });
+    fireEvent.pointerMove(window, { clientX: 1024 - 500 });
+    fireEvent.pointerUp(window, { pointerId: 1 });
+
+    expect(stub.setItem).toHaveBeenCalledWith('bridge.inspectorWidth', '500');
+
+    unmount();
+    renderDeck({ inspectorOpen: true });
+    expect(screen.getByTestId('split-inspector').style.width).toBe('500px');
+  });
+});
