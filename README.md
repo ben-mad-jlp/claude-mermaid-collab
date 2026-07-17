@@ -155,8 +155,11 @@ All tools are available to Claude Code via HTTP MCP at `http://localhost:9002/mc
 ### Tasks & Workflow
 `get_task_graph`, `sync_task_graph`, `update_task_status`, `update_tasks_status`
 
+### Work Graph Creation
+`create_epic`, `add_leaves`, `file_to_bucket`
+
 ### Session Todos
-`add_session_todo`, `list_session_todos`, `update_session_todo`, `toggle_session_todo`, `remove_session_todo`, `clear_completed_session_todos`, `reorder_session_todos`
+`list_session_todos`, `update_session_todo`, `toggle_session_todo`, `remove_session_todo`, `clear_completed_session_todos`, `reorder_session_todos`
 
 ### AI UI
 `render_ui`, `update_ui`, `get_ui_response`, `request_user_input`, `dismiss_ui`

@@ -28,7 +28,7 @@ From the architecture review (`review-collab-architecture`). The structural + co
 | setup.ts → handler registry (`6066b12a`) | ready | 2 | dep: `40d38438`. Kill the 2,200-line tool switch; derive ListTools from a registry. |
 | Unified session-runtime read model (`86799634`) | ready | 2 | One join over the 3 stores; stop cross-store liveness stitching. |
 | One-command deploy script + sidecar-dies-with-app (`d0d59599`) | ready | 2 | Fixes the detached-sidecar footgun + verified deploy. |
-| Enforce 'every work todo has an epic' (`c0cecc3e`) | ready | 2 | Declared epic kind + Inbox default + add_session_todo guard. |
+| Enforce 'every work todo has an epic' (`c0cecc3e`) | ready | 2 | Declared epic kind + Inbox default + create_epic/add_leaves guard. |
 | Planning-reconciliation spike (`a3f2c930`) | todo | 1 | Harness built; needs real-run validation. |
 | ConnectionStore durable persistence (`7d031efb`) | todo | — | Await a final flush on before-quit. |
 | Reuse FleetGraph for the Implementing task view (`38669eb7`) | planned | 2 | One graph, not two. |
