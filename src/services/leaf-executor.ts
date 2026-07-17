@@ -129,6 +129,30 @@ export function escalateImplementModel(model: string, attempt: number): string {
   return model;
 }
 
+/** crit 1 — NON-falsifiable review DOUBT detector. A review FAIL that expresses INABILITY to
+ *  assess ("can't confirm correctness", "nothing to review", "not enough context") rather than
+ *  asserting a concrete defect is non-falsifiable DOUBT — over a green mechanical gate it is an
+ *  ABSTAIN, not a gating finding (the exact shape of the observed executor-core over-rejections:
+ *  "[N/A] … nothing to review", "can't confirm"). This is deliberately NARROW: a bare fault
+ *  claim ("VERDICT: FAIL — missing null check" / "— real fault") is NOT doubt and STILL gates.
+ *  An empty finding is pure doubt. v1 heuristic — tunable via the replay corpus. Exported for test. */
+const NON_FALSIFIABLE_DOUBT_RE = new RegExp(
+  [
+    "(can'?not|can'?t|couldn'?t|unable to|not able to|hard to|difficult to)\\s+(confirm|verify|assess|determine|tell|be sure|establish|ascertain|validate|evaluate|review|judge)",
+    "nothing (?:to|left to) review",
+    "no (?:changes?|code|diff|edits?) (?:to|left to) review",
+    "not enough (?:context|information|detail|evidence)",
+    "insufficient (?:context|information|evidence|detail)",
+    "without (?:more|additional|further) (?:context|information)",
+  ].join('|'),
+  'i',
+);
+export function isNonFalsifiableReviewDoubt(reviewText: string): boolean {
+  const t = (reviewText ?? '').replace(/verdict:\s*(pass|fail)/gi, '').trim();
+  if (!t) return true; // an empty finding is pure doubt, never a falsifiable defect
+  return NON_FALSIFIABLE_DOUBT_RE.test(t);
+}
+
 /** SAME-WALL detector: are two review findings substantially the SAME findings?
  *  Line-set overlap after normalization (lowercase, digits→# so shifted line numbers
  *  don't defeat the match, short/empty lines dropped) ≥ 0.5 of the smaller set.
@@ -2611,6 +2635,11 @@ export async function runLeaf(
       // `findings = (review.text).trim()` below MUTUALLY EXCLUSIVE with the retry path —
       // otherwise it clobbers the synthesized findings (the defect that livelocked prior attempts).
       let proseRetryFindings: string | null = null;
+      // crit 1 (falsifiability): set when a GENUINE review FAIL on a GREEN mechanical gate
+      // cites NO falsifiable defect (grounding vacuous/abstain = "can't verify" / "nothing to
+      // review"). Such a veto is an ABSTAIN — it must NOT gate a green change (the mechanical
+      // gate carries the accept). A FAIL citing a concrete defect leaves this false and gates.
+      let reviewAbstained = false;
       if (mech.status === 'fail') {
         findings = gateFindingsText(mech);
       } else {
@@ -2765,6 +2794,50 @@ export async function runLeaf(
                 : undefined;
             }
           }
+        } else if (llm === 'fail' && proseRetryFindings === null) {
+          // --- FALSIFIABILITY GATE (crit 1) --------------------------------------
+          // The LLM cannot VETO a GREEN mechanical gate on a NON-falsifiable finding.
+          // We are in the mech.status==='pass' arm (a red gate never reaches here — the
+          // hard floor holds), and this is a GENUINE parseVerdict FAIL (not a prose-gate
+          // retry). Classify it with the SAME grounding predicate a PASS must satisfy: a
+          // FAIL that cites a concrete, resolvable defect (a diff line) is grounding 'ok'
+          // and STILL gates; a FAIL that cites nothing checkable ('vacuous'/'abstain' =
+          // "can't verify" / "nothing to review" — the exact shape of the observed
+          // executor-core over-rejections) is an ABSTAIN and must NOT gate. Doubt is not
+          // a defect; the green mechanical gate is the independent correctness signal.
+          const cs = (await deps.changeSet?.(sessionKey)) ?? null;
+          const grounding = validateReviewGrounding(review.text ?? '', cs, {
+            citationExists: makeCitationExists(cwd),
+          });
+          try {
+            await deps.recordGateEval?.(project, {
+              gate: 'g3',
+              leafId: leaf.id,
+              inputText: review.text ?? '',
+              changeSet: cs ?? [],
+              verdict: grounding.status,
+              reasons: `fail-falsifiability: ${grounding.reasons.join('; ')}`,
+            });
+          } catch { /* replay corpus is telemetry — never break the run */ }
+          const shadow = deps.gateShadowMode?.(project) ?? false;
+          // ABSTAIN only on genuine NON-falsifiable DOUBT ("can't confirm" / "nothing to
+          // review") over a REAL change-set (≥1 file). A bare FAULT claim ("VERDICT: FAIL —
+          // missing null check") is NOT doubt → still gates (the revise loop stays intact for
+          // real findings). An EMPTY change-set (no-op / stale leaf) is NOT abstained — that is
+          // the crit-6 no-op leaf's job to park; abstaining an empty leaf would false-accept it.
+          if ((cs?.length ?? 0) > 0 && isNonFalsifiableReviewDoubt(review.text ?? '') && !shadow) {
+            // Non-falsifiable veto on a green change → ABSTAIN. Do NOT gate; record it so the
+            // graph shows the abstain (and the reviewer's prose is surfaced advisorily below).
+            reviewAbstained = true;
+            try {
+              deps.recordNode({
+                project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                nodeKind: 'review-abstain', nodesSpent: 0, verdict: 'pass',
+                outcomeDetail: JSON.stringify({ reason: 'non-falsifiable-fail-on-green-mech', grounding: grounding.status }),
+                outputText: `review-abstain: LLM FAIL on a GREEN mechanical gate cited no falsifiable defect (${grounding.status}: ${grounding.reasons.join('; ')}) — abstain, do not gate`,
+              });
+            } catch { /* telemetry — never break the run */ }
+          }
         }
         if (proseRetryFindings !== null) {
           // A prose gate RETRIED this cycle: feed the synthesized findings back to implement
@@ -2797,6 +2870,15 @@ export async function runLeaf(
       // returned, so at runtime composeVerdict can only yield 'pass' | 'fail' here.
       attemptFinalFindings = findings;
       reviewVerdict = composeVerdict(mech.status, llm) as 'pass' | 'fail';
+      // crit 1 (falsifiability): a GENUINE FAIL on a GREEN mechanical gate that cited no
+      // falsifiable defect ABSTAINED above — it must NOT gate. Flip it to 'pass' so the green
+      // mechanical gate carries the accept. Ordered BEFORE the optimistic-revert + pass-break
+      // so an abstained small-tier leaf accepts (keeps its optimistic merge) rather than
+      // reverting on a non-falsifiable veto. reviewAbstained is only ever set when
+      // mech.status==='pass', so the hard mechanical floor is untouched.
+      if (reviewVerdict === 'fail' && reviewAbstained) {
+        reviewVerdict = 'pass';
+      }
       // crit 6 (part 2) POST-LAND REVIEW FAIL → AUTO-REVERT. When this leaf optimistically
       // landed (small/test-pinned merged before review), a REAL post-merge fault is terminal:
       // revert the merge and park (parkBlocked owns the revert + reason card). A PROSE-GATE
