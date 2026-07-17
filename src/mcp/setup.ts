@@ -66,6 +66,7 @@ import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, complete
 import type { TodoKind } from '../services/todo-kind.js';
 import { isGate } from '../services/todo-kind.js';
 import { MISSION_TOOL_DEFS, handleMissionTool } from './mission-tools.js';
+import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from './workgraph-tools.js';
 import { SNIPPET_TOOL_DEFS, handleSnippetTool } from './snippet-tools.js';
 import { EMBED_TOOL_DEFS, handleEmbedTool } from './embed-tools.js';
 import { IMAGE_TOOL_DEFS, handleImageTool } from './image-tools.js';
@@ -1073,6 +1074,7 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'set_context_recycle', description: "Set a project's context-auto-recycle mode — the deterministic server-side driver that keeps a low-context WATCHED session alive by injecting /vibe-checkpoint → /clear → /collab (no LLM supervisor in the loop). 'off' (default) = inert; 'notify' = at the watchdog threshold, inject an advisory nudge and only auto-clear+reload once the session itself saves a fresh checkpoint (assisted); 'force' = server injects the checkpoint too, then clears+reloads (for an unattended autonomous-loop session).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, mode: { type: 'string', enum: ['off', 'notify', 'force'], description: "off | notify | force" } }, required: ['project', 'mode'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       ...MISSION_TOOL_DEFS,
+      ...WORKGRAPH_TOOL_DEFS,
       { name: 'context_usage', description: "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose sessions to report.' }, thresholdPercent: { type: 'number', description: 'Override the checkpoint threshold % (default: per-project config → 80).' } }, required: ['project'] } },
       ...SPREADSHEET_TOOL_DEFS,
       ...SNIPPET_TOOL_DEFS,
@@ -1144,6 +1146,11 @@ export async function setupMCPServer(): Promise<Server> {
         // Returns null for non-mission tools → fall through to the switch below.
         const missionResult = await handleMissionTool(name, args);
         if (missionResult !== null) return missionResult;
+
+        // Work-graph constructor group lives in ./workgraph-tools.ts; delegate by name.
+        // Returns null for non-workgraph tools → fall through to the switch below.
+        const workgraphResult = await handleWorkgraphTool(name, args);
+        if (workgraphResult !== null) return workgraphResult;
 
         // Snippet tool group lives in ./snippet-tools.ts; delegate by name.
         // Returns null for non-snippet tools → fall through to the switch below.
