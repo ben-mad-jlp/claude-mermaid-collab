@@ -244,12 +244,18 @@ export function checkLandDeps(todos: Todo[], epicId: string): LandBlocker | null
     };
   }
 
-  // Check all dependencies of the land leaf are done and not rejected
+  // Derive the barrier from live sibling state, not the land leaf's stored
+  // dependsOn edges (stale for leaves added after the land leaf was minted —
+  // constraint 856840e6). A sibling is gating iff it is a direct child of the
+  // epic, not the land leaf itself, and not dropped.
+  const siblings = todos.filter(
+    (t) => t.parentId === epicId && t.id !== landLeaf.id && t.status !== 'dropped',
+  );
+
   const unsatisfied: string[] = [];
-  for (const depId of landLeaf.dependsOn) {
-    const dep = byId.get(depId);
-    if (!dep || dep.status !== 'done' || dep.acceptanceStatus === 'rejected') {
-      unsatisfied.push(depId.slice(0, 8));
+  for (const sib of siblings) {
+    if (sib.status !== 'done' || sib.acceptanceStatus !== 'accepted') {
+      unsatisfied.push(sib.id.slice(0, 8));
       if (unsatisfied.length >= 3) break; // Collect first 3 offenders
     }
   }

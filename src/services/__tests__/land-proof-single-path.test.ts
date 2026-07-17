@@ -16,7 +16,7 @@ const supervisorDir = mkdtempSync(join(tmpdir(), 'land-single-path-'));
 process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { landReadiness, landAuthority, landedByTrailer, type LandActor, type LandProbes } from '../land-authority';
-import { createTodo, getTodo, listTodos, _closeProject, type Todo } from '../todo-store';
+import { createTodo, updateTodo, getTodo, listTodos, _closeProject, type Todo } from '../todo-store';
 import { upsertMission } from '../mission-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { _closeLedgerDb } from '../worker-ledger';
@@ -105,13 +105,16 @@ describe('land-proof-single-path — topology verification', () => {
       ownerSession: 'sess-A',
     })) as Todo;
 
-    // Code leaf (done)
+    // Code leaf (done + accepted — checkLandDeps' derived-sibling predicate requires
+    // acceptanceStatus === 'accepted' exactly; createTodo cannot set it directly, so
+    // it's patched in via updateTodo right after create).
     codeLeaf = (await createTodo(project, {
       title: 'code',
       parentId: epic.id,
       status: 'done',
       ownerSession: 'sess-A',
     })) as Todo;
+    codeLeaf = (await updateTodo(project, codeLeaf.id, { acceptanceStatus: 'accepted' })) as Todo;
 
     // [LAND] leaf depending on code
     landLeaf = (await createTodo(project, {
