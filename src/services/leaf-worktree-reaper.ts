@@ -112,6 +112,7 @@ const lastGcMs = new Map<string, number>();
 export interface GcReport {
   removed: string[];            // worktree paths deleted
   refused: Array<{ path: string; reason: string; sample: string[] }>;
+  quarantined: Array<{ path: string; trashDir: string }>;
   prunedRegistrations: number;  // reserved for a future direct prune count (always 0 today —
                                  // `removePath` itself prunes as part of each removal)
   scanned: number;
@@ -387,7 +388,7 @@ export async function gcLeafWorktrees(
   opts?: { dryRun?: boolean; orphanMaxAgeMs?: number },
 ): Promise<GcReport> {
   const wm = getWorktreeManager(project);
-  const report: GcReport = { removed: [], refused: [], prunedRegistrations: 0, scanned: 0 };
+  const report: GcReport = { removed: [], refused: [], quarantined: [], prunedRegistrations: 0, scanned: 0 };
 
   let entries: Array<{ name: string; isDirectory(): boolean }>;
   try {
@@ -547,17 +548,29 @@ export async function gcLeafWorktrees(
       continue;
     }
 
-    // 8. Remove.
+    // 8. Reclaim check — everything above (registered, unlocked, aged past
+    //    orphanMaxAgeMs, quiet past REAP_GRACE_MS, git-clean) is a NECESSARY but not
+    //    SUFFICIENT condition; isReclaimable() re-checks independently (live-cwd,
+    //    in-progress git state, the stricter WORKTREE_RECLAIM_MIN_AGE_MS floor) before any
+    //    data moves. A dir that fails isReclaimable here is flagged, never removed.
+    const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now });
+    if (!reclaimable) {
+      await flagOrphan(dir, 'orphan-not-reclaimable');
+      continue;
+    }
+
     if (!opts?.dryRun) {
       try {
-        await wm.removePath(dir);
-        console.log(`[worktree-gc] removed orphan non-leaf worktree ${dir}`);
+        const { trashDir } = await wm.quarantineMove(dir, 'orphan-reclaimed');
+        report.quarantined.push({ path: dir, trashDir });
+        console.log(`[worktree-gc] quarantined orphan non-leaf worktree ${dir} -> ${trashDir}`);
       } catch {
-        report.refused.push({ path: dir, reason: 'remove-failed', sample: [] });
+        report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
         continue;
       }
+    } else {
+      report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
     }
-    report.removed.push(dir);
   }
 
   console.log(
@@ -583,4 +596,22 @@ export async function tickGcLeafWorktrees(project: string): Promise<GcReport | n
   if ((now - (lastGcMs.get(project) ?? 0)) < GC_THROTTLE_MS) return null;
   lastGcMs.set(project, now);
   return gcLeafWorktrees(project);
+}
+
+const lastTrashSweepMs = new Map<string, number>();
+const TRASH_SWEEP_THROTTLE_MS = 60 * 60_000; // hourly
+
+/** Hard-deletes `.collab/.trash/<ts>/*` entries older than WorktreeManager's
+ *  WORKTREE_TRASH_TTL_MS. Throttled per project; fire-and-forget from the coordinator
+ *  tick, same shape as tickGcLeafWorktrees. */
+export async function tickSweepWorktreeTrash(project: string): Promise<string[] | null> {
+  const now = Date.now();
+  if ((now - (lastTrashSweepMs.get(project) ?? 0)) < TRASH_SWEEP_THROTTLE_MS) return null;
+  lastTrashSweepMs.set(project, now);
+  const wm = getWorktreeManager(project);
+  const removed = await wm.sweepTrash(now);
+  if (removed.length > 0) {
+    console.log(`[worktree-gc] swept ${removed.length} expired trash entr${removed.length === 1 ? 'y' : 'ies'}`);
+  }
+  return removed;
 }

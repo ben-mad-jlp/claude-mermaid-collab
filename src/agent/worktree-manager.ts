@@ -18,6 +18,21 @@ export interface WorktreeManagerOpts {
   now?: () => number;
 }
 
+export const WORKTREE_TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export interface QuarantineManifest {
+  origPath: string;
+  reason: string;
+  ts: number;
+  branch: string | null;
+  head: string | null;
+}
+
+export interface QuarantineMoveResult {
+  trashDir: string; // absolute .collab/.trash/<ts>/<basename>/
+  manifestPath: string; // absolute .collab/.trash/<ts>/<basename>/manifest.json
+}
+
 export interface PRResult {
   branch: string;
   commitSha?: string;
@@ -724,6 +739,85 @@ export class WorktreeManager {
       await fs.rm(worktreePath, { recursive: true, force: true }).catch(() => {});
     }
     await this.deleteRecord(path.basename(worktreePath));
+  }
+
+  /** Reversible reclamation (locked constraint d7f5eb20: unknown=keep, only a reversible
+   *  move ever runs). Moves `worktreePath` to `.collab/.trash/<epoch-ts>/<basename>/` and
+   *  writes a manifest.json (orig path, reason, ts, branch/head best-effort), then detaches
+   *  git's worktree admin entry via `git worktree prune` (the dir is already gone by the
+   *  time prune runs, so prune clears the now-stale entry — never `remove --force`).
+   *  Callers MUST have already confirmed `isReclaimable()` before calling this. */
+  async quarantineMove(worktreePath: string, reason: string): Promise<QuarantineMoveResult> {
+    return this.withWorktreeLock(() => this._quarantineMoveInner(worktreePath, reason));
+  }
+
+  private async _quarantineMoveInner(worktreePath: string, reason: string): Promise<QuarantineMoveResult> {
+    const ts = (this.opts.now ?? Date.now)();
+    const basename = path.basename(worktreePath);
+    const trashDir = path.join(this.opts.projectRoot, '.collab', '.trash', String(ts), basename);
+
+    // Best-effort branch/head capture BEFORE the move (git ops need the dir to still exist).
+    let branch: string | null = null;
+    let head: string | null = null;
+    const branchRes = await this.runGit(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD'], QUICK_TIMEOUT_MS)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (branchRes.code === 0 && branchRes.stdout.trim()) branch = branchRes.stdout.trim();
+    const headRes = await this.runGit(worktreePath, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (headRes.code === 0 && headRes.stdout.trim()) head = headRes.stdout.trim();
+
+    await fs.mkdir(path.dirname(trashDir), { recursive: true });
+    try {
+      await fs.rename(worktreePath, trashDir);
+    } catch (err: any) {
+      if (err?.code === 'EXDEV') {
+        // Cross-device: copy then remove the source (still a MOVE, never a bare delete of
+        // the original data — the copy is verified to exist before the source is cleared).
+        await fs.cp(worktreePath, trashDir, { recursive: true });
+        await fs.rm(worktreePath, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
+    }
+
+    const manifest: QuarantineManifest = { origPath: worktreePath, reason, ts, branch, head };
+    const manifestPath = path.join(trashDir, 'manifest.json');
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+
+    // The dir is gone now — `worktree prune` clears the now-stale admin entry (never
+    // `worktree remove --force`).
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    await this.deleteRecord(basename);
+
+    return { trashDir, manifestPath };
+  }
+
+  /** Hard-delete pass: removes `.collab/.trash/<ts>/*` entries whose `<ts>` (epoch ms, the
+   *  dir segment written by `quarantineMove`) is older than `WORKTREE_TRASH_TTL_MS`. This is
+   *  the ONLY place in this feature that ever calls `fs.rm` on a quarantined dir, and it only
+   *  fires once the reversibility window has passed. Returns the list of removed trash-ts
+   *  dirs (absolute paths). Not lock-serialized against the worktree mutation lock — it only
+   *  touches `.collab/.trash`, never a live worktree path. */
+  async sweepTrash(now = (this.opts.now ?? Date.now)()): Promise<string[]> {
+    const trashRoot = path.join(this.opts.projectRoot, '.collab', '.trash');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(trashRoot);
+    } catch {
+      return [];
+    }
+    const removed: string[] = [];
+    for (const name of entries) {
+      const ts = Number(name);
+      if (!Number.isFinite(ts)) continue;
+      if (now - ts < WORKTREE_TRASH_TTL_MS) continue;
+      const dir = path.join(trashRoot, name);
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      removed.push(dir);
+    }
+    return removed;
   }
 
   // ---------------------------------------------------------------------------
