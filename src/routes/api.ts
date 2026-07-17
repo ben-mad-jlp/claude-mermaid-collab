@@ -3837,7 +3837,7 @@ export async function handleAPI(
       if (!project || !session || !title) {
         return Response.json({ error: 'project, session, and title required' }, { status: 400 });
       }
-      const { epic, landLeaf } = await createEpicWithLandLeaf(project, session, {
+      const { epic } = await createEpicWithLandLeaf(project, session, {
         title,
         home: body.home,
         homeProvided: 'home' in body,
@@ -3846,7 +3846,7 @@ export async function handleAPI(
         tier: body.tier,
       });
       wsHandler.broadcast({ type: 'session_todos_updated', project, session, ownerSession: epic.ownerSession });
-      return Response.json({ epicId: epic.id, landLeafId: landLeaf.id, epic, landLeaf }, { status: 201 });
+      return Response.json({ epicId: epic.id, epic }, { status: 201 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

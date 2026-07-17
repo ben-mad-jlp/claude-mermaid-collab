@@ -14,12 +14,6 @@ import { isEpic, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
 import { addSessionTodo } from './tools/session-todos.js';
 
-/** 60-char title truncation for the land-leaf title, mirroring todo-store.ts's
- *  private `t0` (not exported there — duplicated locally, 2 lines). */
-function t0(title: string): string {
-  return title.length > 60 ? title.slice(0, 57) + '…' : title;
-}
-
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
 }
@@ -39,20 +33,16 @@ export interface CreateEpicOpts {
 }
 
 /**
- * Create an EPIC plus its terminal [LAND]→master leaf. The two writes happen
- * back-to-back with no intervening await that could interleave a duplicate epic
- * create — the same non-transactional sequence precedent create_mission relies on
- * (each write is internally locked by createTodo's own withLock; there is no shared
- * SQL transaction to reuse). Refuses bucket titles. Returns the created epic + land
- * leaf. If the land-leaf write throws, the error propagates (the caller sees a
- * partially-created epic with no land leaf — the same failure mode create_mission
- * already accepts for its own multi-step sequence).
+ * Create an EPIC row. Refuses bucket titles. The epic's terminal land is now
+ * tracked via `epic.landedAt` (stamped on merge), not a minted `[LAND]` child
+ * leaf — `checkLandDeps`/`missionLandLeafPromotion` derive land-readiness from
+ * live sibling state and no longer require a land leaf to be present.
  */
 export async function createEpicWithLandLeaf(
   project: string,
   session: string,
   opts: CreateEpicOpts,
-): Promise<{ epic: Todo; landLeaf: Todo }> {
+): Promise<{ epic: Todo }> {
   const strippedTitle = stripLabel(opts.title);
   if (!strippedTitle) throw new Error('create_epic: title must be non-empty after stripping the role prefix');
   if (isBucketEpicTitle(strippedTitle)) {
@@ -91,13 +81,7 @@ export async function createEpicWithLandLeaf(
   } // else: omit missionId key entirely → active-mission default
 
   const epic = await addSessionTodo(project, session, strippedTitle, undefined, epicExtras);
-  const landLeaf = await addSessionTodo(project, session, `${t0(epic.title)} → master`, undefined, {
-    kind: 'land',
-    parentId: epic.id,
-    assigneeSession: session,
-    assigneeKind: 'human',
-  });
-  return { epic, landLeaf };
+  return { epic };
 }
 
 export interface LeafInput {
@@ -275,7 +259,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
     case 'create_epic': {
       const { project, session, title } = args as { project: string; session: string; title: string };
       if (!project || !session || !title) throw new Error('Missing required: project, session, title');
-      const { epic, landLeaf } = await createEpicWithLandLeaf(project, session, {
+      const { epic } = await createEpicWithLandLeaf(project, session, {
         title,
         home: args.home,
         homeProvided: 'home' in args,
@@ -285,7 +269,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify(
-        { epicId: epic.id, landLeafId: landLeaf.id, epic: deriveTodoViews(project, [epic])[0], landLeaf: deriveTodoViews(project, [landLeaf])[0] },
+        { epicId: epic.id, epic: deriveTodoViews(project, [epic])[0] },
         null,
         2,
       );
