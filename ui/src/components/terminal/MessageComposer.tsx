@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
+import { useTerminalComposerDraftStore } from '@/stores/terminalComposerDraftStore';
 import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
+import { registerComposerStage } from './composerStage';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -147,6 +149,26 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   // file dropped anywhere in the terminal lands here (not just on the textarea).
   useEffect(() => registerComposerDrop(processDrop));
 
+  // Register this composer as the stage target for suggestion chips (structured
+  // AI-proposed replies) — 'append' space-joins/toggles a token onto the draft
+  // (multiSelect), 'replace' overwrites it (single-select / free-form).
+  useEffect(() => registerComposerStage((text, mode) => {
+    if (mode === 'append') {
+      setValue((prev) => {
+        const tokens = prev.split(/\s+/).filter(Boolean);
+        const next = tokens.includes(text)
+          ? tokens.filter((t) => t !== text).join(' ')
+          : [...tokens, text].join(' ');
+        useTerminalComposerDraftStore.getState().setHasText(next.trim().length > 0);
+        return next;
+      });
+    } else {
+      setValue(text);
+      useTerminalComposerDraftStore.getState().setHasText(text.trim().length > 0);
+    }
+    requestAnimationFrame(() => taRef.current?.focus());
+  }), []);
+
   // Raw-key dispatch to the live REPL (no nudge toast, no Enter unless asked).
   const postKeys = (text: string, submit: boolean) => {
     const body = { project, session, text, submit, quiet: true };
@@ -193,6 +215,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   /** Clear the draft after a send. */
   const resetDraft = () => {
     setValue('');
+    useTerminalComposerDraftStore.getState().setHasText(false);
     requestAnimationFrame(() => taRef.current?.focus());
   };
 
@@ -243,6 +266,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setValue(e.target.value);
+    useTerminalComposerDraftStore.getState().setHasText(e.target.value.trim().length > 0);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
