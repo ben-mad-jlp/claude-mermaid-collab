@@ -4,7 +4,8 @@
  * (would burn quota); the invokeNode spawn path is covered by the manual test
  * plan in the blueprint §9.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { mkdirSync, rmSync } from 'node:fs';
 import {
   buildNodeArgv,
   authModeFromStatus,
@@ -15,10 +16,105 @@ import {
   worktreeSpawnEnv,
   startWindowPlan,
   START_WINDOW_MS,
+  resolveClaudeBin,
+  _resetClaudeBinCache,
+  invokeNode,
+  assertSubscriptionAuth,
+  _resetAuthCache,
   type NodeSpec,
 } from '../node-invoker.ts';
 
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/x' };
+
+describe('resolveClaudeBin', () => {
+  it('resolves an ABSOLUTE path (or bare claude if no known install exists)', () => {
+    _resetClaudeBinCache();
+    const bin = resolveClaudeBin();
+    expect(bin === 'claude' || bin.startsWith('/')).toBe(true);
+    _resetClaudeBinCache();
+  });
+});
+
+describe('invokeNode spawn retry (transient ENOENT)', () => {
+  let originalSpawn: typeof Bun.spawn;
+  let originalSpawnSync: typeof Bun.spawnSync;
+  let spawnCallCount: number;
+  const testCwd = '/tmp/node-invoker-test-retry';
+
+  beforeEach(() => {
+    spawnCallCount = 0;
+    originalSpawn = Bun.spawn;
+    originalSpawnSync = Bun.spawnSync;
+    _resetAuthCache();
+    // Create test cwd so existsSync check passes
+    mkdirSync(testCwd, { recursive: true });
+  });
+
+  afterEach(() => {
+    Bun.spawn = originalSpawn;
+    Bun.spawnSync = originalSpawnSync;
+    _resetAuthCache();
+    // Clean up test directory
+    try {
+      rmSync(testCwd, { recursive: true, force: true });
+    } catch { /* ok if cleanup fails */ }
+  });
+
+  it('retries exactly once on transient ENOENT before eventual success', async () => {
+    // Mock Bun.spawnSync for the auth status check
+    (Bun as any).spawnSync = mock(() => ({
+      stdout: Buffer.from(JSON.stringify({
+        loggedIn: true,
+        authMethod: 'claude.ai',
+        apiProvider: 'firstParty',
+        subscriptionType: 'pro',
+      })),
+      stderr: null,
+      exitCode: 0,
+    }));
+
+    // Mock Bun.spawn: throw ENOENT on first call, return working proc on retry
+    (Bun as any).spawn = mock((argv: string[], opts: any) => {
+      spawnCallCount++;
+      if (spawnCallCount === 1) {
+        throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+      }
+      // On retry (second call), return a minimal mock proc that succeeds
+      const stdout = new ReadableStream<Uint8Array>({
+        start(c) {
+          const result = JSON.stringify({ result: 'test success', is_error: false });
+          c.enqueue(new TextEncoder().encode(result));
+          c.close();
+        },
+      });
+      const stderr = new ReadableStream<Uint8Array>({
+        start(c) { c.close(); },
+      });
+      return {
+        pid: 99999,
+        stdout,
+        stderr,
+        exited: Promise.resolve(0),
+        kill: () => {},
+      } as any;
+    });
+
+    try {
+      const spec: NodeSpec = { prompt: 'test prompt', cwd: testCwd };
+      const result = await invokeNode(spec);
+
+      // Verify spawn was called exactly twice (first threw ENOENT, second succeeded)
+      expect(spawnCallCount).toBe(2);
+      // Verify no spawn-failure message in the result
+      if (result.parseError) {
+        expect(result.parseError).not.toMatch(/spawn failed/);
+      }
+    } finally {
+      (Bun as any).spawn = originalSpawn;
+      (Bun as any).spawnSync = originalSpawnSync;
+    }
+  });
+});
 
 describe('worktreeSpawnEnv (E3 git isolation)', () => {
   it('strips GIT_DIR/GIT_WORK_TREE and ceilings discovery at the worktree parent', () => {

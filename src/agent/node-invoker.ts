@@ -321,7 +321,7 @@ export function authModeFromStatus(s: AuthStatus | null): AuthMode {
 /** Run `claude auth status --json` and parse it. Returns null on any failure. */
 function readAuthStatus(): AuthStatus | null {
   try {
-    const p = Bun.spawnSync(['claude', 'auth', 'status', '--json'], {
+    const p = Bun.spawnSync([resolveClaudeBin(), 'auth', 'status', '--json'], {
       stdout: 'pipe',
       stderr: 'pipe',
       env: process.env,
@@ -496,32 +496,60 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   }
 
   const argv = buildNodeArgv(spec);
+  const claudeBin = resolveClaudeBin();
+  const spawnArgv = [claudeBin, ...argv.slice(1)];
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  // TRANSIENT guard: a not-yet-materialized worktree cwd makes posix_spawn fail with
+  // ENOENT (Bun attributes it to the command). That is INFRA, not a node failure —
+  // report it as transient (rateLimited+unreachable) so the executor retries the SAME
+  // node in place. Mirrors the grok spawn's cwd guard (node-invoker.ts:1016).
+  if (!existsSync(spec.cwd)) {
+    return {
+      ok: false, exitCode: -1, stdout: '', durationMs: Math.round(Date.now() - start),
+      rateLimited: true, unreachable: true, authMode,
+      parseError: `worktree cwd not present yet: ${spec.cwd}`,
+    };
+  }
+
+  const spawnOpts = {
+    cwd: spec.cwd,
+    stdin: new TextEncoder().encode(spec.prompt),
+    stdout: 'pipe' as const,
+    stderr: 'pipe' as const,
+    env: worktreeSpawnEnv(spec.cwd),
+    detached: true,
+  };
 
   let proc: ReturnType<typeof Bun.spawn>;
   try {
-    proc = Bun.spawn(argv, {
-      cwd: spec.cwd,
-      // Prompt on stdin (NOT a positional — see buildNodeArgv): avoids the
-      // variadic-flag greedily eating a trailing positional prompt.
-      stdin: new TextEncoder().encode(spec.prompt),
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: worktreeSpawnEnv(spec.cwd), // E3: isolate git to the worktree (no main-checkout escape)
-      // E1: own process group (group leader pid == pgid) so the daemon can kill the
-      // whole subtree (CLI + model subprocess) via process.kill(-pid) on off/drop/hold.
-      detached: true,
-    });
+    proc = Bun.spawn(spawnArgv, spawnOpts);
   } catch (e) {
-    return {
-      ok: false,
-      exitCode: -1,
-      stdout: '',
-      durationMs: Math.round(Date.now() - start),
-      rateLimited: false,
-      authMode,
-      parseError: `spawn failed: ${e instanceof Error ? e.message : String(e)}`,
-    };
+    const msg = e instanceof Error ? e.message : String(e);
+    const transient = /ENOENT|posix_spawn|EAGAIN|ENOMEM/i.test(msg);
+    if (transient) {
+      // Single retry after a short delay — the same transient class the grok spawn
+      // classifies at node-invoker.ts:1039, but here retried IN PROCESS once before
+      // surfacing failure (grok instead surfaces transient to the executor for an
+      // out-of-process retry; this node keeps the retry local since stdin/argv are
+      // cheap to rebuild and the caller has no equivalent unreachable+rateLimited path
+      // for the claude node result shape today).
+      await new Promise((r) => setTimeout(r, 200));
+      try {
+        proc = Bun.spawn(spawnArgv, spawnOpts);
+      } catch (e2) {
+        const msg2 = e2 instanceof Error ? e2.message : String(e2);
+        return {
+          ok: false, exitCode: -1, stdout: '', durationMs: Math.round(Date.now() - start),
+          rateLimited: false, authMode, parseError: `spawn failed after retry: ${msg2}`,
+        };
+      }
+    } else {
+      return {
+        ok: false, exitCode: -1, stdout: '', durationMs: Math.round(Date.now() - start),
+        rateLimited: false, authMode, parseError: `spawn failed: ${msg}`,
+      };
+    }
   }
 
   // E1: track this node's process-group leader so a brake (off/drop/hold/shutdown) can
@@ -710,6 +738,31 @@ export interface NodeInvoker {
 export const ClaudeNodeInvoker: NodeInvoker = {
   invoke: invokeNode,
 };
+
+// ---------------------------------------------------------------------------
+// Claude headless binary resolution — transient-safe spawn
+// ---------------------------------------------------------------------------
+
+let cachedClaudeBin: string | null = null;
+/** Resolve the `claude` binary to an ABSOLUTE path. The deployed sidecar is a
+ *  macOS GUI app whose PATH is minimal (/usr/bin:/bin:…) and omits ~/.local/bin /
+ *  ~/.claude/bin, so a bare `claude` intermittently fails `posix_spawn` with ENOENT.
+ *  Resolve a known absolute install path once; fall back to bare 'claude' (PATH)
+ *  only if none exist. */
+export function resolveClaudeBin(): string {
+  if (cachedClaudeBin) return cachedClaudeBin;
+  for (const c of [
+    join(homedir(), '.local', 'bin', 'claude'),
+    join(homedir(), '.claude', 'bin', 'claude'),
+    '/opt/homebrew/bin/claude',
+    '/usr/local/bin/claude',
+  ]) {
+    if (existsSync(c)) { cachedClaudeBin = c; return c; }
+  }
+  return 'claude';
+}
+/** For tests: drop the memoized claude binary path. */
+export function _resetClaudeBinCache(): void { cachedClaudeBin = null; }
 
 // ---------------------------------------------------------------------------
 // Grok headless primitive (PR-1) — parallel to invokeNode / ClaudeNodeInvoker.
