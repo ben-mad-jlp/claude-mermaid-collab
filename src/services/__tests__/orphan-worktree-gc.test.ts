@@ -726,4 +726,81 @@ describe('MEASURED: full reaper+GC pass over a worktree set', () => {
     expect(existsSync(reclaimableDir)).toBe(false);
     expect(existsSync(prunableDir)).toBe(false);
   });
+
+  it('multi-class set: landed-epic + dead-pool-lane + guarded-survivor across two full passes', async () => {
+    const wm = getWorktreeManager(repo);
+    mkdirSync(wm.baseDir(), { recursive: true });
+
+    // (a) LANDED-EPIC: record-verified fast path (mirrors case 1 at lines 286-299).
+    const epicTodo = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'landed epic (measured)',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'done',
+    });
+    const epicId8 = epicTodo.id.slice(0, 8);
+    const epicDir = join(wm.baseDir(), `__epic-${epicId8}__`);
+    await runGit(repo, ['worktree', 'add', '-b', `epic-${epicId8}`, epicDir]);
+    const epicHeadRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = epicHeadRes.stdout.trim();
+    recordEpicLand(repo, { epicId: epicTodo.id, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    // (b) DEAD POOL LANE: bound-but-dead reclaim path (mirrors case 1 at lines 394-411).
+    const poolLaneDir = (await wm.ensure('measured-dead-pool', { baseBranch: 'master' })).path;
+    await commitOld(poolLaneDir, 'old work');
+    await backdatePastReclaim(poolLaneDir);
+    // Deliberately no recordStatus call — an absent row reads as dead.
+
+    // (c) GUARDED SURVIVOR: dirty orphan, same recipe as the existing test's guardedDir.
+    const guardedDir = join(wm.baseDir(), 'lane-guarded-multiclass');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-guarded-multiclass-branch', guardedDir]);
+    await commitOld(guardedDir, 'old work');
+    writeFileSync(join(guardedDir, 'README.md'), 'edited\n');
+    await backdate(guardedDir);
+
+    const countBefore = await worktreeCount(repo);
+
+    // ── Pass 1: full reaper+GC ──────────────────────────────────────────────
+    const pass1 = await fullPass(repo);
+
+    expect(pass1.report.quarantined.map((q) => q.path)).toContain(epicDir);
+    expect(pass1.report.quarantined.map((q) => q.path)).toContain(poolLaneDir);
+    expect(existsSync(epicDir)).toBe(false);
+    expect(existsSync(poolLaneDir)).toBe(false);
+    const epicQ1 = pass1.report.quarantined.find((q) => q.path === epicDir);
+    expect(epicQ1 && existsSync(epicQ1.trashDir)).toBe(true);
+    const poolQ1 = pass1.report.quarantined.find((q) => q.path === poolLaneDir);
+    expect(poolQ1 && existsSync(poolQ1.trashDir)).toBe(true);
+
+    expect(existsSync(guardedDir)).toBe(true);
+    const guardedRefusal1 = pass1.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal1?.reason).toBe('orphan-dirty');
+
+    const countAfterPass1 = await worktreeCount(repo);
+    expect(countAfterPass1).toBeLessThan(countBefore);
+
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-dirty' && (n.detail ?? '').includes(guardedDir)).length,
+    ).toBe(1);
+
+    // ── Pass 2: re-run the SAME full pass ───────────────────────────────────
+    const pass2 = await fullPass(repo);
+
+    const countAfterPass2 = await worktreeCount(repo);
+    expect(countAfterPass2).toBeLessThanOrEqual(countAfterPass1);
+
+    expect(pass2.report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(pass2.report.quarantined.map((q) => q.path)).not.toContain(poolLaneDir);
+
+    expect(existsSync(guardedDir)).toBe(true);
+    const guardedRefusal2 = pass2.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal2?.reason).toBe('orphan-dirty');
+
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-dirty' && (n.detail ?? '').includes(guardedDir)).length,
+    ).toBe(1);
+  });
 });
