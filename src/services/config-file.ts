@@ -120,6 +120,16 @@ export function getAuthToken(): string {
   return getSecret(AUTH_TOKEN_KEY) ?? '';
 }
 
+const REQUIRE_AUTH_ON_LOOPBACK_KEY = 'MERMAID_REQUIRE_AUTH_ON_LOOPBACK';
+
+/** True when loopback peers (desktop UI, local MCP) must also present the
+ *  bearer token — i.e. only a genuinely-remote-free localhost is trusted
+ *  tokenless. Default false (today's open-localhost behavior). Read via
+ *  getConfig (env-first, deploy-time flag, not a Secrets-UI value). */
+export function getRequireAuthOnLoopback(): boolean {
+  return getConfig(REQUIRE_AUTH_ON_LOOPBACK_KEY) === 'true';
+}
+
 /** Generate a fresh random bearer token (48 hex chars). */
 export function generateAuthToken(): string {
   return randomBytes(24).toString('hex');

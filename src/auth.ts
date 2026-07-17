@@ -3,7 +3,7 @@
  *  IPv6 `::1`, and the IPv4-mapped-IPv6 form Bun reports on dual-stack listeners
  *  (`::ffff:127.0.0.1`). An `undefined` address (couldn't resolve the peer) is
  *  treated as NON-loopback — fail safe: require the token rather than exempt. */
-import { getAuthToken } from './services/config-file.ts';
+import { getAuthToken, getRequireAuthOnLoopback } from './services/config-file.ts';
 
 export function isLoopbackPeer(address: string | undefined | null): boolean {
   if (!address) return false;
@@ -60,8 +60,11 @@ export function isPrivatePeer(address: string | undefined | null): boolean {
  *
  * Applied at the TOP of the server's `fetch`, BEFORE the WebSocket upgrade and
  * every route, so HTTP and the `/ws` + `/terminal/*` upgrades are gated
- * uniformly (no upgrade-bypass). `/api/health` and `/mcp*` are exempt (health is
- * probed by the switcher; MCP auth is a separate concern).
+ * uniformly (no upgrade-bypass). `/api/health` is always exempt (probed by the
+ * switcher); `/mcp*` and loopback peers are exempt only while
+ * `MERMAID_REQUIRE_AUTH_ON_LOOPBACK` is unset/false — when that flag is true,
+ * loopback peers (and MCP) must present the bearer token like any LAN peer, for
+ * shared/multi-user boxes where "local" no longer implies "same user".
  *
  * Lives in its own module so it can be imported by tests without pulling in
  * the full server (which runs Bun.serve and the jsdom renderer at import time).
@@ -69,8 +72,11 @@ export function isPrivatePeer(address: string | undefined | null): boolean {
 export function checkAuth(req: Request, url: URL, peerAddress?: string | null): Response | null {
   const token = getAuthToken();
   if (!token) return null; // auth disabled — today's open-localhost behavior
-  if (url.pathname === '/api/health' || url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return null;
-  if (isLoopbackPeer(peerAddress)) return null; // desktop UI / local MCP — tokenless
+  const requireOnLoopback = getRequireAuthOnLoopback();
+  const isMcp = url.pathname === '/mcp' || url.pathname.startsWith('/mcp/');
+  if (url.pathname === '/api/health') return null;
+  if (!requireOnLoopback && isMcp) return null;
+  if (!requireOnLoopback && isLoopbackPeer(peerAddress)) return null; // desktop UI / local MCP — tokenless
   // LAN-only enforcement: a peer that is neither loopback nor private-LAN can never
   // legitimately reach even a 0.0.0.0-bound sidecar — reject outright, before the
   // token gate, so a leaked token cannot admit a public/routable peer.
