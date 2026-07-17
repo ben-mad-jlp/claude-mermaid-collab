@@ -42,6 +42,8 @@ describe('stampLandLeafOnMerge — post-merge stamp', () => {
   let project: string;
   let landLeafId: string;
 
+  let epicId: string;
+
   beforeEach(async () => {
     project = freshProject();
     const epic = await createTodo(project, {
@@ -57,6 +59,7 @@ describe('stampLandLeafOnMerge — post-merge stamp', () => {
       parentId: epic.id,
       kind: 'land',
     });
+    epicId = epic.id;
     landLeafId = landLeaf.id;
   });
 
@@ -76,6 +79,9 @@ describe('stampLandLeafOnMerge — post-merge stamp', () => {
     const leafAfter = getTodo(project, landLeafId);
     expect(leafAfter).toBeTruthy();
     expect(leafAfter!.status).toBe('done');
+
+    const epicAfter = getTodo(project, epicId);
+    expect(epicAfter!.landedAt).not.toBeNull();
   });
 
   it('refused merge (landed:false) does NOT stamp', async () => {

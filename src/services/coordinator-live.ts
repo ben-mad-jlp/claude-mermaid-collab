@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt } from './todo-store';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { findBlockedSplits, type BlockedSplit } from './claimability';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
@@ -1817,6 +1817,8 @@ export async function stampLandLeafOnMerge(
 ): Promise<boolean> {
   if (!landed || !landLeafId) return false;
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
+  const leaf = getTodo(project, landLeafId);
+  if (leaf?.parentId) stampEpicLandedAt(project, leaf.parentId, new Date().toISOString());
   return true;
 }
 
@@ -1848,6 +1850,7 @@ export async function convergeObservedMerge(
     return { stamped: false, reason: ahead > 0 ? 'epic-ahead' : 'ahead-unknown', ahead };
   }
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
+  stampEpicLandedAt(project, epicId, new Date().toISOString());
   recordSupervisorAudit({
     kind: 'reconcile', project, session: 'coordinator',
     detail: JSON.stringify({ epicId, landLeafId, convergentStamp: 'observed-merged', ahead: 0 }),

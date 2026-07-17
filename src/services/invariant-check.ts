@@ -26,7 +26,8 @@ import { isEpic, isLand, isMission } from './todo-kind.ts';
 export type InvariantKind =
   | 'orphan'
   | 'stranded-epic'
-  | 'broken-depends-on';
+  | 'broken-depends-on'
+  | 'landed-at-divergence';
 
 export interface InvariantViolation {
   kind: InvariantKind;
@@ -149,10 +150,41 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   return violations;
 }
 
+/** landedAt IS NOT NULL iff a done land-leaf child exists (W3 equivalence). Advisory —
+ *  a divergent epic is NOT a structural defect the sweep repairs; it just means the
+ *  backfill/dual-write missed a row. Pre-column epics converge via the one-shot backfill
+ *  in todo-store.ts openDb(); a live divergence AFTER that backfill has run is a real bug. */
+export function findLandedAtDivergence(todos: Todo[]): InvariantViolation[] {
+  const childrenOf = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (t.parentId) {
+      const arr = childrenOf.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenOf.set(t.parentId, arr);
+    }
+  }
+  const violations: InvariantViolation[] = [];
+  for (const t of todos) {
+    if (!isEpicTodo(t)) continue;
+    const hasDoneLand = (childrenOf.get(t.id) ?? []).some((c) => isLandTodo(c) && c.status === 'done');
+    if (hasDoneLand !== (t.landedAt != null)) {
+      violations.push({
+        kind: 'landed-at-divergence',
+        todoId: t.id,
+        title: t.title,
+        reason: hasDoneLand
+          ? 'epic has a done [LAND] leaf child but landedAt is null'
+          : 'epic has landedAt set but no done [LAND] leaf child',
+      });
+    }
+  }
+  return violations;
+}
+
 /** DB-backed wrapper: load the project's full work-graph and return its violations. */
 export function checkInvariants(project: string): InvariantViolation[] {
   const todos = listTodos(project, { includeCompleted: true });
-  return findViolations(todos);
+  return [...findViolations(todos), ...findLandedAtDivergence(todos)];
 }
 
 // ───────────────────────────────────────────────────────────────────────────

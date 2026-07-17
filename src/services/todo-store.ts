@@ -118,6 +118,11 @@ export interface Todo {
    *  lease-exhaustion. Null = not held. The only honest stored "blocked". */
   heldAt: string | null;
   heldReason: string | null;
+  /** Land-property redesign (W3): ISO stamp of when this EPIC landed to master, set by
+   *  the SAME two sites that stamp its [LAND] leaf done (stampLandLeafOnMerge,
+   *  convergeObservedMerge in coordinator-live.ts). null for leaves and unlanded epics.
+   *  NOT YET a read authority — readers still consult the land-leaf child (76d5e62d). */
+  landedAt?: string | null;
   retryCount: number;
   /** Opaque actor handle (e.g. 'local:<hostname>') recorded as the completer
    *  when a HUMAN todo is marked done — attribution, not auth (B1). Null for
@@ -450,6 +455,7 @@ interface TodoRow {
   approvedBy: string | null;
   heldAt: string | null;
   heldReason: string | null;
+  landedAt: string | null;
   retryCount: number;
   completedBy: string | null;
   objectRef: string | null;
@@ -484,6 +490,7 @@ CREATE TABLE IF NOT EXISTS todos (
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL,
   completedAt TEXT,
+  landedAt TEXT,
   asanaGid TEXT,
   sessionName TEXT,
   executedBySession TEXT,
@@ -593,6 +600,9 @@ export function openDb(project: string): Database {
   // coalesces null → 'full'. Existing DBs never re-run CREATE TABLE, so this ALTER
   // is the only path the column reaches an already-created todos table.
   addColumnIfMissing(db, 'todos', 'tier', 'tier TEXT');
+  // Land-property redesign (W3): dual-write target for landedAt, set by the same two
+  // sites that stamp an epic's [LAND] leaf done. Additive, nullable; backfilled below.
+  addColumnIfMissing(db, 'todos', 'landedAt', 'landedAt TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -613,6 +623,20 @@ export function openDb(project: string): Database {
   db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
   db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
   db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
+  // One-shot backfill (W3): every epic that already has a done land-leaf child but no
+  // landedAt (pre-column landed epics) gets landedAt stamped from the leaf's completedAt.
+  // WHERE landedAt IS NULL makes a re-run touch zero rows. This is what makes the live
+  // equivalence sweep converge to zero divergence instead of flagging every historical land.
+  db.exec(`
+    UPDATE todos SET landedAt = (
+      SELECT l.completedAt FROM todos l
+      WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
+      ORDER BY l.completedAt ASC LIMIT 1
+    )
+    WHERE kind = 'epic' AND landedAt IS NULL AND EXISTS (
+      SELECT 1 FROM todos l WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
+    )
+  `);
   // EPIC 532c48fb GAP 1 (step 1, DATA FIRST): [GATE] rows carry no role prefix, so the
   // leaf catch-all above stamped them kind='leaf'. Re-stamp them kind='gate'. Covers BOTH
   // forms create_gate emits (todo-store.ts:1499): the bare '[GATE] …' and the labelled
@@ -1240,7 +1264,20 @@ function rowToTodo(row: TodoRow): Todo {
     bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     promotedTo: row.promotedTo ?? null,
+    landedAt: row.landedAt ?? null,
   };
+}
+
+/** Land-property redesign (W3) dual-write: stamp the EPIC's landedAt at the same moment
+ *  its [LAND] leaf is marked done. Idempotent (COALESCE — first stamp wins, mirrors the
+ *  completedAt COALESCE pattern at todo-store.ts:2179/2211). Best-effort: swallows errors
+ *  so a landedAt write failure never blocks the leaf-done stamp that calls it. */
+export function stampEpicLandedAt(project: string, epicId: string, whenIso: string): void {
+  try {
+    const db = openDb(project);
+    db.prepare(`UPDATE todos SET landedAt = COALESCE(landedAt, ?) WHERE id = ? AND kind = 'epic'`)
+      .run(whenIso, epicId);
+  } catch { /* best-effort — never block the land-leaf stamp */ }
 }
 
 /** Resolve a short (leading-8-hex prefix) todo id to its unique full id via `LIKE`
