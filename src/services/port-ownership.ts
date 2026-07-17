@@ -25,6 +25,8 @@ export interface ServerIdentity {
   startedAt: string;
   /** desktop | headless | dev — who plays the supervisor role. */
   owner: string;
+  /** POSIX uid of the holder process (process.getuid()), or null on platforms without it / legacy holders. */
+  uid: number | null;
 }
 
 /** On-disk lockfile record at $XDG_RUNTIME_DIR/mermaid-collab/server.lock. */
@@ -155,13 +157,14 @@ export function releaseLock(pid: number = process.pid, env: NodeJS.ProcessEnv = 
   }
 }
 
-/** Probe whether `pid` is alive (signal 0). */
+/** Probe whether `pid` is alive (signal 0). EPERM means the pid exists but is
+ * owned by another user — that is still "alive", just inaccessible to us. */
 export function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -241,6 +244,7 @@ export async function readHealthIdentity(
       exePath: body.exePath ?? '',
       startedAt: body.startedAt ?? '',
       owner: body.owner ?? '',
+      uid: typeof body.uid === 'number' ? body.uid : null,
     };
   } catch {
     return null;
@@ -253,7 +257,7 @@ export interface HandshakeDeps {
   /** Explicit canonical port to claim. Overrides the lock-derived / env PORT. */
   port?: number;
   env?: NodeJS.ProcessEnv;
-  self?: { exePath: string; version: string; owner: string };
+  self?: { exePath: string; version: string; owner: string; uid: number | null };
   fetchImpl?: typeof fetch;
   /** Send a signal to a pid. Injectable for tests; defaults to process.kill. */
   killImpl?: (pid: number, signal: NodeJS.Signals) => void;
@@ -280,7 +284,12 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   const env = deps.env ?? process.env;
   const guardMode: GuardMode = deps.guardMode ?? (env.MERMAID_GUARD_MODE as GuardMode) ?? 'takeover';
   const self =
-    deps.self ?? { exePath: currentExePath(), version: '', owner: serverOwner(env) };
+    deps.self ?? {
+      exePath: currentExePath(),
+      version: '',
+      owner: serverOwner(env),
+      uid: typeof process.getuid === 'function' ? process.getuid() : null,
+    };
   const fetchImpl = deps.fetchImpl ?? fetch;
   const killImpl = deps.killImpl ?? ((pid: number, signal: NodeJS.Signals) => process.kill(pid, signal));
   const portInUse = deps.portInUseImpl ?? ((p: number, h: string) => isPortInUse(p, h));
@@ -321,12 +330,29 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
     if (lock && isPidAlive(lock.pid)) {
       // It's recorded in OUR lockfile → it's our (hung) server; evict it under takeover.
       if (guardMode === 'refuse') return { action: 'refuse', reason: 'held-health-dead-refuse', holder: null };
-      await evict(lock.pid, port, host, killImpl, portInUse, termGraceMs, portFreeTimeoutMs);
+      const outcome = await evict(lock.pid, port, host, killImpl, portInUse, termGraceMs, portFreeTimeoutMs);
+      if (!outcome.ok) {
+        return { action: 'refuse', reason: 'foreign-process-eperm', holder: null };
+      }
       acquireExclusive(takeoverMutexPath(env), String(process.pid));
       return { action: 'proceed', reason: 'evicted-dead-own-holder', holder: null };
     }
     // Unknown process, no health, not in our lock → never kill blindly.
     return { action: 'refuse', reason: 'held-by-unknown-process', holder: null };
+  }
+
+  // 2a½. A holder whose uid is present and differs from ours belongs to another
+  // user — refuse outright. Never evict or defer to a foreign-uid process, even
+  // if its exePath/version would otherwise look like a rightful owner (shared
+  // packaged binary). A holder with uid ABSENT (older server, back-compat) keeps
+  // today's exePath/version-only arms.
+  const selfUid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (holder.uid !== null && selfUid !== null && holder.uid !== selfUid) {
+    return {
+      action: 'refuse',
+      reason: `foreign-uid-holder (holder pid=${holder.pid} uid=${holder.uid}, self uid=${selfUid})`,
+      holder,
+    };
   }
 
   // 2b. Rightful owner (same exe, same-or-newer version) → defer.
@@ -351,7 +377,10 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
       // Real binary matches ours after all — it's a rightful owner, don't kill.
       return { action: 'defer', reason: 'real-exe-matches-self', holder };
     }
-    await evict(holder.pid, port, host, killImpl, portInUse, termGraceMs, portFreeTimeoutMs);
+    const outcome = await evict(holder.pid, port, host, killImpl, portInUse, termGraceMs, portFreeTimeoutMs);
+    if (!outcome.ok) {
+      return { action: 'refuse', reason: 'foreign-process-eperm', holder };
+    }
     return { action: 'proceed', reason: 'took-over-stale-holder', holder };
   } finally {
     try {
@@ -362,6 +391,11 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   }
 }
 
+/** Outcome of an eviction attempt. `foreign-process-eperm` means the holder pid
+ * belongs to another user and cannot be signaled — the caller must refuse rather
+ * than keep polling for a death that will never happen. */
+type EvictOutcome = { ok: true } | { ok: false; reason: 'foreign-process-eperm' };
+
 /** Bounded TERM → (grace) → KILL of a holder pid, then wait for the port to free. */
 async function evict(
   pid: number,
@@ -371,28 +405,34 @@ async function evict(
   portInUse: (port: number, host: string) => Promise<boolean>,
   termGraceMs: number,
   portFreeTimeoutMs: number,
-): Promise<void> {
+): Promise<EvictOutcome> {
   try {
     killImpl(pid, 'SIGTERM');
-  } catch {
-    /* already gone */
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EPERM') {
+      return { ok: false, reason: 'foreign-process-eperm' };
+    }
+    // ESRCH (already gone) or other transient — proceed with the eviction wait.
   }
   const start = Date.now();
   while (Date.now() - start < termGraceMs) {
-    if (!isPidAlive(pid) && !(await portInUse(port, host))) return;
+    if (!isPidAlive(pid) && !(await portInUse(port, host))) return { ok: true };
     await new Promise((r) => setTimeout(r, 100));
   }
   if (isPidAlive(pid)) {
     try {
       killImpl(pid, 'SIGKILL');
-    } catch {
-      /* already gone */
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EPERM') {
+        return { ok: false, reason: 'foreign-process-eperm' };
+      }
     }
   }
   // Poll until the port actually frees (the OS may hold it briefly post-kill).
   const deadline = Date.now() + portFreeTimeoutMs;
   while (Date.now() < deadline) {
-    if (!(await portInUse(port, host))) return;
+    if (!(await portInUse(port, host))) return { ok: true };
     await new Promise((r) => setTimeout(r, 100));
   }
+  return { ok: true };
 }
