@@ -181,7 +181,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'create_epic',
     description:
-      "Atomically create an EPIC plus its terminal [LAND]→master leaf (kind='land', assigneeKind='human'). Every non-bucket epic gets a land leaf — including root-homed epics with no mission. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, landLeafId}.",
+      "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
     inputSchema: {
       type: 'object',
       properties: {
