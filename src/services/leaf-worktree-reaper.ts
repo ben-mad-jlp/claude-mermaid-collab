@@ -1,4 +1,4 @@
-import { stat, readdir } from 'node:fs/promises';
+import { stat, readdir, realpath as fsRealpath } from 'node:fs/promises';
 import * as path from 'node:path';
 import { getWorktreeManager } from './coordinator-live.js';
 import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
@@ -21,6 +21,11 @@ const GC_THROTTLE_MS = 30 * 60_000;
  *  the grace window (its tree is actively written during build + merge) before reaping. */
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Reclamation floor for isReclaimable's age guard — deliberately DAYS, well past the
+ *  5-min merge grace (REAP_GRACE_MS) and past ORPHAN_WORKTREE_MAX_AGE_MS's own 7d, since
+ *  isReclaimable is a stricter, standalone safety gate (locked constraint d7f5eb20:
+ *  default KEEP, unknown=keep). */
+export const WORKTREE_RECLAIM_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const lastReapMs = new Map<string, number>();
 
@@ -219,6 +224,143 @@ async function headCommitAgeMs(dir: string, now: number): Promise<number | null>
 function epicWorktreeId8(name: string): string | null {
   const m = /^__epic-(.+)__$/.exec(name);
   return m ? m[1] : null;
+}
+
+/** Best-effort: is any live process's cwd (or an open fd) under `dir`? Shells out to
+ *  `lsof +D <dir>` — bounded to the dir subtree, avoids a full-system scan. ANY error
+ *  (lsof missing, spawn failure, non-zero exit with no parseable output) is UNKNOWN →
+ *  returns true (treat as "has a live cwd", i.e. NOT reclaimable) — locked constraint
+ *  d7f5eb20 requires unknown=keep, so this helper is deliberately fail-closed in the
+ *  unsafe direction (true = block reclamation). */
+async function hasLiveProcessUnder(dir: string): Promise<boolean> {
+  try {
+    const proc = (globalThis as any).Bun.spawn(['lsof', '+D', dir], {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const [stdout] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    // `+D` recurses the whole subtree, so a permission-denied entry ELSEWHERE under dir
+    // can make lsof exit non-zero even when it DID find and print a live match — the
+    // exit code alone is not trustworthy. Key off stdout content instead: any printed
+    // line (beyond the header) means a live process was found under dir.
+    return stdout.trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/** True if `dir`'s .git carries any in-progress operation marker (rebase, merge,
+ *  cherry-pick, revert, bisect) or a worktree-local stash. Any of these mean the
+ *  checkout is mid-operation and must never be reclaimed. Uses `gcGitRead` for the
+ *  stash check (read-only, no lock) and direct fs.stat/readdir for the marker files —
+ *  a worktree's `.git` is itself a FILE pointing at `gitdir: <real path>` for a linked
+ *  worktree, so this resolves that indirection via `git rev-parse --git-dir`. */
+async function hasInProgressGitState(dir: string): Promise<boolean> {
+  const gitDirRes = await gcGitRead(dir, ['rev-parse', '--git-dir']);
+  if (gitDirRes.code !== 0 || !gitDirRes.stdout.trim()) return true; // unknown → fail closed
+  const gitDir = path.isAbsolute(gitDirRes.stdout.trim())
+    ? gitDirRes.stdout.trim()
+    : path.join(dir, gitDirRes.stdout.trim());
+
+  const markers = [
+    'rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD',
+    'REVERT_HEAD', 'BISECT_LOG', 'sequencer',
+  ];
+  for (const m of markers) {
+    if (await pathExists(path.join(gitDir, m))) return true;
+  }
+
+  const stashRes = await gcGitRead(dir, ['stash', 'list']);
+  if (stashRes.code !== 0) return true; // unknown → fail closed
+  if (stashRes.stdout.trim().length > 0) return true;
+
+  return false;
+}
+
+export interface ReclaimabilityInput {
+  /** Absolute, POSSIBLY-symlinked worktree dir path as read from the directory scan. */
+  dir: string;
+  /** Absolute baseDir worktrees live under (for realpath-resolved identity check). */
+  baseDir: string;
+  /** Leaf todo id this worktree belongs to, if resolvable (null → unknown-owner, still
+   *  gated by the other checks; caller decides whether to flag separately). */
+  leafTodoId: string | null;
+  now: number;
+}
+
+/**
+ * Reclamation-safety predicate (crit_2e65940d_1 gate). Returns TRUE only if EVERY guard
+ * independently passes:
+ *   (a) clean          — no tracked changes, no untracked file unique to this checkout
+ *   (b) not git-locked  — no `.git/worktrees/<name>/locked` marker
+ *   (c) no live claim   — not in listLeafInflight() / isLeafInflightLive()
+ *   (d) no live cwd     — hasLiveProcessUnder() is false
+ *   (e) no in-progress git state — hasInProgressGitState() is false
+ *   (f) very old        — BOTH mtime and atime older than WORKTREE_RECLAIM_MIN_AGE_MS
+ *   (g) realpath-resolved identity — realpath(dir) must resolve to a path actually
+ *       under realpath(baseDir) (guards a symlink escape before any of the above matter)
+ *
+ * ANY check throwing / erroring / returning "unknown" resolves that guard to FALSE
+ * (not reclaimable) — locked constraint d7f5eb20: default KEEP, unknown=keep. This
+ * function only ever REFUSES reclamation; it never removes or moves anything.
+ */
+export async function isReclaimable(input: ReclaimabilityInput): Promise<boolean> {
+  const { dir, baseDir, leafTodoId, now } = input;
+
+  // (g) realpath identity — resolve symlinks before any path-based comparison.
+  let realDir: string;
+  let realBase: string;
+  try {
+    realDir = await fsRealpath(dir);
+    realBase = await fsRealpath(baseDir);
+  } catch {
+    return false; // dir vanished or unreadable → unknown → keep
+  }
+  const rel = path.relative(realBase, realDir);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
+
+  // (c) no live claim / inflight run.
+  if (leafTodoId) {
+    if (isLeafInflightLive(leafTodoId)) return false;
+    if (listLeafInflight().some((r) => r.leafId === leafTodoId)) return false;
+  }
+
+  // (f) very old — both mtime and atime.
+  let st;
+  try {
+    st = await stat(realDir);
+  } catch {
+    return false;
+  }
+  if (now - st.mtimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
+  if (now - st.atimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
+
+  // (b) not git-locked.
+  const lockRes = await gcGitRead(realDir, ['rev-parse', '--git-dir']);
+  if (lockRes.code !== 0 || !lockRes.stdout.trim()) return false;
+  const gitDirForLock = path.isAbsolute(lockRes.stdout.trim())
+    ? lockRes.stdout.trim()
+    : path.join(realDir, lockRes.stdout.trim());
+  if (await pathExists(path.join(gitDirForLock, 'locked'))) return false;
+
+  // (e) no in-progress git state.
+  if (await hasInProgressGitState(realDir)) return false;
+
+  // (d) no live process cwd under the dir.
+  if (await hasLiveProcessUnder(realDir)) return false;
+
+  // (a) clean — tracked changes, then untracked-but-unique-to-checkout.
+  const statusRes = await gcGitRead(realDir, ['status', '--porcelain']);
+  if (statusRes.code !== 0) return false; // unusable checkout → unknown → keep
+  const lines = statusRes.stdout.split('\n').filter((l) => l.length > 0);
+  const tracked = lines.filter((l) => !l.startsWith('??'));
+  if (tracked.length > 0) return false;
+
+  return true;
 }
 
 /**
