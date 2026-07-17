@@ -7,7 +7,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR, MERMAID_DOC_DROP_DIR, MERMAID_DOC_DROP_SESSION } from './config';
 import { checkAuth } from './auth';
 import { isAllowedOrigin } from './services/origin-guard.ts';
 import { handlePairRoutes } from './routes/pair-routes.js';
@@ -57,6 +57,7 @@ import {
 import { BindingSweeper } from './services/binding-sweeper.ts';
 import { BindingReconciler } from './services/binding-reconciler.ts';
 import { startBonjourAdvertiser, stopBonjourAdvertiser } from './services/bonjour-advertiser.ts';
+import { startDocDropbox, shouldStartDocDropbox } from './services/doc-dropbox.ts';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -700,6 +701,22 @@ try {
   startBonjourAdvertiser({ port: actualPort, host: config.HOST });
 } catch (err) {
   console.warn(`[bonjour] advertiser start failed (ignored): ${String(err)}`);
+}
+
+// [DOCSEND] Watched inbox drop dir — absent config = watcher off (byte-identical single-user).
+if (shouldStartDocDropbox(MERMAID_DOC_DROP_DIR)) {
+  try {
+    const dropDocsDir = sessionRegistry.resolvePath(MERMAID_PROJECT, MERMAID_DOC_DROP_SESSION, 'documents');
+    const dropDocumentManager = new DocumentManager(dropDocsDir);
+    await dropDocumentManager.initialize();
+    startDocDropbox({
+      dropDir: MERMAID_DOC_DROP_DIR,
+      documentManager: dropDocumentManager,
+      sessionLabel: MERMAID_DOC_DROP_SESSION,
+    });
+  } catch (err) {
+    console.warn(`[doc-dropbox] watcher start failed (ignored): ${String(err)}`);
+  }
 }
 
 // Canonical :9002 ownership lockfile (design-ubuntu-native §4b). Record who owns

@@ -105,6 +105,21 @@ export const MERMAID_PROJECT = process.env.MERMAID_PROJECT ?? process.cwd();
 export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';
 
 /**
+ * Absolute path to the watched drop directory for [DOCSEND] inbox import (doc-dropbox.ts).
+ * Absent → watcher is OFF (single-user deployments stay byte-identical). The Linux
+ * cross-user deployment sets this to /var/lib/mermaid-collab/inbox/<user> — the path
+ * is config, never hardcoded in src/.
+ */
+export const MERMAID_DOC_DROP_DIR = process.env.MERMAID_DOC_DROP_DIR ?? '';
+
+/**
+ * Session name new documents are imported into when MERMAID_DOC_DROP_DIR is set.
+ * Defaults to this process's own MERMAID_SESSION (the project's default/most-recent
+ * session for this server instance).
+ */
+export const MERMAID_DOC_DROP_SESSION = process.env.MERMAID_DOC_DROP_SESSION ?? MERMAID_SESSION;
+
+/**
  * Whether the per-project Coordinator daemon auto-starts (and self-respawns) on
  * app launch for the local home project. Safe by design: the daemon only claims
  * todos already in `ready` (set only by the Planner post-approval), so an empty
