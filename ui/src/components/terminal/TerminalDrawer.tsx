@@ -7,6 +7,7 @@ import { TerminalConsole } from './TerminalPane';
 import { GrokTranscript } from './GrokTranscript';
 import { InputRail } from './InputRail';
 import { MessageComposer } from './MessageComposer';
+import { SuggestionChips } from './SuggestionChips';
 import { TerminalThemePicker } from './TerminalThemePicker';
 import { useTerminalPalette } from './terminalTheme';
 import { routeComposerDrop } from './composerDrop';
@@ -304,6 +305,14 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         serverId={activeTab?.serverId ?? ''}
         disabled={!activeTab}
         injectMode={isGrokLane}
+      />
+
+      {/* Structured suggestion chips (AI-proposed replies from the session summary) —
+          stages into the composer above; never sends. */}
+      <SuggestionChips
+        project={activeTab?.project ?? ''}
+        session={activeTab?.session ?? ''}
+        disabled={!activeTab || isGrokLane}
       />
 
       {/* Quick-reply chip bar (canned responses) — welded to the very bottom, under the
