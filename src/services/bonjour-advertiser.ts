@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { userInfo } from 'node:os';
 
 /** The subset of a spawned child we hold + kill. Keeps the injected test double tiny. */
 export interface ChildLike {
@@ -31,6 +32,16 @@ export function isLoopbackHost(host: string | undefined | null): boolean {
   return h === 'localhost' || h === '::1' || h.startsWith('127.') || h.startsWith('::ffff:127.');
 }
 
+/** os.userInfo().username, best-effort — falls back to 'unknown' if unavailable
+ *  (e.g. restricted sandboxes where uid lookup throws). Never throws. */
+export function safeUsername(): string {
+  try {
+    return userInfo().username || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /**
  * Best-effort: publish the service via `dns-sd -R`. Never throws.
  * Returns the held child handle, or null when skipped (loopback) or spawn failed.
@@ -46,7 +57,9 @@ export function startBonjourAdvertiser(
     return null;
   }
   if (child) return child; // idempotent — already advertising
-  const instance = name && name.trim() ? name.trim() : DEFAULT_NAME;
+  const base = name && name.trim() ? name.trim() : DEFAULT_NAME;
+  const user = safeUsername();
+  const instance = `${base}-${user}-${port}`;
   // argv ARRAY — never a shell string; name/port are server-controlled.
   const args = ['-R', instance, SERVICE_TYPE, '.', String(port), 'proto=collab', 'v=1'];
   try {

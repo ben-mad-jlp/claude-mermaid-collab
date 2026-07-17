@@ -3,6 +3,7 @@ import {
   startBonjourAdvertiser,
   stopBonjourAdvertiser,
   isLoopbackHost,
+  safeUsername,
   type BonjourAdvertiserOptions,
   type ChildLike,
   type SpawnFn,
@@ -240,7 +241,7 @@ describe('bonjour-advertiser', () => {
     );
     consoleSpy.mockRestore();
 
-    expect(spawnCalls[0]!.args).toContain('MermaidCollab');
+    expect(spawnCalls[0]!.args).toContain(`MermaidCollab-${safeUsername()}-9002`);
   });
 
   test('uses custom name when provided', () => {
@@ -257,7 +258,7 @@ describe('bonjour-advertiser', () => {
     );
     consoleSpy.mockRestore();
 
-    expect(spawnCalls[0]!.args).toContain('MyService');
+    expect(spawnCalls[0]!.args).toContain(`MyService-${safeUsername()}-9002`);
   });
 
   test('trims whitespace from custom name', () => {
@@ -274,7 +275,7 @@ describe('bonjour-advertiser', () => {
     );
     consoleSpy.mockRestore();
 
-    expect(spawnCalls[0]!.args).toContain('TrimMe');
+    expect(spawnCalls[0]!.args).toContain(`TrimMe-${safeUsername()}-9002`);
   });
 
   test('uses default name when custom name is only whitespace', () => {
@@ -291,6 +292,48 @@ describe('bonjour-advertiser', () => {
     );
     consoleSpy.mockRestore();
 
-    expect(spawnCalls[0]!.args).toContain('MermaidCollab');
+    expect(spawnCalls[0]!.args).toContain(`MermaidCollab-${safeUsername()}-9002`);
+  });
+
+  test('safeUsername returns a non-empty string', () => {
+    const username = safeUsername();
+    expect(typeof username).toBe('string');
+    expect(username.length).toBeGreaterThan(0);
+  });
+
+  test('instance name folds in user and port for default name', () => {
+    const spawnCalls: Array<{ cmd: string; args: string[] }> = [];
+    const mockSpawn: SpawnFn = (cmd: string, args: string[]): ChildLike => {
+      spawnCalls.push({ cmd, args });
+      return { kill: () => true };
+    };
+
+    const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+    startBonjourAdvertiser(
+      { port: 9002, host: '0.0.0.0' },
+      mockSpawn,
+    );
+    consoleSpy.mockRestore();
+
+    const rIndex = spawnCalls[0]!.args.indexOf('-R');
+    expect(spawnCalls[0]!.args[rIndex + 1]).toBe(`MermaidCollab-${safeUsername()}-9002`);
+  });
+
+  test('instance name folds in user and port for custom name', () => {
+    const spawnCalls: Array<{ cmd: string; args: string[] }> = [];
+    const mockSpawn: SpawnFn = (cmd: string, args: string[]): ChildLike => {
+      spawnCalls.push({ cmd, args });
+      return { kill: () => true };
+    };
+
+    const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+    startBonjourAdvertiser(
+      { port: 4321, host: '0.0.0.0', name: 'Custom' },
+      mockSpawn,
+    );
+    consoleSpy.mockRestore();
+
+    const rIndex = spawnCalls[0]!.args.indexOf('-R');
+    expect(spawnCalls[0]!.args[rIndex + 1]).toBe(`Custom-${safeUsername()}-4321`);
   });
 });
