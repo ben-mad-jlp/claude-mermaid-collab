@@ -205,4 +205,60 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     // Assert: epic id is in released array
     expect(released).toContain(epicId);
   });
+
+  it('test D: worktree already gone but branch survives → branch archived independently (BUG 2ab6668b)', async () => {
+    _resetDroppedEpicSweepState();
+    const wm = getWorktreeManager(repo);
+
+    // Create an epic todo
+    const epic = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'epic whose worktree was already reclaimed',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const epicId = epic.id;
+    const branch = wm.epicBranchName(epicId);
+    const droppedBranch = branch.replace('collab/epic/', 'collab/dropped/');
+
+    // Ensure the epic accumulation worktree exists, add a commit so the branch
+    // is ahead of master (would show in listUnlandedEpics if not archived).
+    await wm.ensureEpic(epicId, undefined, 'master');
+    const wtPath = wm.epicWorktreePath(epicId);
+    writeFileSync(join(wtPath, 'epic-work.txt'), 'work\n');
+    await runGit(wtPath, ['add', '-A']);
+    await runGit(wtPath, ['commit', '-q', '-m', 'epic work']);
+
+    // Simulate the worktree having ALREADY been reclaimed earlier: remove the
+    // checkout dir but KEEP the branch. statusAt(wtPath) now returns null.
+    await wm.removeEpicWorktree(epicId, { keepBranch: true });
+    expect(existsSync(wtPath)).toBe(false);
+    expect(await wm.statusAt(wtPath)).toBe(null);
+    // Branch is still present, ahead of master → would strand in listUnlandedEpics.
+    const preCheck = await runGit(repo, ['rev-parse', '--verify', branch]);
+    expect(preCheck.code).toBe(0);
+
+    // Drop the epic todo
+    await updateTodo(repo, epicId, { status: 'dropped' });
+
+    // Run the sweep with force=true
+    const released = await releaseDroppedEpicWorktrees(repo, { force: true });
+
+    // Assert (a): the branch was archived even though the worktree was gone.
+    const droppedCheck = await runGit(repo, ['rev-parse', '--verify', droppedBranch]);
+    expect(droppedCheck.code).toBe(0);
+
+    // Assert (b): the original collab/epic/<id8> branch no longer exists.
+    const epicCheck = await runGit(repo, ['rev-parse', '--verify', branch]);
+    expect(epicCheck.code).not.toBe(0);
+
+    // Assert (c): the epic no longer appears in listUnlandedEpics().
+    const unlanded = await wm.listUnlandedEpics();
+    const id8 = branch.replace('collab/epic/', '');
+    expect(unlanded.map((e) => e.epicId8)).not.toContain(id8);
+
+    // Assert (d): the epic id is reported in the released array.
+    expect(released).toContain(epicId);
+  });
 });
