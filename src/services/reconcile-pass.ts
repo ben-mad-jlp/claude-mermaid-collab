@@ -32,7 +32,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
 import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren, healMissionEpicLandLeaves } from './todo-store.ts';
-import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
@@ -139,6 +139,23 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] mission auto-land sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3c-bis. NON-MISSION BUILD-GREEN LAND SURFACE (D1, friction 9312cb98): a
+  // non-mission epic in the identical build-green/land-leaf-open shape as 3c is
+  // invisible to that sweep (mission-filtered) and can never roll up on its own
+  // (land leaf is a non-done child) — it strands looking done forever. Raise the
+  // same human land card; never auto-land (surfaceEpicLand's own authority gate
+  // refuses non-mission epics — constraint 55ee9d79).
+  // -------------------------------------------------------------------------
+  try {
+    await surfaceBuildGreenNonMissionEpics(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] non-mission build-green land surface failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
