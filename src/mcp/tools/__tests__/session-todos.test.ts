@@ -95,3 +95,92 @@ describe('tier plumbing', () => {
     expect(stored?.tier).toBe('small');
   });
 });
+
+describe('servesCriterionIds plumbing', () => {
+  test('servesCriterionIds round-trips on create', async () => {
+    const addToolDef = sessionTodoToolDefs.find((t) => t.name === 'add_session_todo')!;
+    const epicResult = await addToolDef.handler(
+      { project, session: 's1', text: 'Test Epic', kind: 'epic' },
+      { broadcast() {} },
+    );
+    const epic = JSON.parse(epicResult);
+
+    const leafResult = await addToolDef.handler(
+      {
+        project,
+        session: 's1',
+        text: 'Test Leaf',
+        kind: 'leaf',
+        parentId: epic.id,
+        servesCriterionIds: ['crit-a', 'crit-b'],
+      },
+      { broadcast() {} },
+    );
+    const leaf = JSON.parse(leafResult);
+
+    expect(leaf.servesCriterionIds).toHaveLength(2);
+    expect(leaf.servesCriterionIds).toContain('crit-a');
+    expect(leaf.servesCriterionIds).toContain('crit-b');
+
+    const stored = getTodo(project, leaf.id);
+    expect(stored?.servesCriterionIds).toHaveLength(2);
+    expect(stored?.servesCriterionIds).toContain('crit-a');
+    expect(stored?.servesCriterionIds).toContain('crit-b');
+  });
+
+  test('servesCriterionIds round-trips on update', async () => {
+    const addToolDef = sessionTodoToolDefs.find((t) => t.name === 'add_session_todo')!;
+    const epicResult = await addToolDef.handler(
+      { project, session: 's1', text: 'Test Epic', kind: 'epic' },
+      { broadcast() {} },
+    );
+    const epic = JSON.parse(epicResult);
+
+    const leafResult = await addToolDef.handler(
+      { project, session: 's1', text: 'Test Leaf', kind: 'leaf', parentId: epic.id },
+      { broadcast() {} },
+    );
+    const leaf = JSON.parse(leafResult);
+
+    const updateToolDef = sessionTodoToolDefs.find((t) => t.name === 'update_session_todo')!;
+    const updateResult = await updateToolDef.handler(
+      { project, session: 's1', id: leaf.id, servesCriterionIds: ['crit-x', 'crit-y'] },
+      { broadcast() {} },
+    );
+    const updated = JSON.parse(updateResult);
+
+    expect(updated.servesCriterionIds).toHaveLength(2);
+    expect(updated.servesCriterionIds).toContain('crit-x');
+    expect(updated.servesCriterionIds).toContain('crit-y');
+
+    const stored = getTodo(project, leaf.id);
+    expect(stored?.servesCriterionIds).toHaveLength(2);
+    expect(stored?.servesCriterionIds).toContain('crit-x');
+    expect(stored?.servesCriterionIds).toContain('crit-y');
+  });
+
+  test('singular servesCriterionId still round-trips', async () => {
+    const addToolDef = sessionTodoToolDefs.find((t) => t.name === 'add_session_todo')!;
+    const epicResult = await addToolDef.handler(
+      { project, session: 's1', text: 'Test Epic', kind: 'epic' },
+      { broadcast() {} },
+    );
+    const epic = JSON.parse(epicResult);
+
+    const leafResult = await addToolDef.handler(
+      {
+        project,
+        session: 's1',
+        text: 'Test Leaf',
+        kind: 'leaf',
+        parentId: epic.id,
+        servesCriterionId: 'crit-solo',
+      },
+      { broadcast() {} },
+    );
+    const leaf = JSON.parse(leafResult);
+
+    const stored = getTodo(project, leaf.id);
+    expect(stored?.servesCriterionId).toBe('crit-solo');
+  });
+});
