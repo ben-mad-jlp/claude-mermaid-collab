@@ -70,6 +70,21 @@ export function joinModes(r: RuntimeMode, i: InteractionMode): PermissionMode {
   return 'supervised';
 }
 
+/**
+ * The `claude` CLI setting-sources flag shared by BOTH spawn paths — the headless
+ * node primitive ({@link ../node-invoker.ts buildNodeArgv}) and the interactive child
+ * ({@link ../child-manager.ts buildArgv}). Load ONLY project + local settings, never the
+ * user's `~/.claude/settings.json`.
+ *
+ * WHY it MUST be one constant, not two literals: a headless build child has no controlling
+ * tty, so a cosmetic user hook like `printf '\e]11;…' > /dev/tty` (SessionStart/SessionEnd
+ * terminal colours) BLOCKS until Claude Code's 600s per-hook timeout — the node burns its
+ * whole budget, produces zero tokens, and is misread as a start-failure → re-blueprint churn
+ * (bug a8935a16). Both spawn paths exclude user settings; keeping them in ONE constant makes
+ * it impossible for the two paths to silently drift back apart.
+ */
+export const SETTING_SOURCES_ARGS: readonly string[] = ['--setting-sources', 'project,local'];
+
 export interface BaseEvent {
   sessionId: string;
   ts: number;

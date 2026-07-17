@@ -42,7 +42,7 @@ import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
@@ -368,6 +368,11 @@ export interface LeafExecutorDeps {
   bumpRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
   /** Release a claimed leaf (infra park seam). Best-effort; unwired in tests. */
   releaseClaim?: (project: string, todoId: string) => Promise<boolean | void>;
+  /** Durably PARK (hold) a leaf so it is NOT re-claimed — the start-failure circuit-breaker
+   *  (bug a8935a16). Called INSTEAD of releaseClaim once a leaf has already burned its one
+   *  start-failure retry, so a node that can't START stops spinning through MAX_CLAIM_RETRIES.
+   *  Best-effort; unwired in tests (⇒ falls back to release). */
+  holdLeaf?: (project: string, todoId: string, reason: string) => Promise<boolean | void>;
   /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
   resumePlan?: ResumePlan;
   /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
@@ -1436,6 +1441,14 @@ export function planResume(
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
 }
 
+/** Start-failure circuit-breaker (bug a8935a16): a node that keeps failing to START gets at
+ *  most this many retries before the leaf is durably HELD instead of released for re-claim.
+ *  1 ⇒ one retry, then park on the SECOND consecutive start-failure. Without this, a start
+ *  failure released→re-claimed up to MAX_CLAIM_RETRIES (4) times, each spin eating a full
+ *  startup window — the 4×600s amplifier. Gated on the leaf's retryCount (durable across
+ *  dispatches), so a leaf that already burned a retry and STILL can't start stops spinning. */
+export const MAX_START_FAILURE_RETRIES = 1;
+
 /** A node that never STARTED: non-zero/negative exit, ZERO tokens in and out, and it
  *  died fast. Not a work failure — the model never ran. Rate-limited results are
  *  excluded (they have their own pause path). Require minimum ~100ms duration so we
@@ -1869,8 +1882,26 @@ export async function runLeaf(
     const sf = res.startFailure!;
     const reason = `node-could-not-start: ${kind} node failed in ${res.durationMs}ms with zero tokens — provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
     recordOutcome('blocked', null, { reason });
-    try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-    try { await deps.releaseClaim?.(project, leaf.id); } catch { /* best-effort */ }
+    // Circuit-break the start-failure retry amplifier (bug a8935a16): a start failure that
+    // released → re-claimed would spin up to MAX_CLAIM_RETRIES times, each spin eating a full
+    // startup window (the 4×600s incident). Once the leaf has already burned its one retry
+    // (retryCount ≥ MAX_START_FAILURE_RETRIES), durably HOLD it instead of releasing for
+    // re-claim, so a node that STILL can't start stops spinning. Falls back to
+    // bump+release for the first offence (one retry) and when holdLeaf is unwired.
+    const priorRetries = leaf.retryCount ?? 0;
+    const held =
+      priorRetries >= MAX_START_FAILURE_RETRIES && deps.holdLeaf != null
+        ? await (async () => {
+            try {
+              return (await deps.holdLeaf!(project, leaf.id,
+                `start-failure-circuit-break: ${kind} node could not start ${priorRetries + 1}× — provider='${sf.provider}' model='${sf.model}'`)) === true;
+            } catch { return false; /* best-effort — fall through to release */ }
+          })()
+        : false;
+    if (!held) {
+      try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+      try { await deps.releaseClaim?.(project, leaf.id); } catch { /* best-effort */ }
+    }
     const stableFacts =
       `node-could-not-start: ${kind} node failed with zero tokens — ` +
       `provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
@@ -3242,7 +3273,7 @@ export async function makeLeafExecutorDeps(
   const existingResume = getLeafResume(project, leaf.id);
   // A durable blueprint output (recorded by a prior dispatch's blueprint node) means a
   // blueprint-phase pause is REUSABLE, not fresh — avoid re-running the blueprint node.
-  const hasBlueprintOutput = !!getLatestNodeOutput(leaf.id, 'blueprint')?.trim();
+  const hasBlueprintOutput = !!getLatestSuccessfulNodeOutput(leaf.id, 'blueprint')?.trim();
   const bpRow = getLeafBlueprint(leaf.id);
   const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null);
   const anomaly = resumePlan.mode === 'fresh' && hasBlueprintOutput
@@ -3333,7 +3364,13 @@ export async function makeLeafExecutorDeps(
         return await bumpRetryCountIfOwned(p, leafId, runClaimToken);
       } catch { return false; }
     },
-    restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
+    holdLeaf: async (p, leafId, reason) => {
+      try {
+        const { holdLeafIfOwned } = await import('./todo-store');
+        return await holdLeafIfOwned(p, leafId, reason, runClaimToken);
+      } catch { return false; }
+    },
+    restoreBlueprint: (leafId) => getLatestSuccessfulNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {
       try {
