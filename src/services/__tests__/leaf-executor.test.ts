@@ -1734,7 +1734,7 @@ function makeVerifyDeps(opts: {
         spies.invokeSpecs.push(spec);
         const tools = spec.allowedTools ?? '';
         const isExec = tools.includes('build_assembly_plan');
-        const isReport = tools.includes('add_session_todo');
+        const isReport = tools.includes('file_to_bucket');
         const isPlan = !isExec && !isReport && tools.includes('Write');
         if (isPlan) {
           if (planFailsLeft > 0) { planFailsLeft -= 1; return failResult(); }
@@ -1796,9 +1796,9 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     expect(res.outcome).toBe('accepted');
     // ran exactly the three verify nodes, in order, and NEVER the code nodes.
     const kinds = spies.invokeSpecs.map((s) => s.allowedTools ?? '');
-    expect(kinds.filter((t) => t.includes('Write') && !t.includes('build_assembly_plan') && !t.includes('add_session_todo')).length).toBe(1); // plan
+    expect(kinds.filter((t) => t.includes('Write') && !t.includes('build_assembly_plan') && !t.includes('file_to_bucket')).length).toBe(1); // plan
     expect(kinds.some((t) => t.includes('build_assembly_plan'))).toBe(true); // exec
-    expect(kinds.some((t) => t.includes('add_session_todo'))).toBe(true); // report
+    expect(kinds.some((t) => t.includes('file_to_bucket'))).toBe(true); // report
     expect(spies.mergeCalls).toBe(1);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
     // the heavy CAD execute node gets the longer wall-clock cap; others use the default.
@@ -1819,7 +1819,7 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
       spies.invokeSpecs.push(spec);
       const tools = spec.allowedTools ?? '';
       if (tools.includes('build_assembly_plan')) return okResult(PLAN_CLEAN);
-      if (tools.includes('add_session_todo')) return okResult('   '); // blank report
+      if (tools.includes('file_to_bucket')) return okResult('   '); // blank report
       if (tools.includes('Write')) return okResult('{"plan":"inline"}'); // driveplan
       return okResult('done');
     }) as typeof deps.invoker.invoke;
@@ -1845,7 +1845,7 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     const res = await runLeaf('proj', verifyLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(spies.mergeCalls).toBe(0);
-    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('file_to_bucket'))).toBe(false);
     expect(spies.escalations.length).toBeGreaterThan(0);
   });
 
@@ -1872,7 +1872,7 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     const res = await runLeaf('proj', verifyLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('verify-execute-node-failed');
-    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('file_to_bucket'))).toBe(false);
   });
 
   it('gate-pending propagates as a first-class pending outcome', async () => {
@@ -1959,7 +1959,7 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
     });
     const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
     expect(res.outcome).toBe('blocked');
-    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('file_to_bucket'))).toBe(false);
   });
 
   it('driveexec is allowlisted to the RESOLVED verb (non-default)', async () => {
