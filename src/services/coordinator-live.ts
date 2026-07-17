@@ -841,6 +841,7 @@ export async function acceptTimeAncestorGate(
   }
   if (reachable === true) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-accept' }) });
+    stampEpicLandedAt(project, epicId, new Date().toISOString());
     return true;
   }
 
@@ -852,6 +853,9 @@ export async function acceptTimeAncestorGate(
     const land = await wm.landEpicToMaster(epicId, { baseRef: intRef });
     landConflict = land.conflict === true;
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
+    if (land.landed === true) {
+      stampEpicLandedAt(project, epicId, new Date().toISOString());
+    }
   } catch (e) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
   }
@@ -860,6 +864,7 @@ export async function acceptTimeAncestorGate(
   reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
   if (reachable === true) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-after-land' }) });
+    stampEpicLandedAt(project, epicId, new Date().toISOString());
     return true;
   }
   if (reachable === null) {
