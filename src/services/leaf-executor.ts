@@ -660,7 +660,7 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // and EMITS the report markdown as its final message — the EXECUTOR writes it into the
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
-  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo', effort: 'medium' },
+  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__file_to_bucket', effort: 'medium' },
   // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
   // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
@@ -1008,9 +1008,9 @@ export function buildVerifyPrompt(
           : 'The gate reported a CLEAN result (all accept gates passed — validity/dof/mobility/clearance/contract).',
         'Compose a findings report (markdown): what was verified, the overall verdict, and each',
         'finding with enough detail to act on (and how to reproduce).',
-        'For EACH distinct finding, file one session-todo via the collab MCP tool',
-        '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + repro) if that',
-        'tool is available; if it is not, include the would-be todos as a section in the report.',
+        'For EACH distinct finding, file one bucket item via the collab MCP tool',
+        '`mcp__mermaid__file_to_bucket` (title = the finding, description = detail + repro, bucket',
+        '"bugfix") if that tool is available; if it is not, include the would-be todos as a section in the report.',
         'OUTPUT the COMPLETE report markdown as your FINAL reply message, verbatim — that final',
         'message IS the deliverable: the executor writes it to the worktree and commits it onto the',
         'epic branch. Do NOT write files yourself and do NOT run git — just emit the markdown and',
@@ -1072,9 +1072,9 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
     'Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or',
     'unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.',
     '',
-    'For EACH distinct gap/finding, file one session-todo via the collab MCP tool',
-    '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + where + why it',
-    'matters) if that tool is available; if it is not, list the would-be todos as a section in the report.',
+    'For EACH distinct gap/finding, file one bucket item via the collab MCP tool',
+    '`mcp__mermaid__file_to_bucket` (title = the finding, description = detail + where + why it',
+    'matters, bucket "bugfix") if that tool is available; if it is not, list the would-be todos as a section in the report.',
     '',
     'Then compose a REVIEW REPORT (markdown): what was reviewed (and the diff base you used), the',
     'per-decision check results, and each finding with enough detail to act on.',
@@ -2041,9 +2041,9 @@ export async function runLeaf(
     // The union change-set base: the epic branch was cut off master, so master..HEAD is the
     // epic's accumulated work. The node is told to fall back if the ref doesn't resolve.
     const baseRef = 'master';
-    // The review node needs add_session_todo (file gap todos) on top of the read-only set;
+    // The review node needs file_to_bucket (file gap todos) on top of the read-only set;
     // NO Write (the executor commits the report — a node Write resolves to the project root).
-    const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`;
+    const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_to_bucket`;
     const reviewInjected = composeInjectedContext({ kind: 'review', project, epicId, flags: getInjectionFlags(project) });
     const buildReviewSpec = (): NodeSpec => ({
       prompt: buildReviewPrompt(leaf, baseRef),
