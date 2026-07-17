@@ -1,10 +1,16 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
+let requireAuthOnLoopbackFlag = false;
 mock.module('../services/config-file.ts', () => ({
   getAuthToken: () => 'secret-token',
+  getRequireAuthOnLoopback: () => requireAuthOnLoopbackFlag,
 }));
 
 const { checkAuth } = await import('../auth.ts');
+
+beforeEach(() => {
+  requireAuthOnLoopbackFlag = false;
+});
 
 const withToken = (t?: string) =>
   new Request('http://x/api/foo', t ? { headers: { authorization: `Bearer ${t}` } } : undefined);
@@ -46,5 +52,45 @@ describe('checkAuth LAN-only enforcement', () => {
     expect(checkAuth(withToken(), h, '8.8.8.8')).toBeNull();
     const m = new URL('http://x/mcp/session');
     expect(checkAuth(withToken(), m, '8.8.8.8')).toBeNull();
+  });
+});
+
+describe('checkAuth requireAuthOnLoopback mode', () => {
+  it('mode on: 401s a tokenless loopback peer on /api/foo', () => {
+    requireAuthOnLoopbackFlag = true;
+    for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      expect(checkAuth(withToken(), url, peer)!.status).toBe(401);
+    }
+  });
+
+  it('mode on: 401s a tokenless loopback peer on /mcp', () => {
+    requireAuthOnLoopbackFlag = true;
+    const m = new URL('http://x/mcp/session');
+    for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      expect(checkAuth(withToken(), m, peer)!.status).toBe(401);
+    }
+  });
+
+  it('mode on: allows a loopback peer WITH the correct token on /api/foo and /mcp', () => {
+    requireAuthOnLoopbackFlag = true;
+    const m = new URL('http://x/mcp/session');
+    for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      expect(checkAuth(withToken('secret-token'), url, peer)).toBeNull();
+      expect(checkAuth(withToken('secret-token'), m, peer)).toBeNull();
+    }
+  });
+
+  it('mode on: LAN gate is untouched — RFC1918 with token passes, without token 401s, public peer 403s', () => {
+    requireAuthOnLoopbackFlag = true;
+    expect(checkAuth(withToken('secret-token'), url, '192.168.1.50')).toBeNull();
+    expect(checkAuth(withToken(), url, '192.168.1.50')!.status).toBe(401);
+    expect(checkAuth(withToken('secret-token'), url, '8.8.8.8')!.status).toBe(403);
+  });
+
+  it('mode off: LAN gate is untouched — RFC1918 with token passes, without token 401s, public peer 403s', () => {
+    requireAuthOnLoopbackFlag = false;
+    expect(checkAuth(withToken('secret-token'), url, '192.168.1.50')).toBeNull();
+    expect(checkAuth(withToken(), url, '192.168.1.50')!.status).toBe(401);
+    expect(checkAuth(withToken('secret-token'), url, '8.8.8.8')!.status).toBe(403);
   });
 });
