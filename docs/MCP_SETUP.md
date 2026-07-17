@@ -233,6 +233,14 @@ For production deployment:
 3. Use HTTPS with proper certificates
 4. Set up firewall rules
 
+On a shared/multi-user machine, loopback is not a trust boundary — any local
+user can otherwise reach the MCP endpoint tokenlessly. Set
+`MERMAID_REQUIRE_AUTH_ON_LOOPBACK=true` to require the bearer token even for
+loopback (localhost) peers, including the `/mcp*` endpoint. When this is set,
+MCP HTTP clients must send an `Authorization: Bearer <token>` header, where
+`<token>` is the value stored under `MERMAID_AUTH_TOKEN` in
+`~/.mermaid-collab/config.json`.
+
 ## See Also
 
 - [README.md](../README.md) - Main project documentation
