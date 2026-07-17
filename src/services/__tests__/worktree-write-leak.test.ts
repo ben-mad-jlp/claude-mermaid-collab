@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mainCheckoutRoot, snapshotMainCheckout, sweepLeakedWrites } from '../worktree-write-leak';
+import { mainCheckoutRoot, snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap } from '../worktree-write-leak';
 
 let repo: string;
 let worktree: string;
@@ -76,5 +76,66 @@ describe('worktree-write-leak', () => {
     const snap = snapshotMainCheckout(plain);
     expect(sweepLeakedWrites(plain, snap)).toHaveLength(0);
     rmSync(plain, { recursive: true, force: true });
+  });
+});
+
+describe('reclaimPreDirtyScopeOverlap (friction 552f95c2 — grandfathered leak debris)', () => {
+  it('quarantines + restores pre-dirty tracked files INSIDE the declared scope; snapshot entry removed', () => {
+    // Simulate a prior killed run's leak: main-checkout tracked file dirty BEFORE this run.
+    writeFileSync(join(repo, 'desktop', 'existing.js'), 'LEAKED prior-attempt content\n');
+    const snap = snapshotMainCheckout(worktree);
+    expect(snap.before.get('desktop/existing.js')).toBeDefined();
+
+    const quarantine = join(repo, '.collab', 'leak-quarantine', 'test-a1');
+    const reclaimed = reclaimPreDirtyScopeOverlap(worktree, snap, ['desktop/existing.js'], quarantine);
+    expect(reclaimed).toEqual(['desktop/existing.js']);
+    // main checkout restored to HEAD
+    expect(readFileSync(join(repo, 'desktop', 'existing.js'), 'utf8')).toBe('orig\n');
+    // dirty content preserved in quarantine — nothing destroyed
+    expect(readFileSync(join(quarantine, 'desktop', 'existing.js'), 'utf8')).toBe('LEAKED prior-attempt content\n');
+    // snapshot entry cleared so THIS run's own later changes to the path are sweepable
+    expect(snap.before.has('desktop/existing.js')).toBe(false);
+  });
+
+  it('leaves out-of-scope dirt and untracked pre-existing files alone', () => {
+    writeFileSync(join(repo, 'desktop', 'existing.js'), 'human edit maybe\n');
+    writeFileSync(join(repo, 'stray.txt'), 'untracked junk\n');
+    const snap = snapshotMainCheckout(worktree);
+    const quarantine = join(repo, '.collab', 'leak-quarantine', 'test-a2');
+    // declared scope does NOT include the dirty file
+    const reclaimed = reclaimPreDirtyScopeOverlap(worktree, snap, ['src/other.ts'], quarantine);
+    expect(reclaimed).toEqual([]);
+    expect(readFileSync(join(repo, 'desktop', 'existing.js'), 'utf8')).toBe('human edit maybe\n');
+    expect(existsSync(join(repo, 'stray.txt'))).toBe(true);
+    // untracked path in scope is also left alone (not this class)
+    const snap2 = snapshotMainCheckout(worktree);
+    const r2 = reclaimPreDirtyScopeOverlap(worktree, snap2, ['stray.txt'], quarantine);
+    expect(r2).toEqual([]);
+    expect(existsSync(join(repo, 'stray.txt'))).toBe(true);
+  });
+
+  it('empty declared scope or non-worktree cwd → no-op', () => {
+    writeFileSync(join(repo, 'desktop', 'existing.js'), 'dirty\n');
+    const snap = snapshotMainCheckout(worktree);
+    expect(reclaimPreDirtyScopeOverlap(worktree, snap, [], join(repo, 'q'))).toEqual([]);
+    const plain = mkdtempSync(join(tmpdir(), 'wwl-plain2-'));
+    try {
+      const psnap = snapshotMainCheckout(plain);
+      expect(reclaimPreDirtyScopeOverlap(plain, psnap, ['a.ts'], join(plain, 'q'))).toEqual([]);
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  it('sweepLeakedWrites still catches the SAME path when it changes again after reclaim (de-grandfathered)', () => {
+    writeFileSync(join(repo, 'desktop', 'existing.js'), 'old leak\n');
+    const snap = snapshotMainCheckout(worktree);
+    reclaimPreDirtyScopeOverlap(worktree, snap, ['desktop/existing.js'], join(repo, '.collab', 'leak-quarantine', 'test-a3'));
+    // this run leaks to the same path again
+    writeFileSync(join(repo, 'desktop', 'existing.js'), 'new leak this run\n');
+    const swept = sweepLeakedWrites(worktree, snap);
+    expect(swept).toContain('desktop/existing.js');
+    expect(readFileSync(join(repo, 'desktop', 'existing.js'), 'utf8')).toBe('orig\n'); // root restored
+    expect(readFileSync(join(worktree, 'desktop', 'existing.js'), 'utf8')).toBe('new leak this run\n'); // relocated to lane
   });
 });

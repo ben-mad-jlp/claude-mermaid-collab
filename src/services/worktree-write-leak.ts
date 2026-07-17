@@ -57,6 +57,46 @@ export function snapshotMainCheckout(worktreeCwd: string): RootSnapshot {
   return { root, before: root ? rootStatus(root) : new Map() };
 }
 
+/** Pre-existing leak DEBRIS reclaim (friction 552f95c2): a run killed/dropped mid-implement
+ *  never reaches sweepLeakedWrites, and every LATER run's snapshot then grandfathers its
+ *  leaked writes as "pre-existing" (the `before`-status skip below) — permanent, silent
+ *  main-checkout corruption. At snapshot time, a MAIN-checkout tracked file that is already
+ *  dirty AND falls inside the current leaf's declared scope is almost certainly prior-attempt
+ *  leak debris, not a human edit — but "almost" is not proof, so the dirty content is
+ *  QUARANTINED (copied to `quarantineDir` at the same relative path) before the main checkout
+ *  is restored to HEAD. Nothing is ever destroyed; the caller records loud friction naming
+ *  the quarantine. Reclaimed paths are removed from `snap.before` so the post-run sweep
+ *  treats subsequent changes to them as this run's own. Returns reclaimed paths. Never throws. */
+export function reclaimPreDirtyScopeOverlap(
+  worktreeCwd: string,
+  snap: RootSnapshot,
+  declaredFiles: readonly string[],
+  quarantineDir: string,
+): string[] {
+  const root = snap.root;
+  if (!root || resolve(root) === resolve(worktreeCwd)) return [];
+  if (declaredFiles.length === 0) return [];
+  const declared = new Set(declaredFiles.map((p) => p.replace(/^\.\//, '')));
+  const reclaimed: string[] = [];
+  for (const [path, status] of snap.before) {
+    if (status.startsWith('??')) continue; // untracked pre-existing files are not this class
+    if (!declared.has(path)) continue; // out-of-scope dirt is not attributable — leave it
+    const src = join(root, path);
+    if (!existsSync(src)) continue;
+    try {
+      const dest = join(quarantineDir, path);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, readFileSync(src)); // quarantine FIRST — restore only after the copy exists
+      execFileSync('git', ['-C', root, 'checkout', 'HEAD', '--', path], { stdio: 'ignore' });
+      snap.before.delete(path);
+      reclaimed.push(path);
+    } catch {
+      // give up on this one path; never break the run
+    }
+  }
+  return reclaimed;
+}
+
 /** Move files that LEAKED into the main checkout during the run (present/changed now,
  *  absent/unchanged in the snapshot) into the worktree at the same relative path, and
  *  restore the main checkout. Returns the relative paths swept. Never throws. */

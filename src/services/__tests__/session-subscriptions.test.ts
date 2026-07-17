@@ -140,3 +140,20 @@ describe('notification inbox', () => {
     expect(pendingCount(P, 's2')).toBe(1);
   });
 });
+
+describe('enqueue dedupe-while-pending', () => {
+  it('same (target,event) re-emitted before drain refreshes in place; after drain it enqueues fresh', () => {
+    addSubscription(P, 's9', 'project');
+    const a = enqueueNotification({ project: P, session: 's9', scope: 'todo', targetId: 'T1', event: 'todo_claimed', summary: 'first', ts: 1 });
+    const b = enqueueNotification({ project: P, session: 's9', scope: 'todo', targetId: 'T1', event: 'todo_claimed', summary: 'again', ts: 2 });
+    expect(b.id).toBe(a.id); // refreshed, not duplicated
+    expect(pendingCount(P, 's9')).toBe(1);
+    const drained = drainInbox(P, 's9');
+    expect(drained).toHaveLength(1);
+    expect(drained[0].summary).toBe('again'); // latest summary won
+    // a NEW event after the drain is a fresh row
+    const c = enqueueNotification({ project: P, session: 's9', scope: 'todo', targetId: 'T1', event: 'todo_claimed', summary: 'later', ts: 3 });
+    expect(c.id).not.toBe(a.id);
+    expect(pendingCount(P, 's9')).toBe(1);
+  });
+});

@@ -37,7 +37,7 @@ function mk(over: Partial<Todo> = {}): Todo {
     executedBySession: null, blueprintId: null, type: null, kind: 'leaf', targetProject: null,
     acceptanceStatus: null, claimedBy: null, claimToken: null, claimedAt: null,
     claimLeaseMs: null, claim: null, approvedAt: null, approvedBy: null, heldAt: null,
-    heldReason: null, retryCount: 0, completedBy: null, objectRef: null, servesCriterionId: null, decisionRef: null,
+    heldReason: null, retryCount: 0, completedBy: null, objectRef: null, servesCriterionId: null, servesCriterionIds: [], decisionRef: null,
     claimProbe: null, inheritedBlueprintFrom: null, inheritedFiles: [], isBucket: false, ...over,
   };
 }
@@ -137,6 +137,13 @@ describe('claimReason — each branch', () => {
     const t = mk({ id: 'A', ...approved, dependsOn: ['ghost'] });
     expect(claimReason(t, map(t))).toBe('deps-pending');
     expect(isClaimable(t, map(t))).toBe(false);
+  });
+  it('deps-pending: a short (leading-8-hex) dep id resolves and unblocks once the dep is done', () => {
+    const dep = mk({ id: 'depIdFull1234567890', status: 'in_progress' });
+    const t = mk({ id: 'A', ...approved, dependsOn: ['depIdFul'] });
+    expect(claimReason(t, map(dep, t))).toBe('deps-pending');
+    const doneDep = mk({ id: 'depIdFull1234567890', status: 'done', acceptanceStatus: 'accepted' });
+    expect(claimReason(t, map(doneDep, t))).toBe('claimable');
   });
   it('human-assignee: fully unblocked + approved human → not auto-claimed', () => {
     const t = mk({ ...approved, assigneeKind: 'human' });

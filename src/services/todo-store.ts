@@ -132,6 +132,10 @@ export interface Todo {
   /** A3 epic→criterion edge: the mission acceptance-criterion id this epic serves,
    *  or null. Set at create; required by the approval check for a mission-homed epic. */
   servesCriterionId: string | null;
+  /** MULTI-EDGE (e7d3c02b): ALL criteria this epic serves. `servesCriterionId` stays the
+   *  back-compat mirror of ids[0]; aspect-grained criteria of one deliverable share one
+   *  right-sized epic instead of forcing thin one-per-criterion epics. */
+  servesCriterionIds: string[];
   /** Readiness-gates P2: when this todo is a design/decision [GATE], the
    *  decision-record id whose approval auto-completes it. Null for non-gate todos
    *  and gates cleared manually. */
@@ -220,6 +224,8 @@ export interface CreateTodoInput {
    *  `servesCriterionId` column. Optional at create; the approval-time check
    *  (updateTodo) REQUIRES it for a mission-homed epic. */
   servesCriterionId?: string | null;
+  /** Multi-edge create: all criteria served. Wins over servesCriterionId when both given. */
+  servesCriterionIds?: string[] | null;
   /** Explicit bucket declaration for an epic create (default false; only meaningful
    *  with `kind:'epic'`). When omitted, bucket-ness is inferred from `isBucketEpicTitle`. */
   isBucket?: boolean;
@@ -283,6 +289,46 @@ export class BucketDepthViolationError extends Error {
 /** Thrown by updateTodo when a mission-homed `kind:'epic'` is APPROVED (status→ready)
  *  without a servesCriterionId — the A3 epic→criterion edge. Carries a `code` so
  *  HTTP/MCP callers can map it to a 4xx. Models the create-time OrphanTodoError. */
+/** Parse the JSON servesCriterionIds column; a legacy row with only the single edge
+ *  reads as a one-element array so consumers can treat the array as the truth. */
+function parseCriterionIds(raw: string | null | undefined, single: string | null | undefined): string[] {
+  if (raw) {
+    try {
+      const v = JSON.parse(raw);
+      if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string' && x.length > 0);
+    } catch { /* fall through */ }
+  }
+  return single ? [single] : [];
+}
+
+/** Normalize the (single, multi) edge inputs into the stored invariant:
+ *  ids = the full deduped set; servesCriterionId mirrors ids[0] (back-compat). */
+function normalizeCriterionEdges(
+  single: string | null | undefined,
+  multi: string[] | null | undefined,
+): { single: string | null; idsJson: string | null } {
+  const ids = [...new Set((multi && multi.length ? multi : (single ? [single] : [])).filter(Boolean))];
+  return { single: ids[0] ?? null, idsJson: ids.length ? JSON.stringify(ids) : null };
+}
+
+/** Thrown by createTodo when a kind:'land' leaf is created under an epic that ALREADY
+ *  has a live land leaf. Two land leaves wedge the epic: missionLandLeafPromotion
+ *  completes landLeaves[0] only, and the other stays forever-open so the epic never
+ *  rolls up done (observed live: build123d 2026-07-16, reconcile self-heal + a manual
+ *  conductor add raced to 7 duplicate pairs). The reconcile pass self-heals a MISSING
+ *  land leaf automatically — manual adds are only needed for non-mission epics. */
+export class DuplicateLandLeafError extends Error {
+  readonly code = 'duplicate-land-leaf';
+  constructor(epicId: string, existingLandLeafId: string) {
+    super(
+      `Epic ${epicId.slice(0, 8)} already has a live land leaf (${existingLandLeafId.slice(0, 8)}). ` +
+      `A second one would wedge the epic (only one gets promoted; the other stays open forever). ` +
+      `Note: the reconcile pass AUTO-CREATES a missing land leaf for mission epics — do not add one by hand.`,
+    );
+    this.name = 'DuplicateLandLeafError';
+  }
+}
+
 export class MissingCriterionEdgeError extends Error {
   readonly code = 'missing-criterion-edge';
   constructor(todoId: string, missionId: string) {
@@ -350,6 +396,8 @@ export type UpdateTodoPatch = Partial<{
   /** A3 epic→criterion edge: the mission acceptance-criterion id this epic serves,
    *  or null to clear. Used to satisfy the approval-time guard for mission-homed epics. */
   servesCriterionId: string | null;
+  /** Multi-edge patch: all criteria served (wins over servesCriterionId when both given). */
+  servesCriterionIds: string[] | null;
   decisionRef: string | null;
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
@@ -406,6 +454,7 @@ interface TodoRow {
   completedBy: string | null;
   objectRef: string | null;
   servesCriterionId: string | null;
+  servesCriterionIds: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
@@ -490,6 +539,7 @@ export function openDb(project: string): Database {
   // mission-requirements: the epic→criterion edge. A mission epic names which criterion
   // it serves. Additive column only; A3 wires the writer + the approval-time enforcement.
   addColumnIfMissing(db, 'todos', 'servesCriterionId', 'servesCriterionId TEXT');
+  addColumnIfMissing(db, 'todos', 'servesCriterionIds', 'servesCriterionIds TEXT');
   addColumnIfMissing(db, 'todos', 'claimedBy', 'claimedBy TEXT');
   addColumnIfMissing(db, 'todos', 'claimToken', 'claimToken TEXT');
   addColumnIfMissing(db, 'todos', 'claimedAt', 'claimedAt TEXT');
@@ -1181,6 +1231,7 @@ function rowToTodo(row: TodoRow): Todo {
     completedBy: row.completedBy ?? null,
     objectRef: row.objectRef ?? null,
     servesCriterionId: row.servesCriterionId ?? null,
+    servesCriterionIds: parseCriterionIds(row.servesCriterionIds, row.servesCriterionId),
     decisionRef: row.decisionRef ?? null,
     claimProbe: row.claimProbe ?? null,
     inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
@@ -1192,10 +1243,31 @@ function rowToTodo(row: TodoRow): Todo {
   };
 }
 
+/** Resolve a short (leading-8-hex prefix) todo id to its unique full id via `LIKE`
+ *  startsWith — the short-id convention already used ad hoc by
+ *  findLeafTodoByShortId (leaf-worktree-reaper.ts) and forward-integrate-epic.ts.
+ *  Returns null if no todo's id starts with `prefix`. Throws if the prefix is
+ *  AMBIGUOUS (matches more than one todo) — ambiguity must surface to the caller,
+ *  never be silently resolved to an arbitrary match. */
+export function resolveShortId(project: string, prefix: string): string | null {
+  const db = openDb(project);
+  const escaped = prefix.replace(/[%_\\]/g, '\\$&');
+  const rows = db.query("SELECT id FROM todos WHERE id LIKE ? ESCAPE '\\'").all(`${escaped}%`) as { id: string }[];
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw new Error(`ambiguous short id "${prefix}": matches ${rows.length} todos (${rows.map(r => r.id).join(', ')})`);
+  }
+  return rows[0].id;
+}
+
 export function getTodo(project: string, id: string): Todo | null {
   const db = openDb(project);
   const row = db.query('SELECT * FROM todos WHERE id = ?').get(id) as TodoRow | null;
-  return row ? rowToTodo(row) : null;
+  if (row) return rowToTodo(row);
+  const resolved = resolveShortId(project, id);
+  if (resolved === null) return null;
+  const row2 = db.query('SELECT * FROM todos WHERE id = ?').get(resolved) as TodoRow | null;
+  return row2 ? rowToTodo(row2) : null;
 }
 
 export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
@@ -1310,14 +1382,22 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
+    // ONE live land leaf per epic — a duplicate wedges the epic (see DuplicateLandLeafError).
+    if (kindOfInput(input) === 'land' && input.parentId) {
+      const existingLand = db.query(
+        `SELECT id FROM todos WHERE parentId = ? AND kind = 'land' AND status != 'dropped' LIMIT 1`,
+      ).get(input.parentId) as { id: string } | undefined;
+      if (existingLand) throw new DuplicateLandLeafError(input.parentId, existingLand.id);
+    }
+    const createEdges = normalizeCriterionEdges(input.servesCriterionId, input.servesCriterionIds);
     const bucketType = input._ensureBucketType ?? null;
     const isBucket = isEpicInput(input) && (input.isBucket === true || bucketType != null || isBucketEpicTitle(input.title)) ? 1 : 0;
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
+        sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
         approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType, triageTag, tier)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1327,7 +1407,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
@@ -1408,8 +1488,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // "set edge + approve" call in one update passes (line coupling constraint).
     const newlyApproved = approvedAt != null && existing.approvedAt == null;
     if (newlyApproved && isEpic(existing)) {
-      const effectiveServesCriterion = patch.servesCriterionId !== undefined ? patch.servesCriterionId : existing.servesCriterionId;
-      if (!effectiveServesCriterion) {
+      const effectiveEdges = patch.servesCriterionIds !== undefined
+        ? (patch.servesCriterionIds ?? [])
+        : (patch.servesCriterionId !== undefined
+          ? (patch.servesCriterionId ? [patch.servesCriterionId] : [])
+          : existing.servesCriterionIds);
+      if (effectiveEdges.length === 0) {
         const parent = existing.parentId ? getTodo(project, existing.parentId) : null;
         if (parent && isMission(parent)) {
           throw new MissingCriterionEdgeError(id, parent.id);
@@ -1453,7 +1537,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       targetProject: patch.targetProject !== undefined ? patch.targetProject : existing.targetProject,
       acceptanceStatus: patch.acceptanceStatus !== undefined ? patch.acceptanceStatus : existing.acceptanceStatus,
       objectRef: patch.objectRef !== undefined ? patch.objectRef : existing.objectRef,
-      servesCriterionId: patch.servesCriterionId !== undefined ? patch.servesCriterionId : existing.servesCriterionId,
+      criterionEdges: (patch.servesCriterionIds !== undefined || patch.servesCriterionId !== undefined)
+        ? normalizeCriterionEdges(
+            patch.servesCriterionId !== undefined ? patch.servesCriterionId : existing.servesCriterionId,
+            patch.servesCriterionIds !== undefined ? patch.servesCriterionIds : undefined,
+          )
+        : { single: existing.servesCriterionId, idsJson: existing.servesCriterionIds.length ? JSON.stringify(existing.servesCriterionIds) : null },
       decisionRef: patch.decisionRef !== undefined ? patch.decisionRef : existing.decisionRef,
       claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
       inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
@@ -1483,13 +1572,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.transaction(() => {
       db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
           completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.servesCriterionId, next.decisionRef, next.claimProbe, next.promotedTo, next.tier,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier,
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
       );
@@ -2467,6 +2556,54 @@ export function sweepTerminalBucketChildren(project: string, olderThanMs = BUCKE
  * status (default 'ready'). This is the supported replacement for hand-editing
  * todos.db. Returns the updated todo.
  */
+/** LAND-LEAF SELF-HEAL (22c5ba8a): a mission epic with NO [LAND] leaf strands silently —
+ *  missionLandLeafPromotion refuses `no-land-leaf`, so a build-green epic never surfaces
+ *  for auto-land (observed live on build123d 2026-07-16). The land-leaf standard was
+ *  convention-only; this makes it code. Creates the terminal land leaf for one epic iff
+ *  none exists (kind:'land', assigneeKind:'human', title `<epic> → master`). Idempotent.
+ *  Returns the created leaf id or null (already present / not applicable). */
+export async function ensureMissionEpicLandLeaf(project: string, epicId: string): Promise<string | null> {
+  const epic = getTodo(project, epicId);
+  if (!epic || !isEpic(epic) || epic.status === 'done' || epic.status === 'dropped') return null;
+  const parent = epic.parentId ? getTodo(project, epic.parentId) : null;
+  const missionHomed = (parent != null && isMission(parent)) || epic.servesCriterionId != null || epic.servesCriterionIds.length > 0;
+  if (!missionHomed) return null;
+  const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === epicId);
+  if (children.some((t) => t.kind === 'land' && t.status !== 'dropped')) return null;
+  const leaf = await createTodo(project, {
+    ownerSession: epic.ownerSession,
+    assigneeSession: epic.assigneeSession ?? epic.ownerSession,
+    assigneeKind: 'human',
+    title: `${t0(epic.title)} → master`,
+    kind: 'land',
+    parentId: epicId,
+    dependsOn: children.filter((t) => t.kind !== 'land' && t.status !== 'dropped').map((t) => t.id),
+  });
+  return leaf.id;
+}
+function t0(title: string): string {
+  return title.length > 60 ? title.slice(0, 57) + '…' : title;
+}
+
+/** Reconcile-pass sweep: heal EVERY live mission epic missing its land leaf. Returns the
+ *  healed epic ids (audited by the caller). Best-effort per epic; never throws. */
+export async function healMissionEpicLandLeaves(project: string): Promise<string[]> {
+  const healed: string[] = [];
+  let all: Todo[] = [];
+  try { all = listTodos(project, { includeCompleted: true }); } catch { return healed; }
+  const missions = new Set(all.filter((t) => isMission(t)).map((t) => t.id));
+  for (const t of all) {
+    if (!isEpic(t) || t.status === 'done' || t.status === 'dropped') continue;
+    const homed = (t.parentId != null && missions.has(t.parentId)) || t.servesCriterionId != null || t.servesCriterionIds.length > 0;
+    if (!homed) continue;
+    try {
+      const created = await ensureMissionEpicLandLeaf(project, t.id);
+      if (created) healed.push(t.id);
+    } catch { /* best-effort per epic */ }
+  }
+  return healed;
+}
+
 export function resetTodo(
   project: string,
   id: string,

@@ -18,6 +18,21 @@ export interface WorktreeManagerOpts {
   now?: () => number;
 }
 
+export const WORKTREE_TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export interface QuarantineManifest {
+  origPath: string;
+  reason: string;
+  ts: number;
+  branch: string | null;
+  head: string | null;
+}
+
+export interface QuarantineMoveResult {
+  trashDir: string; // absolute .collab/.trash/<ts>/<basename>/
+  manifestPath: string; // absolute .collab/.trash/<ts>/<basename>/manifest.json
+}
+
 export interface PRResult {
   branch: string;
   commitSha?: string;
@@ -75,6 +90,18 @@ export interface MergeBackResult {
   integrated: boolean;
   /** G12: dirty paths that were out-of-scope (declared scope present but path outside it). */
   outOfScope?: string[];
+}
+
+/** Result of {@link WorktreeManager.revertEpicMerge}: undo of ONE optimistic merge
+ *  commit on the epic accumulation branch (crit 6 auto-revert). */
+export interface RevertMergeResult {
+  /** The merge was reverted (a new `Revert "…"` commit sits on the epic branch). */
+  reverted: boolean;
+  /** The revert commit sha (reverted === true). */
+  revertSha?: string;
+  /** Failure detail (reverted === false) — e.g. the revert hit a conflict and was aborted,
+   *  leaving the epic branch untouched. */
+  error?: string;
 }
 
 export interface CommitMergeOpts {
@@ -714,6 +741,85 @@ export class WorktreeManager {
     await this.deleteRecord(path.basename(worktreePath));
   }
 
+  /** Reversible reclamation (locked constraint d7f5eb20: unknown=keep, only a reversible
+   *  move ever runs). Moves `worktreePath` to `.collab/.trash/<epoch-ts>/<basename>/` and
+   *  writes a manifest.json (orig path, reason, ts, branch/head best-effort), then detaches
+   *  git's worktree admin entry via `git worktree prune` (the dir is already gone by the
+   *  time prune runs, so prune clears the now-stale entry — never `remove --force`).
+   *  Callers MUST have already confirmed `isReclaimable()` before calling this. */
+  async quarantineMove(worktreePath: string, reason: string): Promise<QuarantineMoveResult> {
+    return this.withWorktreeLock(() => this._quarantineMoveInner(worktreePath, reason));
+  }
+
+  private async _quarantineMoveInner(worktreePath: string, reason: string): Promise<QuarantineMoveResult> {
+    const ts = (this.opts.now ?? Date.now)();
+    const basename = path.basename(worktreePath);
+    const trashDir = path.join(this.opts.projectRoot, '.collab', '.trash', String(ts), basename);
+
+    // Best-effort branch/head capture BEFORE the move (git ops need the dir to still exist).
+    let branch: string | null = null;
+    let head: string | null = null;
+    const branchRes = await this.runGit(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD'], QUICK_TIMEOUT_MS)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (branchRes.code === 0 && branchRes.stdout.trim()) branch = branchRes.stdout.trim();
+    const headRes = await this.runGit(worktreePath, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (headRes.code === 0 && headRes.stdout.trim()) head = headRes.stdout.trim();
+
+    await fs.mkdir(path.dirname(trashDir), { recursive: true });
+    try {
+      await fs.rename(worktreePath, trashDir);
+    } catch (err: any) {
+      if (err?.code === 'EXDEV') {
+        // Cross-device: copy then remove the source (still a MOVE, never a bare delete of
+        // the original data — the copy is verified to exist before the source is cleared).
+        await fs.cp(worktreePath, trashDir, { recursive: true });
+        await fs.rm(worktreePath, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
+    }
+
+    const manifest: QuarantineManifest = { origPath: worktreePath, reason, ts, branch, head };
+    const manifestPath = path.join(trashDir, 'manifest.json');
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+
+    // The dir is gone now — `worktree prune` clears the now-stale admin entry (never
+    // `worktree remove --force`).
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    await this.deleteRecord(basename);
+
+    return { trashDir, manifestPath };
+  }
+
+  /** Hard-delete pass: removes `.collab/.trash/<ts>/*` entries whose `<ts>` (epoch ms, the
+   *  dir segment written by `quarantineMove`) is older than `WORKTREE_TRASH_TTL_MS`. This is
+   *  the ONLY place in this feature that ever calls `fs.rm` on a quarantined dir, and it only
+   *  fires once the reversibility window has passed. Returns the list of removed trash-ts
+   *  dirs (absolute paths). Not lock-serialized against the worktree mutation lock — it only
+   *  touches `.collab/.trash`, never a live worktree path. */
+  async sweepTrash(now = (this.opts.now ?? Date.now)()): Promise<string[]> {
+    const trashRoot = path.join(this.opts.projectRoot, '.collab', '.trash');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(trashRoot);
+    } catch {
+      return [];
+    }
+    const removed: string[] = [];
+    for (const name of entries) {
+      const ts = Number(name);
+      if (!Number.isFinite(ts)) continue;
+      if (now - ts < WORKTREE_TRASH_TTL_MS) continue;
+      const dir = path.join(trashRoot, name);
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      removed.push(dir);
+    }
+    return removed;
+  }
+
   // ---------------------------------------------------------------------------
   // commitPushPR — add/commit/push/pr pipeline. Spawns with cwd=worktreePath.
   // ---------------------------------------------------------------------------
@@ -1094,6 +1200,51 @@ export class WorktreeManager {
     return out;
   }
 
+  /** Clear git's admin bookkeeping (`.git/worktrees/<n>`) for LINKED worktrees git itself marks
+   *  `prunable` — meaning their on-disk working dir is ALREADY GONE (rm'd out-of-band). This
+   *  deletes NOTHING on disk: it only removes stale admin records for dirs that no longer exist.
+   *  A worktree whose dir is still present is NEVER touched here (constraint d7f5eb20 — only
+   *  prune already-missing entries; a real dir is never age-removed). Lock-serialised: shares
+   *  the per-project worktree mutex with add/remove (6bc2dc36) so this can't race a sibling's
+   *  in-flight worktree add/remove/merge. Returns the entries that were prunable (and are now
+   *  cleared) so callers can log/report exactly what was reclaimed. */
+  async pruneMissingWorktrees(): Promise<Array<{ path: string; branch: string | null }>> {
+    return this.withWorktreeLock(() => this._pruneMissingWorktreesInner());
+  }
+
+  private async _pruneMissingWorktreesInner(): Promise<Array<{ path: string; branch: string | null }>> {
+    if (!(await this.isGitRepo())) return [];
+    const list = await this.runGit(
+      this.opts.projectRoot,
+      ['worktree', 'list', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (list.code !== 0) return [];
+    const prunable: Array<{ path: string; branch: string | null }> = [];
+    const blocks = list.stdout.split('\n\n');
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      let wtPath = '';
+      let branch: string | null = null;
+      let isPrunable = false;
+      for (const ln of lines) {
+        if (ln.startsWith('worktree ')) wtPath = ln.slice('worktree '.length);
+        else if (ln.startsWith('branch ')) branch = ln.slice('branch '.length).replace(/^refs\/heads\//, '');
+        else if (ln === 'prunable' || ln.startsWith('prunable ')) isPrunable = true;
+      }
+      if (!wtPath) continue;
+      if (path.resolve(wtPath) === path.resolve(this.opts.projectRoot)) continue; // never the main worktree
+      if (isPrunable) prunable.push({ path: wtPath, branch });
+    }
+    if (prunable.length === 0) return [];
+    // The actual admin-record clear. Deletes nothing on disk — the dir is already gone,
+    // this only drops git's `.git/worktrees/<name>` bookkeeping for it.
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    return prunable;
+  }
+
   /** Resolve a base ref to branch a NEW epic off: the requested ref when it
    *  exists, else the detected base branch. Lets a caller request a specific base
    *  (e.g. master) yet fall back to the detected default branch on a fresh repo. */
@@ -1459,6 +1610,53 @@ export class WorktreeManager {
       integrated,
       ...(outOfScopePaths.length > 0 ? { outOfScope: outOfScopePaths } : {}),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // revertEpicMerge — crit 6 auto-revert. Undo ONE optimistically-landed leaf's
+  // --no-ff merge commit on the epic accumulation branch when its POST-merge review
+  // came back a real FAIL. Reverts ONLY that merge commit (`git revert -m 1` picks the
+  // mainline parent, so prior AND subsequent epic commits stay intact); a conflict
+  // aborts, leaving the epic branch untouched. Serialised behind the per-project
+  // worktree lock — a revert on the shared epic worktree must not race a sibling merge.
+  // ---------------------------------------------------------------------------
+  async revertEpicMerge(
+    epicId: string,
+    mergeSha: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<RevertMergeResult> {
+    return this.withWorktreeLock(() => this._revertEpicMergeInner(epicId, mergeSha, opts));
+  }
+
+  private async _revertEpicMergeInner(
+    epicId: string,
+    mergeSha: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<RevertMergeResult> {
+    const epic = await this._ensureEpicInner(epicId);
+    if (!epic) throw new Error('cannot resolve epic worktree (non-git project)');
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    // A --no-ff merge commit has two parents; -m 1 reverts against the mainline (epic)
+    // parent so only the leaf's changes are undone. --no-edit keeps the default
+    // `Revert "<merge subject>"` message (auditable in the branch history).
+    const res = await this.runGit(
+      epic.path,
+      ['revert', '-m', '1', '--no-edit', mergeSha],
+      timeoutMs,
+    );
+    if (res.code !== 0) {
+      // Conflict or other failure — abort so the epic branch stays exactly as it was.
+      await this.runGit(epic.path, ['revert', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
+        code: 0,
+        stdout: '',
+        stderr: '',
+      }));
+      return { reverted: false, error: res.stderr.trim() || `git revert exited ${res.code}` };
+    }
+    let revertSha: string | undefined;
+    const shaRes = await this.runGit(epic.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
+    if (shaRes.code === 0) revertSha = shaRes.stdout.trim() || undefined;
+    return { reverted: true, revertSha };
   }
 
   // ---------------------------------------------------------------------------

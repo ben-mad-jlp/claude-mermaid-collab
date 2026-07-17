@@ -139,6 +139,30 @@ export function depDropped(dep: Pick<Todo, 'status'> | undefined): boolean {
 }
 
 /**
+ * Resolve a `dependsOn` entry to its Todo, tolerating a short (leading-8-hex) id —
+ * the same convention `findLeafTodoByShortId` (leaf-worktree-reaper.ts) and
+ * forward-integrate-epic.ts already resolve by `startsWith` at their own call sites.
+ * Exact match is tried first (`byId.get` is O(1) and covers the common full-id case).
+ * On a miss, scans `byId` for a UNIQUE `id.startsWith(depId)` match — a short-id dep
+ * that resolves to zero or MORE THAN ONE todo returns undefined (ambiguous or
+ * dangling), which `depSatisfied`/`depDropped` already treat as "not satisfied" /
+ * "not dropped" respectively (claimability.ts:104-107) — i.e. the dependent correctly
+ * stays `deps-pending` rather than an ambiguous prefix silently picking a match.
+ */
+export function resolveDepId(depId: string, byId: Map<string, Todo>): Todo | undefined {
+  const exact = byId.get(depId);
+  if (exact) return exact;
+  let match: Todo | undefined;
+  for (const t of byId.values()) {
+    if (t.id.startsWith(depId)) {
+      if (match) return undefined; // ambiguous — do not silently pick one
+      match = t;
+    }
+  }
+  return match;
+}
+
+/**
  * The ONE eligibility predicate. Order is load-bearing: terminal/in-flight first (lifecycle),
  * then the decision gates (unapproved, held) which apply to BOTH agent and human todos, then
  * the dependency gates, and finally the agent-vs-human split LAST (a fully-unblocked human
@@ -191,7 +215,7 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   if (parentIsInbox(t, byId)) return 'bucket-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
-  if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {
+  if ((t.dependsOn ?? []).some((id) => resolveDepId(id, byId)?.acceptanceStatus === 'rejected')) {
     return 'dep-rejected';
   }
   // A DROPPED dep never satisfies (`depSatisfied` requires done|accepted), so without this
@@ -199,7 +223,7 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // waiting on live work (F4). The drop cascade walks `parentId` only and deliberately does
   // NOT follow `dependsOn` (68b8bb09: it is a DAG, blast radius invisible at click time), so
   // stranding OUTSIDE dependents is the accepted cost — this reason is how the cost is paid.
-  if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) {
+  if ((t.dependsOn ?? []).some((id) => depDropped(resolveDepId(id, byId)))) {
     return 'dep-dropped';
   }
   // An EPIC ancestor that has not been released (status='ready' → approvedAt) gates the
@@ -208,7 +232,7 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // work is protected: the `t.claim != null` check at the top returns 'in-flight' before
   // control ever reaches here, so releasing/un-releasing an epic never revokes a running leaf.
   if (hasUnreleasedEpicAncestor(t, byId)) return 'parent-unreleased';
-  if (!(t.dependsOn ?? []).every((id) => depSatisfied(byId.get(id)))) {
+  if (!(t.dependsOn ?? []).every((id) => depSatisfied(resolveDepId(id, byId)))) {
     return 'deps-pending';
   }
   if (t.assigneeKind === 'human') return 'human-assignee';

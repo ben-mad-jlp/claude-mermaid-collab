@@ -10,7 +10,7 @@ import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
-  liveRunsOf, deriveMissionStatus, deriveCriterionAction, type MissionCriterionFacts,
+  liveRunsOf, deriveMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 
@@ -66,6 +66,13 @@ describe('mission-store: control state', () => {
     expect(m.status).toBeDefined();
     const validStatuses = ['needs-discovery', 'needs-verify', 'blocked', 'building', 'over-budget', 'abandoned', 'converged'];
     expect(validStatuses).toContain(m.status ?? '');
+  });
+
+  test('getMission resolves a leading-8-hex short id to the same row as the full todoId', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const short = id.slice(0, 8);
+    expect(getMission(project, short)).toEqual(getMission(project, id));
   });
 
   test('deleteMission removes control state + criteria', async () => {
@@ -447,6 +454,108 @@ describe('mission handoffDocId (constitution link)', () => {
       const m2 = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] H2', kind: 'mission' });
       upsertMission(proj, m2.id);
       expect(getMission(proj, m2.id)?.handoffDocId).toBeNull();
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── Multi-criterion epic edges (e7d3c02b) + land-leaf self-heal (22c5ba8a) ────
+import { healMissionEpicLandLeaves, ensureMissionEpicLandLeaf, updateTodo, listTodos, DuplicateLandLeafError } from '../todo-store';
+
+describe('multi-criterion epic edges + land-leaf self-heal', () => {
+  test('one epic serving 3 criteria via servesCriterionIds makes all 3 derive building/verify', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mission-multiedge-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] ME', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'verb works');
+      const c2 = addCriterion(proj, m.id, 'verb is idempotent');
+      const c3 = addCriterion(proj, m.id, 'verb fails open');
+      const epic = await createTodo(proj, {
+        ownerSession: 's1', title: 'import verb', kind: 'epic', parentId: m.id,
+        servesCriterionIds: [c1.id, c2.id, c3.id],
+      });
+      // back-compat mirror: primary edge = ids[0]
+      expect(epic.servesCriterionId).toBe(c1.id);
+      expect(epic.servesCriterionIds).toEqual([c1.id, c2.id, c3.id]);
+      const facts = collectMissionStatusFacts(proj, getMission(proj, m.id)!);
+      // all 3 criteria see the SAME serving epic (open, not live yet → discover is fine;
+      // the point is servingEpicState is NOT 'none' for any of them)
+      for (const cf of facts.criteria) expect(cf.servingEpicState).toBe('open');
+      // approval passes the guard with only the multi-edge (no explicit single edge patch)
+      const approved = await updateTodo(proj, epic.id, { status: 'ready' });
+      expect(approved.approvedAt).not.toBeNull();
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('land-leaf self-heal creates exactly one [LAND] leaf for a land-leafless mission epic (idempotent)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'landheal-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] LH', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c = addCriterion(proj, m.id, 'thing works');
+      const epic = await createTodo(proj, { ownerSession: 's1', title: 'build the thing', kind: 'epic', parentId: m.id, servesCriterionId: c.id });
+      const leaf = await createTodo(proj, { ownerSession: 's1', title: 'do work', parentId: epic.id });
+      // non-mission epic control: no heal
+      const plainEpic = await createTodo(proj, { ownerSession: 's1', title: 'plain epic', kind: 'epic', missionId: null });
+      const healed = await healMissionEpicLandLeaves(proj);
+      expect(healed).toEqual([epic.id]);
+      const children = listTodos(proj, { includeCompleted: true }).filter((t) => t.parentId === epic.id);
+      const lands = children.filter((t) => t.kind === 'land');
+      expect(lands).toHaveLength(1);
+      expect(lands[0].assigneeKind).toBe('human');
+      expect(lands[0].title).toContain('→ master');
+      expect(lands[0].dependsOn).toEqual([leaf.id]);
+      // idempotent: second sweep heals nothing
+      expect(await healMissionEpicLandLeaves(proj)).toEqual([]);
+      expect(await ensureMissionEpicLandLeaf(proj, epic.id)).toBeNull();
+      // plain epic untouched
+      const plainChildren = listTodos(proj, { includeCompleted: true }).filter((t) => t.parentId === plainEpic.id);
+      expect(plainChildren).toHaveLength(0);
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('duplicate land-leaf guard', () => {
+  test('creating a second live land leaf under one epic throws; after dropping the first it succeeds', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'landdupe-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] DG', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const epic = await createTodo(proj, { ownerSession: 's1', title: 'an epic', kind: 'epic', parentId: m.id });
+      const land1 = await createTodo(proj, { ownerSession: 's1', title: 'an epic → main', kind: 'land', parentId: epic.id, assigneeKind: 'human' });
+      await expect(
+        createTodo(proj, { ownerSession: 's1', title: 'an epic → main (dupe)', kind: 'land', parentId: epic.id, assigneeKind: 'human' }),
+      ).rejects.toThrow(DuplicateLandLeafError);
+      // heal also refuses to double up
+      expect(await ensureMissionEpicLandLeaf(proj, epic.id)).toBeNull();
+      // dropping the live one re-opens the slot
+      await updateTodo(proj, land1.id, { status: 'dropped' });
+      const land2 = await createTodo(proj, { ownerSession: 's1', title: 'an epic → main', kind: 'land', parentId: epic.id, assigneeKind: 'human' });
+      expect(land2.kind).toBe('land');
     } finally {
       _closeProject(proj);
       _resetMissionDbCache(proj);

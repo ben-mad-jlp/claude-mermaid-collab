@@ -78,7 +78,8 @@ import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 import { treeStatus, restorePostLandTree } from './tree-integrity';
-import { recordFriction, getWatchState, setWatchState } from './friction-store';
+import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
+import { recordEpicLand } from './epic-land-record-store.js';
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -2222,8 +2223,31 @@ export async function landEpic(
         return { ok: false, landed: false, reason: land.reason ?? 'land-failed', epicId, epicBranch };
       }
 
-      // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
-      await wm.removeEpic(epicId, targetProject).catch(() => {});
+      // Landed — persist the durable land-record BEFORE teardown removes the branch
+      // (epicHeadSha reads refs/heads/<epicBranch>, which removeEpic deletes).
+      const epicTipSha = await wm.epicHeadSha(epicId).catch(() => null);
+      if (epicTipSha) {
+        try {
+          recordEpicLand(targetProject, {
+            epicId,
+            epicTipSha,
+            landedMergeSha: land.masterSha ?? '',
+            landedAt: Date.now(),
+          });
+        } catch { /* advisory — must never fail a completed land */ }
+      }
+
+      // Remove the epic branch + worktree (gated on land success), resolve the card.
+      try {
+        await wm.removeEpic(epicId, targetProject);
+      } catch (err) {
+        await recordFrictionOnce(targetProject, {
+          layer: 'operational',
+          retryReason: 'landed-epic-teardown-failed',
+          todoId: epicId,
+          detail: `removeEpic(${epicId}) failed after a successful land of ${epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
+        }).catch(() => {});
+      }
       try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
 
       let treeRestored = false;
@@ -2924,6 +2948,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (!session) continue;           // never-spawned leaf → grace sweep handles it
         const pulseAt = lanePulseAt(project, session);
         if (pulseAt == null || nowMs - pulseAt <= PULSE_STALE_MS) continue; // fresh/absent → fall back
+        if (isRunLive(t.id)) continue; // run-level-live between nodes — never reclaim (mirrors reapDeadClaims:2830)
         if (isLeafInflightLive(t.id)) continue; // bug 0f1df3d2: a live current-epoch node (e.g. a long blueprint) is NOT an orphan — inProcessLaneAlive is blind to the node-invoker `claude -p` subprocess, so the leaf_inflight row is the authoritative signal
         if (await inProcessLaneAlive(session)) continue; // live in-process lane — no tmux to probe (§6.7)
         const tmux = tmuxBaseName(project, session);
@@ -2951,6 +2976,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // bug 0f1df3d2: a live current-epoch leaf_inflight row means a node is running
         // RIGHT NOW (e.g. a >lease blueprint) — never reap it via the age/lease grace
         // path. Authoritative for headless leaves, which inProcessLaneAlive can't see.
+        if (isRunLive(c.id)) continue; // run-level-live between nodes — never reclaim (mirrors reapDeadClaims:2830)
         if (isLeafInflightLive(c.id)) continue;
         // Live in-process lane (no tmux) → never reap on tmux absence (§6.7 bootstrap).
         if (c.sessionName && await inProcessLaneAlive(c.sessionName)) continue;

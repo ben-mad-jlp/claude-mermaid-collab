@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, afterAll } from 'bun:test';
 import { readdirSync, readFileSync, statSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -46,9 +46,9 @@ describe('source-guard: single assembly site', () => {
 });
 
 describe('getInjectionFlags', () => {
-  test('a project with no config resolves all three flags false', () => {
+  test('a project with no config defaults ALL THREE flags ON (every payload is self-gating)', () => {
     const f = getInjectionFlags('/tmp/__no_such_project_injection_flags__');
-    expect(f).toEqual({ digest: false, retryContext: false, activeConstraints: false });
+    expect(f).toEqual({ digest: true, retryContext: true, activeConstraints: true });
   });
 });
 
@@ -269,6 +269,75 @@ describe('payload A — PROJECT DIGEST', () => {
       epicId: null,
       flags: { digest: true, retryContext: false, activeConstraints: false },
       readDigest: () => null,
+    });
+    expect(out).toBe('');
+  });
+});
+
+
+// Local helper for the appended mission-forge wiring tests (mirrors the beforeEach pattern).
+const _forgeDirs: string[] = [];
+function mkProject(): string {
+  const d = mkdtempSync(join(tmpdir(), 'prompt-inject-forge-'));
+  _forgeDirs.push(d);
+  return d;
+}
+afterAll(() => { for (const d of _forgeDirs) { try { _closeProject(d); rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ } } });
+
+describe('payload C — blueprint kind (mission-forge wiring)', () => {
+  test('blueprint now receives ACTIVE CONSTRAINTS (the plan author needs them most)', () => {
+    const project = mkProject();
+    const c = createDecisionRecord(project, { kind: 'constraint', title: 'mechanical gate stays pre-land', epicId: null });
+    approveDecisionRecord(project, c.id, 'h');
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project,
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(out).toContain('=== ACTIVE CONSTRAINTS (advisory — verify against the tree) ===');
+    expect(out).toContain('mechanical gate stays pre-land');
+  });
+});
+
+describe('payload D — REJECTED ALTERNATIVES', () => {
+  test('active decision with alternatives reaches blueprint; implement excluded; no-alts decision emits nothing', () => {
+    const project = mkProject();
+    createDecisionRecord(project, {
+      kind: 'decision',
+      title: 'grounding gate keeps per-criterion teeth',
+      alternatives: ['whole-review-only grounding (vacuous-PASS hole)', 'blanket abstain on empty change-set'],
+    });
+    const bp = composeInjectedContext({
+      kind: 'blueprint',
+      project,
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(bp).toContain('REJECTED ALTERNATIVES (do not re-propose)');
+    expect(bp).toContain('whole-review-only grounding');
+    const impl = composeInjectedContext({
+      kind: 'implement',
+      project,
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(impl).not.toContain('REJECTED ALTERNATIVES');
+
+    const project2 = mkProject();
+    createDecisionRecord(project2, { kind: 'decision', title: 'no alternatives recorded' });
+    const out2 = composeInjectedContext({
+      kind: 'blueprint',
+      project: project2,
+      flags: { digest: false, retryContext: false, activeConstraints: true },
+    });
+    expect(out2).not.toContain('REJECTED ALTERNATIVES');
+  });
+
+  test('flag off ⇒ no payload D', () => {
+    const project = mkProject();
+    createDecisionRecord(project, { kind: 'decision', title: 't', alternatives: ['x'] });
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project,
+      flags: { digest: false, retryContext: false, activeConstraints: false },
     });
     expect(out).toBe('');
   });

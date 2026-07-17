@@ -5,7 +5,7 @@
  * for real (mirrors the pattern in worktree-gc.test.ts).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +16,11 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 import { getWorktreeManager } from '../coordinator-live';
 import { createTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
-import { gcLeafWorktrees } from '../leaf-worktree-reaper';
+import { gcLeafWorktrees, isReclaimable, WORKTREE_RECLAIM_MIN_AGE_MS } from '../leaf-worktree-reaper';
+import { setLeafInflight, clearLeafInflight } from '../worker-ledger';
+import { listFriction, recordFrictionOnce, _closeProject as _closeFrictionProject } from '../friction-store';
+import { recordEpicLand } from '../epic-land-record-store';
+import { recordStatus } from '../session-status-store';
 
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -47,6 +51,14 @@ async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdo
  *  after every fs mutation that touches the dir's entries. */
 async function backdate(dir: string) {
   const old = new Date(Date.now() - REAP_GRACE_MS - 60_000);
+  await utimes(dir, old, old);
+}
+
+/** Backdate a dir's mtime AND atime past WORKTREE_RECLAIM_MIN_AGE_MS — for
+ *  isReclaimable's age guard (f), which requires BOTH timestamps to be old. Must run
+ *  LAST, after every fs mutation that touches the dir's entries. */
+async function backdatePastReclaim(dir: string) {
+  const old = new Date(Date.now() - WORKTREE_RECLAIM_MIN_AGE_MS - 60_000);
   await utimes(dir, old, old);
 }
 
@@ -105,7 +117,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  it('case 1: old pristine orphan lane worktree → removed', async () => {
+  it('case 1: old pristine orphan lane worktree → QUARANTINED (moved to trash, never force-removed)', async () => {
     const wm = getWorktreeManager(repo);
     mkdirSync(wm.baseDir(), { recursive: true });
 
@@ -114,14 +126,19 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     await runGit(repo, ['worktree', 'add', '-b', 'lane-old-branch', laneDir]);
     // Commit with an old date so headCommitAgeMs sees it as >7 days old.
     await commitOld(laneDir, 'old work');
-    // Backdate the dir's mtime past the grace window.
-    await backdate(laneDir);
+    // Backdate mtime AND atime past WORKTREE_RECLAIM_MIN_AGE_MS (isReclaimable's 7-day floor).
+    await backdatePastReclaim(laneDir);
 
     const report = await gcLeafWorktrees(repo);
 
     expect(report.scanned).toBeGreaterThanOrEqual(1);
-    expect(report.removed).toContain(laneDir);
-    expect(existsSync(laneDir)).toBe(false);
+    // crit 4 (mission b86… → 2e65940d): a RECLAIMABLE orphan is QUARANTINE-MOVED to
+    // .collab/.trash (reversible), NOT force-removed. It leaves baseDir but is not destroyed.
+    expect(report.quarantined.map((q) => q.path)).toContain(laneDir);
+    expect(report.removed).not.toContain(laneDir); // never force-removed
+    expect(existsSync(laneDir)).toBe(false); // moved out of baseDir
+    const q = report.quarantined.find((x) => x.path === laneDir);
+    expect(q && existsSync(q.trashDir)).toBe(true); // present under trash (reversible)
   });
 
   it('case 2: dirty orphan → flagged, not removed', async () => {
@@ -229,5 +246,561 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     // Verify it was silently skipped (no refused entry).
     const refusalForDir = report.refused.find((r) => r.path === epicDir);
     expect(refusalForDir).toBeFalsy();
+  });
+});
+
+describe('gcLeafWorktrees — landed-epic worktree collection (record-verified fast path)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'landed-epic-gc-repo-'));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  async function makeDoneEpicWorktree(): Promise<{ epicId: string; epicDir: string }> {
+    const wm = getWorktreeManager(repo);
+    mkdirSync(wm.baseDir(), { recursive: true });
+    const epicTodo = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'landed epic',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'done',
+    });
+    const epicId8 = epicTodo.id.slice(0, 8);
+    const epicDir = join(wm.baseDir(), `__epic-${epicId8}__`);
+    await runGit(repo, ['worktree', 'add', '-b', `epic-${epicId8}`, epicDir]);
+    return { epicId: epicTodo.id, epicDir };
+  }
+
+  it('case 1: matching land-record, clean, HEAD is ancestor of master → QUARANTINED (reversible, manifest present)', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(false);
+    const q = report.quarantined.find((x) => x.path === epicDir);
+    expect(q && existsSync(q.trashDir)).toBe(true);
+    expect(q && existsSync(join(q.trashDir, 'manifest.json'))).toBe(true);
+  });
+
+  it('case 2: land-record present but worktree HEAD has drifted (extra commit past epicTipSha) → KEPT', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    // Drift: one more commit on top of the recorded tip.
+    writeFileSync(join(epicDir, 'extra.txt'), 'drift\n');
+    await runGit(epicDir, ['add', '-A']);
+    await runGit(epicDir, ['commit', '-q', '-m', 'drift']);
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(true);
+  });
+
+  it('case 3: land-record matches but worktree has an uncommitted tracked change → KEPT', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    writeFileSync(join(epicDir, 'README.md'), 'edited\n');
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(true);
+  });
+
+  it('case 4: land-record matches but a live process cwd is under the dir → KEPT', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    const proc = (globalThis as any).Bun.spawn(['sleep', '5'], {
+      cwd: epicDir,
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const report = await gcLeafWorktrees(repo);
+
+      expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+      expect(existsSync(epicDir)).toBe(true);
+    } finally {
+      proc.kill();
+    }
+  });
+
+  it('case 5: no land-record for this epic → falls through to the age-gated path, KEPT', async () => {
+    const { epicDir } = await makeDoneEpicWorktree();
+    // Deliberately no recordEpicLand call — getEpicLandRecord returns null.
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(true);
+  });
+});
+
+describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'pool-lane-gc-repo-'));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  /** Creates a REAL recorded (bound) pool-lane worktree via wm.ensure() — a durable
+   *  WorktreeInfo record is written, so the dir is present in `recordBasenames` and
+   *  hits gcLeafWorktrees' "bound" branch. Not leaf-exec-* prefixed and not an
+   *  `__epic-*__` dir, so it lands in candidate class 2. */
+  async function makeBoundPoolLane(sessionId: string): Promise<string> {
+    const wm = getWorktreeManager(repo);
+    const wt = await wm.ensure(sessionId, { baseBranch: 'master' });
+    return wt.path;
+  }
+
+  it('case 1: dead session (no status row) + old + clean → QUARANTINED, record deleted', async () => {
+    const sessionId = 'pool-lane-dead-old-clean';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    await backdatePastReclaim(dir);
+    // Deliberately no recordStatus call — an absent row reads as Infinity ms dead.
+
+    const wm = getWorktreeManager(repo);
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).toContain(dir);
+    expect(existsSync(dir)).toBe(false);
+    const q = report.quarantined.find((x) => x.path === dir);
+    expect(q && existsSync(q.trashDir)).toBe(true);
+    // Stale WorktreeInfo record is gone too (quarantineMove's deleteRecord side effect).
+    const records = await wm.list();
+    expect(records.some((r) => r.sessionId === sessionId)).toBe(false);
+  });
+
+  it('case 2: live session (fresh heartbeat) → KEPT, silently bound-skipped', async () => {
+    const sessionId = 'pool-lane-live';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    await backdatePastReclaim(dir);
+    recordStatus(repo, sessionId, 'active'); // fresh heartbeat, well under POOL_LANE_DEAD_MS
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
+    expect(existsSync(dir)).toBe(true);
+    const refusal = report.refused.find((r) => r.path === dir);
+    expect(refusal).toBeFalsy(); // still a SILENT skip, not a flagged refusal
+  });
+
+  it('case 3: dead session but dir < 7 days old → KEPT (age floor not met)', async () => {
+    const sessionId = 'pool-lane-dead-young';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    // Backdate only ~1 day — dead (no status row) but well under WORKTREE_RECLAIM_MIN_AGE_MS.
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await utimes(dir, oneDayAgo, oneDayAgo);
+    // No recordStatus call — dead session.
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it('case 4: dead session, old, but dirty (uncommitted tracked change) → KEPT', async () => {
+    const sessionId = 'pool-lane-dead-dirty';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    writeFileSync(join(dir, 'README.md'), 'edited\n');
+    await backdatePastReclaim(dir);
+    // No recordStatus call — dead session.
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
+    expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe('landEpic teardown friction dedup (part 2: un-swallow removeEpic failure)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'land-teardown-friction-repo-'));
+  });
+
+  afterEach(() => {
+    _closeFrictionProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('two simulated removeEpic failures for the same epicId dedup to exactly one friction_note row', async () => {
+    // Mirrors the exact recordFrictionOnce call shape landEpic's un-swallowed
+    // try/catch makes on wm.removeEpic(epicId, targetProject) failure
+    // (coordinator-live.ts ~2242-2249): same layer/retryReason/todoId/detail per
+    // failure of the SAME epicId, so recordFrictionOnce's INSERT...WHERE NOT
+    // EXISTS dedups repeat failures into one row.
+    const epicId = 'epic0001deadbeefcafefeed';
+    const epicBranch = `collab/epic/${epicId.slice(0, 8)}`;
+    const errMessage = 'simulated removeEpic failure: worktree busy';
+    const simulateFailedTeardown = async () => {
+      try {
+        throw new Error(errMessage);
+      } catch (err) {
+        await recordFrictionOnce(repo, {
+          layer: 'operational',
+          retryReason: 'landed-epic-teardown-failed',
+          todoId: epicId,
+          detail: `removeEpic(${epicId}) failed after a successful land of ${epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
+        }).catch(() => {});
+      }
+    };
+
+    await simulateFailedTeardown();
+    await simulateFailedTeardown();
+
+    const rows = listFriction(repo, { layer: 'operational' })
+      .filter((n) => n.retryReason === 'landed-epic-teardown-failed' && n.todoId === epicId);
+    expect(rows.length).toBe(1);
+  });
+});
+
+describe('isReclaimable', () => {
+  let repo: string;
+  let baseDir: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'reclaim-repo-'));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+
+    const wm = getWorktreeManager(repo);
+    baseDir = wm.baseDir();
+    mkdirSync(baseDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  async function makeWorktree(name: string, branch: string): Promise<string> {
+    const dir = join(baseDir, name);
+    await runGit(repo, ['worktree', 'add', '-b', branch, dir]);
+    return dir;
+  }
+
+  it('dirty (tracked change, no commit) → false', async () => {
+    const dir = await makeWorktree('wt-dirty', 'b-dirty');
+    writeFileSync(join(dir, 'README.md'), 'edited\n');
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('locked (.git/worktrees/<name>/locked marker) → false', async () => {
+    const dir = await makeWorktree('wt-locked', 'b-locked');
+    await runGit(repo, ['worktree', 'lock', dir]);
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('live inflight claim → false', async () => {
+    const dir = await makeWorktree('wt-inflight', 'b-inflight');
+    await backdatePastReclaim(dir);
+
+    const leafId = 'test-leaf-inflight-1';
+    setLeafInflight({ leafId, project: repo });
+    try {
+      const result = await isReclaimable({ dir, baseDir, leafTodoId: leafId, now: Date.now() });
+      expect(result).toBe(false);
+    } finally {
+      clearLeafInflight(leafId);
+    }
+  });
+
+  it('live process cwd under the dir → false', async () => {
+    const dir = await makeWorktree('wt-livecwd', 'b-livecwd');
+    await backdatePastReclaim(dir);
+
+    const proc = (globalThis as any).Bun.spawn(['sleep', '5'], {
+      cwd: dir,
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+      expect(result).toBe(false);
+    } finally {
+      proc.kill();
+    }
+  });
+
+  it('in-progress git state (MERGE_HEAD marker) → false', async () => {
+    const dir = await makeWorktree('wt-merging', 'b-merging');
+    const gitDirRes = await runGit(dir, ['rev-parse', '--git-dir']);
+    const gitDir = gitDirRes.stdout.trim();
+    const absGitDir = gitDir.startsWith('/') ? gitDir : join(dir, gitDir);
+    writeFileSync(join(absGitDir, 'MERGE_HEAD'), 'deadbeef\n');
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('too young (fresh worktree, no backdate) → false', async () => {
+    const dir = await makeWorktree('wt-young', 'b-young');
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('all guards pass (clean, old, unlocked, no inflight, no live cwd, no in-progress git) → true', async () => {
+    const dir = await makeWorktree('wt-clean', 'b-clean');
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: 'no-such-leaf', now: Date.now() });
+    expect(result).toBe(true);
+  });
+});
+
+describe('MEASURED: full reaper+GC pass over a worktree set', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    // realpathSync: git resolves symlinks (e.g. macOS /var -> /private/var) in its own
+    // `worktree list --porcelain` output, so paths built from an unresolved tmpdir()
+    // wouldn't match pruneMissingWorktrees' git-sourced paths below.
+    repo = realpathSync(mkdtempSync(join(tmpdir(), 'measured-gc-repo-')));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    _closeFrictionProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  /** Full reaper+GC pass: prune already-missing admin entries, then the orphan
+   *  flag/quarantine scan — the same two primitives the coordinator tick drives. */
+  async function fullPass(project: string) {
+    const wm = getWorktreeManager(project);
+    const pruned = await wm.pruneMissingWorktrees();
+    const report = await gcLeafWorktrees(project);
+    return { pruned, report };
+  }
+
+  async function worktreeCount(project: string): Promise<number> {
+    const res = await runGit(project, ['worktree', 'list', '--porcelain']);
+    return res.stdout.split('\n').filter((l) => l.startsWith('worktree ')).length;
+  }
+
+  it('0 new dup orphan-unregistered notes on re-pass + worktree count bounded, guarded dir kept', async () => {
+    const wm = getWorktreeManager(repo);
+    mkdirSync(wm.baseDir(), { recursive: true });
+
+    // (a) already-flagged orphan-unregistered dir: a plain dir under baseDir that is
+    // NOT a real `git worktree` (absent from `git worktree list`), so gcLeafWorktrees
+    // hits the orphan-unregistered flag path every pass.
+    const unregisteredDir = join(wm.baseDir(), 'stray-unregistered');
+    mkdirSync(unregisteredDir, { recursive: true });
+    writeFileSync(join(unregisteredDir, 'x.txt'), 'stray\n');
+    await backdatePastReclaim(unregisteredDir);
+    await gcLeafWorktrees(repo); // flag it once first, so hasFrictionNote is true going in
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-unregistered' && (n.detail ?? '').includes(unregisteredDir)).length,
+    ).toBe(1);
+
+    // (b) prunable/missing admin entry: a real worktree whose dir is removed out-of-band
+    // (raw fs.rmSync, not `git worktree remove`), leaving a stale git admin record.
+    const prunableDir = join(wm.baseDir(), 'lane-prunable');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-prunable-branch', prunableDir]);
+    rmSync(prunableDir, { recursive: true, force: true });
+
+    // (c) reclaimable clean+very-old orphan — same recipe as case 1 (lines 117-139).
+    const reclaimableDir = join(wm.baseDir(), 'lane-reclaimable');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-reclaimable-branch', reclaimableDir]);
+    await commitOld(reclaimableDir, 'old work');
+    await backdatePastReclaim(reclaimableDir);
+
+    // (d) guarded dir that MUST be kept: dirty orphan, same recipe as case 2 (lines 141-162).
+    const guardedDir = join(wm.baseDir(), 'lane-guarded');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-guarded-branch', guardedDir]);
+    await commitOld(guardedDir, 'old work');
+    writeFileSync(join(guardedDir, 'README.md'), 'edited\n');
+    await backdate(guardedDir);
+
+    const countBefore = await worktreeCount(repo);
+
+    // ── Pass 1: full reaper+GC ──────────────────────────────────────────────
+    const pass1 = await fullPass(repo);
+
+    expect(pass1.pruned.map((p) => p.path)).toContain(prunableDir);
+    expect(pass1.report.quarantined.map((q) => q.path)).toContain(reclaimableDir);
+    expect(existsSync(reclaimableDir)).toBe(false);
+    const reclaimQ = pass1.report.quarantined.find((q) => q.path === reclaimableDir);
+    expect(reclaimQ && existsSync(reclaimQ.trashDir)).toBe(true);
+
+    expect(pass1.report.removed).not.toContain(guardedDir);
+    expect(existsSync(guardedDir)).toBe(true);
+    const guardedRefusal1 = pass1.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal1?.reason).toBe('orphan-dirty');
+
+    const unregisteredRefusal1 = pass1.report.refused.find((r) => r.path === unregisteredDir);
+    expect(unregisteredRefusal1?.reason).toBe('orphan-unregistered');
+
+    const countAfterPass1 = await worktreeCount(repo);
+    expect(countAfterPass1).toBeLessThanOrEqual(countBefore);
+
+    // ── Pass 2: re-run the SAME full pass ───────────────────────────────────
+    const pass2 = await fullPass(repo);
+
+    // 0 new dup orphan-unregistered notes: still exactly 1 for this dir.
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-unregistered' && (n.detail ?? '').includes(unregisteredDir)).length,
+    ).toBe(1);
+
+    // Worktree count does not grow across passes, and never regresses below the
+    // guarded dir surviving.
+    const countAfterPass2 = await worktreeCount(repo);
+    expect(countAfterPass2).toBeLessThanOrEqual(countAfterPass1);
+    expect(countAfterPass2).toBeLessThanOrEqual(countBefore);
+
+    // The guarded dir is STILL present after both passes (never force-removed).
+    expect(existsSync(guardedDir)).toBe(true);
+    expect(pass2.report.removed).not.toContain(guardedDir);
+    const guardedRefusal2 = pass2.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal2?.reason).toBe('orphan-dirty');
+
+    // The reclaimed/pruned dirs stay gone (no re-appearance / no re-quarantine of a
+    // path that no longer exists).
+    expect(existsSync(reclaimableDir)).toBe(false);
+    expect(existsSync(prunableDir)).toBe(false);
+  });
+
+  it('multi-class set: landed-epic + dead-pool-lane + guarded-survivor across two full passes', async () => {
+    const wm = getWorktreeManager(repo);
+    mkdirSync(wm.baseDir(), { recursive: true });
+
+    // (a) LANDED-EPIC: record-verified fast path (mirrors case 1 at lines 286-299).
+    const epicTodo = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'landed epic (measured)',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'done',
+    });
+    const epicId8 = epicTodo.id.slice(0, 8);
+    const epicDir = join(wm.baseDir(), `__epic-${epicId8}__`);
+    await runGit(repo, ['worktree', 'add', '-b', `epic-${epicId8}`, epicDir]);
+    const epicHeadRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = epicHeadRes.stdout.trim();
+    recordEpicLand(repo, { epicId: epicTodo.id, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    // (b) DEAD POOL LANE: bound-but-dead reclaim path (mirrors case 1 at lines 394-411).
+    const poolLaneDir = (await wm.ensure('measured-dead-pool', { baseBranch: 'master' })).path;
+    await commitOld(poolLaneDir, 'old work');
+    await backdatePastReclaim(poolLaneDir);
+    // Deliberately no recordStatus call — an absent row reads as dead.
+
+    // (c) GUARDED SURVIVOR: dirty orphan, same recipe as the existing test's guardedDir.
+    const guardedDir = join(wm.baseDir(), 'lane-guarded-multiclass');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-guarded-multiclass-branch', guardedDir]);
+    await commitOld(guardedDir, 'old work');
+    writeFileSync(join(guardedDir, 'README.md'), 'edited\n');
+    await backdate(guardedDir);
+
+    const countBefore = await worktreeCount(repo);
+
+    // ── Pass 1: full reaper+GC ──────────────────────────────────────────────
+    const pass1 = await fullPass(repo);
+
+    expect(pass1.report.quarantined.map((q) => q.path)).toContain(epicDir);
+    expect(pass1.report.quarantined.map((q) => q.path)).toContain(poolLaneDir);
+    expect(existsSync(epicDir)).toBe(false);
+    expect(existsSync(poolLaneDir)).toBe(false);
+    const epicQ1 = pass1.report.quarantined.find((q) => q.path === epicDir);
+    expect(epicQ1 && existsSync(epicQ1.trashDir)).toBe(true);
+    const poolQ1 = pass1.report.quarantined.find((q) => q.path === poolLaneDir);
+    expect(poolQ1 && existsSync(poolQ1.trashDir)).toBe(true);
+
+    expect(existsSync(guardedDir)).toBe(true);
+    const guardedRefusal1 = pass1.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal1?.reason).toBe('orphan-dirty');
+
+    const countAfterPass1 = await worktreeCount(repo);
+    expect(countAfterPass1).toBeLessThan(countBefore);
+
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-dirty' && (n.detail ?? '').includes(guardedDir)).length,
+    ).toBe(1);
+
+    // ── Pass 2: re-run the SAME full pass ───────────────────────────────────
+    const pass2 = await fullPass(repo);
+
+    const countAfterPass2 = await worktreeCount(repo);
+    expect(countAfterPass2).toBeLessThanOrEqual(countAfterPass1);
+
+    expect(pass2.report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(pass2.report.quarantined.map((q) => q.path)).not.toContain(poolLaneDir);
+
+    expect(existsSync(guardedDir)).toBe(true);
+    const guardedRefusal2 = pass2.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal2?.reason).toBe('orphan-dirty');
+
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-dirty' && (n.detail ?? '').includes(guardedDir)).length,
+    ).toBe(1);
   });
 });

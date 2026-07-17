@@ -26,6 +26,10 @@ import {
   NODE_PROFILE,
   IMPLEMENT_TIMEOUT_MS,
   makeCitationExists,
+  escalateImplementModel,
+  isNonFalsifiableReviewDoubt,
+  isTestFilePath,
+  sameReviewWall,
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
@@ -82,7 +86,7 @@ function makeLeaf(over: Partial<Todo> = {}): Todo {
     retryCount: 0,
     completedBy: null,
     objectRef: null,
-    servesCriterionId: null,
+    servesCriterionId: null, servesCriterionIds: [],
     decisionRef: null,
     claimProbe: null,
     inheritedBlueprintFrom: null,
@@ -129,6 +133,8 @@ interface Spies {
   /** Captured recordNode calls. */
   nodeRows: Array<any>;
   gateEvals: Array<any>;
+  coverageCalls: Array<{ testFiles: string[]; baseSha?: string | null }>;
+  contestedCalls: Array<{ reason: string }>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -146,6 +152,11 @@ function makeDeps(opts: {
   // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
   changeSet?: string[] | null;
   gateShadowMode?: boolean;
+  // crit 2/3: mock the edit-coverage seam. true=covered, false=uncovered, null=unknown.
+  // Absent ⇒ seam unwired (returns null ⇒ gate).
+  coverage?: boolean | null;
+  // crit 4: mock the contested-card decision. Absent ⇒ seams unwired (no card).
+  contestedDecision?: 'accept' | 'reject' | 'timeout';
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -161,6 +172,8 @@ function makeDeps(opts: {
     inflightSeq: [],
     nodeRows: [],
     gateEvals: [],
+    coverageCalls: [],
+    contestedCalls: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -235,6 +248,16 @@ function makeDeps(opts: {
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
     gateShadowMode: () => opts.gateShadowMode ?? false,
+    testsFlipBaseToBranch: opts.coverage !== undefined
+      ? async ({ testFiles, baseSha }) => { spies.coverageCalls.push({ testFiles, baseSha }); return opts.coverage ?? null; }
+      : undefined,
+    epicBaseSha: 'base-sha-xyz',
+    proposeContested: opts.contestedDecision !== undefined
+      ? (input) => { spies.contestedCalls.push({ reason: input.reason }); return { escalationId: 'esc-contested', createdAt: 0, isNew: true }; }
+      : undefined,
+    awaitContestedDecision: opts.contestedDecision !== undefined
+      ? async () => opts.contestedDecision!
+      : undefined,
   };
   return { deps, spies };
 }
@@ -509,33 +532,52 @@ describe('runLeaf state machine', () => {
     expect(spies.ensureCalls.length).toBe(0);
   });
 
-  it('unparseable verdict ⇒ INFRA error, not fail → blocked immediately as review-vacuous', async () => {
-    const { deps } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
+  it('unparseable verdict: first offense RETRIES, a repeat parks as review-vacuous', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('review-vacuous');
+    expect(res.reason).toBe('review-vacuous'); // parks on the SECOND unparseable offense, not the first
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(2); // initial + ONE retry fix node (first offense retried)
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(2);
   });
 
-  it('EMPTY review (bug 80bacbc4): blocked review-vacuous, implement runs once, no fix node, retryCount bumped', async () => {
-    const { deps, spies } = makeDeps({ reviewVerdicts: [''] });
+  it('EMPTY review (bug 80bacbc4): first offense RETRIES with synth findings, a repeat parks review-vacuous (bump only on park)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['', ''] });
     const leaf = makeLeaf();
     const res = await runLeaf('proj', leaf, deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('review-vacuous');
     const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
-    expect(implementSpecs.length).toBe(1); // no fix node spent on a phantom empty finding
-    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    expect(implementSpecs.length).toBe(2); // initial + ONE retry fix node (first offense retried, not parked)
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]); // bumped ONLY on the park
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(2);
   });
 
-  it('G3: vacuous PASS (no citations) ⇒ blocked review-vacuous, retryCount bumped, no fix node', async () => {
-    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], changeSet: ['src/a.ts'] });
+  it('G3: vacuous PASS (no citations): first offense RETRIES, a repeat parks review-vacuous', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS', 'VERDICT: PASS'], changeSet: ['src/a.ts'] });
     const leaf = makeLeaf();
     const res = await runLeaf('proj', leaf, deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toMatch(/^review-vacuous:/);
-    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]); // bumped only on park
     const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
-    expect(implementSpecs.length).toBe(1); // no fix node spawned on a vacuous PASS
+    expect(implementSpecs.length).toBe(2); // initial + ONE retry fix node
+  });
+
+  it('prose gate: a single vacuous offense retries, then a properly-cited PASS on retry ACCEPTS (+ records a grounding-audit)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS', '- [MET] x — src/a.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    // the first (vacuous) offense recorded an audit node and was NOT bumped (retry, not park)
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(1);
+    expect(spies.bumpRetryCalls).toEqual([]);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(2); // initial + the retry fix that produced the cited PASS
   });
 
   it('G3: a terse but CITED PASS accepts (no token floor, no tool-call floor)', async () => {
@@ -548,14 +590,14 @@ describe('runLeaf state machine', () => {
     expect(spies.mergeCalls).toBe(1);
   });
 
-  it('G3: a citation to a file outside the change-set ⇒ blocked, reason names the offending citation', async () => {
+  it('G3: a citation to a file outside the change-set ⇒ first offense retries, a repeat parks naming the offending citation', async () => {
     const { deps } = makeDeps({
-      reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
+      reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS', '- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
       changeSet: ['src/a.ts'],
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
-    expect(res.reason).toContain('src/ghost.ts:1');
+    expect(res.reason).toContain('src/ghost.ts:1'); // parks on the 2nd offense; reason still names the ghost citation
   });
 
   it('G3: a bare VERDICT: FAIL with no criteria is NOT parked as vacuous — the FAIL exemption is real', async () => {
@@ -1661,6 +1703,8 @@ function makeVerifyDeps(opts: {
     inflightSeq: [] as Spies['inflightSeq'],
     nodeRows: [] as Spies['nodeRows'],
     gateEvals: [] as Spies['gateEvals'],
+    coverageCalls: [] as Spies['coverageCalls'],
+    contestedCalls: [] as Spies['contestedCalls'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
@@ -2693,5 +2737,493 @@ describe('replay-corpus recording (G3 + citability)', () => {
 
     // Verify the run was accepted (not parked with review-vacuous)
     expect(res.reason ?? '').not.toContain('review-vacuous');
+  });
+});
+
+describe('small-tier leaf execution (zero opus, skip blueprint, demote review)', () => {
+  it('tier:small runs with zero opus and zero blueprint nodes, recording tier in ledger', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const leaf = makeLeaf({
+      tier: 'small',
+      description: 'implement a small feature',
+    });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Assert zero opus calls: blueprint and review must not be opus
+    const opusCalls = spies.invokeSpecs.filter((s) => s.model === 'opus');
+    expect(opusCalls.length).toBe(0);
+
+    // Assert zero blueprint nodeKind rows (small tier synthesizes the blueprint)
+    const blueprintRows = spies.nodeRows.filter((r) => r.nodeKind === 'blueprint');
+    expect(blueprintRows.length).toBe(0);
+
+    // Assert tier is recorded in the ledger outcome detail
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow).toBeDefined();
+    if (outcomeRow?.outcomeDetail) {
+      const detail = JSON.parse(outcomeRow.outcomeDetail);
+      expect(detail.tier).toBe('small');
+    }
+  });
+});
+
+
+describe('escalateImplementModel (retry ladder)', () => {
+  it('attempt 1 never ladders; attempt 2 bumps one tier; opus and non-Claude lanes never ladder', () => {
+    expect(escalateImplementModel('haiku', 1)).toBe('haiku');
+    expect(escalateImplementModel('haiku', 2)).toBe('sonnet');
+    expect(escalateImplementModel('sonnet', 2)).toBe('opus');
+    expect(escalateImplementModel('opus', 2)).toBe('opus');
+    expect(escalateImplementModel('claude-haiku-4-5-20251001', 2)).toBe('sonnet');
+    expect(escalateImplementModel('grok-build-0.1', 2)).toBe('grok-build-0.1');
+    expect(escalateImplementModel('composer-2.5', 2)).toBe('composer-2.5');
+  });
+});
+
+describe('sameReviewWall (fuzzy repeat-findings detector)', () => {
+  it('matches findings that drift in line numbers and case but say the same thing', () => {
+    const a = '1. [UNMET] retry path clobbers findings — leaf-executor.ts:2506\n2. [UNMET] breaks review-vacuous test at :519';
+    const b = '1. [UNMET] Retry path clobbers findings — leaf-executor.ts:2511\n2. [UNMET] breaks review-vacuous test at :528';
+    expect(sameReviewWall(a, b)).toBe(true);
+  });
+  it('does not match genuinely different findings or empty text', () => {
+    expect(sameReviewWall('the gate command is wrong for ui tests', 'missing null guard in resume decision path')).toBe(false);
+    expect(sameReviewWall('', 'anything here at all')).toBe(false);
+  });
+});
+
+describe('same-wall-twice cross-attempt park', () => {
+  it('two attempts dying on IDENTICAL findings park as same-wall-twice, not cap-exhausted', async () => {
+    // identical finding text across both attempts (and within each attempt, so the
+    // in-revise isRepeat bails each attempt after one reuse)
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — the retry path clobbers findings', 'VERDICT: FAIL — the retry path clobbers findings',
+                       'VERDICT: FAIL — the retry path clobbers findings', 'VERDICT: FAIL — the retry path clobbers findings'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('same-wall-twice');
+  });
+
+  it('attempt-2 implement runs one model tier up (retry ladder end-to-end)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — alpha wall', 'VERDICT: FAIL — beta wall', 'VERDICT: FAIL — gamma wall', 'VERDICT: FAIL — delta wall'],
+    });
+    await runLeaf('proj', makeLeaf(), deps);
+    const implSpecs = spies.invokeSpecs.filter((sp) => (sp.allowedTools ?? '').includes('Edit'));
+    const attempt1 = implSpecs[0];
+    const attempt2 = implSpecs.find((sp) => sp.model !== attempt1.model);
+    expect(attempt1.model).toBe(NODE_PROFILE.implement.model); // sonnet on attempt 1
+    expect(attempt2?.model).toBe('opus'); // laddered on attempt 2
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 6 — OPTIMISTIC LANDING for small / test-pinned tiers: merge after the GREEN
+// mechanical gate (before review), review post-merge, auto-revert on a real post-land
+// finding. The mechanical gate stays STRICTLY pre-land, and the accept bookkeeping is
+// identical to full-tier (landing-order-invariant).
+// ---------------------------------------------------------------------------
+describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
+  /** Wrap deps so every mergeToEpic + review-node invocation is logged in call order,
+   *  and mergeToEpic returns a real mergeSha the revert path can reference. Also wires a
+   *  revertEpicMerge spy. Returns the shared { order, reverts } logs. */
+  function instrument(deps: LeafExecutorDeps, mergeResult: Record<string, unknown> = { merged: true, integrated: true, mergeSha: 'MSHA' }) {
+    const order: string[] = [];
+    const reverts: Array<{ leafId: string; mergeSha: string; reason: string }> = [];
+    const origInvoke = deps.invoker.invoke.bind(deps.invoker);
+    deps.invoker = {
+      async invoke(spec: NodeSpec): Promise<NodeResult> {
+        if (spec.allowedTools === 'Read Grep Glob Bash') order.push('review');
+        return origInvoke(spec);
+      },
+    };
+    deps.mergeToEpic = async () => { order.push('merge'); return mergeResult; };
+    deps.revertEpicMerge = async (_s, _e, leafId, mergeSha, reason) => {
+      reverts.push({ leafId, mergeSha, reason });
+      order.push('revert');
+      return { reverted: true, revertSha: 'RSHA' };
+    };
+    return { order, reverts };
+  }
+
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('part 1a: small tier + GREEN mech gate → mergeToEpic runs BEFORE the review node; an optimistic-land node is recorded', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    // merge is optimistic — it precedes the review node.
+    expect(order).toEqual(['merge', 'review']);
+    // merged exactly ONCE (the optimistic merge; no second post-review merge).
+    expect(spies.mergeCalls).toBe(0); // real merge is the instrumented one; makeDeps counter untouched
+    const optNode = spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land');
+    expect(optNode).toBeTruthy();
+    expect(optNode.outcomeDetail).toContain('MSHA');
+  });
+
+  it('part 1b: small tier + RED mechanical gate (fail) → mergeToEpic is NOT called (mechanical gate is provably pre-land)', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — x', 'VERDICT: FAIL — x'],
+      runGate: async () => ({ status: 'fail', command: 'npx tsc --noEmit', output: '1 err', reasons: ['x'], declared: true }),
+    });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(order).not.toContain('merge'); // never optimistically landed on a red gate
+  });
+
+  it('part 1b: small tier + mechanical gate ERROR → no merge, parks (INCIDENT stays pre-land)', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'error', command: 'no-such-bin', output: 'ENOENT', reasons: [], declared: true }),
+    });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(order).not.toContain('merge');
+  });
+
+  it('part 1c: FULL tier + GREEN mech → merge runs only AFTER review (optimistic path NOT taken; unchanged)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'full' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(order).toEqual(['review', 'merge']); // review first, then merge — the pre-crit-6 order
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land')).toBeUndefined();
+  });
+
+  it('part 2a: small tier, GREEN mech, then post-merge review FAIL → revertEpicMerge is called for THIS leaf; a friction reason-card is recorded; outcome blocked, reason starts optimistic-land-reverted', async () => {
+    const { deps, spies } = makeDeps({
+      // Both attempts FAIL so no revise-to-pass; the first post-land FAIL is terminal (revert).
+      reviewVerdicts: ['VERDICT: FAIL — real fault', 'VERDICT: FAIL — real fault'],
+      runGate: greenGate,
+    });
+    const { order, reverts } = instrument(deps);
+    const leaf = makeLeaf({ tier: 'small' });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^optimistic-land-reverted:/);
+    // merged before review, then reverted on the fault — never revised in place.
+    expect(order).toEqual(['merge', 'review', 'revert']);
+    expect(reverts).toHaveLength(1);
+    expect(reverts[0].leafId).toBe(leaf.id);
+    expect(reverts[0].mergeSha).toBe('MSHA');
+    // an auditable reason-card ledger node names the reverted sha.
+    const card = spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-reverted');
+    expect(card).toBeTruthy();
+    expect(card.outputText).toContain('MSHA');
+  });
+
+  it('part 2b: small tier, GREEN mech, post-merge review PASS → merged exactly ONCE, NO revert, outcome accepted', async () => {
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order, reverts } = instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(order.filter((o) => o === 'merge')).toHaveLength(1); // exactly one merge
+    expect(reverts).toHaveLength(0); // no revert on a pass
+  });
+
+  it('part 3a: an optimistically-landed small-tier PASS records the SAME accept bookkeeping (finalOutcome accepted + one complete:accepted) as a full-tier PASS', async () => {
+    // small (optimistic) path
+    const small = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    instrument(small.deps);
+    const smallRes = await runLeaf('proj', makeLeaf({ tier: 'small' }), small.deps);
+    // full path
+    const full = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    instrument(full.deps);
+    const fullRes = await runLeaf('proj', makeLeaf({ tier: 'full' }), full.deps);
+
+    expect(smallRes.outcome).toBe('accepted');
+    expect(fullRes.outcome).toBe('accepted');
+    // identical acceptance funnel: exactly one complete:accepted, no reject pre-stamp.
+    expect(small.spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    expect(full.spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    expect(small.spies.markRejectingCalls).toHaveLength(0);
+    // the terminal 'outcome' ledger row is 'accepted' on both paths (landing-order-invariant).
+    const smallOutcome = small.spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    const fullOutcome = full.spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(smallOutcome.leafOutcome).toBe('accepted');
+    expect(fullOutcome.leafOutcome).toBe('accepted');
+  });
+
+  it('part 3b: the optimistic-path terminal outcome record carries tier:"small" and a clean accepted outcome', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    instrument(deps);
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow.outcomeDetail).toContain('"tier":"small"');
+    expect(outcomeRow.outcomeDetail).toContain('"effectiveOutcome":"accepted"');
+  });
+
+  it('a NO-OP merge (integrated:false, clean/stale worktree) does NOT optimistically land and NEVER reverts — review parks the empty leaf, not optimistic-land-reverted', async () => {
+    // A clean/stale worktree → commitAndMergeToEpic returns merged:true but integrated:false
+    // with mergeSha = the epic TIP (an unrelated commit). Setting optimisticallyLanded here
+    // would make the review FAIL revert the WRONG commit (regression: live small-tier run on
+    // an already-landed leaf reverted the epic tip). Guarded: skip the optimistic land.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — nothing to review', 'VERDICT: FAIL — nothing to review'],
+      runGate: greenGate,
+    });
+    const { order, reverts } = instrument(deps, { merged: true, integrated: false, mergeSha: 'EPIC_TIP' });
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    // merge attempted + review ran (possibly across retries) but NEVER a revert — nothing was
+    // really landed, so there is no leaf-merge commit to revert.
+    expect(order).toContain('merge');
+    expect(order).toContain('review');
+    expect(order).not.toContain('revert');
+    expect(reverts).toHaveLength(0);
+    // reason is the plain review finding, NOT an optimistic-land-reverted tag.
+    expect(res.reason ?? '').not.toContain('optimistic-land-reverted');
+    // an optimistic-land-skipped audit node was recorded; NO optimistic-land node.
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land')).toBeUndefined();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-skipped')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-reverted')).toBeUndefined();
+  });
+
+  it('a merge CONFLICT on the optimistic path parks without landing (merged:false ⇒ not optimistically landed, no revert)', async () => {
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], runGate: greenGate });
+    const { order, reverts } = instrument(deps, { merged: false, conflict: true });
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('merge-to-epic-failed');
+    expect(order).toEqual(['merge']); // attempted merge, no review, no revert
+    expect(reverts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 1 — FALSIFIABILITY RULE: the LLM review cannot gate a GREEN mechanical gate on a
+// NON-falsifiable finding (genuine doubt over a real change-set). A concrete fault claim
+// still gates; a red mechanical gate still parks; a no-op/empty change-set is not abstained.
+// ---------------------------------------------------------------------------
+describe('isNonFalsifiableReviewDoubt (crit 1 classifier)', () => {
+  it('is TRUE for inability/doubt phrasing and empty findings', () => {
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — I cannot confirm correctness')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt("VERDICT: FAIL — can't verify this is right")).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('[N/A] nothing to review\n\nVERDICT: FAIL')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — not enough context to assess')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL')).toBe(true); // empty finding = pure doubt
+    expect(isNonFalsifiableReviewDoubt('')).toBe(true);
+  });
+  it('is FALSE for a concrete fault claim (still gates)', () => {
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — missing null check at line 42')).toBe(false);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — the function returns undefined for empty input')).toBe(false);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — real fault')).toBe(false);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — missing test for the error path')).toBe(false);
+  });
+});
+
+describe('crit 1 — falsifiability rule (review abstains on non-falsifiable doubt over a green gate)', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('green mech + NON-falsifiable doubt FAIL + real change-set → ABSTAIN → accepted (not parked)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — I cannot confirm the correctness of this subtle change'],
+      runGate: greenGate,
+      changeSet: ['src/services/leaf-executor.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // the abstain was recorded and the leaf completed as accepted (no reject pre-stamp).
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeTruthy();
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    expect(spies.markRejectingCalls).toHaveLength(0);
+    // no fix/revise node ran — the abstain accepted on the first review.
+    const implSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implSpecs.length).toBe(1);
+  });
+
+  it('green mech + FALSIFIABLE fault FAIL + change-set → still GATES (revise loop intact)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — missing null check at line 42', 'VERDICT: FAIL — missing null check at line 42'],
+      runGate: greenGate,
+      changeSet: ['src/services/leaf-executor.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked'); // a concrete fault gates, not abstained
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
+  });
+
+  it('green mech + doubt FAIL but EMPTY change-set (no-op) → NOT abstained (parks; that is the no-op guard job)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — nothing to review', 'VERDICT: FAIL — nothing to review'],
+      runGate: greenGate,
+      changeSet: [], // empty = no real change
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
+  });
+
+  it('RED mechanical gate + doubt FAIL → still PARKS (hard floor; abstain never fires on a red gate)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — cannot confirm'],
+      runGate: async () => ({ status: 'fail', command: 'npx tsc --noEmit', output: '1 err', reasons: ['x'], declared: true }),
+      changeSet: ['src/services/leaf-executor.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // a red gate never spends a review node, so no abstain classification happens.
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 2 + 3 — LAZY edit-coverage signal + COVERAGE-WEIGHTED ADVISORY. A falsifiable FAIL
+// contesting a GREEN mechanical change over a real change-set triggers a lazy base->branch
+// test-flip check; if COVERED the LLM veto is advisory (accept), else it gates. Computed
+// only on the contested minority — never on a clean accept.
+// ---------------------------------------------------------------------------
+describe('isTestFilePath (crit 2)', () => {
+  it('matches test/spec files and __tests__ dirs, not product files', () => {
+    expect(isTestFilePath('src/services/foo.test.ts')).toBe(true);
+    expect(isTestFilePath('src/services/foo.spec.tsx')).toBe(true);
+    expect(isTestFilePath('src/services/__tests__/foo.ts')).toBe(true);
+    expect(isTestFilePath('ui/src/lib/x.test.ts')).toBe(true);
+    expect(isTestFilePath('src/services/foo.ts')).toBe(false);
+    expect(isTestFilePath('src/services/leaf-executor.ts')).toBe(false);
+  });
+});
+
+describe('crit 2 + 3 — lazy coverage signal + advisory-when-covered', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+  const declaresTest = { description: 'Implement ONLY this file: src/services/foo.test.ts' };
+  const faultFail = 'VERDICT: FAIL — missing null check at line 42';
+
+  it('crit 2: contested green-mech (falsifiable FAIL) → coverage seam CALLED + a coverage node recorded', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail, faultFail, faultFail, faultFail],
+      runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: false,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.coverageCalls.length).toBeGreaterThanOrEqual(1); // lazily computed at the contested point
+    expect(spies.coverageCalls[0].testFiles).toEqual(['src/services/foo.test.ts']);
+    const covNode = spies.nodeRows.find((r) => r.nodeKind === 'coverage');
+    expect(covNode).toBeTruthy();
+    expect(covNode.outcomeDetail).toContain('"covered":false');
+    // uncovered ⇒ the fault gates as today
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeUndefined();
+  });
+
+  it('crit 2 LAZY: a clean (grounded) PASS review does NOT call the coverage seam', async () => {
+    const { deps, spies } = makeDeps({
+      // a GROUNDED pass (cites a change-set line) accepts on cycle 1 — no contested FAIL cycle.
+      reviewVerdicts: ['- [MET] foo — src/services/foo.ts:1\n\nVERDICT: PASS'],
+      runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: true,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.coverageCalls.length).toBe(0); // never computed on a clean accept
+  });
+
+  it('crit 3: green + falsifiable FAIL + COVERED (tests flip base→branch) → ADVISORY → accepted', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail], runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: true,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('accepted'); // the covering tests refute the finding
+    const adv = spies.nodeRows.find((r) => r.nodeKind === 'advisory-override');
+    expect(adv).toBeTruthy();
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    const covNode = spies.nodeRows.find((r) => r.nodeKind === 'coverage');
+    expect(covNode.outcomeDetail).toContain('"covered":true');
+  });
+
+  it('crit 3: green + falsifiable FAIL + UNCOVERED → gates (no advisory)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail, faultFail, faultFail, faultFail], runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: false,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeUndefined();
+  });
+
+  it('crit 3 DEFENSIVE: coverage UNKNOWN (null) → gates (only a positive true accepts)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail, faultFail, faultFail, faultFail], runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: null,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeUndefined();
+  });
+
+  it('RED mechanical gate → coverage seam never called (hard floor; no review node runs)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail], changeSet: ['src/services/foo.ts'], coverage: true,
+      runGate: async () => ({ status: 'fail', command: 'tsc', output: 'e', reasons: ['x'], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.coverageCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 4 — NO-SILENT-PARK contested decision card. A GREEN-mech + UNCOVERED + same-walled
+// falsifiable FAIL raises a bounded-wait accept/reject card instead of a silent park; accept
+// lands, reject/timeout is the safe default (today's park).
+// ---------------------------------------------------------------------------
+describe('crit 4 — no-silent-park contested decision card', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+  const declaresTest = { description: 'Implement ONLY this file: src/services/foo.test.ts' };
+  const f1 = 'VERDICT: FAIL — missing null check at line 42';
+  const f2 = 'VERDICT: FAIL — unhandled empty input at line 99';
+  const f3 = 'VERDICT: FAIL — wrong return type at line 7';
+  const f4 = 'VERDICT: FAIL — off-by-one at line 15';
+
+  it('green + UNCOVERED + repeated contest → raises a contested card; ACCEPT lands the leaf', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1, f2], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: false, contestedDecision: 'accept',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.contestedCalls.length).toBe(1); // ONE card raised (not per-cycle)
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-accepted')).toBeTruthy();
+    expect(res.outcome).toBe('accepted'); // accept lands the mechanically-green change
+  });
+
+  it('REJECT → the leaf keeps gating → parks (today\'s safe default); no contested-accept', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1, f2, f3, f4], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: false, contestedDecision: 'reject',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.contestedCalls.length).toBe(1);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-accepted')).toBeUndefined();
+    expect(res.outcome).toBe('blocked');
+  });
+
+  it('TIMEOUT → the leaf keeps gating → parks (safe default = today)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1, f2, f3, f4], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: false, contestedDecision: 'timeout',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-accepted')).toBeUndefined();
+    expect(res.outcome).toBe('blocked');
+  });
+
+  it('COVERED → advisory accept, NO contested card (the residue is only for UNCOVERED)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: true, contestedDecision: 'accept',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.contestedCalls.length).toBe(0);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeUndefined();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeTruthy();
   });
 });

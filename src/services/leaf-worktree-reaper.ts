@@ -1,11 +1,14 @@
-import { stat, readdir } from 'node:fs/promises';
+import { stat, readdir, realpath as fsRealpath } from 'node:fs/promises';
 import * as path from 'node:path';
 import { getWorktreeManager } from './coordinator-live.js';
 import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
 import { isRunLive } from './leaf-subprocess-registry.js';
 import { getTodo, listTodos } from './todo-store.js';
 import { recordSupervisorAudit } from './supervisor-store.js';
-import { recordFriction, hasFrictionNote } from './friction-store.js';
+import { recordFrictionOnce } from './friction-store.js';
+import { getEpicLandRecord } from './epic-land-record-store.js';
+import { getStatuses } from './session-status-store.js';
+import { CRASH_MS } from './session-runtime.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -21,6 +24,16 @@ const GC_THROTTLE_MS = 30 * 60_000;
  *  the grace window (its tree is actively written during build + merge) before reaping. */
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Reclamation floor for isReclaimable's age guard — deliberately DAYS, well past the
+ *  5-min merge grace (REAP_GRACE_MS) and past ORPHAN_WORKTREE_MAX_AGE_MS's own 7d, since
+ *  isReclaimable is a stricter, standalone safety gate (locked constraint d7f5eb20:
+ *  default KEEP, unknown=keep). */
+export const WORKTREE_RECLAIM_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** A recorded pool-lane session with no heartbeat for this long is DEAD — 2x the
+ *  crash-detection threshold (session-runtime.ts CRASH_MS), so a momentary missed
+ *  heartbeat can never misread as dead (locked constraint d5b7c9e2: liveness alone
+ *  is never sufficient — this is the "≥2× heartbeat" floor). */
+export const POOL_LANE_DEAD_MS = 2 * CRASH_MS;
 
 const lastReapMs = new Map<string, number>();
 
@@ -107,6 +120,7 @@ const lastGcMs = new Map<string, number>();
 export interface GcReport {
   removed: string[];            // worktree paths deleted
   refused: Array<{ path: string; reason: string; sample: string[] }>;
+  quarantined: Array<{ path: string; trashDir: string }>;
   prunedRegistrations: number;  // reserved for a future direct prune count (always 0 today —
                                  // `removePath` itself prunes as part of each removal)
   scanned: number;
@@ -221,6 +235,185 @@ function epicWorktreeId8(name: string): string | null {
   return m ? m[1] : null;
 }
 
+/** Resolve trunk's base ref for the `merge-base --is-ancestor` check: `master` if the
+ *  branch exists in `projectRoot`, else `main` (mirrors WorktreeManager's private
+ *  resolveBase/detectBaseBranch fallback — not reachable from here, so duplicated as a
+ *  small local helper rather than assuming `master` always exists). */
+async function resolveTrunkRef(projectRoot: string): Promise<string> {
+  const res = await gcGitRead(projectRoot, ['rev-parse', '--verify', '--quiet', 'refs/heads/master']);
+  return res.code === 0 && res.stdout.trim() ? 'master' : 'main';
+}
+
+/** Best-effort: is any live process's cwd (or an open fd) under `dir`? Shells out to
+ *  `lsof +D <dir>` — bounded to the dir subtree, avoids a full-system scan. ANY error
+ *  (lsof missing, spawn failure, non-zero exit with no parseable output) is UNKNOWN →
+ *  returns true (treat as "has a live cwd", i.e. NOT reclaimable) — locked constraint
+ *  d7f5eb20 requires unknown=keep, so this helper is deliberately fail-closed in the
+ *  unsafe direction (true = block reclamation). */
+async function hasLiveProcessUnder(dir: string): Promise<boolean> {
+  try {
+    const proc = (globalThis as any).Bun.spawn(['lsof', '+D', dir], {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const [stdout] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    // `+D` recurses the whole subtree, so a permission-denied entry ELSEWHERE under dir
+    // can make lsof exit non-zero even when it DID find and print a live match — the
+    // exit code alone is not trustworthy. Key off stdout content instead: any printed
+    // line (beyond the header) means a live process was found under dir.
+    return stdout.trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/** True if `dir`'s .git carries any in-progress operation marker (rebase, merge,
+ *  cherry-pick, revert, bisect) or a worktree-local stash. Any of these mean the
+ *  checkout is mid-operation and must never be reclaimed. Uses `gcGitRead` for the
+ *  stash check (read-only, no lock) and direct fs.stat/readdir for the marker files —
+ *  a worktree's `.git` is itself a FILE pointing at `gitdir: <real path>` for a linked
+ *  worktree, so this resolves that indirection via `git rev-parse --git-dir`. */
+async function hasInProgressGitState(dir: string): Promise<boolean> {
+  const gitDirRes = await gcGitRead(dir, ['rev-parse', '--git-dir']);
+  if (gitDirRes.code !== 0 || !gitDirRes.stdout.trim()) return true; // unknown → fail closed
+  const gitDir = path.isAbsolute(gitDirRes.stdout.trim())
+    ? gitDirRes.stdout.trim()
+    : path.join(dir, gitDirRes.stdout.trim());
+
+  const markers = [
+    'rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD',
+    'REVERT_HEAD', 'BISECT_LOG', 'sequencer',
+  ];
+  for (const m of markers) {
+    if (await pathExists(path.join(gitDir, m))) return true;
+  }
+
+  const stashRes = await gcGitRead(dir, ['stash', 'list']);
+  if (stashRes.code !== 0) return true; // unknown → fail closed
+  if (stashRes.stdout.trim().length > 0) return true;
+
+  return false;
+}
+
+export interface ReclaimabilityInput {
+  /** Absolute, POSSIBLY-symlinked worktree dir path as read from the directory scan. */
+  dir: string;
+  /** Absolute baseDir worktrees live under (for realpath-resolved identity check). */
+  baseDir: string;
+  /** Leaf todo id this worktree belongs to, if resolvable (null → unknown-owner, still
+   *  gated by the other checks; caller decides whether to flag separately). */
+  leafTodoId: string | null;
+  now: number;
+}
+
+/**
+ * Shared guard body for (a)-(e),(g) of the reclamation-safety predicate — every guard
+ * EXCEPT (f) the age floor. Resolves realpath identity first (g), then live-claim (c),
+ * lock (b), in-progress git state (e), live process cwd (d), and clean tree (a). ANY
+ * check throwing / erroring / returning "unknown" resolves that guard to FALSE (not
+ * reclaimable) — locked constraint d7f5eb20: default KEEP, unknown=keep.
+ *
+ * Returns the resolved realDir on success (so callers needing it, e.g. for the age
+ * check in `isReclaimable`, don't re-resolve realpath), or null on any guard failure.
+ */
+async function checkReclaimGuardsExceptAge(
+  input: Omit<ReclaimabilityInput, 'now'>,
+): Promise<string | null> {
+  const { dir, baseDir, leafTodoId } = input;
+
+  // (g) realpath identity — resolve symlinks before any path-based comparison.
+  let realDir: string;
+  let realBase: string;
+  try {
+    realDir = await fsRealpath(dir);
+    realBase = await fsRealpath(baseDir);
+  } catch {
+    return null; // dir vanished or unreadable → unknown → keep
+  }
+  const rel = path.relative(realBase, realDir);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+
+  // (c) no live claim / inflight run.
+  if (leafTodoId) {
+    if (isLeafInflightLive(leafTodoId)) return null;
+    if (listLeafInflight().some((r) => r.leafId === leafTodoId)) return null;
+  }
+
+  // (b) not git-locked.
+  const lockRes = await gcGitRead(realDir, ['rev-parse', '--git-dir']);
+  if (lockRes.code !== 0 || !lockRes.stdout.trim()) return null;
+  const gitDirForLock = path.isAbsolute(lockRes.stdout.trim())
+    ? lockRes.stdout.trim()
+    : path.join(realDir, lockRes.stdout.trim());
+  if (await pathExists(path.join(gitDirForLock, 'locked'))) return null;
+
+  // (e) no in-progress git state.
+  if (await hasInProgressGitState(realDir)) return null;
+
+  // (d) no live process cwd under the dir.
+  if (await hasLiveProcessUnder(realDir)) return null;
+
+  // (a) clean — tracked changes, then untracked-but-unique-to-checkout.
+  const statusRes = await gcGitRead(realDir, ['status', '--porcelain']);
+  if (statusRes.code !== 0) return null; // unusable checkout → unknown → keep
+  const lines = statusRes.stdout.split('\n').filter((l) => l.length > 0);
+  const tracked = lines.filter((l) => !l.startsWith('??'));
+  if (tracked.length > 0) return null;
+
+  return realDir;
+}
+
+/**
+ * Reclamation-safety predicate (crit_2e65940d_1 gate). Returns TRUE only if EVERY guard
+ * independently passes:
+ *   (a) clean          — no tracked changes, no untracked file unique to this checkout
+ *   (b) not git-locked  — no `.git/worktrees/<name>/locked` marker
+ *   (c) no live claim   — not in listLeafInflight() / isLeafInflightLive()
+ *   (d) no live cwd     — hasLiveProcessUnder() is false
+ *   (e) no in-progress git state — hasInProgressGitState() is false
+ *   (f) very old        — BOTH mtime and atime older than WORKTREE_RECLAIM_MIN_AGE_MS
+ *   (g) realpath-resolved identity — realpath(dir) must resolve to a path actually
+ *       under realpath(baseDir) (guards a symlink escape before any of the above matter)
+ *
+ * ANY check throwing / erroring / returning "unknown" resolves that guard to FALSE
+ * (not reclaimable) — locked constraint d7f5eb20: default KEEP, unknown=keep. This
+ * function only ever REFUSES reclamation; it never removes or moves anything.
+ */
+export async function isReclaimable(input: ReclaimabilityInput): Promise<boolean> {
+  const { now } = input;
+  const realDir = await checkReclaimGuardsExceptAge(input);
+  if (realDir == null) return false;
+
+  // (f) very old — both mtime and atime.
+  let st;
+  try {
+    st = await stat(realDir);
+  } catch {
+    return false;
+  }
+  if (now - st.mtimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
+  if (now - st.atimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
+
+  return true;
+}
+
+/**
+ * Same guards as `isReclaimable` MINUS (f) the age floor — for the record-verified
+ * catch-up path (a just-landed epic worktree is, by definition, recent; its safety
+ * proof is the durable land-record match, not age). Never fakes a `now` value to
+ * dodge WORKTREE_RECLAIM_MIN_AGE_MS — that would be fragile and couple to the
+ * constant's exact value; this instead skips the age check entirely.
+ */
+export async function isReclaimableIgnoringAge(
+  input: Omit<ReclaimabilityInput, 'now'>,
+): Promise<boolean> {
+  return (await checkReclaimGuardsExceptAge(input)) != null;
+}
+
 /**
  * Directory-driven GC pass for leaf-exec-* worktrees (kill-the-running-build epic,
  * HALF 2). `reapOrphanedLeafWorktrees` above is record-driven (`wm.list()`, which reads
@@ -245,7 +438,7 @@ export async function gcLeafWorktrees(
   opts?: { dryRun?: boolean; orphanMaxAgeMs?: number },
 ): Promise<GcReport> {
   const wm = getWorktreeManager(project);
-  const report: GcReport = { removed: [], refused: [], prunedRegistrations: 0, scanned: 0 };
+  const report: GcReport = { removed: [], refused: [], quarantined: [], prunedRegistrations: 0, scanned: 0 };
 
   let entries: Array<{ name: string; isDirectory(): boolean }>;
   try {
@@ -264,7 +457,9 @@ export async function gcLeafWorktrees(
   // unreachable here). A live session ALWAYS has a record; a record-gone orphan is
   // fair game for GC.
   const registered = await listRegisteredWorktreeMeta(project);
-  const recordBasenames = new Set((await wm.list()).map((r) => path.basename(r.path)));
+  const worktreeRecords = await wm.list();
+  const recordsByBasename = new Map(worktreeRecords.map((r) => [path.basename(r.path), r]));
+  const recordBasenames = new Set(recordsByBasename.keys());
 
   const flagOrphan = async (
     dir: string,
@@ -273,12 +468,13 @@ export async function gcLeafWorktrees(
   ): Promise<void> => {
     report.refused.push({ path: dir, reason, sample });
     const detail = `orphan non-leaf worktree left in place: ${dir}`;
-    // Idempotent per (dir, reason): the reaper REFUSES these orphans, so the same dir is
-    // re-seen every pass. Query the durable friction store (survives daemon restarts) and
-    // record only the first time — crit 1: no new duplicate orphan notes after a full pass.
-    if (!hasFrictionNote(project, { layer: 'operational', retryReason: reason, detailIncludes: dir })) {
-      await recordFriction(project, { layer: 'operational', retryReason: reason, detail }).catch(() => {});
-    }
+    // Atomic record-if-absent (crit 2e65940d_2): the reaper REFUSES these orphans, so the
+    // same dir is re-seen every pass. recordFrictionOnce's INSERT...WHERE NOT EXISTS is ONE
+    // SQL statement — no separate check-then-act window a second (possibly cross-process)
+    // caller can race into. Fixes the check-then-act gap left by the prior
+    // hasFrictionNote+recordFriction pair (951629c9), which raced across overlapping/
+    // cross-process passes.
+    await recordFrictionOnce(project, { layer: 'operational', retryReason: reason, detail }).catch(() => {});
   };
 
   for (const entry of entries) {
@@ -359,13 +555,82 @@ export async function gcLeafWorktrees(
 
     // 1. Live epic — silent skip.
     const epicId8 = epicWorktreeId8(entry.name);
+    let epicTodo: ReturnType<typeof findLeafTodoByShortId> = null;
     if (epicId8) {
-      const epicTodo = findLeafTodoByShortId(project, epicId8);
+      epicTodo = findLeafTodoByShortId(project, epicId8);
       if (epicTodo && epicTodo.status !== 'done' && epicTodo.status !== 'dropped') continue;
     }
 
-    // 2. Bound (owned by a session) — silent skip.
-    if (recordBasenames.has(entry.name)) continue;
+    // 1.5 Terminal epic WITH a durable land-record — record-verified fast path,
+    // bypasses the 7-day age floor (constraint a383bc2c/a68bef56: never trust
+    // branch existence/`--merged`; the durable record is the only proof).
+    if (epicTodo) {
+      const landRecord = getEpicLandRecord(project, epicTodo.id);
+      if (landRecord) {
+        const status = await wm.statusAt(dir);
+        const clean = status !== null && status.length === 0;
+        const headRes = await gcGitRead(dir, ['rev-parse', 'HEAD']);
+        const headSha = headRes.code === 0 ? headRes.stdout.trim() : null;
+        const headMatches = headSha != null && headSha === landRecord.epicTipSha;
+
+        if (clean && headMatches) {
+          const trunkRef = await resolveTrunkRef(project);
+          const ancestorRes = await gcGitRead(dir, ['merge-base', '--is-ancestor', 'HEAD', trunkRef]);
+          const isAncestor = ancestorRes.code === 0;
+
+          if (isAncestor) {
+            const reclaimable = await isReclaimableIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null });
+            if (reclaimable) {
+              if (!opts?.dryRun) {
+                try {
+                  const { trashDir } = await wm.quarantineMove(dir, 'landed-epic-reclaimed');
+                  report.quarantined.push({ path: dir, trashDir });
+                  console.log(`[worktree-gc] quarantined landed epic worktree ${dir} -> ${trashDir}`);
+                } catch {
+                  report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+                  continue;
+                }
+              } else {
+                report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+              }
+              continue;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Bound (owned by a session) — normally a silent skip, UNLESS the recorded
+    // session is provably DEAD (no heartbeat for >= POOL_LANE_DEAD_MS, i.e. >= 2x
+    // CRASH_MS) AND the full isReclaimable() envelope passes (incl. the 7-day age
+    // floor — this path, unlike the landed-epic fast path above, keeps the floor:
+    // a pool lane has no durable land-record to substitute as a safety proof).
+    // Dead-pool-lane reclamation (mission d1cfea69 crit 3).
+    if (recordBasenames.has(entry.name)) {
+      const record = recordsByBasename.get(entry.name)!;
+      const statusRow = getStatuses(project).find((s) => s.session === record.sessionId);
+      const sessionDeadMs = statusRow == null ? Infinity : now - statusRow.updatedAt;
+      if (sessionDeadMs >= POOL_LANE_DEAD_MS) {
+        const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now });
+        if (reclaimable) {
+          if (!opts?.dryRun) {
+            try {
+              const { trashDir } = await wm.quarantineMove(dir, 'dead-pool-lane-reclaimed');
+              report.quarantined.push({ path: dir, trashDir });
+              console.log(
+                `[worktree-gc] quarantined dead pool-lane worktree ${dir} -> ${trashDir} (session=${record.sessionId})`,
+              );
+            } catch {
+              report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+            }
+            continue;
+          }
+          report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+          continue;
+        }
+      }
+      continue;
+    }
 
     // 3. Unregistered / unusable — FLAG.
     const meta = registered.get(entry.name);
@@ -404,17 +669,29 @@ export async function gcLeafWorktrees(
       continue;
     }
 
-    // 8. Remove.
+    // 8. Reclaim check — everything above (registered, unlocked, aged past
+    //    orphanMaxAgeMs, quiet past REAP_GRACE_MS, git-clean) is a NECESSARY but not
+    //    SUFFICIENT condition; isReclaimable() re-checks independently (live-cwd,
+    //    in-progress git state, the stricter WORKTREE_RECLAIM_MIN_AGE_MS floor) before any
+    //    data moves. A dir that fails isReclaimable here is flagged, never removed.
+    const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now });
+    if (!reclaimable) {
+      await flagOrphan(dir, 'orphan-not-reclaimable');
+      continue;
+    }
+
     if (!opts?.dryRun) {
       try {
-        await wm.removePath(dir);
-        console.log(`[worktree-gc] removed orphan non-leaf worktree ${dir}`);
+        const { trashDir } = await wm.quarantineMove(dir, 'orphan-reclaimed');
+        report.quarantined.push({ path: dir, trashDir });
+        console.log(`[worktree-gc] quarantined orphan non-leaf worktree ${dir} -> ${trashDir}`);
       } catch {
-        report.refused.push({ path: dir, reason: 'remove-failed', sample: [] });
+        report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
         continue;
       }
+    } else {
+      report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
     }
-    report.removed.push(dir);
   }
 
   console.log(
@@ -440,4 +717,22 @@ export async function tickGcLeafWorktrees(project: string): Promise<GcReport | n
   if ((now - (lastGcMs.get(project) ?? 0)) < GC_THROTTLE_MS) return null;
   lastGcMs.set(project, now);
   return gcLeafWorktrees(project);
+}
+
+const lastTrashSweepMs = new Map<string, number>();
+const TRASH_SWEEP_THROTTLE_MS = 60 * 60_000; // hourly
+
+/** Hard-deletes `.collab/.trash/<ts>/*` entries older than WorktreeManager's
+ *  WORKTREE_TRASH_TTL_MS. Throttled per project; fire-and-forget from the coordinator
+ *  tick, same shape as tickGcLeafWorktrees. */
+export async function tickSweepWorktreeTrash(project: string): Promise<string[] | null> {
+  const now = Date.now();
+  if ((now - (lastTrashSweepMs.get(project) ?? 0)) < TRASH_SWEEP_THROTTLE_MS) return null;
+  lastTrashSweepMs.set(project, now);
+  const wm = getWorktreeManager(project);
+  const removed = await wm.sweepTrash(now);
+  if (removed.length > 0) {
+    console.log(`[worktree-gc] swept ${removed.length} expired trash entr${removed.length === 1 ? 'y' : 'ies'}`);
+  }
+  return removed;
 }

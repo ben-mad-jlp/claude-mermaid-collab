@@ -163,6 +163,39 @@ export function recordFriction(project: string, input: RecordFrictionInput): Pro
   });
 }
 
+/** Atomic record-if-absent: collapses hasFrictionNote's check + recordFriction's insert into
+ *  ONE SQL statement (INSERT ... SELECT ... WHERE NOT EXISTS), so two callers racing on the
+ *  same (layer, retryReason, detail) — same process or two separate daemon processes sharing
+ *  this sqlite file — can never both win. Requires an EXACT `detail` (not a substring probe
+ *  like hasFrictionNote's detailIncludes) because the caller's dedup key must be fully
+ *  reproducible SQL-side. Returns true iff this call inserted a NEW row. */
+export function recordFrictionOnce(
+  project: string,
+  input: RecordFrictionInput & { detail: string },
+): Promise<boolean> {
+  return withLock(project, () => {
+    if (!input.retryReason) throw new Error('recordFrictionOnce: retryReason is required');
+    if (!VALID_LAYERS.includes(input.layer)) {
+      throw new Error(`recordFrictionOnce: layer must be one of ${VALID_LAYERS.join(' | ')} (got ${String(input.layer)})`);
+    }
+    const db = openDb(project);
+    const id = crypto.randomUUID();
+    const ts = nowIso();
+    const attempt = input.attempt ?? 1;
+    const result = db.prepare(
+      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM friction_notes WHERE layer = ? AND retryReason = ? AND detail = ?
+       )`
+    ).run(
+      id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail, ts,
+      input.layer, input.retryReason, input.detail,
+    );
+    return result.changes > 0;
+  });
+}
+
 /** Query friction notes, newest first. Filter by todoId / session / layer — e.g.
  *  `listFriction(project, { layer: 'domain' })` answers "which todos hit
  *  domain-layer friction and why" without opening any worker transcript. */

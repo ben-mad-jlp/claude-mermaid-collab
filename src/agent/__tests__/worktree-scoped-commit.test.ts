@@ -135,4 +135,48 @@ describe('WorktreeManager — scoped commit (G12)', () => {
 
     expect(threwError).toBe(true);
   });
+
+  // crit 6: revertEpicMerge undoes ONE optimistic merge, leaving prior epic commits intact.
+  it('revertEpicMerge reverts only the target merge commit (prior epic commit survives)', async () => {
+    // Base commit with a file both leaves will touch.
+    await fs.mkdir(path.join(repo, 'src'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'src', 'a.ts'), 'export const a = 0;\n');
+    await fs.writeFile(path.join(repo, 'src', 'b.ts'), 'export const b = 0;\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+
+    // Leaf 1 → merge to epic (this one must SURVIVE the revert).
+    const s1 = 'revert-sess-1';
+    const wt1 = await mgr.ensure(s1, { baseBranch: 'main', fresh: true });
+    await fs.writeFile(path.join(wt1.path, 'src', 'a.ts'), 'export const a = 1;\n');
+    const m1 = await mgr.commitAndMergeToEpic(s1, INBOX_EPIC_ID, {
+      message: 'feat: leaf 1', todoId: 'leaf-1', scope: { declaredFiles: ['src/a.ts'], untrackedAtStart: [] },
+    });
+    expect(m1.merged).toBe(true);
+
+    // Leaf 2 → optimistic merge to epic (this is the one we revert).
+    const s2 = 'revert-sess-2';
+    const wt2 = await mgr.ensure(s2, { baseBranch: 'main', fresh: true });
+    await fs.writeFile(path.join(wt2.path, 'src', 'b.ts'), 'export const b = 2;\n');
+    const m2 = await mgr.commitAndMergeToEpic(s2, INBOX_EPIC_ID, {
+      message: 'feat: leaf 2', todoId: 'leaf-2', scope: { declaredFiles: ['src/b.ts'], untrackedAtStart: [] },
+    });
+    expect(m2.merged).toBe(true);
+    expect(m2.mergeSha).toBeTruthy();
+
+    // Sanity: both changes are on the epic branch before the revert.
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:src/a.ts`])).stdout).toContain('a = 1');
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:src/b.ts`])).stdout).toContain('b = 2');
+
+    // Revert leaf 2's merge only.
+    const rev = await mgr.revertEpicMerge(INBOX_EPIC_ID, m2.mergeSha!);
+    expect(rev.reverted).toBe(true);
+    expect(rev.revertSha).toBeTruthy();
+
+    // b.ts is back to base; a.ts (leaf 1) is untouched.
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:src/b.ts`])).stdout).toContain('b = 0');
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:src/a.ts`])).stdout).toContain('a = 1');
+    // The revert is an auditable commit on the epic branch.
+    expect((await runGit(repo, ['log', '--format=%s', EPIC_BRANCH])).stdout).toMatch(/Revert/);
+  });
 });

@@ -100,8 +100,15 @@ export async function runNotificationTick(
     const label = project.split('/').pop() || project;
     const items = listPending(project, session, NUDGE_SUMMARY_LIMIT);
     const head = `${fireStamp(now())} 📥 ${count} update${count === 1 ? '' : 's'} on ${label} — call inbox()`;
+    // Chronic non-drainer: same queue re-announcing means the session is acting on the
+    // nudge SUMMARIES without ever draining — the pull is the ACK; say so explicitly
+    // instead of silently repeating the same items forever (observed: 35-deep queue).
+    const reannounces = st?.reannounces ?? 0;
+    const nag = !grew && reannounces >= 1
+      ? `\n  ⚠ these updates are RE-ANNOUNCING because inbox() was never called — inbox() is the acknowledgement; drain it FIRST, then act.`
+      : '';
     const lines = items.map((n) => `  • ${n.summary}`).join('\n');
-    const text = lines ? `${head}\n${lines}` : head;
+    const text = `${head}${nag}${lines ? `\n${lines}` : ''}`;
     const res = await nudge(project, session, text);
     if (res === 'sent') {
       nudgeState.set(key, { count, at: now(), reannounces: grew ? 0 : (st?.reannounces ?? 0) + 1 });
