@@ -16,7 +16,8 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 import { getWorktreeManager } from '../coordinator-live';
 import { createTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
-import { gcLeafWorktrees } from '../leaf-worktree-reaper';
+import { gcLeafWorktrees, isReclaimable, WORKTREE_RECLAIM_MIN_AGE_MS } from '../leaf-worktree-reaper';
+import { setLeafInflight, clearLeafInflight } from '../worker-ledger';
 
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -47,6 +48,14 @@ async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdo
  *  after every fs mutation that touches the dir's entries. */
 async function backdate(dir: string) {
   const old = new Date(Date.now() - REAP_GRACE_MS - 60_000);
+  await utimes(dir, old, old);
+}
+
+/** Backdate a dir's mtime AND atime past WORKTREE_RECLAIM_MIN_AGE_MS — for
+ *  isReclaimable's age guard (f), which requires BOTH timestamps to be old. Must run
+ *  LAST, after every fs mutation that touches the dir's entries. */
+async function backdatePastReclaim(dir: string) {
+  const old = new Date(Date.now() - WORKTREE_RECLAIM_MIN_AGE_MS - 60_000);
   await utimes(dir, old, old);
 }
 
@@ -229,5 +238,113 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     // Verify it was silently skipped (no refused entry).
     const refusalForDir = report.refused.find((r) => r.path === epicDir);
     expect(refusalForDir).toBeFalsy();
+  });
+});
+
+describe('isReclaimable', () => {
+  let repo: string;
+  let baseDir: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'reclaim-repo-'));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+
+    const wm = getWorktreeManager(repo);
+    baseDir = wm.baseDir();
+    mkdirSync(baseDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  async function makeWorktree(name: string, branch: string): Promise<string> {
+    const dir = join(baseDir, name);
+    await runGit(repo, ['worktree', 'add', '-b', branch, dir]);
+    return dir;
+  }
+
+  it('dirty (tracked change, no commit) → false', async () => {
+    const dir = await makeWorktree('wt-dirty', 'b-dirty');
+    writeFileSync(join(dir, 'README.md'), 'edited\n');
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('locked (.git/worktrees/<name>/locked marker) → false', async () => {
+    const dir = await makeWorktree('wt-locked', 'b-locked');
+    await runGit(repo, ['worktree', 'lock', dir]);
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('live inflight claim → false', async () => {
+    const dir = await makeWorktree('wt-inflight', 'b-inflight');
+    await backdatePastReclaim(dir);
+
+    const leafId = 'test-leaf-inflight-1';
+    setLeafInflight({ leafId, project: repo });
+    try {
+      const result = await isReclaimable({ dir, baseDir, leafTodoId: leafId, now: Date.now() });
+      expect(result).toBe(false);
+    } finally {
+      clearLeafInflight(leafId);
+    }
+  });
+
+  it('live process cwd under the dir → false', async () => {
+    const dir = await makeWorktree('wt-livecwd', 'b-livecwd');
+    await backdatePastReclaim(dir);
+
+    const proc = (globalThis as any).Bun.spawn(['sleep', '5'], {
+      cwd: dir,
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+      expect(result).toBe(false);
+    } finally {
+      proc.kill();
+    }
+  });
+
+  it('in-progress git state (MERGE_HEAD marker) → false', async () => {
+    const dir = await makeWorktree('wt-merging', 'b-merging');
+    const gitDirRes = await runGit(dir, ['rev-parse', '--git-dir']);
+    const gitDir = gitDirRes.stdout.trim();
+    const absGitDir = gitDir.startsWith('/') ? gitDir : join(dir, gitDir);
+    writeFileSync(join(absGitDir, 'MERGE_HEAD'), 'deadbeef\n');
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('too young (fresh worktree, no backdate) → false', async () => {
+    const dir = await makeWorktree('wt-young', 'b-young');
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
+    expect(result).toBe(false);
+  });
+
+  it('all guards pass (clean, old, unlocked, no inflight, no live cwd, no in-progress git) → true', async () => {
+    const dir = await makeWorktree('wt-clean', 'b-clean');
+    await backdatePastReclaim(dir);
+
+    const result = await isReclaimable({ dir, baseDir, leafTodoId: 'no-such-leaf', now: Date.now() });
+    expect(result).toBe(true);
   });
 });
