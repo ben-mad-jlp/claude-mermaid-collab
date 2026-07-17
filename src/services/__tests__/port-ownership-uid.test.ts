@@ -1,7 +1,10 @@
 // uid-aware handshake tests: foreign-uid refusal, EPERM-vs-ESRCH evict handling,
 // and back-compat with uid-absent legacy holders. All injected deps — no real
 // FS, sockets, or processes.
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { performHandshake, type HandshakeDeps } from '../port-ownership';
 
 // The uid-refuse gate in performHandshake compares holder.uid against the REAL
@@ -10,6 +13,16 @@ const SELF_UID = typeof process.getuid === 'function' ? process.getuid() : 0;
 const OTHER_UID = SELF_UID + 1;
 
 const SELF = { exePath: '/opt/mermaid-collab/bin/server', version: '5.92.0', owner: 'dev', uid: SELF_UID };
+
+let isolatedRuntimeDir: string;
+
+beforeEach(() => {
+  isolatedRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mermaid-collab-test-'));
+});
+
+afterEach(() => {
+  fs.rmSync(isolatedRuntimeDir, { recursive: true, force: true });
+});
 
 function healthResponse(body: Record<string, unknown>) {
   return {
@@ -21,7 +34,7 @@ function healthResponse(body: Record<string, unknown>) {
 function baseDeps(overrides: Partial<HandshakeDeps> = {}): HandshakeDeps {
   return {
     host: '127.0.0.1',
-    env: {},
+    env: { XDG_RUNTIME_DIR: isolatedRuntimeDir },
     self: SELF,
     portInUseImpl: async () => true, // port is held
     killImpl: () => {},
