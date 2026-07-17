@@ -32,15 +32,18 @@ async function call(name: string, args: Record<string, unknown>): Promise<any> {
 }
 
 describe('create_epic', () => {
-  test('mints an epic WITH a land leaf (case 1)', async () => {
+  test('mints an epic row only, no land leaf child (case 1)', async () => {
     const res = await call('create_epic', { title: 'Ship the widget' });
     expect(res.epicId).toBeTruthy();
-    expect(res.landLeafId).toBeTruthy();
-    const landLeaf = getTodo(project, res.landLeafId)!;
-    expect(landLeaf.kind).toBe('land');
-    expect(landLeaf.parentId).toBe(res.epicId);
-    expect(landLeaf.assigneeKind).toBe('human');
-    expect(landLeaf.title.endsWith('→ master')).toBe(true);
+    expect(res.epic).toBeTruthy();
+    expect(res.epic.id).toBe(res.epicId);
+    const { createdIds } = await call('add_leaves', {
+      epicId: res.epicId,
+      leaves: [{ title: 'a build leaf' }],
+    });
+    const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === res.epicId);
+    expect(children.map((c) => c.id).sort()).toEqual([...createdIds].sort());
+    expect(children.every((c) => c.kind !== 'land')).toBe(true);
   });
 
   test('home:null creates a ROOT epic with no parent (case 2)', async () => {
@@ -130,18 +133,21 @@ describe('file_to_bucket', () => {
   });
 });
 
-test('INVARIANT: scripted sequence keeps no floating todo + one land leaf per non-bucket epic (case 10)', async () => {
+test('INVARIANT: scripted sequence keeps no floating todo + a non-bucket epic gating children are exactly its build children (case 10)', async () => {
   const epic = await call('create_epic', { title: 'Deliverable epic', home: null });
-  await call('add_leaves', { epicId: epic.epicId, leaves: [{ title: 'leaf A' }, { title: 'leaf B' }] });
+  const { createdIds } = await call('add_leaves', { epicId: epic.epicId, leaves: [{ title: 'leaf A' }, { title: 'leaf B' }] });
   await call('file_to_bucket', { title: 'a stray thought' });
 
   const all = listTodos(project, { includeCompleted: true });
 
-  // (a) every non-bucket, non-dropped epic has exactly one live land child.
+  // (a) every non-bucket, non-dropped epic's gating (non-dropped) children are exactly its build children — no land child is minted.
   for (const t of all) {
     if (t.kind !== 'epic' || t.status === 'dropped' || isBucketEpic(t)) continue;
-    const liveLandChildren = all.filter((c) => c.parentId === t.id && c.kind === 'land' && c.status !== 'dropped');
-    expect(liveLandChildren).toHaveLength(1);
+    const gatingChildren = all.filter((c) => c.parentId === t.id && c.status !== 'dropped');
+    if (t.id === epic.epicId) {
+      expect(gatingChildren.map((c) => c.id).sort()).toEqual([...createdIds].sort());
+    }
+    expect(gatingChildren.every((c) => c.kind !== 'land')).toBe(true);
   }
 
   // (b) every non-bucket, non-mission todo has a non-null parentId (no floater) —
