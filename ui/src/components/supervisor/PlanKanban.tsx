@@ -359,6 +359,14 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                 {lane.completed && (
                   <span className="text-success-600 dark:text-success-400 font-medium">✓ complete</span>
                 )}
+                {lane.epic && lane.epic.landedAt && (
+                  <span
+                    className="text-violet-600 dark:text-violet-400 font-medium"
+                    title={`Landed ${lane.epic.landedAt}`}
+                  >
+                    LANDED
+                  </span>
+                )}
               </span>
               {/* Housekeeping: clear finished ad-hoc items from bucket (Inbox) epics and
                   the synthetic orphan ("No epic") lane. Cohesive epics are not clearable. */}

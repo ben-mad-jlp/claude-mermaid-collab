@@ -67,6 +67,10 @@ export interface SessionTodo {
   isBucket?: boolean;
   /** Structural bucket-type marker (server column). null = not a typed bucket. */
   bucketType?: 'inbox' | 'bugfix' | null;
+  /** ISO. Set once when this epic's `land_leaf`/land record lands onto master
+   *  (backend dual-write, W3 land-property redesign — src/services/todo-store.ts
+   *  rowToTodo). null = not landed. Only ever set on epics. */
+  landedAt?: string | null;
   /** Friction-triage classification of a bucket item (server column, R2). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
 }

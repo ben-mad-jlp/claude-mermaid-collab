@@ -283,6 +283,17 @@ export function excludeMissions(todos: SessionTodo[]): SessionTodo[] {
   return todos.filter((t) => t.kind !== 'mission');
 }
 
+/**
+ * Drop [LAND] rows so board/tree surfaces never render them — `kind: 'land'` is a
+ * legacy/dead-letter role (W4, land-property redesign): landing state now lives on
+ * `epic.landedAt` (see the LANDED badge in PlanKanban). Column-only check
+ * (`t.kind === 'land'`), mirroring `excludeMissions` above — never `kindOf()`/
+ * `isLand()`, which throw on a malformed row.
+ */
+export function excludeLandLeaves(todos: SessionTodo[]): SessionTodo[] {
+  return todos.filter((t) => t.kind !== 'land');
+}
+
 export function funnelCounts(todos: SessionTodo[]): Record<FunnelKey, number> {
   const counts: Record<FunnelKey, number> = {
     backlog: 0,
