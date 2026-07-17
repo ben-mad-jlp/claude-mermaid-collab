@@ -16,6 +16,7 @@ import { render, screen, within, fireEvent } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PlanKanban } from '../PlanKanban';
+import { excludeMissions } from '../bridge/funnel';
 import type { SessionTodo } from '@/types/sessionTodo';
 
 function todo(p: Partial<SessionTodo> = {}): SessionTodo {
@@ -112,12 +113,11 @@ describe('PlanKanban [kind E] acceptance spec', () => {
     expect(screen.queryByTestId('epic-lane-E2')).toBeNull();
   });
 
-  it('mission nodes render in a dedicated Missions lane, not No-epic', () => {
+  it('mission nodes are excluded before reaching the kanban board', () => {
     const mission = todo({ id: 'M', title: 'Converge X', kind: 'mission' });
-    render(<PlanKanban todos={[mission]} showCompleted={false} />);
-    const lane = screen.getByTestId('missions-lane');
-    expect(within(lane).getByText('Converge X')).toBeTruthy();
-    expect(within(lane).getByText('Missions')).toBeTruthy();
+    render(<PlanKanban todos={excludeMissions([mission])} showCompleted={false} />);
+    expect(screen.queryByTestId('missions-lane')).toBeNull();
+    expect(screen.queryByText('Converge X')).toBeNull();
     expect(screen.queryByTestId('orphan-lane')).toBeNull();
   });
 
@@ -127,6 +127,7 @@ describe('PlanKanban [kind E] acceptance spec', () => {
       title: '[EPIC] Inbox',
       kind: 'epic',
       isBucket: true,
+      bucketType: 'inbox',
     });
     const done = todo({
       id: 'd1',
@@ -143,26 +144,18 @@ describe('PlanKanban [kind E] acceptance spec', () => {
       status: 'ready',
     });
 
-    const { rerender } = render(
+    render(
       <PlanKanban
         todos={[inboxEpic, done, ready]}
         showCompleted={false}
         onClearCompleted={() => {}}
       />,
     );
-    const lane = screen.getByTestId('epic-lane-INBOX');
+    // A bucket epic (column-driven, not title-driven) renders in the Triage
+    // section, not a plan swimlane — see PlanKanban.test.tsx's Triage coverage.
+    expect(screen.queryByTestId('epic-lane-INBOX')).toBeNull();
+    const lane = screen.getByTestId('triage-lane-inbox');
     expect(within(lane).queryByText('done item')).toBeNull();
-    expect(within(lane).getByText('ready item')).toBeTruthy();
-    expect(screen.getByTestId('clear-completed-bucket')).toBeTruthy();
-
-    rerender(
-      <PlanKanban
-        todos={[inboxEpic, done, ready]}
-        showCompleted={true}
-        onClearCompleted={() => {}}
-      />,
-    );
-    expect(within(lane).getByText('done item')).toBeTruthy();
     expect(within(lane).getByText('ready item')).toBeTruthy();
   });
 
