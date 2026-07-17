@@ -7,6 +7,8 @@ import { getTodo, listTodos } from './todo-store.js';
 import { recordSupervisorAudit } from './supervisor-store.js';
 import { recordFrictionOnce } from './friction-store.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
+import { getStatuses } from './session-status-store.js';
+import { CRASH_MS } from './session-runtime.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -27,6 +29,11 @@ const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  *  isReclaimable is a stricter, standalone safety gate (locked constraint d7f5eb20:
  *  default KEEP, unknown=keep). */
 export const WORKTREE_RECLAIM_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** A recorded pool-lane session with no heartbeat for this long is DEAD — 2x the
+ *  crash-detection threshold (session-runtime.ts CRASH_MS), so a momentary missed
+ *  heartbeat can never misread as dead (locked constraint d5b7c9e2: liveness alone
+ *  is never sufficient — this is the "≥2× heartbeat" floor). */
+export const POOL_LANE_DEAD_MS = 2 * CRASH_MS;
 
 const lastReapMs = new Map<string, number>();
 
@@ -450,7 +457,9 @@ export async function gcLeafWorktrees(
   // unreachable here). A live session ALWAYS has a record; a record-gone orphan is
   // fair game for GC.
   const registered = await listRegisteredWorktreeMeta(project);
-  const recordBasenames = new Set((await wm.list()).map((r) => path.basename(r.path)));
+  const worktreeRecords = await wm.list();
+  const recordsByBasename = new Map(worktreeRecords.map((r) => [path.basename(r.path), r]));
+  const recordBasenames = new Set(recordsByBasename.keys());
 
   const flagOrphan = async (
     dir: string,
@@ -591,8 +600,37 @@ export async function gcLeafWorktrees(
       }
     }
 
-    // 2. Bound (owned by a session) — silent skip.
-    if (recordBasenames.has(entry.name)) continue;
+    // 2. Bound (owned by a session) — normally a silent skip, UNLESS the recorded
+    // session is provably DEAD (no heartbeat for >= POOL_LANE_DEAD_MS, i.e. >= 2x
+    // CRASH_MS) AND the full isReclaimable() envelope passes (incl. the 7-day age
+    // floor — this path, unlike the landed-epic fast path above, keeps the floor:
+    // a pool lane has no durable land-record to substitute as a safety proof).
+    // Dead-pool-lane reclamation (mission d1cfea69 crit 3).
+    if (recordBasenames.has(entry.name)) {
+      const record = recordsByBasename.get(entry.name)!;
+      const statusRow = getStatuses(project).find((s) => s.session === record.sessionId);
+      const sessionDeadMs = statusRow == null ? Infinity : now - statusRow.updatedAt;
+      if (sessionDeadMs >= POOL_LANE_DEAD_MS) {
+        const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now });
+        if (reclaimable) {
+          if (!opts?.dryRun) {
+            try {
+              const { trashDir } = await wm.quarantineMove(dir, 'dead-pool-lane-reclaimed');
+              report.quarantined.push({ path: dir, trashDir });
+              console.log(
+                `[worktree-gc] quarantined dead pool-lane worktree ${dir} -> ${trashDir} (session=${record.sessionId})`,
+              );
+            } catch {
+              report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+            }
+            continue;
+          }
+          report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+          continue;
+        }
+      }
+      continue;
+    }
 
     // 3. Unregistered / unusable — FLAG.
     const meta = registered.get(entry.name);
