@@ -78,7 +78,8 @@ import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 import { treeStatus, restorePostLandTree } from './tree-integrity';
-import { recordFriction, getWatchState, setWatchState } from './friction-store';
+import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
+import { recordEpicLand } from './epic-land-record-store.js';
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -2222,8 +2223,31 @@ export async function landEpic(
         return { ok: false, landed: false, reason: land.reason ?? 'land-failed', epicId, epicBranch };
       }
 
-      // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
-      await wm.removeEpic(epicId, targetProject).catch(() => {});
+      // Landed — persist the durable land-record BEFORE teardown removes the branch
+      // (epicHeadSha reads refs/heads/<epicBranch>, which removeEpic deletes).
+      const epicTipSha = await wm.epicHeadSha(epicId).catch(() => null);
+      if (epicTipSha) {
+        try {
+          recordEpicLand(targetProject, {
+            epicId,
+            epicTipSha,
+            landedMergeSha: land.masterSha ?? '',
+            landedAt: Date.now(),
+          });
+        } catch { /* advisory — must never fail a completed land */ }
+      }
+
+      // Remove the epic branch + worktree (gated on land success), resolve the card.
+      try {
+        await wm.removeEpic(epicId, targetProject);
+      } catch (err) {
+        await recordFrictionOnce(targetProject, {
+          layer: 'operational',
+          retryReason: 'landed-epic-teardown-failed',
+          todoId: epicId,
+          detail: `removeEpic(${epicId}) failed after a successful land of ${epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
+        }).catch(() => {});
+      }
       try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
 
       let treeRestored = false;
