@@ -298,6 +298,13 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
     expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA, false).reason)
       .toBe('killed-before-blueprint');
   });
+  // Guard-rejected blueprint (friction 2225bd99): the citability park clears the
+  // leaf_blueprint cache row, so the no-resume-row reattach path loses its
+  // blueprintBaseSha and MUST decide fresh — a rejected plan is never reusable,
+  // even though the ledger node output (hasBlueprintOutput) still exists.
+  it('no resume row + hasBlueprintOutput but NO blueprint cache row → fresh (guard-rejected plan not reusable)', () => {
+    expect(planResume(null, SHA, true, null).mode).toBe('fresh');
+  });
   // G8: blueprintBaseSha (durable base) path — when the run checkpoint is cleared but
   // the blueprint is still reusable. D1 regression: no-resume-row case.
   it('no resume row + hasBlueprintOutput + blueprintBaseSha === currentEpicSha → reattach (D1 regression)', () => {
@@ -1675,6 +1682,17 @@ describe('buildReviewPrompt ships the verify discipline (G13)', () => {
     expect(p()).toContain('VERIFY DISCIPLINE');
     expect(p()).toContain('origin/master');
     expect(p()).toContain('present on BOTH is pre-existing');
+  });
+});
+
+describe('buildReviewPrompt teaches the deleted-file citation grammar', () => {
+  const p = () => buildReviewPrompt(makeLeaf(), 'origin/master');
+  it('names the exact (deleted) citation form DELETION_CITE_RE accepts', () => {
+    expect(p()).toContain('CITING A DELETED FILE');
+    expect(p()).toContain('path/to/file.ext (deleted)');
+  });
+  it('warns that freeform deletion prose extracts no citation', () => {
+    expect(p()).toContain('extracts no citation');
   });
 });
 
