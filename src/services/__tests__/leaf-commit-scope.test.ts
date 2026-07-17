@@ -337,6 +337,9 @@ describe('leaf-commit-scope', () => {
 
   // Acceptance: grep for actual git add -A command invocations in src/ (excluding test fixtures)
   // Legitimate prose mentions of "never use git add -A" are excluded by the pattern.
+  // leaf-commit-scope.ts itself is excluded: its `add -A -- <chunk>` call is intentionally
+  // pathspec-scoped (staging deletions for an enumerated path list), never a bare repo-root
+  // `git add -A` — that's the exact bug this test otherwise guards against.
   it('no `git add -A` / `git add .` anywhere in src/ outside test fixtures', () => {
     // Match actual git command invocations: ['add', '-A'] or ['add', '-u'] or git add . / git add -A
     // Pattern: matches run-time array/command forms, excludes prose comments about "never" using them
@@ -344,10 +347,99 @@ describe('leaf-commit-scope', () => {
       'bash',
       [
         '-c',
-        `git grep -nE "\\[.add.\\s*(,\\s*)?['\\\"]?-[Au]|exec.*git.*add\\s+(-A|-u|\\\\.)\\b|git\\s+add\\s+(-A|-u|\\\\.)\\b" -- 'src/**' ':!src/**/__tests__/**' ':!src/**/*.test.ts' ':!src/**/*.test.js' || true`,
+        `git grep -nE "\\[.add.\\s*(,\\s*)?['\\\"]?-[Au]|exec.*git.*add\\s+(-A|-u|\\\\.)\\b|git\\s+add\\s+(-A|-u|\\\\.)\\b" -- 'src/**' ':!src/**/__tests__/**' ':!src/**/*.test.ts' ':!src/**/*.test.js' ':!src/services/leaf-commit-scope.ts' || true`,
       ],
       { encoding: 'utf8', cwd: process.cwd() }
     );
     expect(hits.trim()).toBe('');
+  });
+
+  it('delete-only change-set stages and commits the deletion', async () => {
+    const srcDir = join(repo, 'src');
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, 'old.ts'), 'export const old = 1;');
+    git(repo, 'add', 'src/old.ts');
+    git(repo, 'commit', '-m', 'init');
+
+    const untrackedAtStart = listUntrackedPaths(repo);
+
+    // Delete via filesystem unlink (mirrors what an implement/fix node does), not `git rm`.
+    rmSync(join(srcDir, 'old.ts'));
+
+    const decision = computeCommitScope(repo, {
+      declaredFiles: ['src/old.ts'],
+      untrackedAtStart,
+    });
+    expect(decision.stage).toContain('src/old.ts');
+
+    const run = (args: string[]) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        try {
+          const stdout = git(repo, ...args);
+          resolve({ code: 0, stdout, stderr: '' });
+        } catch (e) {
+          resolve({
+            code: (e as any).status || 1,
+            stdout: '',
+            stderr: (e as any).stderr?.toString() || String(e),
+          });
+        }
+      });
+
+    await stageAndCommitScoped(run, {
+      stage: decision.stage,
+      outOfScope: decision.outOfScope,
+      message: 'delete old.ts',
+    });
+
+    expect(existsSync(join(srcDir, 'old.ts'))).toBe(false);
+    const tracked = git(repo, 'ls-files', 'src/old.ts');
+    expect(tracked.trim()).toBe('');
+  });
+
+  it('mixed edit + delete change-set stages both correctly', async () => {
+    const srcDir = join(repo, 'src');
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, 'keep.ts'), 'export const keep = 1;');
+    writeFileSync(join(srcDir, 'gone.ts'), 'export const gone = 1;');
+    git(repo, 'add', 'src/keep.ts', 'src/gone.ts');
+    git(repo, 'commit', '-m', 'init');
+
+    const untrackedAtStart = listUntrackedPaths(repo);
+
+    writeFileSync(join(srcDir, 'keep.ts'), 'export const keep = 2;');
+    rmSync(join(srcDir, 'gone.ts'));
+
+    const decision = computeCommitScope(repo, {
+      declaredFiles: ['src/keep.ts', 'src/gone.ts'],
+      untrackedAtStart,
+    });
+    expect(decision.stage).toContain('src/keep.ts');
+    expect(decision.stage).toContain('src/gone.ts');
+
+    const run = (args: string[]) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        try {
+          const stdout = git(repo, ...args);
+          resolve({ code: 0, stdout, stderr: '' });
+        } catch (e) {
+          resolve({
+            code: (e as any).status || 1,
+            stdout: '',
+            stderr: (e as any).stderr?.toString() || String(e),
+          });
+        }
+      });
+
+    await stageAndCommitScoped(run, {
+      stage: decision.stage,
+      outOfScope: decision.outOfScope,
+      message: 'edit+delete',
+    });
+
+    const keepContent = git(repo, 'show', 'HEAD:src/keep.ts');
+    expect(keepContent.trim()).toBe('export const keep = 2;');
+    const tracked = git(repo, 'ls-files', 'src/gone.ts');
+    expect(tracked.trim()).toBe('');
   });
 });

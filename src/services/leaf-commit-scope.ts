@@ -162,7 +162,7 @@ export async function stageAndCommitScoped(
     // Stage this boundary's files in chunks.
     for (let i = 0; i < paths.length; i += CHUNK_SIZE) {
       const chunk = paths.slice(i, i + CHUNK_SIZE);
-      const res = await run(['add', '--', ...chunk]);
+      const res = await run(['add', '-A', '--', ...chunk]);
       if (res.code !== 0) {
         throw new Error(`git add failed: ${res.stderr.trim()}`);
       }
