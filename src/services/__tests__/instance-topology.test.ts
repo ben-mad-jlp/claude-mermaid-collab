@@ -75,6 +75,9 @@ describe('instanceTopology (injected deps)', () => {
         exePath: '/Applications/Mermaid Collab.app/Contents/Resources/mc-server',
         startedAt: '2026-06-11T00:00:00.000Z',
         owner: 'desktop',
+        // uid became part of ServerIdentity with the uid-aware handshake (mission f084c136);
+        // this mock is a same-user healthy holder, so it carries our own uid.
+        uid: typeof process.getuid === 'function' ? process.getuid() : 0,
       }),
       readLockImpl: () => ({ pid: 100, exePath: '/app', version: '5.92.0', port: CANONICAL_PORT, owner: 'desktop' }),
       listPeersImpl: () => [{ serverId: 'peer-1', baseUrl: 'https://peer.example' }],
