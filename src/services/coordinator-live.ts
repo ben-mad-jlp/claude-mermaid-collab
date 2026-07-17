@@ -1287,7 +1287,12 @@ export async function releaseDroppedEpicWorktrees(
       if (!(await wm.isGitRepoPublic())) continue;
       const wtPath = wm.epicWorktreePath(epic.id);
       const status = await wm.statusAt(wtPath);
-      if (status === null) continue; // worktree already gone / not a usable checkout
+      if (status === null) {
+        // Worktree already gone, but the branch can still strand in listUnlandedEpics() —
+        // archive it independently (renameEpicBranchToDropped is standalone + idempotent).
+        if (await wm.renameEpicBranchToDropped(epic.id)) released.push(epic.id);
+        continue;
+      }
       if (status.length > 0) {
         // DIRTY — never destroy uncommitted work; record friction and move on.
         await recordFriction(project, {
