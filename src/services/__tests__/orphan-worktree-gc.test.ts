@@ -20,6 +20,7 @@ import { gcLeafWorktrees, isReclaimable, WORKTREE_RECLAIM_MIN_AGE_MS } from '../
 import { setLeafInflight, clearLeafInflight } from '../worker-ledger';
 import { listFriction, recordFrictionOnce, _closeProject as _closeFrictionProject } from '../friction-store';
 import { recordEpicLand } from '../epic-land-record-store';
+import { recordStatus } from '../session-status-store';
 
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -359,6 +360,98 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
 
     expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
     expect(existsSync(epicDir)).toBe(true);
+  });
+});
+
+describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'pool-lane-gc-repo-'));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  /** Creates a REAL recorded (bound) pool-lane worktree via wm.ensure() — a durable
+   *  WorktreeInfo record is written, so the dir is present in `recordBasenames` and
+   *  hits gcLeafWorktrees' "bound" branch. Not leaf-exec-* prefixed and not an
+   *  `__epic-*__` dir, so it lands in candidate class 2. */
+  async function makeBoundPoolLane(sessionId: string): Promise<string> {
+    const wm = getWorktreeManager(repo);
+    const wt = await wm.ensure(sessionId, { baseBranch: 'master' });
+    return wt.path;
+  }
+
+  it('case 1: dead session (no status row) + old + clean → QUARANTINED, record deleted', async () => {
+    const sessionId = 'pool-lane-dead-old-clean';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    await backdatePastReclaim(dir);
+    // Deliberately no recordStatus call — an absent row reads as Infinity ms dead.
+
+    const wm = getWorktreeManager(repo);
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).toContain(dir);
+    expect(existsSync(dir)).toBe(false);
+    const q = report.quarantined.find((x) => x.path === dir);
+    expect(q && existsSync(q.trashDir)).toBe(true);
+    // Stale WorktreeInfo record is gone too (quarantineMove's deleteRecord side effect).
+    const records = await wm.list();
+    expect(records.some((r) => r.sessionId === sessionId)).toBe(false);
+  });
+
+  it('case 2: live session (fresh heartbeat) → KEPT, silently bound-skipped', async () => {
+    const sessionId = 'pool-lane-live';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    await backdatePastReclaim(dir);
+    recordStatus(repo, sessionId, 'active'); // fresh heartbeat, well under POOL_LANE_DEAD_MS
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
+    expect(existsSync(dir)).toBe(true);
+    const refusal = report.refused.find((r) => r.path === dir);
+    expect(refusal).toBeFalsy(); // still a SILENT skip, not a flagged refusal
+  });
+
+  it('case 3: dead session but dir < 7 days old → KEPT (age floor not met)', async () => {
+    const sessionId = 'pool-lane-dead-young';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    // Backdate only ~1 day — dead (no status row) but well under WORKTREE_RECLAIM_MIN_AGE_MS.
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await utimes(dir, oneDayAgo, oneDayAgo);
+    // No recordStatus call — dead session.
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it('case 4: dead session, old, but dirty (uncommitted tracked change) → KEPT', async () => {
+    const sessionId = 'pool-lane-dead-dirty';
+    const dir = await makeBoundPoolLane(sessionId);
+    await commitOld(dir, 'old work');
+    writeFileSync(join(dir, 'README.md'), 'edited\n');
+    await backdatePastReclaim(dir);
+    // No recordStatus call — dead session.
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
+    expect(existsSync(dir)).toBe(true);
   });
 });
 
