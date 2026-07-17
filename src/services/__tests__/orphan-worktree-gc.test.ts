@@ -5,7 +5,7 @@
  * for real (mirrors the pattern in worktree-gc.test.ts).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,7 @@ import { createTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { gcLeafWorktrees, isReclaimable, WORKTREE_RECLAIM_MIN_AGE_MS } from '../leaf-worktree-reaper';
 import { setLeafInflight, clearLeafInflight } from '../worker-ledger';
+import { listFriction, _closeProject as _closeFrictionProject } from '../friction-store';
 
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -351,5 +352,127 @@ describe('isReclaimable', () => {
 
     const result = await isReclaimable({ dir, baseDir, leafTodoId: 'no-such-leaf', now: Date.now() });
     expect(result).toBe(true);
+  });
+});
+
+describe('MEASURED: full reaper+GC pass over a worktree set', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    // realpathSync: git resolves symlinks (e.g. macOS /var -> /private/var) in its own
+    // `worktree list --porcelain` output, so paths built from an unresolved tmpdir()
+    // wouldn't match pruneMissingWorktrees' git-sourced paths below.
+    repo = realpathSync(mkdtempSync(join(tmpdir(), 'measured-gc-repo-')));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    _closeFrictionProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  /** Full reaper+GC pass: prune already-missing admin entries, then the orphan
+   *  flag/quarantine scan — the same two primitives the coordinator tick drives. */
+  async function fullPass(project: string) {
+    const wm = getWorktreeManager(project);
+    const pruned = await wm.pruneMissingWorktrees();
+    const report = await gcLeafWorktrees(project);
+    return { pruned, report };
+  }
+
+  async function worktreeCount(project: string): Promise<number> {
+    const res = await runGit(project, ['worktree', 'list', '--porcelain']);
+    return res.stdout.split('\n').filter((l) => l.startsWith('worktree ')).length;
+  }
+
+  it('0 new dup orphan-unregistered notes on re-pass + worktree count bounded, guarded dir kept', async () => {
+    const wm = getWorktreeManager(repo);
+    mkdirSync(wm.baseDir(), { recursive: true });
+
+    // (a) already-flagged orphan-unregistered dir: a plain dir under baseDir that is
+    // NOT a real `git worktree` (absent from `git worktree list`), so gcLeafWorktrees
+    // hits the orphan-unregistered flag path every pass.
+    const unregisteredDir = join(wm.baseDir(), 'stray-unregistered');
+    mkdirSync(unregisteredDir, { recursive: true });
+    writeFileSync(join(unregisteredDir, 'x.txt'), 'stray\n');
+    await backdatePastReclaim(unregisteredDir);
+    await gcLeafWorktrees(repo); // flag it once first, so hasFrictionNote is true going in
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-unregistered' && (n.detail ?? '').includes(unregisteredDir)).length,
+    ).toBe(1);
+
+    // (b) prunable/missing admin entry: a real worktree whose dir is removed out-of-band
+    // (raw fs.rmSync, not `git worktree remove`), leaving a stale git admin record.
+    const prunableDir = join(wm.baseDir(), 'lane-prunable');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-prunable-branch', prunableDir]);
+    rmSync(prunableDir, { recursive: true, force: true });
+
+    // (c) reclaimable clean+very-old orphan — same recipe as case 1 (lines 117-139).
+    const reclaimableDir = join(wm.baseDir(), 'lane-reclaimable');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-reclaimable-branch', reclaimableDir]);
+    await commitOld(reclaimableDir, 'old work');
+    await backdatePastReclaim(reclaimableDir);
+
+    // (d) guarded dir that MUST be kept: dirty orphan, same recipe as case 2 (lines 141-162).
+    const guardedDir = join(wm.baseDir(), 'lane-guarded');
+    await runGit(repo, ['worktree', 'add', '-b', 'lane-guarded-branch', guardedDir]);
+    await commitOld(guardedDir, 'old work');
+    writeFileSync(join(guardedDir, 'README.md'), 'edited\n');
+    await backdate(guardedDir);
+
+    const countBefore = await worktreeCount(repo);
+
+    // ── Pass 1: full reaper+GC ──────────────────────────────────────────────
+    const pass1 = await fullPass(repo);
+
+    expect(pass1.pruned.map((p) => p.path)).toContain(prunableDir);
+    expect(pass1.report.quarantined.map((q) => q.path)).toContain(reclaimableDir);
+    expect(existsSync(reclaimableDir)).toBe(false);
+    const reclaimQ = pass1.report.quarantined.find((q) => q.path === reclaimableDir);
+    expect(reclaimQ && existsSync(reclaimQ.trashDir)).toBe(true);
+
+    expect(pass1.report.removed).not.toContain(guardedDir);
+    expect(existsSync(guardedDir)).toBe(true);
+    const guardedRefusal1 = pass1.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal1?.reason).toBe('orphan-dirty');
+
+    const unregisteredRefusal1 = pass1.report.refused.find((r) => r.path === unregisteredDir);
+    expect(unregisteredRefusal1?.reason).toBe('orphan-unregistered');
+
+    const countAfterPass1 = await worktreeCount(repo);
+    expect(countAfterPass1).toBeLessThanOrEqual(countBefore);
+
+    // ── Pass 2: re-run the SAME full pass ───────────────────────────────────
+    const pass2 = await fullPass(repo);
+
+    // 0 new dup orphan-unregistered notes: still exactly 1 for this dir.
+    expect(
+      listFriction(repo, { layer: 'operational' })
+        .filter((n) => n.retryReason === 'orphan-unregistered' && (n.detail ?? '').includes(unregisteredDir)).length,
+    ).toBe(1);
+
+    // Worktree count does not grow across passes, and never regresses below the
+    // guarded dir surviving.
+    const countAfterPass2 = await worktreeCount(repo);
+    expect(countAfterPass2).toBeLessThanOrEqual(countAfterPass1);
+    expect(countAfterPass2).toBeLessThanOrEqual(countBefore);
+
+    // The guarded dir is STILL present after both passes (never force-removed).
+    expect(existsSync(guardedDir)).toBe(true);
+    expect(pass2.report.removed).not.toContain(guardedDir);
+    const guardedRefusal2 = pass2.report.refused.find((r) => r.path === guardedDir);
+    expect(guardedRefusal2?.reason).toBe('orphan-dirty');
+
+    // The reclaimed/pruned dirs stay gone (no re-appearance / no re-quarantine of a
+    // path that no longer exists).
+    expect(existsSync(reclaimableDir)).toBe(false);
+    expect(existsSync(prunableDir)).toBe(false);
   });
 });
