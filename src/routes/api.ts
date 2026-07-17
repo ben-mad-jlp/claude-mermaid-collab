@@ -279,6 +279,7 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
       websocket: { connections },
     },
     pid: process.pid,
+    uid: typeof process.getuid === 'function' ? process.getuid() : null,
     uptime,
   });
 }
