@@ -13,12 +13,24 @@ const CDP = CDPImport as any;
 import { CDP_PORT } from '../config.js';
 export { CDP_PORT };
 
+import { createHash } from 'node:crypto';
+import { MERMAID_PROJECT } from '../config.js';
+import { trackingProjectRoot } from './project-registry.js';
+
 let runtimeElectronTarget: { cdpPort: number } | null = null;
 
 export function setElectronTarget(cdpPort: number): void { runtimeElectronTarget = { cdpPort }; }
 export function clearElectronTarget(): void { runtimeElectronTarget = null; }
 
-// Maps sessionName → targetId
+export function tabRegistryKey(project: string, session: string): string {
+  const root = trackingProjectRoot(project);
+  const basename = root.split('/').filter(Boolean).pop() ?? 'project';
+  const slug = basename.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'x';
+  const hash = createHash('sha256').update(root).digest('hex').slice(0, 8);
+  return `${slug}-${hash}:${session}`;
+}
+
+// Maps tabRegistryKey(project, sessionName) → targetId
 const tabRegistry = new Map<string, string>();
 
 /**
@@ -128,11 +140,12 @@ export async function resolveSessionId(claudePid?: number): Promise<string> {
 export async function withCDPSession<T>(
   sessionName: string,
   port: number,
-  fn: (client: any) => Promise<T>
+  fn: (client: any) => Promise<T>,
+  project: string = MERMAID_PROJECT
 ): Promise<T> {
   let client: any;
   try {
-    const targetId = tabRegistry.get(sessionName);
+    const targetId = tabRegistry.get(tabRegistryKey(project, sessionName));
     if (targetId) {
       client = await CDP({ host: '127.0.0.1', port, target: targetId });
     } else {
@@ -149,8 +162,8 @@ export async function withCDPSession<T>(
       // Only wipe the registry if Chrome confirms the tab is actually gone
       try {
         const tabs = await CDP.List({ host: '127.0.0.1', port });
-        const stillExists = tabs.some((t: any) => t.id === tabRegistry.get(sessionName));
-        if (!stillExists) tabRegistry.delete(sessionName);
+        const stillExists = tabs.some((t: any) => t.id === tabRegistry.get(tabRegistryKey(project, sessionName)));
+        if (!stillExists) tabRegistry.delete(tabRegistryKey(project, sessionName));
       } catch {}
       throw new Error(`Browser tab for session "${sessionName}" is gone — call browser_open to open a new one`);
     }
@@ -164,18 +177,18 @@ export async function withCDPSession<T>(
   }
 }
 
-export async function activateTab(sessionName: string, port: number): Promise<void> {
+export async function activateTab(sessionName: string, port: number, project: string = MERMAID_PROJECT): Promise<void> {
   try {
-    const targetId = tabRegistry.get(sessionName);
+    const targetId = tabRegistry.get(tabRegistryKey(project, sessionName));
     if (targetId) {
       await CDP.Activate({ id: targetId, host: '127.0.0.1', port });
     }
   } catch {}
 }
 
-export async function focusTab(sessionName: string, port: number): Promise<void> {
+export async function focusTab(sessionName: string, port: number, project: string = MERMAID_PROJECT): Promise<void> {
   try {
-    let targetId = tabRegistry.get(sessionName);
+    let targetId = tabRegistry.get(tabRegistryKey(project, sessionName));
 
     if (!targetId) {
       const tabs = await CDP.List({ host: '127.0.0.1', port });
@@ -198,12 +211,12 @@ export async function focusTab(sessionName: string, port: number): Promise<void>
   }
 }
 
-export function registerTab(sessionName: string, tabId: string): void {
-  tabRegistry.set(sessionName, tabId);
+export function registerTab(sessionName: string, tabId: string, project: string = MERMAID_PROJECT): void {
+  tabRegistry.set(tabRegistryKey(project, sessionName), tabId);
   persistTabRegistry();
 }
 
-export async function createOrReplaceTab(sessionName: string, port: number): Promise<string> {
+export async function createOrReplaceTab(sessionName: string, port: number, project: string = MERMAID_PROJECT): Promise<string> {
   try {
     // Electron embedded-view mode: do NOT create a target. Select the existing
     // WebContentsView (identified by ELECTRON_VIEW_MARKER) — the spike confirmed
@@ -212,12 +225,12 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
       const effectivePort = runtimeElectronTarget?.cdpPort ?? port;
       const tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
       const viewId = selectElectronViewTarget(tabs, sessionName);
-      tabRegistry.set(sessionName, viewId);
+      tabRegistry.set(tabRegistryKey(project, sessionName), viewId);
       persistTabRegistry();
       return viewId;
     }
 
-    const existingId = tabRegistry.get(sessionName);
+    const existingId = tabRegistry.get(tabRegistryKey(project, sessionName));
     if (existingId) {
       try { await CDP.Close({ id: existingId, host: '127.0.0.1', port }); } catch {}
     }
@@ -230,7 +243,7 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
     } finally {
       client.close().catch(() => {});
     }
-    tabRegistry.set(sessionName, targetId);
+    tabRegistry.set(tabRegistryKey(project, sessionName), targetId);
     persistTabRegistry();
     return targetId;
   } catch (err: any) {
@@ -247,7 +260,7 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
  * - Entry exists and Chrome still has the target → focus it, return existing id
  * - Entry exists but Chrome no longer has the target → throw so the caller can decide to replace
  */
-export async function ensureTab(sessionName: string, port: number): Promise<string> {
+export async function ensureTab(sessionName: string, port: number, project: string = MERMAID_PROJECT): Promise<string> {
   try {
     // Electron embedded-view mode: ensure the pane via the control server, then
     // select the per-session target. Skip the normal tab-registry path entirely.
@@ -275,14 +288,14 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
         throw err;
       }
       const viewId = selectElectronViewTarget(tabs, sessionName);
-      tabRegistry.set(sessionName, viewId);
+      tabRegistry.set(tabRegistryKey(project, sessionName), viewId);
       persistTabRegistry();
       return viewId;
     }
 
-    const existingId = tabRegistry.get(sessionName);
+    const existingId = tabRegistry.get(tabRegistryKey(project, sessionName));
     if (!existingId) {
-      return await createOrReplaceTab(sessionName, port);
+      return await createOrReplaceTab(sessionName, port, project);
     }
 
     // Verify the tab still exists in Chrome
@@ -298,7 +311,7 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
 
     const stillExists = tabs.some((t: any) => t.id === existingId);
     if (!stillExists) {
-      tabRegistry.delete(sessionName);
+      tabRegistry.delete(tabRegistryKey(project, sessionName));
       persistTabRegistry();
       throw new Error(`Browser tab for session "${sessionName}" no longer exists — create a new one`);
     }
@@ -314,7 +327,7 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
 }
 
 export function listActiveSessions(): string[] {
-  return Array.from(tabRegistry.keys());
+  return Array.from(tabRegistry.keys()).map((k) => k.slice(k.indexOf(':') + 1));
 }
 
 /**
@@ -322,6 +335,6 @@ export function listActiveSessions(): string[] {
  * is open. Used by the screencast service (streamed-panel mode) to attach a
  * long-lived CDP client to the same target the browser_* tools drive.
  */
-export function getSessionTarget(sessionName: string): string | undefined {
-  return tabRegistry.get(sessionName);
+export function getSessionTarget(sessionName: string, project: string = MERMAID_PROJECT): string | undefined {
+  return tabRegistry.get(tabRegistryKey(project, sessionName));
 }
