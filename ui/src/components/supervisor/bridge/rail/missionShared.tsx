@@ -542,11 +542,15 @@ export const MissionDetail: React.FC<{
   onDropped?: () => void;
 }> = ({ m, serverId, project, activeTab, onTabChange, onChanged, onDropped }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmHardDelete, setConfirmHardDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
   const abandonMission = useSupervisorStore((s) => s.abandonMission);
+  const updateMission = useSupervisorStore((s) => s.updateMission);
+  const deleteMission = useSupervisorStore((s) => s.deleteMission);
   const addMissionCriterion = useSupervisorStore((s) => s.addMissionCriterion);
   const updateMissionCriterion = useSupervisorStore((s) => s.updateMissionCriterion);
   const removeMissionCriterion = useSupervisorStore((s) => s.removeMissionCriterion);
@@ -602,6 +606,12 @@ export const MissionDetail: React.FC<{
           )}
           <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Drop this mission (soft-abandon — kept as a record, removed from the active view)" testid="mission-drop-btn">
             Drop
+          </MiniButton>
+          <MiniButton onClick={() => setEditing(true)} disabled={busy} title="Edit goal / description / procedure / cap" testid="mission-edit-btn">
+            Edit
+          </MiniButton>
+          <MiniButton onClick={() => setConfirmHardDelete(true)} disabled={busy} tone="danger" title="Delete this mission (irreversible)" testid="mission-delete-btn">
+            Delete
           </MiniButton>
         </div>
       </div>
@@ -678,6 +688,23 @@ export const MissionDetail: React.FC<{
         confirmLabel="Activate anyway"
         onCancel={() => setConfirmActivate(false)}
         onConfirm={() => { setConfirmActivate(false); void run(() => activateMission(serverId, project, view.missionId!)); }}
+      />
+
+      {editing && (
+        <MissionEditDialog
+          m={m}
+          onClose={() => setEditing(false)}
+          onSave={(patch) => run(() => updateMission(serverId, project, view.missionId!, patch))}
+        />
+      )}
+
+      <ConfirmDialog
+        isOpen={confirmHardDelete}
+        title="Delete mission?"
+        message={<>Permanently delete <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong>? This drops the mission node, its loop state, and all criteria. This cannot be undone.</>}
+        confirmLabel="Delete permanently"
+        onCancel={() => setConfirmHardDelete(false)}
+        onConfirm={() => { setConfirmHardDelete(false); void run(() => deleteMission(serverId, project, view.missionId!)).then(() => onDropped?.()); }}
       />
     </div>
   );
