@@ -138,6 +138,13 @@ describe('claimReason — each branch', () => {
     expect(claimReason(t, map(t))).toBe('deps-pending');
     expect(isClaimable(t, map(t))).toBe(false);
   });
+  it('deps-pending: a short (leading-8-hex) dep id resolves and unblocks once the dep is done', () => {
+    const dep = mk({ id: 'depIdFull1234567890', status: 'in_progress' });
+    const t = mk({ id: 'A', ...approved, dependsOn: ['depIdFul'] });
+    expect(claimReason(t, map(dep, t))).toBe('deps-pending');
+    const doneDep = mk({ id: 'depIdFull1234567890', status: 'done', acceptanceStatus: 'accepted' });
+    expect(claimReason(t, map(doneDep, t))).toBe('claimable');
+  });
   it('human-assignee: fully unblocked + approved human → not auto-claimed', () => {
     const t = mk({ ...approved, assigneeKind: 'human' });
     expect(claimReason(t, map())).toBe('human-assignee');
