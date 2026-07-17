@@ -7,7 +7,7 @@
 // clear-artifacts, design_to_diagram). Imports only leaf modules (http-util +
 // design-ai / diagram-codegen tool modules), so there is no import cycle with
 // setup.ts. Behavior is identical — a pure move.
-import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc } from './tools/http-util.js';
+import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc, apiFetch } from './tools/http-util.js';
 import { designToDiagramSchema, handleDesignToDiagram } from './tools/design-ai.js';
 import { diagramFromCodeSchema, handleDiagramFromCode } from './tools/diagram-codegen.js';
 
@@ -16,7 +16,7 @@ import { diagramFromCodeSchema, handleDiagramFromCode } from './tools/diagram-co
 // ---------------------------------------------------------------------------
 
 export async function listDiagrams(project: string, session: string): Promise<string> {
-  const response = await fetch(buildUrl('/api/diagrams', project, session));
+  const response = await apiFetch(buildUrl('/api/diagrams', project, session));
   if (!response.ok) {
     throw new Error(`Failed to list diagrams: ${response.statusText}`);
   }
@@ -25,7 +25,7 @@ export async function listDiagrams(project: string, session: string): Promise<st
 }
 
 export async function getDiagram(project: string, session: string, id: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/diagram/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Diagram not found: ${id}`);
@@ -37,7 +37,7 @@ export async function getDiagram(project: string, session: string, id: string): 
 }
 
 export async function createDiagram(project: string, session: string, name: string, content: string): Promise<string> {
-  const response = await fetch(buildUrl('/api/diagram', project, session), {
+  const response = await apiFetch(buildUrl('/api/diagram', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, content }),
@@ -57,7 +57,7 @@ export async function createDiagram(project: string, session: string, name: stri
 }
 
 export async function updateDiagram(project: string, session: string, id: string, content: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/diagram/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -70,7 +70,7 @@ export async function updateDiagram(project: string, session: string, id: string
 }
 
 async function validateDiagram(content: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/validate`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -83,7 +83,7 @@ async function validateDiagram(content: string): Promise<string> {
 }
 
 async function previewDiagram(project: string, session: string, id: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/diagram/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Diagram not found: ${id}`);
@@ -99,7 +99,7 @@ async function previewDiagram(project: string, session: string, id: string): Pro
 }
 
 async function transpileDiagram(project: string, session: string, id: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/transpile/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/transpile/${id}`, project, session));
   if (!response.ok) {
     const error = await asJson(response);
     throw new Error(`Failed to transpile diagram: ${error.error || response.statusText}`);
@@ -110,7 +110,7 @@ async function transpileDiagram(project: string, session: string, id: string): P
 
 async function exportDiagramSVG(project: string, session: string, id: string, theme?: string): Promise<string> {
   const themeParam = theme ? `&theme=${encodeURIComponent(theme)}` : '';
-  const response = await fetch(buildUrl(`/api/render/${id}`, project, session) + themeParam);
+  const response = await apiFetch(buildUrl(`/api/render/${id}`, project, session) + themeParam);
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Diagram not found: ${id}`);
@@ -147,7 +147,7 @@ async function exportDiagramPNG(project: string, session: string, id: string, _t
 }
 
 async function patchDiagram(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
-  const getResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
+  const getResponse = await apiFetch(buildUrl(`/api/diagram/${id}`, project, session));
   if (!getResponse.ok) {
     if (getResponse.status === 404) {
       throw new Error(`Diagram not found: ${id}`);
@@ -168,7 +168,7 @@ async function patchDiagram(project: string, session: string, id: string, oldStr
 
   const updatedContent = currentContent.replace(oldString, newString);
 
-  const updateResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
+  const updateResponse = await apiFetch(buildUrl(`/api/diagram/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -423,7 +423,7 @@ export async function handleDiagramTool(name: string, args: any): Promise<string
     case 'get_diagram_history': {
       const { project, session, id } = args as { project: string; session: string; id: string };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-      const response = await fetch(buildUrl(`/api/diagram/${id}/history`, project, session));
+      const response = await apiFetch(buildUrl(`/api/diagram/${id}/history`, project, session));
       if (!response.ok) {
         if (response.status === 404) {
           return JSON.stringify({ error: 'No history for diagram', history: null }, null, 2);
@@ -438,13 +438,13 @@ export async function handleDiagramTool(name: string, args: any): Promise<string
       const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
       if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
       // Get historical content
-      const versionResponse = await fetch(buildUrl(`/api/diagram/${id}/version`, project, session, { timestamp }));
+      const versionResponse = await apiFetch(buildUrl(`/api/diagram/${id}/version`, project, session, { timestamp }));
       if (!versionResponse.ok) {
         throw new Error(`Failed to get diagram version: ${versionResponse.statusText}`);
       }
       const versionData = await asJson(versionResponse);
       // Save as current content
-      const updateResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
+      const updateResponse = await apiFetch(buildUrl(`/api/diagram/${id}`, project, session), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: versionData.content }),

@@ -7,6 +7,7 @@
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { apiFetch } from './http-util.js';
 
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
@@ -128,7 +129,7 @@ export async function handleCreateDesign(
   name: string,
   content: any
 ): Promise<CreateDesignResult> {
-  const response = await fetch(buildUrl('/api/design', project, session), {
+  const response = await apiFetch(buildUrl('/api/design', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, content }),
@@ -149,7 +150,7 @@ export async function handleUpdateDesign(
   id: string,
   content: any
 ): Promise<UpdateDesignResult> {
-  const response = await fetch(buildUrl(`/api/design/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/design/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -168,7 +169,7 @@ export async function handleGetDesign(
   session: string,
   id: string
 ): Promise<GetDesignResult> {
-  const response = await fetch(buildUrl(`/api/design/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/design/${id}`, project, session));
 
   if (!response.ok) {
     throw new Error(`Design not found: ${id}`);
@@ -187,7 +188,7 @@ export async function handleListDesigns(
   project: string,
   session: string
 ): Promise<ListDesignsResult> {
-  const response = await fetch(buildUrl('/api/designs', project, session));
+  const response = await apiFetch(buildUrl('/api/designs', project, session));
 
   if (!response.ok) {
     throw new Error(`Failed to list designs: ${response.statusText}`);
@@ -202,7 +203,7 @@ export async function handleDeleteDesign(
   session: string,
   id: string
 ): Promise<DeleteDesignResult> {
-  const response = await fetch(buildUrl(`/api/design/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/design/${id}`, project, session), {
     method: 'DELETE',
   });
 
@@ -222,7 +223,7 @@ export async function handleExportDesign(
   scale: number = 2,
   outputPath?: string
 ): Promise<{ success: boolean; filePath: string; format: string; size: number }> {
-  const response = await fetch(
+  const response = await apiFetch(
     buildUrl(`/api/design/${id}/export`, project, session, { format, scale: String(scale) }),
     { method: 'POST' }
   );

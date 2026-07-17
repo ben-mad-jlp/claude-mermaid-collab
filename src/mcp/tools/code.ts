@@ -5,6 +5,8 @@
  * Code files are first-class artifacts distinct from snippets.
  */
 
+import { apiFetch } from './http-util.js';
+
 // ============= Constants =============
 
 const API_PORT = parseInt(process.env.PORT ?? '9002', 10);
@@ -116,7 +118,7 @@ export async function handleCreateCode(
   name?: string,
 ): Promise<{ success: boolean; id: string; existed?: boolean }> {
   const url = buildUrl('/api/code/create', project, session);
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filePath, name }),
@@ -136,7 +138,7 @@ export async function handlePushCodeToFile(
   session: string,
   id: string,
 ): Promise<{ success: boolean; filePath: string; bytesWritten: number }> {
-  const response = await fetch(buildUrl(`/api/code/push/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/code/push/${id}`, project, session), {
     method: 'POST',
   });
 
@@ -153,7 +155,7 @@ export async function handleSyncCodeFromDisk(
   session: string,
   id: string,
 ): Promise<{ success: boolean; diskChanged: boolean; hasLocalEdits: boolean; conflict: boolean }> {
-  const response = await fetch(buildUrl(`/api/code/sync/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/code/sync/${id}`, project, session), {
     method: 'POST',
   });
 
@@ -172,14 +174,14 @@ export async function handleReviewCodeEdits(
   format: 'diff' | 'full' = 'diff',
 ): Promise<Record<string, unknown>> {
   if (format === 'diff') {
-    const response = await fetch(buildUrl(`/api/code/diff/${encodeURIComponent(id)}`, project, session));
+    const response = await apiFetch(buildUrl(`/api/code/diff/${encodeURIComponent(id)}`, project, session));
     if (!response.ok) {
       const e = await response.json().catch(() => ({})) as any;
       throw new Error(e.error ?? `Code file not found: ${id}`);
     }
     const data = await response.json() as any;
     // Also fetch record for filePath/language
-    const recRes = await fetch(buildUrl(`/api/code/get/${encodeURIComponent(id)}`, project, session));
+    const recRes = await apiFetch(buildUrl(`/api/code/get/${encodeURIComponent(id)}`, project, session));
     const rec = recRes.ok ? await recRes.json() as any : {} as any;
     return {
       id,
@@ -190,7 +192,7 @@ export async function handleReviewCodeEdits(
   }
 
   // format === 'full'
-  const response = await fetch(buildUrl(`/api/code/get/${encodeURIComponent(id)}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/code/get/${encodeURIComponent(id)}`, project, session));
   if (!response.ok) {
     const e = await response.json().catch(() => ({})) as any;
     throw new Error(e.error ?? `Code file not found: ${id}`);
@@ -215,7 +217,7 @@ export async function handleProposeCodeEdit(
   newCode: string,
   message?: string,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(buildUrl(`/api/code/proposed-edit/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/code/proposed-edit/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newCode, message }),
@@ -233,7 +235,7 @@ export async function handleListCodeFiles(
   project: string,
   session: string,
 ): Promise<{ files: Array<{ id: string; name: string; filePath: string; language: string; dirty: boolean; lastPushedAt: string | null }> }> {
-  const response = await fetch(buildUrl('/api/code/list', project, session));
+  const response = await apiFetch(buildUrl('/api/code/list', project, session));
 
   if (!response.ok) {
     const e = await response.json().catch(() => ({})) as any;
@@ -247,7 +249,7 @@ export async function handleListCodeFiles(
 export async function handleUpdateCode(params: { project: string; session: string; id: string; content: string }) {
   const { project, session, id, content } = params;
   const url = buildUrl(`/api/code/update/${encodeURIComponent(id)}`, project, session);
-  const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+  const res = await apiFetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? `HTTP ${res.status}`); }
   return await res.json();
 }
@@ -255,7 +257,7 @@ export async function handleUpdateCode(params: { project: string; session: strin
 export async function handleGetCode(params: { project: string; session: string; id: string }) {
   const { project, session, id } = params;
   const url = buildUrl(`/api/code/get/${encodeURIComponent(id)}`, project, session);
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? `HTTP ${res.status}`); }
   return await res.json();
 }

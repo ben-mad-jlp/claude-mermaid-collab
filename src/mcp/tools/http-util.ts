@@ -5,10 +5,25 @@
  * can be self-contained ToolDefs without depending on setup.ts internals.
  */
 
+import { getAuthToken } from '../../services/config-file.js';
+
 // Configuration — mirrors the values used by the HTTP/API backend.
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 export const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
+
+/**
+ * fetch() wrapper for calls into this server's own /api/* (or /mcp) surface.
+ * Attaches the configured bearer token so requests aren't rejected when
+ * MERMAID_REQUIRE_AUTH_ON_LOOPBACK is on. Reads the token fresh each call so
+ * a rotated token is picked up without a restart.
+ */
+export async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const token = getAuthToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set('authorization', `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 /**
  * Build an API URL with `project` + `session` query params (plus any extras).

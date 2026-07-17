@@ -5,6 +5,7 @@
  */
 
 import { extname } from 'path';
+import { apiFetch } from './http-util.js';
 
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
@@ -175,7 +176,7 @@ export async function handleCreateSnippet(
     }
   }
 
-  const response = await fetch(buildUrl('/api/snippet', project, session), {
+  const response = await apiFetch(buildUrl('/api/snippet', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: finalName, content: finalContent }),
@@ -208,7 +209,7 @@ export async function handleUpdateSnippet(
     isRawCode = true;
   }
 
-  const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
+  const getResponse = await apiFetch(buildUrl(`/api/snippet/${id}`, project, session));
   if (getResponse.ok) {
     const snippetData = await getResponse.json() as any;
     try {
@@ -254,7 +255,7 @@ export async function handleUpdateSnippet(
     }
   }
 
-  const response = await fetch(buildUrl(`/api/snippet/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/snippet/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: finalContent }),
@@ -273,7 +274,7 @@ export async function handleGetSnippet(
   session: string,
   id: string
 ): Promise<GetSnippetResult> {
-  const response = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/snippet/${id}`, project, session));
 
   if (!response.ok) {
     throw new Error(`Snippet not found: ${id}`);
@@ -327,7 +328,7 @@ export async function handleListSnippets(
   project: string,
   session: string
 ): Promise<ListSnippetsResult> {
-  const response = await fetch(buildUrl('/api/snippets', project, session));
+  const response = await apiFetch(buildUrl('/api/snippets', project, session));
 
   if (!response.ok) {
     throw new Error(`Failed to list snippets: ${response.statusText}`);
@@ -342,7 +343,7 @@ export async function handleDeleteSnippet(
   session: string,
   id: string
 ): Promise<DeleteSnippetResult> {
-  const response = await fetch(buildUrl(`/api/snippet/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/snippet/${id}`, project, session), {
     method: 'DELETE',
   });
 

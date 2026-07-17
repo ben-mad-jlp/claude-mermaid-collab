@@ -11,6 +11,7 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { setupMCPServer } from './setup.js';
+import { apiFetch } from './tools/http-util.js';
 
 // Version is synced with package.json via npm version command
 export const SERVER_VERSION = '6.18.2';
@@ -22,7 +23,7 @@ async function main() {
   const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/health`, {
+    const response = await apiFetch(`${API_BASE_URL}/api/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(2000),
     });
