@@ -128,6 +128,37 @@ export function acquireExclusive(filePath: string, contents: string): boolean {
   }
 }
 
+/** Stale-mutex TTL: a takeover mutex older than this is treated as an orphan
+ * from a crashed takeover and is healed (unlinked + retried once) rather than
+ * blocking every future takeover indefinitely. */
+export const TAKEOVER_MUTEX_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Acquire the takeover mutex, self-healing a stale one. If acquireExclusive()
+ * loses the race because a mutex file already exists, check its mtime: a file
+ * older than TAKEOVER_MUTEX_TTL_MS is an orphan from a takeover that crashed
+ * before reaching its finally-unlink, so unlink it and retry the claim once.
+ * A fresh file means a concurrent takeover is genuinely in progress → false.
+ */
+export function acquireTakeoverMutex(
+  env: NodeJS.ProcessEnv,
+  contents: string,
+  ttlMs: number = TAKEOVER_MUTEX_TTL_MS,
+): boolean {
+  const p = takeoverMutexPath(env);
+  if (acquireExclusive(p, contents)) return true;
+  try {
+    const stat = fs.statSync(p);
+    if (Date.now() - stat.mtimeMs > ttlMs) {
+      fs.unlinkSync(p);
+      return acquireExclusive(p, contents);
+    }
+  } catch {
+    /* stat/unlink raced away — another process healed or released it */
+  }
+  return false;
+}
+
 /** Write (or overwrite) the canonical ownership lockfile. Called by the server on a successful bind. */
 export function writeLock(data: LockData, env: NodeJS.ProcessEnv = process.env): void {
   const p = lockPath(env);
@@ -334,8 +365,16 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
       if (!outcome.ok) {
         return { action: 'refuse', reason: 'foreign-process-eperm', holder: null };
       }
-      acquireExclusive(takeoverMutexPath(env), String(process.pid));
-      return { action: 'proceed', reason: 'evicted-dead-own-holder', holder: null };
+      try {
+        acquireTakeoverMutex(env, String(process.pid));
+        return { action: 'proceed', reason: 'evicted-dead-own-holder', holder: null };
+      } finally {
+        try {
+          fs.unlinkSync(takeoverMutexPath(env));
+        } catch {
+          /* best-effort */
+        }
+      }
     }
     // Unknown process, no health, not in our lock → never kill blindly.
     return { action: 'refuse', reason: 'held-by-unknown-process', holder: null };
@@ -366,7 +405,7 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   }
 
   // Serialize concurrent take-overs with the O_EXCL mutex BEFORE killing (risk #1).
-  if (!acquireExclusive(takeoverMutexPath(env), String(process.pid))) {
+  if (!acquireTakeoverMutex(env, String(process.pid))) {
     // Another starter is taking over — defer to the owner it will install.
     return { action: 'defer', reason: 'takeover-in-progress-elsewhere', holder };
   }
