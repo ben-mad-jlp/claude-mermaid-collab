@@ -139,8 +139,8 @@ export function escalateImplementModel(model: string, attempt: number): string {
 const NON_FALSIFIABLE_DOUBT_RE = new RegExp(
   [
     "(can'?not|can'?t|couldn'?t|unable to|not able to|hard to|difficult to)\\s+(confirm|verify|assess|determine|tell|be sure|establish|ascertain|validate|evaluate|review|judge)",
-    "nothing (?:to|left to) review",
-    "no (?:changes?|code|diff|edits?) (?:to|left to) review",
+    "nothing\\b[^.\\n]{0,40}?\\bto review",
+    "no (?:changes?|code|diff|edits?)\\b[^.\\n]{0,40}?\\bto review",
     "not enough (?:context|information|detail|evidence)",
     "insufficient (?:context|information|evidence|detail)",
     "without (?:more|additional|further) (?:context|information)",
