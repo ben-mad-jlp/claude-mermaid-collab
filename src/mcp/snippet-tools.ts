@@ -5,7 +5,7 @@
 // identical to the original inline setup.ts implementation — this is a pure move.
 // (The snippet *service* handlers are still imported by setup.ts too, for the
 // duplicate/clear-artifacts paths — this module imports them independently.)
-import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc } from './tools/http-util.js';
+import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc, apiFetch } from './tools/http-util.js';
 import {
   createSnippetSchema,
   updateSnippetSchema,
@@ -108,7 +108,7 @@ export const SNIPPET_TOOL_DEFS = [
  * setup.ts). Only the patch_snippet handler calls it.
  */
 async function patchSnippet(project: string, session: string, id: string, startLine: number, endLine: number, newContent: string): Promise<string> {
-  const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
+  const getResponse = await apiFetch(buildUrl(`/api/snippet/${id}`, project, session));
   if (!getResponse.ok) {
     if (getResponse.status === 404) {
       throw new Error(`Snippet not found: ${id}`);
@@ -153,7 +153,7 @@ async function patchSnippet(project: string, session: string, id: string, startL
     updatedContent = patched;
   }
 
-  const updateResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session), {
+  const updateResponse = await apiFetch(buildUrl(`/api/snippet/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: updatedContent }),
@@ -233,7 +233,7 @@ export async function handleSnippetTool(name: string, args: any): Promise<string
       const url = new URL(`/api/snippet/${encodeURIComponent(id)}/history`, API_BASE_URL);
       url.searchParams.set('project', project);
       url.searchParams.set('session', session);
-      const resp = await fetch(url.toString());
+      const resp = await apiFetch(url.toString());
       if (!resp.ok) throw new Error(`Failed to get snippet history: ${resp.statusText}`);
       return JSON.stringify(await resp.json(), null, 2);
     }
@@ -252,14 +252,14 @@ export async function handleSnippetTool(name: string, args: any): Promise<string
       url.searchParams.set('project', project);
       url.searchParams.set('session', session);
       url.searchParams.set('timestamp', String(timestamp));
-      const resp = await fetch(url.toString());
+      const resp = await apiFetch(url.toString());
       if (!resp.ok) throw new Error(`Failed to get snippet version: ${resp.statusText}`);
       const { content } = await resp.json() as { content: string; timestamp: number };
       // Revert by saving the historical content
       const saveUrl = new URL(`/api/snippet/${encodeURIComponent(id)}`, API_BASE_URL);
       saveUrl.searchParams.set('project', project);
       saveUrl.searchParams.set('session', session);
-      const saveResp = await fetch(saveUrl.toString(), {
+      const saveResp = await apiFetch(saveUrl.toString(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),

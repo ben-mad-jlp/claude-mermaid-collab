@@ -7,6 +7,7 @@ mock.module('../services/config-file.ts', () => ({
 }));
 
 const { checkAuth } = await import('../auth.ts');
+const { apiFetch } = await import('../mcp/tools/http-util.ts');
 
 beforeEach(() => {
   requireAuthOnLoopbackFlag = false;
@@ -92,5 +93,33 @@ describe('checkAuth requireAuthOnLoopback mode', () => {
     expect(checkAuth(withToken('secret-token'), url, '192.168.1.50')).toBeNull();
     expect(checkAuth(withToken(), url, '192.168.1.50')!.status).toBe(401);
     expect(checkAuth(withToken('secret-token'), url, '8.8.8.8')!.status).toBe(403);
+  });
+});
+
+describe('apiFetch header passes checkAuth', () => {
+  it('mode on: a request carrying the header apiFetch attaches passes checkAuth on a loopback peer', async () => {
+    requireAuthOnLoopbackFlag = true;
+    const originalFetch = globalThis.fetch;
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (mock((_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve(new Response('ok'));
+    }) as unknown) as typeof fetch;
+    try {
+      await apiFetch('http://x/api/foo');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get('authorization')).toBe('Bearer secret-token');
+
+    const req = new Request('http://x/api/foo', { headers });
+    expect(checkAuth(req, url, '127.0.0.1')).toBeNull();
+    expect(checkAuth(withToken(), url, '127.0.0.1')!.status).toBe(401);
+  });
+
+  it('mode off: a tokenless loopback request still passes checkAuth regardless of apiFetch\'s header', () => {
+    requireAuthOnLoopbackFlag = false;
+    expect(checkAuth(withToken(), url, '127.0.0.1')).toBeNull();
   });
 });

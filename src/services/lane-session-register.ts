@@ -16,6 +16,7 @@
  */
 import * as fs from 'node:fs';
 import { mux, argvListPanesPanePid } from './session-mux/index.ts';
+import { apiFetch } from '../mcp/tools/http-util.js';
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -83,7 +84,7 @@ async function defaultPostRegister(project: string, session: string, claudeSessi
     const url = new URL('/api/claude-session/register', API_BASE_URL);
     url.searchParams.set('project', project);
     url.searchParams.set('session', session);
-    const res = await fetch(url.toString(), {
+    const res = await apiFetch(url.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ claudeSessionId }),

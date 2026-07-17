@@ -11,13 +11,13 @@
  * required-field checks, error messages, and JSON output.
  */
 
-import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc } from './http-util.js';
+import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc, apiFetch } from './http-util.js';
 import type { ToolDef } from './registry.js';
 
 // ============= Bare helpers (reused elsewhere in setup.ts) =============
 
 export async function listDocuments(project: string, session: string): Promise<string> {
-  const response = await fetch(buildUrl('/api/documents', project, session));
+  const response = await apiFetch(buildUrl('/api/documents', project, session));
   if (!response.ok) {
     throw new Error(`Failed to list documents: ${response.statusText}`);
   }
@@ -26,7 +26,7 @@ export async function listDocuments(project: string, session: string): Promise<s
 }
 
 export async function getDocument(project: string, session: string, id: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Document not found: ${id}`);
@@ -38,7 +38,7 @@ export async function getDocument(project: string, session: string, id: string):
 }
 
 export async function createDocument(project: string, session: string, name: string, content: string): Promise<string> {
-  const response = await fetch(buildUrl('/api/document', project, session), {
+  const response = await apiFetch(buildUrl('/api/document', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, content }),
@@ -58,7 +58,7 @@ export async function createDocument(project: string, session: string, name: str
 }
 
 export async function updateDocument(project: string, session: string, id: string, content: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/document/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -71,7 +71,7 @@ export async function updateDocument(project: string, session: string, id: strin
 }
 
 export async function patchDocument(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
-  const getResponse = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  const getResponse = await apiFetch(buildUrl(`/api/document/${id}`, project, session));
   if (!getResponse.ok) {
     if (getResponse.status === 404) {
       throw new Error(`Document not found: ${id}`);
@@ -93,7 +93,7 @@ export async function patchDocument(project: string, session: string, id: string
 
   const updatedContent = currentContent.replace(oldString, newString);
 
-  const updateResponse = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+  const updateResponse = await apiFetch(buildUrl(`/api/document/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -212,7 +212,7 @@ export const documentToolDefs: ToolDef[] = [
     handler: async (args) => {
       const { project, session, id } = args as { project: string; session: string; id: string };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-      const response = await fetch(buildUrl(`/api/document/${id}/history`, project, session));
+      const response = await apiFetch(buildUrl(`/api/document/${id}/history`, project, session));
       if (!response.ok) {
         if (response.status === 404) {
           return JSON.stringify({ error: 'No history for document', history: null }, null, 2);
@@ -238,12 +238,12 @@ export const documentToolDefs: ToolDef[] = [
     handler: async (args) => {
       const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
       if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
-      const versionResponse = await fetch(buildUrl(`/api/document/${id}/version`, project, session, { timestamp }));
+      const versionResponse = await apiFetch(buildUrl(`/api/document/${id}/version`, project, session, { timestamp }));
       if (!versionResponse.ok) {
         throw new Error(`Failed to get document version: ${versionResponse.statusText}`);
       }
       const versionData = await versionResponse.json() as { content: string };
-      const updateResponse = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+      const updateResponse = await apiFetch(buildUrl(`/api/document/${id}`, project, session), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: versionData.content }),
@@ -274,7 +274,7 @@ export const documentToolDefs: ToolDef[] = [
     handler: async (args) => {
       const { project, session, id } = args as { project: string; session: string; id: string };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-      const response = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+      const response = await apiFetch(buildUrl(`/api/document/${id}`, project, session), {
         method: 'DELETE',
       });
       if (!response.ok) {

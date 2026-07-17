@@ -5,7 +5,7 @@
 // (handleDesignTool), and the design-item helper functions (extractDesignItem/
 // getDesignItem/patchDesignItem) which were local to setup.ts and used only here.
 // Assembled from exact byte ranges of setup.ts — behavior is identical, a pure move.
-import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc } from './tools/http-util.js';
+import { API_BASE_URL, buildUrl, asJson, sessionParamsDesc, apiFetch } from './tools/http-util.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import {
   handleCreateDesign,
@@ -136,7 +136,7 @@ function extractDesignItem(content: string, itemNumber: number): { itemText: str
 }
 
 async function getDesignItem(project: string, session: string, id: string, itemNumber: number): Promise<string> {
-  const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Document not found: ${id}`);
@@ -154,7 +154,7 @@ async function getDesignItem(project: string, session: string, id: string, itemN
 }
 
 async function patchDesignItem(project: string, session: string, id: string, itemNumber: number, oldString: string, newString: string): Promise<string> {
-  const getResponse = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  const getResponse = await apiFetch(buildUrl(`/api/document/${id}`, project, session));
   if (!getResponse.ok) {
     if (getResponse.status === 404) {
       throw new Error(`Document not found: ${id}`);
@@ -177,7 +177,7 @@ async function patchDesignItem(project: string, session: string, id: string, ite
   const patchedItem = itemText.replace(oldString, newString);
   const updatedContent = fullContent.slice(0, startIndex) + patchedItem + fullContent.slice(startIndex + itemText.length);
 
-  const updateResponse = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+  const updateResponse = await apiFetch(buildUrl(`/api/document/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -529,7 +529,7 @@ export async function handleDesignTool(name: string, args: any): Promise<string 
           case 'get_design_history': {
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const response = await fetch(buildUrl(`/api/design/${id}/history`, project, session));
+            const response = await apiFetch(buildUrl(`/api/design/${id}/history`, project, session));
             if (!response.ok) {
               if (response.status === 404) {
                 return JSON.stringify({ error: 'No history for design', history: null }, null, 2);
@@ -543,12 +543,12 @@ export async function handleDesignTool(name: string, args: any): Promise<string 
           case 'revert_design': {
             const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
             if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
-            const versionResponse = await fetch(buildUrl(`/api/design/${id}/version`, project, session, { timestamp }));
+            const versionResponse = await apiFetch(buildUrl(`/api/design/${id}/version`, project, session, { timestamp }));
             if (!versionResponse.ok) {
               throw new Error(`Failed to get design version: ${versionResponse.statusText}`);
             }
             const versionData = await asJson(versionResponse);
-            const updateResponse = await fetch(buildUrl(`/api/design/${id}`, project, session), {
+            const updateResponse = await apiFetch(buildUrl(`/api/design/${id}`, project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: versionData.content }),
@@ -755,7 +755,7 @@ export async function handleDesignTool(name: string, args: any): Promise<string 
             const historyUrl = since
               ? buildUrl(`/api/design/${designId}/version`, project, session, { timestamp: since })
               : buildUrl(`/api/design/${designId}/history`, project, session);
-            const historyResponse = await fetch(historyUrl);
+            const historyResponse = await apiFetch(historyUrl);
             if (!historyResponse.ok) {
               if (historyResponse.status === 404) {
                 return JSON.stringify({ success: true, diff: { added: [], removed: [], modified: [], summary: 'No history available' } }, null, 2);
