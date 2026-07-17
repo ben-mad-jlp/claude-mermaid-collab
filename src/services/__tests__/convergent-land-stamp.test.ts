@@ -83,6 +83,9 @@ describe('convergeObservedMerge — convergent crash-window stamp', () => {
     const leafAfter = getTodo(project, landLeafId);
     expect(leafAfter).toBeTruthy();
     expect(leafAfter!.status).toBe('done');
+
+    const epicAfter = getTodo(project, epicId);
+    expect(epicAfter!.landedAt).not.toBeNull();
   });
 
   it('ahead>0 (unlanded) → NOT stamped, reason epic-ahead, leaf stays not-done', async () => {
