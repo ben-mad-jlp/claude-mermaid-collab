@@ -31,8 +31,9 @@ import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import type { WorktreeManager } from '../agent/worktree-manager';
-import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
+import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
+import { config } from '../config';
 import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
@@ -1947,6 +1948,7 @@ export async function runLeaf(
       // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
       // tool — build nodes use only built-ins, so the ~200-tool surface is dead context.
       strictMcpConfig: !NODE_PROFILE[kind].allowedTools.includes('mcp__'),
+      mcpConfig: NODE_PROFILE[kind].allowedTools.includes('mcp__') ? mcpConfigFor(config.PORT) : undefined,
       cwd,
       leafId: leaf.id,
       epicId,
@@ -1988,6 +1990,8 @@ export async function runLeaf(
       kind === 'driveexec'
         ? `Read Write Bash ${verbMcpTool(verb)}`
         : NODE_PROFILE[kind].allowedTools,
+    strictMcpConfig: true,
+    mcpConfig: (kind === 'driveexec' || kind === 'report') ? mcpConfigFor(config.PORT) : undefined,
     cwd,
     leafId: leaf.id,
     epicId,
@@ -2081,6 +2085,8 @@ export async function runLeaf(
       model: nodeModel('review', reviewTools),
       effort: nodeEffort('review'),
       allowedTools: reviewTools,
+      mcpConfig: mcpConfigFor(config.PORT),
+      strictMcpConfig: true,
       cwd,
       leafId: leaf.id,
       epicId,

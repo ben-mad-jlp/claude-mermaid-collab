@@ -168,6 +168,9 @@ function priceCost(u: NodeUsage): number {
  * NodeResult contract so the leaf-executor dispatch is uniform.
  */
 export async function invokeXaiApiNode(spec: NodeSpec): Promise<NodeResult> {
+  if ((spec.allowedTools ?? '').includes('mcp__')) {
+    throw new Error(`invokeXaiApiNode: refused — allowedTools grants an mcp__ tool ('${spec.allowedTools}') but the xAI-API lane's fixed tool loop cannot carry an MCP config.`);
+  }
   const start = Date.now();
   const authMode = resolveXaiApiAuthMode();
   if (authMode !== 'api') {

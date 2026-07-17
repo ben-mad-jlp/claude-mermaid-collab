@@ -49,6 +49,29 @@ export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.
   return env;
 }
 
+/** Per-port generated MCP config directing a headless node's mcp__mermaid__* tools at
+ *  THIS server's actual bound port — never the checked-in .mcp.json's hardcoded
+ *  localhost:9002 (which would file findings into a DIFFERENT user's server on a
+ *  multi-user box). Written once per (port) into the OS tmp dir; idempotent — later
+ *  calls for the same port overwrite the same path rather than accumulating files.
+ *  Exported for unit testing. */
+const mcpConfigPaths = new Map<number, string>();
+export function mcpConfigFor(port: number): string {
+  const cached = mcpConfigPaths.get(port);
+  if (cached) return cached;
+  const dir = join(tmpdir(), 'mermaid-node-mcp-config');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `mcp-config-${port}-${process.pid}.json`);
+  const body = {
+    mcpServers: {
+      mermaid: { type: 'http', url: `http://127.0.0.1:${port}/mcp` },
+    },
+  };
+  writeFileSync(path, JSON.stringify(body, null, 2));
+  mcpConfigPaths.set(port, path);
+  return path;
+}
+
 /**
  * Append a node's raw stream-json transcript to the per-leaf file, preceded by a
  * synthetic boundary marker so the reader can split the file back into nodes.
@@ -76,6 +99,13 @@ export interface NodeSpec {
    *  node can never call, plus an HTTP connect per spawn) is dead context weight. Set for
    *  any node whose allowlist has no mcp__ tool. Optional → CLI default (loads .mcp.json). */
   strictMcpConfig?: boolean;
+  /** Path to a generated `--mcp-config` JSON (see {@link mcpConfigFor}) naming ONLY this
+   *  server's own MCP endpoint at its actual bound port. Set for any node whose
+   *  `allowedTools` grants an `mcp__` tool, so the node never falls back to the cwd's
+   *  checked-in `.mcp.json` (which hardcodes localhost:9002). When set, `--strict-mcp-config`
+   *  is forced regardless of `strictMcpConfig` (see buildNodeArgv) — so the node sees THIS
+   *  config and nothing else. */
+  mcpConfig?: string;
   /** Appended system prompt (--append-system-prompt). Optional. */
   appendSystemPrompt?: string;
   /** Working dir set on the spawned process (NOT a CLI flag — no --cwd exists). Required. */
@@ -295,10 +325,12 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
   ];
   if (spec.model) argv.push('--model', spec.model);
   if (spec.effort) argv.push('--effort', spec.effort);
-  // Strip MCP: --strict-mcp-config with NO --mcp-config flags = zero MCP servers, so the
-  // cwd's .mcp.json (the ~200-tool mermaid server) is not loaded into a node that can't
-  // call it. A boolean flag (no value), so it never collides with the variadic args below.
-  if (spec.strictMcpConfig) argv.push('--strict-mcp-config');
+  // Strip MCP: --strict-mcp-config with NO --mcp-config flags = zero MCP servers (build
+  // nodes); WITH --mcp-config <path> = ONLY that server (mcp-bearing nodes) — either way
+  // the node never inherits the cwd's checked-in .mcp.json. A boolean/valued flag, so it
+  // never collides with the variadic args below.
+  if (spec.strictMcpConfig || spec.mcpConfig) argv.push('--strict-mcp-config');
+  if (spec.mcpConfig) argv.push('--mcp-config', spec.mcpConfig);
   // allowedTools may be '' (= no tools) — push it explicitly when defined (not just truthy).
   if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
   if (spec.appendSystemPrompt) argv.push('--append-system-prompt', spec.appendSystemPrompt);
@@ -1039,6 +1071,9 @@ function grokParseError(msg: string): string {
  * Run ONE bounded headless `grok --prompt-file` node. Mirrors invokeNode structure.
  */
 export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
+  if ((spec.allowedTools ?? '').includes('mcp__')) {
+    throw new Error(`invokeGrokNode: refused — allowedTools grants an mcp__ tool ('${spec.allowedTools}') but the grok CLI lane cannot carry an MCP config.`);
+  }
   const start = Date.now();
   const authMode = resolveGrokAuthMode();
 
