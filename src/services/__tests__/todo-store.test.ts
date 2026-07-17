@@ -7,7 +7,7 @@ import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
-  deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError,
+  deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, resolveShortId,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -136,6 +136,30 @@ describe('todo-store', () => {
 
   test('getTodo returns null for a missing id', () => {
     expect(getTodo(project, 'nope')).toBeNull();
+  });
+
+  test('getTodo resolves a leading-8-hex short id to the same todo as the full id', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'short-id target' });
+    const shortId = t.id.slice(0, 8);
+    expect(getTodo(project, shortId)).toEqual(getTodo(project, t.id));
+  });
+
+  test('resolveShortId / getTodo throw on an ambiguous short id prefix', async () => {
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'seed' });
+    _closeProject(project);
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    const now = new Date().toISOString();
+    const sharedPrefix = 'abcd1234';
+    for (const suffix of ['-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '-bbbb-bbbb-bbbb-bbbbbbbbbbbb']) {
+      db.exec(
+        `INSERT INTO todos (id, title, ownerSession, status, ord, createdAt, updatedAt)
+         VALUES ('${sharedPrefix}${suffix}', 'dup', 's1', 'todo', 10, '${now}', '${now}')`,
+      );
+    }
+    db.close();
+    _closeProject(project);
+    expect(() => resolveShortId(project, sharedPrefix)).toThrow(/ambiguous/);
+    expect(() => getTodo(project, sharedPrefix)).toThrow(/ambiguous/);
   });
 
   test('updateTodo syncs completed + completedAt when status -> done', async () => {

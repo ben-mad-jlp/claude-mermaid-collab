@@ -17,7 +17,7 @@
 import Database from 'bun:sqlite';
 import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { listTodos } from './todo-store.ts';
+import { listTodos, resolveShortId } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
@@ -240,9 +240,14 @@ export function stampMissionNudge(project: string, todoId: string, key?: string)
 
 /** Read a mission's control state, or undefined if the node has none yet. */
 export function getMission(project: string, todoId: string): MissionRow | undefined {
-  const row = openDb(project)
-    .query('SELECT * FROM mission WHERE todoId = ?')
-    .get(todoId) as Record<string, unknown> | null;
+  const db = openDb(project);
+  let row = db.query('SELECT * FROM mission WHERE todoId = ?').get(todoId) as Record<string, unknown> | null;
+  if (!row) {
+    const resolved = resolveShortId(project, todoId);
+    if (resolved && resolved !== todoId) {
+      row = db.query('SELECT * FROM mission WHERE todoId = ?').get(resolved) as Record<string, unknown> | null;
+    }
+  }
   if (!row) return undefined;
   const m = rowToMission(row);
   return { ...m, status: deriveMissionStatus(collectMissionStatusFacts(project, m)) };

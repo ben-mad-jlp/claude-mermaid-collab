@@ -1243,10 +1243,31 @@ function rowToTodo(row: TodoRow): Todo {
   };
 }
 
+/** Resolve a short (leading-8-hex prefix) todo id to its unique full id via `LIKE`
+ *  startsWith — the short-id convention already used ad hoc by
+ *  findLeafTodoByShortId (leaf-worktree-reaper.ts) and forward-integrate-epic.ts.
+ *  Returns null if no todo's id starts with `prefix`. Throws if the prefix is
+ *  AMBIGUOUS (matches more than one todo) — ambiguity must surface to the caller,
+ *  never be silently resolved to an arbitrary match. */
+export function resolveShortId(project: string, prefix: string): string | null {
+  const db = openDb(project);
+  const escaped = prefix.replace(/[%_\\]/g, '\\$&');
+  const rows = db.query("SELECT id FROM todos WHERE id LIKE ? ESCAPE '\\'").all(`${escaped}%`) as { id: string }[];
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw new Error(`ambiguous short id "${prefix}": matches ${rows.length} todos (${rows.map(r => r.id).join(', ')})`);
+  }
+  return rows[0].id;
+}
+
 export function getTodo(project: string, id: string): Todo | null {
   const db = openDb(project);
   const row = db.query('SELECT * FROM todos WHERE id = ?').get(id) as TodoRow | null;
-  return row ? rowToTodo(row) : null;
+  if (row) return rowToTodo(row);
+  const resolved = resolveShortId(project, id);
+  if (resolved === null) return null;
+  const row2 = db.query('SELECT * FROM todos WHERE id = ?').get(resolved) as TodoRow | null;
+  return row2 ? rowToTodo(row2) : null;
 }
 
 export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {

@@ -68,6 +68,13 @@ describe('mission-store: control state', () => {
     expect(validStatuses).toContain(m.status ?? '');
   });
 
+  test('getMission resolves a leading-8-hex short id to the same row as the full todoId', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const short = id.slice(0, 8);
+    expect(getMission(project, short)).toEqual(getMission(project, id));
+  });
+
   test('deleteMission removes control state + criteria', async () => {
     const id = await makeMissionNode();
     upsertMission(project, id);
