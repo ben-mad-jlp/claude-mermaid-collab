@@ -135,6 +135,11 @@ interface QuickReplyState {
    *  Drives the xterm palette AND the chip bar + composer chrome. Persisted. */
   terminalTheme: TerminalThemeSetting;
   setTerminalTheme: (t: TerminalThemeSetting) => void;
+  /** Suggestion (quick-reply) chip row display: on = InputRail renders its chips (default);
+   *  off = InputRail hides the chip row entirely. Generation/state (custom chips, order,
+   *  hiddenDefaults) is untouched either way — this is purely a display gate. Persisted. */
+  suggestReplyDisplay: boolean;
+  setSuggestReplyDisplay: (on: boolean) => void;
 }
 
 export type TerminalThemeSetting = 'match' | 'light' | 'dark' | 'sepia';
@@ -228,10 +233,13 @@ export const useQuickReplyStore = create<QuickReplyState>()(
 
       terminalTheme: 'match',
       setTerminalTheme: (t) => set({ terminalTheme: t }),
+
+      suggestReplyDisplay: true,
+      setSuggestReplyDisplay: (on) => set({ suggestReplyDisplay: on }),
     }),
     {
       name: 'mc.terminal.chips.v1',
-      version: 2,
+      version: 3,
       // Older persisted blobs may carry a now-removed `autocorrectMode`; strip it
       // and keep the rest (chips, order, toggles) so upgrading loses no user data.
       migrate: (persisted: any) => {
@@ -248,6 +256,7 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         order: s.order,
         sendOnEnter: s.sendOnEnter,
         terminalTheme: s.terminalTheme,
+        suggestReplyDisplay: s.suggestReplyDisplay,
       }),
     },
   ),
