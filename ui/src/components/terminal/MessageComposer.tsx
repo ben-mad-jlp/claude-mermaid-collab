@@ -35,6 +35,8 @@ interface MessageComposerProps {
 export function MessageComposer({ project, session, serverId, disabled = false, injectMode = false }: MessageComposerProps) {
   const sendOnEnter = useQuickReplyStore((s) => s.sendOnEnter);
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
+  const suggestReplyDisplay = useQuickReplyStore((s) => s.suggestReplyDisplay);
+  const setSuggestReplyDisplay = useQuickReplyStore((s) => s.setSuggestReplyDisplay);
   const p = useTerminalPalette();
 
   const [value, setValue] = useState('');
@@ -341,6 +343,15 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             style={toggleChip(sendOnEnter, disabled)}
           >
             Enter sends
+          </button>
+          <button
+            type="button" data-testid="suggest-reply-display-toggle" disabled={disabled}
+            aria-pressed={suggestReplyDisplay}
+            onClick={() => setSuggestReplyDisplay(!suggestReplyDisplay)}
+            title={`Suggestions: ${suggestReplyDisplay ? 'on' : 'off'} — show/hide the quick-reply chip row`}
+            style={toggleChip(suggestReplyDisplay, disabled)}
+          >
+            Suggestions
           </button>
         </div>
       </div>
