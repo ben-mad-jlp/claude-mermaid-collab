@@ -1106,6 +1106,51 @@ export class WorktreeManager {
     return out;
   }
 
+  /** Clear git's admin bookkeeping (`.git/worktrees/<n>`) for LINKED worktrees git itself marks
+   *  `prunable` — meaning their on-disk working dir is ALREADY GONE (rm'd out-of-band). This
+   *  deletes NOTHING on disk: it only removes stale admin records for dirs that no longer exist.
+   *  A worktree whose dir is still present is NEVER touched here (constraint d7f5eb20 — only
+   *  prune already-missing entries; a real dir is never age-removed). Lock-serialised: shares
+   *  the per-project worktree mutex with add/remove (6bc2dc36) so this can't race a sibling's
+   *  in-flight worktree add/remove/merge. Returns the entries that were prunable (and are now
+   *  cleared) so callers can log/report exactly what was reclaimed. */
+  async pruneMissingWorktrees(): Promise<Array<{ path: string; branch: string | null }>> {
+    return this.withWorktreeLock(() => this._pruneMissingWorktreesInner());
+  }
+
+  private async _pruneMissingWorktreesInner(): Promise<Array<{ path: string; branch: string | null }>> {
+    if (!(await this.isGitRepo())) return [];
+    const list = await this.runGit(
+      this.opts.projectRoot,
+      ['worktree', 'list', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (list.code !== 0) return [];
+    const prunable: Array<{ path: string; branch: string | null }> = [];
+    const blocks = list.stdout.split('\n\n');
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      let wtPath = '';
+      let branch: string | null = null;
+      let isPrunable = false;
+      for (const ln of lines) {
+        if (ln.startsWith('worktree ')) wtPath = ln.slice('worktree '.length);
+        else if (ln.startsWith('branch ')) branch = ln.slice('branch '.length).replace(/^refs\/heads\//, '');
+        else if (ln === 'prunable' || ln.startsWith('prunable ')) isPrunable = true;
+      }
+      if (!wtPath) continue;
+      if (path.resolve(wtPath) === path.resolve(this.opts.projectRoot)) continue; // never the main worktree
+      if (isPrunable) prunable.push({ path: wtPath, branch });
+    }
+    if (prunable.length === 0) return [];
+    // The actual admin-record clear. Deletes nothing on disk — the dir is already gone,
+    // this only drops git's `.git/worktrees/<name>` bookkeeping for it.
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    return prunable;
+  }
+
   /** Resolve a base ref to branch a NEW epic off: the requested ref when it
    *  exists, else the detected base branch. Lets a caller request a specific base
    *  (e.g. master) yet fall back to the detected default branch on a fresh repo. */

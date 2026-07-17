@@ -73,6 +73,7 @@ type FrictionWatchManager = {
   listStaleWorktrees(): Promise<
     Array<{ path: string; branch: string | null; reason: 'branch-gone' | 'prunable' | 'stale'; ageMs: number }>
   >;
+  pruneMissingWorktrees?(): Promise<Array<{ path: string; branch: string | null }>>;
 };
 
 /** One deterministic operational-friction watch pass for `project`. Records DF1
@@ -106,6 +107,9 @@ export async function runFrictionWatchPass(
   const last = lastStaleScanAt.get(project);
   if (opts.force || last === undefined || now - last >= STALE_WORKTREE_SCAN_INTERVAL_MS) {
     lastStaleScanAt.set(project, now);
+    try {
+      await wm.pruneMissingWorktrees?.();
+    } catch { /* best-effort */ }
     try {
       const stale = await wm.listStaleWorktrees();
       for (const wt of stale) {
