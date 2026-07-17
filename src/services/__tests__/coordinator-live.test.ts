@@ -28,6 +28,8 @@ let completeSessionName = '';
 let completeResultExtra: Record<string, unknown> = {};
 const updateTodoCalls: Array<{ id: string; patch: any }> = [];
 let resetTodoCalls: Array<{ id: string; status: string }> = [];
+const reclaimOrphanCalls: string[] = [];
+let reclaimOrphanResult: 'ready' | 'blocked' | null = null;
 // Overridable by the terminal-children describe block below: listTodos is stubbed
 // module-wide (no real DB in this file), so those tests point this at fixture rows
 // instead of touching todo-store's real listTodos.
@@ -43,7 +45,7 @@ mock.module('../todo-store', () => ({
   listTodos: (project: string, opts: any) => mockListTodosImpl(project, opts),
   reclaimClaim: async () => 'ready',
   releaseClaim: async () => {},
-  reclaimOrphan: async () => null,
+  reclaimOrphan: async (_project: string, id: string) => { reclaimOrphanCalls.push(id); return reclaimOrphanResult; },
 }));
 
 import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle, strandedEpicCandidates } from '../coordinator-live';
@@ -55,6 +57,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _clearManifestCache } from '../../config/project-manifest';
+import { markRunLive, markRunDone } from '../leaf-subprocess-registry';
 
 // Isolate the GLOBAL supervisor.db so launchWorker's addSupervised/addWatchedProject
 // (coordinator-live.ts) NEVER pollute the real ~/.mermaid-collab registry the live
@@ -209,6 +212,50 @@ describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', 
     const detail = JSON.parse(row!.detail!);
     expect(detail.priorClaimant).toBe('worker-prior-lane');
     expect(detail.decision).toBe('ready'); // mocked reclaimClaim → 'ready'
+  });
+});
+
+describe('reapOrphanedLeaves — isRunLive guard on the same-epoch reclaim loops (mission b3ef537f crit 1)', () => {
+  afterEach(() => {
+    mockListTodosImpl = () => [];
+    reclaimOrphanCalls.length = 0;
+    reclaimOrphanResult = null;
+  });
+
+  const orphanCandidate = (id: string): Todo => ({
+    id, kind: 'leaf', type: 'backend', title: '[UI] between-nodes leaf',
+    assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
+    claimedBy: null, claimedAt: null, claimLeaseMs: null,
+    // older than DEFAULT_ORPHAN_GRACE_MS so planOrphanReap's grace-fallback loop
+    // includes it as a Case-A (no-claim) candidate — needsTmuxProbe stays false so
+    // no tmux probe is required.
+    updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+  } as unknown as Todo);
+
+  it('does NOT reclaim a current-epoch headless leaf that is run-level-live between nodes (isRunLive=true, isLeafInflightLive=false)', async () => {
+    const leaf = orphanCandidate('between-nodes-leaf-1');
+    mockListTodosImpl = (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]);
+    markRunLive(leaf.id);
+    try {
+      const deps = makeCoordinatorDeps();
+      const res = await deps.reapOrphanedLeaves!(TEST_ROOT);
+      expect(reclaimOrphanCalls).not.toContain(leaf.id); // never reached reclaimOrphan — claimToken unchanged
+      expect(res.reclaimed).not.toContain(leaf.id);
+      expect(res.exhausted).not.toContain(leaf.id);
+    } finally {
+      markRunDone(leaf.id);
+    }
+  });
+
+  it('STILL reclaims a genuinely dead current-epoch leaf (isRunLive=false) — the guard does not over-broaden', async () => {
+    const leaf = orphanCandidate('dead-leaf-1');
+    mockListTodosImpl = (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]);
+    reclaimOrphanResult = 'ready';
+    // isRunLive('dead-leaf-1') is false by construction — nothing ever called markRunLive for it.
+    const deps = makeCoordinatorDeps();
+    const res = await deps.reapOrphanedLeaves!(TEST_ROOT);
+    expect(reclaimOrphanCalls).toContain(leaf.id);
+    expect(res.reclaimed).toContain(leaf.id);
   });
 });
 
