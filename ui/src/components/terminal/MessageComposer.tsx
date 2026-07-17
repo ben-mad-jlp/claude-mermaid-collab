@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 import { useTerminalPalette } from './terminalTheme';
 import { registerComposerDrop } from './composerDrop';
-import { useAutocorrect } from '@/hooks/useAutocorrect';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -36,11 +35,7 @@ interface MessageComposerProps {
 export function MessageComposer({ project, session, serverId, disabled = false, injectMode = false }: MessageComposerProps) {
   const sendOnEnter = useQuickReplyStore((s) => s.sendOnEnter);
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
-  const autocorrectMode = useQuickReplyStore((s) => s.autocorrectMode);
-  const setAutocorrectMode = useQuickReplyStore((s) => s.setAutocorrectMode);
   const p = useTerminalPalette();
-
-  const { mode, correctMessage, vocabWords } = useAutocorrect(project);
 
   const [value, setValue] = useState('');
   // When text file(s) are dropped, hold them here and offer a choice: paste their
@@ -48,7 +43,6 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   const [pendingDrop, setPendingDrop] = useState<{ files: File[]; paths: string[] } | null>(null);
   const [focused, setFocused] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const sentSpellWordsRef = useRef<Set<string>>(new Set());
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
    *  surrounded by single spaces, and leave the caret right after it. */
@@ -185,16 +179,6 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, session, serverId, disabled]);
 
-  // Push new vocab words to the desktop spellchecker's custom dictionary.
-  useEffect(() => {
-    const add = (window as any).mc?.addSpellCheckWords;
-    if (typeof add !== 'function') return; // non-Electron no-op
-    const fresh = vocabWords.filter((w) => !sentSpellWordsRef.current.has(w));
-    if (fresh.length === 0) return;
-    for (const w of fresh) sentSpellWordsRef.current.add(w);
-    add(fresh);
-  }, [vocabWords]);
-
   // Auto-grow: reset to auto to measure scrollHeight, then clamp to MAX_HEIGHT.
   useLayoutEffect(() => {
     const ta = taRef.current;
@@ -203,21 +187,6 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     ta.style.height = `${Math.min(ta.scrollHeight, MAX_HEIGHT)}px`;
     ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden';
   }, [value]);
-
-  /** Compose-then-submit invariant: the composer NEVER types keystroke-by-keystroke
-   *  into tmux — it builds the whole message string and submits it in one POST
-   *  (submit:true). That is what makes a batch autocorrect pass safe here: we correct
-   *  the FINAL string once (covering the last, unspaced token) and send the result.
-   *  Autocorrect is on/off: 'off' sends verbatim, 'auto' corrects the whole message. */
-  const correctForSend = (raw: string): string => {
-    if (mode === 'off') return raw;
-    const hits = correctMessage(raw);
-    let out = raw;
-    for (const h of [...hits].sort((a, b) => b.start - a.start)) {
-      out = out.slice(0, h.start) + h.to + out.slice(h.end);
-    }
-    return out;
-  };
 
   /** Clear the draft after a send. */
   const resetDraft = () => {
@@ -229,7 +198,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     if (disabled) return;
     const text = value;
     if (!text.trim()) return;
-    const outgoing = correctForSend(text);
+    const outgoing = text;
     const mc = (window as any).mc;
 
     // grok-build lane: there is no tmux pane. Route the steer to the in-process
@@ -271,7 +240,6 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    // Autocorrect never touches text while typing — 'auto' corrects only on send.
     setValue(e.target.value);
   };
 
@@ -325,14 +293,14 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
       )}
 
       {/* Input row: the auto-growing textarea on the left; a right-hand COLUMN holding the
-          Send button (stretches/grows with the textarea height) above the two on/off
-          pill toggles (green = on, red = off — the colour is the state, no label text). */}
+          Send button (stretches/grows with the textarea height) above the Enter-sends
+          pill toggle (green = on, red = off — the colour is the state, no label text). */}
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
         <textarea
           ref={taRef}
           value={value}
           rows={1}
-          spellCheck={true}
+          spellCheck={false}
           disabled={disabled}
           placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
           onChange={onChange}
@@ -373,15 +341,6 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             style={toggleChip(sendOnEnter, disabled)}
           >
             Enter sends
-          </button>
-          <button
-            type="button" data-testid="autocorrect-toggle" disabled={disabled}
-            aria-pressed={autocorrectMode === 'auto'}
-            onClick={() => setAutocorrectMode(autocorrectMode === 'auto' ? 'off' : 'auto')}
-            title={`Autocorrect: ${autocorrectMode === 'auto' ? 'on' : 'off'} — corrects known typos on send using the project vocabulary`}
-            style={toggleChip(autocorrectMode === 'auto', disabled)}
-          >
-            Autocorrect
           </button>
         </div>
       </div>

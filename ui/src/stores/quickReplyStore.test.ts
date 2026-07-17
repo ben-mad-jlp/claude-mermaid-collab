@@ -2,17 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { useQuickReplyStore } from './quickReplyStore';
 
 describe('quickReplyStore', () => {
-  it('autocorrectMode defaults to off', () => {
+  it('sendOnEnter defaults to on', () => {
     const state = useQuickReplyStore.getState();
-    expect(state.autocorrectMode).toBe('off');
+    expect(state.sendOnEnter).toBe(true);
   });
 
-  it('setAutocorrectMode updates the mode', () => {
+  it('setSendOnEnter updates the toggle', () => {
     const state = useQuickReplyStore.getState();
-    state.setAutocorrectMode('auto');
-    expect(useQuickReplyStore.getState().autocorrectMode).toBe('auto');
+    state.setSendOnEnter(false);
+    expect(useQuickReplyStore.getState().sendOnEnter).toBe(false);
     // Reset
-    state.setAutocorrectMode('off');
-    expect(useQuickReplyStore.getState().autocorrectMode).toBe('off');
+    state.setSendOnEnter(true);
+    expect(useQuickReplyStore.getState().sendOnEnter).toBe(true);
   });
 });

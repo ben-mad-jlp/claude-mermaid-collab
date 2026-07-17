@@ -135,14 +135,9 @@ interface QuickReplyState {
    *  Drives the xterm palette AND the chip bar + composer chrome. Persisted. */
   terminalTheme: TerminalThemeSetting;
   setTerminalTheme: (t: TerminalThemeSetting) => void;
-  /** Autocorrect: 'off' disables; 'auto' corrects typed messages on send. Persisted.
-   *  (A two-state on/off toggle — the old 'suggest' preview mode was removed.) */
-  autocorrectMode: AutocorrectMode;
-  setAutocorrectMode: (m: AutocorrectMode) => void;
 }
 
 export type TerminalThemeSetting = 'match' | 'light' | 'dark' | 'sepia';
-export type AutocorrectMode = 'off' | 'auto';
 
 export const useQuickReplyStore = create<QuickReplyState>()(
   persist(
@@ -233,17 +228,15 @@ export const useQuickReplyStore = create<QuickReplyState>()(
 
       terminalTheme: 'match',
       setTerminalTheme: (t) => set({ terminalTheme: t }),
-
-      autocorrectMode: 'off',
-      setAutocorrectMode: (m) => set({ autocorrectMode: m }),
     }),
     {
       name: 'mc.terminal.chips.v1',
       version: 2,
-      // v2: autocorrect collapsed to on/off — coalesce a persisted 'suggest' → 'auto'.
-      migrate: (persisted: any, version) => {
-        if (persisted && version < 2 && persisted.autocorrectMode === 'suggest') {
-          persisted.autocorrectMode = 'auto';
+      // Older persisted blobs may carry a now-removed `autocorrectMode`; strip it
+      // and keep the rest (chips, order, toggles) so upgrading loses no user data.
+      migrate: (persisted: any) => {
+        if (persisted && 'autocorrectMode' in persisted) {
+          delete persisted.autocorrectMode;
         }
         return persisted;
       },
@@ -255,7 +248,6 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         order: s.order,
         sendOnEnter: s.sendOnEnter,
         terminalTheme: s.terminalTheme,
-        autocorrectMode: s.autocorrectMode,
       }),
     },
   ),

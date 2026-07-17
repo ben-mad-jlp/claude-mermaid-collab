@@ -3,28 +3,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageComposer } from './MessageComposer';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 
-// Mock autocorrect hooks for deterministic testing.
-let mockMode: 'off' | 'auto' = 'off';
-vi.mock('@/hooks/useAutocorrect', () => ({
-  useAutocorrect: () => ({
-    get mode() { return mockMode; },
-    correct: (t: string) =>
-      t.toLowerCase() === 'recieve' ? { from: t, to: 'receive', strength: 'strong' }
-      : t.toLowerCase() === 'beleive' ? { from: t, to: 'believe', strength: 'strong' } : null,
-    correctMessage: (text: string) => {
-      const m = /recieve/.exec(text);
-      return m ? [{ start: m.index, end: m.index + 7, from: 'recieve', to: 'receive' }] : [];
-    },
-    vocabWords: ['recieveproject', 'planner'],
-  }),
-}));
-
-const addSpy = vi.fn();
-vi.mock('@/lib/autocorrect/personalDict', () => ({
-  addToPersonalDict: (...a: any[]) => addSpy(...a),
-  getPersonalDict: () => new Set<string>(),
-}));
-
 /**
  * MessageComposer — the multi-line composer below the quick-reply chips. Verifies
  * the Enter-sends toggle, Shift+Enter newline, button send, empty-send guard, and
@@ -41,24 +19,11 @@ function lastFetchBody(): any {
 
 describe('MessageComposer', () => {
   beforeEach(() => {
-    mockMode = 'off';
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
-    useQuickReplyStore.setState({ sendOnEnter: true, autocorrectMode: 'off' });
+    useQuickReplyStore.setState({ sendOnEnter: true });
   });
   afterEach(() => { vi.restoreAllMocks(); });
-
-  it('the autocorrect toggle reflects on/off (aria-pressed) and flips the persisted mode', () => {
-    // Order-independent: the beforeEach above pins autocorrectMode to 'off'.
-    render(<MessageComposer {...PROPS} />);
-    const toggle = screen.getByTestId('autocorrect-toggle');
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(toggle);
-    expect(useQuickReplyStore.getState().autocorrectMode).toBe('auto');
-    expect(screen.getByTestId('autocorrect-toggle')).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByTestId('autocorrect-toggle'));
-    expect(useQuickReplyStore.getState().autocorrectMode).toBe('off');
-  });
 
   it('Enter sends when "Enter sends" is on, with submit:true and the typed text', () => {
     render(<MessageComposer {...PROPS} />);
@@ -69,6 +34,14 @@ describe('MessageComposer', () => {
     const body = lastFetchBody();
     expect(body).toMatchObject({ project: '/p', session: 's', text: 'hello world', submit: true });
     expect(ta.value).toBe(''); // cleared after send
+  });
+
+  it('sends the typed text verbatim (no correction pass)', () => {
+    render(<MessageComposer {...PROPS} />);
+    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: 'recieve teh msg' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(lastFetchBody().text).toBe('recieve teh msg');
   });
 
   it('Shift+Enter inserts a newline and does NOT send', () => {
@@ -116,55 +89,14 @@ describe('MessageComposer', () => {
     expect(screen.getByRole('button', { name: /Enter sends/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('enables spellCheck on the composer textarea', () => {
+  it('disables native spellCheck on the composer textarea', () => {
     render(<MessageComposer {...PROPS} />);
     const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    expect(ta.getAttribute('spellcheck')).toBe('true');
-  });
-
-  it('pushes new vocab words to window.mc.addSpellCheckWords when the bridge is present', () => {
-    const push = vi.fn();
-    (window as any).mc = { addSpellCheckWords: push };
-    render(<MessageComposer {...PROPS} />);
-    expect(push).toHaveBeenCalled();
-    expect(push.mock.calls[0][0]).toEqual(expect.arrayContaining(['planner']));
-    delete (window as any).mc;
+    expect(ta.getAttribute('spellcheck')).toBe('false');
   });
 
   it('does not throw when window.mc is absent', () => {
     delete (window as any).mc;
     expect(() => render(<MessageComposer {...PROPS} />)).not.toThrow();
-  });
-});
-
-describe('MessageComposer — auto & off send semantics', () => {
-  beforeEach(() => {
-    mockMode = 'auto';
-    delete (window as any).mc;
-    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
-    useQuickReplyStore.setState({ sendOnEnter: true });
-  });
-  afterEach(() => { vi.restoreAllMocks(); });
-
-  function typeWord(ta: HTMLTextAreaElement, text: string) {
-    fireEvent.change(ta, { target: { value: text, selectionStart: text.length } });
-  }
-
-  it('auto corrects on SEND only, never while typing', () => {
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve '); // space would have triggered the old inline apply
-    expect(ta.value).toBe('recieve '); // NOT corrected while typing
-    fireEvent.keyDown(ta, { key: 'Enter' });
-    expect(lastFetchBody().text).toBe('receive '); // corrected on send
-  });
-
-  it('off mode passes through unchanged', () => {
-    mockMode = 'off';
-    render(<MessageComposer {...PROPS} />);
-    const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
-    typeWord(ta, 'recieve');
-    fireEvent.keyDown(ta, { key: 'Enter' });
-    expect(lastFetchBody().text).toBe('recieve');
   });
 });
