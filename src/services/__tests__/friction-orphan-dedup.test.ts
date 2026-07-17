@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordFriction, listFriction, hasFrictionNote, _closeProject } from '../friction-store';
+import { recordFriction, recordFrictionOnce, listFriction, hasFrictionNote, _closeProject } from '../friction-store';
 
 let project: string;
 beforeEach(() => { project = mkdtempSync(join(tmpdir(), 'friction-orphan-')); });
@@ -38,5 +38,28 @@ describe('flagOrphan durable dedup', () => {
     expect(hasFrictionNote(project, { layer: 'operational', retryReason: REASON, detailIncludes: DIR })).toBe(false);
     await flagOnce();
     expect(hasFrictionNote(project, { layer: 'operational', retryReason: REASON, detailIncludes: DIR })).toBe(true);
+  });
+});
+
+describe('recordFrictionOnce — atomic race-proof dedup', () => {
+  it('N=3 sequential passes over the SAME dir → exactly 1 note total (0 new on passes 2..3)', async () => {
+    const r1 = await recordFrictionOnce(project, { layer: 'operational', retryReason: REASON, detail });
+    const r2 = await recordFrictionOnce(project, { layer: 'operational', retryReason: REASON, detail });
+    const r3 = await recordFrictionOnce(project, { layer: 'operational', retryReason: REASON, detail });
+    expect(r1).toBe(true);
+    expect(r2).toBe(false);
+    expect(r3).toBe(false);
+    expect(listFriction(project, { layer: 'operational' })
+      .filter((n) => n.retryReason === REASON && n.detail === detail).length).toBe(1);
+  });
+
+  it('CONCURRENT overlapping passes over the SAME dir → exactly 1 note total', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        recordFrictionOnce(project, { layer: 'operational', retryReason: REASON, detail })),
+    );
+    expect(results.filter(Boolean).length).toBe(1);
+    expect(listFriction(project, { layer: 'operational' })
+      .filter((n) => n.retryReason === REASON && n.detail === detail).length).toBe(1);
   });
 });
