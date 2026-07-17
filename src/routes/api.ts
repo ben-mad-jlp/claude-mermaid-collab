@@ -35,8 +35,15 @@ import {
   reorder,
   promoteBucketItemToEpic,
   backfillEpicsUnderMission,
+  deriveTodoViews,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
+import {
+  createEpicWithLandLeaf,
+  addLeavesToEpic,
+  fileToBucketLeaf,
+  type LeafInput,
+} from '../mcp/workgraph-tools';
 import type { TodoKind } from '../services/todo-kind';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { recordUsage, getUsage } from '../services/usage-store';
@@ -3854,6 +3861,84 @@ export async function handleAPI(
         wsHandler.broadcast({ type: 'session_todos_updated', project, session });
       }
       return Response.json({ epic: result.epic, item: result.item });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/workgraph/create-epic - Create an epic + its terminal [LAND]→master leaf
+  if (path === '/api/workgraph/create-epic' && req.method === 'POST') {
+    try {
+      const body = await req.json() as {
+        project?: string; session?: string; title?: string;
+        home?: string | null; servesCriterionIds?: string[]; description?: string;
+        tier?: 'full' | 'small' | 'test-pinned';
+      };
+      const { project, session, title } = body;
+      if (!project || !session || !title) {
+        return Response.json({ error: 'project, session, and title required' }, { status: 400 });
+      }
+      const { epic, landLeaf } = await createEpicWithLandLeaf(project, session, {
+        title,
+        home: body.home,
+        homeProvided: 'home' in body,
+        description: body.description,
+        servesCriterionIds: body.servesCriterionIds,
+        tier: body.tier,
+      });
+      wsHandler.broadcast({ type: 'session_todos_updated', project, session, ownerSession: epic.ownerSession });
+      return Response.json({ epicId: epic.id, landLeafId: landLeaf.id, epic, landLeaf }, { status: 201 });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/workgraph/add-leaves - Bulk-add leaf todos under an existing epic
+  if (path === '/api/workgraph/add-leaves' && req.method === 'POST') {
+    try {
+      const body = await req.json() as {
+        project?: string; session?: string; epicId?: string; leaves?: LeafInput[];
+      };
+      const { project, session, epicId, leaves } = body;
+      if (!project || !session || !epicId) {
+        return Response.json({ error: 'project, session, and epicId required' }, { status: 400 });
+      }
+      if (!Array.isArray(leaves) || leaves.length === 0) {
+        return Response.json({ error: 'leaves must be a non-empty array' }, { status: 400 });
+      }
+      const { createdIds } = await addLeavesToEpic(project, session, epicId, leaves);
+      wsHandler.broadcast({ type: 'session_todos_updated', project, session });
+      return Response.json(
+        { epicId, createdIds, leaves: deriveTodoViews(project, createdIds.map((id) => getTodo(project, id)!)) },
+        { status: 201 },
+      );
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/workgraph/file-to-bucket - Quick-capture a leaf under the Inbox/Bugfix bucket
+  if (path === '/api/workgraph/file-to-bucket' && req.method === 'POST') {
+    try {
+      const body = await req.json() as {
+        project?: string; session?: string; title?: string;
+        bucket?: 'inbox' | 'bugfix'; description?: string;
+        priority?: 0 | 1 | 2 | 3 | 4; status?: 'backlog' | 'planned'; link?: SessionTodoLink;
+      };
+      const { project, session, title } = body;
+      if (!project || !session || !title) {
+        return Response.json({ error: 'project, session, and title required' }, { status: 400 });
+      }
+      const created = await fileToBucketLeaf(project, session, {
+        title,
+        bucket: body.bucket,
+        description: body.description,
+        priority: body.priority,
+        status: body.status,
+        link: body.link,
+      });
+      wsHandler.broadcast({ type: 'session_todos_updated', project, session, ownerSession: created.ownerSession });
+      return Response.json({ leaf: deriveTodoViews(project, [created])[0] }, { status: 201 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
