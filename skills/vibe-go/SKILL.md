@@ -386,10 +386,10 @@ Review the wave summaries and the work just done for any **deferred follow-ups**
 
 For EACH one, add a session todo so it isn't lost:
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
-Args: { "project": "<cwd>", "session": "<session>", "text": "<short title>", "status": "backlog" | "todo", "priority": <0-4>, "description": "Follow-up from /vibe-go. <what + where (file) + why deferred>" }
+Tool: mcp__plugin_mermaid-collab_mermaid__file_to_bucket
+Args: { "project": "<cwd>", "session": "<session>", "title": "<short title>", "status": "backlog" | "planned", "priority": <0-4>, "description": "Follow-up from /vibe-go. <what + where (file) + why deferred>" }
 ```
-Use `status: 'todo'` for follow-ups that should be done soon (e.g. missing tests), `backlog` for nice-to-haves. This is not optional — surfacing deferred work as tracked todos is default behavior, so nothing silently disappears.
+Use `status: 'planned'` for follow-ups that should be done soon (e.g. missing tests), `backlog` for nice-to-haves. The item lands in Inbox (default bucket), auto-created by `file_to_bucket`, not a bare top-level todo. This is not optional — surfacing deferred work as tracked todos is default behavior, so nothing silently disappears.
 
 ### 5.2 Queue review (DEFAULT — always)
 
@@ -397,8 +397,8 @@ Code review after a Go run is default behavior, not an optional suggestion.
 
 - **If this Go run is being driven by the Orchestrator daemon / an autonomous context** (no interactive human to prompt): add a `/vibe-review` follow-up as a session todo and, where work is assigned to a session, assign it — do NOT just print a suggestion an autonomous driver can't act on:
   ```
-  Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
-  Args: { "project": "<cwd>", "session": "<session>", "text": "Run /vibe-review on the executed blueprint", "status": "todo", "priority": 0, "description": "Default post-/vibe-go step: bug + completeness review of all waves." }
+  Tool: mcp__plugin_mermaid-collab_mermaid__file_to_bucket
+  Args: { "project": "<cwd>", "session": "<session>", "title": "Run /vibe-review on the executed blueprint", "status": "planned", "priority": 0, "description": "Default post-/vibe-go step: bug + completeness review of all waves." }
   ```
   Then proceed to run `/vibe-review` (invoke the `vibe-review` skill) as the next step.
 - **If a human is present:** tell them review is the default next step and offer to run it now:

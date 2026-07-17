@@ -455,8 +455,8 @@ Args: {
 
 For any completeness gaps NOT fixed in the fix wave (consciously deferred/shelved), file each as a session todo linked to the blueprint:
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
-Args: { "project": "<cwd>", "session": "<session>", "text": "<gap description>", "link": { "blueprintId": "<blueprint-id from Step 1>" } }
+Tool: mcp__plugin_mermaid-collab_mermaid__file_to_bucket
+Args: { "project": "<cwd>", "session": "<session>", "title": "<gap description>", "link": { "blueprintId": "<blueprint-id from Step 1>" } }
 ```
 Only deferred/shelved items become todos — anything fixed in the fix wave does NOT.
 
@@ -472,7 +472,7 @@ Minor issues found:
 For each: Fix now / Add as todo / Accept risk
 ```
 - For "Fix now": implement inline
-- For "Add as todo": `mcp__plugin_mermaid-collab_mermaid__add_session_todo` with `link: { blueprintId: "<blueprint-id from Step 1>" }` (and `taskId` if the item maps to a specific task)
+- For "Add as todo": `mcp__plugin_mermaid-collab_mermaid__file_to_bucket` with `link: { blueprintId: "<blueprint-id from Step 1>" }` (fold a task-level anchor into `description` text if needed — `file_to_bucket`'s `link` shape is `{blueprintId}` only)
 - For "Accept risk": note it and continue
 
 ### Case C: Everything clean
