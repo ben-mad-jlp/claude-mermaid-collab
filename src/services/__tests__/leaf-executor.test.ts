@@ -124,6 +124,7 @@ interface Spies {
   markRejectingCalls: string[];
   bumpRetryCalls: Array<{ project: string; leafId: string }>;
   releaseClaimCalls: Array<{ project: string; leafId: string }>;
+  holdLeafCalls: Array<{ project: string; leafId: string; reason: string }>;
   /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
    *  reject pre-stamp lands BEFORE the slow gate. */
   seq: string[];
@@ -168,6 +169,7 @@ function makeDeps(opts: {
     markRejectingCalls: [],
     bumpRetryCalls: [],
     releaseClaimCalls: [],
+    holdLeafCalls: [],
     seq: [],
     inflightSeq: [],
     nodeRows: [],
@@ -230,6 +232,10 @@ function makeDeps(opts: {
     },
     async releaseClaim(p, leafId) {
       spies.releaseClaimCalls.push({ project: p, leafId });
+      return true;
+    },
+    async holdLeaf(p, leafId, reason) {
+      spies.holdLeafCalls.push({ project: p, leafId, reason });
       return true;
     },
     async mergeToEpic() {
@@ -1717,6 +1723,7 @@ function makeVerifyDeps(opts: {
     markRejectingCalls: [] as Spies['markRejectingCalls'],
     bumpRetryCalls: [] as Spies['bumpRetryCalls'],
     releaseClaimCalls: [] as Spies['releaseClaimCalls'],
+    holdLeafCalls: [] as Spies['holdLeafCalls'],
     seq: [] as Spies['seq'],
     inflightSeq: [] as Spies['inflightSeq'],
     nodeRows: [] as Spies['nodeRows'],
@@ -2453,6 +2460,65 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
     }
     // stable dedup key: identical across all runs despite varying durationMs
     expect(new Set(texts).size).toBe(1);
+  });
+});
+
+describe('F2: start-failure retry circuit-breaker (bug a8935a16 — cap the 4×600s amplifier)', () => {
+  const startFailureResult: NodeResult = {
+    ok: false,
+    exitCode: 1,
+    stdout: '',
+    durationMs: 2000,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    rateLimited: false,
+    authMode: 'subscription',
+    text: 'timed out at SessionStart',
+    parseError: 'timed out at SessionStart',
+  };
+  const startFailingInvoker = (deps: LeafExecutorDeps) => {
+    const originalInvoke = deps.invoker.invoke;
+    let n = 0;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      n += 1;
+      const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+      if (isBlueprint && n === 1) return startFailureResult;
+      return originalInvoke(spec);
+    };
+  };
+
+  it('FIRST start-failure (retryCount 0) → bump + release for ONE retry, NOT held', async () => {
+    const { deps, spies } = makeDeps({});
+    startFailingInvoker(deps);
+    const res = await runLeaf('proj', makeLeaf({ retryCount: 0 }), deps);
+    expect(res.outcome).toBe('blocked');
+    // One retry allowed: released back for re-claim, retry bumped, NOT durably held.
+    expect(spies.releaseClaimCalls.length).toBe(1);
+    expect(spies.bumpRetryCalls.length).toBe(1);
+    expect(spies.holdLeafCalls.length).toBe(0);
+  });
+
+  it('SECOND consecutive start-failure (retryCount ≥ 1) → durably HELD, NOT released (no more re-claims)', async () => {
+    const { deps, spies } = makeDeps({});
+    startFailingInvoker(deps);
+    // The re-dispatched leaf carries the retryCount bumped by its first start-failure.
+    const res = await runLeaf('proj', makeLeaf({ retryCount: 1 }), deps);
+    expect(res.outcome).toBe('blocked');
+    // Circuit-broken: held durably, and NOT released/bumped for another spin.
+    expect(spies.holdLeafCalls.length).toBe(1);
+    expect(spies.holdLeafCalls[0].reason).toContain('start-failure-circuit-break');
+    expect(spies.releaseClaimCalls.length).toBe(0);
+    expect(spies.bumpRetryCalls.length).toBe(0);
+  });
+
+  it('holdLeaf unwired (legacy deps) → falls back to bump + release (never breaks the park)', async () => {
+    const { deps, spies } = makeDeps({});
+    deps.holdLeaf = undefined; // legacy dispatch without the hold seam
+    startFailingInvoker(deps);
+    const res = await runLeaf('proj', makeLeaf({ retryCount: 1 }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.holdLeafCalls.length).toBe(0);
+    expect(spies.releaseClaimCalls.length).toBe(1);
+    expect(spies.bumpRetryCalls.length).toBe(1);
   });
 });
 

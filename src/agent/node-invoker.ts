@@ -19,6 +19,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdi
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { resolveGrokModel } from './grok-model.js';
+import { SETTING_SOURCES_ARGS } from './contracts.js';
 import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
 import { parseNodeCommands } from '../services/node-commands.js';
 
@@ -81,6 +82,10 @@ export interface NodeSpec {
   cwd: string;
   /** Wall-clock cap (ms). On expiry the process is killed → ok=false, rateLimited=false. */
   timeoutMs?: number;
+  /** Startup-deadline override (ms) — the {@link START_WINDOW_MS} first-stdout window for
+   *  THIS spawn. Default {@link START_WINDOW_MS} (60s). Test seam only: lower it so a
+   *  deliberately-hanging fake binary trips the start-failure kill in milliseconds. */
+  startWindowMs?: number;
   /** Ledger correlation (optional but recommended). */
   leafId?: string;
   epicId?: string;
@@ -149,13 +154,20 @@ export interface NodeResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000;
-/** START WINDOW: when a node's wall-clock cap exceeds this, the node must produce its
- *  FIRST stdout bytes within this window or it is killed as a start failure. This keeps
- *  stall detection (SessionStart-hook hangs, spawn wedges — timeout with zero output/tokens)
- *  at the historical 10-minute latency even for kinds whose WORK cap is longer: a healthy
- *  `claude -p --output-format stream-json` emits its init event within seconds, so only a
- *  node that never started trips this. */
-export const START_WINDOW_MS = 600_000;
+/** START WINDOW (bug a8935a16 — the GENERIC startup deadline): a node must produce its
+ *  FIRST stdout bytes within this window or it is killed as a fast start-failure. A healthy
+ *  `claude -p --output-format stream-json` emits its `init`/`system` line within seconds, so
+ *  ANY startup stall — an inherited /dev/tty SessionStart hook, a project/local hook, a hung
+ *  MCP init, a spawn wedge — trips this and dies in ~a minute instead of eating the node's
+ *  whole 600s wall-clock budget (then re-claiming and repeating). Because it keys on the
+ *  absence of stdout (not on parsing hook events), it covers stalls the F1 setting-sources
+ *  filter does NOT (project/local hooks) and any future startup stall.
+ *
+ *  60s (not the old 600s): the historical 10-minute value only bit nodes whose WORK cap was
+ *  LONGER than 600s, so the common DEFAULT-cap hook-hang still burned the full 10 minutes.
+ *  60s is a generous floor above the seconds-scale healthy-init latency yet fails fast for a
+ *  node that never started. Injectable per-spec ({@link NodeSpec.startWindowMs}) for tests. */
+export const START_WINDOW_MS = 60_000;
 
 /** Pure kill-schedule decision for the wall-clock timers (exported for test). A cap
  *  ≤ the start window is a single timer (exactly the historical behavior); a longer cap
@@ -277,9 +289,9 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
     // A headless build node has no controlling tty, so an interactive user hook like
     // `printf '\e]11;…' > /dev/tty` (SessionStart/SessionEnd cosmetics) hangs the node
     // until its 600s timeout — zero tokens, then a false `blocked` + re-blueprint churn.
-    // The interactive child path already excludes user settings the same way
-    // (child-manager.ts). Keep these two in sync.
-    '--setting-sources', 'project,local',
+    // The interactive child path (child-manager.ts) shares THIS SAME constant so the two
+    // spawn paths can't drift.
+    ...SETTING_SOURCES_ARGS,
   ];
   if (spec.model) argv.push('--model', spec.model);
   if (spec.effort) argv.push('--effort', spec.effort);
@@ -607,7 +619,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       groupKillPid(proc.pid);
       resolve();
     };
-    const plan = startWindowPlan(timeoutMs);
+    const plan = startWindowPlan(timeoutMs, spec.startWindowMs ?? START_WINDOW_MS);
     if (plan.twoPhase) {
       timer = setTimeout(() => {
         if (!sawOutput) return kill(true);
@@ -661,7 +673,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       authMode,
       text: stdout,
       parseError: startTimedOut
-        ? `node timed out after ${START_WINDOW_MS}ms (killed; ZERO output within the start window — start failure, not work)`
+        ? `node timed out after ${spec.startWindowMs ?? START_WINDOW_MS}ms (killed; ZERO output within the start window — start failure, not work)`
         : `node timed out after ${timeoutMs}ms (killed)`,
       timedOut: true,
       commands,
@@ -750,6 +762,11 @@ let cachedClaudeBin: string | null = null;
  *  Resolve a known absolute install path once; fall back to bare 'claude' (PATH)
  *  only if none exist. */
 export function resolveClaudeBin(): string {
+  // CLAUDE_BIN override (mirrors GROK_BIN/resolveGrokBin): lets a test point the node spawn
+  // at a stub script (e.g. emit-nothing-then-hang) so the generic startup deadline can be
+  // exercised end-to-end without a real `claude`. NOT memoized — a test may set/clear it.
+  const override = process.env.CLAUDE_BIN?.trim();
+  if (override) return override;
   if (cachedClaudeBin) return cachedClaudeBin;
   for (const c of [
     join(homedir(), '.local', 'bin', 'claude'),

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PermissionMode, RuntimeMode, EffortLevel, ChatMessageAttachment } from './contracts';
-import { splitPermissionMode } from './contracts';
+import { splitPermissionMode, SETTING_SOURCES_ARGS } from './contracts';
 
 export interface ChildManagerOpts {
   sessionId: string;
@@ -98,8 +98,10 @@ export class ChildManager extends EventEmitter {
       ...(resume ? ['--resume', claudeSessionId] : ['--session-id', claudeSessionId]),
       '--permission-mode',
       PERMISSION_MODE_MAP[this.opts.permissionMode ?? 'bypass'],
-      '--setting-sources',
-      'project,local',
+      // Shared with the headless node path (node-invoker.ts) via ONE constant so the two
+      // spawn paths can't drift: load ONLY project+local settings, never the user's
+      // ~/.claude hooks (a /dev/tty SessionStart hook hangs a tty-less child — bug a8935a16).
+      ...SETTING_SOURCES_ARGS,
     ];
     if (this.opts.settingsPath) {
       argv.push('--settings', this.opts.settingsPath);

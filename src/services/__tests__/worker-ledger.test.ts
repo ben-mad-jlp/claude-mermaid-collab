@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -26,6 +26,40 @@ afterEach(() => {
   _closeLedgerDb();
   delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(dir, { recursive: true, force: true });
+});
+
+describe('getLatestSuccessfulNodeOutput (F3 artifact predicate — bug a8935a16)', () => {
+  const bp = (over: Partial<LedgerEntry>): LedgerEntry =>
+    entry({ phase: 'node', nodeKind: 'blueprint', leafId: 'leafA', ...over });
+
+  test("a timed-out blueprint's persisted output does NOT enable reattach (succeeded-only predicate)", () => {
+    // A SessionStart-hook-hung blueprint node is killed at its wall-clock cap: exitCode≠0
+    // and a parseError, but its partial stdout is persisted (forensics). That output must
+    // NOT count as a reusable artifact.
+    expect(recordPhase(bp({
+      outputText: 'PARTIAL raw stdout from a hung node', exitCode: 143,
+      parseError: 'node timed out after 60000ms (killed; ZERO output within the start window — start failure, not work)',
+    }), 1000)).not.toBeNull();
+
+    // Forensics still sees the raw bytes...
+    expect(getLatestNodeOutput('leafA', 'blueprint')).toBe('PARTIAL raw stdout from a hung node');
+    // ...but the ARTIFACT predicate does NOT — so reattach-blueprint stays disabled.
+    expect(getLatestSuccessfulNodeOutput('leafA', 'blueprint')).toBeNull();
+  });
+
+  test('a SUCCEEDED blueprint (exitCode 0, no parseError) IS a reusable artifact', () => {
+    expect(recordPhase(bp({ outputText: 'THE PLAN', exitCode: 0, parseError: null }), 1000)).not.toBeNull();
+    expect(getLatestSuccessfulNodeOutput('leafA', 'blueprint')).toBe('THE PLAN');
+  });
+
+  test('a NEWER failed row never shadows the last SUCCEEDED artifact', () => {
+    // succeeded first, then a later attempt start-fails: the artifact is still the good plan,
+    // while forensics reflects the newest (failed) row.
+    expect(recordPhase(bp({ outputText: 'GOOD PLAN', exitCode: 0, parseError: null }), 1000)).not.toBeNull();
+    expect(recordPhase(bp({ outputText: 'junk', exitCode: 1, parseError: 'node-start-failure (provider=claude, model=opus):' }), 2000)).not.toBeNull();
+    expect(getLatestNodeOutput('leafA', 'blueprint')).toBe('junk');           // forensics: newest
+    expect(getLatestSuccessfulNodeOutput('leafA', 'blueprint')).toBe('GOOD PLAN'); // artifact: last good
+  });
 });
 
 describe('worker-ledger', () => {

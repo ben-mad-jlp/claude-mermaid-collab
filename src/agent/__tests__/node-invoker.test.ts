@@ -5,7 +5,9 @@
  * plan in the blueprint §9.
  */
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildNodeArgv,
   authModeFromStatus,
@@ -23,6 +25,7 @@ import {
   _resetAuthCache,
   type NodeSpec,
 } from '../node-invoker.ts';
+import { SETTING_SOURCES_ARGS } from '../contracts.ts';
 
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/x' };
 
@@ -157,6 +160,18 @@ describe('buildNodeArgv', () => {
     const i = argv.indexOf('--setting-sources');
     expect(i).toBeGreaterThan(-1);
     expect(argv[i + 1]).toBe('project,local');
+  });
+
+  it('F1: sources the setting-sources flag from the SHARED constant (both spawn paths reuse it, so they cannot drift)', () => {
+    // The headless node path (this argv) and the interactive child path (child-manager.ts)
+    // both spread SETTING_SOURCES_ARGS. Assert the argv contains the shared constant's exact
+    // elements CONTIGUOUSLY — a proof the flag came from the shared source, not a re-typed
+    // literal that could silently drift back to loading ~/.claude hooks (bug a8935a16).
+    const argv = buildNodeArgv(base);
+    const i = argv.indexOf(SETTING_SOURCES_ARGS[0]);
+    expect(i).toBeGreaterThan(-1);
+    expect(argv.slice(i, i + SETTING_SOURCES_ARGS.length)).toEqual([...SETTING_SOURCES_ARGS]);
+    expect([...SETTING_SOURCES_ARGS]).toEqual(['--setting-sources', 'project,local']);
   });
 
   it('pushes optional flags only when set', () => {
@@ -352,8 +367,68 @@ describe('startWindowPlan (two-phase wall-clock: start window + work cap)', () =
   it('cap > start window → two-phase: 10-min zero-output stall check, then the remainder', () => {
     expect(startWindowPlan(1_800_000, 600_000)).toEqual({ firstDelayMs: 600_000, twoPhase: true, remainderMs: 1_200_000 });
   });
-  it('default start window is 10 minutes (stall-detection latency unchanged)', () => {
-    expect(START_WINDOW_MS).toBe(600_000);
-    expect(startWindowPlan(1_800_000).firstDelayMs).toBe(600_000);
+  it('F4: default start window is 60s — the DEFAULT 600s cap now arms a 60s startup deadline', () => {
+    // Lowered from 600s (bug a8935a16): the old value only bit caps LONGER than 600s, so a
+    // hook-hung node at the default 600s cap still burned the full 10 minutes. At 60s, the
+    // default cap (600s > 60s) goes two-phase → a startup stall dies in ~a minute.
+    expect(START_WINDOW_MS).toBe(60_000);
+    expect(startWindowPlan(600_000)).toEqual({ firstDelayMs: 60_000, twoPhase: true, remainderMs: 540_000 });
+    expect(startWindowPlan(1_800_000).firstDelayMs).toBe(60_000);
+  });
+});
+
+describe('F4: generic startup deadline (fake-binary SessionStart hang → fast start-failure)', () => {
+  let originalSpawnSync: typeof Bun.spawnSync;
+  let stubDir: string;
+  let stubPath: string;
+  const testCwd = '/tmp/node-invoker-f4-hang';
+
+  beforeEach(() => {
+    originalSpawnSync = Bun.spawnSync;
+    _resetAuthCache();
+    _resetClaudeBinCache();
+    mkdirSync(testCwd, { recursive: true });
+    // A stub `claude` that emits NOTHING to stdout then hangs — exactly what an inherited
+    // SessionStart hook blocked on /dev/tty does before the CLI ever prints its init line.
+    stubDir = mkdtempSync(join(tmpdir(), 'claude-stub-'));
+    stubPath = join(stubDir, 'claude-hang');
+    writeFileSync(stubPath, '#!/bin/sh\n# emit nothing, then hang well past the (short, injected) start window\nsleep 30\n', { mode: 0o755 });
+    chmodSync(stubPath, 0o755);
+    // Auth pre-flight: mock the `claude auth status` probe to report a healthy subscription
+    // (mirrors the spawn-retry test) so invokeNode proceeds to the real node spawn.
+    (Bun as any).spawnSync = mock(() => ({
+      stdout: Buffer.from(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'pro' })),
+      stderr: null,
+      exitCode: 0,
+    }));
+    process.env.CLAUDE_BIN = stubPath;
+  });
+
+  afterEach(() => {
+    (Bun as any).spawnSync = originalSpawnSync;
+    delete process.env.CLAUDE_BIN;
+    _resetAuthCache();
+    _resetClaudeBinCache();
+    try { rmSync(stubDir, { recursive: true, force: true }); } catch { /* ok */ }
+    try { rmSync(testCwd, { recursive: true, force: true }); } catch { /* ok */ }
+  });
+
+  it('a hanging fake binary trips the start-window kill in ~sub-second (not the 30s work cap)', async () => {
+    const start = Date.now();
+    // Long WORK cap (30s), but a SHORT injected start window (250ms): a healthy node emits
+    // its init line in ms, so a zero-stdout node is killed at the window, NOT the cap.
+    const res = await invokeNode({ prompt: 'hello', cwd: testCwd, timeoutMs: 30_000, startWindowMs: 250 });
+    const elapsed = Date.now() - start;
+
+    expect(res.timedOut).toBe(true);
+    expect(res.ok).toBe(false);
+    // The parseError names the START WINDOW (start failure), not the 30s work cap.
+    expect(res.parseError).toContain('start window');
+    expect(res.parseError).toContain('250ms');
+    // Zero tokens (never ran) — the executor's isNodeStartFailure classifies this fast.
+    const u = res.usage;
+    expect(((u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) + (u?.cacheReadTokens ?? 0))).toBe(0);
+    // FAST: seconds, not the 30s cap and nowhere near 4×600s.
+    expect(elapsed).toBeLessThan(10_000);
   });
 });

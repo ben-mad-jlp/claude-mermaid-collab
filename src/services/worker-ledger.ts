@@ -600,13 +600,34 @@ export function getLeafResumeDecisions(leafId: string): LeafResumeDecisionRow[] 
 }
 
 /** Most recent persisted output text for a leaf's node of the given kind (newest
- *  first). Unlike getLeafRun this ignores run-gap scoping — the kill→re-claim gap
- *  (~lease) far exceeds the 2-min run gap, so reattach must fetch the blueprint
- *  plan directly. null if no such row. */
+ *  first), REGARDLESS of whether that node succeeded. FORENSICS ONLY — a timed-out /
+ *  start-failed node's partial stdout is persisted here so a stuck leaf stays diagnosable.
+ *  Do NOT use this to decide whether a reusable ARTIFACT exists (that is
+ *  {@link getLatestSuccessfulNodeOutput}): a node can leave bytes without having produced a
+ *  valid result (bug a8935a16 — a SessionStart-hook-hung blueprint persisted its raw stdout,
+ *  which then falsely enabled reattach-blueprint of a plan that was never authored).
+ *  Unlike getLeafRun this ignores run-gap scoping — the kill→re-claim gap (~lease) far exceeds
+ *  the 2-min run gap. null if no such row. */
 export function getLatestNodeOutput(leafId: string, nodeKind: string): string | null {
   try {
     const r = openDb().query(
       'SELECT outputText FROM worker_ledger WHERE leafId=? AND nodeKind=? AND outputText IS NOT NULL ORDER BY ts DESC, id DESC LIMIT 1',
+    ).get(leafId, nodeKind) as { outputText?: string } | undefined;
+    return r?.outputText ?? null;
+  } catch { return null; }
+}
+
+/** Most recent output text for a leaf's node of the given kind that ACTUALLY SUCCEEDED —
+ *  the artifact predicate (bug a8935a16). A node counts as succeeded only when it exited
+ *  clean (exitCode=0) with NO parseError: a timed-out / start-failed / rate-limited node
+ *  writes its raw stdout to `outputText` for forensics ({@link getLatestNodeOutput}) but that
+ *  is NOT a usable artifact, so it must never enable reattach-blueprint. null if no SUCCEEDED
+ *  row exists (caller falls back to re-running the node). */
+export function getLatestSuccessfulNodeOutput(leafId: string, nodeKind: string): string | null {
+  try {
+    const r = openDb().query(
+      'SELECT outputText FROM worker_ledger WHERE leafId=? AND nodeKind=? AND outputText IS NOT NULL ' +
+      'AND exitCode = 0 AND parseError IS NULL ORDER BY ts DESC, id DESC LIMIT 1',
     ).get(leafId, nodeKind) as { outputText?: string } | undefined;
     return r?.outputText ?? null;
   } catch { return null; }

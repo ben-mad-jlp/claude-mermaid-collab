@@ -2322,6 +2322,27 @@ export function bumpRetryCountIfOwned(project: string, id: string, claimToken?: 
   });
 }
 
+/** Durably PARK an owned leaf: clear its claim and stamp heldAt/heldReason so it is NOT
+ *  re-claimed (a held row derives to 'blocked'). Ownership-gated exactly like
+ *  {@link bumpRetryCountIfOwned}. Used to circuit-break the start-failure retry amplifier
+ *  (bug a8935a16): a node that keeps failing to START would otherwise release→re-claim up to
+ *  MAX_CLAIM_RETRIES times, each spin eating a full startup window — one hold stops the spin.
+ *  Returns whether the hold landed. A human/heal clears heldAt to re-admit the leaf. */
+export function holdLeafIfOwned(project: string, id: string, reason: string, claimToken?: string): Promise<boolean> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const existing = getTodo(project, id);
+    if (!existing || existing.status !== 'in_progress') return false;
+    if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
+    const ts = nowIso();
+    db.prepare(
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason=?, updatedAt=? WHERE id=?`,
+    ).run(ts, reason.slice(0, 500), ts, id);
+    return true;
+  });
+}
+
 /** An epic the sweep left in_progress because every child is `done` but at least
  *  one is not explicitly `accepted` (policy (b): never silently close ungated
  *  work — surface it as a flag instead). */
