@@ -5,7 +5,7 @@
  * plan in the blueprint §9.
  */
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, rmSync, mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdirSync, rmSync, mkdtempSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -23,8 +23,11 @@ import {
   invokeNode,
   assertSubscriptionAuth,
   _resetAuthCache,
+  mcpConfigFor,
+  invokeGrokNode,
   type NodeSpec,
 } from '../node-invoker.ts';
+import { invokeXaiApiNode } from '../xai-api-invoker.ts';
 import { SETTING_SOURCES_ARGS } from '../contracts.ts';
 
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/x' };
@@ -207,6 +210,44 @@ describe('buildNodeArgv', () => {
   it('passes --effort only when set', () => {
     expect(buildNodeArgv({ ...base, effort: 'high' })).toEqual(expect.arrayContaining(['--effort', 'high']));
     expect(buildNodeArgv({ ...base })).not.toContain('--effort');
+  });
+
+  it('adds --strict-mcp-config + --mcp-config <path> contiguously when mcpConfig is set', () => {
+    const argv = buildNodeArgv({ ...base, mcpConfig: '/tmp/x.json' });
+    expect(argv).toContain('--strict-mcp-config');
+    const i = argv.indexOf('--mcp-config');
+    expect(i).toBeGreaterThan(-1);
+    expect(argv[i + 1]).toBe('/tmp/x.json');
+  });
+
+  it('forces --strict-mcp-config when mcpConfig is set even if strictMcpConfig is explicitly false', () => {
+    const argv = buildNodeArgv({ ...base, strictMcpConfig: false, mcpConfig: '/tmp/x.json' });
+    expect(argv).toContain('--strict-mcp-config');
+  });
+});
+
+describe('mcpConfigFor', () => {
+  it('writes a JSON file naming the given port and memoizes the path', () => {
+    const path1 = mcpConfigFor(9111);
+    expect(existsSync(path1)).toBe(true);
+    const body = JSON.parse(readFileSync(path1, 'utf-8'));
+    expect(body).toEqual({ mcpServers: { mermaid: { type: 'http', url: 'http://127.0.0.1:9111/mcp' } } });
+    const path2 = mcpConfigFor(9111);
+    expect(path2).toBe(path1);
+  });
+});
+
+describe('mcp-bearing lane guards', () => {
+  it('invokeGrokNode refuses an mcp__-bearing allowedTools', async () => {
+    await expect(
+      invokeGrokNode({ ...base, allowedTools: 'Read mcp__mermaid__file_to_bucket' }),
+    ).rejects.toThrow(/mcp__/);
+  });
+
+  it('invokeXaiApiNode refuses an mcp__-bearing allowedTools', async () => {
+    await expect(
+      invokeXaiApiNode({ ...base, allowedTools: 'Read mcp__mermaid__file_to_bucket' }),
+    ).rejects.toThrow(/mcp__/);
   });
 });
 
