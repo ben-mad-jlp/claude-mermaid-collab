@@ -272,6 +272,17 @@ export function excludeEpics(todos: SessionTodo[]): SessionTodo[] {
   return todos.filter((t) => !parentIds.has(t.id));
 }
 
+/**
+ * Drop mission nodes so board surfaces (Kanban/List) never render them — missions
+ * live only in the MissionStrip → MissionDetailPanel path. Column-only check
+ * (`t.kind === 'mission'`), mirroring `isMissionTodo` in
+ * bridge/fleet/useFleetGraph.ts:92 — never `kindOf()`/`isMission()`, which throw on
+ * a malformed row and would take a board render down over one bad socket payload.
+ */
+export function excludeMissions(todos: SessionTodo[]): SessionTodo[] {
+  return todos.filter((t) => t.kind !== 'mission');
+}
+
 export function funnelCounts(todos: SessionTodo[]): Record<FunnelKey, number> {
   const counts: Record<FunnelKey, number> = {
     backlog: 0,

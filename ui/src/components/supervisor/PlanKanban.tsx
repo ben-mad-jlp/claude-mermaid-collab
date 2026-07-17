@@ -23,7 +23,6 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
-import { isMission } from '@/lib/todoKind';
 import { isBucketEpicUI, bucketTypeOfTodo, TRIAGE_TAGS, BUCKET_LANE_LABEL, BUCKET_TYPE_ORDER, type BucketType, type TriageTag } from '@/lib/bucketRegistry';
 
 export interface PlanKanbanProps {
@@ -240,24 +239,8 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       });
     }
 
-    // Missions lane: orphans that are missions.
-    const missions = h.orphans.filter((t) => isMission(t)).slice().sort(byWaveOrder);
-    if (missions.length > 0) {
-      out.push({
-        key: 'missions',
-        title: 'Missions',
-        epic: null,
-        group: 'mission',
-        items: missions,
-        subtasks: h.subtasksByParent,
-        counts: tally(missions),
-        completed: missions.every((t) => TERMINAL.has(t.status)),
-        rank: minWave(missions),
-      });
-    }
-
-    // "No epic" lane: non-mission orphans.
-    const orphans = h.orphans.filter((t) => !isMission(t)).slice().sort(byWaveOrder);
+    // "No epic" lane.
+    const orphans = h.orphans.slice().sort(byWaveOrder);
     if (orphans.length > 0) {
       out.push({
         key: 'orphans',
@@ -337,9 +320,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
             data-testid={
               lane.group === 'epic'
                 ? `epic-lane-${lane.epic!.id}`
-                : lane.group === 'mission'
-                  ? 'missions-lane'
-                  : 'orphan-lane'
+                : 'orphan-lane'
             }
             className={`rounded-lg border bg-gray-50/60 dark:bg-gray-800/30 ${
               lane.completed
