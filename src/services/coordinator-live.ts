@@ -1685,21 +1685,20 @@ export function missionLandLeafPromotion(
   if (!epic || epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) {
     return { promote: false, reason: 'epic-terminal-or-held', buildChildIds: [] };
   }
-  const { buildChildren, landLeaves } = epicGatingChildren(allTodos, epicId, '');
-  const landLeaf = landLeaves[0];
-  if (!landLeaf) return { promote: false, reason: 'no-land-leaf', buildChildIds: [] };
-  if (landLeaf.status === 'done') {
-    return { promote: false, reason: 'land-leaf-already-done', landLeafId: landLeaf.id, buildChildIds: [] };
+  if (epic.landedAt != null) {
+    return { promote: false, reason: 'epic-already-landed', buildChildIds: [] };
   }
+  const { buildChildren, landLeaves } = epicGatingChildren(allTodos, epicId, '');
+  const landLeafId = landLeaves[0]?.id;
   const buildChildIds = buildChildren.map((c) => c.id);
   if (buildChildren.length === 0) return { promote: false, reason: 'no-build-children', buildChildIds };
   const allGreen = buildChildren.every(
     (c) => c.status === 'done' && c.acceptanceStatus === 'accepted',
   );
-  if (!allGreen) return { promote: false, reason: 'build-not-green', landLeafId: landLeaf.id, buildChildIds };
+  if (!allGreen) return { promote: false, reason: 'build-not-green', landLeafId, buildChildIds };
   const depBlocker = checkLandDeps(allTodos, epicId);
-  if (depBlocker) return { promote: false, reason: 'land-deps-unsatisfied', landLeafId: landLeaf.id, buildChildIds };
-  return { promote: true, reason: 'ok', landLeafId: landLeaf.id, buildChildIds };
+  if (depBlocker) return { promote: false, reason: 'land-deps-unsatisfied', landLeafId, buildChildIds };
+  return { promote: true, reason: 'ok', landLeafId, buildChildIds };
 }
 
 /** MISSION_AUTOLAND_ARMED reachability fix: rollup can never fire for a mission
@@ -1813,12 +1812,12 @@ export async function surfaceBuildGreenNonMissionEpics(project: string): Promise
  *  landLeafId or a non-landed outcome is a no-op — the leaf stays not-done and the
  *  next reconcile tick retries. Best-effort; the caller already wraps in try/catch. */
 export async function stampLandLeafOnMerge(
-  project: string, landLeafId: string | undefined, landed: boolean,
+  project: string, epicId: string, landLeafId: string | undefined, landed: boolean,
 ): Promise<boolean> {
-  if (!landed || !landLeafId) return false;
+  if (!landed) return false;
+  stampEpicLandedAt(project, epicId, new Date().toISOString());
+  if (!landLeafId) return true;
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
-  const leaf = getTodo(project, landLeafId);
-  if (leaf?.parentId) stampEpicLandedAt(project, leaf.parentId, new Date().toISOString());
   return true;
 }
 
@@ -1929,7 +1928,7 @@ export async function surfaceEpicLand(
         : `❌ blocked (${proof.reason}): epic ${epicBranch} is NOT ready to land`;
       // Link a child IN THIS REPO so the land click resolves the right repo
       // (landEpic keys the WorktreeManager off the linked todo's targetProject).
-      const linkTodoId = (id && repoChildIds.includes(id)) ? id : (repoChildIds[0] ?? id ?? null);
+      const linkTodoId = epicId;
       const { escalation } = createEscalation({
         project,
         session,
@@ -1960,7 +1959,7 @@ export async function surfaceEpicLand(
           continue; // card is already surfaced above — a human lands it
         }
         const outcome = await landEpic(project, escalation.id);
-        const stamped = await stampLandLeafOnMerge(project, opts.landLeafId, outcome.landed);
+        const stamped = await stampLandLeafOnMerge(project, epicId, opts.landLeafId, outcome.landed);
         recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason, landLeafId: opts.landLeafId ?? null, stamped }) });
         // Dirty-tree auto-land refusals are otherwise audit-only + invisible on the auto
         // path — surface an operator-visible blocker naming the uncommitted path(s).

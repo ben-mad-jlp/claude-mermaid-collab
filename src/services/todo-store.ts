@@ -637,6 +637,16 @@ export function openDb(project: string): Database {
       SELECT 1 FROM todos l WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
     )
   `);
+  // One-shot backfill (W4 cutover): create_epic no longer mints a [LAND] leaf and
+  // checkLandDeps/missionLandLeafPromotion no longer require one — drop (never
+  // hard-delete) any still-open land-leaf row under a still-open epic. A `done`
+  // land leaf stays inert (c34e15c4: the terminal record for an already-landed
+  // legacy epic; already backfilled into landedAt above).
+  db.prepare(`
+    UPDATE todos SET status = 'dropped'
+    WHERE kind = 'land' AND status != 'done' AND status != 'dropped'
+      AND parentId IN (SELECT id FROM todos WHERE kind = 'epic' AND status NOT IN ('done','dropped'))
+  `).run();
   // EPIC 532c48fb GAP 1 (step 1, DATA FIRST): [GATE] rows carry no role prefix, so the
   // leaf catch-all above stamped them kind='leaf'. Re-stamp them kind='gate'. Covers BOTH
   // forms create_gate emits (todo-store.ts:1499): the bare '[GATE] …' and the labelled
@@ -2593,33 +2603,13 @@ export function sweepTerminalBucketChildren(project: string, olderThanMs = BUCKE
  * status (default 'ready'). This is the supported replacement for hand-editing
  * todos.db. Returns the updated todo.
  */
-/** LAND-LEAF SELF-HEAL (22c5ba8a): a mission epic with NO [LAND] leaf strands silently —
- *  missionLandLeafPromotion refuses `no-land-leaf`, so a build-green epic never surfaces
- *  for auto-land (observed live on build123d 2026-07-16). The land-leaf standard was
- *  convention-only; this makes it code. Creates the terminal land leaf for one epic iff
- *  none exists (kind:'land', assigneeKind:'human', title `<epic> → master`). Idempotent.
- *  Returns the created leaf id or null (already present / not applicable). */
-export async function ensureMissionEpicLandLeaf(project: string, epicId: string): Promise<string | null> {
-  const epic = getTodo(project, epicId);
-  if (!epic || !isEpic(epic) || epic.status === 'done' || epic.status === 'dropped') return null;
-  const parent = epic.parentId ? getTodo(project, epic.parentId) : null;
-  const missionHomed = (parent != null && isMission(parent)) || epic.servesCriterionId != null || epic.servesCriterionIds.length > 0;
-  if (!missionHomed) return null;
-  const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === epicId);
-  if (children.some((t) => t.kind === 'land' && t.status !== 'dropped')) return null;
-  const leaf = await createTodo(project, {
-    ownerSession: epic.ownerSession,
-    assigneeSession: epic.assigneeSession ?? epic.ownerSession,
-    assigneeKind: 'human',
-    title: `${t0(epic.title)} → master`,
-    kind: 'land',
-    parentId: epicId,
-    dependsOn: children.filter((t) => t.kind !== 'land' && t.status !== 'dropped').map((t) => t.id),
-  });
-  return leaf.id;
-}
-function t0(title: string): string {
-  return title.length > 60 ? title.slice(0, 57) + '…' : title;
+/** LAND-LEAF SELF-HEAL, RETIRED (W4 cutover, 22c5ba8a superseded): land-readiness is now
+ *  derived from `epic.landedAt` + live sibling state (checkLandDeps / missionLandLeafPromotion
+ *  no longer require a land leaf to be present), so minting one here would just re-introduce
+ *  the stale-row problem this leaf's backfill drops. Inert no-op kept for the exported
+ *  signature/call sites (healMissionEpicLandLeaves). */
+export async function ensureMissionEpicLandLeaf(_project: string, _epicId: string): Promise<string | null> {
+  return null;
 }
 
 /** Reconcile-pass sweep: heal EVERY live mission epic missing its land leaf. Returns the

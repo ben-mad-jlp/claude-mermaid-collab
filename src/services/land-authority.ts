@@ -234,22 +234,20 @@ export function checkLandDeps(todos: Todo[], epicId: string): LandBlocker | null
     return null;
   }
 
-  // Find the [LAND] child (direct child of epic)
-  const landLeaf = todos.find((t) => t.parentId === epicId && isLandTodo(t));
-
-  if (!landLeaf) {
+  if (epic.landedAt != null) {
     return {
       code: 'land-deps-unsatisfied',
-      message: `Epic ${epic.title} has no [LAND] leaf (constraint a383bc2c): it will strand on its branch looking done.`,
+      message: `Epic ${epic.title} already landed at ${epic.landedAt}.`,
     };
   }
 
-  // Derive the barrier from live sibling state, not the land leaf's stored
+  // Derive the barrier from live sibling state, not a land leaf's stored
   // dependsOn edges (stale for leaves added after the land leaf was minted —
   // constraint 856840e6). A sibling is gating iff it is a direct child of the
-  // epic, not the land leaf itself, and not dropped.
+  // epic, not a land-kind todo, and not dropped. Works with zero, one, or a
+  // legacy done land-leaf child present.
   const siblings = todos.filter(
-    (t) => t.parentId === epicId && t.id !== landLeaf.id && t.status !== 'dropped',
+    (t) => t.parentId === epicId && t.status !== 'dropped' && !isLandTodo(t),
   );
 
   const unsatisfied: string[] = [];
