@@ -18,7 +18,8 @@ import { createTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { gcLeafWorktrees, isReclaimable, WORKTREE_RECLAIM_MIN_AGE_MS } from '../leaf-worktree-reaper';
 import { setLeafInflight, clearLeafInflight } from '../worker-ledger';
-import { listFriction, _closeProject as _closeFrictionProject } from '../friction-store';
+import { listFriction, recordFrictionOnce, _closeProject as _closeFrictionProject } from '../friction-store';
+import { recordEpicLand } from '../epic-land-record-store';
 
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -244,6 +245,163 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     // Verify it was silently skipped (no refused entry).
     const refusalForDir = report.refused.find((r) => r.path === epicDir);
     expect(refusalForDir).toBeFalsy();
+  });
+});
+
+describe('gcLeafWorktrees — landed-epic worktree collection (record-verified fast path)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'landed-epic-gc-repo-'));
+    await runGit(repo, ['init', '-q', '-b', 'master']);
+    await runGit(repo, ['config', 'user.email', 't@t']);
+    await runGit(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  async function makeDoneEpicWorktree(): Promise<{ epicId: string; epicDir: string }> {
+    const wm = getWorktreeManager(repo);
+    mkdirSync(wm.baseDir(), { recursive: true });
+    const epicTodo = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'landed epic',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'done',
+    });
+    const epicId8 = epicTodo.id.slice(0, 8);
+    const epicDir = join(wm.baseDir(), `__epic-${epicId8}__`);
+    await runGit(repo, ['worktree', 'add', '-b', `epic-${epicId8}`, epicDir]);
+    return { epicId: epicTodo.id, epicDir };
+  }
+
+  it('case 1: matching land-record, clean, HEAD is ancestor of master → QUARANTINED (reversible, manifest present)', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(false);
+    const q = report.quarantined.find((x) => x.path === epicDir);
+    expect(q && existsSync(q.trashDir)).toBe(true);
+    expect(q && existsSync(join(q.trashDir, 'manifest.json'))).toBe(true);
+  });
+
+  it('case 2: land-record present but worktree HEAD has drifted (extra commit past epicTipSha) → KEPT', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    // Drift: one more commit on top of the recorded tip.
+    writeFileSync(join(epicDir, 'extra.txt'), 'drift\n');
+    await runGit(epicDir, ['add', '-A']);
+    await runGit(epicDir, ['commit', '-q', '-m', 'drift']);
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(true);
+  });
+
+  it('case 3: land-record matches but worktree has an uncommitted tracked change → KEPT', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    writeFileSync(join(epicDir, 'README.md'), 'edited\n');
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(true);
+  });
+
+  it('case 4: land-record matches but a live process cwd is under the dir → KEPT', async () => {
+    const { epicId, epicDir } = await makeDoneEpicWorktree();
+    const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
+    const epicTipSha = headRes.stdout.trim();
+    recordEpicLand(repo, { epicId, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+
+    const proc = (globalThis as any).Bun.spawn(['sleep', '5'], {
+      cwd: epicDir,
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const report = await gcLeafWorktrees(repo);
+
+      expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+      expect(existsSync(epicDir)).toBe(true);
+    } finally {
+      proc.kill();
+    }
+  });
+
+  it('case 5: no land-record for this epic → falls through to the age-gated path, KEPT', async () => {
+    const { epicDir } = await makeDoneEpicWorktree();
+    // Deliberately no recordEpicLand call — getEpicLandRecord returns null.
+
+    const report = await gcLeafWorktrees(repo);
+
+    expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
+    expect(existsSync(epicDir)).toBe(true);
+  });
+});
+
+describe('landEpic teardown friction dedup (part 2: un-swallow removeEpic failure)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'land-teardown-friction-repo-'));
+  });
+
+  afterEach(() => {
+    _closeFrictionProject(repo);
+    try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('two simulated removeEpic failures for the same epicId dedup to exactly one friction_note row', async () => {
+    // Mirrors the exact recordFrictionOnce call shape landEpic's un-swallowed
+    // try/catch makes on wm.removeEpic(epicId, targetProject) failure
+    // (coordinator-live.ts ~2242-2249): same layer/retryReason/todoId/detail per
+    // failure of the SAME epicId, so recordFrictionOnce's INSERT...WHERE NOT
+    // EXISTS dedups repeat failures into one row.
+    const epicId = 'epic0001deadbeefcafefeed';
+    const epicBranch = `collab/epic/${epicId.slice(0, 8)}`;
+    const errMessage = 'simulated removeEpic failure: worktree busy';
+    const simulateFailedTeardown = async () => {
+      try {
+        throw new Error(errMessage);
+      } catch (err) {
+        await recordFrictionOnce(repo, {
+          layer: 'operational',
+          retryReason: 'landed-epic-teardown-failed',
+          todoId: epicId,
+          detail: `removeEpic(${epicId}) failed after a successful land of ${epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
+        }).catch(() => {});
+      }
+    };
+
+    await simulateFailedTeardown();
+    await simulateFailedTeardown();
+
+    const rows = listFriction(repo, { layer: 'operational' })
+      .filter((n) => n.retryReason === 'landed-epic-teardown-failed' && n.todoId === epicId);
+    expect(rows.length).toBe(1);
   });
 });
 
