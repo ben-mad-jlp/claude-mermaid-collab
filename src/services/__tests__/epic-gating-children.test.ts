@@ -27,7 +27,7 @@ describe('epicGatingChildren — single source of epic gating children', () => {
     ...overrides,
   } as unknown as Todo);
 
-  it('excludes [LAND] children from buildChildren and includes them in landLeaves', () => {
+  it('includes [LAND]-kind children in buildChildren; landLeaves is always empty', () => {
     const buildChild = makeTodo({ id: 'build1', status: 'done', acceptanceStatus: 'accepted' });
     const landLeaf = makeTodo({ id: 'land1', kind: 'land', status: 'planned' });
     const epic = makeTodo({ id: 'epic1', kind: 'epic', status: 'in_progress' });
@@ -38,11 +38,11 @@ describe('epicGatingChildren — single source of epic gating children', () => {
 
     const result = epicGatingChildren(allTodos, 'epic1', '/tracking/project');
 
-    expect(result.buildChildren).toEqual([buildChild]);
-    expect(result.landLeaves).toEqual([landLeaf]);
+    expect(result.buildChildren).toEqual([buildChild, landLeaf]);
+    expect(result.landLeaves).toEqual([]);
   });
 
-  it('excludes dropped children from both buildChildren and landLeaves', () => {
+  it('excludes dropped children (including dropped [LAND]-kind rows) from buildChildren', () => {
     const buildChild = makeTodo({ id: 'build1', status: 'done', acceptanceStatus: 'accepted' });
     const droppedBuild = makeTodo({ id: 'dropped1', status: 'dropped' });
     const droppedLand = makeTodo({ id: 'dropped-land1', kind: 'land', status: 'dropped' });
@@ -59,7 +59,7 @@ describe('epicGatingChildren — single source of epic gating children', () => {
     expect(result.landLeaves).toEqual([]);
   });
 
-  it('includes multiple [LAND] children in landLeaves', () => {
+  it('includes multiple [LAND]-kind children in buildChildren; landLeaves stays empty', () => {
     const buildChild = makeTodo({ id: 'build1', status: 'done', acceptanceStatus: 'accepted' });
     const landLeaf1 = makeTodo({ id: 'land1', kind: 'land', status: 'planned' });
     const landLeaf2 = makeTodo({ id: 'land2', kind: 'land', status: 'planned' });
@@ -72,10 +72,11 @@ describe('epicGatingChildren — single source of epic gating children', () => {
 
     const result = epicGatingChildren(allTodos, 'epic1', '/tracking/project');
 
-    expect(result.buildChildren).toEqual([buildChild]);
-    expect(result.landLeaves).toHaveLength(2);
-    expect(result.landLeaves).toContainEqual(landLeaf1);
-    expect(result.landLeaves).toContainEqual(landLeaf2);
+    expect(result.buildChildren).toHaveLength(3);
+    expect(result.buildChildren).toContainEqual(buildChild);
+    expect(result.buildChildren).toContainEqual(landLeaf1);
+    expect(result.buildChildren).toContainEqual(landLeaf2);
+    expect(result.landLeaves).toEqual([]);
   });
 
   it('partitions buildChildren by targetProject into byRepo', () => {
@@ -93,10 +94,12 @@ describe('epicGatingChildren — single source of epic gating children', () => {
 
     expect(result.byRepo.get('/repo/a')).toEqual(['build1']);
     expect(result.byRepo.get('/repo/b')).toEqual(['build2']);
-    expect(result.ambiguous).toEqual([]);
+    // landLeaf has no targetProject; the epic is genuinely cross-repo (two explicit,
+    // non-tracking repos), so it can't be confidently placed.
+    expect(result.ambiguous).toEqual(['land1']);
   });
 
-  it('assigns repo-less buildChildren to trackingProject in single-repo epic', () => {
+  it('assigns repo-less buildChildren (including [LAND]-kind rows) to trackingProject in single-repo epic', () => {
     const buildChild = makeTodo({ id: 'build1', targetProject: null, status: 'done', acceptanceStatus: 'accepted' });
     const landLeaf = makeTodo({ id: 'land1', kind: 'land', status: 'planned' });
     const epic = makeTodo({ id: 'epic1', kind: 'epic', status: 'in_progress' });
@@ -107,11 +110,11 @@ describe('epicGatingChildren — single source of epic gating children', () => {
 
     const result = epicGatingChildren(allTodos, 'epic1', '/tracking/project');
 
-    expect(result.byRepo.get('/tracking/project')).toEqual(['build1']);
+    expect(result.byRepo.get('/tracking/project')).toEqual(['build1', 'land1']);
     expect(result.ambiguous).toEqual([]);
   });
 
-  it('marks repo-less buildChildren as ambiguous in cross-repo epic', () => {
+  it('marks repo-less buildChildren (including [LAND]-kind rows) as ambiguous in cross-repo epic', () => {
     const buildChildExplicitRepo = makeTodo({ id: 'build1', targetProject: '/repo/a', status: 'done', acceptanceStatus: 'accepted' });
     const buildChildRepoLess = makeTodo({ id: 'build2', targetProject: null, status: 'done', acceptanceStatus: 'accepted' });
     const landLeaf = makeTodo({ id: 'land1', kind: 'land', status: 'planned' });
@@ -125,6 +128,6 @@ describe('epicGatingChildren — single source of epic gating children', () => {
     const result = epicGatingChildren(allTodos, 'epic1', '/tracking/project');
 
     expect(result.byRepo.get('/repo/a')).toEqual(['build1']);
-    expect(result.ambiguous).toEqual(['build2']);
+    expect(result.ambiguous).toEqual(['build2', 'land1']);
   });
 });

@@ -320,15 +320,16 @@ function normalizeCriterionEdges(
  *  has a live land leaf. Two land leaves wedge the epic: missionLandLeafPromotion
  *  completes landLeaves[0] only, and the other stays forever-open so the epic never
  *  rolls up done (observed live: build123d 2026-07-16, reconcile self-heal + a manual
- *  conductor add raced to 7 duplicate pairs). The reconcile pass self-heals a MISSING
- *  land leaf automatically — manual adds are only needed for non-mission epics. */
+ *  conductor add raced to 7 duplicate pairs). Land leaves are no longer minted by any
+ *  production path; this guard exists only to reject a caller-supplied kind:'land'
+ *  create under an epic that already has one, so a legacy/manual create can't wedge
+ *  the epic. */
 export class DuplicateLandLeafError extends Error {
   readonly code = 'duplicate-land-leaf';
   constructor(epicId: string, existingLandLeafId: string) {
     super(
       `Epic ${epicId.slice(0, 8)} already has a live land leaf (${existingLandLeafId.slice(0, 8)}). ` +
-      `A second one would wedge the epic (only one gets promoted; the other stays open forever). ` +
-      `Note: the reconcile pass AUTO-CREATES a missing land leaf for mission epics — do not add one by hand.`,
+      `A second one would wedge the epic (only one gets promoted; the other stays open forever).`,
     );
     this.name = 'DuplicateLandLeafError';
   }
@@ -2603,34 +2604,6 @@ export function sweepTerminalBucketChildren(project: string, olderThanMs = BUCKE
  * status (default 'ready'). This is the supported replacement for hand-editing
  * todos.db. Returns the updated todo.
  */
-/** LAND-LEAF SELF-HEAL, RETIRED (W4 cutover, 22c5ba8a superseded): land-readiness is now
- *  derived from `epic.landedAt` + live sibling state (checkLandDeps / missionLandLeafPromotion
- *  no longer require a land leaf to be present), so minting one here would just re-introduce
- *  the stale-row problem this leaf's backfill drops. Inert no-op kept for the exported
- *  signature/call sites (healMissionEpicLandLeaves). */
-export async function ensureMissionEpicLandLeaf(_project: string, _epicId: string): Promise<string | null> {
-  return null;
-}
-
-/** Reconcile-pass sweep: heal EVERY live mission epic missing its land leaf. Returns the
- *  healed epic ids (audited by the caller). Best-effort per epic; never throws. */
-export async function healMissionEpicLandLeaves(project: string): Promise<string[]> {
-  const healed: string[] = [];
-  let all: Todo[] = [];
-  try { all = listTodos(project, { includeCompleted: true }); } catch { return healed; }
-  const missions = new Set(all.filter((t) => isMission(t)).map((t) => t.id));
-  for (const t of all) {
-    if (!isEpic(t) || t.status === 'done' || t.status === 'dropped') continue;
-    const homed = (t.parentId != null && missions.has(t.parentId)) || t.servesCriterionId != null || t.servesCriterionIds.length > 0;
-    if (!homed) continue;
-    try {
-      const created = await ensureMissionEpicLandLeaf(project, t.id);
-      if (created) healed.push(t.id);
-    } catch { /* best-effort per epic */ }
-  }
-  return healed;
-}
-
 export function resetTodo(
   project: string,
   id: string,

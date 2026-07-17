@@ -14,8 +14,9 @@ import { isEpic, isLand, isMission } from './todo-kind.ts';
  * Invariants checked (with their decision/constraint ids):
  *  - orphan                  non-epic todo with no [EPIC] ancestor (373a2d52 —
  *                            every work todo must belong to an epic).
- *  - stranded-epic           [EPIC] with no [LAND] leaf among its descendants
- *                            (a383bc2c — every epic ends with a land leaf).
+ *  - stranded-epic           [EPIC] whose non-dropped children are all done+accepted
+ *                            but landedAt is still null (a383bc2c — every epic that
+ *                            looks done must actually land).
  *  - broken-depends-on       dependsOn points at a missing or dropped todo.
  *
  * Epics and land leaves are identified by the `kind` column via the shared predicate
@@ -83,20 +84,6 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
     return false;
   };
 
-  /** Any descendant (transitive) of `epic` that is a [LAND] leaf. Cycle-safe. */
-  const hasLandDescendant = (epic: Todo): boolean => {
-    const stack = [...(childrenOf.get(epic.id) ?? [])];
-    const seen = new Set<string>();
-    while (stack.length) {
-      const node = stack.pop()!;
-      if (seen.has(node.id)) continue;
-      seen.add(node.id);
-      if (isLandTodo(node)) return true;
-      stack.push(...(childrenOf.get(node.id) ?? []));
-    }
-    return false;
-  };
-
   for (const t of todos) {
     if (isTerminal(t.status)) continue;
 
@@ -112,14 +99,21 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       });
     }
 
-    // 2. stranded-epic — an [EPIC] with no [LAND] leaf anywhere beneath it.
-    if (isEpicTodo(t) && !hasLandDescendant(t)) {
-      violations.push({
-        kind: 'stranded-epic',
-        todoId: t.id,
-        title: t.title,
-        reason: 'epic has no [LAND] → master leaf among its descendants',
-      });
+    // 2. stale-landable-epic — an [EPIC] whose non-dropped children are ALL
+    //    done+accepted but landedAt is still null. Replaces the old
+    //    [LAND]-descendant requirement (a383bc2c intent unchanged: an epic that
+    //    looks done must actually land) now that landedAt is the sole source of
+    //    truth (W5 cutover) and no [LAND] leaf is minted to check for.
+    if (isEpicTodo(t) && t.landedAt == null) {
+      const kids = (childrenOf.get(t.id) ?? []).filter((c) => c.status !== 'dropped');
+      if (kids.length > 0 && kids.every((c) => c.status === 'done' && c.acceptanceStatus === 'accepted')) {
+        violations.push({
+          kind: 'stranded-epic',
+          todoId: t.id,
+          title: t.title,
+          reason: 'epic\'s children are all done+accepted but landedAt is still null (never landed)',
+        });
+      }
     }
 
     // 3. broken-depends-on — a dep points at a missing or dropped todo.

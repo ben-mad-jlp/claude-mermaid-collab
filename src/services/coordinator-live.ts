@@ -549,10 +549,8 @@ function hasOpenChildren(project: string, todoId: string): boolean {
 export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   if (todo.assigneeKind === 'human') return false;
   if (isEpic(todo) || isMission(todo)) return false;
-  // `land` is excluded for SAFETY, not tidiness: a land leaf's deliverable is an
-  // irreversible merge to master, not code. Once the conductor can own a land leaf
-  // (assigneeKind 'agent'), the human check above stops shielding it, and the
-  // executor would run blueprint -> implement -> review against a git merge.
+  // Dead-letter kind: no production path mints 'land' anymore, but a legacy row
+  // could still exist pre-backfill. Defensive skip, not a safety boundary.
   if (isLand(todo)) return false;
   if (kindOf(todo) === 'gate') return false;
   // NOTE: 'reviewer' leaves USED to be excluded here (a review's deliverable is a judgment,
@@ -1363,9 +1361,11 @@ export function partitionEpicChildrenByRepo(
 
 // --- FBPE P3: the single source of epic gating children ----------------------
 export interface EpicGatingChildren {
-  /** Non-dropped, non-[LAND] direct children of the epic — the required-done set. */
+  /** Non-dropped direct children of the epic — the required-done set. Land leaves are
+   *  never minted, so no `[LAND]` split is needed here anymore. */
   buildChildren: Todo[];
-  /** Non-dropped [LAND] direct children of the epic — excluded from every proof. */
+  /** Always empty — land leaves are never minted; `landedAt` is the source of truth.
+   *  Kept so the return shape and call sites keep compiling unchanged. */
   landLeaves: Todo[];
   /** buildChildren partitioned by their resolved target repo (see partitionEpicChildrenByRepo). */
   byRepo: Map<string, string[]>;
@@ -1374,8 +1374,8 @@ export interface EpicGatingChildren {
 }
 
 /** THE single source of an epic's gating children. Every land/promotion path derives its
- *  child sets from here so the `parentId === epicId` + isLand split lives in ONE place.
- *  The combined inline filter below is the ONE production copy (see the source-guard test).
+ *  child set from here so the `parentId === epicId` filter lives in ONE place.
+ *  The inline filter below is the ONE production copy (see the source-guard test).
  *  Exported for unit testing. */
 export function epicGatingChildren(
   allTodos: Todo[],
@@ -1383,11 +1383,9 @@ export function epicGatingChildren(
   trackingProject: string,
 ): EpicGatingChildren {
   const buildChildren = allTodos.filter(
-    (t) => t.parentId === epicId && t.status !== 'dropped' && !isLand(t),
+    (t) => t.parentId === epicId && t.status !== 'dropped',
   );
-  const landLeaves = allTodos.filter(
-    (t) => t.parentId === epicId && t.status !== 'dropped' && isLand(t),
-  );
+  const landLeaves: Todo[] = []; // land leaves are never minted; landedAt is the source of truth
   const { byRepo, ambiguous } = partitionEpicChildrenByRepo(buildChildren, trackingProject);
   return { buildChildren, landLeaves, byRepo, ambiguous };
 }
