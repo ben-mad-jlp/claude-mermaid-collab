@@ -27,6 +27,7 @@ import {
   IMPLEMENT_TIMEOUT_MS,
   makeCitationExists,
   escalateImplementModel,
+  isNonFalsifiableReviewDoubt,
   sameReviewWall,
   deprecatePriorAttempts,
   blueprintAttemptName,
@@ -2973,5 +2974,82 @@ describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
     expect(res.reason).toContain('merge-to-epic-failed');
     expect(order).toEqual(['merge']); // attempted merge, no review, no revert
     expect(reverts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 1 — FALSIFIABILITY RULE: the LLM review cannot gate a GREEN mechanical gate on a
+// NON-falsifiable finding (genuine doubt over a real change-set). A concrete fault claim
+// still gates; a red mechanical gate still parks; a no-op/empty change-set is not abstained.
+// ---------------------------------------------------------------------------
+describe('isNonFalsifiableReviewDoubt (crit 1 classifier)', () => {
+  it('is TRUE for inability/doubt phrasing and empty findings', () => {
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — I cannot confirm correctness')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt("VERDICT: FAIL — can't verify this is right")).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('[N/A] nothing to review\n\nVERDICT: FAIL')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — not enough context to assess')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL')).toBe(true); // empty finding = pure doubt
+    expect(isNonFalsifiableReviewDoubt('')).toBe(true);
+  });
+  it('is FALSE for a concrete fault claim (still gates)', () => {
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — missing null check at line 42')).toBe(false);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — the function returns undefined for empty input')).toBe(false);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — real fault')).toBe(false);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — missing test for the error path')).toBe(false);
+  });
+});
+
+describe('crit 1 — falsifiability rule (review abstains on non-falsifiable doubt over a green gate)', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('green mech + NON-falsifiable doubt FAIL + real change-set → ABSTAIN → accepted (not parked)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — I cannot confirm the correctness of this subtle change'],
+      runGate: greenGate,
+      changeSet: ['src/services/leaf-executor.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // the abstain was recorded and the leaf completed as accepted (no reject pre-stamp).
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeTruthy();
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    expect(spies.markRejectingCalls).toHaveLength(0);
+    // no fix/revise node ran — the abstain accepted on the first review.
+    const implSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implSpecs.length).toBe(1);
+  });
+
+  it('green mech + FALSIFIABLE fault FAIL + change-set → still GATES (revise loop intact)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — missing null check at line 42', 'VERDICT: FAIL — missing null check at line 42'],
+      runGate: greenGate,
+      changeSet: ['src/services/leaf-executor.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked'); // a concrete fault gates, not abstained
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
+  });
+
+  it('green mech + doubt FAIL but EMPTY change-set (no-op) → NOT abstained (parks; that is the no-op guard job)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — nothing to review', 'VERDICT: FAIL — nothing to review'],
+      runGate: greenGate,
+      changeSet: [], // empty = no real change
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
+  });
+
+  it('RED mechanical gate + doubt FAIL → still PARKS (hard floor; abstain never fires on a red gate)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — cannot confirm'],
+      runGate: async () => ({ status: 'fail', command: 'npx tsc --noEmit', output: '1 err', reasons: ['x'], declared: true }),
+      changeSet: ['src/services/leaf-executor.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // a red gate never spends a review node, so no abstain classification happens.
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
   });
 });
