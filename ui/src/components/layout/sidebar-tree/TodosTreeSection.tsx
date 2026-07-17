@@ -209,7 +209,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       if (!trimmed) return;
       setNewTodoText('');
       try {
-        const created = await api.addSessionTodo(
+        const created = await api.fileToBucket(
           currentSession.project,
           currentSession.name,
           trimmed,

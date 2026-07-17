@@ -165,7 +165,7 @@ export interface ApiClient {
   updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
   getSessionTodos(project: string, session: string, includeCompleted?: boolean, status?: TodoStatus, assigneeSession?: string): Promise<SessionTodo[]>;
-  addSessionTodo(project: string, session: string, title: string, opts?: { status?: TodoStatus; assigneeSession?: string; priority?: number; dueDate?: string; description?: string; link?: SessionTodoLink }): Promise<SessionTodo>;
+  fileToBucket(project: string, session: string, title: string, opts?: { bucket?: 'inbox' | 'bugfix'; description?: string; priority?: 0 | 1 | 2 | 3 | 4; status?: 'backlog' | 'planned'; link?: SessionTodoLink }): Promise<SessionTodo>;
   patchSessionTodo(project: string, session: string, id: string, updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string | null; priority?: number; dueDate?: string; description?: string }): Promise<SessionTodo>;
   resetTodo(project: string, id: string): Promise<SessionTodo>;
   removeSessionTodo(project: string, session: string, id: string): Promise<void>;
@@ -716,20 +716,17 @@ export const api: ApiClient = {
   },
 
   /**
-   * Add a session todo
+   * File a quick-capture todo into a bucket (default: Inbox)
    */
-  async addSessionTodo(project: string, session: string, title: string, opts?: { status?: TodoStatus; assigneeSession?: string; priority?: number; dueDate?: string; description?: string; link?: SessionTodoLink }): Promise<SessionTodo> {
-    const { link, ...rest } = opts ?? {};
-    const response = await fetch('/api/session-todos', {
+  async fileToBucket(project, session, title, opts = {}) {
+    const response = await fetch('/api/workgraph/file-to-bucket', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, session, title, ...rest, ...(link ? { link } : {}) }),
+      body: JSON.stringify({ project, session, title, ...opts }),
     });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
+    if (!response.ok) throw new Error(response.statusText);
     const data = await response.json();
-    return data.todo;
+    return data.leaf;
   },
 
   /**
