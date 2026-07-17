@@ -966,11 +966,6 @@ export async function setupMCPServer(): Promise<Server> {
         inputSchema: listSessionTodosSchema,
       },
       {
-        name: 'add_session_todo',
-        description: "Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo. Titles are stored BARE — never prefix a role into the title. The node's role is the `kind` column ('leaf' default | 'epic' | 'land' | 'mission'); pass it explicitly when creating an epic or a [LAND] leaf, and the UI renders the label from it. Bracketed TOPIC tags the human wrote ([UI], [BUG], ...) are content and are preserved verbatim.",
-        inputSchema: addSessionTodoSchema,
-      },
-      {
         name: 'update_session_todo',
         description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
         inputSchema: updateSessionTodoSchema,
@@ -1733,47 +1728,20 @@ export async function setupMCPServer(): Promise<Server> {
           }
 
           case 'add_session_todo': {
-            const { project, session, text, title, kind, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox, servesCriterionId, servesCriterionIds, tier } = args as {
-              project: string;
-              session: string;
-              text?: string;
-              title?: string;
-              kind?: TodoKind;
-              link?: SessionTodoLink;
-              assigneeSession?: string;
-              assigneeKind?: 'agent' | 'human';
-              description?: string;
-              status?: import('../services/todo-store.js').TodoStatus;
-              priority?: 0 | 1 | 2 | 3 | 4;
-              dueDate?: string;
-              dependsOn?: string[];
-              parentId?: string | null;
-              sessionName?: string | null;
-              type?: string | null;
-              files?: string[];
-              inbox?: boolean;
-              servesCriterionId?: string | null;
-              servesCriterionIds?: string[] | null;
-              tier?: import('../services/todo-store.js').LeafTier;
-            };
-            if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-            if (args && typeof args === 'object' && 'bucketType' in (args as Record<string, unknown>)) {
-              throw new Error('add_session_todo: `bucketType` is not caller-settable — buckets are created via ensureBucket');
+            const { kind, parentId, inbox } = (args ?? {}) as { kind?: TodoKind; parentId?: string | null; inbox?: boolean };
+            if (kind === 'mission') {
+              throw new Error('add_session_todo is removed. Use create_mission to create a mission.');
             }
-            // `kind` is the ONLY role signal (stage C, decision e852fb0c). It is never inferred from the
-            // title. Absent means a plain work leaf — the caller creating an epic/mission/[LAND] node must
-            // say so. An out-of-domain value is a caller bug and fails here, not silently downstream.
-            const KINDS: readonly TodoKind[] = ['mission', 'epic', 'land', 'leaf'];
-            if (kind !== undefined && !KINDS.includes(kind)) {
-              throw new Error(`add_session_todo: invalid kind ${JSON.stringify(kind)} (expected one of ${KINDS.join(', ')})`);
+            if (kind === 'epic') {
+              throw new Error('add_session_todo is removed. Use create_epic to create an epic.');
             }
-            const result = await addSessionTodo(project, session, title ?? text!, link, {
-              kind: kind ?? 'leaf',
-              assigneeSession, assigneeKind, description, status, priority, dueDate,
-              dependsOn, parentId, sessionName, type, files, inbox, servesCriterionId, servesCriterionIds, tier,
-            });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
-            return JSON.stringify({ ...deriveTodoViews(project, [result])[0] }, null, 2);
+            if (parentId) {
+              throw new Error('add_session_todo is removed. Use add_leaves (parentId targets an existing epic) to add a leaf.');
+            }
+            if (inbox) {
+              throw new Error('add_session_todo is removed. Use file_to_bucket to file an unplanned item into the Inbox.');
+            }
+            throw new Error('add_session_todo is removed. Use create_epic (kind:\'epic\'), add_leaves (a leaf under an existing epic), create_mission (kind:\'mission\'), or file_to_bucket (inbox:true / parentless).');
           }
 
           case 'update_session_todo': {
