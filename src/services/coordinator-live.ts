@@ -2221,6 +2221,22 @@ export async function landEpic(
         return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch };
       }
 
+      // L4 — LAND-TIME OPEN-CHILDREN HOLD (friction c31ef24f): re-check the epic's
+      // children against LIVE store state, not the epicChildIds snapshot taken
+      // above (line ~2101) or any earlier promotion-time snapshot — a sibling
+      // leaf dropped-and-replaced (or any newly-filed child) between that
+      // snapshot and this point must not slip through. checkLandDeps already
+      // excludes the [LAND] leaf itself and treats a dropped child as
+      // non-gating while still requiring every OTHER open child closed. A
+      // blocker here HOLDS (defer, re-evaluated next tick) — it never parks a
+      // new escalation; the existing epic-ready-to-land card stays open.
+      const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
+      const openChildBlocker = checkLandDeps(freshTodosAtLandTime, epicId);
+      if (openChildBlocker) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'held', reason: 'open-children-at-land-time', detail: openChildBlocker.message }) });
+        return { ok: false, landed: false, reason: 'open-children-at-land-time', epicId, epicBranch };
+      }
+
       // Green proof → perform the real single --no-ff epic→master merge.
       const land = await wm.landEpicToMaster(epicId, {
         ...(dirty.length > 0 && opts?.allowDirty ? { allowDirtyPaths: dirty } : {}),
