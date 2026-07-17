@@ -615,44 +615,6 @@ export const sessionTodoToolDefs: ToolDef[] = [
     },
   },
   {
-    name: 'add_session_todo',
-    description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
-    inputSchema: addSessionTodoSchema,
-    handler: async (args, ctx) => {
-      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, servesCriterionIds, sessionName, type, files, inbox, kind, tier } = args as {
-        project: string;
-        session: string;
-        text?: string;
-        title?: string;
-        link?: SessionTodoLink;
-        assigneeSession?: string;
-        assigneeKind?: 'agent' | 'human';
-        description?: string;
-        status?: TodoStatus;
-        priority?: 0 | 1 | 2 | 3 | 4;
-        dueDate?: string;
-        dependsOn?: string[];
-        parentId?: string | null;
-        missionId?: string | null;
-        servesCriterionId?: string | null;
-        servesCriterionIds?: string[] | null;
-        sessionName?: string | null;
-        type?: string | null;
-        files?: string[];
-        inbox?: boolean;
-        kind?: TodoKind;
-        tier?: LeafTier;
-      };
-      if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-      if (args && typeof args === 'object' && 'bucketType' in (args as Record<string, unknown>)) {
-        throw new Error('add_session_todo: `bucketType` is not caller-settable — buckets are created via ensureBucket');
-      }
-      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, servesCriterionIds, sessionName, type, files, inbox, kind, tier });
-      ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
-      return JSON.stringify(result, null, 2);
-    },
-  },
-  {
     name: 'update_session_todo',
     description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
     inputSchema: updateSessionTodoSchema,

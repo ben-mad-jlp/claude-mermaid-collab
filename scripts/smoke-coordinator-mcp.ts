@@ -205,13 +205,14 @@ try {
   const noPending = payload(await send('tools/call', { name: 'submit_reconcile_result', arguments: { reconcileId: 'nope', mergedGraph: [] } }));
   check('submit unknown id → accepted:false', noPending?.accepted === false, JSON.stringify(noPending));
 
-  // 13. agent-profile type assignment: add_session_todo infers `type` from files
-  const apiTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'add route', files: ['src/routes/api.ts'] } }));
+  // 13. agent-profile type assignment: add_leaves infers `type` from files
+  const typeEpic = payload(await send('tools/call', { name: 'create_epic', arguments: { project, session: 'wf-sess', title: 'type-inference epic' } }));
+  const apiTodo = payload(await send('tools/call', { name: 'add_leaves', arguments: { project, session: 'wf-sess', epicId: typeEpic?.epicId, leaves: [{ title: 'add route', files: ['src/routes/api.ts'] }] } }))?.leaves?.[0];
   const apiGot = payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: apiTodo?.id } }));
-  check('add_session_todo infers type from files', apiGot?.type === 'api', JSON.stringify(apiGot?.type));
-  const uiTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'button', files: ['ui/src/components/Btn.tsx'] } }));
+  check('add_leaves infers type from files', apiGot?.type === 'api', JSON.stringify(apiGot?.type));
+  const uiTodo = payload(await send('tools/call', { name: 'add_leaves', arguments: { project, session: 'wf-sess', epicId: typeEpic?.epicId, leaves: [{ title: 'button', files: ['ui/src/components/Btn.tsx'] }] } }))?.leaves?.[0];
   check('infers ui type', payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: uiTodo?.id } }))?.type === 'ui');
-  const explicitTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'x', type: 'backend', files: ['ui/x.tsx'] } }));
+  const explicitTodo = payload(await send('tools/call', { name: 'add_leaves', arguments: { project, session: 'wf-sess', epicId: typeEpic?.epicId, leaves: [{ title: 'x', type: 'backend', files: ['ui/x.tsx'] }] } }))?.leaves?.[0];
   check('explicit type overrides inference', payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: explicitTodo?.id } }))?.type === 'backend');
 
   // 14. decision_record MCP tools (#9): constraint needs approval; decision auto-active

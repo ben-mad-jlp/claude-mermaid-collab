@@ -3673,64 +3673,23 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/session-todos - Add a session todo
+  // POST /api/session-todos - REMOVED (raw creation surface retired); teaches the caller
+  // which structured constructor replaces it.
   if (path === '/api/session-todos' && req.method === 'POST') {
+    let kind: TodoKind | undefined;
+    let parentId: string | null | undefined;
+    let inbox: boolean | undefined;
     try {
-      const body = await req.json() as {
-        project?: string;
-        session?: string;
-        title?: string;
-        text?: string;
-        link?: SessionTodoLink;
-        status?: import('../services/todo-store').TodoStatus;
-        assigneeSession?: string;
-        priority?: 0 | 1 | 2 | 3 | 4;
-        dueDate?: string;
-        description?: string;
-        parentId?: string | null;
-        inbox?: boolean;
-        kind?: TodoKind;
-        missionId?: string | null;
-        servesCriterionId?: string | null;
-      };
-
-      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, kind, missionId, servesCriterionId } = body;
-      const title = body.title ?? body.text;
-
-      if (!project || !session || !title) {
-        return Response.json({ error: 'project, session, and title (or text) required' }, { status: 400 });
-      }
-      if (!title.trim()) {
-        return Response.json({ error: 'title must be non-empty' }, { status: 400 });
-      }
-      if (kind !== undefined && !VALID_KINDS.includes(kind)) {
-        return Response.json({ error: `kind must be one of ${VALID_KINDS.join('|')}` }, { status: 400 });
-      }
-      const effectiveKind: TodoKind = kind ?? 'leaf';
-      if (missionId !== undefined && effectiveKind !== 'epic') {
-        return Response.json({ error: 'missionId is only valid for kind:"epic"' }, { status: 400 });
-      }
-
-      // every-todo-needs-an-epic: createTodo REJECTS a non-epic top-level create unless
-      // parentId (an epic) or inbox:true is given — the catch below returns it as a 400.
-      // `kind ?? 'leaf'` defaults HERE, at the generic REST "add a todo" boundary, because
-      // todo-store.createTodo requires an explicit kind and must never infer one from title.
-      // Omitting `missionId` on an epic create is what makes mission homing the DEFAULT
-      // (createTodo homes it to the caller's active mission), not an opt-in.
-      const todo = await createTodo(project, { ownerSession: session, title, kind: effectiveKind, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, missionId, servesCriterionId });
-
-      wsHandler.broadcast({
-        type: 'session_todos_updated',
-        project,
-        session,
-        ownerSession: todo.ownerSession,
-        assigneeSession: todo.assigneeSession ?? undefined,
-      });
-
-      return Response.json({ todo }, { status: 201 });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 400 });
-    }
+      const body = await req.json() as { kind?: TodoKind; parentId?: string | null; inbox?: boolean };
+      kind = body.kind; parentId = body.parentId; inbox = body.inbox;
+    } catch { /* fall through to the generic message below */ }
+    let message: string;
+    if (kind === 'mission') message = 'POST /api/session-todos is removed. Use create_mission to create a mission.';
+    else if (kind === 'epic') message = 'POST /api/session-todos is removed. Use create_epic to create an epic.';
+    else if (parentId) message = 'POST /api/session-todos is removed. Use add_leaves to add a leaf under an existing epic.';
+    else if (inbox) message = 'POST /api/session-todos is removed. Use file_to_bucket to file an unplanned item into the Inbox.';
+    else message = 'POST /api/session-todos is removed. Use create_epic, add_leaves, create_mission, or file_to_bucket.';
+    return Response.json({ error: message }, { status: 410 });
   }
 
   // POST /api/todos/backfill-mission - Parent existing epics under a mission (per-epic decision, not bulk)
