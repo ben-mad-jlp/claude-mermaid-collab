@@ -1775,6 +1775,40 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
   }
 }
 
+/** D1 fix (friction 9312cb98): the armed sweep above only evaluates MISSION epics
+ *  (autoLandArmedMissionEpics filters on isMissionEpic), so a build-green NON-mission
+ *  epic whose [LAND] leaf is still open never rolls up (land leaf is a non-done child)
+ *  and is invisible to every existing sweep — it deadlocks forever. This sweep raises
+ *  the SAME human 'epic-ready-to-land' card via surfaceEpicLand for such epics. It never
+ *  promotes/completes the land leaf and never auto-lands: surfaceEpicLand's own
+ *  landAuthorized gate (epicAutoLandAuthority — MISSION_AUTOLAND_ARMED && isMissionEpic)
+ *  already refuses auto-land for a non-mission epic, so this sweep is surface-only by
+ *  construction — the auto-land authority boundary (constraint 55ee9d79) is enforced by
+ *  the callee, not duplicated here. Best-effort; never throws. */
+export async function surfaceBuildGreenNonMissionEpics(project: string): Promise<void> {
+  const allTodos = listTodos(project, { includeCompleted: true });
+  const nonMissionEpics = allTodos.filter(
+    (t) => isEpic(t) && t.status !== 'done' && t.status !== 'dropped'
+      && t.heldAt == null && !isMissionEpic(project, t.id, allTodos),
+  );
+  for (const epic of nonMissionEpics) {
+    try {
+      const decision = missionLandLeafPromotion(allTodos, epic.id);
+      if (!decision.promote) continue;
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ epicId: epic.id, nonMissionLandSurface: 'build-green', landLeafId: decision.landLeafId }) });
+      await surfaceEpicLand(project, epic.id, {
+        sessionHint: 'coordinator',
+        preferLinkTodoId: decision.buildChildIds[0],
+        landLeafId: decision.landLeafId,
+      });
+    } catch (e) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ epicId: epic.id, nonMissionLandSurface: 'error', reason: e instanceof Error ? e.message : String(e) }) });
+    }
+  }
+}
+
 /** Stamp the epic's [LAND] leaf done ONLY on an observed merge. Guarded: a missing
  *  landLeafId or a non-landed outcome is a no-op — the leaf stays not-done and the
  *  next reconcile tick retries. Best-effort; the caller already wraps in try/catch. */
