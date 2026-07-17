@@ -6,7 +6,7 @@
 // exported because setup.ts still calls it from other flows (session summary /
 // clear-artifacts); the module imports only leaf services, so no import cycle.
 // Behavior is identical — a pure move.
-import { buildUrl, asJson, sessionParamsDesc } from './tools/http-util.js';
+import { buildUrl, asJson, sessionParamsDesc, apiFetch } from './tools/http-util.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
 
@@ -15,7 +15,7 @@ import { projectRegistry } from '../services/project-registry.js';
 // ---------------------------------------------------------------------------
 
 export async function listSpreadsheets(project: string, session: string): Promise<string> {
-  const response = await fetch(buildUrl('/api/spreadsheets', project, session));
+  const response = await apiFetch(buildUrl('/api/spreadsheets', project, session));
   if (!response.ok) {
     throw new Error(`Failed to list spreadsheets: ${response.statusText}`);
   }
@@ -24,7 +24,7 @@ export async function listSpreadsheets(project: string, session: string): Promis
 }
 
 export async function getSpreadsheet(project: string, session: string, id: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/spreadsheet/${id}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/spreadsheet/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Spreadsheet not found: ${id}`);
@@ -36,7 +36,7 @@ export async function getSpreadsheet(project: string, session: string, id: strin
 }
 
 export async function createSpreadsheet(project: string, session: string, name: string, content: string): Promise<string> {
-  const response = await fetch(buildUrl('/api/spreadsheet', project, session), {
+  const response = await apiFetch(buildUrl('/api/spreadsheet', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, content }),
@@ -54,7 +54,7 @@ export async function createSpreadsheet(project: string, session: string, name: 
 }
 
 export async function updateSpreadsheet(project: string, session: string, id: string, content: string): Promise<string> {
-  const response = await fetch(buildUrl(`/api/spreadsheet/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/spreadsheet/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -293,7 +293,7 @@ export async function handleSpreadsheetTool(name: string, args: any): Promise<st
     case 'delete_spreadsheet': {
       const { project, session, id } = args as { project: string; session: string; id: string };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-      const response = await fetch(buildUrl(`/api/spreadsheet/${id}`, project, session), {
+      const response = await apiFetch(buildUrl(`/api/spreadsheet/${id}`, project, session), {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -306,7 +306,7 @@ export async function handleSpreadsheetTool(name: string, args: any): Promise<st
     case 'get_spreadsheet_history': {
       const { project, session, id } = args as { project: string; session: string; id: string };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-      const response = await fetch(buildUrl(`/api/spreadsheet/${id}/history`, project, session));
+      const response = await apiFetch(buildUrl(`/api/spreadsheet/${id}/history`, project, session));
       if (!response.ok) {
         if (response.status === 404) {
           return JSON.stringify({ error: 'No history for spreadsheet', history: null }, null, 2);
@@ -320,12 +320,12 @@ export async function handleSpreadsheetTool(name: string, args: any): Promise<st
     case 'revert_spreadsheet': {
       const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
       if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
-      const versionResponse = await fetch(buildUrl(`/api/spreadsheet/${id}/version`, project, session, { timestamp }));
+      const versionResponse = await apiFetch(buildUrl(`/api/spreadsheet/${id}/version`, project, session, { timestamp }));
       if (!versionResponse.ok) {
         throw new Error(`Failed to get spreadsheet version: ${versionResponse.statusText}`);
       }
       const versionData = await versionResponse.json() as { content: string };
-      const updateResponse = await fetch(buildUrl(`/api/spreadsheet/${id}`, project, session), {
+      const updateResponse = await apiFetch(buildUrl(`/api/spreadsheet/${id}`, project, session), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: versionData.content }),
@@ -359,7 +359,7 @@ export async function handleSpreadsheetTool(name: string, args: any): Promise<st
       if (!project || !session || !id || !operations) throw new Error('Missing required: project, session, id, operations');
 
       // Get current spreadsheet
-      const getResp = await fetch(buildUrl(`/api/spreadsheet/${id}`, project, session));
+      const getResp = await apiFetch(buildUrl(`/api/spreadsheet/${id}`, project, session));
       if (!getResp.ok) {
         throw new Error(`Spreadsheet not found: ${id}`);
       }
@@ -459,7 +459,7 @@ export async function handleSpreadsheetTool(name: string, args: any): Promise<st
       const { project, session, id } = args as { project: string; session: string; id: string };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
 
-      const getResp = await fetch(buildUrl(`/api/spreadsheet/${id}`, project, session));
+      const getResp = await apiFetch(buildUrl(`/api/spreadsheet/${id}`, project, session));
       if (!getResp.ok) {
         throw new Error(`Spreadsheet not found: ${id}`);
       }

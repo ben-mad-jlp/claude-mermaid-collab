@@ -13,6 +13,8 @@
  * - message?: string
  */
 
+import { apiFetch } from './http-util.js';
+
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
@@ -34,7 +36,7 @@ function buildUrl(path: string, project: string, session: string): string {
 export async function dismissUI(project: string, session: string): Promise<string> {
   try {
     // Send dismiss request to the server
-    const response = await fetch(buildUrl('/api/dismiss-ui', project, session), {
+    const response = await apiFetch(buildUrl('/api/dismiss-ui', project, session), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });

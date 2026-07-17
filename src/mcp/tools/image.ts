@@ -1,3 +1,5 @@
+import { apiFetch } from './http-util.js';
+
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
@@ -108,7 +110,7 @@ export async function handleGenerateImage(
   session: string,
   args: { prompt: string; name?: string; task?: string; model?: string; n?: number; aspectRatio?: string; resolution?: string },
 ): Promise<GenerateImageResult> {
-  const response = await fetch(buildUrl('/api/generate-image', project, session), {
+  const response = await apiFetch(buildUrl('/api/generate-image', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
@@ -123,7 +125,7 @@ export async function handleGenerateImage(
 }
 
 export async function handleListAudio(project: string, session: string): Promise<any> {
-  const r = await fetch(buildUrl('/api/audio', project, session));
+  const r = await apiFetch(buildUrl('/api/audio', project, session));
   if (!r.ok) throw new Error(`Failed to list audio: ${r.statusText}`);
   return r.json();
 }
@@ -134,7 +136,7 @@ export async function handleCreateImage(
   name: string,
   source: string,
 ): Promise<CreateImageResult> {
-  const response = await fetch(buildUrl('/api/image', project, session), {
+  const response = await apiFetch(buildUrl('/api/image', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, source }),
@@ -153,7 +155,7 @@ export async function handleListImages(
   project: string,
   session: string,
 ): Promise<ListImagesResult> {
-  const response = await fetch(buildUrl('/api/images', project, session));
+  const response = await apiFetch(buildUrl('/api/images', project, session));
   if (!response.ok) throw new Error(`Failed to list images: ${response.statusText}`);
   const data = await response.json() as any;
   return { images: data.images || [] };
@@ -164,7 +166,7 @@ export async function handleGetImage(
   session: string,
   id: string,
 ): Promise<GetImageResult> {
-  const response = await fetch(buildUrl(`/api/image/${encodeURIComponent(id)}`, project, session));
+  const response = await apiFetch(buildUrl(`/api/image/${encodeURIComponent(id)}`, project, session));
   if (!response.ok) {
     if (response.status === 404) throw new Error(`Image not found: ${id}`);
     throw new Error(`Failed to get image: ${response.statusText}`);
@@ -177,7 +179,7 @@ export async function handleDeleteImage(
   session: string,
   id: string,
 ): Promise<DeleteImageResult> {
-  const response = await fetch(buildUrl(`/api/image/${encodeURIComponent(id)}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/image/${encodeURIComponent(id)}`, project, session), {
     method: 'DELETE',
   });
   if (!response.ok) {

@@ -5,6 +5,8 @@
  * stored in session folders.
  */
 
+import { apiFetch } from './http-util.js';
+
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
@@ -99,7 +101,7 @@ export async function handleCreateEmbed(
   if (height !== undefined) body.height = height;
   if (storybook !== undefined) body.storybook = storybook;
 
-  const response = await fetch(buildUrl('/api/embed', project, session), {
+  const response = await apiFetch(buildUrl('/api/embed', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -118,7 +120,7 @@ export async function handleListEmbeds(
   project: string,
   session: string,
 ): Promise<ListEmbedsResult> {
-  const response = await fetch(buildUrl('/api/embeds', project, session));
+  const response = await apiFetch(buildUrl('/api/embeds', project, session));
 
   if (!response.ok) {
     throw new Error(`Failed to list embeds: ${response.statusText}`);
@@ -133,7 +135,7 @@ export async function handleDeleteEmbed(
   session: string,
   id: string,
 ): Promise<DeleteEmbedResult> {
-  const response = await fetch(buildUrl(`/api/embed/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/embed/${id}`, project, session), {
     method: 'DELETE',
   });
 

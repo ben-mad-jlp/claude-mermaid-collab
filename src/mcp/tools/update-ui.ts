@@ -14,6 +14,8 @@
  * - message?: string
  */
 
+import { apiFetch } from './http-util.js';
+
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
@@ -44,7 +46,7 @@ export async function updateUI(
     }
 
     // Send update request to the server
-    const response = await fetch(buildUrl('/api/update-ui', project, session), {
+    const response = await apiFetch(buildUrl('/api/update-ui', project, session), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ patch }),

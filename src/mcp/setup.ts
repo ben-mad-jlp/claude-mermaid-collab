@@ -22,7 +22,7 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { ToolRegistry, type ToolCtx } from './tools/registry.js';
-import { API_BASE_URL, buildUrl, asJson, type AnyJson, sessionParamsDesc } from './tools/http-util.js';
+import { API_BASE_URL, buildUrl, asJson, type AnyJson, sessionParamsDesc, apiFetch } from './tools/http-util.js';
 // NOTE: the registry refactor (6066b12a) extracted byte-identical copies of the
 // document handlers into ./tools/documents.ts, but the originals below are still
 // the ones wired into the dispatch switch. Importing them too caused a duplicate
@@ -398,7 +398,7 @@ interface ArchiveByPrefixResult {
 }
 
 async function deprecateItem(project: string, session: string, id: string): Promise<void> {
-  const response = await fetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+  const response = await apiFetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ deprecated: true }),
@@ -413,7 +413,7 @@ async function deleteArchivedOriginal(
   id: string
 ): Promise<void> {
   if (type === 'document' || type === 'diagram') {
-    const response = await fetch(buildUrl(`/api/${type}/${id}`, project, session), {
+    const response = await apiFetch(buildUrl(`/api/${type}/${id}`, project, session), {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error(`Failed to delete ${type} ${id}: ${response.statusText}`);
@@ -560,7 +560,7 @@ async function listSessions(project?: string): Promise<string> {
   const url = project
     ? `${API_BASE_URL}/api/sessions?project=${encodeURIComponent(project)}`
     : `${API_BASE_URL}/api/sessions`;
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     throw new Error(`Failed to list sessions: ${response.statusText}`);
   }
@@ -1202,7 +1202,7 @@ export async function setupMCPServer(): Promise<Server> {
 
           case 'recommend_session_cleanup': {
             const days = (args as { days?: number })?.days ?? 30;
-            const res = await fetch(`${API_BASE_URL}/api/maintenance/stale-scan?days=${encodeURIComponent(String(days))}`);
+            const res = await apiFetch(`${API_BASE_URL}/api/maintenance/stale-scan?days=${encodeURIComponent(String(days))}`);
             if (!res.ok) throw new Error(`stale-scan failed: ${res.statusText}`);
             return JSON.stringify(await asJson(res), null, 2);
           }
@@ -1356,7 +1356,7 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session, ui, blocking } = args as { project: string; session: string; ui: any; blocking?: boolean };
             if (!project || !session || !ui) throw new Error('Missing required: project, session, ui');
 
-            const response = await fetch(buildUrl('/api/render-ui', project, session), {
+            const response = await apiFetch(buildUrl('/api/render-ui', project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ui, blocking }),
@@ -1386,7 +1386,7 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session, uiId } = args as { project: string; session: string; uiId: string };
             if (!project || !session || !uiId) throw new Error('Missing required: project, session, uiId');
 
-            const response = await fetch(
+            const response = await apiFetch(
               `${API_BASE_URL}/api/ui-response?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&uiId=${encodeURIComponent(uiId)}`
             );
 
@@ -1452,7 +1452,7 @@ export async function setupMCPServer(): Promise<Server> {
               console.warn(`[register_claude_session] binding file write failed (${err?.message || String(err)}), using in-memory registration only`);
             }
             try {
-              const response = await fetch(buildUrl('/api/claude-session/register', project, session), {
+              const response = await apiFetch(buildUrl('/api/claude-session/register', project, session), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ claudeSessionId }),
@@ -1470,7 +1470,7 @@ export async function setupMCPServer(): Promise<Server> {
 
           case 'check_server_health': {
             try {
-              const response = await fetch(`${API_BASE_URL}/api/health`, {
+              const response = await apiFetch(`${API_BASE_URL}/api/health`, {
                 method: 'GET',
                 signal: AbortSignal.timeout(5000),
               });
@@ -1509,8 +1509,8 @@ export async function setupMCPServer(): Promise<Server> {
             if (!project || !session) throw new Error('Missing required: project, session');
 
             const [diagrams, documents, designs, snippets] = await Promise.all([
-              fetch(buildUrl('/api/diagrams', project, session)).then(r => r.ok ? r.json() as Promise<AnyJson> : ({ diagrams: [] } as AnyJson)),
-              fetch(buildUrl('/api/documents', project, session)).then(r => r.ok ? r.json() as Promise<AnyJson> : ({ documents: [] } as AnyJson)),
+              apiFetch(buildUrl('/api/diagrams', project, session)).then(r => r.ok ? r.json() as Promise<AnyJson> : ({ diagrams: [] } as AnyJson)),
+              apiFetch(buildUrl('/api/documents', project, session)).then(r => r.ok ? r.json() as Promise<AnyJson> : ({ documents: [] } as AnyJson)),
               handleListDesigns(project, session).catch(() => ({ designs: [] }) as AnyJson),
               handleListSnippets(project, session).catch(() => ({ snippets: [] }) as AnyJson),
             ]);
@@ -1521,8 +1521,8 @@ export async function setupMCPServer(): Promise<Server> {
             const snippetIds: string[] = ((snippets as AnyJson).snippets || []).map((s: any) => s.id);
 
             await Promise.all([
-              ...diagramIds.map(id => fetch(buildUrl(`/api/diagram/${id}`, project, session), { method: 'DELETE' })),
-              ...documentIds.map(id => fetch(buildUrl(`/api/document/${id}`, project, session), { method: 'DELETE' })),
+              ...diagramIds.map(id => apiFetch(buildUrl(`/api/diagram/${id}`, project, session), { method: 'DELETE' })),
+              ...documentIds.map(id => apiFetch(buildUrl(`/api/document/${id}`, project, session), { method: 'DELETE' })),
               ...designIds.map(id => handleDeleteDesign(project, session, id).catch(() => {})),
               ...snippetIds.map(id => handleDeleteSnippet(project, session, id).catch(() => {})),
             ]);
@@ -2151,7 +2151,7 @@ export async function setupMCPServer(): Promise<Server> {
           case 'deprecate_artifact': {
             const { project, session, id, deprecated } = args as { project: string; session: string; id: string; deprecated: boolean };
             if (!project || !session || !id || deprecated === undefined) throw new Error('Missing required: project, session, id, deprecated');
-            const response = await fetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+            const response = await apiFetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ deprecated }),
@@ -2171,7 +2171,7 @@ export async function setupMCPServer(): Promise<Server> {
             if (locked !== undefined) updates.locked = locked;
             if (pinned !== undefined) updates.pinned = pinned;
             if (deprecated !== undefined) updates.deprecated = deprecated;
-            const response = await fetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+            const response = await apiFetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(updates),
