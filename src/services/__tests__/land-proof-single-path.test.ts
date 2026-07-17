@@ -15,8 +15,8 @@ import { join } from 'node:path';
 const supervisorDir = mkdtempSync(join(tmpdir(), 'land-single-path-'));
 process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
-import { landReadiness, landAuthority, landedByTrailer, type LandActor, type LandProbes } from '../land-authority';
-import { createTodo, updateTodo, getTodo, listTodos, _closeProject, type Todo } from '../todo-store';
+import { landReadiness, landAuthority, landedByTrailer, checkLandDeps, type LandActor, type LandProbes } from '../land-authority';
+import { createTodo, updateTodo, getTodo, listTodos, stampEpicLandedAt, _closeProject, type Todo } from '../todo-store';
 import { upsertMission } from '../mission-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { _closeLedgerDb } from '../worker-ledger';
@@ -260,10 +260,73 @@ describe('land-proof-single-path — topology verification', () => {
     expect(verdict.ownership).toBe('bucket');
     expect(verdict.blockers[0].code).toBe('bucket-epic');
 
-    // landReadiness on same epic is unaffected by actor
+    // landReadiness on same epic is unaffected by actor. The inbox epic has zero
+    // children, so the derived sibling barrier is vacuously satisfied — it is the
+    // ownership check (bucket-epic, asserted above) that refuses this epic, not
+    // checkLandDeps (W4 cutover: no land-leaf-existence requirement).
     const readinessBucket = await landReadiness(project, inboxEpic.id, { probes, todos: allTodos });
-    // Inbox epic should fail the [LAND] leaf dep check
-    expect(readinessBucket.blockers.map((b) => b.code)).toContain('land-deps-unsatisfied');
+    expect(readinessBucket.blockers.map((b) => b.code)).not.toContain('land-deps-unsatisfied');
+  });
+
+  it('test 4c — checkLandDeps returns null for landedAt:null with zero land-leaf siblings (W4 cutover)', async () => {
+    // A fresh epic + one land-kind child ONLY (no build children at all): the
+    // sibling barrier excludes land-kind todos via isLandTodo, so there are zero
+    // gating siblings and the barrier is vacuously satisfied — no land-leaf
+    // existence check remains in checkLandDeps.
+    const bareEpic = (await createTodo(project, {
+      title: '[EPIC] bare',
+      kind: 'epic',
+      parentId: m1.id,
+      ownerSession: 'sess-A',
+    })) as Todo;
+    await createTodo(project, {
+      title: '[LAND] merge bare',
+      kind: 'land',
+      parentId: bareEpic.id,
+      ownerSession: 'sess-A',
+    });
+    const allTodos = listTodos(project, { includeCompleted: true });
+    expect(bareEpic.landedAt).toBeNull();
+    expect(checkLandDeps(allTodos, bareEpic.id)).toBeNull();
+  });
+
+  it('test 4d — checkLandDeps returns land-deps-unsatisfied citing landedAt when already landed', async () => {
+    const landedAt = new Date().toISOString();
+    stampEpicLandedAt(project, epic.id, landedAt);
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const blocker = checkLandDeps(allTodos, epic.id);
+    expect(blocker).not.toBeNull();
+    expect(blocker!.code).toBe('land-deps-unsatisfied');
+    expect(blocker!.message).toContain('already landed');
+    expect(blocker!.message).toContain(landedAt);
+  });
+
+  it('test 4e — legacy epic with a done land leaf child (no epic.landedAt) still resolves via the sibling barrier', async () => {
+    const legacyEpic = (await createTodo(project, {
+      title: '[EPIC] legacy',
+      kind: 'epic',
+      parentId: m1.id,
+      ownerSession: 'sess-A',
+    })) as Todo;
+    const legacyLeaf = (await createTodo(project, {
+      title: 'legacy work',
+      parentId: legacyEpic.id,
+      status: 'done',
+      ownerSession: 'sess-A',
+    })) as Todo;
+    await updateTodo(project, legacyLeaf.id, { acceptanceStatus: 'accepted' });
+    await createTodo(project, {
+      title: '[LAND] merge legacy',
+      kind: 'land',
+      parentId: legacyEpic.id,
+      status: 'done',
+      dependsOn: [legacyLeaf.id],
+      ownerSession: 'sess-A',
+    });
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const refreshedEpic = allTodos.find((t) => t.id === legacyEpic.id)!;
+    expect(refreshedEpic.landedAt).toBeNull();
+    expect(checkLandDeps(allTodos, legacyEpic.id)).toBeNull();
   });
 
   it('test 5 — trailer parity (actor is recorded, proof is unaffected)', async () => {
