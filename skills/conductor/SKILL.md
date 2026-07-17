@@ -12,7 +12,8 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__get_mission
   - mcp__plugin_mermaid-collab_mermaid__get_document
   - mcp__plugin_mermaid-collab_mermaid__list_session_todos
-  - mcp__plugin_mermaid-collab_mermaid__add_session_todo
+  - mcp__plugin_mermaid-collab_mermaid__create_epic
+  - mcp__plugin_mermaid-collab_mermaid__add_leaves
   - mcp__plugin_mermaid-collab_mermaid__update_session_todo
   - mcp__plugin_mermaid-collab_mermaid__reset_todo
   - mcp__plugin_mermaid-collab_mermaid__override_accept_todo
@@ -50,7 +51,7 @@ Call `get_mission`. Each criterion carries a derived **`action`**; the scalar mi
 
 | Criterion `action` | Meaning | Your move |
 |---|---|---|
-| `discover` | No **live** serving epic: none filed, filed-but-unapproved (e.g. you were recycled mid-pass), or a landed epic whose VERIFY came back unmet | Serve it: ground the gap by exercising the app, file an `[EPIC]` child of the mission (`parentId=<mission id>`, `servesCriterionIds=[<every criterion this deliverable covers>]`) — aspect criteria of ONE deliverable (its idempotency, its fail-open, its UI surface) share ONE right-sized epic; decompose per planner rules (leaves, and the daemon self-heals a missing [LAND] leaf), approve epic + leaves. **If a filed-but-unapproved epic already serves it, FINISH that epic (approve it) — do not file a duplicate.** |
+| `discover` | No **live** serving epic: none filed, filed-but-unapproved (e.g. you were recycled mid-pass), or a landed epic whose VERIFY came back unmet | Serve it: ground the gap by exercising the app, `create_epic { home: <mission id>, servesCriterionIds: [<every criterion this deliverable covers>], title }` (mints epic + land leaf in one call) — aspect criteria of ONE deliverable (its idempotency, its fail-open, its UI surface) share ONE right-sized epic; then `add_leaves { epicId: <epicId from create_epic's result>, leaves: [...] }` per planner rules (right-sized, deliverable-sized), approve epic + leaves. **If a filed-but-unapproved epic already serves it, FINISH that epic (approve it) — do not file a duplicate.** |
 | `building` | A serving epic has live motion (claimed/ready leaves) | Nothing for this criterion. The daemon is working. |
 | `verify` | A serving epic **landed**; the criterion has no recorded verdict (this includes met-looking ones — `met` without `verifiedAt` is a self-grade) | Run `/verify-mission` — the independent reviewer-per-criterion gate records verdicts. Never self-grade. |
 | `met` | Criterion satisfied and verified | Done. |
@@ -100,7 +101,7 @@ Exercising the app to *ground* gaps (driving the browser, running the CLI, readi
 
 ## Quick reference
 - Read state: `get_mission` (per-criterion `action` + rollup `gaps`/`awaitingVerify`), `list_session_todos`.
-- Serve gaps: `add_session_todo parentId=<mission id> kind=epic servesCriterionIds=[<criteria>]`, leaves under it per planner rules (the reconcile pass self-heals a missing [LAND] leaf); approve: `update_session_todo status=ready`.
+- Serve gaps: `create_epic { home: <mission id>, servesCriterionIds: [<criteria>] }` then `add_leaves { epicId, leaves: [...] }` per planner rules; approve: `update_session_todo status=ready`.
 - Add/check criteria: `add_mission_criterion`, `set_mission_criterion`.
 - Independent gate: `/verify-mission`.
 - Switch which mission is active: `set_active_mission`.
