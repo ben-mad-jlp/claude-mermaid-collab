@@ -70,6 +70,7 @@ type MenuState = { chip: Chip; isDefault: boolean; x: number; y: number };
 
 export function InputRail({ project, session, serverId, disabled = false }: InputRailProps) {
   const collapsed = useQuickReplyStore((s) => s.collapsed);
+  const suggestReplyDisplay = useQuickReplyStore((s) => s.suggestReplyDisplay);
   const hiddenDefaults = useQuickReplyStore((s) => s.hiddenDefaults);
   const custom = useQuickReplyStore((s) => s.custom);
   const addChip = useQuickReplyStore((s) => s.addChip);
@@ -263,6 +264,8 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
       sendChip(target, e.altKey);
     }
   };
+
+  if (!suggestReplyDisplay) return null;
 
   // Collapsed: a 4px hairline that re-expands on click. Deliberately no chevron —
   // collapsing is rare; surfacing the control would add the chrome the rail rejects.
