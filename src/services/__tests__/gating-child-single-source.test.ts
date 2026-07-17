@@ -2,9 +2,11 @@
  * Source-guard: the inline gating-child filter pattern must appear EXACTLY ONCE in
  * production code (in the epicGatingChildren helper), never hand-copied at call sites.
  *
- * The acceptance clause: *the pattern `parentId === epicId && … && !isLand(` appears
- * exactly once across src/services (excluding __tests__), and only in coordinator-live.ts*.
- * This guard prevents a fourth hand-copied filter from being added without detection.
+ * The acceptance clause: *the pattern `parentId === epicId && t.status !== 'dropped'`
+ * (with no further land-kind filter — land leaves are never minted, so buildChildren
+ * is just "all non-dropped children") appears exactly once across src/services
+ * (excluding __tests__), and only in coordinator-live.ts*. This guard prevents a
+ * fourth hand-copied filter from being added without detection.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -13,9 +15,10 @@ import { tmpdir } from 'node:os';
 
 describe('gating-child-single-source — source-guard for hand-copied filters', () => {
   it('finds the gating-child filter exactly once and only in coordinator-live.ts', () => {
-    // The pattern: parentId === <word> && <anything except newline> && !isLand(
-    // This matches the combined filter used to split build children from land leaves.
-    const PATTERN = /parentId === \w+ &&[^\n]*&&\s*!isLand\(/g;
+    // The pattern: parentId === <word> && t.status !== 'dropped', anchored on the
+    // trailing comma so it doesn't also match land-authority.ts's checkLandDeps
+    // sibling filter, which chains a further `&& !isLandTodo(t)` onto the same prefix.
+    const PATTERN = /parentId === \w+ && t\.status !== 'dropped',/g;
 
     const serviceDir = join(import.meta.dir, '..');
     const matches: { file: string; count: number }[] = [];
