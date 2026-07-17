@@ -1057,6 +1057,11 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
     'review the working tree directly — do the best honest review you can and SAY which base you used.)',
     'Read the actual changed source to confirm behavior — do not review from the diff alone.',
     '',
+    'CITING A DELETED FILE — a removed file has no file:line. For a criterion about a file the',
+    'change-set DELETES, cite it exactly as `path/to/file.ext (deleted)` — the `(deleted)` phrase',
+    'IS the citation and is validated against the change-set; freeform prose ("git status shows D")',
+    'extracts no citation and fails the grounding audit.',
+    '',
     'VERIFY DISCIPLINE — a verdict needs a BASELINE. If the change-set has tests:',
     `  1. Run each relevant test file ALONE on this branch, using this project's own test runner.`,
     `  2. Run that SAME file ALONE on \`${baseRef}\` (a worktree/checkout of the base).`,
@@ -2462,6 +2467,12 @@ export async function runLeaf(
         const bpShadow = deps.gateShadowMode?.(project) ?? false;
         if (citability.status === 'uncitable' && !bpShadow) {
           try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+          // A guard-REJECTED blueprint is not a reusable plan. Drop the leaf_blueprint
+          // cache row so a later claim's planResume decides FRESH instead of reattaching
+          // the rejected plan (which would drive its rejected criteria into review and
+          // park again — defeating a conductor's reset+re-spec). The ledger node output
+          // remains as durable telemetry; only the reuse cache is cleared.
+          try { clearLeafBlueprint(leaf.id); } catch { /* cache clear is best-effort */ }
           return parkBlocked(`blueprint-uncitable-criterion: ${citability.reasons.join('; ')}`);
         }
       }
