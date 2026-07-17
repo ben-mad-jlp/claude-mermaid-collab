@@ -133,3 +133,81 @@ export async function awaitSplitDecision(input: {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// crit 4 (mission b86b383c) — CONTESTED-ACCEPT proposal. When a GREEN-mechanical change is
+// contested by a falsifiable review FAIL whose edit is UNCOVERED (declared tests do NOT flip
+// base→branch) and revision same-walls, the executor raises a bounded-wait DECISION card
+// (accept/reject) instead of a silent parkBlocked-rejected stamp. Timeout / no-answer / reject
+// → the SAFE DEFAULT = today's park (the leaf keeps gating). Reuses the split escalation infra.
+// ---------------------------------------------------------------------------
+export const CONTESTED_PROPOSAL_TAG = '[CONTESTED REVIEW]';
+export type ContestedAnswer = 'accept' | 'reject' | 'timeout';
+
+export function proposeContested(input: {
+  project: string;
+  session: string;
+  leaf: { id: string; title?: string | null };
+  reason: string;
+}): SplitProposal {
+  // Dedupe: one open contested card per leaf.
+  const normalized = trackingProjectRoot(input.project);
+  for (const e of listEscalations('open')) {
+    if (e.project === normalized && e.kind === 'decision' && e.todoId === input.leaf.id && e.questionText.startsWith(CONTESTED_PROPOSAL_TAG)) {
+      return { escalationId: e.id, createdAt: e.createdAt, isNew: false };
+    }
+  }
+  const questionText =
+    `${CONTESTED_PROPOSAL_TAG} "${input.leaf.title ?? input.leaf.id}"\n\n` +
+    `The mechanical gate is GREEN (tsc + tests pass) but the LLM review keeps FAILing this change ` +
+    `with a finding the declared tests do NOT cover (base→branch coverage could not confirm it), ` +
+    `and revision same-walled. A human should rule.\n\n` +
+    `Reason: ${input.reason}\n\n` +
+    `**Option 1: ACCEPT** (select "Accept") → land the mechanically-green change; the finding is filed as a follow-up, not a blocker.\n` +
+    `**Option 2: REJECT** (select "Reject", or no answer by timeout) → park the leaf as today.\n\n` +
+    `Timeout: 10 minutes. No answer = Reject (the safe default = today's park).`;
+  const { escalation, isNew } = createEscalation({
+    project: input.project,
+    session: input.session,
+    kind: 'decision',
+    todoId: input.leaf.id,
+    questionText,
+    options: [
+      { id: 'accept', label: 'Accept', detail: 'Land the mechanically-green change; file the finding as a follow-up' },
+      { id: 'reject', label: 'Reject', detail: 'Park the leaf (today\'s behavior)' },
+    ],
+    recommended: 'reject',
+    operatorGated: false,
+  });
+  return { escalationId: escalation.id, createdAt: escalation.createdAt, isNew };
+}
+
+/** Bounded poll for the contested card's answer. Only the literal 'accept' accepts; anything
+ *  else (reject, note-only, or timeout) is the SAFE DEFAULT = the leaf keeps gating (parks). */
+export async function awaitContestedDecision(input: {
+  escalationId: string;
+  createdAt: number;
+  timeoutMs?: number;
+  pollMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  readDecision?: (id: string) => { optionId: string | null } | null;
+}): Promise<ContestedAnswer> {
+  const timeoutMs = input.timeoutMs ?? SPLIT_PROPOSAL_TIMEOUT_MS;
+  const pollMs = input.pollMs ?? SPLIT_PROPOSAL_POLL_MS;
+  const now = input.now ?? (() => Date.now());
+  const sleep = input.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const readDecision = input.readDecision ?? getEscalationDecision;
+  const deadline = input.createdAt + timeoutMs;
+  while (true) {
+    const decision = readDecision(input.escalationId);
+    if (decision) {
+      return decision.optionId === 'accept' ? 'accept' : 'reject';
+    }
+    const currentTime = now();
+    if (currentTime >= deadline) return 'timeout';
+    const remaining = deadline - currentTime;
+    const sleepTime = Math.min(pollMs, remaining);
+    if (sleepTime > 0) await sleep(sleepTime);
+  }
+}
