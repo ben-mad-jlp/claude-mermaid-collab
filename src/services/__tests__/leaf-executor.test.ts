@@ -134,6 +134,7 @@ interface Spies {
   nodeRows: Array<any>;
   gateEvals: Array<any>;
   coverageCalls: Array<{ testFiles: string[]; baseSha?: string | null }>;
+  contestedCalls: Array<{ reason: string }>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -154,6 +155,8 @@ function makeDeps(opts: {
   // crit 2/3: mock the edit-coverage seam. true=covered, false=uncovered, null=unknown.
   // Absent ⇒ seam unwired (returns null ⇒ gate).
   coverage?: boolean | null;
+  // crit 4: mock the contested-card decision. Absent ⇒ seams unwired (no card).
+  contestedDecision?: 'accept' | 'reject' | 'timeout';
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -170,6 +173,7 @@ function makeDeps(opts: {
     nodeRows: [],
     gateEvals: [],
     coverageCalls: [],
+    contestedCalls: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -248,6 +252,12 @@ function makeDeps(opts: {
       ? async ({ testFiles, baseSha }) => { spies.coverageCalls.push({ testFiles, baseSha }); return opts.coverage ?? null; }
       : undefined,
     epicBaseSha: 'base-sha-xyz',
+    proposeContested: opts.contestedDecision !== undefined
+      ? (input) => { spies.contestedCalls.push({ reason: input.reason }); return { escalationId: 'esc-contested', createdAt: 0, isNew: true }; }
+      : undefined,
+    awaitContestedDecision: opts.contestedDecision !== undefined
+      ? async () => opts.contestedDecision!
+      : undefined,
   };
   return { deps, spies };
 }
@@ -1694,6 +1704,7 @@ function makeVerifyDeps(opts: {
     nodeRows: [] as Spies['nodeRows'],
     gateEvals: [] as Spies['gateEvals'],
     coverageCalls: [] as Spies['coverageCalls'],
+    contestedCalls: [] as Spies['contestedCalls'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
@@ -3153,5 +3164,66 @@ describe('crit 2 + 3 — lazy coverage signal + advisory-when-covered', () => {
     const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
     expect(res.outcome).toBe('blocked');
     expect(spies.coverageCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 4 — NO-SILENT-PARK contested decision card. A GREEN-mech + UNCOVERED + same-walled
+// falsifiable FAIL raises a bounded-wait accept/reject card instead of a silent park; accept
+// lands, reject/timeout is the safe default (today's park).
+// ---------------------------------------------------------------------------
+describe('crit 4 — no-silent-park contested decision card', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+  const declaresTest = { description: 'Implement ONLY this file: src/services/foo.test.ts' };
+  const f1 = 'VERDICT: FAIL — missing null check at line 42';
+  const f2 = 'VERDICT: FAIL — unhandled empty input at line 99';
+  const f3 = 'VERDICT: FAIL — wrong return type at line 7';
+  const f4 = 'VERDICT: FAIL — off-by-one at line 15';
+
+  it('green + UNCOVERED + repeated contest → raises a contested card; ACCEPT lands the leaf', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1, f2], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: false, contestedDecision: 'accept',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.contestedCalls.length).toBe(1); // ONE card raised (not per-cycle)
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-accepted')).toBeTruthy();
+    expect(res.outcome).toBe('accepted'); // accept lands the mechanically-green change
+  });
+
+  it('REJECT → the leaf keeps gating → parks (today\'s safe default); no contested-accept', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1, f2, f3, f4], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: false, contestedDecision: 'reject',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.contestedCalls.length).toBe(1);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-accepted')).toBeUndefined();
+    expect(res.outcome).toBe('blocked');
+  });
+
+  it('TIMEOUT → the leaf keeps gating → parks (safe default = today)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1, f2, f3, f4], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: false, contestedDecision: 'timeout',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeTruthy();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-accepted')).toBeUndefined();
+    expect(res.outcome).toBe('blocked');
+  });
+
+  it('COVERED → advisory accept, NO contested card (the residue is only for UNCOVERED)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [f1], runGate: greenGate, changeSet: ['src/services/foo.ts'],
+      coverage: true, contestedDecision: 'accept',
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.contestedCalls.length).toBe(0);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeUndefined();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeTruthy();
   });
 });

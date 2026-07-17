@@ -41,7 +41,7 @@ import { composeInjectedContext, type PriorRunInput } from './prompt-injection';
 import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
-import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-proposal';
+import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
@@ -307,6 +307,26 @@ export interface LeafExecutorDeps {
   }) => Promise<'split' | 'linear' | 'timeout'>;
   /** SR-3: close the proposal card once the run has acted on it. Default → `resolveEscalation`. */
   resolveProposal?: (escalationId: string, status: string, resolvedBy?: 'ai' | 'human') => void;
+  /** crit 4: raise a bounded-wait CONTESTED-ACCEPT decision card for a GREEN-mechanical change
+   *  whose falsifiable review FAIL is UNCOVERED and same-walled — instead of a silent park.
+   *  Default → `proposeContested`. Unwired ⇒ the caller falls straight through to today's park. */
+  proposeContested?: (input: {
+    project: string;
+    session: string;
+    leaf: { id: string; title?: string | null };
+    reason: string;
+  }) => { escalationId: string; createdAt: number; isNew: boolean };
+  /** crit 4: bounded wait for the contested card. 'accept' lands the change; 'reject'/'timeout'
+   *  is the SAFE DEFAULT = today's park. Default → `awaitContestedDecision`. */
+  awaitContestedDecision?: (input: {
+    escalationId: string;
+    createdAt: number;
+    timeoutMs?: number;
+    pollMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+    readDecision?: (id: string) => { optionId: string | null } | null;
+  }) => Promise<'accept' | 'reject' | 'timeout'>;
   /** Append a best-effort node-ledger row. */
   recordNode: typeof recordNode;
   /** SEAM (crit-5): persist each G3 / citability gate evaluation to the per-project
@@ -2256,6 +2276,13 @@ export async function runLeaf(
   // SAME-WALL-TWICE: the final review findings of the PREVIOUS failed attempt — a fresh
   // attempt that dies on substantially the same findings parks with the fork named.
   let lastAttemptFindings = '';
+  // crit 4 (contested card): how many times a GREEN-mech falsifiable FAIL came back UNCOVERED
+  // (declared tests do not flip base→branch), and whether we already raised the bounded-wait
+  // contested-accept card. On the 2nd uncovered-contested cycle (the same-wall analog) we raise
+  // ONE card instead of silently parking; accept → land (via reviewAdvisory), reject/timeout →
+  // keep gating (today's park). Run-scoped so the count spans attempts.
+  let uncoveredContestedSeen = 0;
+  let contestedCardRaised = false;
 
   // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
   // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
@@ -2893,6 +2920,41 @@ export async function runLeaf(
                   outputText: `advisory-override: LLM FAIL on a GREEN, test-COVERED change is ADVISORY (declared tests flip base→branch, refuting the finding) — surfaced, not gating. Finding: ${(review.text ?? '').trim().slice(0, 300)}`,
                 });
               } catch { /* telemetry — never break the run */ }
+            } else if (!shadow) {
+              // crit 4: NO-SILENT-PARK. covered !== true (UNCOVERED / unknown) — the LLM's the
+              // only signal and it is contested. On the 2nd such cycle (the same-wall analog),
+              // raise ONE bounded-wait CONTESTED-ACCEPT card instead of silently parking. accept
+              // → land (via reviewAdvisory → the existing accept path); reject/timeout → keep
+              // gating (today's park = the safe default). Raised at most once per leaf.
+              uncoveredContestedSeen += 1;
+              if (uncoveredContestedSeen >= 2 && !contestedCardRaised && deps.proposeContested && deps.awaitContestedDecision) {
+                contestedCardRaised = true;
+                try {
+                  deps.recordNode({
+                    project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                    nodeKind: 'contested-card', nodesSpent: 0, verdict: 'fail',
+                    outcomeDetail: JSON.stringify({ reason: 'green-mech-uncovered-contested-same-wall' }),
+                    outputText: `contested-card: GREEN mech + UNCOVERED + same-walled review FAIL — raising a bounded-wait accept/reject decision card instead of a silent park. Finding: ${(review.text ?? '').trim().slice(0, 300)}`,
+                  });
+                } catch { /* telemetry — never break the run */ }
+                const card = deps.proposeContested({ project, session: sessionKey, leaf, reason: (review.text ?? '').trim().slice(0, 400) || 'uncovered contested review' });
+                const decision = await deps.awaitContestedDecision({ escalationId: card.escalationId, createdAt: card.createdAt });
+                try { deps.resolveProposal?.(card.escalationId, 'resolved', decision === 'timeout' ? 'ai' : 'human'); } catch { /* best-effort */ }
+                if (decision === 'accept') {
+                  // Human/conductor ruled: land the mechanically-green change; the finding is a
+                  // follow-up, not a blocker. Route through the existing advisory-accept path.
+                  reviewAdvisory = true;
+                  try {
+                    deps.recordNode({
+                      project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                      nodeKind: 'contested-accepted', nodesSpent: 0, verdict: 'pass',
+                      outcomeDetail: JSON.stringify({ reason: 'human-ruled-accept-on-uncovered-contested' }),
+                      outputText: 'contested-accepted: human/conductor ruled ACCEPT on a green-mech uncovered-contested leaf — landing; finding filed as follow-up.',
+                    });
+                  } catch { /* telemetry — never break the run */ }
+                }
+                // reject | timeout → leave reviewAdvisory false → keep gating → today's park.
+              }
             }
           }
         }
@@ -3228,6 +3290,8 @@ export async function makeLeafExecutorDeps(
     escalate: createEscalation,
     proposeSplit,
     awaitSplitDecision,
+    proposeContested,
+    awaitContestedDecision,
     resolveProposal: resolveEscalation,
     recordNode,
     // Replay corpus (crit-5): persist every G3 / citability evaluation. Best-effort.
