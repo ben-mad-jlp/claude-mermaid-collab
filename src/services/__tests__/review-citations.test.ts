@@ -105,6 +105,20 @@ describe('validateReviewGrounding', () => {
     expect(g.status).toBe('vacuous');
     expect(g.reasons.join(' ')).toContain('cites nothing');
   });
+
+  it('ok: a criterion citing a path the change-set DELETES is grounded (deletion evidence)', () => {
+    const text =
+      '- [MET] MissionsStrip.tsx deleted (pure file removal) — ui/src/components/supervisor/MissionsStrip.tsx (deleted)\n\nVERDICT: PASS';
+    const g = validateReviewGrounding(text, ['ui/src/components/supervisor/MissionsStrip.tsx']);
+    expect(g.status).toBe('ok');
+  });
+
+  it('vacuous: a "(deleted)" citation whose path is NOT in the change-set still fails (anti-vacuous holds)', () => {
+    const text =
+      '- [MET] MissionsStrip.tsx deleted (pure file removal) — ui/src/components/supervisor/MissionsStrip.tsx (deleted)\n\nVERDICT: PASS';
+    const g = validateReviewGrounding(text, ['src/a.ts']);
+    expect(g.status).toBe('vacuous');
+  });
 });
 
 describe('parseCriterionResults', () => {
