@@ -23,6 +23,8 @@ export interface Citation {
   /** Normalised, repo-relative-ish (leading `./` stripped, backticks/quotes stripped). */
   path: string;
   line: number;
+  /** True when this citation came from a `<path> (deleted)` phrase, not a `:line` cite. */
+  deleted?: boolean;
 }
 
 export interface CriterionResult {
@@ -71,6 +73,13 @@ const OUTCOME_MARKER_RE = /\[\s*(MET|UNMET|N\/?A|NOT[-_ ]?APPLICABLE)\s*\]/i;
 // Accepts a `:12-40` range (uses the start line). Anchors on a preceding boundary.
 const CITATION_RE = /(?:^|[\s(`'"[,])((?:\.\/)?(?:[\w.@-]+\/)*(?:[\w.@-]*\.[A-Za-z0-9]+|\.[A-Za-z][\w.-]*)):(\d+)(?:-\d+)?/g;
 
+// A deletion citation: `<path> (deleted)` — a criterion whose evidence is a file the
+// change-set REMOVES has no file:line to cite (the file no longer exists). Accept the
+// `(deleted)` phrase as the citation itself; grounding still requires the path to appear
+// in the change-set (see validateReviewGrounding) — an un-deleted path still fails.
+const DELETION_CITE_RE =
+  /(?:^|[\s(`'"[,])((?:\.\/)?(?:[\w.@-]+\/)*(?:[\w.@-]*\.[A-Za-z0-9]+|\.[A-Za-z][\w.-]*))\s*\(\s*deleted\s*\)/gi;
+
 function outcomeFromMarker(marker: string): CriterionOutcome {
   const m = marker.toUpperCase().replace(/[-_ ]/g, '');
   if (m === 'MET') return 'met';
@@ -90,6 +99,11 @@ export function extractCitations(line: string): Citation[] {
   while ((m = CITATION_RE.exec(line)) !== null) {
     const raw = m[1];
     out.push({ raw, path: normalizeCitedPath(raw), line: Number(m[2]) });
+  }
+  DELETION_CITE_RE.lastIndex = 0;
+  while ((m = DELETION_CITE_RE.exec(line)) !== null) {
+    const raw = m[1];
+    out.push({ raw, path: normalizeCitedPath(raw), line: 0, deleted: true });
   }
   return out;
 }
@@ -169,7 +183,9 @@ const MAX_NAMED_OFFENDERS = 3;
  *     change-set, OR — the RETAINED-CODE tolerance — ≥1 citation resolves to a real
  *     worktree file:line via opts.citationExists. Criteria satisfied by code the leaf
  *     deliberately did not change cite real locations outside the change-set; fabricated
- *     paths/lines still fail both checks and stay offenders.
+ *     paths/lines still fail both checks and stay offenders. A '<path> (deleted)' citation
+ *     grounds the same way — via change-set membership of the deleted path, never by
+ *     opts.citationExists (the file no longer exists to read).
  *  4. Change-set FLOOR: when the change-set is NON-empty, ≥1 citation across the whole
  *     review must resolve into it — proof the reviewer touched the actual delta. Worktree
  *     tolerance never substitutes for all change-set contact.
