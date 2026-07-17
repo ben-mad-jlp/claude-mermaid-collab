@@ -114,7 +114,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  it('case 1: old pristine orphan lane worktree → removed', async () => {
+  it('case 1: old pristine orphan lane worktree → QUARANTINED (moved to trash, never force-removed)', async () => {
     const wm = getWorktreeManager(repo);
     mkdirSync(wm.baseDir(), { recursive: true });
 
@@ -123,14 +123,19 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     await runGit(repo, ['worktree', 'add', '-b', 'lane-old-branch', laneDir]);
     // Commit with an old date so headCommitAgeMs sees it as >7 days old.
     await commitOld(laneDir, 'old work');
-    // Backdate the dir's mtime past the grace window.
-    await backdate(laneDir);
+    // Backdate mtime AND atime past WORKTREE_RECLAIM_MIN_AGE_MS (isReclaimable's 7-day floor).
+    await backdatePastReclaim(laneDir);
 
     const report = await gcLeafWorktrees(repo);
 
     expect(report.scanned).toBeGreaterThanOrEqual(1);
-    expect(report.removed).toContain(laneDir);
-    expect(existsSync(laneDir)).toBe(false);
+    // crit 4 (mission b86… → 2e65940d): a RECLAIMABLE orphan is QUARANTINE-MOVED to
+    // .collab/.trash (reversible), NOT force-removed. It leaves baseDir but is not destroyed.
+    expect(report.quarantined.map((q) => q.path)).toContain(laneDir);
+    expect(report.removed).not.toContain(laneDir); // never force-removed
+    expect(existsSync(laneDir)).toBe(false); // moved out of baseDir
+    const q = report.quarantined.find((x) => x.path === laneDir);
+    expect(q && existsSync(q.trashDir)).toBe(true); // present under trash (reversible)
   });
 
   it('case 2: dirty orphan → flagged, not removed', async () => {
