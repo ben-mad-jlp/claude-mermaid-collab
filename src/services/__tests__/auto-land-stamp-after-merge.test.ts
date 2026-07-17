@@ -1,7 +1,8 @@
 /**
  * Tests for the stamp-after-merge invariant (blueprint F1 leaf A):
- *   1. stampLandLeafOnMerge(landed:true) stamps the leaf done immediately.
- *   2. stampLandLeafOnMerge(landed:false) or (undefined, true) skips the stamp (retried next tick).
+ *   1. stampLandLeafOnMerge(landed:true) stamps epic.landedAt and the leaf done immediately.
+ *   2. stampLandLeafOnMerge(landed:false) skips both stamps (retried next tick); a missing
+ *      landLeafId with landed:true still stamps epic.landedAt (landedAt is the primary stamp).
  *   3. createEscalation dedup returns a truthy escalation.id equal to the first call's id.
  *
  * Mirrors the land-dirty-tree.test.ts / reconcile-pass.test.ts harness: isolate
@@ -73,7 +74,7 @@ describe('stampLandLeafOnMerge — post-merge stamp', () => {
     expect(leafBefore).toBeTruthy();
     expect(leafBefore!.status).not.toBe('done');
 
-    const stamped = await stampLandLeafOnMerge(project, landLeafId, true);
+    const stamped = await stampLandLeafOnMerge(project, epicId, landLeafId, true);
     expect(stamped).toBe(true);
 
     const leafAfter = getTodo(project, landLeafId);
@@ -89,21 +90,27 @@ describe('stampLandLeafOnMerge — post-merge stamp', () => {
     expect(leafBefore).toBeTruthy();
     expect(leafBefore!.status).not.toBe('done');
 
-    const stamped = await stampLandLeafOnMerge(project, landLeafId, false);
+    const stamped = await stampLandLeafOnMerge(project, epicId, landLeafId, false);
     expect(stamped).toBe(false);
 
     const leafAfter = getTodo(project, landLeafId);
     expect(leafAfter).toBeTruthy();
     expect(leafAfter!.status).not.toBe('done');
+
+    const epicAfter = getTodo(project, epicId);
+    expect(epicAfter!.landedAt ?? null).toBeNull();
   });
 
-  it('missing landLeafId with observed merge does NOT stamp', async () => {
+  it('missing landLeafId with observed merge stamps landedAt but no leaf', async () => {
     const leafBefore = getTodo(project, landLeafId);
     expect(leafBefore).toBeTruthy();
     expect(leafBefore!.status).not.toBe('done');
 
-    const stamped = await stampLandLeafOnMerge(project, undefined, true);
-    expect(stamped).toBe(false);
+    const stamped = await stampLandLeafOnMerge(project, epicId, undefined, true);
+    expect(stamped).toBe(true);
+
+    const epicAfter = getTodo(project, epicId);
+    expect(epicAfter!.landedAt).not.toBeNull();
 
     const leafAfter = getTodo(project, landLeafId);
     expect(leafAfter).toBeTruthy();
