@@ -1716,7 +1716,7 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
   for (const epic of missionEpics) {
     try {
       const decision = missionLandLeafPromotion(allTodos, epic.id);
-      if (!decision.promote || !decision.landLeafId) continue;
+      if (!decision.promote) continue;
 
       const buildChildren = allTodos.filter((t) => decision.buildChildIds.includes(t.id));
       const { byRepo } = partitionEpicChildrenByRepo(buildChildren, project);
