@@ -153,6 +153,12 @@ export function isNonFalsifiableReviewDoubt(reviewText: string): boolean {
   return NON_FALSIFIABLE_DOUBT_RE.test(t);
 }
 
+/** crit 2 — a declared TEST file (the coverage signal runs these against the base impl). */
+const TEST_FILE_RE = /(?:\.|_)(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)(?:__tests__|test|tests|spec)\//i;
+export function isTestFilePath(path: string): boolean {
+  return TEST_FILE_RE.test(path ?? '');
+}
+
 /** SAME-WALL detector: are two review findings substantially the SAME findings?
  *  Line-set overlap after normalization (lowercase, digits→# so shifted line numbers
  *  don't defeat the match, short/empty lines dropped) ≥ 0.5 of the smaller set.
@@ -401,6 +407,19 @@ export interface LeafExecutorDeps {
    *  INCIDENT → park blocked + escalate; NEVER reported as the leaf failing). Unwired ⇒
    *  undefined ⇒ no mechanical signal (pre-G2 behaviour). */
   runGate?: (cwd: string) => Promise<LeafGateResult>;
+  /** crit 2 (edit-coverage): LAZILY compute whether the leaf's DECLARED test files FLIP
+   *  base→branch — i.e. do those tests FAIL against the base implementation (and pass at HEAD,
+   *  already proven by the green mechanical gate)? TRUE ⇒ the tests genuinely exercise the
+   *  change (an independent mechanical proof it works); FALSE ⇒ the tests don't depend on it;
+   *  null ⇒ could-not-determine (no base sha / no declared tests / infra error). Called ONLY
+   *  from the contested green-mech point (a falsifiable FAIL), never eagerly — a base test run
+   *  is ~2× cost, bounded to the contested minority. DEFENSIVE: null/false ⇒ the review still
+   *  gates (advisory-accept requires a POSITIVE true). Unwired ⇒ undefined ⇒ null ⇒ gate. */
+  testsFlipBaseToBranch?: (input: {
+    cwd: string;
+    testFiles: string[];
+    baseSha?: string | null;
+  }) => Promise<boolean | null>;
   /** G2 once-per-epic base gate. Resolves the CACHED verdict for this epic, computing it on
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
@@ -2640,6 +2659,11 @@ export async function runLeaf(
       // review"). Such a veto is an ABSTAIN — it must NOT gate a green change (the mechanical
       // gate carries the accept). A FAIL citing a concrete defect leaves this false and gates.
       let reviewAbstained = false;
+      // crit 3 (advisory-when-covered): set when a FALSIFIABLE FAIL contests a GREEN mechanical
+      // change whose edit is COVERED (the declared tests FLIP base→branch). The covering tests
+      // REFUTE the finding — an independent mechanical proof the change works — so the LLM veto
+      // is ADVISORY (surfaced, not gating). Uncovered/unknown leaves this false and gates.
+      let reviewAdvisory = false;
       if (mech.status === 'fail') {
         findings = gateFindingsText(mech);
       } else {
@@ -2837,6 +2861,39 @@ export async function runLeaf(
                 outputText: `review-abstain: LLM FAIL on a GREEN mechanical gate cited no falsifiable defect (${grounding.status}: ${grounding.reasons.join('; ')}) — abstain, do not gate`,
               });
             } catch { /* telemetry — never break the run */ }
+          } else if ((cs?.length ?? 0) > 0) {
+            // --- COVERAGE-WEIGHTED ADVISORY (crit 2 + 3) ---------------------------
+            // A FALSIFIABLE fault claim contests a GREEN mechanical change over a real
+            // change-set. LAZILY (only here — the contested minority; a base test run is ~2×)
+            // ask whether the leaf's DECLARED tests FLIP base→branch: do they FAIL against the
+            // base impl (and pass at HEAD, already proven by the green gate)? If so, the
+            // covering tests REFUTE the finding — an independent mechanical proof the change
+            // works — so the LLM veto is ADVISORY. DEFENSIVE: only a POSITIVE `true` accepts;
+            // false / null / unknown still GATES (never wrongly accept on an unproven change).
+            const declaredTests = declaredFiles.filter(isTestFilePath);
+            const covered = declaredTests.length > 0
+              ? (await deps.testsFlipBaseToBranch?.({ cwd, testFiles: declaredTests, baseSha: deps.epicBaseSha }) ?? null)
+              : null;
+            try {
+              deps.recordNode({
+                project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                nodeKind: 'coverage', nodesSpent: 0, verdict: covered === true ? 'pass' : 'fail',
+                outcomeDetail: JSON.stringify({ covered, declaredTests }),
+                outputText: `coverage: declared tests [${declaredTests.join(', ') || 'none'}] flip base→branch = ${covered === null ? 'unknown' : covered}`,
+              });
+            } catch { /* telemetry — never break the run */ }
+            if (covered === true && !shadow) {
+              // crit 3: covered → the covering tests refute the finding → ADVISORY, do not gate.
+              reviewAdvisory = true;
+              try {
+                deps.recordNode({
+                  project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                  nodeKind: 'advisory-override', nodesSpent: 0, verdict: 'pass',
+                  outcomeDetail: JSON.stringify({ reason: 'covered-falsifiable-fail-refuted-by-tests', declaredTests }),
+                  outputText: `advisory-override: LLM FAIL on a GREEN, test-COVERED change is ADVISORY (declared tests flip base→branch, refuting the finding) — surfaced, not gating. Finding: ${(review.text ?? '').trim().slice(0, 300)}`,
+                });
+              } catch { /* telemetry — never break the run */ }
+            }
           }
         }
         if (proseRetryFindings !== null) {
@@ -2876,7 +2933,9 @@ export async function runLeaf(
       // so an abstained small-tier leaf accepts (keeps its optimistic merge) rather than
       // reverting on a non-falsifiable veto. reviewAbstained is only ever set when
       // mech.status==='pass', so the hard mechanical floor is untouched.
-      if (reviewVerdict === 'fail' && reviewAbstained) {
+      // crit 3 adds reviewAdvisory: a FALSIFIABLE FAIL on a GREEN, test-COVERED change (its
+      // declared tests flip base→branch) is refuted by the covering tests → advisory, accept.
+      if (reviewVerdict === 'fail' && (reviewAbstained || reviewAdvisory)) {
         reviewVerdict = 'pass';
       }
       // crit 6 (part 2) POST-LAND REVIEW FAIL → AUTO-REVERT. When this leaf optimistically
@@ -3244,6 +3303,59 @@ export async function makeLeafExecutorDeps(
       }
     },
     resolveVerifyGate,
+    // crit 2 (edit-coverage): does the leaf's DECLARED tests FLIP base→branch — do the BRANCH
+    // test files FAIL against the BASE implementation? Runs in an EPHEMERAL detached worktree at
+    // baseSha (never touches the leaf's cwd / the epic branch), with the branch test files copied
+    // in and node_modules symlinked so the runner resolves. DEFENSIVE: returns null on ANY doubt
+    // (no baseSha / no tests / spawn error / can't determine) — the caller then GATES, so an
+    // imperfect impl only ever costs the advisory benefit, never wrongly accepts. Best-effort v1.
+    testsFlipBaseToBranch: async ({ cwd, testFiles, baseSha }) => {
+      if (!baseSha || !testFiles?.length) return null;
+      const cp = await import('node:child_process');
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const os = await import('node:os');
+      let tmp: string | undefined;
+      try {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cov-base-'));
+        const wtDir = path.join(tmp, 'wt');
+        const add = cp.spawnSync('git', ['worktree', 'add', '--detach', wtDir, baseSha], { cwd, encoding: 'utf8', timeout: 60000 });
+        if (add.status !== 0) return null;
+        // node_modules symlinks so the runner resolves deps in the ephemeral base tree.
+        try { fs.symlinkSync(path.join(targetProject, 'node_modules'), path.join(wtDir, 'node_modules')); } catch { /* best-effort */ }
+        try { fs.symlinkSync(path.join(targetProject, 'ui', 'node_modules'), path.join(wtDir, 'ui', 'node_modules')); } catch { /* best-effort */ }
+        // Overlay the BRANCH versions of the declared test files onto the BASE tree.
+        for (const rel of testFiles) {
+          const src = path.join(cwd, rel);
+          if (!fs.existsSync(src)) continue;
+          const dst = path.join(wtDir, rel);
+          fs.mkdirSync(path.dirname(dst), { recursive: true });
+          fs.copyFileSync(src, dst);
+        }
+        const backend = testFiles.filter((f) => !f.startsWith('ui/'));
+        const uiTests = testFiles.filter((f) => f.startsWith('ui/'));
+        let anyRan = false, anyFailed = false;
+        if (backend.length) {
+          const r = cp.spawnSync('bun', ['test', ...backend], { cwd: wtDir, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024 });
+          if (r.error) return null;
+          anyRan = true; if (r.status !== 0) anyFailed = true;
+        }
+        if (uiTests.length) {
+          const r = cp.spawnSync('npx', ['vitest', 'run', ...uiTests.map((f) => f.replace(/^ui\//, ''))], { cwd: path.join(wtDir, 'ui'), encoding: 'utf8', timeout: 240000, maxBuffer: 16 * 1024 * 1024 });
+          if (r.error) return null;
+          anyRan = true; if (r.status !== 0) anyFailed = true;
+        }
+        if (!anyRan) return null;
+        return anyFailed; // branch tests FAIL against base impl ⇒ they exercise the change ⇒ COVERED
+      } catch {
+        return null;
+      } finally {
+        if (tmp) {
+          try { cp.spawnSync('git', ['worktree', 'remove', '--force', path.join(tmp, 'wt')], { cwd, timeout: 30000 }); } catch { /* best-effort */ }
+          try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+        }
+      }
+    },
     // G2 mechanical gate at leaf HEAD. Scoped to this leaf's own change-set (against the
     // epic branch base) so the per-file test command only runs specs this leaf touched.
     runGate: async (cwd) => {

@@ -28,6 +28,7 @@ import {
   makeCitationExists,
   escalateImplementModel,
   isNonFalsifiableReviewDoubt,
+  isTestFilePath,
   sameReviewWall,
   deprecatePriorAttempts,
   blueprintAttemptName,
@@ -132,6 +133,7 @@ interface Spies {
   /** Captured recordNode calls. */
   nodeRows: Array<any>;
   gateEvals: Array<any>;
+  coverageCalls: Array<{ testFiles: string[]; baseSha?: string | null }>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -149,6 +151,9 @@ function makeDeps(opts: {
   // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
   changeSet?: string[] | null;
   gateShadowMode?: boolean;
+  // crit 2/3: mock the edit-coverage seam. true=covered, false=uncovered, null=unknown.
+  // Absent ⇒ seam unwired (returns null ⇒ gate).
+  coverage?: boolean | null;
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -164,6 +169,7 @@ function makeDeps(opts: {
     inflightSeq: [],
     nodeRows: [],
     gateEvals: [],
+    coverageCalls: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -238,6 +244,10 @@ function makeDeps(opts: {
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
     gateShadowMode: () => opts.gateShadowMode ?? false,
+    testsFlipBaseToBranch: opts.coverage !== undefined
+      ? async ({ testFiles, baseSha }) => { spies.coverageCalls.push({ testFiles, baseSha }); return opts.coverage ?? null; }
+      : undefined,
+    epicBaseSha: 'base-sha-xyz',
   };
   return { deps, spies };
 }
@@ -1683,6 +1693,7 @@ function makeVerifyDeps(opts: {
     inflightSeq: [] as Spies['inflightSeq'],
     nodeRows: [] as Spies['nodeRows'],
     gateEvals: [] as Spies['gateEvals'],
+    coverageCalls: [] as Spies['coverageCalls'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
@@ -3051,5 +3062,96 @@ describe('crit 1 — falsifiability rule (review abstains on non-falsifiable dou
     expect(res.outcome).toBe('blocked');
     // a red gate never spends a review node, so no abstain classification happens.
     expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// crit 2 + 3 — LAZY edit-coverage signal + COVERAGE-WEIGHTED ADVISORY. A falsifiable FAIL
+// contesting a GREEN mechanical change over a real change-set triggers a lazy base->branch
+// test-flip check; if COVERED the LLM veto is advisory (accept), else it gates. Computed
+// only on the contested minority — never on a clean accept.
+// ---------------------------------------------------------------------------
+describe('isTestFilePath (crit 2)', () => {
+  it('matches test/spec files and __tests__ dirs, not product files', () => {
+    expect(isTestFilePath('src/services/foo.test.ts')).toBe(true);
+    expect(isTestFilePath('src/services/foo.spec.tsx')).toBe(true);
+    expect(isTestFilePath('src/services/__tests__/foo.ts')).toBe(true);
+    expect(isTestFilePath('ui/src/lib/x.test.ts')).toBe(true);
+    expect(isTestFilePath('src/services/foo.ts')).toBe(false);
+    expect(isTestFilePath('src/services/leaf-executor.ts')).toBe(false);
+  });
+});
+
+describe('crit 2 + 3 — lazy coverage signal + advisory-when-covered', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+  const declaresTest = { description: 'Implement ONLY this file: src/services/foo.test.ts' };
+  const faultFail = 'VERDICT: FAIL — missing null check at line 42';
+
+  it('crit 2: contested green-mech (falsifiable FAIL) → coverage seam CALLED + a coverage node recorded', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail, faultFail, faultFail, faultFail],
+      runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: false,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(spies.coverageCalls.length).toBeGreaterThanOrEqual(1); // lazily computed at the contested point
+    expect(spies.coverageCalls[0].testFiles).toEqual(['src/services/foo.test.ts']);
+    const covNode = spies.nodeRows.find((r) => r.nodeKind === 'coverage');
+    expect(covNode).toBeTruthy();
+    expect(covNode.outcomeDetail).toContain('"covered":false');
+    // uncovered ⇒ the fault gates as today
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeUndefined();
+  });
+
+  it('crit 2 LAZY: a clean (grounded) PASS review does NOT call the coverage seam', async () => {
+    const { deps, spies } = makeDeps({
+      // a GROUNDED pass (cites a change-set line) accepts on cycle 1 — no contested FAIL cycle.
+      reviewVerdicts: ['- [MET] foo — src/services/foo.ts:1\n\nVERDICT: PASS'],
+      runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: true,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.coverageCalls.length).toBe(0); // never computed on a clean accept
+  });
+
+  it('crit 3: green + falsifiable FAIL + COVERED (tests flip base→branch) → ADVISORY → accepted', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail], runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: true,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('accepted'); // the covering tests refute the finding
+    const adv = spies.nodeRows.find((r) => r.nodeKind === 'advisory-override');
+    expect(adv).toBeTruthy();
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    const covNode = spies.nodeRows.find((r) => r.nodeKind === 'coverage');
+    expect(covNode.outcomeDetail).toContain('"covered":true');
+  });
+
+  it('crit 3: green + falsifiable FAIL + UNCOVERED → gates (no advisory)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail, faultFail, faultFail, faultFail], runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: false,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeUndefined();
+  });
+
+  it('crit 3 DEFENSIVE: coverage UNKNOWN (null) → gates (only a positive true accepts)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail, faultFail, faultFail, faultFail], runGate: greenGate, changeSet: ['src/services/foo.ts'], coverage: null,
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeUndefined();
+  });
+
+  it('RED mechanical gate → coverage seam never called (hard floor; no review node runs)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: [faultFail], changeSet: ['src/services/foo.ts'], coverage: true,
+      runGate: async () => ({ status: 'fail', command: 'tsc', output: 'e', reasons: ['x'], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(declaresTest), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.coverageCalls.length).toBe(0);
   });
 });
