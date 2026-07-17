@@ -192,9 +192,9 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     const [showCompleted, setShowCompleted] = useState(false);
     const visibleTodos = useMemo(
       () =>
-        orderedTodos.filter(
-          (t) => showCompleted || (!t.completed && t.status !== 'done'),
-        ),
+        orderedTodos
+          .filter((t) => t.kind !== 'land')
+          .filter((t) => showCompleted || (!t.completed && t.status !== 'done')),
       [orderedTodos, showCompleted],
     );
 

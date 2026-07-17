@@ -6,7 +6,7 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
 import { PlanTotalsBar } from './PlanTotals';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
-import { liveBucketTodo, STATUS_STYLE, excludeMissions } from './bridge/funnel';
+import { liveBucketTodo, STATUS_STYLE, excludeMissions, excludeLandLeaves } from './bridge/funnel';
 import { useInflightLeafIds } from './bridge/useInflightLeafIds';
 import { derivedStatus, buildById } from '@/lib/claimability';
 import { isEpic } from '@/lib/todoKind';
@@ -133,7 +133,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const deleteTodo = useSupervisorStore((s) => s.deleteTodo);
 
-  const todos: SessionTodo[] = excludeMissions(todosByProject[project] ?? []);
+  const todos: SessionTodo[] = excludeLandLeaves(excludeMissions(todosByProject[project] ?? []));
   const inflightLeafIds = useInflightLeafIds(project);
   const [mode, setMode] = useState<Mode>('kanban');
   const [graphEpicId, setGraphEpicId] = useState<string | null>(null);
