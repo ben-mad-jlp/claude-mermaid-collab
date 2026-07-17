@@ -16,7 +16,7 @@ import { render, screen, within, fireEvent } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PlanKanban } from '../PlanKanban';
-import { excludeMissions } from '../bridge/funnel';
+import { excludeMissions, excludeLandLeaves } from '../bridge/funnel';
 import type { SessionTodo } from '@/types/sessionTodo';
 
 function todo(p: Partial<SessionTodo> = {}): SessionTodo {
@@ -157,6 +157,35 @@ describe('PlanKanban [kind E] acceptance spec', () => {
     const lane = screen.getByTestId('triage-lane-inbox');
     expect(within(lane).queryByText('done item')).toBeNull();
     expect(within(lane).getByText('ready item')).toBeTruthy();
+  });
+
+  it('renders a LANDED badge when the epic has landedAt set', () => {
+    const epic = todo({
+      id: 'LANDED-E',
+      title: 'Landed epic',
+      kind: 'epic',
+      landedAt: '2026-07-17T00:00:00.000Z',
+    });
+    const child = todo({ id: 'c1', title: 'child', kind: 'leaf', parentId: 'LANDED-E' });
+    render(<PlanKanban todos={[epic, child]} showCompleted={false} />);
+    const lane = screen.getByTestId('epic-lane-LANDED-E');
+    expect(within(lane).getByText('LANDED')).toBeTruthy();
+  });
+
+  it('renders no LANDED badge when the epic has no landedAt', () => {
+    const epic = todo({ id: 'UNLANDED-E', title: 'Unlanded epic', kind: 'epic' });
+    const child = todo({ id: 'c2', title: 'child', kind: 'leaf', parentId: 'UNLANDED-E' });
+    render(<PlanKanban todos={[epic, child]} showCompleted={false} />);
+    const lane = screen.getByTestId('epic-lane-UNLANDED-E');
+    expect(within(lane).queryByText('LANDED')).toBeNull();
+  });
+
+  it('no [LAND] row is rendered for a fixture with a legacy land child', () => {
+    const epic = todo({ id: 'E3', title: 'Epic with land leaf', kind: 'epic' });
+    const landLeaf = todo({ id: 'land-child', title: '[LAND] to master', kind: 'land', parentId: 'E3' });
+    render(<PlanKanban todos={excludeLandLeaves([epic, landLeaf])} showCompleted={false} />);
+    expect(screen.queryByTestId('plan-card-land-child')).toBeNull();
+    expect(screen.queryByText('[LAND] to master')).toBeNull();
   });
 
   it('no UI render file decides "epic" from structure', () => {
