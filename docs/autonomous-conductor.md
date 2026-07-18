@@ -69,8 +69,15 @@ collab design doc
   **Remaining follow-up = purely LIVE validation:** run a real approved mission with the toggle on
   and watch the node conduct + land end-to-end. Now that Phase 2 exists, Phases 3–5 can be *forged
   as missions and driven by it* — real dogfooding.
-- **Phase 3 — planner-node triggering.** A `planner` node kind the conductor invokes to plan a
-  roadmap as work-graph todos with deps.
+- **Phase 3 — planner node. ✅ SHIPPED.** `src/mcp/tools/mission-planner.ts` +
+  `plan_mission_criterion` MCP tool: a specialist `planner` NODE (model/effort via the override
+  matrix, kind `planner`) decomposes one-or-more criteria into ONE right-sized epic + leaves (with
+  deps), grounded against the code, and instantiates it PROMOTED-TO-READY under the mission
+  (serving those criteria) via createEpicWithLandLeaf + addLeavesToEpic. Mirrors the forge pattern
+  (node → spec → deterministic instantiation). The conductor now DELEGATES `discover`-gap planning
+  to it (its prompt calls `plan_mission_criterion`, not create_epic/add_leaves inline) — planning is
+  a specialist concern, separate from conducting. So the TWO levels of planning are: epic
+  decomposition = planner node; leaf blueprint = the daemon's blueprint node (unchanged). Tested (6).
 - **Phase 4 — UI: node model-settings matrix.** Surface the new `forge`/`conductor`/`planner`
   kinds in the `node_profile_override` matrix (model/effort/provider per project).
 - **Phase 5 — UI: conductor status + conversation logs.** On/off + which mission + phase +
