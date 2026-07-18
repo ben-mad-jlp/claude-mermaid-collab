@@ -27,6 +27,7 @@ const NODE_PROFILES_BODY = {
 
 // Mutable server-side injection-flag state; POST mutates it and echoes it back.
 let flagState = { digest: false, retryContext: false, activeConstraints: false };
+let conductorEnabled = false;
 
 function mockFetch(url: string, init?: any): Promise<{ ok: boolean; json: () => Promise<any> }> {
   const method = init?.method ?? 'GET';
@@ -47,12 +48,21 @@ function mockFetch(url: string, init?: any): Promise<{ ok: boolean; json: () => 
     }
     return json({ project: '/abs/p', ...flagState });
   }
+  if (url.includes('/api/supervisor/conductor')) {
+    if (method === 'POST') {
+      const { enabled } = JSON.parse(init.body);
+      conductorEnabled = enabled;
+      return json({ ok: true, project: '/abs/p', enabled: conductorEnabled });
+    }
+    return json({ project: '/abs/p', enabled: conductorEnabled });
+  }
   return json({});
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
   flagState = { digest: false, retryContext: false, activeConstraints: false };
+  conductorEnabled = false;
 });
 
 describe('ProjectSettingsModal', () => {
@@ -92,6 +102,29 @@ describe('ProjectSettingsModal', () => {
         init?.method === 'POST' &&
         JSON.parse(init.body).flag === 'digest' &&
         JSON.parse(init.body).value === true,
+    );
+    expect(posted).toBe(true);
+  });
+
+  it('renders the conductor toggle unchecked and POSTs on click', async () => {
+    const fetchMock = vi.fn(mockFetch as any);
+    global.fetch = fetchMock as any;
+    render(<ProjectSettingsModal project="/abs/p" open onClose={() => {}} />);
+
+    const toggle = await screen.findByTestId('conductor-toggle');
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect((screen.getByTestId('conductor-toggle') as HTMLInputElement).checked).toBe(true));
+
+    const posted = fetchMock.mock.calls.some(
+      ([u, init]: any[]) =>
+        typeof u === 'string' &&
+        u.includes('/api/supervisor/conductor') &&
+        init?.method === 'POST' &&
+        JSON.parse(init.body).project === '/abs/p' &&
+        JSON.parse(init.body).enabled === true,
     );
     expect(posted).toBe(true);
   });

@@ -40,6 +40,7 @@ export const STATUS_STYLE: Record<MissionStatus, string> = {
   building:         'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
   'needs-verify':   'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   'needs-discovery': 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  unapproved:       'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   blocked:          'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
   'over-budget':    'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
   abandoned:        'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
@@ -50,6 +51,7 @@ export const STATUS_LABEL: Record<MissionStatus, string> = {
   building:         'Building',
   'needs-verify':   'Needs verify',
   'needs-discovery': 'Needs discovery',
+  unapproved:       'Unapproved',
   blocked:          'Blocked',
   'over-budget':    'Over budget',
   abandoned:        'Abandoned',
@@ -61,6 +63,7 @@ export function statusTooltip(status: MissionStatus): string {
     building: 'A serving epic is building; the conductor is correctly waiting.',
     'needs-verify': 'A serving epic landed but a criterion is not yet independently verified.',
     'needs-discovery': 'The mission needs discovery work to identify what to build.',
+    unapproved: 'Forged but not yet approved — the mission loop will not drive it until approved.',
     blocked: 'A criterion is blocked and needs attention.',
     'over-budget': 'The mission has exceeded its iteration budget.',
     abandoned: 'The mission has been abandoned.',
@@ -548,6 +551,7 @@ export const MissionDetail: React.FC<{
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
+  const approveMission = useSupervisorStore((s) => s.approveMission);
   const abandonMission = useSupervisorStore((s) => s.abandonMission);
   const updateMission = useSupervisorStore((s) => s.updateMission);
   const deleteMission = useSupervisorStore((s) => s.deleteMission);
@@ -566,6 +570,11 @@ export const MissionDetail: React.FC<{
     if (!view.missionId) return;
     if (isTerminalPhase(view.phase)) { setConfirmActivate(true); return; }
     void run(() => activateMission(serverId, project, view.missionId!));
+  };
+
+  const doApprove = () => {
+    if (!view.missionId) return;
+    void run(() => approveMission(serverId, project, view.missionId!));
   };
 
   return (
@@ -596,6 +605,11 @@ export const MissionDetail: React.FC<{
 
         {/* Controls cluster */}
         <div className="flex items-center gap-1">
+          {view.status === 'unapproved' && (
+            <MiniButton onClick={doApprove} disabled={busy} tone="primary" title="Approve this mission — activates it and ratifies its proposed constraints" testid="mission-approve-btn">
+              Approve
+            </MiniButton>
+          )}
           {!view.active && (
             <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
               Activate
