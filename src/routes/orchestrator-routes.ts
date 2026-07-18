@@ -17,23 +17,55 @@ import {
   type NodeProviderId,
 } from '../services/orchestrator-config.ts';
 import type { EffortLevel } from '../agent/contracts.ts';
-import { NODE_PROFILE, LEAF_NODE_KINDS, NODE_KIND_DESCRIPTIONS, LEAF_NODE_GROUPS } from '../services/leaf-executor.ts';
+import {
+  NODE_PROFILE,
+  LEAF_NODE_KINDS,
+  NODE_KIND_DESCRIPTIONS,
+  LEAF_NODE_GROUPS,
+  ORCHESTRATION_NODE_KINDS,
+  ORCHESTRATION_NODE_PROFILE,
+  ORCHESTRATION_NODE_DESCRIPTIONS,
+  type LeafNodeKind,
+  type OrchestrationNodeKind,
+} from '../services/leaf-executor.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { CLAUDE_MODELS, GROK_BUILD_MODELS, GROK_API_MODELS, providerModelMismatch } from '../services/provider-model.ts';
 import type { NodeProvider } from '../services/node-provider.ts';
 
-/** Node kinds shown in the daemon BUILD-nodes matrix. Excludes 'summary', which is the
- *  Zen interpret-model knob (never run via runNode), not a build node. */
-const MATRIX_NODE_KINDS = LEAF_NODE_KINDS.filter((k) => k !== 'summary');
+/** All node kinds shown in the daemon nodes matrix: every leaf-pipeline kind plus the
+ *  three orchestration kinds. Excludes 'summary', which is the Zen interpret-model knob
+ *  (never run via runNode), not a build node. */
+const MATRIX_NODE_KINDS: string[] = [
+  ...LEAF_NODE_KINDS.filter((k) => k !== 'summary'),
+  ...ORCHESTRATION_NODE_KINDS,
+];
 
 /** Model aliases offered in the daemon-nodes matrix dropdown, per provider. */
 const CLAUDE_MODEL_CHOICES = [...CLAUDE_MODELS];
 const GROK_MODEL_CHOICES = [...GROK_BUILD_MODELS];
 const GROK_API_MODEL_CHOICES = [...GROK_API_MODELS];
 const MODEL_CHOICES = CLAUDE_MODEL_CHOICES; // legacy alias (claude) for back-compat callers
+
+/** Resolve a kind's profile row from whichever table owns it (leaf pipeline vs.
+ *  orchestration) — the two tables share the same { model, allowedTools, effort } shape. */
+function profileFor(kind: string): { model: string; allowedTools: string; effort: EffortLevel } {
+  if ((ORCHESTRATION_NODE_KINDS as string[]).includes(kind)) {
+    return ORCHESTRATION_NODE_PROFILE[kind as OrchestrationNodeKind];
+  }
+  return NODE_PROFILE[kind as LeafNodeKind];
+}
+
+/** Resolve a kind's one-line description from whichever table owns it. */
+function descFor(kind: string): string {
+  if ((ORCHESTRATION_NODE_KINDS as string[]).includes(kind)) {
+    return ORCHESTRATION_NODE_DESCRIPTIONS[kind as OrchestrationNodeKind];
+  }
+  return NODE_KIND_DESCRIPTIONS[kind as LeafNodeKind];
+}
+
 /** A node kind is MCP-forced to claude when its allowlist carries an mcp__ tool. */
-function kindRequiresMcp(kind: keyof typeof NODE_PROFILE): boolean {
-  return NODE_PROFILE[kind].allowedTools.includes('mcp__');
+function kindRequiresMcp(kind: string): boolean {
+  return profileFor(kind).allowedTools.includes('mcp__');
 }
 import { DEFAULT_SLOTS_PER_TYPE, MAX_POOL_SIZE } from '../services/worker-pool.ts';
 import { confirmSuggestion, dismissSuggestion } from '../services/triage-execute.ts';
@@ -124,7 +156,7 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
     const projectEffort = getProjectEffort(project); // per-project blanket fallback
     const projectProvider = getProjectNodeProvider(project); // per-project default provider
     const rows = MATRIX_NODE_KINDS.map((kind) => {
-      const def = NODE_PROFILE[kind];
+      const def = profileFor(kind);
       const o = overrides[kind] ?? { model: null, effort: null, provider: null };
       const mcpForced = kindRequiresMcp(kind);
       // Effective provider mirrors resolveNodeProvider's DB precedence (mcp guard →
@@ -132,7 +164,7 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       const effectiveProvider = mcpForced ? 'claude' : (o.provider ?? projectProvider ?? 'claude');
       return {
         kind,
-        desc: NODE_KIND_DESCRIPTIONS[kind],
+        desc: descFor(kind),
         defaultModel: def.model,
         defaultEffort: def.effort,
         modelOverride: o.model,
@@ -169,8 +201,8 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
         project?: string; kind?: string; model?: string | null; effort?: string | null; provider?: string | null;
       };
       if (!project) return jsonError('project is required', 400);
-      if (!kind || !(LEAF_NODE_KINDS as string[]).includes(kind)) {
-        return jsonError(`kind must be one of: ${LEAF_NODE_KINDS.join(', ')}`, 400);
+      if (!kind || !MATRIX_NODE_KINDS.includes(kind)) {
+        return jsonError(`kind must be one of: ${MATRIX_NODE_KINDS.join(', ')}`, 400);
       }
       if (effort != null && !(EFFORT_LEVELS as string[]).includes(effort)) {
         return jsonError(`effort must be null or one of: ${EFFORT_LEVELS.join(', ')}`, 400);
@@ -179,7 +211,7 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
         return jsonError(`provider must be null or one of: ${NODE_PROVIDERS.join(', ')}`, 400);
       }
       // Guard the MCP-forced kinds: they can never run on grok.
-      if ((provider === 'grok-build' || provider === 'grok-api') && kindRequiresMcp(kind as keyof typeof NODE_PROFILE)) {
+      if ((provider === 'grok-build' || provider === 'grok-api') && kindRequiresMcp(kind)) {
         return jsonError(`node kind '${kind}' uses MCP tools and must run on claude`, 400);
       }
       // Validate the provider/model pair against the effective provider.
