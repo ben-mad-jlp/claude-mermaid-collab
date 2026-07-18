@@ -14,20 +14,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { PoolSizeControl } from './PoolSizeControl';
 import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
 import { DaemonProviderControl } from '@/components/settings/DaemonProviderControl';
-
-async function apiGet(path: string): Promise<any> {
-  const mc = (window as any).mc;
-  if (mc?.invokeOnServer) return (await mc.invokeOnServer('local', { path, method: 'GET' }))?.body ?? {};
-  const r = await fetch(path);
-  return r.ok ? r.json() : {};
-}
-
-async function apiPost(path: string, body: unknown): Promise<any> {
-  const mc = (window as any).mc;
-  if (mc?.invokeOnServer) return (await mc.invokeOnServer('local', { path, method: 'POST', body }))?.body ?? {};
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  return r.ok ? r.json() : {};
-}
+import { apiGet, apiPost, useConductorEnabled } from './useConductorEnabled';
 
 // ── Watchdog threshold control ───────────────────────────────────────────────
 const WatchdogControl: React.FC<{ project: string }> = ({ project }) => {
@@ -224,6 +211,26 @@ const InjectionFlags: React.FC<{ project: string }> = ({ project }) => {
   );
 };
 
+// ── Autonomous conductor toggle ──────────────────────────────────────────────
+const ConductorControl: React.FC<{ project: string }> = ({ project }) => {
+  const { enabled, busy, setEnabled } = useConductorEnabled(project);
+
+  return (
+    <label className="flex items-center gap-2 text-3xs text-gray-700 dark:text-gray-200 cursor-pointer" title="Let the conductor drive this project's missions autonomously, including landing.">
+      <input
+        type="checkbox"
+        data-testid="conductor-toggle"
+        checked={!!enabled}
+        disabled={busy}
+        onChange={(e) => void setEnabled(e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600"
+      />
+      <span className="font-medium">Autonomous conductor</span>
+      <span className="text-gray-400 dark:text-gray-500">Let the conductor drive this project's missions autonomously, including landing.</span>
+    </label>
+  );
+};
+
 // ── Section wrapper ──────────────────────────────────────────────────────────
 const Section: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex flex-col gap-2">
@@ -294,6 +301,10 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ proj
 
           <Section label="Watchdog">
             <WatchdogControl project={project} />
+          </Section>
+
+          <Section label="Autonomous conductor">
+            <ConductorControl project={project} />
           </Section>
 
           <Section label="Context recycle">
