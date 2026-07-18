@@ -2878,6 +2878,24 @@ describe('sameReviewWall (fuzzy repeat-findings detector)', () => {
     expect(sameReviewWall('the gate command is wrong for ui tests', 'missing null guard in resume decision path')).toBe(false);
     expect(sameReviewWall('', 'anything here at all')).toBe(false);
   });
+  // The wall = the UNRESOLVED defect lines, not the whole review. Stable passing criteria and
+  // boilerplate preamble must NOT inflate two different failures into a false "repeat" that
+  // parks prematurely and abandons still-fixable work (reviewer-lab probe regressions).
+  it('two DIFFERENT defects sharing a boilerplate preamble line are NOT the same wall', () => {
+    const a = 'Reviewed the working tree against the blueprint.\nVERDICT: FAIL — missing null check at users.ts:5';
+    const b = 'Reviewed the working tree against the blueprint.\nVERDICT: FAIL — off-by-one in the loop at agg.py:3';
+    expect(sameReviewWall(a, b)).toBe(false);
+  });
+  it('partial progress (one criterion fixed, a NEW one fails) is NOT the same wall despite stable MET lines', () => {
+    const a = '## CRITERIA\n- [MET] email rule — src/validate.ts:4\n- [MET] name rule — src/validate.ts:6\n- [UNMET] age>=18 rule not implemented — src/validate.ts:9';
+    const b = '## CRITERIA\n- [MET] email rule — src/validate.ts:4\n- [MET] name rule — src/validate.ts:6\n- [UNMET] age boundary excludes exactly 18 — src/validate.ts:9';
+    expect(sameReviewWall(a, b)).toBe(false);
+  });
+  it('the SAME unresolved defect (line drift only) is still the same wall', () => {
+    const a = '## CRITERIA\n- [MET] email rule — src/validate.ts:4\n- [UNMET] age>=18 rule not implemented — src/validate.ts:9';
+    const b = '## CRITERIA\n- [MET] email rule — src/validate.ts:4\n- [UNMET] age>=18 rule not implemented — src/validate.ts:15';
+    expect(sameReviewWall(a, b)).toBe(true);
+  });
 });
 
 describe('same-wall-twice cross-attempt park', () => {
@@ -3102,6 +3120,30 @@ describe('isNonFalsifiableReviewDoubt (crit 1 classifier)', () => {
     expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — the function returns undefined for empty input')).toBe(false);
     expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — real fault')).toBe(false);
     expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL — missing test for the error path')).toBe(false);
+  });
+  // crit 1 (v2) — reviewer-lab probe regressions. A finding that entangles a CONCRETE cited defect
+  // with an INCIDENTAL hedge must STILL gate: a whole-text doubt scan wrongly abstained these,
+  // shipping the real defect. A bare "FAIL —" (punctuation-only residual) is empty → pure doubt.
+  it('gates a concrete defect even when a SEPARATE clause hedges (mixed finding)', () => {
+    // missing await + "I also cannot verify the retry path" aside → the missing await gates.
+    expect(isNonFalsifiableReviewDoubt(
+      'VERDICT: FAIL — save() does not await db.write at save.ts:3, so the row returns before the write commits. (I also cannot verify the retry path, but the missing await alone is the defect.)',
+    )).toBe(false);
+    // buffer overrun + "hard to determine safe callers" filler → the overrun gates.
+    expect(isNonFalsifiableReviewDoubt(
+      'VERDICT: FAIL — copy_prefix writes dst[dstsize] one past the buffer (copy.c:6); this makes it hard to determine safe callers, but the overflow is the bug.',
+    )).toBe(false);
+  });
+  it('treats a punctuation-only residual ("FAIL —") as an empty finding = doubt', () => {
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL —')).toBe(true);
+    expect(isNonFalsifiableReviewDoubt('VERDICT: FAIL -')).toBe(true);
+  });
+  it('keeps a hedge that only POINTS at a line (no asserted defect) as doubt', () => {
+    expect(isNonFalsifiableReviewDoubt(
+      'VERDICT: FAIL — looking at cart.ts:6, I am not able to determine whether the tax rounding is correct.',
+    )).toBe(true);
+    // a hedge whose verb ("regress") is not a concrete-defect verb stays doubt.
+    expect(isNonFalsifiableReviewDoubt("VERDICT: FAIL — I can't be sure this doesn't regress the cache.")).toBe(true);
   });
 });
 
