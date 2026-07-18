@@ -24,14 +24,20 @@ const CONDUCTOR: LandActor = { kind: 'conductor', session: 'sess-A' };
 const todo = (over: Partial<Todo> & { id: string; title: string; kind: TodoKind }): Todo =>
   mkTodo({ status: 'ready', ownerSession: 'sess-A', ...over });
 
-// The three real buckets, exactly as master stores them today.
-const INBOX = todo({ id: 'bb4a9a5d', kind: 'epic', title: 'Inbox' });
+// The three real buckets, exactly as master stores them today: post-R1 every real bucket carries
+// the structural `bucketType` singleton (bucket-registry.ensureBucket writes it). That marker —
+// NOT the stripped title — is what keeps a non-canonical bucket (e.g. the long "Bugfix inbox — …"
+// title) fail-CLOSED after a title strip. A real bucket without bucketType would still carry the
+// legacy `isBucket:true` marker; the ONLY row that reads as landable is one with NEITHER marker,
+// which is by construction a deliverable (see the `isBucket:false` opt-out in bucket-registry).
+const INBOX = todo({ id: 'bb4a9a5d', kind: 'epic', title: 'Inbox', bucketType: 'inbox' });
 const BUGFIX = todo({
   id: 'a41c8051',
   kind: 'epic',
   title: 'Bugfix inbox — ad-hoc bugs found while dogfooding; default bucket for stray bugfixes',
+  bucketType: 'bugfix',
 });
-const COLLAB_GAPS = todo({ id: '95e9ba73', kind: 'epic', title: 'Collab gaps' });
+const COLLAB_GAPS = todo({ id: '95e9ba73', kind: 'epic', title: 'Collab gaps', bucketType: 'bugfix' });
 
 // A real deliverable epic — the positive control.
 const DELIVERABLE = todo({
@@ -48,8 +54,10 @@ describe('[G16] bucket epics stay unlandable after the title strip (fail-CLOSED)
   });
 
   it('still recognises the LEGACY prefixed titles (a replayed frame, an old fixture)', () => {
+    // Canonical stripped title → recognized by title alone (isBucket-agnostic).
     expect(isBucketEpic(todo({ id: 'x', kind: 'epic', title: '[EPIC] Inbox' }))).toBe(true);
-    expect(isBucketEpic(todo({ id: 'y', kind: 'epic', title: '[EPIC] Bugfix inbox — with a suffix' }))).toBe(true);
+    // A NON-canonical legacy bucket carries the pre-bucketType `isBucket:true` marker.
+    expect(isBucketEpic(todo({ id: 'y', kind: 'epic', title: '[EPIC] Bugfix inbox — with a suffix', isBucket: true }))).toBe(true);
   });
 
   it('POSITIVE CONTROL: a deliverable epic is NOT a bucket', () => {
@@ -57,11 +65,14 @@ describe('[G16] bucket epics stay unlandable after the title strip (fail-CLOSED)
     expect(isBucketEpic(DELIVERABLE)).toBe(false);
   });
 
-  it('case-insensitive, and prefix-matched: "inbox rendering bugs" refuses (accepted false positive)', () => {
-    // G14's asymmetric trade, preserved through the strip: a deliverable epic wrongly refused
-    // costs one escalation; a bucket wrongly landed is irreversible. Refuse by default.
+  it('case-insensitive canonical match; an unmarked bucket-ish deliverable is landable (R1 opt-out)', () => {
+    // An EXACT canonical title is a bucket regardless of markers (fail-closed on the real names).
     expect(isBucketEpic(todo({ id: 'p', kind: 'epic', title: '[epic] inbox' }))).toBe(true);
-    expect(isBucketEpic(todo({ id: 'q', kind: 'epic', title: 'Inbox rendering bugs' }))).toBe(true);
+    // A NON-canonical bucket-ish title with NO bucketType and the default isBucket:false is a
+    // deliverable, not a bucket (R1's explicit opt-out — see bucket-registry.test "Inbox triage").
+    // Real buckets are protected by bucketType / isBucket:true (asserted above), so this is safe:
+    // the only rows that reach here carry no bucket marker and are deliverables by construction.
+    expect(isBucketEpic(todo({ id: 'q', kind: 'epic', title: 'Inbox rendering bugs' }))).toBe(false);
   });
 
   it('a bucket is not an epic-by-title: kind decides, so a leaf named "Inbox" is not a bucket epic', () => {

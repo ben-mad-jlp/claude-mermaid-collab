@@ -305,11 +305,14 @@ describe('checkLandDeps', () => {
     expect(blocker).toBe(null);
   });
 
-  it('epic with no [LAND] child → blocker, cites constraint a383bc2c', () => {
+  // LAND cutover v2 / derived barrier (d5565c64, 2026-07-17): checkLandDeps rules from live
+  // sibling state, NOT the presence of a [LAND] leaf. An epic whose work siblings are all
+  // done+accepted is READY even with no land child (the land action mints/uses the leaf; its
+  // absence is not itself a barrier). The blocker now fires on an UNSATISFIED work sibling.
+  it('epic with no [LAND] child but all work done → null (derived barrier: land-leaf presence not required)', () => {
     const { m1, e1, l1 } = mkGraph();
     const blocker = checkLandDeps([m1, e1, l1], 'e1');
-    expect(blocker?.code).toBe('land-deps-unsatisfied');
-    expect(blocker?.message).toMatch(/a383bc2c/);
+    expect(blocker).toBe(null);
   });
 
   it('[LAND] leaf whose dep is status: ready → blocker with short id', () => {
@@ -589,7 +592,9 @@ describe('landReadiness — the one proof', () => {
 
   it('blocker accumulation: all failures together → collects ALL blockers', async () => {
     const { m1, e1, l1 } = mkGraph();
-    // No [LAND] leaf, tsc fails, merge fails, presence blocks, gate regresses
+    // Unsatisfied work sibling (derived barrier → land-deps-unsatisfied), tsc fails, merge fails,
+    // presence blocks, gate regresses.
+    const readyL1 = { ...l1, status: 'ready' as const };
     const gateWithRegression = async () => ({
       ...greenGate(),
       regressions: [{ id: 'r1' } as any],
@@ -611,7 +616,7 @@ describe('landReadiness — the one proof', () => {
         presence: blockingPresence,
         gate: gateWithRegression,
       }),
-      todos: [m1, e1, l1],
+      todos: [m1, e1, readyL1],
     });
 
     const codes = new Set(verdict.blockers.map((b) => b.code));
@@ -633,11 +638,12 @@ describe('landReadiness — the one proof', () => {
     expect(verdict.summary).toMatch(/no gate declared/);
   });
 
-  it('missing [LAND] leaf → summary starts with "[LAND] leaf deps unsatisfied"', async () => {
+  it('unsatisfied [LAND] deps → summary starts with "[LAND] leaf deps unsatisfied"', async () => {
     const { m1, e1, l1 } = mkGraph();
+    const readyL1 = { ...l1, status: 'ready' as const }; // derived barrier: an incomplete sibling gates
     const verdict = await landReadiness(PROJECT, 'e1', {
       probes: probes(),
-      todos: [m1, e1, l1],
+      todos: [m1, e1, readyL1],
     });
     expect(verdict.summary).toMatch(/^\[LAND\] leaf deps unsatisfied/);
   });
@@ -752,10 +758,11 @@ describe('landAuthority — three actors, one proof', () => {
 
   it('conductor + owned + unsatisfied [LAND] deps → authorized: false, code: land-deps-unsatisfied', async () => {
     const { m1, e1, l1 } = mkGraph();
+    const readyL1 = { ...l1, status: 'ready' as const }; // derived barrier: an incomplete sibling gates
     const conductorActor = { kind: 'conductor', session: SESSION } as const;
     const verdict = await landAuthority(PROJECT, 'e1', conductorActor, {
       probes: probes(),
-      todos: [m1, e1, l1],
+      todos: [m1, e1, readyL1],
     });
     expect(verdict.authorized).toBe(false);
     expect(verdict.blockers[0].code).toBe('land-deps-unsatisfied');
