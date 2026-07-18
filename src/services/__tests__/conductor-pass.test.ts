@@ -9,9 +9,11 @@ const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled } from '../supervisor-store';
+import { addWatchedProject, setConductorEnabled, createEscalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
+import { planMissionCriterion } from '../../mcp/tools/mission-planner';
+import { listCriteria } from '../mission-store';
 
 let project: string;
 let invokeCalls: number;
@@ -67,6 +69,27 @@ describe('runConductorPass — scheduling', () => {
     expect(r2.ran).toBe(false);
     expect(r2.reason).toBe('debounced');
     expect(invokeCalls).toBe(1); // still 1 — no second node
+  });
+
+  test('a build-green mission (criterion building) STILL runs when an epic-ready-to-land card is open (to land it)', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    // Plan an epic for the criterion → criterion action becomes 'building' (serving epic open).
+    const crit = listCriteria(project, forged.missionId)[0];
+    await planMissionCriterion(project, { session: 's1', missionId: forged.missionId, criterionIds: [crit.id] }, {
+      invoke: async () => ({ ok: true, rateLimited: false, text: JSON.stringify({ title: 'E', leaves: [{ title: 'L' }] }) } as any),
+    });
+    // No land card yet → building-wait (daemon is working; nothing to direct).
+    const wait = await runConductorPass(project, { invoke: okInvoke });
+    expect(wait.reason).toBe('building-wait');
+    expect(invokeCalls).toBe(0);
+    // A build-green epic surfaces an epic-ready-to-land card → the conductor MUST run to land it.
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: null });
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted');
+    expect(invokeCalls).toBe(1);
   });
 
   test('an UNAPPROVED mission is never driven', async () => {

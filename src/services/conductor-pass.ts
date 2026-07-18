@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled } from './supervisor-store.js';
+import { getConductorEnabled, listOpenEscalations } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -122,10 +122,14 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
 
   const actions = listCriteriaWithActions(project, missionId).map((a) => ({ action: a.action, id: a.id }));
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
-  // 'building' with no discover/verify gap = the daemon is working; nothing to direct — wait.
-  if (!hasGap && status === 'building') return { ran: false, reason: 'building-wait', missionId };
+  // A build-green epic surfaces an 'epic-ready-to-land' card while its criterion still reads
+  // 'building' (unlanded) — the conductor must run to LAND it, not wait. (land_epic's ownership gate
+  // ensures the node only lands THIS mission's epics.)
+  const landCards = (() => { try { return listOpenEscalations().filter((e) => e.project === project && e.kind === 'epic-ready-to-land').length; } catch { return 0; } })();
+  // 'building' with no gap AND no land card = the daemon is working; nothing to direct — wait.
+  if (!hasGap && landCards === 0 && status === 'building') return { ran: false, reason: 'building-wait', missionId };
 
-  const fp = conductorFingerprint(status, actions);
+  const fp = conductorFingerprint(status, actions) + `|land:${landCards}`;
   if (target.row.lastConductorKey === fp) return { ran: false, reason: 'debounced', missionId };
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
