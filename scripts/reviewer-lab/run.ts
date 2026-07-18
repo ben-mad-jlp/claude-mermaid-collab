@@ -31,7 +31,8 @@ import { buildNodeArgv } from '../../src/agent/node-invoker';
 import { CASES as EASY, type Case } from './cases';
 import { HARD } from './cases-hard';
 import { MEAN } from './cases-mean';
-const CASES: Case[] = [...EASY, ...HARD, ...MEAN];
+import { SONNET } from './cases-sonnet';
+const CASES: Case[] = [...EASY, ...HARD, ...MEAN, ...SONNET];
 
 const OUT = join(import.meta.dir, 'results');
 mkdirSync(OUT, { recursive: true });
