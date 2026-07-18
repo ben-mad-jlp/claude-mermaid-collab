@@ -90,11 +90,16 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     expect(conductorFingerprint('x', [{ id: 'a', action: 'met' }, { id: 'b', action: 'discover' }]))
       .toBe(conductorFingerprint('x', [{ id: 'b', action: 'discover' }, { id: 'a', action: 'met' }]));
   });
-  test('prompt names the mission and forbids hand-editing source', () => {
-    const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing');
+  test('prompt names the mission + session, forbids hand-editing, lands as conductor', () => {
+    const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
     expect(p).toContain('m1');
     expect(p).toContain('Ship the thing');
-    expect(p).toContain('NEVER hand-edit source');
+    expect(p).toContain('sess-A');
+    expect(p).toContain('hand-edit source');
     expect(p).toContain('land_epic');
+    // Autonomous land via the conductor actor + ownership gate (not a bare land).
+    expect(p).toContain('actor:');
+    expect(p).toContain('"conductor"');
+    expect(p).toContain('escalation_list');
   });
 });

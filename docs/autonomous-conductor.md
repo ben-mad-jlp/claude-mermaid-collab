@@ -60,10 +60,15 @@ collab design doc
   MCP creation+verify+land tools) running a distilled `/conductor` prompt: serve `discover` gaps
   (create_epic/add_leaves, approved for the daemon), run VERIFY on `verify` gaps
   (set_mission_criterion), land a converged+verify-green epic. It DIRECTS, never hand-edits source.
-  Skips `unapproved`/terminal missions and passively-`building` state. Tested (7) with an injected
-  invoker. **Follow-up (live):** validate the node's real conducting quality + the autonomous-land
-  behavior end-to-end on a real mission (the land_epic classifier may need a conductor-actor path).
-  Now that it exists, Phases 3–5 can be *forged as missions and driven by it* — real dogfooding.
+  Skips `unapproved`/terminal missions and passively-`building` state. Tested (8) with an injected
+  invoker. The autonomous LAND is wired correctly: `land_epic` already supports `actor:'conductor'`
+  + `session`, gated on OWNERSHIP (the epic must descend from that session's active mission, no
+  bucket roots) + the actor-independent safety proof — no human-classifier gate in the server handler
+  (that gate is the Claude Code permission classifier, which the node bypasses). The prompt has the
+  node find the open `epic-ready-to-land` escalation and land it as `conductor` with its session.
+  **Remaining follow-up = purely LIVE validation:** run a real approved mission with the toggle on
+  and watch the node conduct + land end-to-end. Now that Phase 2 exists, Phases 3–5 can be *forged
+  as missions and driven by it* — real dogfooding.
 - **Phase 3 — planner-node triggering.** A `planner` node kind the conductor invokes to plan a
   roadmap as work-graph todos with deps.
 - **Phase 4 — UI: node model-settings matrix.** Surface the new `forge`/`conductor`/`planner`

@@ -35,8 +35,8 @@ export const CONDUCTOR_ALLOWED_TOOLS = [
   'mcp__mermaid__get_mission', 'mcp__mermaid__get_task_graph', 'mcp__mermaid__get_todo',
   'mcp__mermaid__create_epic', 'mcp__mermaid__add_leaves', 'mcp__mermaid__file_to_bucket',
   'mcp__mermaid__set_mission_criterion', 'mcp__mermaid__add_mission_criterion',
-  'mcp__mermaid__epic_land_readiness', 'mcp__mermaid__verify_epic', 'mcp__mermaid__land_epic',
-  'mcp__mermaid__consult_grok',
+  'mcp__mermaid__escalation_list', 'mcp__mermaid__epic_land_readiness', 'mcp__mermaid__verify_epic',
+  'mcp__mermaid__land_epic', 'mcp__mermaid__consult_grok',
 ].join(' ');
 
 export interface ConductorActionRow {
@@ -53,11 +53,11 @@ export function conductorFingerprint(status: string, actions: ConductorActionRow
 
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
  *  pass against ONE mission. References nothing in skills/. */
-export function buildConductorPrompt(project: string, missionId: string, missionTitle: string): string {
+export function buildConductorPrompt(project: string, missionId: string, missionTitle: string, session: string): string {
   return [
     `You are the MISSION CONDUCTOR for project ${project}, driving mission ${missionId} ("${missionTitle}")`,
-    'toward convergence. You DIRECT the work-graph and the build daemon — you NEVER hand-edit source',
-    '(no Edit/Write to product code). Do EXACTLY ONE focused pass, then stop.',
+    `as conductor session "${session}". You DIRECT the work-graph and the build daemon — you NEVER`,
+    'hand-edit source (no Edit/Write to product code). Do EXACTLY ONE focused pass, then stop.',
     '',
     'Steps this pass:',
     '1. `mcp__mermaid__get_mission` for the mission. Read each criterion\'s DERIVED `action`',
@@ -72,9 +72,13 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     '   then `mcp__mermaid__set_mission_criterion` with `met`, the `evidence` you cited, and',
     '   `verifiedBy`. Never self-grade work you directed.',
     '4. Criteria with action `building` are in flight — leave them; the daemon is on it.',
-    '5. LANDING: land an epic ONLY when it is converged and VERIFY-green — confirm with',
-    '   `mcp__mermaid__epic_land_readiness` (green mechanical + deps satisfied), then',
-    '   `mcp__mermaid__land_epic`. Never land on a bare tick or an unverified change.',
+    '5. LANDING (you LAND — this is autonomous): when a serving epic is build-green and VERIFY-green,',
+    '   the reconcile pass surfaces an OPEN `epic-ready-to-land` escalation for it. Find it via',
+    '   `mcp__mermaid__escalation_list`, confirm with `mcp__mermaid__epic_land_readiness` (green',
+    `   mechanical + deps satisfied), then \`mcp__mermaid__land_epic\` with { escalationId, actor:`,
+    `   "conductor", session: "${session}" } — the ownership gate authorizes you to land only YOUR`,
+    '   mission\'s epics (never a bucket root or a foreign mission). Never land on a bare tick or an',
+    '   unverified change; a red proof / conflict leaves master untouched.',
     '',
     'Serve EVERY open `discover`/`verify` gap you find in THIS pass (don\'t stop at one). If nothing is',
     'actionable (all building, or converged), say so and stop — do not invent work. Keep the mission\'s',
@@ -101,17 +105,19 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
 
   // The approved + active, non-terminal, actionable mission. (One active mission per session; drive
   // the first that qualifies.) getMission gives the authoritative derived status + awaitingApprovalSince.
-  const candidates = listMissions(project)
-    .filter((m) => m.mission.active)
-    .map((m) => getMission(project, m.node.id))
-    .filter((row): row is NonNullable<typeof row> => !!row);
-  const target = candidates.find(
-    (row) => row.awaitingApprovalSince == null && row.status != null &&
-      !['unapproved', 'abandoned', 'converged'].includes(row.status),
-  );
+  let target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } | undefined;
+  for (const summary of listMissions(project).filter((m) => m.mission.active)) {
+    const row = getMission(project, summary.node.id);
+    if (row && row.awaitingApprovalSince == null && row.status != null &&
+        !['unapproved', 'abandoned', 'converged'].includes(row.status)) {
+      target = { summary, row };
+      break;
+    }
+  }
   if (!target) return { ran: false, reason: 'no-actionable-mission' };
-  const missionId = target.todoId;
-  const status = target.status!;
+  const missionId = target.row.todoId;
+  const status = target.row.status!;
+  const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
 
   const actions = listCriteriaWithActions(project, missionId).map((a) => ({ action: a.action, id: a.id }));
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
@@ -119,14 +125,14 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
   if (!hasGap && status === 'building') return { ran: false, reason: 'building-wait', missionId };
 
   const fp = conductorFingerprint(status, actions);
-  if (target.lastConductorKey === fp) return { ran: false, reason: 'debounced', missionId };
+  if (target.row.lastConductorKey === fp) return { ran: false, reason: 'debounced', missionId };
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
   const model = resolveNodeModel(project, 'conductor', provider, CONDUCTOR_DEFAULT_MODEL);
   const effort: EffortLevel = listNodeProfileOverrides(project)['conductor']?.effort ?? CONDUCTOR_DEFAULT_EFFORT;
 
   const res = await (deps.invoke ?? invokeNode)({
-    prompt: buildConductorPrompt(project, missionId, getMissionTitle(project, missionId)),
+    prompt: buildConductorPrompt(project, missionId, target.summary.node.title ?? missionId, session),
     model,
     effort,
     allowedTools: CONDUCTOR_ALLOWED_TOOLS,
@@ -142,10 +148,4 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
   // won't respin on the identical state next tick. A node failure retries once state (or the node) moves.
   stampConductorRun(project, missionId, fp);
   return { ran: true, reason: res.ok ? 'conducted' : 'node-failed', missionId, modelUsed: model };
-}
-
-/** Best-effort mission title for the prompt (the mission node's title). */
-function getMissionTitle(project: string, missionId: string): string {
-  const m = listMissions(project).find((x) => x.node.id === missionId);
-  return m?.node.title ?? missionId;
 }
