@@ -155,6 +155,103 @@ describe('DaemonNodesMatrix — grouped by pipeline', () => {
   });
 });
 
+describe('DaemonNodesMatrix — orchestration group (forge/conductor/planner)', () => {
+  const ORCH_GET_BODY = {
+    project: '/abs/p',
+    claudeModels: ['opus', 'sonnet', 'haiku'],
+    grokModels: ['grok-build', 'grok-composer-2.5-fast'],
+    providers: ['claude', 'grok-build'],
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    groups: [
+      { key: 'orchestration', label: 'Orchestration',
+        firesWhen: 'Runs ABOVE the per-leaf pipeline, not per-leaf: mission forge (doc → mission), the autonomous conductor (drives a mission tick), and the criterion planner (decomposes a criterion into an epic).',
+        kinds: ['forge', 'conductor', 'planner'], defaultCollapsed: false },
+    ],
+    rows: [
+      {
+        kind: 'forge', desc: "Derives a mission's acceptance criteria from a design doc.",
+        defaultModel: 'opus', defaultEffort: 'high',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'opus', effectiveEffort: 'high', effectiveProvider: 'claude', mcpForced: false,
+      },
+      {
+        kind: 'conductor', desc: 'Drives a mission to done — plans, builds, verifies, lands.',
+        defaultModel: 'opus', defaultEffort: 'high',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'opus', effectiveEffort: 'high', effectiveProvider: 'claude', mcpForced: true,
+      },
+      {
+        kind: 'planner', desc: 'Decomposes a mission criterion into one epic and its leaves.',
+        defaultModel: 'opus', defaultEffort: 'high',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'opus', effectiveEffort: 'high', effectiveProvider: 'claude', mcpForced: true,
+      },
+    ],
+  };
+
+  it('renders forge/conductor/planner rows under the orchestration group and toggles them on header click', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(ORCH_GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-group-header-orchestration')).toBeTruthy());
+    expect(screen.getByTestId('node-row-forge')).toBeTruthy();
+    expect(screen.getByTestId('node-row-conductor')).toBeTruthy();
+    expect(screen.getByTestId('node-row-planner')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('node-group-header-orchestration'));
+    await waitFor(() => expect(screen.queryByTestId('node-row-forge')).toBeNull());
+    expect(screen.queryByTestId('node-row-conductor')).toBeNull();
+    expect(screen.queryByTestId('node-row-planner')).toBeNull();
+  });
+
+  it('model/effort selects render inherit option text sourced from defaults', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(ORCH_GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-model-forge')).toBeTruthy());
+    expect(within(screen.getByTestId('node-model-forge')).getByText('inherit (opus)')).toBeTruthy();
+    expect(within(screen.getByTestId('node-effort-forge')).getByText('inherit (high)')).toBeTruthy();
+    expect(within(screen.getByTestId('node-model-conductor')).getByText('inherit (opus)')).toBeTruthy();
+    expect(within(screen.getByTestId('node-effort-conductor')).getByText('inherit (high)')).toBeTruthy();
+    expect(within(screen.getByTestId('node-model-planner')).getByText('inherit (opus)')).toBeTruthy();
+    expect(within(screen.getByTestId('node-effort-planner')).getByText('inherit (high)')).toBeTruthy();
+  });
+
+  it('changing the forge model POSTs to node-profiles and re-pulls', async () => {
+    const calls: Array<{ url: string; body?: any }> = [];
+    global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+      calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(ORCH_GET_BODY) });
+    }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-model-forge')).toBeTruthy());
+    const getCallsBefore = calls.filter((c) => !c.body).length;
+    fireEvent.change(screen.getByTestId('node-model-forge'), { target: { value: 'sonnet' } });
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.url.includes('/api/orchestrator/node-profiles') &&
+            c.body?.project === '/abs/p' &&
+            c.body?.kind === 'forge' &&
+            c.body?.model === 'sonnet' &&
+            c.body?.effort === null &&
+            c.body?.provider === null,
+        ),
+      ).toBe(true),
+    );
+    await waitFor(() => expect(calls.filter((c) => !c.body).length).toBeGreaterThan(getCallsBefore));
+  });
+
+  it('conductor/planner providers are locked while forge remains an editable select', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(ORCH_GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-provider-conductor-locked')).toBeTruthy());
+    expect(screen.getByTestId('node-provider-planner-locked')).toBeTruthy();
+    expect(screen.queryByTestId('node-provider-conductor')).toBeNull();
+    expect(screen.queryByTestId('node-provider-planner')).toBeNull();
+    const forgeProvider = screen.getByTestId('node-provider-forge') as HTMLSelectElement;
+    expect(forgeProvider.tagName).toBe('SELECT');
+  });
+});
+
 describe('DaemonNodesMatrix — broadcast confirmation dialog', () => {
   it('declining the dialog does not POST the broadcast', async () => {
     const calls: Array<{ url: string; body?: any }> = [];
