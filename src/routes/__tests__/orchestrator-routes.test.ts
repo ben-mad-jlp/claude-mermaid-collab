@@ -12,6 +12,8 @@ process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
 import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS, ORCHESTRATION_NODE_KINDS } from '../../services/leaf-executor';
+import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds';
+import { projectRegistry } from '../../services/project-registry';
 import { _closeDb } from '../../services/orchestrator-config';
 import { _closeDb as supervisorCloseDb } from '../../services/supervisor-store';
 
@@ -163,7 +165,8 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     const body = await res!.json() as any;
     expect(Array.isArray(body.rows)).toBe(true);
     // 'summary' is the Zen interpret-model knob, not a build node → excluded from the matrix.
-    expect(body.rows.length).toBe(LEAF_NODE_KINDS.filter((k) => k !== 'summary').length);
+    // Orchestration kinds (forge/conductor/planner) are included alongside the leaf kinds.
+    expect(body.rows.length).toBe(LEAF_NODE_KINDS.filter((k) => k !== 'summary').length + ORCHESTRATION_NODE_KINDS.length);
     expect(body.rows.find((r: any) => r.kind === 'summary')).toBeUndefined();
     const bp = body.rows.find((r: any) => r.kind === 'blueprint');
     expect(bp.defaultModel).toBe('opus');
@@ -203,6 +206,61 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     // Also verify against the exported constant directly (single source)
     const fromConst = LEAF_NODE_GROUPS.flatMap((g) => g.kinds);
     expect(new Set(fromConst)).toEqual(new Set([...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS]));
+
+    // body.rows carries one row per orchestration kind too, with the right defaults + mcpForced.
+    for (const kind of ORCHESTRATION_NODE_KINDS) {
+      const row = body.rows.find((r: any) => r.kind === kind);
+      expect(row).toBeDefined();
+      expect(row.defaultModel).toBe(ORCHESTRATION_NODE_PROFILE[kind].model);
+      expect(row.defaultEffort).toBe(ORCHESTRATION_NODE_PROFILE[kind].effort);
+    }
+    expect(body.rows.find((r: any) => r.kind === 'conductor').mcpForced).toBe(true);
+    expect(body.rows.find((r: any) => r.kind === 'planner').mcpForced).toBe(true);
+    expect(body.rows.find((r: any) => r.kind === 'forge').mcpForced).toBe(false);
+  });
+
+  it('POST an override for an orchestration kind round-trips through GET', async () => {
+    for (const kind of ORCHESTRATION_NODE_KINDS) {
+      const post = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind, model: 'opus', effort: 'high' });
+      expect(post!.status).toBe(200);
+      const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
+      const row = ((await res!.json()) as any).rows.find((r: any) => r.kind === kind);
+      expect(row.modelOverride).toBe('opus');
+      expect(row.effortOverride).toBe('high');
+      expect(row.effectiveModel).toBe('opus');
+      expect(row.effectiveEffort).toBe('high');
+    }
+  });
+
+  it('POST rejects grok-build on conductor/planner (MCP-forced) but accepts it on forge', async () => {
+    const conductor = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'conductor', provider: 'grok-build' });
+    expect(conductor!.status).toBe(400);
+    expect((await conductor!.json() as any).error).toContain('MCP');
+
+    const planner = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'planner', provider: 'grok-build' });
+    expect(planner!.status).toBe(400);
+    expect((await planner!.json() as any).error).toContain('MCP');
+
+    const forge = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'forge', provider: 'grok-build', model: 'grok-build-0.1' });
+    expect(forge!.status).toBe(200);
+  });
+
+  it('an orchestration-kind override survives broadcast to a second project', async () => {
+    const SOURCE = mkdtempSync(join(tmpdir(), 'orch-routes-np-broadcast-source-'));
+    const TARGET = mkdtempSync(join(tmpdir(), 'orch-routes-np-broadcast-target-'));
+    await projectRegistry.register(SOURCE);
+    await projectRegistry.register(TARGET);
+
+    const post = await call('POST', '/api/orchestrator/node-profiles', { project: SOURCE, kind: 'planner', model: 'opus', effort: 'high' });
+    expect(post!.status).toBe(200);
+
+    const broadcast = await call('POST', '/api/orchestrator/node-profiles/broadcast', { project: SOURCE });
+    expect(broadcast!.status).toBe(200);
+
+    const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(TARGET)}`);
+    const row = ((await res!.json()) as any).rows.find((r: any) => r.kind === 'planner');
+    expect(row.modelOverride).toBe('opus');
+    expect(row.effortOverride).toBe('high');
   });
 });
 

@@ -121,4 +121,77 @@ describe('POST /api/orchestrator/node-profiles validation', () => {
       expect(body.error).toContain('MCP');
     });
   });
+
+  describe('orchestration kinds', () => {
+    it('accepts a model+effort override for forge', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'forge', model: 'opus', effort: 'high' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(200);
+    });
+
+    it('accepts a model+effort override for conductor', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'conductor', model: 'opus', effort: 'high' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(200);
+    });
+
+    it('accepts a model+effort override for planner', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'planner', model: 'opus', effort: 'high' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(200);
+    });
+
+    it('rejects grok-build provider for conductor (MCP-forced)', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'conductor', provider: 'grok-build', model: 'grok-build-0.1' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(400);
+      const body = await res?.json() as Record<string, unknown>;
+      expect(body.error).toContain('MCP');
+    });
+
+    it('rejects grok-build provider for planner (MCP-forced)', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'planner', provider: 'grok-build', model: 'grok-build-0.1' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(400);
+      const body = await res?.json() as Record<string, unknown>;
+      expect(body.error).toContain('MCP');
+    });
+
+    it('accepts grok-build provider for forge (not MCP-forced)', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'forge', provider: 'grok-build', model: 'grok-build-0.1' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(200);
+    });
+
+    it('rejects an unknown kind, listing orchestration kinds in the error', async () => {
+      const req = new Request('http://localhost/api/orchestrator/node-profiles', {
+        method: 'POST',
+        body: JSON.stringify({ project: testProject, kind: 'bogus' }),
+      });
+      const res = await handleOrchestratorRoutes(req, new URL(req.url));
+      expect(res?.status).toBe(400);
+      const body = await res?.json() as Record<string, unknown>;
+      expect(body.error).toContain('forge');
+      expect(body.error).toContain('conductor');
+      expect(body.error).toContain('planner');
+    });
+  });
 });
