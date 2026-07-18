@@ -29,9 +29,10 @@ describe('findViolations', () => {
   test('ACCEPTANCE: seeded orphan + LAND-less epic returns exactly those two', () => {
     // Orphan: a non-epic todo with no [EPIC] ancestor.
     const orphan = todo({ id: 'orph', title: 'floating work', parentId: null, kind: 'leaf' });
-    // LAND-less epic: an [EPIC] with a child but no [LAND] leaf beneath it.
+    // Stranded epic (W5 cutover redefinition): an [EPIC] whose non-dropped children are all
+    // done+accepted — it LOOKS done — but landedAt is null, so it never actually landed.
     const epic = todo({ id: 'e1', title: '[EPIC] no-land', status: 'todo', kind: 'epic' });
-    const child = todo({ id: 'c1', title: 'child work', parentId: 'e1', dependsOn: [], kind: 'leaf' });
+    const child = todo({ id: 'c1', title: 'child work', parentId: 'e1', dependsOn: [], kind: 'leaf', status: 'done', acceptanceStatus: 'accepted' });
     // A second, well-formed epic so we know the checker doesn't false-positive.
     const goodEpic = todo({ id: 'e2', title: '[EPIC] good', status: 'todo', kind: 'epic' });
     const goodWork = todo({ id: 'gw', title: 'gw', parentId: 'e2', kind: 'leaf' });

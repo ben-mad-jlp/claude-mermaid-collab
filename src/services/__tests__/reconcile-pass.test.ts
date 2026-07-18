@@ -336,20 +336,23 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
 });
 
 describe('runReconcilePass — non-mission build-green land surface (D1, friction 9312cb98)', () => {
-  it('surfaces an epic-ready-to-land card for a build-green ROOT (non-mission) epic whose land leaf is open, without landing it', async () => {
+  it('surfaces an epic-ready-to-land card for a build-green ROOT (non-mission) epic, without landing it', async () => {
+    // LAND cutover (be2c8d16): land leaves are never minted — landedAt is the source of truth, and
+    // epicGatingChildren counts every non-dropped child as a build child. A build-green root epic
+    // (all work done+accepted, landedAt null) must surface the human land card but never auto-land.
     const project = freshProject();
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] root work', kind: 'epic', status: 'planned' });
     const build = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'build it', parentId: epic.id, status: 'ready' });
     await updateTodo(project, build.id, { status: 'done', acceptanceStatus: 'accepted' });
-    const land = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: '[LAND] land it', kind: 'land', parentId: epic.id, status: 'ready' });
 
     await runReconcilePass(project);
 
     const open = listOpenEscalations().filter((e) => e.project === project);
     expect(open.some((e) => e.kind === 'epic-ready-to-land')).toBe(true);
-    // Never auto-landed: the land leaf stays open and the epic never rolls up to done.
-    expect(getTodo(project, land.id)?.status).not.toBe('done');
-    expect(getTodo(project, epic.id)?.status).not.toBe('done');
+    // Never auto-landed: landedAt is the sole land marker (LAND cutover) and stays null for a
+    // non-mission epic — the card waits for a human. (The build-green epic DOES roll up to
+    // done+accepted here; done-but-landedAt-null is precisely the stranded state the card surfaces.)
+    expect(getTodo(project, epic.id)?.landedAt ?? null).toBe(null);
   });
 
   it('does NOT raise a duplicate non-mission land surface for a mission epic (existing 3c behavior is untouched)', async () => {
