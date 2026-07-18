@@ -581,6 +581,7 @@ interface SupervisorState {
    *  caller can render it. Returns [] on failure (fail open). */
   createMission: (serverId: string, project: string, body: { session: string; title: string; description?: string; criteria?: string[]; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
   activateMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
+  approveMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
   updateMission: (serverId: string, project: string, todoId: string, patch: { title?: string; description?: string; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
   deleteMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
   abandonMission: (serverId: string, project: string, todoId: string, abandonedAt: number | null) => Promise<MissionSummary[]>;
@@ -970,6 +971,12 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
   activateMission: async (serverId, project, todoId) => {
     const res = await invoke(serverId, '/api/supervisor/missions/activate', 'POST', { project, todoId });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  approveMission: async (serverId, project, todoId) => {
+    const res = await invoke(serverId, '/api/supervisor/missions/approve', 'POST', { project, todoId });
     if (!res?.ok) return [];
     return get().fetchMissions(serverId, project);
   },

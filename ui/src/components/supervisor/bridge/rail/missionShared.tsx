@@ -551,6 +551,7 @@ export const MissionDetail: React.FC<{
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
+  const approveMission = useSupervisorStore((s) => s.approveMission);
   const abandonMission = useSupervisorStore((s) => s.abandonMission);
   const updateMission = useSupervisorStore((s) => s.updateMission);
   const deleteMission = useSupervisorStore((s) => s.deleteMission);
@@ -569,6 +570,11 @@ export const MissionDetail: React.FC<{
     if (!view.missionId) return;
     if (isTerminalPhase(view.phase)) { setConfirmActivate(true); return; }
     void run(() => activateMission(serverId, project, view.missionId!));
+  };
+
+  const doApprove = () => {
+    if (!view.missionId) return;
+    void run(() => approveMission(serverId, project, view.missionId!));
   };
 
   return (
@@ -599,6 +605,11 @@ export const MissionDetail: React.FC<{
 
         {/* Controls cluster */}
         <div className="flex items-center gap-1">
+          {view.status === 'unapproved' && (
+            <MiniButton onClick={doApprove} disabled={busy} tone="primary" title="Approve this mission — activates it and ratifies its proposed constraints" testid="mission-approve-btn">
+              Approve
+            </MiniButton>
+          )}
           {!view.active && (
             <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
               Activate
