@@ -27,25 +27,6 @@ const MAX_HEIGHT = 160; // px — ~8 rows, then the textarea scrolls internally.
  *  A suggestion older than this is treated as superseded (the turn has moved on). */
 const GHOST_MAX_AGE_MS = 5 * 60_000; // 5 minutes
 
-/** Client-only desktop-presence check (mirrors the retired SuggestionChips gate) —
- *  the ghost only shows while THIS window actually has focus, so a suggestion never
- *  sits over an unfocused/background composer. */
-function useDesktopPresence(): boolean {
-  const [present, setPresent] = useState(() => (typeof document !== 'undefined' ? document.hasFocus() : true));
-  useEffect(() => {
-    const update = () => setPresent(document.hasFocus());
-    window.addEventListener('focus', update);
-    window.addEventListener('blur', update);
-    document.addEventListener('visibilitychange', update);
-    return () => {
-      window.removeEventListener('focus', update);
-      window.removeEventListener('blur', update);
-      document.removeEventListener('visibilitychange', update);
-    };
-  }, []);
-  return present;
-}
-
 interface MessageComposerProps {
   project: string;
   session: string;
@@ -175,8 +156,14 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
 
   // ── Inline GHOST suggestion (replaces the old SuggestionChips chip row) ──────────
   // The AI-proposed reply is rendered as ONE greyed inline overlay over the EMPTY
-  // textarea. Gate: a CURRENT structured suggestion for THIS focused session, this
-  // window has focus, the "Suggestions" toggle is on, and the composer is empty.
+  // textarea. Gate: a CURRENT structured suggestion for THIS focused session, the
+  // "Suggestions" toggle is on, and the composer is empty.
+  //
+  // OS-window focus is NOT a display gate: the user typically works in a separate CLI
+  // beside the Collab window, so gating display on document.hasFocus() hid the ghost
+  // exactly when it was useful. The send path stays implicitly focus-gated — accepting
+  // (Tab/→/click) or sending (Enter) requires interacting with the composer, which
+  // focuses the window.
   //
   // FRESHNESS is recency-based, NOT paneHash-equality: the live paneHash is either ''
   // (remote/peer/idle sessions) or has already advanced past summaryPaneHash on active
@@ -185,7 +172,6 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   // (missing timestamp ⇒ not fresh). Staleness of the CONTENT is handled by pickGhost —
   // it only yields a suggestion for a finished-turn state (idle→aiOption, or a question
   // →options/suggestedAnswers); a 'working' status yields no ghost — and by "typing hides it".
-  const present = useDesktopPresence();
   const summary = useSupervisorStore((s) => s.sessionSummaries[`${project}::${session}`]);
   const structured = summary?.structured;
   const summaryFresh =
@@ -194,7 +180,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
     Date.now() - summary.summaryUpdatedAt <= GHOST_MAX_AGE_MS;
   const isEmpty = value.trim().length === 0;
   const ghost =
-    !disabled && present && suggestReplyDisplay && summaryFresh && isEmpty ? pickGhost(structured) : null;
+    !disabled && suggestReplyDisplay && summaryFresh && isEmpty ? pickGhost(structured) : null;
 
   /** Accept the ghost: fill the textarea with the real (editable) suggestion text,
    *  which hides the ghost (no longer empty), and keep focus + caret at the end. */

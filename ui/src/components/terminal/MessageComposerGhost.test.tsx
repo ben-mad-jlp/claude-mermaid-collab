@@ -174,10 +174,13 @@ describe('MessageComposer ghost', () => {
     expect(screen.queryByTestId('composer-ghost')).toBeNull();
   });
 
-  it('(e3) no ghost when the window is not focused', () => {
+  it('(e3) the ghost still renders when the OS window is not focused (focus no longer gates display)', () => {
+    // The user works in a separate CLI beside the Collab window, so document.hasFocus()
+    // is false while the composer is genuinely visible. Display must NOT depend on it —
+    // the send path stays implicitly focus-gated (interacting focuses the window).
     (document.hasFocus as any).mockReturnValue(false);
     seed({ paragraph: 'x', status: 'idle', aiOption: 'Run the tests' });
     render(<MessageComposer {...PROPS} />);
-    expect(screen.queryByTestId('composer-ghost')).toBeNull();
+    expect(screen.getByTestId('composer-ghost').textContent).toBe('Run the tests');
   });
 });
