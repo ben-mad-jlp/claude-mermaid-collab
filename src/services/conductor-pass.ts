@@ -15,29 +15,16 @@ import {
   listCriteriaWithActions,
   stampConductorRun,
 } from './mission-store.js';
-import { resolveNodeModel, resolveNodeProvider } from './node-provider.js';
-import { listNodeProfileOverrides } from './orchestrator-config.js';
+import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
 import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { config } from '../config.js';
 import type { EffortLevel } from '../agent/contracts.js';
-
-/** The `conductor` node kind's defaults — configurable per-project via node_profile_override
- *  (setNodeProfileOverride(project, 'conductor', model, effort)), like the other daemon node kinds.
- *  Conducting is high-judgment orchestration, so it defaults to opus/high. */
-const CONDUCTOR_DEFAULT_MODEL = 'opus';
-const CONDUCTOR_DEFAULT_EFFORT: EffortLevel = 'high';
+import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
  *  (set_mission_criterion), check readiness and LAND (epic_land_readiness/land_epic). */
-export const CONDUCTOR_ALLOWED_TOOLS = [
-  'Read', 'Grep', 'Glob', 'Bash',
-  'mcp__mermaid__get_mission', 'mcp__mermaid__get_task_graph', 'mcp__mermaid__get_todo',
-  'mcp__mermaid__plan_mission_criterion', 'mcp__mermaid__file_to_bucket',
-  'mcp__mermaid__set_mission_criterion', 'mcp__mermaid__add_mission_criterion',
-  'mcp__mermaid__escalation_list', 'mcp__mermaid__epic_land_readiness', 'mcp__mermaid__verify_epic',
-  'mcp__mermaid__land_epic', 'mcp__mermaid__consult_grok',
-].join(' ');
+export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allowedTools;
 
 export interface ConductorActionRow {
   action: 'met' | 'building' | 'verify' | 'discover';
@@ -133,8 +120,8 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
   if (target.row.lastConductorKey === fp) return { ran: false, reason: 'debounced', missionId };
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
-  const model = resolveNodeModel(project, 'conductor', provider, CONDUCTOR_DEFAULT_MODEL);
-  const effort: EffortLevel = listNodeProfileOverrides(project)['conductor']?.effort ?? CONDUCTOR_DEFAULT_EFFORT;
+  const model = resolveNodeModel(project, 'conductor', provider, ORCHESTRATION_NODE_PROFILE.conductor.model);
+  const effort: EffortLevel = resolveOrchestrationEffort(project, 'conductor');
 
   const res = await (deps.invoke ?? invokeNode)({
     prompt: buildConductorPrompt(project, missionId, target.summary.node.title ?? missionId, session),

@@ -26,6 +26,7 @@ import { createHash } from 'node:crypto';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
+import { type OrchestrationNodeKind, ORCHESTRATION_NODE_KINDS } from './node-kinds';
 import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
@@ -274,6 +275,13 @@ export interface LeafSizeManifest {
 
 // Re-export types so they're available to users of leaf-executor.ts
 export type { LeafSplitItem, LeafSplitDecision } from './split-decision';
+
+export {
+  type OrchestrationNodeKind,
+  ORCHESTRATION_NODE_KINDS,
+  ORCHESTRATION_NODE_PROFILE,
+  ORCHESTRATION_NODE_DESCRIPTIONS,
+} from './node-kinds';
 
 /** Dependency seam — defaults wire the real implementations; tests inject mocks. */
 export interface LeafExecutorDeps {
@@ -669,12 +677,13 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
 /** Pipeline grouping for the node-kind matrix editor (UI: DaemonNodesMatrix).
  *  The single source of truth for which kinds belong to which pipeline + when
  *  each pipeline actually fires. Ordered; Floor first. `defaultCollapsed` drives
- *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS. */
+ *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
+ *  ORCHESTRATION_NODE_KINDS. */
 export interface LeafNodeGroup {
-  key: 'floor' | 'waves' | 'verify-cad' | 'zen';
+  key: 'floor' | 'waves' | 'verify-cad' | 'zen' | 'orchestration';
   label: string;
   firesWhen: string;
-  kinds: LeafNodeKind[];
+  kinds: (LeafNodeKind | OrchestrationNodeKind)[];
   defaultCollapsed: boolean;
 }
 
@@ -698,6 +707,13 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
     key: 'zen', label: 'Zen', defaultCollapsed: true,
     firesWhen: 'Session-summary loop, not a build leaf (not configurable here).',
     kinds: ['summary'],
+  },
+  {
+    key: 'orchestration', label: 'Orchestration', defaultCollapsed: false,
+    firesWhen: 'Runs ABOVE the per-leaf pipeline, not per-leaf: mission forge (doc → mission), '
+      + 'the autonomous conductor (drives a mission tick), and the criterion planner (decomposes '
+      + 'a criterion into an epic).',
+    kinds: ORCHESTRATION_NODE_KINDS,
   },
 ];
 
