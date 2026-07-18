@@ -55,14 +55,16 @@ describe('session-role: resolveSessionRole', () => {
     expect(resolveSessionRole('proj', 'sess1', deps)).toBeNull();
   });
 
-  test('terminal phase "converged" → null', () => {
+  // The phase machine was dropped (e046aea8); a mission is terminal now via isMissionTerminal =
+  // status==='converged' || abandonedAt != null — NOT a 'converged'/'stopped' phase.
+  test('terminal status "converged" → null', () => {
     const deps: SessionRoleDeps = {
       listMissions: () => [
         {
           node: { id: 'm1', title: '[MISSION] Test', status: 'done' },
           ownerSession: 'sess1',
           assigneeSession: null,
-          mission: { active: true, phase: 'converged' } as any,
+          mission: { active: true, status: 'converged' } as any,
           rollup: {} as any,
           criteria: [],
           epics: [],
@@ -72,14 +74,14 @@ describe('session-role: resolveSessionRole', () => {
     expect(resolveSessionRole('proj', 'sess1', deps)).toBeNull();
   });
 
-  test('terminal phase "stopped" → null', () => {
+  test('abandoned mission → null', () => {
     const deps: SessionRoleDeps = {
       listMissions: () => [
         {
           node: { id: 'm1', title: '[MISSION] Test', status: 'in_progress' },
           ownerSession: 'sess1',
           assigneeSession: null,
-          mission: { active: true, phase: 'stopped' } as any,
+          mission: { active: true, abandonedAt: 1 } as any,
           rollup: {} as any,
           criteria: [],
           epics: [],

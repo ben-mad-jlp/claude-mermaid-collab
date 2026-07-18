@@ -67,6 +67,16 @@ const ALLOWLIST: AllowEntry[] = [
   // (A) COMMENT-only — zenPulse.nextReadyTodo delegates to claimReason and the doc comment
   //     explicitly states it "never inlines `status === 'ready'`". The match is the comment, not a read.
   { file: 'ui/src/lib/zenPulse.ts', count: 1, reason: 'doc comment stating it never inlines status==="ready" (delegates to claimReason); no actual read' },
+
+  // (B) DIFFERENT-ENUM false positive — reads the DERIVED MissionStatus enum (mission-store), NOT
+  //     the todo shadow enum. A mission's 'blocked' is a distinct derived mission state (missions
+  //     are never stored with a status); the nudge pass silences a blocked mission. Not a todo read.
+  { file: 'src/services/mission-loop.ts', count: 1, reason: 'reads the derived MissionStatus enum (mission "blocked"), a different enum from the todo shadow — not a derived-todo-status read' },
+
+  // (B) DIFFERENT-ENUM false positive — reads the ConductingStatus enum (UI conducting state:
+  //     needs-verify/needs-discovery/blocked/over-budget) to pick a "your move" label. 'blocked'
+  //     here is a conductor hold state, not the todo shadow enum.
+  { file: 'ui/src/lib/conductingView.ts', count: 1, reason: 'reads the ConductingStatus UI enum ("blocked" = conductor hold), a different enum from the todo shadow — not a derived-todo-status read' },
 ];
 
 interface Match {
