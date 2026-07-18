@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { handleSupervisorRoutes } from '../supervisor-routes';
+import { addWatchedProject } from '../../services/supervisor-store';
 
 async function get(project?: string) {
   const qs = project === undefined ? '' : `?project=${encodeURIComponent(project)}`;
@@ -29,6 +30,10 @@ describe('GET/POST /api/supervisor/injection-flags', () => {
 
   test('POST toggles a flag and echoes the updated trio', async () => {
     const project = '/tmp/inject-toggle-p';
+    // The per-project flag setters are UPDATE-only by design (2a06c2a4: a setter must NOT auto-watch
+    // a project — that floods the Projects list). So the toggle persists only for an already-watched
+    // project; in production the injection-flags UI is only shown for watched projects.
+    addWatchedProject(project);
     const on = await post({ project, flag: 'digest', value: true });
     expect(on?.status).toBe(200);
     expect(((await on!.json()) as any).digest).toBe(true);
