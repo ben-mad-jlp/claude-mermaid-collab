@@ -83,6 +83,16 @@ collab design doc
 - **Phase 5 — UI: conductor status + conversation logs.** On/off + which mission + phase +
   per-criterion progress; the conductor node transcripts (already written by the invoker) viewable.
 
+## Live validation — PASSED end-to-end (2026-07-18)
+
+On an isolated throwaway repo, the full pipeline ran with real LLM nodes: forge → approved mission →
+conductor node (delegated planning to the planner node) → planner created an epic + ready leaf →
+daemon built the leaf (blueprint→implement→review, real code edit) → conductor node LANDED the epic
+to master. `greet.ts` on master got a correct `shout()` matching the criterion; master shows
+`collab: land epic … → main`. Findings: (1) fixed — the conductor building-waited past a landable
+epic (commit 32d04f86, now runs to land on an open land card); (2) process — never DEPLOY during a
+live run (a server restart reaps the in-flight headless leaf).
+
 ## Risks / open items
 
 - **Autonomous landing** is the irreversible-action line. Precondition: converged + VERIFY-green;
