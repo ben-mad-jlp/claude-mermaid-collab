@@ -87,9 +87,11 @@ describe('every-todo-needs-an-epic: reject orphans, explicit Inbox only', () => 
   });
 
   test('a done Inbox is reopened (not duplicated) when a new orphan arrives', async () => {
-    // Create an orphan to establish the Inbox, then mark the Inbox done.
+    // Create an orphan to establish the Inbox, then mark the Inbox done. The container-close guard
+    // refuses 'done' while a child is still open, so settle the child first (drop it).
     const first = await addSessionTodo(project, 's1', 'first task', undefined, { inbox: true });
     const inboxId = first.parentId!;
+    await updateTodo(project, first.id, { status: 'dropped' });
     await updateTodo(project, inboxId, { status: 'done' });
 
     // A new orphan should reopen the done Inbox, not create a second one.
@@ -103,13 +105,19 @@ describe('every-todo-needs-an-epic: reject orphans, explicit Inbox only', () => 
     expect(inboxes[0].status).not.toBe('done'); // reopened
   });
 
-  test('a live Inbox is returned as-is even when a done Inbox also exists', async () => {
-    // Done Inbox (older row).
-    await createTodo(project, { ownerSession: 's1', kind: 'epic', title: INBOX_EPIC_TITLE, status: 'done' });
-    // Live Inbox (newer row).
-    const live = await createTodo(project, { ownerSession: 's1', kind: 'epic', title: INBOX_EPIC_TITLE });
+  // DR-bugfix-bucket-dedupe: exactly one bucket epic of each kind per project. Two coexisting
+  // Inboxes (the old "prefer the live one" scenario) can no longer be created — createTodo refuses
+  // the second. Legacy-duplicate adoption (prefer-live/reopen-terminal) is covered by
+  // bucket-dedupe.test.ts / bucket-registry.test.ts; here we assert the create-time guard.
+  test('a second Inbox bucket is refused (exactly one per project); orphans resolve to the one', async () => {
+    const firstInbox = await createTodo(project, { ownerSession: 's1', kind: 'epic', title: INBOX_EPIC_TITLE });
+    await expect(
+      createTodo(project, { ownerSession: 's1', kind: 'epic', title: INBOX_EPIC_TITLE }),
+    ).rejects.toThrow(/already exists|Exactly one bucket/i);
 
     const orphan = await addSessionTodo(project, 's1', 'orphan', undefined, { inbox: true });
-    expect(orphan.parentId).toBe(live.id); // prefers the live one
+    expect(orphan.parentId).toBe(firstInbox.id); // resolves to the single Inbox
+    const inboxes = listTodos(project, { includeCompleted: true }).filter((t) => t.title === INBOX_EPIC_TITLE);
+    expect(inboxes.length).toBe(1);
   });
 });
