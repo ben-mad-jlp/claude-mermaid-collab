@@ -373,7 +373,14 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.triage) {
       try {
         currentPhase = `${project}:triage`;
-        const missionTodos = listTodos(project, { includeCompleted: true });
+        // Best-effort: the todos read only feeds the auto-answer SCOPE. A read failure must not
+        // skip the whole (suggest-only) triage pass — degrade to an empty scope (no auto-answer).
+        let missionTodos: ReturnType<typeof listTodos> = [];
+        try {
+          missionTodos = listTodos(project, { includeCompleted: true });
+        } catch (e) {
+          console.warn(`[orchestrator] triage: could not read todos for ${project} (auto-answer scope disabled):`, e);
+        }
         const autoResolveScope = (esc: Escalation): boolean =>
           mayAutoAnswerEscalation(project, esc, missionTodos);
         await withPassTimeout(

@@ -47,6 +47,7 @@ const buildCalls: string[] = [];
 const notifyCalls: string[] = [];
 const reconcileCalls: string[] = [];
 const triageCalls: string[] = [];
+const frictionTriageCalls: string[] = [];
 const triageAutoResolve: Array<{ project: string; autoResolve: boolean }> = [];
 let buildShouldThrow: string | null = null; // project path whose build should throw
 const registeredProjects: Array<{ path: string; name: string; lastAccess: string }> = [];
@@ -81,6 +82,9 @@ function makeDeps(): TickDeps {
       triageCalls.push(project);
       triageAutoResolve.push({ project, autoResolve: opts.autoResolve });
     },
+    // Mock the friction-triage pass too: unmocked it falls back to the real
+    // runFrictionTriagePass, which opens a DB under the dummy '/proj' path and throws EROFS.
+    frictionTriage: async (project: string) => { frictionTriageCalls.push(project); },
   };
 }
 
@@ -93,6 +97,7 @@ function reset() {
   notifyCalls.length = 0;
   reconcileCalls.length = 0;
   triageCalls.length = 0;
+  frictionTriageCalls.length = 0;
   triageAutoResolve.length = 0;
   buildShouldThrow = null;
   registeredProjects.length = 0;

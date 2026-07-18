@@ -92,7 +92,9 @@ function makeSpawn() {
 }
 
 beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-reg-tools-test-'));
+  // Root under short /tmp, NOT os.tmpdir(): on macOS os.tmpdir() is a long /var/folders path and
+  // the derived `<persistDir>/sockets/<hash>.sock` blows past the 104-char AF_UNIX sun_path limit.
+  tmpDir = await fs.mkdtemp(path.join('/tmp', 'reg-tools-'));
   spawnCalls = [];
   currentFakes = [];
   broadcasts = [];
