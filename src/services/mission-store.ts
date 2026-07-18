@@ -53,6 +53,9 @@ export interface MissionRow {
   /** Fingerprint (status:met/total) of the last nudge, or null. Used to suppress
    *  re-nudges when the mission state hasn't changed materially. */
   lastNudgeKey: string | null;
+  /** Debounce fingerprint of the last AUTONOMOUS CONDUCTOR pass (status + criteria actions). The
+   *  conductor pass no-ops while this is unchanged, so it only spends a node when state moved. */
+  lastConductorKey: string | null;
   /** Whether this is the ACTIVE mission for its owning session. A steward drives ONE
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
@@ -196,6 +199,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeKey', 'lastNudgeKey TEXT');
+  addColumnIfMissing(db, 'mission', 'lastConductorKey', 'lastConductorKey TEXT');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
@@ -230,6 +234,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     updatedAt: row.updatedAt as number,
     lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
     lastNudgeKey: (row.lastNudgeKey as string | null) ?? null,
+    lastConductorKey: (row.lastConductorKey as string | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
@@ -243,6 +248,13 @@ export function stampMissionNudge(project: string, todoId: string, key?: string)
   openDb(project)
     .prepare('UPDATE mission SET lastNudgeAt = ?, lastNudgeKey = ?, updatedAt = ? WHERE todoId = ?')
     .run(nowMs(), key ?? null, nowMs(), todoId);
+}
+
+/** Record the debounce fingerprint of the conductor pass's last run for a mission. */
+export function stampConductorRun(project: string, todoId: string, key: string): void {
+  openDb(project)
+    .prepare('UPDATE mission SET lastConductorKey = ?, updatedAt = ? WHERE todoId = ?')
+    .run(key, nowMs(), todoId);
 }
 
 /** Read a mission's control state, or undefined if the node has none yet. */

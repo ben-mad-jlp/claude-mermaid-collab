@@ -28,6 +28,8 @@ import {
   setProjectDigestEnabled,
   setPromptInjectRetryContext,
   setPromptInjectActiveConstraints,
+  getConductorEnabled,
+  setConductorEnabled,
 } from '../services/supervisor-store.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
@@ -870,6 +872,26 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       }
       setContextRecycleMode(project, mode as ContextRecycleMode);
       return Response.json({ ok: true, project, mode: getContextRecycleMode(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/conductor?project= — is the per-project AUTONOMOUS CONDUCTOR on? (default OFF)
+  if (url.pathname === '/api/supervisor/conductor' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, enabled: getConductorEnabled(project) });
+  }
+  // POST /api/supervisor/conductor — toggle it. body { project, enabled: boolean }. UPDATE-only
+  // (the project must be watched), like the injection-flag setters.
+  if (url.pathname === '/api/supervisor/conductor' && req.method === 'POST') {
+    try {
+      const { project, enabled } = (await req.json()) as { project?: string; enabled?: boolean };
+      if (!project) return jsonError('project is required', 400);
+      if (typeof enabled !== 'boolean') return jsonError('enabled must be a boolean', 400);
+      setConductorEnabled(project, enabled);
+      return Response.json({ ok: true, project, enabled: getConductorEnabled(project) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

@@ -19,6 +19,7 @@
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
 import { listWatchedProjects, type Escalation } from './supervisor-store.js';
 import { runBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
+import { runConductorPass } from './conductor-pass.js';
 import { listTodos } from './todo-store.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
@@ -219,6 +220,10 @@ export interface TickDeps {
    *  project's ACTIVE missions; runs for WATCHED projects only (the safety boundary —
    *  no per-project mode). Default: runMissionLoopPass. */
   missionLoop?: (project: string) => Promise<unknown>;
+  /** AUTONOMOUS CONDUCTOR pass (Phase 2): spawn a conductor node to drive the project's approved
+   *  active mission. Self-gates on the per-project conductor toggle (default OFF) + debounce; runs
+   *  for WATCHED projects. Default: runConductorPass. */
+  conductor?: (project: string) => Promise<unknown>;
   triage?: (project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => Promise<void>;
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
    *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
@@ -241,6 +246,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? runMissionLoopPass;
+  const conductor = deps.conductor ?? runConductorPass;
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve, autoResolveScope: opts.autoResolveScope }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
@@ -342,6 +348,18 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(missionLoop(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-loop`);
       } catch (err) {
         console.warn(`[orchestrator] mission-loop failed for ${project}:`, err);
+      }
+    }
+
+    // AUTONOMOUS CONDUCTOR (Phase 2): self-gates on the per-project conductor toggle (default OFF)
+    // + debounce, so it's a cheap no-op unless explicitly enabled and the mission state moved. Runs
+    // for WATCHED projects; a conductor node can take a while, so it gets the build-pass timeout.
+    if (watched.has(project)) {
+      try {
+        currentPhase = `${project}:conductor`;
+        await withPassTimeout(conductor(project), BUILD_PASS_TIMEOUT_MS, `${project}:conductor`);
+      } catch (err) {
+        console.warn(`[orchestrator] conductor pass failed for ${project}:`, err);
       }
     }
 

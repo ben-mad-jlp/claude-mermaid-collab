@@ -320,6 +320,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'contextRecycleMode', 'contextRecycleMode TEXT');
   addColumnIfMissing(db, 'watched_project', 'missionLoopMode', 'missionLoopMode TEXT');
   addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'conductorEnabled', 'conductorEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectActiveConstraints', 'promptInjectActiveConstraints INTEGER');
   addColumnIfMissing(db, 'watched_project', 'gateShadowMode', 'gateShadowMode INTEGER');
@@ -455,6 +456,21 @@ export function getProjectDigestEnabled(project: string): boolean {
 export function setProjectDigestEnabled(project: string, on: boolean): void {
   const d = openDb();
   d.prepare('UPDATE watched_project SET projectDigestEnabled = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
+}
+
+/** Per-project AUTONOMOUS CONDUCTOR toggle. Default OFF (opt-in autonomy): the conductor pass only
+ *  runs for a project explicitly turned on. UPDATE-only (like the other per-project setters — never
+ *  auto-watch a project); a project must be watched first. */
+export function getConductorEnabled(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT conductorEnabled FROM watched_project WHERE project = ?')
+    .get(project) as { conductorEnabled: number | null } | undefined;
+  return !!(row?.conductorEnabled);
+}
+export function setConductorEnabled(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare('UPDATE watched_project SET conductorEnabled = ? WHERE project = ?')
     .run(on ? 1 : 0, project);
 }
 
