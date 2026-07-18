@@ -11,19 +11,13 @@
  * createEpicWithLandLeaf + addLeavesToEpic). Injectable invoke/resolveCriteria for tests.
  */
 import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
-import { resolveNodeModel, resolveNodeProvider } from '../../services/node-provider.js';
-import { listNodeProfileOverrides } from '../../services/orchestrator-config.js';
+import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { config } from '../../config.js';
 import type { EffortLevel } from '../../agent/contracts.js';
 import { listCriteria } from '../../services/mission-store.js';
 import { updateTodo, type Todo } from '../../services/todo-store.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
-
-const PLANNER_DEFAULT_MODEL = 'opus';
-const PLANNER_DEFAULT_EFFORT: EffortLevel = 'high';
-/** The planner GROUNDS + emits a spec; the deterministic code creates the work-graph. Read-only +
- *  the graph-inspection MCP tools so it can see existing work and not re-plan what already exists. */
-const PLANNER_ALLOWED_TOOLS = 'Read Grep Glob Bash mcp__mermaid__get_task_graph mcp__mermaid__get_todo mcp__mermaid__get_mission';
+import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 
 export interface PlannedLeaf {
   title: string;
@@ -138,15 +132,15 @@ export async function planMissionCriterion(
   const criteria = (deps.resolveCriteria ?? defaultResolveCriteria)(project, input.missionId, input.criterionIds);
   if (criteria.length === 0) throw new Error('plan_mission_criterion: none of the criterionIds match this mission');
 
-  const provider = resolveNodeProvider(project, 'planner', PLANNER_ALLOWED_TOOLS);
-  const model = input.model ?? resolveNodeModel(project, 'planner', provider, PLANNER_DEFAULT_MODEL);
-  const effort: EffortLevel = input.effort ?? listNodeProfileOverrides(project)['planner']?.effort ?? PLANNER_DEFAULT_EFFORT;
+  const provider = resolveNodeProvider(project, 'planner', ORCHESTRATION_NODE_PROFILE.planner.allowedTools);
+  const model = input.model ?? resolveNodeModel(project, 'planner', provider, ORCHESTRATION_NODE_PROFILE.planner.model);
+  const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'planner');
 
   const res = await (deps.invoke ?? invokeNode)({
     prompt: buildPlannerPrompt(project, input.missionId, criteria),
     model,
     effort,
-    allowedTools: PLANNER_ALLOWED_TOOLS,
+    allowedTools: ORCHESTRATION_NODE_PROFILE.planner.allowedTools,
     mcpConfig: mcpConfigFor(config.PORT),
     strictMcpConfig: true,
     cwd: project,

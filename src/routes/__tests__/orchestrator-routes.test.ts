@@ -11,7 +11,7 @@ const dir = mkdtempSync(join(tmpdir(), 'orch-routes-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
-import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS } from '../../services/leaf-executor';
+import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS, ORCHESTRATION_NODE_KINDS } from '../../services/leaf-executor';
 import { _closeDb } from '../../services/orchestrator-config';
 import { _closeDb as supervisorCloseDb } from '../../services/supervisor-store';
 
@@ -192,17 +192,17 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(res!.status).toBe(400);
   });
 
-  it('GET returns groups (4) whose kinds union equals LEAF_NODE_KINDS (partition/drift guard)', async () => {
+  it('GET returns groups (5) whose kinds union equals LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS (partition/drift guard)', async () => {
     const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
     expect(res!.status).toBe(200);
     const body = await res!.json() as any;
     expect(Array.isArray(body.groups)).toBe(true);
-    expect(body.groups.length).toBe(4);
+    expect(body.groups.length).toBe(5);
     const union = (body.groups as any[]).flatMap((g) => g.kinds);
-    expect(new Set(union)).toEqual(new Set(LEAF_NODE_KINDS));
+    expect(new Set(union)).toEqual(new Set([...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS]));
     // Also verify against the exported constant directly (single source)
     const fromConst = LEAF_NODE_GROUPS.flatMap((g) => g.kinds);
-    expect(new Set(fromConst)).toEqual(new Set(LEAF_NODE_KINDS));
+    expect(new Set(fromConst)).toEqual(new Set([...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS]));
   });
 });
 

@@ -23,8 +23,10 @@
 
 import { getConfig } from './config-file';
 import { kindDefaultGrokModel, type GrokNodeKind, GROK_NODE_KINDS } from '../agent/grok-model';
-import { getProjectNodeProvider, listNodeProfileOverrides } from './orchestrator-config';
+import { getProjectNodeProvider, getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import { isModelForProvider, GROK_BUILD_MODELS } from './provider-model';
+import { ORCHESTRATION_NODE_PROFILE, type OrchestrationNodeKind } from './node-kinds';
+import type { EffortLevel } from '../agent/contracts';
 
 export type NodeProvider = 'claude' | 'grok-build' | 'grok-api';
 
@@ -170,6 +172,20 @@ export function resolveNodeModel(
     console.warn(`[node-provider] provider/model mismatch: kind=${kind} provider=${provider} model=${v} — ignoring the override and running ${getDefault()}. Fix the node_profile_override row.`);
   }
   return getDefault();
+}
+
+/** Effort resolution for an orchestration node (forge/conductor/planner): per-kind
+ *  override → per-project blanket (getProjectEffort) → the kind's ORCHESTRATION_NODE_PROFILE
+ *  default. Mirrors leaf-executor's per-leaf-kind effort precedence so orchestration nodes
+ *  finally honour the project-wide effort knob. Defensive on DB access: a missing override
+ *  store falls through to the project/default tiers, never throws. */
+export function resolveOrchestrationEffort(project: string | undefined, kind: OrchestrationNodeKind): EffortLevel {
+  let override: EffortLevel | null = null;
+  if (project) {
+    try { override = listNodeProfileOverrides(project)[kind]?.effort ?? null; } catch { /* fall through */ }
+  }
+  const projectEffort = project ? getProjectEffort(project) : null;
+  return override ?? projectEffort ?? ORCHESTRATION_NODE_PROFILE[kind].effort;
 }
 
 /** Resolve the grok CLI model for a node, HONORING the per-kind DB model override (UI matrix)
