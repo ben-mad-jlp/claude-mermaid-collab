@@ -45,8 +45,8 @@ import {
 import { stripLabel } from '../../services/todo-kind.js';
 import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
-import { resolveNodeModel, resolveNodeProvider } from '../../services/node-provider.js';
-import { listNodeProfileOverrides } from '../../services/orchestrator-config.js';
+import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
+import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import type { EffortLevel } from '../../agent/contracts.js';
 
 export interface ForgeConstraint {
@@ -245,13 +245,6 @@ export function approveMissionAndConstitution(project: string, missionId: string
 
 // ─────────────────────────── doc → mission (server-side forge NODE) ───────────────────────────
 
-/** The `forge` node kind's defaults. Changeable per-project via node_profile_override
- *  (setNodeProfileOverride(project, 'forge', model, effort)) — exactly like blueprint/implement/
- *  review — and overridable per call. Forging is high-judgment, so it defaults to opus/high. */
-const FORGE_DEFAULT_MODEL = 'opus';
-const FORGE_DEFAULT_EFFORT: EffortLevel = 'high';
-const FORGE_ALLOWED_TOOLS = 'Read Grep Glob Bash';
-
 /** The mission-forge NODE prompt: read a problem/design doc (inlined), survey the repo, and emit a
  *  structured mission spec as JSON. Encodes the /mission-forge discipline (criteria = falsifiable
  *  capability assertions, sequenced by risk, one measured-outcome last; constraints = hard rules;
@@ -370,15 +363,15 @@ export async function forgeMissionFromDoc(
   const docContent = await (deps.readDoc ?? defaultReadDoc)(project, input.session, input.docId);
   if (!docContent || !docContent.trim()) throw new Error('forge_mission_from_doc: the source document is empty');
 
-  const provider = resolveNodeProvider(project, 'forge', FORGE_ALLOWED_TOOLS);
-  const model = input.model ?? resolveNodeModel(project, 'forge', provider, FORGE_DEFAULT_MODEL);
-  const effort: EffortLevel = input.effort ?? listNodeProfileOverrides(project)['forge']?.effort ?? FORGE_DEFAULT_EFFORT;
+  const provider = resolveNodeProvider(project, 'forge', ORCHESTRATION_NODE_PROFILE.forge.allowedTools);
+  const model = input.model ?? resolveNodeModel(project, 'forge', provider, ORCHESTRATION_NODE_PROFILE.forge.model);
+  const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'forge');
 
   const res = await (deps.invoke ?? invokeNode)({
     prompt: buildForgePrompt(docContent),
     model,
     effort,
-    allowedTools: FORGE_ALLOWED_TOOLS,
+    allowedTools: ORCHESTRATION_NODE_PROFILE.forge.allowedTools,
     strictMcpConfig: true,
     permissionMode: 'bypassPermissions',
     cwd: project,
