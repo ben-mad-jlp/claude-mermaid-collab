@@ -27,6 +27,7 @@ import { createEscalation } from './supervisor-store.ts';
  *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
  *  the order listed in deriveMissionStatus. */
 export type MissionStatus =
+  | 'unapproved'      // awaitingApprovalSince set — forged (e.g. from a doc) but not yet human-approved
   | 'abandoned'       // abandonedAt set
   | 'over-budget'     // spendUsd >= budgetUsd
   | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
@@ -60,6 +61,10 @@ export interface MissionRow {
    *  concept: an abandoned mission with unmet criteria is otherwise indistinguishable
    *  from an in-progress one; this makes "done with it" explicit. */
   abandonedAt: number | null;
+  /** Set (ms epoch) when a mission was FORGED but not yet human-approved (e.g. by the doc→node
+   *  forge). Null = approved / not applicable (all hand-created + legacy missions). While set the
+   *  derived status is 'unapproved' and the mission-loop never drives it. approve_mission clears it. */
+  awaitingApprovalSince: number | null;
   /** Per-mission USD budget ceiling, or null = project default. */
   budgetUsd: number | null;
   /** The mission's CONSTITUTION: the handoff/brief document id (session doc) carrying the
@@ -193,6 +198,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'lastNudgeKey', 'lastNudgeKey TEXT');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
   addColumnIfMissing(db, 'mission', 'handoffDocId', 'handoffDocId TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
@@ -226,6 +232,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     lastNudgeKey: (row.lastNudgeKey as string | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
+    awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
     handoffDocId: (row.handoffDocId as string | null) ?? null,
   };
@@ -262,17 +269,29 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
 export function upsertMission(
   project: string,
   todoId: string,
-  opts: { budgetUsd?: number | null; handoffDocId?: string | null } = {},
+  opts: { budgetUsd?: number | null; handoffDocId?: string | null; awaitingApprovalSince?: number | null } = {},
 ): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId, awaitingApprovalSince)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null);
+    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null, opts.awaitingApprovalSince ?? null);
+  return getMission(project, todoId)!;
+}
+
+/** Approve a forged mission: clear awaitingApprovalSince (→ status leaves 'unapproved') and make it
+ *  ACTIVE for its session so the mission-loop / conductor can drive it. Idempotent. The CALLER
+ *  ratifies the constitution separately (approve the mission's proposed constraint records). */
+export function setMissionApproved(project: string, todoId: string): MissionRow {
+  const m = getMission(project, todoId);
+  if (!m) throw new Error(`mission not found: ${todoId}`);
+  openDb(project)
+    .prepare('UPDATE mission SET awaitingApprovalSince = NULL, active = 1, updatedAt = ? WHERE todoId = ?')
+    .run(nowMs(), todoId);
   return getMission(project, todoId)!;
 }
 
@@ -588,6 +607,8 @@ export interface MissionCriterionFacts {
 }
 
 export interface MissionStatusFacts {
+  /** Optional (defaults falsy) so existing fact fixtures need no change; set by collectMissionStatusFacts. */
+  awaitingApproval?: boolean;
   abandonedAt: number | null;
   budgetUsd: number | null;
   spendUsd: number;
@@ -623,6 +644,7 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
  *  non-terminal state — it only surfaces when nothing is left to discover or verify. */
 export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   if (f.abandonedAt != null) return 'abandoned';
+  if (f.awaitingApproval) return 'unapproved'; // forged, not yet human-approved — never driven
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
   if (f.hasBlockedLeaf) return 'blocked';
   const actions = f.criteria.map(deriveCriterionAction);
@@ -675,6 +697,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
   );
   const criteria = listCriteria(project, m.todoId);
   return {
+    awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
     budgetUsd: m.budgetUsd,
     spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),

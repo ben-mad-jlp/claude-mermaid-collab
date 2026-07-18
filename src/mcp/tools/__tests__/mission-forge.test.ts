@@ -3,14 +3,18 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// The global supervisor DB (node_profile_override) caches its handle by MERMAID_SUPERVISOR_DIR;
+// keep it STABLE (not the churned per-test project dir) so forgeMissionFromDoc's model resolution
+// doesn't hit a removed file. Per-PROJECT stores (mission/todo/decision) stay fresh via the project path.
+const SUP_DIR = mkdtempSync(join(tmpdir(), 'mission-forge-sup-'));
+process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 let project: string;
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'mission-forge-'));
-  process.env.MERMAID_SUPERVISOR_DIR = project;
 });
 
 // Imports AFTER the env is set so any db opens against our temp dir.
-import { forgeMission, missionConstitutionHealth } from '../mission-forge';
+import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMissionAndConstitution, parseForgeSpec } from '../mission-forge';
 import { getMission, listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
 import { listDecisionRecords, _closeProject as closeDecisions } from '../../../services/decision-record-store';
 import { getTodo, _closeProject as closeTodos } from '../../../services/todo-store';
@@ -113,5 +117,83 @@ describe('missionConstitutionHealth — enforcement teeth', () => {
   test('mission with NO handoff → ok (no constitution to enforce)', async () => {
     const r = await forgeMission(project, { ...base() }); // no handoffDocId
     expect(missionConstitutionHealth(project, r.missionId).flag).toBe('ok');
+  });
+});
+
+describe('forgeMissionFromDoc — server forge node → unapproved mission', () => {
+  const SPEC = {
+    title: 'The reviewer never over-rejects correct code',
+    description: 'Harden the daemon review gate.',
+    criteria: ['a correct null-guard leaf is accepted', 'a real defect leaf is rejected'],
+    constraints: [{ rule: 'the mechanical gate stays PRE-land', rationale: 'placebo-hole guarantee' }],
+    rejectedAlternatives: [{ title: 'arbiter LLM', rationale: 'Grok killed it', alternatives: ['second LLM judge'] }],
+    digest: '# Orientation\n- src/services/leaf-executor.ts — the review node',
+  };
+  const mockDeps = (spec: unknown = SPEC) => ({
+    readDoc: async () => 'PROBLEM: the reviewer over-rejects. Design: harden the gate.',
+    invoke: async () => ({ ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(spec) + '\n```' } as any),
+  });
+
+  test('forges an UNAPPROVED mission: status unapproved, inactive, constraints PROPOSED, handoff=docId', async () => {
+    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
+    const mission = getMission(project, r.missionId);
+    expect(mission?.status).toBe('unapproved');
+    expect(mission?.active).toBe(false);
+    expect(mission?.handoffDocId).toBe('design-doc-1');
+    expect(mission?.awaitingApprovalSince).not.toBe(null);
+    // Constraints exist but are PROPOSED (not injecting yet).
+    expect(r.constraints).toHaveLength(1);
+    expect(r.constraints.every((c) => c.status === 'proposed')).toBe(true);
+    // Criteria + rejected alternatives + digest instantiated as usual.
+    expect(listCriteria(project, r.missionId)).toHaveLength(2);
+    expect(r.decisions).toHaveLength(1);
+    expect(r.digestWritten).toBe(true);
+    // Health flags it as pending human ratification (not "not-injected").
+    expect(missionConstitutionHealth(project, r.missionId).flag).toBe('constitution-pending-approval');
+    // The proposed constraint does NOT yet reach a build node.
+    expect(composeInjectedContext({ kind: 'blueprint', project, epicId: null, flags: { digest: false, retryContext: false, activeConstraints: true } })).not.toContain('the mechanical gate stays PRE-land');
+  });
+
+  test('approve_mission ratifies it: status leaves unapproved, active, constraints go active + inject', async () => {
+    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
+    const { mission, approvedConstraints } = approveMissionAndConstitution(project, r.missionId, 'ben');
+    expect(mission.status).not.toBe('unapproved');
+    expect(mission.active).toBe(true);
+    expect(approvedConstraints).toHaveLength(1);
+    expect(missionConstitutionHealth(project, r.missionId).flag).toBe('ok');
+    // NOW the constraint reaches a build node.
+    expect(composeInjectedContext({ kind: 'blueprint', project, epicId: null, flags: { digest: false, retryContext: false, activeConstraints: true } })).toContain('the mechanical gate stays PRE-land');
+  });
+
+  test('the node model/effort default to forge (opus/high) and are returned', async () => {
+    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, mockDeps());
+    expect(r.modelUsed).toBe('opus');
+    expect(r.effortUsed).toBe('high');
+  });
+
+  test('a node that emits no parseable spec throws (no half-forged mission)', async () => {
+    await expect(
+      forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, {
+        readDoc: async () => 'doc',
+        invoke: async () => ({ ok: true, rateLimited: false, text: 'sorry, I could not do it' } as any),
+      }),
+    ).rejects.toThrow(/no parseable mission-spec JSON/i);
+  });
+});
+
+describe('parseForgeSpec', () => {
+  test('parses a fenced JSON block', () => {
+    const s = parseForgeSpec('here you go:\n```json\n{"title":"T","criteria":["c1"]}\n```\ndone');
+    expect(s.title).toBe('T');
+    expect(s.criteria).toEqual(['c1']);
+  });
+  test('parses bare JSON and drops empty criteria', () => {
+    const s = parseForgeSpec('{"title":"T","criteria":["a",""," "],"constraints":[{"rule":"r"}]}');
+    expect(s.criteria).toEqual(['a']);
+    expect(s.constraints).toEqual([{ rule: 'r' }]);
+  });
+  test('throws when title or criteria are missing', () => {
+    expect(() => parseForgeSpec('{"criteria":["c"]}')).toThrow(/title/i);
+    expect(() => parseForgeSpec('{"title":"T","criteria":[]}')).toThrow(/criteria/i);
   });
 });
