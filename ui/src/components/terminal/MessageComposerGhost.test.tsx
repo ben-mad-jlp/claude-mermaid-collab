@@ -6,13 +6,21 @@ import { useQuickReplyStore } from '@/stores/quickReplyStore';
 
 /**
  * MessageComposer inline GHOST — Part 2 (replaces SuggestionChips). Verifies the
- * greyed inline suggestion renders over the EMPTY composer for a fresh, turn-bound,
- * same-session payload; Tab accepts it into editable text; Enter-on-empty-with-ghost
- * sends the EXACT suggestion via /api/ide/tmux-send-keys; typing hides it; and a
- * stale (paneHash advanced) or cross-session payload never renders.
+ * greyed inline suggestion renders over the EMPTY composer for a RECENT, same-session
+ * payload; Tab accepts it into editable text; Enter-on-empty-with-ghost sends the EXACT
+ * suggestion via /api/ide/tmux-send-keys; typing hides it; and a suggestion that is
+ * stale (summaryUpdatedAt older than GHOST_MAX_AGE_MS), a 'working'-status payload
+ * (pickGhost yields nothing), a cross-session payload, or one hidden by the Suggestions
+ * toggle never renders.
+ *
+ * Freshness is RECENCY-based (summaryUpdatedAt within GHOST_MAX_AGE_MS), NOT
+ * paneHash-equality — the live paneHash is always '' or advanced past summaryPaneHash,
+ * so a paneHash gate is dead on real data.
  */
 
 const PROPS = { project: 'p', session: 's', serverId: 'srv' };
+
+const GHOST_MAX_AGE_MS = 5 * 60_000; // mirror MessageComposer's window
 
 const BASE: SessionSummary = {
   project: 'p',
@@ -20,12 +28,18 @@ const BASE: SessionSummary = {
   progressState: 'idle',
   paneSeenAt: 0,
   updatedAt: 0,
-  paneHash: 'h1',
+  // Live paneHash typically advances past the captured summaryPaneHash — the freshness
+  // gate must NOT depend on their equality.
+  paneHash: 'h2',
   summaryPaneHash: 'h1',
 };
 
+/** Seed a summary the way the store holds it. `summaryUpdatedAt` defaults to "now"
+ *  (recent → fresh) unless an override supplies its own. */
 function seed(structured: SessionSummary['structured'], overrides: Partial<SessionSummary> = {}, key = 'p::s') {
-  useSupervisorStore.setState({ sessionSummaries: { [key]: { ...BASE, structured, ...overrides } } });
+  useSupervisorStore.setState({
+    sessionSummaries: { [key]: { ...BASE, summaryUpdatedAt: Date.now(), structured, ...overrides } },
+  });
 }
 
 function lastFetchBody(): any {
@@ -38,7 +52,7 @@ describe('MessageComposer ghost', () => {
     delete (window as any).mc;
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true } as Response)) as any;
     useSupervisorStore.setState({ sessionSummaries: {} });
-    useQuickReplyStore.setState({ sendOnEnter: false }); // prove the ghost sends regardless of toggle
+    useQuickReplyStore.setState({ sendOnEnter: false, suggestReplyDisplay: true }); // ghost sends regardless of Enter toggle; Suggestions on
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   });
   afterEach(() => { vi.restoreAllMocks(); });
@@ -122,10 +136,36 @@ describe('MessageComposer ghost', () => {
     expect(screen.queryByTestId('composer-ghost')).toBeNull();
   });
 
-  it('(e) a stale (paneHash advanced) payload does not render', () => {
-    seed({ paragraph: 'x', status: 'idle', aiOption: 'Run the tests' }, { paneHash: 'h2' });
+  it('(e) a suggestion older than GHOST_MAX_AGE_MS does not render', () => {
+    // Live paneHash is irrelevant now; staleness is time-based. A recent one WOULD show
+    // (covered by (a)); this one is well past the window.
+    seed(
+      { paragraph: 'x', status: 'idle', aiOption: 'Run the tests' },
+      { summaryUpdatedAt: Date.now() - (GHOST_MAX_AGE_MS + 10_000) },
+    );
     render(<MessageComposer {...PROPS} />);
     expect(screen.queryByTestId('composer-ghost')).toBeNull();
+  });
+
+  it('(e0) a missing summaryUpdatedAt is treated as not-fresh (no render)', () => {
+    seed({ paragraph: 'x', status: 'idle', aiOption: 'Run the tests' }, { summaryUpdatedAt: undefined });
+    render(<MessageComposer {...PROPS} />);
+    expect(screen.queryByTestId('composer-ghost')).toBeNull();
+  });
+
+  it("(e-working) a 'working'-status summary yields no ghost from pickGhost (no render)", () => {
+    // Recent, same-session, focused, toggle on — but 'working' has no option/answer/aiOption.
+    seed({ paragraph: 'x', status: 'working' });
+    render(<MessageComposer {...PROPS} />);
+    expect(screen.queryByTestId('composer-ghost')).toBeNull();
+  });
+
+  it('(e-toggle) turning the Suggestions display toggle off hides the ghost', () => {
+    seed({ paragraph: 'x', status: 'idle', aiOption: 'Run the tests' });
+    render(<MessageComposer {...PROPS} />);
+    expect(screen.getByTestId('composer-ghost')).toBeTruthy(); // shown while on
+    act(() => useQuickReplyStore.setState({ suggestReplyDisplay: false }));
+    expect(screen.queryByTestId('composer-ghost')).toBeNull(); // hidden once off
   });
 
   it('(e2) a payload for another session does not render', () => {

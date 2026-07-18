@@ -23,6 +23,10 @@ import { pickGhost } from './composerGhost';
 
 const MAX_HEIGHT = 160; // px — ~8 rows, then the textarea scrolls internally.
 
+/** How recent a session summary must be for its suggestion to still show as a ghost.
+ *  A suggestion older than this is treated as superseded (the turn has moved on). */
+const GHOST_MAX_AGE_MS = 5 * 60_000; // 5 minutes
+
 /** Client-only desktop-presence check (mirrors the retired SuggestionChips gate) —
  *  the ghost only shows while THIS window actually has focus, so a suggestion never
  *  sits over an unfocused/background composer. */
@@ -171,17 +175,26 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
 
   // ── Inline GHOST suggestion (replaces the old SuggestionChips chip row) ──────────
   // The AI-proposed reply is rendered as ONE greyed inline overlay over the EMPTY
-  // textarea. Gate (mirrors the retired chip gate): a fresh structured suggestion for
-  // THIS focused session, turn-bound (paneHash === summaryPaneHash), this window has
-  // focus, and the composer is empty. Never over typed text, never stale/cross-session.
+  // textarea. Gate: a CURRENT structured suggestion for THIS focused session, this
+  // window has focus, the "Suggestions" toggle is on, and the composer is empty.
+  //
+  // FRESHNESS is recency-based, NOT paneHash-equality: the live paneHash is either ''
+  // (remote/peer/idle sessions) or has already advanced past summaryPaneHash on active
+  // sessions, so a paneHash===summaryPaneHash gate is ALWAYS false on live data and the
+  // ghost never renders. We instead require summaryUpdatedAt within GHOST_MAX_AGE_MS
+  // (missing timestamp ⇒ not fresh). Staleness of the CONTENT is handled by pickGhost —
+  // it only yields a suggestion for a finished-turn state (idle→aiOption, or a question
+  // →options/suggestedAnswers); a 'working' status yields no ghost — and by "typing hides it".
   const present = useDesktopPresence();
   const summary = useSupervisorStore((s) => s.sessionSummaries[`${project}::${session}`]);
   const structured = summary?.structured;
   const summaryFresh =
-    !!summary && summary.paneHash !== undefined && summary.paneHash === summary.summaryPaneHash;
+    !!summary &&
+    typeof summary.summaryUpdatedAt === 'number' &&
+    Date.now() - summary.summaryUpdatedAt <= GHOST_MAX_AGE_MS;
   const isEmpty = value.trim().length === 0;
   const ghost =
-    !disabled && present && summaryFresh && isEmpty ? pickGhost(structured) : null;
+    !disabled && present && suggestReplyDisplay && summaryFresh && isEmpty ? pickGhost(structured) : null;
 
   /** Accept the ghost: fill the textarea with the real (editable) suggestion text,
    *  which hides the ghost (no longer empty), and keep focus + caret at the end. */
@@ -456,7 +469,7 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             type="button" data-testid="suggest-reply-display-toggle" disabled={disabled}
             aria-pressed={suggestReplyDisplay}
             onClick={() => setSuggestReplyDisplay(!suggestReplyDisplay)}
-            title={`Suggestions: ${suggestReplyDisplay ? 'on' : 'off'} — show/hide the quick-reply chip row`}
+            title={`Suggestions: ${suggestReplyDisplay ? 'on' : 'off'} — show/hide the inline suggested reply`}
             style={toggleChip(suggestReplyDisplay, disabled)}
           >
             Suggestions
