@@ -245,6 +245,8 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // UI shares the node-update + websocket-broadcast + integrity rules with the steward.
   // DELIBERATELY NOT exposed here: setting a criterion's VERDICT (met/unmet) —
   // those stay steward/MCP-only to preserve the independent-VERIFY (maker≠checker).
+  // Mission APPROVAL (clearing 'unapproved') is exposed here as a human authoring action —
+  // the daemon/steward must never call POST /missions/approve itself.
   if (url.pathname.startsWith('/api/supervisor/missions/') || url.pathname === '/api/supervisor/missions') {
     // Collection base: create / edit node / delete.
     if (url.pathname === '/api/supervisor/missions' && req.method === 'POST') {
@@ -288,6 +290,18 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         const body = (await req.json()) as Record<string, unknown>;
         const { handleMissionTool } = await import('../mcp/mission-tools.ts');
         const out = await handleMissionTool('set_active_mission', body);
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    // Approve a forged (unapproved) mission — human authoring action only.
+    if (url.pathname === '/api/supervisor/missions/approve' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        if (!body.project || !body.todoId) return jsonError('project and todoId are required', 400);
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('approve_mission', body);
         return Response.json(out ? JSON.parse(out) : {});
       } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
