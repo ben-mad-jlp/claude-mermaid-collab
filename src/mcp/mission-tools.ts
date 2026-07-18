@@ -15,6 +15,7 @@ import {
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
 import { addSessionTodo } from './tools/session-todos.js';
+import { forgeMission, missionConstitutionHealth } from './tools/mission-forge.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -22,6 +23,7 @@ import { addSessionTodo } from './tools/session-todos.js';
  */
 export const MISSION_TOOL_DEFS = [
       { name: 'create_mission', description: "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — do not prefix it. The role lives in the `kind` column and is rendered by the UI.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, budgetUsd: { type: 'number', description: 'Optional per-mission USD budget ceiling (null = project default).' }, handoffDocId: { type: 'string', description: "Optional handoff/brief DOCUMENT id (session doc) — the mission's constitution: locked constraints, sequencing rationale, out-of-scope list. Stored on the mission row so the conductor resolves it durably instead of by description-text convention." } }, required: ['project', 'session', 'title'] } },
+      { name: 'forge_mission', description: "FORGE a mission AND its full constitution in ONE atomic, validated operation — the machinery half of /mission-forge. Beyond create_mission (node + criteria) it instantiates the constitution so it actually REACHES the builders: each `constraints[]` rule becomes an ACTIVE constraint decision-record linked to the mission (injected into every blueprint/implement/review node via payload C, and cross-checked by the review cite-gate); each `rejectedAlternatives[]` becomes a decision record whose alternatives are surfaced to blueprint nodes as 'do not re-propose' (payload D); `digest` is written to .collab/project-digest.md (payload A). A constitution rule left only in handoff prose is decoration the builder never sees — this makes instantiation mechanical, not a step you can forget. Validates criteria up front (≥1 required) so no half-forged mission. Returns node + criteria + created constraint/decision records + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — no role prefix.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate. At least one non-empty criterion is REQUIRED.' }, constraints: { type: 'array', description: 'Locked invariants → active constraint records (payload C). Each is a hard rule the builders must respect.', items: { type: 'object', properties: { rule: { type: 'string', description: 'The locked rule, one line (becomes the constraint that injects).' }, rationale: { type: 'string', description: 'Why it is locked.' } }, required: ['rule'] } }, rejectedAlternatives: { type: 'array', description: 'Design decisions whose rejected options a skeptical consult killed → decision records (payload D: "do not re-propose").', items: { type: 'object', properties: { title: { type: 'string' }, rationale: { type: 'string' }, alternatives: { type: 'array', items: { type: 'string' } } }, required: ['title', 'alternatives'] } }, digest: { type: 'string', description: 'Curated orientation facts (≤ ~2k tokens) → .collab/project-digest.md (injected into blueprint nodes). Headline facts only — every byte is a per-leaf tax.' }, handoffDocId: { type: 'string', description: "The handoff/constitution DOCUMENT id, stored on the mission row." }, budgetUsd: { type: 'number', description: 'Optional per-mission USD budget ceiling.' }, activate: { type: 'boolean', description: 'Activate for the conductor session (default true); respects one-active-per-session.' } }, required: ['project', 'session', 'title', 'criteria'] } },
       { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' } }, required: ['project', 'todoId'] } },
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
@@ -69,6 +71,14 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         rollup: getMissionRollup(project, node.id),
       }, null, 2);
     }
+    case 'forge_mission': {
+      const { project, ...rest } = args as { project: string } & Record<string, unknown>;
+      if (!project) throw new Error('Missing required: project');
+      const result = await forgeMission(project, rest as any);
+      const node: any = result.node;
+      getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: (rest as any).session, ownerSession: node.ownerSession, assigneeSession: node.assigneeSession ?? undefined });
+      return JSON.stringify(result, null, 2);
+    }
     case 'get_mission': {
       const { project, todoId } = args as { project: string; todoId: string };
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
@@ -80,6 +90,9 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         // mission.status is only the headline.
         mission, criteria: listCriteriaWithActions(project, todoId), rollup: getMissionRollup(project, todoId),
         cost: getMissionCost(project, todoId),
+        // Enforcement teeth: 'constitution-not-injected' = a mission with a handoff whose locked
+        // rules never became active constraint records the builders see (forge_mission prevents this).
+        constitutionHealth: missionConstitutionHealth(project, todoId),
       }, null, 2);
     }
     case 'set_mission_owner': {

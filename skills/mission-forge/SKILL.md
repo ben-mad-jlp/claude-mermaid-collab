@@ -67,17 +67,38 @@ Create the handoff document IN THE CONDUCTOR'S SESSION with this shape:
 3. **Practical notes** — the near-free first moves, the key file map, recent landings to build on, anything that saves the conductor a discovery pass.
 4. **Anything displaced** — if activating this mission deactivated another, say so and tell the conductor to flag the human if priorities look wrong.
 
-Then `create_mission` with the criteria AND `handoffDocId` set to the handoff document's id — the mission row carries its constitution durably; description-text pointers rot. Assign/activate for the conductor session (`set_mission_owner` if created from elsewhere, `set_active_mission` — note it deactivates that session's other missions).
+Create the handoff document IN THE CONDUCTOR'S SESSION first (its id feeds `handoffDocId` below).
 
-## Step 6 — Inject what you learned into the BUILDERS, not just the conductor
+## Step 6 — Forge it in ONE call: `forge_mission` instantiates the whole constitution
 
-The handoff binds the conductor; the daemon's build nodes never read it. The prompt-injection seam (`composeInjectedContext`, payloads A/C/D — default-on, self-gating) is how forge knowledge reaches the blueprint/implement/review nodes. Feed it:
+Steps 4–5 are your JUDGMENT — the criteria, the locked rules, the rejected designs, the orientation
+facts. `forge_mission` is the MACHINERY that instantiates all of it atomically, so nothing is left as
+prose the builders never see. Make ONE call:
 
-1. **Locked constraints → constraint RECORDS.** For each locked rule in the constitution header, `create_decision_record { kind: 'constraint', title: <the rule, one line>, rationale }` then `approve_decision_record` (constraints start proposed; only ACTIVE ones inject). Payload C now delivers them to every blueprint/implement/review node, and the review cite-check has real ids to verify. A constitution rule that exists only as handoff prose is a prompt-prohibition — decoration to the builder who never sees it.
-2. **Consult synthesis → decision records WITH `alternatives`.** You already record design-changing consults (Step 2); make sure the REJECTED designs go in the `alternatives` array verbatim — payload D surfaces them to blueprint nodes as "do not re-propose", the automated half of the "name the plausible-looking wrong fix" rule.
-3. **Survey file map → the project digest.** Distill the structural inventory's orientation facts (where the subsystems live, the key seams, what is vestigial) into `.collab/project-digest.md` (Write tool, ≤ ~2k tokens, headline facts only — it is injected into every blueprint node, so every byte is a per-leaf tax). Payload A picks it up automatically.
+```
+forge_mission {
+  project, session, title,
+  criteria: [ <the sequenced, verifiable assertions from Step 4> ],
+  constraints: [ { rule: "mechanical gate stays PRE-land", rationale: "placebo-hole guarantee" }, … ],
+  rejectedAlternatives: [ { title: "<the decision>", rationale, alternatives: [ "<killed design>", … ] } ],
+  digest: "<≤2k orientation facts: where the subsystems live, the key seams, what is vestigial>",
+  handoffDocId: "<the handoff doc id>",
+  activate: true
+}
+```
 
-Skipping this step means the mission's own builders work blind to the mission's own rules — the friction you forged the mission to remove.
+It validates the criteria up front (≥1 required — no half-forged mission), creates the mission node +
+criteria, and — the part that used to be ~20 hand calls you could forget — turns each **constraint**
+into an ACTIVE constraint record (payload C → every blueprint/implement/review node; the review
+cite-check verifies the ids), each **rejectedAlternative** into a decision record whose alternatives
+payload D surfaces as "do not re-propose", and writes **digest** to `.collab/project-digest.md`
+(payload A). A constitution rule that exists only in handoff prose is a prompt-prohibition —
+decoration to the builder who never sees it; `forge_mission` makes reaching the builders mechanical.
+
+Then confirm it landed: `get_mission` returns `constitutionHealth` — a `constitution-not-injected`
+flag means the mission carries a handoff but no active constraint records reached the builders (you
+forged with an empty `constraints[]`, or created the mission the old way). `ok` means the builders
+see the rules. (`set_active_mission` / `set_mission_owner` still apply if you re-home later.)
 
 ## Anti-patterns
 
