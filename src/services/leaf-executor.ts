@@ -3077,7 +3077,13 @@ export async function runLeaf(
           // constraint id. Pairs Payload C's injected ACTIVE CONSTRAINTS block with a
           // warn-only enforcement half. Result is surfaced/recorded ONLY — it does not
           // touch `llm`, `reviewVerdict`, or composeVerdict.
-          const activeConstraintIds = getActiveConstraints(project, epicId).map((c) => c.id);
+          let activeConstraintIds: string[] = [];
+          try {
+            activeConstraintIds = getActiveConstraints(project, epicId).map((c) => c.id);
+          } catch {
+            // advisory cite-check — a constraints store read failure (unopenable/unwritable DB)
+            // must never break the leaf run; degrade to "no active constraints to cross-check".
+          }
           const citeCheck = checkConstraintCitations(review.text ?? '', activeConstraintIds);
           if (citeCheck.fabricated.length > 0) {
             constraintCiteNote =

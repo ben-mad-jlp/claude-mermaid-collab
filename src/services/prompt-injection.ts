@@ -113,7 +113,13 @@ export function composeInjectedContext(args: ComposeInjectedContextArgs): string
   // Payload C — serves prompt-injection activeConstraints criterion. Epic-scoped ∪
   // project-level active constraints as an advisory block (constraint text = `title`).
   if (args.flags.activeConstraints && CONSTRAINTS_KINDS.has(args.kind)) {
-    const constraints = getActiveConstraints(args.project, args.epicId);
+    let constraints: ReturnType<typeof getActiveConstraints> = [];
+    try {
+      constraints = getActiveConstraints(args.project, args.epicId);
+    } catch {
+      // advisory payload — a constraints store read failure (unopenable/unwritable DB) must
+      // never fail a node spawn; degrade to no ACTIVE CONSTRAINTS block (matches payload D).
+    }
     if (constraints.length > 0) {
       const body = constraints.map((c) => `- ${c.id}: ${c.title}`).join('\n');
       blocks.push(_wrapBlock('ACTIVE CONSTRAINTS', body));
@@ -150,7 +156,12 @@ export function composeInjectedContext(args: ComposeInjectedContextArgs): string
   // (.collab/project-digest.md; never regenerate here) and emit it as an advisory block.
   if (args.flags.digest && DIGEST_KINDS.has(args.kind)) {
     const read = args.readDigest ?? readProjectDigest;
-    const digest = read(args.project);
+    let digest = '';
+    try {
+      digest = read(args.project) ?? '';
+    } catch {
+      // advisory payload — a digest read failure must never fail a node spawn.
+    }
     if (digest && digest.trim().length > 0) {
       blocks.push(_wrapBlock('PROJECT DIGEST', digest));
     }

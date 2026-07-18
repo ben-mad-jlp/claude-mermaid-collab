@@ -210,6 +210,22 @@ describe('payload C — ACTIVE CONSTRAINTS', () => {
     });
     expect(out).toBe('');
   });
+
+  // Regression: an advisory payload MUST NOT fail the node spawn. A project whose constraints
+  // store cannot be opened (unwritable path — here a dir under read-only root) previously threw
+  // EROFS out of getActiveConstraints → openDb.mkdirSync, crashing the whole leaf run.
+  test('constraints store unopenable ⇒ swallowed, no throw, no block', () => {
+    let out = 'unset';
+    expect(() => {
+      out = composeInjectedContext({
+        kind: 'review',
+        project: '/x/cannot-create-here',
+        epicId: 'e1',
+        flags: { digest: false, retryContext: false, activeConstraints: true },
+      });
+    }).not.toThrow();
+    expect(out).toBe('');
+  });
 });
 
 describe('payload A — PROJECT DIGEST', () => {
@@ -236,6 +252,22 @@ describe('payload A — PROJECT DIGEST', () => {
       readDigest: () => stubDigest,
     });
     expect(out).toContain('orientation hints — VERIFY against the tree');
+  });
+
+  // Regression: a digest read that throws must be swallowed — an advisory payload never fails
+  // the node spawn.
+  test('digest read throws ⇒ swallowed, no throw, no block', () => {
+    let out = 'unset';
+    expect(() => {
+      out = composeInjectedContext({
+        kind: 'blueprint',
+        project: '/x',
+        epicId: null,
+        flags: { digest: true, retryContext: false, activeConstraints: false },
+        readDigest: () => { throw new Error('digest read boom'); },
+      });
+    }).not.toThrow();
+    expect(out).toBe('');
   });
 
   test('flags.digest=true, kind=implement, digest present ⇒ does NOT contain digest (v1 scope excludes implement)', () => {
