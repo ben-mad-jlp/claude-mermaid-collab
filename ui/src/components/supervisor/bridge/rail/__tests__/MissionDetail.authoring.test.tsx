@@ -6,6 +6,7 @@ const actions = {
   fetchMissions: vi.fn(async () => missions),
   createMission: vi.fn(async () => missions),
   activateMission: vi.fn(async () => missions),
+  approveMission: vi.fn(async () => missions),
   abandonMission: vi.fn(async () => missions),
   updateMission: vi.fn(async () => missions),
   deleteMission: vi.fn(async () => missions),
@@ -94,5 +95,83 @@ describe('MissionDetail authoring actions', () => {
     fireEvent.click(screen.getByTestId('mission-delete-btn'));
     await waitFor(() => screen.getByText(/Delete mission/));
     expect(actions.deleteMission).not.toHaveBeenCalled();
+  });
+});
+
+describe('MissionDetail approve action', () => {
+  it('Approve button absent when status is not unapproved', () => {
+    const m = makeMission();
+    render(
+      <MissionDetail
+        m={m}
+        serverId="local"
+        project="/proj"
+        activeTab="goal"
+        onTabChange={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    expect(screen.queryByTestId('mission-approve-btn')).toBeNull();
+  });
+
+  it('Approve button present when status is unapproved', () => {
+    const m = makeMission({ rollup: { status: 'unapproved' } });
+    render(
+      <MissionDetail
+        m={m}
+        serverId="local"
+        project="/proj"
+        activeTab="goal"
+        onTabChange={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    expect(screen.getByTestId('mission-approve-btn')).toBeTruthy();
+  });
+
+  it('Approve click calls approveMission', async () => {
+    const m = makeMission({ rollup: { status: 'unapproved' } });
+    render(
+      <MissionDetail
+        m={m}
+        serverId="local"
+        project="/proj"
+        activeTab="goal"
+        onTabChange={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByTestId('mission-approve-btn'));
+    await waitFor(() => expect(actions.approveMission).toHaveBeenCalledWith('local', '/proj', 'm1'));
+  });
+
+  it('Approve button disappears after re-render with updated status', async () => {
+    const m = makeMission({ rollup: { status: 'unapproved' } });
+    const updated = makeMission({ rollup: { status: 'needs-discovery' } });
+    actions.approveMission.mockImplementationOnce(async () => [updated]);
+    const { rerender } = render(
+      <MissionDetail
+        m={m}
+        serverId="local"
+        project="/proj"
+        activeTab="goal"
+        onTabChange={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    expect(screen.getByTestId('mission-approve-btn')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('mission-approve-btn'));
+    await waitFor(() => expect(actions.approveMission).toHaveBeenCalled());
+    rerender(
+      <MissionDetail
+        m={updated}
+        serverId="local"
+        project="/proj"
+        activeTab="goal"
+        onTabChange={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    expect(screen.queryByTestId('mission-approve-btn')).toBeNull();
   });
 });
