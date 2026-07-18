@@ -148,9 +148,55 @@ const NON_FALSIFIABLE_DOUBT_RE = new RegExp(
   ].join('|'),
   'i',
 );
+
+/** crit 1 (v2) — a CONCRETE, FALSIFIABLE DEFECT assertion. When a clause asserts one of these
+ *  faults it is checkable at a `file:line` — NOT doubt — so it STILL gates even if the finding
+ *  ALSO hedges elsewhere ("...I can't verify the retry path"). Deliberately HIGH-PRECISION: it
+ *  fires only on unambiguous fault vocabulary (a false positive here re-gates a green change, the
+ *  very over-rejection we are reducing), so weak signals ("should be", "returns X") are omitted —
+ *  a finding with no doubt phrase already gates via the fall-through, without needing this list. */
+const CONCRETE_DEFECT_RE = new RegExp(
+  [
+    // omission of a required action
+    "\\bmissing\\b",
+    "\\bnot (?:await(?:ed)?|closed|released|freed|handled|implemented|sanitized|sanitised|escaped|validated|checked|guarded|bound)\\b",
+    "\\bnever (?:await(?:ed)?|closed|freed|called|released)\\b",
+    "\\b(?:un|not )implemented\\b|\\bstill a stub\\b|\\bleft as a stub\\b|\\bTODO\\b",
+    // wrong value / logic
+    "\\binstead of\\b|\\brather than\\b",
+    "off.?by.?one|\\bone past\\b|out of bounds|out-of-bounds|\\boverrun\\b",
+    "sign (?:error|flip)|\\bflipped\\b|wrong (?:value|result|default|sign|order|branch|condition)",
+    // classic bug classes
+    "\\boverflow\\b|\\bunderflow\\b|injection|\\bleak(?:s|ed|ing)?\\b|race condition|\\bdeadlock\\b|use.after.free",
+    "null pointer|\\bnpe\\b|segfault|\\bpanics?\\b|\\bpanicked\\b|\\bthrows\\b|\\bNaN\\b|divi(?:de|sion) by zero",
+    // shared / aliased state
+    "shared (?:across|state)|mutated in place|\\baliase[sd]\\b|\\baliasing\\b",
+  ].join('|'),
+  'i',
+);
+
+/** Split a finding into clauses on sentence/clause boundaries. A period only splits when it ends
+ *  a sentence (followed by whitespace or end) so `save.ts:3` / `1.0` stay intact. */
+function splitReviewClauses(t: string): string[] {
+  return t.split(/(?:\.\s+|\.$|[;\n]+|\s[—–-]\s)/).map((c) => c.trim()).filter(Boolean);
+}
+
 export function isNonFalsifiableReviewDoubt(reviewText: string): boolean {
-  const t = (reviewText ?? '').replace(/verdict:\s*(pass|fail)/gi, '').trim();
+  // Strip the VERDICT sentinel AND a residual reason-separator (a bare "VERDICT: FAIL —" leaves
+  // an em-dash that must not read as a non-empty concrete finding). An empty residual = pure doubt.
+  const t = (reviewText ?? '')
+    .replace(/verdict:\s*(pass|fail)/gi, '')
+    .replace(/^[\s—–\-.:,]+|[\s—–\-.:,]+$/g, '')
+    .trim();
   if (!t) return true; // an empty finding is pure doubt, never a falsifiable defect
+  // A concrete defect asserted in ANY clause that is not itself hedged by doubt gates the change —
+  // even when a SEPARATE clause hedges. This is the mixed "concrete + incidental can't-verify" shape
+  // that a whole-text doubt scan wrongly abstained (shipping the real defect). When a single clause
+  // entangles both, we stay conservative (treat as doubt → do not gate → no over-rejection).
+  for (const clause of splitReviewClauses(t)) {
+    if (CONCRETE_DEFECT_RE.test(clause) && !NON_FALSIFIABLE_DOUBT_RE.test(clause)) return false;
+  }
+  // No concrete defect clause: doubt iff a doubt phrase is present anywhere (v1 behavior preserved).
   return NON_FALSIFIABLE_DOUBT_RE.test(t);
 }
 
@@ -166,14 +212,27 @@ export function isTestFilePath(path: string): boolean {
  *  Used (a) inside the revise loop — the old exact-equality isRepeat missed findings
  *  that drift textually while saying the same thing, and (b) across fresh attempts —
  *  a repeat wall parks with a reason that names the FORK (stronger tier / new-todo
- *  re-spec / hand-build) instead of a generic cap-exhausted. Pure; exported for test. */
+ *  re-spec / hand-build) instead of a generic cap-exhausted. Pure; exported for test.
+ *
+ *  The "wall" is the set of UNRESOLVED defect lines (UNMET / FAIL / the failing reason) — NOT
+ *  the whole review. Passing `[MET]`/`[N/A]` criteria and boilerplate preamble ("## CRITERIA",
+ *  "Reviewed the working tree…") are STABLE across attempts, so including them inflates the
+ *  overlap into a FALSE repeat: two attempts that fail for DIFFERENT reasons (real progress —
+ *  one defect fixed, a new one surfaced) then read as "same wall" and PARK PREMATURELY, giving
+ *  up on still-fixable work. So we compare only the defect lines, falling back to all lines for
+ *  a free-form finding that carries no explicit UNMET/FAIL marker. (A fully-paraphrased SAME
+ *  defect with no shared line still evades line-overlap — that residual miss is bounded by the
+ *  revise cap + node budget, not an infinite thrash.) */
+const DEFECT_LINE_RE = /\b(?:unmet|fail(?:ed|s|ure)?)\b/i;
 export function sameReviewWall(a: string, b: string): boolean {
-  const norm = (t: string): Set<string> =>
-    new Set(
-      t.toLowerCase().split('\n')
-        .map((l) => l.replace(/\d+/g, '#').trim())
-        .filter((l) => l.length > 8),
+  const norm = (t: string): Set<string> => {
+    const lines = t.split('\n');
+    const defect = lines.filter((l) => DEFECT_LINE_RE.test(l));
+    const use = defect.length ? defect : lines; // wall = defect lines; free-form → all lines
+    return new Set(
+      use.map((l) => l.toLowerCase().replace(/\d+/g, '#').trim()).filter((l) => l.length > 8),
     );
+  };
   const A = norm(a);
   const B = norm(b);
   if (A.size === 0 || B.size === 0) return false;
