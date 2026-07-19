@@ -22,6 +22,7 @@ import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
+import { recordAutonomousMutation } from './autonomy-log.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
  *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
@@ -365,7 +366,22 @@ export function setMissionActive(project: string, todoId: string, active: boolea
  *  the transition points that can flip a mission terminal — abandonment and criterion met/verdict. */
 export function deactivateIfTerminal(project: string, todoId: string): void {
   const m = getMission(project, todoId);
-  if (m && m.active && isMissionTerminal(m)) setMissionActive(project, todoId, false);
+  if (m && m.active && isMissionTerminal(m)) {
+    setMissionActive(project, todoId, false);
+    // B6 observability — only when a write ACTUALLY happened (this branch clears active).
+    // Kept cheap: this runs from the listMissions terminal-active sweep, so we record at
+    // most once per transition (the guard is idempotent). Fail-open: never break the sweep.
+    try {
+      recordAutonomousMutation({
+        kind: 'terminal-deactivate',
+        actor: 'self-heal',
+        reason: 'terminal',
+        project,
+        detail: todoId,
+        at: Date.now(),
+      });
+    } catch { /* fail-open */ }
+  }
 }
 
 /** Resolve the owning mission todoId for a criterion (criterion setters key off criterionId). */
