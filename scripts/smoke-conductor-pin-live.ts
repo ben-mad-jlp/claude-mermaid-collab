@@ -106,6 +106,57 @@ function get(path: string) {
   return route(new Request(`http://local${path}`, { method: 'GET' }));
 }
 
+// --- Minimal MCP Streamable HTTP client (protocol 2025-03-26) for live mode ---
+// Talks to ${baseUrl}/mcp — the same endpoint src/mcp/http-handler.ts serves.
+// Deliberately bypasses REST: set_mission_criterion has no REST surface
+// (src/routes/supervisor-routes.ts:249-252, steward/MCP-only boundary).
+let mcpSessionId: string | null = null;
+let mcpNextId = 1;
+
+async function mcpRequest(method: string, params?: unknown): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (mcpSessionId) headers['mcp-session-id'] = mcpSessionId;
+  const res = await fetch(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ jsonrpc: '2.0', id: mcpNextId++, method, params }),
+  });
+  const sid = res.headers.get('mcp-session-id');
+  if (sid) mcpSessionId = sid;
+  const contentType = res.headers.get('content-type') ?? '';
+  let payload: any;
+  if (contentType.includes('text/event-stream')) {
+    const text = await res.text();
+    const dataLine = text.split('\n').find((l) => l.startsWith('data: '));
+    if (!dataLine) throw new Error(`mcpRequest(${method}): SSE response had no data: line — ${text}`);
+    payload = JSON.parse(dataLine.slice(6));
+  } else {
+    payload = await res.json();
+  }
+  if (payload?.error) throw new Error(`mcpRequest(${method}) failed: ${JSON.stringify(payload.error)}`);
+  return payload?.result;
+}
+
+async function mcpEnsureInitialized(): Promise<void> {
+  if (mcpSessionId) return;
+  await mcpRequest('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'smoke-conductor-pin-live', version: '1.0.0' },
+  });
+}
+
+async function mcpCall(tool: string, args: Record<string, unknown>): Promise<any> {
+  await mcpEnsureInitialized();
+  const result = await mcpRequest('tools/call', { name: tool, arguments: args });
+  if (result?.isError) {
+    const text = result.content?.map((c: any) => c.text).join('\n') ?? JSON.stringify(result);
+    throw new Error(`mcp tool ${tool} returned isError: ${text}`);
+  }
+  const text = result?.content?.[0]?.text;
+  return text ? JSON.parse(text) : result;
+}
+
 interface Sample {
   tick: number;
   missionId: string;
@@ -138,14 +189,22 @@ async function sample(tick: number, project: string, missionId: string, conducto
 
 async function markCriterionMet(project: string, criterionId: string, met: boolean): Promise<boolean> {
   if (liveMode) {
-    check(
-      'criterion verdict settable over live transport',
-      false,
-      'no REST surface exists for setCriterionMet — deliberately not exposed ' +
-        '(src/routes/supervisor-routes.ts:249-252, steward/MCP-only for maker≠checker independence); ' +
-        'skipping the convergence + lazy-clear phase in live mode',
-    );
-    return false;
+    try {
+      const result = await mcpCall('set_mission_criterion', { project, criterionId, met });
+      check(
+        'criterion verdict set over live MCP transport (set_mission_criterion, /mcp)',
+        result?.criterionId === criterionId && result?.met === met,
+        `result=${JSON.stringify(result)}`,
+      );
+      return true;
+    } catch (err) {
+      check(
+        'criterion verdict set over live MCP transport (set_mission_criterion, /mcp)',
+        false,
+        `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
   }
   setCriterionMet!(project, criterionId, met);
   return true;
