@@ -308,14 +308,18 @@ export function setMissionApproved(project: string, todoId: string): MissionRow 
 }
 
 /** Human-set abandonment stamp. A mission-requirements concept: mark a mission
- *  "done with it" (abandonedAt = now, ms epoch) or clear it (null → active again).
- *  Writes the A1 `abandonedAt` column; readers (A2) surface it. */
+ *  "done with it" (abandonedAt = now, ms epoch) or clear it (null). Writes the A1
+ *  `abandonedAt` column; readers (A2) surface it. Abandoning a mission also clears its
+ *  active flag (a mission you're "done with" is not being driven) — see deactivateIfTerminal;
+ *  clearing abandonedAt does NOT auto-reactivate (use activateMission to drive it again, which
+ *  preserves the one-active-per-session invariant). */
 export function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   openDb(project)
     .prepare('UPDATE mission SET abandonedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(abandonedAt, nowMs(), todoId);
+  deactivateIfTerminal(project, todoId);
   return getMission(project, todoId)!;
 }
 
@@ -350,6 +354,26 @@ export function setMissionActive(project: string, todoId: string, active: boolea
     .prepare('UPDATE mission SET active = ?, updatedAt = ? WHERE todoId = ?')
     .run(active ? 1 : 0, nowMs(), todoId);
   if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+}
+
+/** Self-heal: a mission that has become TERMINAL (converged or human-abandoned) must not keep
+ *  active=1. A terminal mission is not being driven, so a stale active flag both misleads the UI
+ *  (the ● active badge) and pollutes first-wins conductor selection (the pass filters on
+ *  m.mission.active, and every terminal-but-active mission it iterates is dead weight ahead of a
+ *  live one). Idempotent: clears active only when the DERIVED status is terminal AND the row is
+ *  still active, so it writes at most once per transition and is safe to call liberally. Call it at
+ *  the transition points that can flip a mission terminal — abandonment and criterion met/verdict. */
+export function deactivateIfTerminal(project: string, todoId: string): void {
+  const m = getMission(project, todoId);
+  if (m && m.active && isMissionTerminal(m)) setMissionActive(project, todoId, false);
+}
+
+/** Resolve the owning mission todoId for a criterion (criterion setters key off criterionId). */
+function missionIdOfCriterion(project: string, criterionId: string): string | undefined {
+  const row = openDb(project)
+    .query('SELECT todoId FROM mission_criterion WHERE id = ?')
+    .get(criterionId) as { todoId: string } | undefined;
+  return row?.todoId;
 }
 
 /**
@@ -433,6 +457,9 @@ export function setCriterionMet(project: string, criterionId: string, met: boole
     .prepare('UPDATE mission_criterion SET met = ?, updatedAt = ? WHERE id = ?')
     .run(met ? 1 : 0, nowMs(), criterionId);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+  // Marking the last gap met can flip the mission to converged (terminal) — drop its active flag.
+  const missionId = missionIdOfCriterion(project, criterionId);
+  if (missionId) deactivateIfTerminal(project, missionId);
 }
 
 /** Normalize an evidence path to the repo-relative namespace that git diff --name-only emits.
@@ -486,6 +513,10 @@ export function setCriterionVerdict(
       criterionId,
     );
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+  // A verify verdict that meets the last gap can flip the mission to converged (terminal) — drop
+  // its active flag so a converged mission never sits active=1 (misleads UI + first-wins selection).
+  const missionId = missionIdOfCriterion(project, criterionId);
+  if (missionId) deactivateIfTerminal(project, missionId);
 }
 
 /** Edit a criterion's text (the acceptance assertion). Does not change its met/verdict. */

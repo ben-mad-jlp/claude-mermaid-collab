@@ -239,8 +239,39 @@ describe('mission meta-fixes', () => {
     const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
     upsertMission(project, a);
     expect(sessionHasActiveMission(project, 'design')).toBe(true); // active + non-terminal
-    setMissionAbandoned(project, a, Date.now()); // terminal, still active=1
+    setMissionAbandoned(project, a, Date.now()); // terminal
     expect(sessionHasActiveMission(project, 'design')).toBe(false); // terminal → does not count
+  });
+
+  test('abandoning a mission clears its active flag (terminal missions are never active=1)', async () => {
+    const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
+    upsertMission(project, a);
+    expect(getMission(project, a)!.active).toBe(true);
+    setMissionAbandoned(project, a, Date.now());
+    expect(getMission(project, a)!.active).toBe(false); // abandon → deactivated
+  });
+
+  test('clearing abandonedAt does NOT auto-reactivate (activateMission is the way back)', async () => {
+    const { activateMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
+    upsertMission(project, a);
+    setMissionAbandoned(project, a, Date.now());
+    expect(getMission(project, a)!.active).toBe(false);
+    setMissionAbandoned(project, a, null); // un-abandon
+    expect(getMission(project, a)!.abandonedAt).toBeNull();
+    expect(getMission(project, a)!.active).toBe(false); // stays inactive — no surprise auto-activate
+    activateMission(project, a);
+    expect(getMission(project, a)!.active).toBe(true); // explicit re-activation works
+  });
+
+  test('converging (all criteria met) clears the active flag', async () => {
+    const a = await makeMissionNode('[MISSION] converge-clears-active');
+    upsertMission(project, a);
+    const c = addCriterion(project, a, 'the only gap');
+    expect(getMission(project, a)!.active).toBe(true);
+    setCriterionMet(project, c.id, true); // last gap met → mission converges (terminal)
+    expect(getMissionRollup(project, a).converged).toBe(true);
+    expect(getMission(project, a)!.active).toBe(false); // converged → deactivated
   });
 
   test('listMissions self-heals: an orphan mission row (node dropped) is pruned', async () => {
