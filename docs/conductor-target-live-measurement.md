@@ -103,3 +103,11 @@ After explicit unpin of mission A (final state, matches pre-measurement baseline
    worth flagging: a measurement/deploy leaf run this way can never actually observe a *forced*
    hot-swap of its own project without a `force:true` override, which was intentionally not used
    here given the self-destruction risk.
+
+## No-skip contract (harness hardening)
+
+`scripts/live-conductor-pin-evidence.ts` never SKIPs an assertion. Step (f)'s
+lazy-self-clear check drives its own terminal mission via `PATCH /api/supervisor/missions
+{ abandonedAt }` (`src/routes/supervisor-routes.ts:266-280`) instead of relying on one already
+existing — a missing transport is a `check()` failure, not a note. The evidence blob's
+`assertionsSkipped` field is always `0` on a `PASS` verdict; any non-zero value fails the run.

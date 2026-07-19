@@ -56,6 +56,7 @@ interface EvidenceBlob {
   assertions: Assertion[];
   verdict: 'PASS' | 'FAIL';
   notes: string[];
+  assertionsSkipped: number;
 }
 
 const assertions: Assertion[] = [];
@@ -76,6 +77,16 @@ async function get(path: string): Promise<{ status: number; body: any }> {
 async function post(path: string, body: unknown): Promise<{ status: number; body: any }> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const status = res.status;
+  const respBody = await res.json().catch(() => null);
+  return { status, body: respBody };
+}
+async function patch(path: string, body: unknown): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -146,6 +157,10 @@ async function main() {
   const missionB = actionable[1].node.id as string;
   check('two distinct actionable missions present', missionA !== missionB && !!missionA && !!missionB, `missionA=${missionA} missionB=${missionB}`);
 
+  const missionBBaselineList = await get(`/api/supervisor/missions?project=${encodeURIComponent(project)}`);
+  const missionBBaseline = ((missionBBaselineList.body?.missions ?? []) as any[]).find((m) => m.node.id === missionB);
+  const missionBBaselineKey = missionBBaseline?.mission?.lastConductorKey ?? null;
+
   // --- (c) pin missionA ---
   log(`\nStep (c) — pin conductor target to mission A`);
   const pin = await post('/api/supervisor/conductor', { project, targetMissionId: missionA });
@@ -184,6 +199,11 @@ async function main() {
   check('all samples have an accepted reason', allReasonsAccepted, `accepted=${JSON.stringify(ACCEPTED_DROVE_REASONS)} samples=${JSON.stringify(samples)}`);
   check('no sample names mission B', noneNameMissionB, `missionB=${missionB} samples=${JSON.stringify(samples)}`);
 
+  const missionBAfterList = await get(`/api/supervisor/missions?project=${encodeURIComponent(project)}`);
+  const missionBAfter = ((missionBAfterList.body?.missions ?? []) as any[]).find((m) => m.node.id === missionB);
+  const missionBAfterKey = missionBAfter?.mission?.lastConductorKey ?? null;
+  check('mission B lastConductorKey unchanged across pinned ticks (positive ignore proof)', missionBAfterKey === missionBBaselineKey, `before=${missionBBaselineKey} after=${missionBAfterKey}`);
+
   // --- (f) explicit unpin + lazy self-clear ---
   log(`\nStep (f) — explicit unpin + lazy self-clear`);
   const unpin = await post('/api/supervisor/conductor', { project, targetMissionId: null });
@@ -191,44 +211,38 @@ async function main() {
   const unpinGet = await get(`/api/supervisor/conductor?project=${encodeURIComponent(project)}`);
   check('unpin reflected by GET', unpinGet.body?.targetMissionId === null, `body=${JSON.stringify(unpinGet.body)}`);
 
-  // Lazy self-clear needs a terminal/converged mission. Look for one already present;
-  // never fabricate mission state through an out-of-scope transport (no MCP set_mission_criterion
-  // call here — this script is HTTP-only per the leaf description).
-  const relist = await get(`/api/supervisor/missions?project=${encodeURIComponent(project)}`);
-  const terminalMission = ((relist.body?.missions ?? []) as any[]).find(
-    (m) => m.mission?.status === 'converged' || m.mission?.status === 'abandoned',
+  // Lazy self-clear needs a terminal/converged mission. Drive a dedicated mission C
+  // terminal via the PATCH /api/supervisor/missions transport instead of hoping one
+  // already exists, so this sub-assertion always runs (no SKIP).
+  const missionC = await createAndApproveMission('Live conductor-pin evidence mission (terminal)');
+  const abandon = await patch('/api/supervisor/missions', { project, todoId: missionC, abandonedAt: Date.now() });
+  check('mission C driven abandoned via PATCH', abandon.status === 200 && abandon.body?.mission?.abandonedAt != null, `body=${JSON.stringify(abandon.body)}`);
+
+  const pinTerminal = await post('/api/supervisor/conductor', { project, targetMissionId: missionC });
+  check('pin to terminal mission ok', pinTerminal.status === 200 && pinTerminal.body?.targetMissionId === missionC, `body=${JSON.stringify(pinTerminal.body)}`);
+
+  const clearDeadlineMs = 5 * CONDUCTOR_INTERVAL_MS;
+  const clearStepMs = Math.max(3_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
+  const { satisfiedAt } = await pollUntil(
+    clearDeadlineMs,
+    clearStepMs,
+    () => get(`/api/supervisor/conductor?project=${encodeURIComponent(project)}`),
+    (g) => g.body?.lastPass?.reason === 'target-cleared' && g.body?.targetMissionId === null,
+  );
+  check(
+    'lazy self-clear observed (lastPass.reason === target-cleared, targetMissionId === null)',
+    satisfiedAt !== null,
+    `lastSeen=${JSON.stringify(satisfiedAt)}`,
   );
 
-  if (!terminalMission) {
-    notes.push('lazy self-clear (target-cleared) sub-assertion SKIPPED: no converged/abandoned mission discoverable via GET /api/supervisor/missions, and this script has no in-scope transport to force one terminal.');
-    log('  ⏭️  skipped: no terminal (converged/abandoned) mission discoverable for the lazy self-clear check');
-  } else {
-    const terminalId = terminalMission.node.id as string;
-    const repin = await post('/api/supervisor/conductor', { project, targetMissionId: terminalId });
-    check('pin to terminal mission ok', repin.status === 200 && repin.body?.targetMissionId === terminalId, `body=${JSON.stringify(repin.body)}`);
-
-    const clearDeadlineMs = 5 * CONDUCTOR_INTERVAL_MS;
-    const clearStepMs = Math.max(3_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
-    const { satisfiedAt } = await pollUntil(
-      clearDeadlineMs,
-      clearStepMs,
-      () => get(`/api/supervisor/conductor?project=${encodeURIComponent(project)}`),
-      (g) => g.body?.lastPass?.reason === 'target-cleared' && g.body?.targetMissionId === null,
-    );
-    check(
-      'lazy self-clear observed (lastPass.reason === target-cleared, targetMissionId === null)',
-      satisfiedAt !== null,
-      `lastSeen=${JSON.stringify(satisfiedAt)}`,
-    );
-  }
-
   const finishedAt = Date.now();
+  const assertionsSkipped = notes.filter((n) => n.includes('SKIPPED')).length;
   const fail = assertions.filter((a) => !a.ok).length;
-  const verdict: 'PASS' | 'FAIL' = fail === 0 ? 'PASS' : 'FAIL';
+  const verdict: 'PASS' | 'FAIL' = fail === 0 && assertionsSkipped === 0 ? 'PASS' : 'FAIL';
 
   const blob: EvidenceBlob = {
     startedAt, finishedAt, baseUrl: BASE_URL, project,
-    missionA, missionB, samples, assertions, verdict, notes,
+    missionA, missionB, samples, assertions, verdict, notes, assertionsSkipped,
   };
 
   const evidenceDir = join(process.cwd(), 'docs', 'evidence');
@@ -238,7 +252,7 @@ async function main() {
 
   log(`\n📄 evidence written: ${evidencePath}`);
   console.log(JSON.stringify(blob));
-  log(`\n${verdict === 'PASS' ? '✅ ALL PASS' : '❌ FAILURES'} — ${assertions.length - fail} passed, ${fail} failed\n`);
+  log(`\n${verdict === 'PASS' ? '✅ ALL PASS' : '❌ FAILURES'} — ${assertions.length - fail} passed, ${fail} failed, ${assertionsSkipped} skipped\n`);
   process.exit(verdict === 'PASS' ? 0 : 1);
 }
 
