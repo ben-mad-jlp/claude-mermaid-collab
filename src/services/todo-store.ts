@@ -171,6 +171,17 @@ export interface Todo {
   /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
    *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
   promotedTo?: string | null;
+  /** B5 poison-loop re-serve: how many times this leaf's LINEAGE has been re-cut to a
+   *  fresh todo id (0/absent = the original leaf). Capped at 2 by reserveLeaf, then
+   *  escalated. OPTIONAL — pre-migration rows / fixtures read undefined ⇒ treat as 0. */
+  reserveCount?: number;
+  /** B5 poison-loop re-serve: the OLD (dropped) todo id this fresh leaf supersedes.
+   *  null on an original leaf; set on every re-cut clone so the chain stays visible. */
+  supersedes?: string | null;
+  /** B5 observability (read by B6): the actor that performed the re-serve. */
+  reservedByActor?: string | null;
+  /** B5 observability (read by B6): the reason the re-serve was performed. */
+  reservedReason?: string | null;
 }
 
 export interface TodoFilter {
@@ -471,6 +482,10 @@ interface TodoRow {
   triageTag: string | null;
   promotedTo: string | null;
   tier: string | null;
+  reserveCount: number | null;
+  supersedes: string | null;
+  reservedByActor: string | null;
+  reservedReason: string | null;
 }
 
 const DDL = `
@@ -604,6 +619,18 @@ export function openDb(project: string): Database {
   // Land-property redesign (W3): dual-write target for landedAt, set by the same two
   // sites that stamp an epic's [LAND] leaf done. Additive, nullable; backfilled below.
   addColumnIfMissing(db, 'todos', 'landedAt', 'landedAt TEXT');
+  // B5 capped poison-loop leaf re-serve (mission aad41fd5). A poisoned leaf (≥2
+  // same-blueprint rejections) is re-cut to a FRESH todo id up to CAP=2 times, then
+  // escalated. These columns track the lineage + observability of that re-serve:
+  //   reserveCount    — how many times THIS lineage has been re-cut (0 = original leaf).
+  //   supersedes      — new todo → the old (dropped) todo id it replaces (chain visibility).
+  //   reservedByActor — who/what performed the re-serve (B6 reads this).
+  //   reservedReason  — why the re-serve happened (B6 reads this).
+  // Additive, nullable; pre-migration rows read null → reserveCount coalesces to 0.
+  addColumnIfMissing(db, 'todos', 'reserveCount', 'reserveCount INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'todos', 'supersedes', 'supersedes TEXT');
+  addColumnIfMissing(db, 'todos', 'reservedByActor', 'reservedByActor TEXT');
+  addColumnIfMissing(db, 'todos', 'reservedReason', 'reservedReason TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -1276,6 +1303,10 @@ function rowToTodo(row: TodoRow): Todo {
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     promotedTo: row.promotedTo ?? null,
     landedAt: row.landedAt ?? null,
+    reserveCount: row.reserveCount ?? 0,
+    supersedes: row.supersedes ?? null,
+    reservedByActor: row.reservedByActor ?? null,
+    reservedReason: row.reservedReason ?? null,
   };
 }
 
