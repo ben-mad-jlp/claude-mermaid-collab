@@ -37,6 +37,53 @@ import { assertClaimInvariantsAsync } from './invariant-check.ts';
 import { yieldToLoop } from './loop-yield.ts';
 
 // ---------------------------------------------------------------------------
+// Throttle (mission c4eb4fcc, Phase 3): keep the reconcile pass OFF the every-tick
+// (~30s) cadence.
+//
+// runReconcilePass is a reconciliation/hygiene catch-up: it re-scans the whole
+// todos table (`listTodos(project, { includeCompleted: true })`) once per sweep —
+// epic-rollup, mission auto-land, non-mission land-surface, stranded-epic,
+// dropped-epic worktree release, bucket-hygiene, invariant-assert — so on the 8MB
+// self-project DB it drives ~5-6 synchronous full-table `.all()` scans (each
+// ~26-130ms) EVERY tick. Those scans, not any one monolith, are the distributed
+// block that keeps the shared HTTP event loop starved after Phase 1/2. None of this
+// work needs 30s freshness: the real-time cases are handled by the event-driven
+// paths (completeTodo's rollup, kickOrchestrator's claim). The sweeps here are
+// idempotent self-healing catch-ups, correct to run at a coarser cadence.
+//
+// So gate the whole pass to run at most once per RECONCILE_INTERVAL_MS per project
+// (same proven shape as leaf-worktree-reaper's WORKTREE_GC_INTERVAL_MS and
+// session-registry's SESSION_BACKFILL_INTERVAL_MS). This removes ~4/5 of the
+// per-tick reconcile scans from the loop without touching the responsive
+// ready-todo CLAIM path (runBuildPass / kickOrchestrator), which stays every-tick.
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between reconcile passes for a single project. Hygiene cadence,
+ *  not real-time — the event-driven paths handle latency-sensitive work. */
+export const RECONCILE_INTERVAL_MS = 150_000; // 2.5 min
+
+const lastReconcileMs = new Map<string, number>();
+
+/**
+ * Throttle gate for runReconcilePass. Returns true (and records `now` as the last
+ * run) when the pass is due for `project`; false when a previous run is still within
+ * RECONCILE_INTERVAL_MS. First call for a project always runs. `now` is injectable
+ * for deterministic tests.
+ */
+export function shouldRunReconcilePass(project: string, now: number = Date.now()): boolean {
+  const last = lastReconcileMs.get(project);
+  if (last !== undefined && now - last < RECONCILE_INTERVAL_MS) return false;
+  lastReconcileMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project throttle clock (all projects, or one). */
+export function _resetReconcileThrottle(project?: string): void {
+  if (project === undefined) lastReconcileMs.clear();
+  else lastReconcileMs.delete(project);
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 

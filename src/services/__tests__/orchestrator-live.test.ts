@@ -79,6 +79,10 @@ function makeDeps(): TickDeps {
     },
     notify: async (project: string) => { notifyCalls.push(project); return { enqueued: 0, nudged: [] }; },
     reconcile: async (project: string) => { reconcileCalls.push(project); },
+    // Phase 3: the tick throttles reconcile off the every-tick cadence. These tests assert
+    // the pass WIRING (does it run at `on`, skip at `off`, etc.), not the throttle — so
+    // force the gate open. The throttle itself is covered in reconcile-throttle.test.ts.
+    shouldRunReconcile: () => true,
     triage: async (project: string, opts: { autoResolve: boolean }) => {
       triageCalls.push(project);
       triageAutoResolve.push({ project, autoResolve: opts.autoResolve });
