@@ -23,12 +23,12 @@ import { runBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './co
 import { runConductorPass } from './conductor-pass.js';
 import { listTodos } from './todo-store.js';
 import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
-import { runNotificationTick } from './session-notification-tick.js';
-import { runFrictionWatchPass } from './friction-watch.js';
+import { runNotificationTick, shouldRunNotificationTick } from './session-notification-tick.js';
+import { runFrictionWatchPass, shouldRunFrictionWatchPass } from './friction-watch.js';
 import { runFrictionTriagePass } from './friction-triage.js';
 import { runMissionIntakePass } from './mission-intake.js';
 import { runContextRecyclePass } from './context-recycle.js';
-import { runMissionLoopPass } from './mission-loop.js';
+import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
 import { runSessionSummaryTick, runSelfSummaryNudgePass } from './session-summary-loop.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
@@ -249,10 +249,19 @@ export interface TickDeps {
    *  Runs for every WATCHED project regardless of level (decoupled from build).
    *  Default: runNotificationTick. */
   notify?: (project: string) => Promise<unknown>;
+  /** Phase 4 throttle gate: returns true (and records the run) when the notification tick
+   *  is due for a project, false while within NOTIFY_INTERVAL_MS. Keeps the every-tick loop
+   *  free of the pass's full-table todos scan. Default: shouldRunNotificationTick. */
+  shouldRunNotify?: (project: string) => boolean;
   /** One deterministic operational-friction watch pass (unlanded-epic backlog, stale
    *  worktrees). Runs for every WATCHED project regardless of level, like notify.
    *  Default: runFrictionWatchPass. */
   frictionWatch?: (project: string) => Promise<unknown>;
+  /** Phase 4 throttle gate: returns true (and records the run) when the friction-watch pass
+   *  is due for a project, false while within FRICTION_WATCH_INTERVAL_MS. Keeps the every-tick
+   *  loop free of the pass's listUnlandedEpics git-subprocess sweep. Default:
+   *  shouldRunFrictionWatchPass. */
+  shouldRunFrictionWatch?: (project: string) => boolean;
   /** DF3: file deduped 'planned' todos from recurring friction. Runs for every
    *  WATCHED project regardless of level (planned filing is non-claimable — the
    *  "suggest"; a human promotes to ready). Default: runFrictionTriagePass. */
@@ -270,6 +279,11 @@ export interface TickDeps {
    *  project's ACTIVE missions; runs for WATCHED projects only (the safety boundary —
    *  no per-project mode). Default: runMissionLoopPass. */
   missionLoop?: (project: string) => Promise<unknown>;
+  /** Phase 4 throttle gate: returns true (and records the run) when the mission-loop pass is
+   *  due for a project, false while within MISSION_LOOP_INTERVAL_MS. Keeps the every-tick loop
+   *  free of listMissions' ~1+3N full-table todos scans (the single heaviest per-tick scanner).
+   *  Default: shouldRunMissionLoopPass. */
+  shouldRunMissionLoop?: (project: string) => boolean;
   /** AUTONOMOUS CONDUCTOR pass (Phase 2): spawn a conductor node to drive the project's approved
    *  active mission. Self-gates on the per-project conductor toggle (default OFF) + debounce; runs
    *  for WATCHED projects. Default: runConductorPass. */
@@ -297,11 +311,14 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const reconcile = deps.reconcile ?? runReconcilePass;
   const shouldRunReconcile = deps.shouldRunReconcile ?? shouldRunReconcilePass;
   const notify = deps.notify ?? runNotificationTick;
+  const shouldRunNotify = deps.shouldRunNotify ?? shouldRunNotificationTick;
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
+  const shouldRunFrictionWatch = deps.shouldRunFrictionWatch ?? shouldRunFrictionWatchPass;
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
   const missionIntake = deps.missionIntake ?? runMissionIntakePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? runMissionLoopPass;
+  const shouldRunMissionLoop = deps.shouldRunMissionLoop ?? shouldRunMissionLoopPass;
   // NB: the conductor pass no longer runs in this serial tick — it moved to its own decoupled loop
   // (runConductorGuarded / conductorTimer, B0). deps.conductor is consumed there.
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve, autoResolveScope: opts.autoResolveScope }));
@@ -357,7 +374,11 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // level — you can subscribe-and-be-notified (e.g. a Planner monitoring its plan)
     // without turning on autonomous building. Decoupled from runBuildPass on purpose;
     // cheap (a no-op when nothing is subscribed to the project). Best-effort.
-    if (watched.has(project)) {
+    // Phase 4 (mission c4eb4fcc): throttle the notify pass's full-table todos scan off the
+    // every-tick cadence (at most once per NOTIFY_INTERVAL_MS/project). The snapshot diff is
+    // cumulative + nudges are already idle-gated/throttled, so a coarser scan cadence delays
+    // no events. Not the CLAIM path.
+    if (watched.has(project) && shouldRunNotify(project)) {
       try {
         currentPhase = `${project}:notify`;
         await withPassTimeout(notify(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:notify`);
@@ -369,7 +390,10 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // Operational-friction watch (DF2): record unlanded-epic backlog + stale worktrees as
     // operational friction. Runs for every WATCHED project regardless of level — same as
     // notify — since observability is not gated on autonomous building. No LLM; best-effort.
-    if (watched.has(project)) {
+    // Phase 4 (mission c4eb4fcc): throttle friction-watch off the every-tick cadence (at most
+    // once per FRICTION_WATCH_INTERVAL_MS/project). Its listUnlandedEpics git-subprocess sweep
+    // runs every tick otherwise; this is pure backlog observation, not real-time.
+    if (watched.has(project) && shouldRunFrictionWatch(project)) {
       try {
         currentPhase = `${project}:friction-watch`;
         await withPassTimeout(frictionWatch(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-watch`);
@@ -423,7 +447,12 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // steward for judgment phases, auto-advance mechanical EXECUTE→VERIFY). Drives the
     // project's ACTIVE missions; runs for every WATCHED project regardless of level (the
     // watched gate IS the safety boundary — no per-project mode). Best-effort; bounded.
-    if (watched.has(project)) {
+    // Phase 4 (mission c4eb4fcc): throttle the mission-loop pass off the every-tick cadence
+    // (at most once per MISSION_LOOP_INTERVAL_MS/project). listMissions drives ~1+3N synchronous
+    // full-table todos scans (N missions) — the single heaviest per-tick block on the 8MB DB —
+    // and only NUDGES the steward (already 15-min-cooldown-debounced), so 30s freshness is
+    // wasted. Not the CLAIM path.
+    if (watched.has(project) && shouldRunMissionLoop(project)) {
       try {
         currentPhase = `${project}:mission-loop`;
         await withPassTimeout(missionLoop(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-loop`);

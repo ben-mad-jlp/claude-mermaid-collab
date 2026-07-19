@@ -8,6 +8,46 @@ import { getConfig } from './config-service.ts';
 /** Default unlanded-epic backlog threshold; override via FRICTION_UNLANDED_THRESHOLD. */
 const DEFAULT_UNLANDED_THRESHOLD = 5;
 
+// ---------------------------------------------------------------------------
+// Throttle (mission c4eb4fcc, Phase 4): keep the WHOLE friction-watch pass OFF the
+// every-tick (~30s) cadence.
+//
+// Even though the O(N-worktrees) stale-worktree subprocess scan is already throttled
+// INTERNALLY (STALE_WORKTREE_SCAN_INTERVAL_MS below), part (a) — listUnlandedEpics() — is a
+// git-subprocess sweep (branch enumeration + per-branch ahead-count) that runs on EVERY
+// ~30s tick and blocks the shared HTTP event loop for its duration. This is pure backlog
+// observation (record the under→over threshold edge as operational friction); nothing reads
+// it in real time, so 30s freshness buys nothing. Gate the whole pass at the call site to
+// run at most once per FRICTION_WATCH_INTERVAL_MS per project (same proven shape as
+// reconcile-pass's RECONCILE_INTERVAL_MS). The internal stale-scan throttle is preserved and
+// still spaces its own heavier subprocess sweep further apart.
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between friction-watch passes for a single project. Backlog-observation
+ *  cadence — not real-time. */
+export const FRICTION_WATCH_INTERVAL_MS = 150_000; // 2.5 min
+
+const lastFrictionWatchMs = new Map<string, number>();
+
+/**
+ * Throttle gate for runFrictionWatchPass. Returns true (and records `now` as the last run)
+ * when the pass is due for `project`; false when a previous run is still within
+ * FRICTION_WATCH_INTERVAL_MS. First call for a project always runs. `now` is injectable for
+ * deterministic tests.
+ */
+export function shouldRunFrictionWatchPass(project: string, now: number = Date.now()): boolean {
+  const last = lastFrictionWatchMs.get(project);
+  if (last !== undefined && now - last < FRICTION_WATCH_INTERVAL_MS) return false;
+  lastFrictionWatchMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project throttle clock (all projects, or one). */
+export function _resetFrictionWatchThrottle(project?: string): void {
+  if (project === undefined) lastFrictionWatchMs.clear();
+  else lastFrictionWatchMs.delete(project);
+}
+
 /** The stale-worktree scan (listStaleWorktrees) is an O(N-worktrees) subprocess sweep, far
  *  too heavy to run on every ~30s orchestrator tick. Run it at most once per this interval. */
 const STALE_WORKTREE_SCAN_INTERVAL_MS = 300_000; // 5 min
