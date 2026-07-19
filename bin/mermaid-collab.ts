@@ -21,6 +21,7 @@ import {
   type HandshakeResult,
 } from '../src/services/port-ownership';
 import { SERVER_VERSION } from '../src/mcp/server';
+import { readPortFile } from '../src/services/config-file';
 
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const PID_FILE = join(DATA_DIR, 'server.pid');
@@ -28,7 +29,7 @@ const LOG_FILE = join(DATA_DIR, 'server.log');
 const PROJECT_ROOT = dirname(dirname(import.meta.path));
 const SERVER_SCRIPT = join(PROJECT_ROOT, 'src', 'server.ts');
 const UI_DIST_DIR = join(PROJECT_ROOT, 'ui', 'dist');
-const PORT = process.env.PORT || 9002;
+const REQUEST_PORT = process.env.PORT || 9002;
 
 async function ensureDataDir(): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
@@ -80,16 +81,18 @@ function isProcessRunning(pid: number): boolean {
 
 async function waitForServer(maxWaitMs: number = 30000): Promise<boolean> {
   const startTime = Date.now();
-  const url = `http://localhost:${PORT}`;
 
   while (Date.now() - startTime < maxWaitMs) {
-    try {
-      const response = await fetch(url);
-      if (response.ok || response.status === 404) {
-        return true;
+    const boundPort = readPortFile();
+    if (boundPort !== null) {
+      try {
+        const response = await fetch(`http://localhost:${boundPort}`);
+        if (response.ok || response.status === 404) {
+          return true;
+        }
+      } catch {
+        // Server not ready yet
       }
-    } catch {
-      // Server not ready yet
     }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
@@ -155,8 +158,8 @@ async function cleanStaleVscodeServer(): Promise<void> {
 async function runHandshake(): Promise<HandshakeResult> {
   return performHandshake({
     self: { exePath: currentExePath(), version: SERVER_VERSION, owner: serverOwner() },
-    port: Number(PORT),
-    env: { ...process.env, PORT: String(PORT) },
+    port: Number(REQUEST_PORT),
+    env: { ...process.env, PORT: String(REQUEST_PORT) },
   });
 }
 
@@ -168,7 +171,7 @@ async function preflight(): Promise<void> {
   const result = await runHandshake();
   console.log(`preflight: ${result.action} (${result.reason})`);
   if (result.action === 'refuse') {
-    console.error(`Refusing to take over :${PORT} — ${result.reason}.`);
+    console.error(`Refusing to take over :${REQUEST_PORT} — ${result.reason}.`);
     process.exit(1);
   }
 }
@@ -180,18 +183,18 @@ async function start(): Promise<void> {
   // Check if already running
   const existingPid = await readPid();
   if (existingPid && isProcessRunning(existingPid)) {
-    console.log(`Server already running (PID: ${existingPid}) on http://localhost:${PORT}`);
+    console.log(`Server already running (PID: ${existingPid}) on http://localhost:${REQUEST_PORT}`);
     return;
   }
 
   // Canonical port-ownership handshake: never silently shadow another server.
   const handshake = await runHandshake();
   if (handshake.action === 'defer') {
-    console.log(`A rightful server already owns :${PORT} (${handshake.reason}); deferring.`);
+    console.log(`A rightful server already owns :${REQUEST_PORT} (${handshake.reason}); deferring.`);
     return;
   }
   if (handshake.action === 'refuse') {
-    console.error(`Refusing to start on :${PORT} — ${handshake.reason}. Set MERMAID_GUARD_MODE=takeover to evict, or resolve the conflict.`);
+    console.error(`Refusing to start on :${REQUEST_PORT} — ${handshake.reason}. Set MERMAID_GUARD_MODE=takeover to evict, or resolve the conflict.`);
     process.exit(1);
   }
   // action === 'proceed' → the port is ours (was free, or a stale holder was evicted).
@@ -219,7 +222,7 @@ async function start(): Promise<void> {
   const child = spawn('bun', ['run', SERVER_SCRIPT], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(REQUEST_PORT) },
   });
   closeSync(logFd); // child inherited its own dup of the fd
 
@@ -234,7 +237,7 @@ async function start(): Promise<void> {
   const ready = await waitForServer();
 
   if (ready) {
-    console.log(`Server started on http://localhost:${PORT}`);
+    console.log(`Server started on http://localhost:${REQUEST_PORT}`);
     console.log(`Logs: ${LOG_FILE}`);
   } else {
     console.error(`Server failed to start. Check logs: ${LOG_FILE}`);
@@ -289,7 +292,12 @@ async function status(): Promise<void> {
 
   if (isProcessRunning(pid)) {
     console.log(`Server: running (PID: ${pid})`);
-    console.log(`URL: http://localhost:${PORT}`);
+    const boundPort = readPortFile();
+    if (boundPort !== null) {
+      console.log(`URL: http://localhost:${boundPort}`);
+    } else {
+      console.log('URL: unknown — no port file found (server has not reported a bound port)');
+    }
     console.log(`Logs: ${LOG_FILE}`);
   } else {
     console.log('Server: stopped (stale PID file)');
@@ -327,6 +335,6 @@ switch (command) {
     console.log('  mermaid-collab whereami [--all] [--project <path>] [--session <name>]  List live server instances as JSON');
     console.log('');
     console.log('Environment:');
-    console.log('  PORT  Server port (default: 9002)');
+    console.log('  PORT  Requested server bind port (default: 9002) — the live URL is read from the port file, not this env var.');
     process.exit(command ? 1 : 0);
 }

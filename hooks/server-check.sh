@@ -11,7 +11,17 @@
 
 set -e
 
-PORT=${MERMAID_PORT:-9002}
+PORT_FILE="${MERMAID_DATA_DIR:-$HOME/.mermaid-collab}/port"
+if [ ! -f "$PORT_FILE" ]; then
+  echo "ERROR: no port file at $PORT_FILE — server has never reported a bound port; refusing to guess one." >&2
+  echo "Start the server (mermaid-collab start) so it can write $PORT_FILE, then retry." >&2
+  exit 2
+fi
+PORT="$(cat "$PORT_FILE" 2>/dev/null | tr -d '[:space:]')"
+if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: port file $PORT_FILE does not contain a valid port ('$PORT')." >&2
+  exit 2
+fi
 APP_PATH="${MERMAID_APP_PATH:-/Applications/Mermaid Collab.app}"
 MAX_WAIT=12  # seconds (stay under the 15s hook timeout in hooks.json)
 POLL_INTERVAL=0.5
