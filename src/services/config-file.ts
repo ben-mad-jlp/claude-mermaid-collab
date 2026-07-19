@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -200,4 +200,49 @@ export function getConfiguredPort(): number {
 /** Persist the port to config.json (Settings UI / CLI port override). */
 export function setConfiguredPort(port: number): void {
   setConfig({ [PORT_KEY]: String(port) });
+}
+
+// ---------------------------------------------------------------------------
+// Port file — the actually-bound port, ground truth for external readers
+// ---------------------------------------------------------------------------
+
+/** Base data dir for the port file: MERMAID_DATA_DIR (tests/embeds) → ~/.mermaid-collab.
+ *  Matches the DATA_DIR convention used by project-registry.ts / session-registry.ts. */
+function portFileDataDir(): string {
+  return process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
+}
+
+/** Path to the port file recording the actually-bound port. */
+export function portFilePath(): string {
+  return join(portFileDataDir(), 'port');
+}
+
+/** Persist the actually-bound port, atomically (tmp + rename). Call exactly once,
+ *  after a successful listen, with the port the socket actually bound to. */
+export function writePortFile(port: number): void {
+  const p = portFilePath();
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  writeFileSync(tmp, String(port), 'utf8');
+  renameSync(tmp, p);
+}
+
+/** Remove the port file (best-effort). Call on clean shutdown so a dead server
+ *  leaves no stale port claim behind for readers to trust. */
+export function clearPortFile(): void {
+  try { unlinkSync(portFilePath()); } catch { /* already gone */ }
+}
+
+/** Read the actually-bound port. Returns null — NEVER a default — when the file
+ *  is absent, unreadable, or holds an out-of-range value. Callers MUST treat null
+ *  as "fail closed": refuse to probe/spawn/report a URL, never assume 9002. */
+export function readPortFile(): number | null {
+  try {
+    const raw = readFileSync(portFilePath(), 'utf8').trim();
+    const port = Number.parseInt(raw, 10);
+    if (Number.isNaN(port) || port < 0 || port > 65535) return null;
+    return port;
+  } catch {
+    return null;
+  }
 }

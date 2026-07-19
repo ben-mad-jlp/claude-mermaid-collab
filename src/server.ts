@@ -11,7 +11,7 @@ import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERM
 import { checkAuth } from './auth';
 import { isAllowedOrigin } from './services/origin-guard.ts';
 import { handlePairRoutes } from './routes/pair-routes.js';
-import { migrateEnvAuthToken } from './services/config-file.js';
+import { migrateEnvAuthToken, writePortFile, clearPortFile } from './services/config-file.js';
 import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
 import { installProcessGuards } from './services/process-guards.js';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
@@ -693,6 +693,9 @@ if (typeof server.port !== 'number' || server.port === 0) {
   process.exit(1);
 }
 const actualPort = server.port;
+try { writePortFile(actualPort); } catch (err) {
+  console.warn(`[port-file] write failed (ignored): ${String(err)}`);
+}
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
 // Best-effort LAN discovery: publish _mermaidcollab._tcp so the iOS app auto-discovers
@@ -758,6 +761,7 @@ const armIdle = () => {
   idleTimer = setTimeout(async () => {
     try { await removeInstance(sessionId); } catch {}
     try { releaseLock(); } catch {}
+    try { clearPortFile(); } catch {}
     process.exit(0);
   }, MERMAID_IDLE_SHUTDOWN_MS);
 };
@@ -773,6 +777,7 @@ process.on('SIGINT', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { clearPortFile(); } catch {}
   try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
@@ -792,6 +797,7 @@ process.on('SIGTERM', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { clearPortFile(); } catch {}
   try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
