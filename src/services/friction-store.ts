@@ -266,3 +266,68 @@ export function markReasonActioned(
 ): Promise<void> {
   return setWatchState(project, triageActionedKey(layer, retryReason), todoId);
 }
+
+/** Scan durable watch-state for every key under `prefix` (used by the intake pass to
+ *  enumerate its per-cluster provenance markers). Unlocked read, mirrors listFriction. */
+export function listWatchStateByPrefix(project: string, prefix: string): Array<{ signalKey: string; state: string }> {
+  const db = openDb(project);
+  return db
+    .prepare('SELECT signalKey, state FROM friction_watch_state WHERE signalKey LIKE ? ESCAPE \'\\\'')
+    .all(prefix.replace(/[%_\\]/g, (c) => '\\' + c) + '%') as Array<{ signalKey: string; state: string }>;
+}
+
+// ─────────────────────────── mission-intake cluster markers (DISJOINT namespace) ───────────────────────────
+// A cluster-level anti-spam + provenance marker, namespaced UNDER friction_watch_state but with a
+// prefix DISJOINT from triage's (`triage:actioned:`) so neither ladder suppresses the other: a
+// friction reason can be BOTH triaged into a 'planned' bug todo AND escalated into a forged mission.
+// The stored state is the mission-intake provenance JSON (the marker doubles as the queryable
+// "auto-drafted from cluster X, N occ / M sessions" back-pointer, mirroring markReasonActioned).
+
+const INTAKE_ACTIONED_PREFIX = 'intake:actioned:';
+const intakeActionedKey = (clusterSig: string) => `${INTAKE_ACTIONED_PREFIX}${clusterSig}`;
+
+/** Provenance stamped on a mission auto-drafted by the intake pass. Persisted in the friction store
+ *  (not a mission column) so it is queryable without touching mission-store. */
+export interface IntakeProvenance {
+  clusterSig: string;
+  layer: FrictionLayer;
+  reasons: string[];
+  /** Occurrence count of the cluster at draft time. */
+  count: number;
+  /** Distinct sessions that hit the cluster at draft time. */
+  sessions: number;
+  /** The forged (unapproved) mission's todo id. */
+  missionId: string;
+  /** Where the synthesized brief was written. */
+  briefPath: string;
+  /** ISO draft time. */
+  at: string;
+}
+
+/** True iff this cluster signature has already been escalated to a forged mission (permanent
+ *  per-cluster marker — a double-tick drafts exactly one). DISJOINT from isReasonActioned. */
+export function isClusterIntakeActioned(project: string, clusterSig: string): boolean {
+  return getWatchState(project, intakeActionedKey(clusterSig)) !== null;
+}
+
+/** Mark a cluster escalated by storing its provenance JSON as the state. Serialized via withLock. */
+export function markClusterIntakeActioned(project: string, prov: IntakeProvenance): Promise<void> {
+  return setWatchState(project, intakeActionedKey(prov.clusterSig), JSON.stringify(prov));
+}
+
+function parseProvenance(state: string | null): IntakeProvenance | null {
+  if (!state) return null;
+  try { return JSON.parse(state) as IntakeProvenance; } catch { return null; }
+}
+
+/** Read the queryable provenance for one cluster signature, or null if never escalated. */
+export function getClusterIntakeProvenance(project: string, clusterSig: string): IntakeProvenance | null {
+  return parseProvenance(getWatchState(project, intakeActionedKey(clusterSig)));
+}
+
+/** All intake provenance stamps in the project (for `orchestrator_status` / list surfaces). */
+export function listClusterIntakeProvenance(project: string): IntakeProvenance[] {
+  return listWatchStateByPrefix(project, INTAKE_ACTIONED_PREFIX)
+    .map((r) => parseProvenance(r.state))
+    .filter((p): p is IntakeProvenance => p !== null);
+}
