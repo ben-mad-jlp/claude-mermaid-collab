@@ -14,8 +14,11 @@ const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
 /** GC pass throttle — the directory-vs-registration sweep (readdir + git worktree list +
  *  per-dir git status) is heavier than the record-driven reaper above, so it runs on its
- *  own, coarser cadence. */
-const GC_THROTTLE_MS = 30 * 60_000;
+ *  own, coarser cadence. This synchronous-ish fs+git scan runs per project and must NOT
+ *  fire on the ~30s coordinator tick (it stalls the event loop / HTTP endpoint) — the
+ *  30-min gate here is what keeps it off that cadence. Exported + clock-injectable
+ *  (see `tickGcLeafWorktrees(opts.now)`) so the throttle is deterministically testable. */
+export const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
 /** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase has NO leaf_inflight
  *  row (rows are per-node, deleted on node-finish) yet is still live — and the
  *  leaf-executor's own self-merge runs in THIS window. Reaping then yanks the worktree out
@@ -710,13 +713,18 @@ export async function gcLeafWorktrees(
   return report;
 }
 
-/** Throttled entry point (30 min/project) for the coordinator tick. Fire-and-forget —
- *  mirrors `reapOrphanedLeafWorktrees`'s own throttle-and-call shape. */
-export async function tickGcLeafWorktrees(project: string): Promise<GcReport | null> {
-  const now = Date.now();
-  if ((now - (lastGcMs.get(project) ?? 0)) < GC_THROTTLE_MS) return null;
+/** Throttled entry point (WORKTREE_GC_INTERVAL_MS/project) for the coordinator tick.
+ *  Fire-and-forget — mirrors `reapOrphanedLeafWorktrees`'s own throttle-and-call shape.
+ *  `opts.now` injects the clock and `opts.gc` the underlying work so the throttle is
+ *  unit-testable without real time or a real fs+git scan. */
+export async function tickGcLeafWorktrees(
+  project: string,
+  opts: { now?: number; gc?: (project: string) => Promise<GcReport> } = {},
+): Promise<GcReport | null> {
+  const now = opts.now ?? Date.now();
+  if ((now - (lastGcMs.get(project) ?? 0)) < WORKTREE_GC_INTERVAL_MS) return null;
   lastGcMs.set(project, now);
-  return gcLeafWorktrees(project);
+  return (opts.gc ?? gcLeafWorktrees)(project);
 }
 
 const lastTrashSweepMs = new Map<string, number>();

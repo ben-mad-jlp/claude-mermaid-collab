@@ -21,6 +21,19 @@ const DATA_DIR = process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-colla
 const REGISTRY_PATH = join(DATA_DIR, 'sessions.json');
 
 /**
+ * Throttle interval for the on-disk session-discovery/backfill pass inside
+ * `list()`. The backfill scan (`collectProjectRoots` + `discoverDiskSessions`)
+ * walks EVERY registered project's `.collab/sessions/` dir with synchronous fs
+ * calls — O(projects) blocking work on the single event loop. `list()` is polled
+ * on the ~30s orchestrator/UI cadence, so running the full disk scan on every
+ * call periodically stalled the HTTP endpoint. The registry file itself is the
+ * authoritative fast path; disk-discovery only self-heals lost rows and does NOT
+ * need 30s freshness. Gate it to at most once per this interval. Exported +
+ * clock-injectable (see `list(opts.now)`) for deterministic unit tests.
+ */
+export const SESSION_BACKFILL_INTERVAL_MS = 15 * 60_000; // 15 min
+
+/**
  * Single chokepoint for the `.collab/<workspaces>/` directory segment.
  *
  * Step 1 of the session→workspace migration: every hardcoded
@@ -88,6 +101,9 @@ export class SessionRegistry {
   // Serializes all load→mutate→save sequences within a single process.
   // Cross-process concurrency is NOT covered by this mutex.
   private writeMutex = new Mutex();
+  // Wall-clock (injected clock) of the last on-disk discovery/backfill scan.
+  // Gates the O(projects) fs scan in list() to SESSION_BACKFILL_INTERVAL_MS.
+  private lastBackfillAt = 0;
 
   constructor(registryPath: string = REGISTRY_PATH) {
     this.registryPath = registryPath;
@@ -342,7 +358,7 @@ export class SessionRegistry {
    * List all registered sessions.
    * Validates each session directory exists and auto-cleans stale entries.
    */
-  async list(): Promise<Session[]> {
+  async list(opts: { now?: () => number; force?: boolean } = {}): Promise<Session[]> {
     // list() is a user-facing read path. If the registry is corrupt we
     // degrade gracefully rather than blowing up the UI — callers that
     // must refuse to write on corrupt state use load() directly.
@@ -398,16 +414,29 @@ export class SessionRegistry {
     // sessions on disk; discover and backfill them so cross-project
     // enumeration sees live sessions without manual re-onboarding.
     // (DOGFOOD #1)
+    //
+    // THROTTLED: `collectProjectRoots` + `discoverDiskSessions` do synchronous
+    // fs walks across EVERY registered project. On a machine with ~32 projects
+    // this is heavy blocking work, and list() is polled on the ~30s cadence, so
+    // running the scan every call periodically stalled the HTTP endpoint. Gate
+    // it to once per SESSION_BACKFILL_INTERVAL_MS. The registry rows are still
+    // validated + returned fresh every call; only the self-healing disk scan is
+    // rate-limited (a lost row surfaces within the interval instead of instantly).
     const presentKeys = new Set(
       validSessions.map(s => `${s.project}${s.session}`)
     );
-    const discovered = await this.discoverDiskSessions(
-      await this.collectProjectRoots(validSessions),
-      presentKeys
-    );
-    for (const s of discovered) {
-      validSessions.push(s);
-      presentKeys.add(`${s.project}${s.session}`);
+    const now = (opts.now ?? Date.now)();
+    let discovered: Session[] = [];
+    if (opts.force || now - this.lastBackfillAt >= SESSION_BACKFILL_INTERVAL_MS) {
+      this.lastBackfillAt = now;
+      discovered = await this.discoverDiskSessions(
+        await this.collectProjectRoots(validSessions),
+        presentKeys
+      );
+      for (const s of discovered) {
+        validSessions.push(s);
+        presentKeys.add(`${s.project}${s.session}`);
+      }
     }
 
     // Auto-clean stale sessions / backfill discovered ones. This is a
