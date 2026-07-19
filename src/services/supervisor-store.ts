@@ -322,6 +322,8 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'conductorEnabled', 'conductorEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'conductorTargetMissionId', 'conductorTargetMissionId TEXT');
+  addColumnIfMissing(db, 'watched_project', 'lastConductorPassMissionId', 'lastConductorPassMissionId TEXT');
+  addColumnIfMissing(db, 'watched_project', 'lastConductorPassJson', 'lastConductorPassJson TEXT');
   addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectActiveConstraints', 'promptInjectActiveConstraints INTEGER');
   addColumnIfMissing(db, 'watched_project', 'gateShadowMode', 'gateShadowMode INTEGER');
@@ -490,6 +492,38 @@ export function setConductorTargetMission(project: string, missionId: string | n
   const d = openDb();
   d.prepare('UPDATE watched_project SET conductorTargetMissionId = ? WHERE project = ?')
     .run(missionId, project);
+}
+
+export type ConductorPassReason =
+  | 'conductor-disabled' | 'no-actionable-mission' | 'target-not-actionable'
+  | 'target-cleared' | 'building-wait' | 'debounced' | 'conducted' | 'node-failed';
+
+export interface ConductorLastPass {
+  missionId: string | null;
+  reason: ConductorPassReason;
+  tickAt: number;
+}
+
+/** Per-project OBSERVABLE outcome of the last runConductorPass tick — which mission (if any) it
+ *  actually drove, the reason code, and when. Distinct from conductorTargetMissionId (the pin,
+ *  an input) — this is the pass's OUTPUT, so a live observer can confirm 'drove exactly that
+ *  mission' directly instead of inferring it from unchanged debounce timestamps. UPDATE-only
+ *  (like the other per-project setters — never auto-watch a project). */
+export function getConductorLastPass(project: string): ConductorLastPass | null {
+  const d = openDb();
+  const row = d.query('SELECT lastConductorPassJson FROM watched_project WHERE project = ?')
+    .get(project) as { lastConductorPassJson: string | null } | undefined;
+  if (!row?.lastConductorPassJson) return null;
+  try {
+    return JSON.parse(row.lastConductorPassJson) as ConductorLastPass;
+  } catch {
+    return null;
+  }
+}
+export function setConductorLastPass(project: string, pass: ConductorLastPass): void {
+  const d = openDb();
+  d.prepare('UPDATE watched_project SET lastConductorPassMissionId = ?, lastConductorPassJson = ? WHERE project = ?')
+    .run(pass.missionId, JSON.stringify(pass), project);
 }
 
 /** Per-project retry-context injection flag. Default ON (6d67a801 lesson): unset/NULL reads
