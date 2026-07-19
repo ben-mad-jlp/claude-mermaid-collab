@@ -22,7 +22,7 @@ import { listWatchedProjects, type Escalation } from './supervisor-store.js';
 import { runBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
 import { runConductorPass } from './conductor-pass.js';
 import { listTodos } from './todo-store.js';
-import { runReconcilePass } from './reconcile-pass.js';
+import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
 import { runFrictionWatchPass } from './friction-watch.js';
 import { runFrictionTriagePass } from './friction-triage.js';
@@ -240,6 +240,11 @@ export interface TickDeps {
   getLevel?: (project: string) => ReturnType<typeof getOrchestratorLevel>;
   build?: (project: string) => Promise<void>;
   reconcile?: (project: string) => Promise<void>;
+  /** Phase 3 throttle gate: returns true (and records the run) when the reconcile
+   *  hygiene pass is due for a project, false while within RECONCILE_INTERVAL_MS.
+   *  Keeps the every-tick loop free of the pass's ~5-6 full-table todos scans.
+   *  Default: shouldRunReconcilePass. */
+  shouldRunReconcile?: (project: string) => boolean;
   /** Diff todos → enqueue subscription notifications → nudge idle subscribers.
    *  Runs for every WATCHED project regardless of level (decoupled from build).
    *  Default: runNotificationTick. */
@@ -290,6 +295,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const getLevel = deps.getLevel ?? getOrchestratorLevel;
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
+  const shouldRunReconcile = deps.shouldRunReconcile ?? shouldRunReconcilePass;
   const notify = deps.notify ?? runNotificationTick;
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
@@ -443,7 +449,13 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       }
     }
 
-    if (passes.reconcile) {
+    // Phase 3 (mission c4eb4fcc): the reconcile pass is a hygiene catch-up that drives
+    // ~5-6 synchronous full-table todos scans per run — the distributed block that keeps
+    // the shared HTTP loop starved after Phase 1/2. THROTTLE it off the every-tick cadence
+    // (at most once per RECONCILE_INTERVAL_MS/project), so ~4/5 of those scans leave the
+    // loop. The ready-todo CLAIM path (build pass / kickOrchestrator) is NOT gated here —
+    // it stays every-tick responsive.
+    if (passes.reconcile && shouldRunReconcile(project)) {
       try {
         currentPhase = `${project}:reconcile`;
         await withPassTimeout(reconcile(project), RECONCILE_PASS_TIMEOUT_MS, `${project}:reconcile`);
