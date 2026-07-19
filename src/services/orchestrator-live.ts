@@ -25,6 +25,7 @@ import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
 import { runFrictionWatchPass } from './friction-watch.js';
 import { runFrictionTriagePass } from './friction-triage.js';
+import { runMissionIntakePass } from './mission-intake.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass } from './mission-loop.js';
 import { runSessionSummaryTick, runSelfSummaryNudgePass } from './session-summary-loop.js';
@@ -242,6 +243,10 @@ export interface TickDeps {
    *  WATCHED project regardless of level (planned filing is non-claimable — the
    *  "suggest"; a human promotes to ready). Default: runFrictionTriagePass. */
   frictionTriage?: (project: string) => Promise<unknown>;
+  /** Mission A: DETERMINISTIC friction→forge intake. Escalates an over-threshold domain/orchestration
+   *  friction cluster into an UNAPPROVED forged mission (one/tick). Self-gates on the per-project
+   *  intake toggle (default OFF); runs for WATCHED projects. Default: runMissionIntakePass. */
+  missionIntake?: (project: string) => Promise<unknown>;
   /** Context-auto-recycle driver: checkpoint→clear→collab a low-context watched
    *  session (gated by per-project contextRecycleMode). Runs for every WATCHED
    *  project regardless of level, like notify. Default: runContextRecyclePass. */
@@ -275,6 +280,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const notify = deps.notify ?? runNotificationTick;
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
+  const missionIntake = deps.missionIntake ?? runMissionIntakePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? runMissionLoopPass;
   // NB: the conductor pass no longer runs in this serial tick — it moved to its own decoupled loop
@@ -353,6 +359,20 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(frictionTriage(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-triage`);
       } catch (err) {
         console.warn(`[orchestrator] friction-triage failed for ${project}:`, err);
+      }
+    }
+
+    // Mission A friction→forge intake: escalate an over-threshold domain/orchestration friction
+    // cluster into an UNAPPROVED forged mission (deterministic detector; the forge NODE is the only
+    // LLM spend). Self-gates on the per-project intake toggle (default OFF) so it is inert until a
+    // human opts in; runs for every WATCHED project. Best-effort; bounded. A drafted mission never
+    // self-drives (unapproved → approve_mission is the human gate).
+    if (watched.has(project)) {
+      try {
+        currentPhase = `${project}:mission-intake`;
+        await withPassTimeout(missionIntake(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-intake`);
+      } catch (err) {
+        console.warn(`[orchestrator] mission-intake failed for ${project}:`, err);
       }
     }
 

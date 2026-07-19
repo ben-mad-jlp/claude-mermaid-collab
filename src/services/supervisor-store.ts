@@ -321,6 +321,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'missionLoopMode', 'missionLoopMode TEXT');
   addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'conductorEnabled', 'conductorEnabled INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'intakeEnabled', 'intakeEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'conductorTargetMissionId', 'conductorTargetMissionId TEXT');
   addColumnIfMissing(db, 'watched_project', 'lastConductorPassMissionId', 'lastConductorPassMissionId TEXT');
   addColumnIfMissing(db, 'watched_project', 'lastConductorPassJson', 'lastConductorPassJson TEXT');
@@ -474,6 +475,22 @@ export function getConductorEnabled(project: string): boolean {
 export function setConductorEnabled(project: string, on: boolean): void {
   const d = openDb();
   d.prepare('UPDATE watched_project SET conductorEnabled = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
+}
+
+/** Per-project FRICTION→FORGE INTAKE toggle. Default OFF (opt-in autonomy, mirrors conductorEnabled):
+ *  the deterministic mission-intake pass only escalates friction clusters into UNAPPROVED forged
+ *  missions for a project explicitly turned on. UPDATE-only (like the other per-project setters —
+ *  never auto-watch a project); a project must be watched first. */
+export function getIntakeEnabled(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT intakeEnabled FROM watched_project WHERE project = ?')
+    .get(project) as { intakeEnabled: number | null } | undefined;
+  return !!(row?.intakeEnabled);
+}
+export function setIntakeEnabled(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare('UPDATE watched_project SET intakeEnabled = ? WHERE project = ?')
     .run(on ? 1 : 0, project);
 }
 
