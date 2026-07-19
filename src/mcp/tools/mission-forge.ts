@@ -187,36 +187,47 @@ export interface MissionConstitutionHealth {
   hasHandoff: boolean;
   linkedActiveConstraints: number;
   linkedProposedConstraints: number;
-  /** 'ok' — constraints are active (injecting) or there is no constitution to enforce.
+  /** Active PROJECT-LEVEL constraints (epicId null). These inject into every build node via payload C
+   *  regardless of mission linkage, so they DO reach this mission's builders — credited toward 'ok'. */
+  projectActiveConstraints: number;
+  /** 'ok' — constraints are active and reaching the builders (mission-linked OR project-level), or
+   *    there is no constitution to enforce.
    *  'constitution-pending-approval' — the rules exist as PROPOSED records but await a human nod
    *    (the normal doc→node state before approve_mission).
-   *  'constitution-not-injected' — a mission with a handoff but ZERO constraint records at all: its
-   *    locked rules were left as prose the builder never sees (the hand-rolled / step-6-skipped path). */
+   *  'constitution-not-injected' — a mission with a handoff but ZERO active/proposed constraint records
+   *    (linked or project-level): its locked rules were left as prose the builder never sees. */
   flag: 'ok' | 'constitution-pending-approval' | 'constitution-not-injected';
 }
 
 /** Enforcement teeth: detect a mission whose constitution never reached the builders. forge_mission
- *  always links the records, so a forged+approved mission is healthy by construction; this catches
- *  the hand-rolled / step-6-skipped path ('not-injected') and the forged-but-unratified state
- *  ('pending-approval'). */
+ *  links the records to the mission, so a forged+approved mission is healthy by construction; this
+ *  catches the hand-rolled / step-6-skipped path ('not-injected') and the forged-but-unratified state
+ *  ('pending-approval'). Project-level active constraints (epicId null) are ALSO credited: payload C
+ *  injects them into every build node whether or not they carry this mission's linkedTodos, so the
+ *  hand-rolled project-level pattern the mission-forge skill teaches is no longer a false 'not-injected'.
+ *  (Advisory tradeoff: an unrelated project-level active constraint can mask a genuinely-unlinked
+ *  mission — acceptable for an advisory flag, and the linked* counts stay visible for precision.) */
 export function missionConstitutionHealth(project: string, missionId: string): MissionConstitutionHealth {
   const mission = getMission(project, missionId);
   const hasHandoff = mission?.handoffDocId != null;
   let linkedActiveConstraints = 0;
   let linkedProposedConstraints = 0;
+  let projectActiveConstraints = 0;
   try {
-    const linked = (status: 'active' | 'proposed') =>
-      listDecisionRecords(project, { kind: 'constraint', status }).filter((r) => r.linkedTodos.includes(missionId)).length;
-    linkedActiveConstraints = linked('active');
-    linkedProposedConstraints = linked('proposed');
+    const active = listDecisionRecords(project, { kind: 'constraint', status: 'active' });
+    linkedActiveConstraints = active.filter((r) => r.linkedTodos.includes(missionId)).length;
+    projectActiveConstraints = active.filter((r) => r.epicId == null).length;
+    linkedProposedConstraints = listDecisionRecords(project, { kind: 'constraint', status: 'proposed' })
+      .filter((r) => r.linkedTodos.includes(missionId)).length;
   } catch {
     // advisory health read — a store failure must never break the caller (mission rollup / conductor).
   }
+  const injecting = linkedActiveConstraints > 0 || projectActiveConstraints > 0;
   const flag: MissionConstitutionHealth['flag'] =
-    linkedActiveConstraints > 0 || !hasHandoff ? 'ok'
+    injecting || !hasHandoff ? 'ok'
     : linkedProposedConstraints > 0 ? 'constitution-pending-approval'
     : 'constitution-not-injected';
-  return { missionId, hasHandoff, linkedActiveConstraints, linkedProposedConstraints, flag };
+  return { missionId, hasHandoff, linkedActiveConstraints, linkedProposedConstraints, projectActiveConstraints, flag };
 }
 
 export interface ApproveMissionResult {

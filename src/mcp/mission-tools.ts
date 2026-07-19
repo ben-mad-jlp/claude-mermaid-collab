@@ -111,15 +111,19 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const mission = getMission(project, todoId);
       if (!mission) throw new Error(`mission not found: ${todoId}`);
+      // getMission resolves a leading-8-hex short id to the full row, but the sub-queries below are
+      // keyed by the RAW arg — so a short todoId would return the mission with EMPTY criteria/rollup.
+      // Resolve once and pass the canonical id to every sub-query.
+      const id = mission.todoId;
       return JSON.stringify({
         // Criteria carry the DERIVED per-criterion `action` ('met'|'building'|'verify'|'discover')
         // + servingEpicState — the conductor serves EVERY 'discover' gap in one pass; the scalar
         // mission.status is only the headline.
-        mission, criteria: listCriteriaWithActions(project, todoId), rollup: getMissionRollup(project, todoId),
-        cost: getMissionCost(project, todoId),
+        mission, criteria: listCriteriaWithActions(project, id), rollup: getMissionRollup(project, id),
+        cost: getMissionCost(project, id),
         // Enforcement teeth: 'constitution-not-injected' = a mission with a handoff whose locked
         // rules never became active constraint records the builders see (forge_mission prevents this).
-        constitutionHealth: missionConstitutionHealth(project, todoId),
+        constitutionHealth: missionConstitutionHealth(project, id),
       }, null, 2);
     }
     case 'set_mission_owner': {
