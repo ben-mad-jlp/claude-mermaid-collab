@@ -34,6 +34,7 @@ import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { registerOrchestratorKick } from './orchestrator-kick.js';
+import { yieldToLoop } from './loop-yield.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -329,6 +330,12 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
   const dirExists = deps.dirExists ?? existsSync;
   for (const { path: project } of projects) {
+    // Phase 1 (mission c4eb4fcc): cede the HTTP event loop BETWEEN per-project iterations so a
+    // pending health poll / MCP request can interleave before this project's synchronous
+    // bun:sqlite/fs passes run. Same work, same order, same results — only a macrotask boundary is
+    // inserted so no single project's inline scans hold the loop for the whole serial tick.
+    await yieldToLoop();
+
     // Skip a project whose directory is GONE — a synchronous SQLite hang on a dead worktree/temp DB
     // stalls the event loop for every pass below (see runConductorGuarded for the full incident note).
     if (!dirExists(project)) continue;
