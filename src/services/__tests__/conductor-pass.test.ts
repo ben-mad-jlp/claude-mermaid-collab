@@ -9,7 +9,7 @@ const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, createEscalation, getConductorTargetMission, setConductorTargetMission } from '../supervisor-store';
+import { addWatchedProject, setConductorEnabled, createEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
@@ -187,6 +187,52 @@ describe('runConductorPass — target pin', () => {
       void fallback;
     },
   );
+
+  test('records lastPass reason "conducted" for the pinned mission id', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    setConductorTargetMission(project, forged.missionId);
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.reason).toBe('conducted');
+
+    const lastPass = getConductorLastPass(project);
+    expect(lastPass).not.toBeNull();
+    expect(lastPass!.missionId).toBe(forged.missionId);
+    expect(lastPass!.reason).toBe('conducted');
+    expect(typeof lastPass!.tickAt).toBe('number');
+  });
+
+  test('an unrelated actionable mission never appears in lastPass.missionId', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const pinned = await forgeApprovedActive();
+    const unrelated = await forgeMission(project, { session: 's1', title: 'Unrelated actionable mission', criteria: ['an unrelated criterion'] });
+
+    setConductorTargetMission(project, pinned.missionId);
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.reason).toBe('conducted');
+
+    const lastPass = getConductorLastPass(project);
+    expect(lastPass!.missionId).toBe(pinned.missionId);
+    expect(lastPass!.missionId).not.toBe(unrelated.missionId);
+  });
+
+  test('records lastPass reason "target-cleared" once the pinned mission goes terminal', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const target = await forgeApprovedActive();
+    setMissionAbandoned(project, target.missionId, 1);
+
+    setConductorTargetMission(project, target.missionId);
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.reason).toBe('target-cleared');
+
+    const lastPass = getConductorLastPass(project);
+    expect(lastPass).toEqual({ missionId: null, reason: 'target-cleared', tickAt: lastPass!.tickAt });
+    expect(typeof lastPass!.tickAt).toBe('number');
+  });
 });
 
 describe('conductorFingerprint + buildConductorPrompt (pure)', () => {

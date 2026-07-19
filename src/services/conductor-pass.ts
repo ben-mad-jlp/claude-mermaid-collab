@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations } from './supervisor-store.js';
+import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, setConductorLastPass } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -90,6 +90,16 @@ export interface ConductorPassResult {
  *  approved+active mission with a NEW actionable state (a discover/verify gap the conductor hasn't
  *  already served at this exact fingerprint). */
 export async function runConductorPass(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
+  const result = await runConductorPassInner(project, deps);
+  setConductorLastPass(project, {
+    missionId: result.missionId ?? null,
+    reason: result.reason,
+    tickAt: Date.now(),
+  });
+  return result;
+}
+
+async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
   if (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled' };
 
   // The approved + active, non-terminal, actionable mission. (One active mission per session; drive

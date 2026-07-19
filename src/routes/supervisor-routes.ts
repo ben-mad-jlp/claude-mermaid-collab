@@ -32,6 +32,7 @@ import {
   setConductorEnabled,
   getConductorTargetMission,
   setConductorTargetMission,
+  getConductorLastPass,
 } from '../services/supervisor-store.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
@@ -901,6 +902,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       project,
       enabled: getConductorEnabled(project),
       targetMissionId: getConductorTargetMission(project),
+      lastPass: getConductorLastPass(project),
     });
   }
   // POST /api/supervisor/conductor — toggle it and/or pin a target mission.
