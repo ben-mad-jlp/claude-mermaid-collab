@@ -8,12 +8,13 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { runConductorPass, conductorFingerprint, buildConductorPrompt } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, createEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet } from '../mission-store';
+import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker } from '../conductor-pass';
+import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
+import { createTodo, updateTodo } from '../todo-store';
 
 let project: string;
 let invokeCalls: number;
@@ -27,6 +28,18 @@ beforeEach(() => {
 
 async function forgeApprovedActive() {
   return forgeMission(project, { session: 's1', title: 'The reviewer never over-rejects', criteria: ['a correct leaf is accepted'] });
+}
+
+/** Forge an approved+active mission whose single criterion has burned CRITERION_SERVE_CAP
+ *  serving epics (all dropped → no live serving epic) so it derives action 'escalate'. */
+async function forgeCappedMission(title = 'MEASURED-live: p95 latency < 100ms in prod') {
+  const forged = await forgeMission(project, { session: 's1', title, criteria: ['p95 latency measured under 100ms on the live deploy'] });
+  const crit = listCriteria(project, forged.missionId)[0];
+  for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+    const e = await createTodo(project, { ownerSession: 's1', title: `[EPIC] serve ${i}`, kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
+    await updateTodo(project, e.id, { status: 'dropped' });
+  }
+  return { forged, crit };
 }
 
 describe('runConductorPass — scheduling', () => {
@@ -232,6 +245,91 @@ describe('runConductorPass — target pin', () => {
     const lastPass = getConductorLastPass(project);
     expect(lastPass).toEqual({ missionId: null, reason: 'target-cleared', tickAt: lastPass!.tickAt });
     expect(typeof lastPass!.tickAt).toBe('number');
+  });
+});
+
+describe('runConductorPass — criterion serve-cap escalation', () => {
+  test('an escalate-only mission raises exactly ONE escalation and does NOT spawn the conductor node', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [], // nothing open yet
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.missionId).toBe(forged.missionId);
+    expect(r.escalationsRaised).toBe(1);
+    expect(invokeCalls).toBe(0); // node NOT spawned for a capped criterion
+    // exactly one escalation, well-formed: kind, todoId=missionId, operator-gated, criterion marker + count
+    expect(escCalls.length).toBe(1);
+    expect(escCalls[0].kind).toBe(CRITERION_SERVE_CAP_KIND);
+    expect(escCalls[0].todoId).toBe(forged.missionId);
+    expect(escCalls[0].operatorGated).toBe(true);
+    expect(escCalls[0].questionText).toContain(serveCapMarker(crit.id));
+    expect(escCalls[0].questionText).toContain(String(CRITERION_SERVE_CAP));
+  });
+
+  test('debounced: a second pass with an already-open criterion-serve-cap escalation does NOT create a duplicate', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+    // Simulate the open card from a prior pass, matching kind + todoId + the criterion marker.
+    const openCard: Escalation = {
+      id: 'esc-open', project, session: 's1', kind: CRITERION_SERVE_CAP_KIND,
+      questionText: `... ${serveCapMarker(crit.id)} ...`, status: 'open', createdAt: Date.now(),
+      resolvedAt: null, serverId: '', todoId: forged.missionId, options: null, recommended: null,
+      ui: null, routedTo: 'human', operatorGated: 1, proof: null, stewardAttempts: 0,
+      suggestedAction: null, triageInFlight: false, resolvedBy: null,
+      briefingMd: null, briefingModel: null, briefingAt: null,
+    } as Escalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [openCard],
+    });
+
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(0); // debounced — the open card suppresses a duplicate
+    expect(escCalls.length).toBe(0);
+    expect(invokeCalls).toBe(0);
+  });
+
+  test('end-to-end with the real store: two consecutive passes leave exactly ONE open serve-cap card', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+
+    // Real createEscalation + listOpenEscalations (defaults). First pass raises it.
+    const r1 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r1.reason).toBe('criteria-escalated');
+    expect(r1.escalationsRaised).toBe(1);
+    // Second pass finds the open card → no duplicate.
+    const r2 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r2.escalationsRaised).toBe(0);
+
+    const open = listOpenEscalations().filter(
+      (e) => e.kind === CRITERION_SERVE_CAP_KIND && e.todoId === forged.missionId && e.questionText.includes(serveCapMarker(crit.id)),
+    );
+    expect(open.length).toBe(1);
+    expect(invokeCalls).toBe(0);
   });
 });
 

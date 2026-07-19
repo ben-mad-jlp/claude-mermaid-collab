@@ -11,6 +11,7 @@ import {
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
+  CRITERION_SERVE_CAP,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 
@@ -455,7 +456,7 @@ describe('liveRunsOf — a landed epic\'s historical parks are not a live blocke
 // every open gap concurrently. Pure-function tests over deriveMissionStatus/deriveCriterionAction.
 
 const crit = (over: Partial<MissionCriterionFacts>): MissionCriterionFacts => ({
-  id: 'c', met: false, verifiedAt: null, servingEpicState: 'none', servingEpicLive: false, ...over,
+  id: 'c', met: false, verifiedAt: null, servingEpicState: 'none', servingEpicLive: false, servedEpicCount: 0, ...over,
 });
 const baseFacts = {
   abandonedAt: null, budgetUsd: null, spendUsd: 0,
@@ -491,6 +492,60 @@ describe('per-criterion discovery', () => {
 
   test('landed + verified + still unmet (verify said no) → a fresh discover gap', () => {
     expect(deriveCriterionAction(crit({ servingEpicState: 'landed', verifiedAt: 5 }))).toBe('discover');
+  });
+
+  // ── SERVE-CAP: stop re-filing an unsatisfiable criterion, escalate once ──────
+  test('unmet + no live serving epic + servedEpicCount ≥ CRITERION_SERVE_CAP → escalate (not discover)', () => {
+    expect(deriveCriterionAction(crit({ servedEpicCount: CRITERION_SERVE_CAP }))).toBe('escalate');
+    expect(deriveCriterionAction(crit({ servedEpicCount: CRITERION_SERVE_CAP + 5 }))).toBe('escalate');
+    // A landed-and-verify-said-no criterion that has burned the cap ALSO escalates (it is the
+    // discover path — a fresh re-file gap — just reached via a landed serving epic).
+    expect(deriveCriterionAction(crit({ servingEpicState: 'landed', verifiedAt: 5, servedEpicCount: CRITERION_SERVE_CAP }))).toBe('escalate');
+  });
+
+  test('under the cap → still discover (one fewer than the cap does NOT escalate)', () => {
+    expect(deriveCriterionAction(crit({ servedEpicCount: CRITERION_SERVE_CAP - 1 }))).toBe('discover');
+    expect(deriveCriterionAction(crit({ servedEpicCount: 0 }))).toBe('discover');
+  });
+
+  test('only the discover path caps: met / building / landed-unverified are NEVER flipped to escalate even over the cap', () => {
+    const over = CRITERION_SERVE_CAP + 2;
+    // met
+    expect(deriveCriterionAction(crit({ met: true, servedEpicCount: over }))).toBe('met');
+    // building (open + live serving epic)
+    expect(deriveCriterionAction(crit({ servingEpicState: 'open', servingEpicLive: true, servedEpicCount: over }))).toBe('building');
+    // landed-unverified still owes verify
+    expect(deriveCriterionAction(crit({ met: true, servingEpicState: 'landed', servedEpicCount: over }))).toBe('verify');
+    expect(deriveCriterionAction(crit({ servingEpicState: 'landed', verifiedAt: null, servedEpicCount: over }))).toBe('verify');
+  });
+
+  test('collectMissionStatusFacts.servedEpicCount counts DROPPED serving epics (the thrash history the non-dropped list misses)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mission-servecap-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] SC', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'needs a live measurement');
+      // File CRITERION_SERVE_CAP serving epics for c1, then DROP them all (the conductor's
+      // per-tick re-file → drop churn). None is live/landed → servingEpicState 'none', but
+      // the lifetime servedEpicCount must see all of them.
+      for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+        const e = await createTodo(proj, { ownerSession: 's1', title: `[EPIC] serve ${i}`, kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+        await updateTodo(proj, e.id, { status: 'dropped' });
+      }
+      const facts = collectMissionStatusFacts(proj, getMission(proj, m.id)!);
+      const cf = facts.criteria.find((c) => c.id === c1.id)!;
+      expect(cf.servedEpicCount).toBe(CRITERION_SERVE_CAP);
+      expect(cf.servingEpicState).toBe('none'); // all dropped → no live/landed serving epic
+      expect(deriveCriterionAction(cf)).toBe('escalate');
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('met-but-unverified landed criterion still owes verify (verification-as-event)', () => {

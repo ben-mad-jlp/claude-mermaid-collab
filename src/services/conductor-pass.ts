@@ -8,13 +8,14 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, setConductorLastPass } from './supervisor-store.js';
+import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, setConductorLastPass, createEscalation, type Escalation } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
   listCriteriaWithActions,
   stampConductorRun,
   selectConductorMission,
+  CRITERION_SERVE_CAP,
 } from './mission-store.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
 import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
@@ -28,8 +29,19 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allowedTools;
 
 export interface ConductorActionRow {
-  action: 'met' | 'building' | 'verify' | 'discover';
+  action: 'met' | 'building' | 'verify' | 'discover' | 'escalate';
   id: string;
+}
+
+/** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
+ *  time — the debounce below skips creating a second while one is still open. */
+export const CRITERION_SERVE_CAP_KIND = 'criterion-serve-cap';
+
+/** Debounce marker embedded in the escalation questionText so listOpenEscalations can be
+ *  matched back to an exact (mission, criterion) even though the card carries only todoId
+ *  (=missionId) and free text. Stable + greppable. */
+export function serveCapMarker(criterionId: string): string {
+  return `[serve-cap:${criterionId}]`;
 }
 
 /** Debounce fingerprint: the derived mission status + the per-criterion actions. Unchanged ⇒ the
@@ -77,11 +89,16 @@ export function buildConductorPrompt(project: string, missionId: string, mission
 
 export interface ConductorPassDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
+  /** Injectable for the serve-cap escalation (test spy). Defaults to the store fns. */
+  createEscalation?: typeof createEscalation;
+  listOpenEscalations?: typeof listOpenEscalations;
 }
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'debounced' | 'conducted' | 'node-failed';
+  reason: 'conductor-disabled' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed';
+  /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
+  escalationsRaised?: number;
   missionId?: string;
   modelUsed?: string;
 }
@@ -139,14 +156,60 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const status = target.row.status!;
   const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
 
-  const actions = listCriteriaWithActions(project, missionId).map((a) => ({ action: a.action, id: a.id }));
+  const criteriaWithActions = listCriteriaWithActions(project, missionId);
+  const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id }));
+  // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
+  // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Raise ONE human
+  // escalation per such criterion, debounced against any already-open one. This runs BEFORE
+  // the hasGap/no-op decision so a mission whose only gaps are capped never spends a node.
+  const escalated = criteriaWithActions.filter((a) => a.action === 'escalate');
+  let escalationsRaised = 0;
+  if (escalated.length > 0) {
+    const createEsc = deps.createEscalation ?? createEscalation;
+    const listOpen = deps.listOpenEscalations ?? listOpenEscalations;
+    // Fail-open: an escalation-store hiccup must NEVER break the pass.
+    let open: Escalation[] = [];
+    try { open = listOpen(); } catch { open = []; }
+    for (const c of escalated) {
+      try {
+        const marker = serveCapMarker(c.id);
+        const already = open.some((e) =>
+          e.status === 'open' && e.kind === CRITERION_SERVE_CAP_KIND &&
+          e.project === project && e.todoId === missionId && e.questionText.includes(marker));
+        if (already) continue;
+        createEsc({
+          project,
+          session,
+          kind: CRITERION_SERVE_CAP_KIND,
+          todoId: missionId,
+          operatorGated: true,
+          questionText:
+            `Mission "${target.summary.node.title ?? missionId}" — criterion "${c.text}" ${marker}: ` +
+            `${c.servedEpicCount} serving epics filed but the criterion is still unmet — it likely needs ` +
+            `HUMAN action (a live measurement / deploy / rescope); the conductor will not re-file. ` +
+            `Resolve or rescope this criterion.`,
+        });
+        escalationsRaised++;
+      } catch {
+        // fail-open per criterion — one bad card must not sink the rest of the pass.
+      }
+    }
+  }
+
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
   // A build-green epic surfaces an 'epic-ready-to-land' card while its criterion still reads
   // 'building' (unlanded) — the conductor must run to LAND it, not wait. (land_epic's ownership gate
   // ensures the node only lands THIS mission's epics.)
-  const landCards = (() => { try { return listOpenEscalations().filter((e) => e.project === project && e.kind === 'epic-ready-to-land').length; } catch { return 0; } })();
-  // 'building' with no gap AND no land card = the daemon is working; nothing to direct — wait.
-  if (!hasGap && landCards === 0 && status === 'building') return { ran: false, reason: 'building-wait', missionId };
+  const landCards = (() => { try { return (deps.listOpenEscalations ?? listOpenEscalations)().filter((e) => e.project === project && e.kind === 'epic-ready-to-land').length; } catch { return 0; } })();
+  // No servable gap and no land card to drive: nothing for the node to do. A capped
+  // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
+  // above and must NOT spend a node re-filing for it (the thrash this cap kills). Report
+  // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
+  // building-wait (daemon working) no-op.
+  if (!hasGap && landCards === 0) {
+    if (escalated.length > 0) return { ran: false, reason: 'criteria-escalated', missionId, escalationsRaised };
+    if (status === 'building') return { ran: false, reason: 'building-wait', missionId };
+  }
 
   const fp = conductorFingerprint(status, actions) + `|land:${landCards}`;
   if (target.row.lastConductorKey === fp) return { ran: false, reason: 'debounced', missionId };
@@ -171,5 +234,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // Stamp the fingerprint whether or not the node succeeded: we spent the pass on THIS state, so we
   // won't respin on the identical state next tick. A node failure retries once state (or the node) moves.
   stampConductorRun(project, missionId, fp);
-  return { ran: true, reason: res.ok ? 'conducted' : 'node-failed', missionId, modelUsed: model };
+  return { ran: true, reason: res.ok ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised };
 }

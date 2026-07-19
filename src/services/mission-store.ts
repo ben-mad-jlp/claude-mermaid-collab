@@ -703,6 +703,14 @@ export interface MissionCriterionFacts {
    *  derives 'discover' so the nudge loop keeps pointing at it instead of a mission
    *  sitting silently at 'building' forever (the unattended-stall trap). */
   servingEpicLive: boolean;
+  /** LIFETIME count of epics EVER filed for this criterion — INCLUDING dropped and done
+   *  ones (the `servingEpic*` fields above only see non-dropped epics and miss the thrash
+   *  history). This is the SERVE-CAP thrash signal: the autonomous conductor re-files a
+   *  serving epic every tick a criterion reads 'discover', so a criterion that structurally
+   *  needs a HUMAN action (a live measurement / deploy / rescope) accrues an unbounded pile
+   *  of dropped serving epics. Once this hits CRITERION_SERVE_CAP the conductor stops
+   *  re-filing and escalates once instead (see deriveCriterionAction). */
+  servedEpicCount: number;
 }
 
 export interface MissionStatusFacts {
@@ -725,7 +733,15 @@ export type CriterionAction =
   | 'met'       // criterion satisfied — nothing to do
   | 'building'  // a serving epic is open WITH live motion — wait for it
   | 'verify'    // a serving epic landed, verdict not yet recorded — run the independent gate
-  | 'discover'; // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
+  | 'discover'  // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
+  | 'escalate'; // capped: CRITERION_SERVE_CAP+ serving epics filed and still unmet — stop re-filing, escalate to a human ONCE
+
+/** After this many serving epics have been filed for ONE criterion and it is STILL
+ *  unmet (a fresh 'discover'), stop re-filing and escalate to a human once. A criterion
+ *  whose satisfaction structurally needs a HUMAN action the headless daemon cannot do
+ *  (a live measurement, a deploy, a rescope) otherwise makes the conductor file a new
+ *  serving epic every tick — the overnight thrash this cap kills. */
+export const CRITERION_SERVE_CAP = 3;
 
 export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction {
   // verify BEFORE met: a met-but-unverified criterion still owes the independent gate a
@@ -733,6 +749,11 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   if (c.servingEpicState === 'landed' && c.verifiedAt == null) return 'verify';
   if (c.met) return 'met';
   if (c.servingEpicState === 'open' && c.servingEpicLive) return 'building';
+  // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
+  // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
+  // escalate to a human once instead. ONLY the discover path caps — verify/building/met are
+  // never flipped (they mean real progress, not a stuck re-file loop).
+  if (c.servedEpicCount >= CRITERION_SERVE_CAP) return 'escalate';
   return 'discover';
 }
 
@@ -772,6 +793,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
   const epics = allTodos.filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
   );
+  // Serve-cap thrash signal: ALL epic children EVER filed under this mission, INCLUDING
+  // dropped ones (the non-dropped `epics` list above cannot see the re-file history). Used
+  // ONLY to count servedEpicCount per criterion — never for live/landed state.
+  const allEpicsEver = allTodos.filter((t) => t.parentId === m.todoId && isEpic(t));
   // getMission is a hot, fundamental read — it must NOT crash because the OPTIONAL worker-ledger
   // read failed (e.g. the ledger DB is momentarily unavailable / not yet created). Degrade to
   // no run-facts: the mission still derives a status from its criteria + epic states.
@@ -821,7 +846,12 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
           allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
             (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'))
         ));
-      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive };
+      // Lifetime serve count — dropped/done included, so a criterion re-served every tick
+      // accrues its true thrash history (the serve-cap escalation trigger).
+      const servedEpicCount = allEpicsEver.filter(
+        (e) => e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id),
+      ).length;
+      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive, servedEpicCount };
     }),
   };
 }
@@ -832,7 +862,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
 export function listCriteriaWithActions(
   project: string,
   todoId: string,
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none' })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m);
@@ -843,6 +873,7 @@ export function listCriteriaWithActions(
       ...c,
       action: f ? deriveCriterionAction(f) : 'discover',
       servingEpicState: f?.servingEpicState ?? 'none',
+      servedEpicCount: f?.servedEpicCount ?? 0,
     };
   });
 }
