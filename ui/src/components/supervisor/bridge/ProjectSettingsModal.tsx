@@ -15,6 +15,7 @@ import { PoolSizeControl } from './PoolSizeControl';
 import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
 import { DaemonProviderControl } from '@/components/settings/DaemonProviderControl';
 import { apiGet, apiPost, useConductorEnabled } from './useConductorEnabled';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 
 // ── Watchdog threshold control ───────────────────────────────────────────────
 const WatchdogControl: React.FC<{ project: string }> = ({ project }) => {
@@ -231,6 +232,53 @@ const ConductorControl: React.FC<{ project: string }> = ({ project }) => {
   );
 };
 
+// ── Autonomous conductor target (pinned mission) ─────────────────────────────
+const ConductorTargetControl: React.FC<{ project: string }> = ({ project }) => {
+  const [targetMissionId, setTargetMissionId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fetchConductorTarget = useSupervisorStore((s) => s.fetchConductorTarget);
+  const setConductorTarget = useSupervisorStore((s) => s.setConductorTarget);
+
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    void (async () => {
+      const id = await fetchConductorTarget('local', project);
+      if (!cancelled) setTargetMissionId(id);
+    })();
+    return () => { cancelled = true; };
+  }, [project, fetchConductorTarget]);
+
+  const clear = useCallback(() => {
+    if (busy || !project) return;
+    setBusy(true);
+    void (async () => {
+      const id = await setConductorTarget('local', project, null);
+      setTargetMissionId(id);
+      setBusy(false);
+    })();
+  }, [busy, project, setConductorTarget]);
+
+  return (
+    <div data-testid="conductor-target-control" className={`flex items-center gap-2 text-3xs ${busy ? 'opacity-60' : ''}`}>
+      <span className="text-gray-500 dark:text-gray-400">Target mission:</span>
+      <span data-testid="conductor-target-value" className="font-medium text-gray-700 dark:text-gray-200">
+        {targetMissionId ? targetMissionId.slice(0, 8) : 'none'}
+      </span>
+      <button
+        type="button"
+        data-testid="conductor-target-clear"
+        onClick={clear}
+        disabled={busy || !targetMissionId}
+        className="px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
+        title="Clear the pinned conductor target mission"
+      >
+        Clear
+      </button>
+    </div>
+  );
+};
+
 // ── Section wrapper ──────────────────────────────────────────────────────────
 const Section: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex flex-col gap-2">
@@ -305,6 +353,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ proj
 
           <Section label="Autonomous conductor">
             <ConductorControl project={project} />
+            <ConductorTargetControl project={project} />
           </Section>
 
           <Section label="Context recycle">
