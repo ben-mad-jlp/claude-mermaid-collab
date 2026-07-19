@@ -1,7 +1,8 @@
 import type { Todo, TodoStatus } from './todo-store';
-import { listTodos } from './todo-store';
+import { listTodos, listTodosChunked } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
+import { yieldToLoop } from './loop-yield.ts';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -296,16 +297,13 @@ export function findClaimInvariantViolations(todos: Todo[]): ClaimInvariantViola
 }
 
 /**
- * DB-backed S6 assert pass — load the project's work-graph, assert the structural
- * claim/decision invariants, and ALARM (console.warn + supervisor audit) on any
- * violation. NEVER mutates. Returns the violations (also used by tests). In steady
- * state returns []. Best-effort: an audit-write failure never throws.
+ * ALARM half (MAIN-THREAD ONLY): given already-computed violations, console.warn
+ * each and record a supervisor audit. This is the sole WRITE side of the assert
+ * pass; it is kept separate from the read scan so the scan can be offloaded to a
+ * read-only worker (Phase 2) while the writes stay on the main thread. NEVER
+ * mutates the work-graph. Best-effort: an audit-write failure never throws.
  */
-export function assertClaimInvariants(project: string): ClaimInvariantViolation[] {
-  const todos = listTodos(project, { includeCompleted: true });
-  const violations = findClaimInvariantViolations(todos);
-  if (violations.length === 0) return violations;
-
+function alarmClaimViolations(project: string, violations: ClaimInvariantViolation[]): void {
   for (const v of violations) {
     console.warn(`[invariant-assert] ${v.kind} on ${v.todoId} (${v.title}): ${v.reason}`);
     try {
@@ -327,5 +325,57 @@ export function assertClaimInvariants(project: string): ClaimInvariantViolation[
       );
     }
   }
+}
+
+/**
+ * DB-backed S6 assert pass (SYNCHRONOUS, inline) — load the project's work-graph,
+ * assert the structural claim/decision invariants, and ALARM (console.warn +
+ * supervisor audit) on any violation. NEVER mutates. Returns the violations (also
+ * used by tests + as the fail-open fallback of the async variant). In steady state
+ * returns []. Best-effort: an audit-write failure never throws.
+ *
+ * This is the reference (inline) implementation. The daemon reconcile pass calls
+ * `assertClaimInvariantsAsync` instead, which offloads the read scan to a worker.
+ */
+export function assertClaimInvariants(project: string): ClaimInvariantViolation[] {
+  const todos = listTodos(project, { includeCompleted: true });
+  const violations = findClaimInvariantViolations(todos);
+  if (violations.length === 0) return violations;
+  alarmClaimViolations(project, violations);
+  return violations;
+}
+
+/**
+ * EVENT-LOOP-FRIENDLY S6 assert pass (Phase 2, mission c4eb4fcc). Identical WORK +
+ * RESULTS to `assertClaimInvariants`, but the query-bound read (the monolithic
+ * `SELECT * FROM todos … .all()`) is CHUNKED via `listTodosChunked`, which keyset-
+ * paginates the same query and cedes the HTTP loop between pages. So the scan no
+ * longer starves the shared event loop for its whole duration.
+ *
+ * WHY chunk on the MAIN thread and NOT a separate-connection worker: `openDb` runs a
+ * one-shot migration backfill that CLEARS a claim on any non-`in_progress` row. A
+ * worker's fresh connection would re-run that backfill on first open and thereby
+ * HEAL-AND-MASK exactly the claim invariants this pass exists to surface — diverging
+ * from the (already-migrated) main-thread scan. Chunking on the same connection is
+ * byte-identical AND avoids the double-writer WAL coordination a worker would need.
+ *
+ * FAIL-OPEN: if the chunked read throws for any reason, fall back to the inline
+ * single-shot scan — reconcile is never broken. Same violations detected either way.
+ */
+export async function assertClaimInvariantsAsync(project: string): Promise<ClaimInvariantViolation[]> {
+  let todos: Todo[];
+  try {
+    todos = await listTodosChunked(project, { includeCompleted: true }, { yieldFn: yieldToLoop });
+  } catch (err) {
+    // Fail-open: any chunked-read error → inline single-shot scan on the main thread.
+    console.warn(
+      `[invariant-assert] chunked scan failed for ${project}, falling back to inline scan:`,
+      err instanceof Error ? err.message : err,
+    );
+    todos = listTodos(project, { includeCompleted: true });
+  }
+  const violations = findClaimInvariantViolations(todos);
+  if (violations.length === 0) return violations;
+  alarmClaimViolations(project, violations);
   return violations;
 }

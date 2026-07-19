@@ -1370,6 +1370,63 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
   return rows.map(rowToTodo);
 }
 
+/**
+ * CHUNKED, event-loop-friendly variant of listTodos (mission c4eb4fcc, Phase 2).
+ *
+ * The single monolithic `SELECT * FROM todos … .all()` in `listTodos` is a synchronous
+ * bun:sqlite call whose cost is QUERY-bound (measured: ~85% of a per-project invariant
+ * scan; ~130ms over 80k rows) — it cannot be split by a yield mid-call, so it starves the
+ * shared HTTP event loop for its whole duration. This variant keyset-paginates the SAME
+ * query into fixed-size pages and cedes the loop (`yieldFn`) between them, so pending HTTP
+ * callbacks interleave. Each page is a COMPLETE `.all()` that finalizes before we yield —
+ * no statement is held open across a macrotask, so a paused scan never races a main-thread
+ * write on the shared connection.
+ *
+ * RESULT PARITY: the keyset order `(ord ASC, id ASC)` is a total-order refinement of
+ * listTodos' `ORDER BY ord ASC` (id is the unique PK). For the normal case of unique ords
+ * the row order — and therefore any order-dependent consumer — is byte-identical to
+ * listTodos; ties in `ord` (rare) are merely disambiguated deterministically by id. Same
+ * connection as listTodos ⇒ same migration state ⇒ same rows.
+ */
+export async function listTodosChunked(
+  project: string,
+  filter: TodoFilter = {},
+  opts: { pageSize?: number; yieldFn?: () => Promise<void> } = {},
+): Promise<Todo[]> {
+  const db = openDb(project);
+  const pageSize = Math.max(opts.pageSize ?? 2000, 1);
+  const doYield = opts.yieldFn ?? (async () => {});
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (filter.session) { where.push('ownerSession = ?'); params.push(filter.session); }
+  if (filter.ownerSession) { where.push('ownerSession = ?'); params.push(filter.ownerSession); }
+  if (filter.assigneeSession) { where.push('assigneeSession = ?'); params.push(filter.assigneeSession); }
+  if (filter.status) { where.push('status = ?'); params.push(filter.status); }
+  if (!filter.includeCompleted && !filter.status) { where.push("status != 'done'"); }
+
+  const todos: Todo[] = [];
+  let cursor: { ord: number; id: string } | null = null;
+  for (;;) {
+    const pageWhere = [...where];
+    const pageParams = [...params];
+    if (cursor) {
+      // Keyset: strictly after (ord, id) — no OFFSET (which would be O(n²) and unstable
+      // under concurrent inserts) and no row skipped/duplicated across pages.
+      pageWhere.push('(ord > ? OR (ord = ? AND id > ?))');
+      pageParams.push(cursor.ord, cursor.ord, cursor.id);
+    }
+    const sql = `SELECT * FROM todos${pageWhere.length ? ' WHERE ' + pageWhere.join(' AND ') : ''} ORDER BY ord ASC, id ASC LIMIT ${pageSize}`;
+    const page = db.query(sql).all(...(pageParams as never[])) as TodoRow[];
+    if (page.length === 0) break;
+    for (const r of page) todos.push(rowToTodo(r)); // map per page — spreads the JS cost too
+    if (page.length < pageSize) break;
+    const last = page[page.length - 1]!;
+    cursor = { ord: last.ord, id: last.id };
+    await doYield(); // cede the HTTP loop between pages (no open statement here)
+  }
+  return todos;
+}
+
 /** The one mission a create should home under: `active`, non-terminal, live node.
  *  Prefers a mission owned by the creating session; with no session match and more
  *  than one candidate the answer is AMBIGUOUS → null (the epic stays a root rather
