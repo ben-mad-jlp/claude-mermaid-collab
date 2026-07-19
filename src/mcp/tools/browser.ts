@@ -25,7 +25,7 @@ export async function browserNavigate(session: string, url: string): Promise<str
     const titleResult = await client.Runtime.evaluate({ expression: 'document.title', returnByValue: true });
     try {
       const info = await client.Target.getTargetInfo();
-      registerTab(session, info.targetInfo.targetId);
+      registerTab(session, info.targetInfo.targetId, CDP_PORT);
     } catch {} // not all CDP versions support this
     return JSON.stringify({ navigated: true, url, title: titleResult.result?.value ?? '' }, null, 2);
   });

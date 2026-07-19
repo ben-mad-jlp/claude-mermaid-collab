@@ -13,9 +13,8 @@ const CDP = CDPImport as any;
 import { CDP_PORT } from '../config.js';
 export { CDP_PORT };
 
-import { createHash } from 'node:crypto';
 import { MERMAID_PROJECT } from '../config.js';
-import { trackingProjectRoot } from './project-registry.js';
+import { hash8, trackingProjectRoot } from './project-registry.js';
 
 let runtimeElectronTarget: { cdpPort: number } | null = null;
 
@@ -26,8 +25,7 @@ export function tabRegistryKey(project: string, session: string): string {
   const root = trackingProjectRoot(project);
   const basename = root.split('/').filter(Boolean).pop() ?? 'project';
   const slug = basename.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'x';
-  const hash = createHash('sha256').update(root).digest('hex').slice(0, 8);
-  return `${slug}-${hash}:${session}`;
+  return `${slug}-${hash8(root)}:${session}`;
 }
 
 // Maps tabRegistryKey(project, sessionName) → targetId
@@ -76,21 +74,23 @@ export function selectElectronViewTarget(tabs: Array<{ id: string; type?: string
   return view.id;
 }
 
-const TABS_PERSIST_FILE = '/tmp/.mermaid-collab-tabs.json';
+function tabsPersistFilePath(port: number): string {
+  return `/tmp/.mermaid-collab-tabs-${port}.json`;
+}
 
-function persistTabRegistry(): void {
+function persistTabRegistry(port: number): void {
   try {
     const data: Record<string, string> = {};
     tabRegistry.forEach((targetId, session) => { data[session] = targetId; });
-    writeFileSync(TABS_PERSIST_FILE, JSON.stringify(data), 'utf-8');
+    writeFileSync(tabsPersistFilePath(port), JSON.stringify(data), 'utf-8');
   } catch {}
 }
 
 export async function closePersistedTabs(port: number): Promise<void> {
   try {
-    const raw = readFileSync(TABS_PERSIST_FILE, 'utf-8');
+    const raw = readFileSync(tabsPersistFilePath(port), 'utf-8');
     const data = JSON.parse(raw) as Record<string, string>;
-    try { unlinkSync(TABS_PERSIST_FILE); } catch {}
+    try { unlinkSync(tabsPersistFilePath(port)); } catch {}
     for (const targetId of Object.values(data)) {
       try { await CDP.Close({ id: targetId, host: '127.0.0.1', port }); } catch {}
     }
@@ -211,9 +211,9 @@ export async function focusTab(sessionName: string, port: number, project: strin
   }
 }
 
-export function registerTab(sessionName: string, tabId: string, project: string = MERMAID_PROJECT): void {
+export function registerTab(sessionName: string, tabId: string, port: number = CDP_PORT, project: string = MERMAID_PROJECT): void {
   tabRegistry.set(tabRegistryKey(project, sessionName), tabId);
-  persistTabRegistry();
+  persistTabRegistry(port);
 }
 
 export async function createOrReplaceTab(sessionName: string, port: number, project: string = MERMAID_PROJECT): Promise<string> {
@@ -226,7 +226,7 @@ export async function createOrReplaceTab(sessionName: string, port: number, proj
       const tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
       const viewId = selectElectronViewTarget(tabs, sessionName);
       tabRegistry.set(tabRegistryKey(project, sessionName), viewId);
-      persistTabRegistry();
+      persistTabRegistry(effectivePort);
       return viewId;
     }
 
@@ -244,7 +244,7 @@ export async function createOrReplaceTab(sessionName: string, port: number, proj
       client.close().catch(() => {});
     }
     tabRegistry.set(tabRegistryKey(project, sessionName), targetId);
-    persistTabRegistry();
+    persistTabRegistry(port);
     return targetId;
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
@@ -289,7 +289,7 @@ export async function ensureTab(sessionName: string, port: number, project: stri
       }
       const viewId = selectElectronViewTarget(tabs, sessionName);
       tabRegistry.set(tabRegistryKey(project, sessionName), viewId);
-      persistTabRegistry();
+      persistTabRegistry(effectivePort);
       return viewId;
     }
 
@@ -312,7 +312,7 @@ export async function ensureTab(sessionName: string, port: number, project: stri
     const stillExists = tabs.some((t: any) => t.id === existingId);
     if (!stillExists) {
       tabRegistry.delete(tabRegistryKey(project, sessionName));
-      persistTabRegistry();
+      persistTabRegistry(port);
       throw new Error(`Browser tab for session "${sessionName}" no longer exists — create a new one`);
     }
 
@@ -326,6 +326,7 @@ export async function ensureTab(sessionName: string, port: number, project: stri
   }
 }
 
+// slug-hash8 has no ':' — first colon is always the session separator
 export function listActiveSessions(): string[] {
   return Array.from(tabRegistry.keys()).map((k) => k.slice(k.indexOf(':') + 1));
 }
