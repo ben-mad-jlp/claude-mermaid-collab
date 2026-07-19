@@ -33,7 +33,7 @@ import {
 } from './supervisor-store.ts';
 import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
-import { assertClaimInvariants } from './invariant-check.ts';
+import { assertClaimInvariantsAsync } from './invariant-check.ts';
 import { yieldToLoop } from './loop-yield.ts';
 
 // ---------------------------------------------------------------------------
@@ -237,9 +237,16 @@ export async function runReconcilePass(project: string): Promise<void> {
   // readiness is derived, so there is nothing to materialize. In steady state
   // this finds nothing. Best-effort; never aborts the pass.
   // -------------------------------------------------------------------------
+  // Phase 2 (mission c4eb4fcc): the invariant scan is QUERY-bound — listTodos' single
+  // synchronous bun:sqlite `.all()` over the whole todos table is the monolith (~85% of
+  // the cost). assertClaimInvariantsAsync CHUNKS that read (keyset pagination + a yield
+  // between pages) so it no longer starves the HTTP loop for its whole duration. Chunked
+  // on the SAME (already-migrated) connection — NOT a separate-connection worker, whose
+  // fresh openDb backfill would heal-and-mask the very claim invariants this pass surfaces.
+  // Fail-open: a chunked-read error falls back to the inline scan inside the async fn.
   await yieldToLoop();
   try {
-    assertClaimInvariants(project);
+    await assertClaimInvariantsAsync(project);
   } catch (err) {
     console.warn(
       `[reconcile-pass] invariant-assert failed for ${project}:`,
