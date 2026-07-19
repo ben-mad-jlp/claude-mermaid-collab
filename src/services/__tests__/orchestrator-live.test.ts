@@ -86,6 +86,9 @@ function makeDeps(): TickDeps {
     // Mock the friction-triage pass too: unmocked it falls back to the real
     // runFrictionTriagePass, which opens a DB under the dummy '/proj' path and throws EROFS.
     frictionTriage: async (project: string) => { frictionTriageCalls.push(project); },
+    // Tests use fictional project paths ('/proj/a'…) that don't exist on disk — treat them all as
+    // present so the gone-dir guard doesn't skip them (the guard itself is tested separately).
+    dirExists: () => true,
   };
 }
 
@@ -159,6 +162,7 @@ describe('B0 — decoupled conductor heartbeat', () => {
     await runConductorGuarded({
       conductor: async (p: string) => { conductorCalls.push(p); },
       watchedProjects: () => new Set(['/proj/a', '/proj/b']),
+      dirExists: () => true,
     });
     expect(conductorCalls.sort()).toEqual(['/proj/a', '/proj/b']);
   });
@@ -170,6 +174,7 @@ describe('B0 — decoupled conductor heartbeat', () => {
     const deps = {
       conductor: async (p: string) => { conductorCalls.push(p); await gate; },
       watchedProjects: () => new Set(['/proj/a']),
+      dirExists: () => true,
     };
     const first = runConductorGuarded(deps); // enters, hangs on the gate (conductorRunning=true)
     await Promise.resolve();                  // let it start
@@ -184,8 +189,35 @@ describe('B0 — decoupled conductor heartbeat', () => {
     await runConductorGuarded({
       conductor: async (p: string) => { if (p === '/proj/x') throw new Error('boom'); ran.push(p); },
       watchedProjects: () => new Set(['/proj/x', '/proj/y']),
+      dirExists: () => true,
     });
     expect(ran).toEqual(['/proj/y']); // x threw and was swallowed; y still ran
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gone-dir guard — a leaked watched row for a removed worktree/temp project must
+// never make a pass open its dead SQLite DB (a synchronous hang wedges the loop).
+// ---------------------------------------------------------------------------
+
+describe('gone-directory guard', () => {
+  beforeEach(() => reset());
+
+  it('runConductorGuarded skips a project whose directory is gone; runs the live one', async () => {
+    const conductorCalls: string[] = [];
+    await runConductorGuarded({
+      conductor: async (p: string) => { conductorCalls.push(p); },
+      watchedProjects: () => new Set(['/no/such/dir/leaked-leaf-exec-worktree', process.cwd()]),
+    });
+    expect(conductorCalls).toEqual([process.cwd()]); // gone dir skipped, real dir ran
+  });
+
+  it('the main tick skips a registered project whose directory is gone (no passes touch it)', async () => {
+    registeredProjects.push({ path: '/no/such/dir/gone-project', name: 'g', lastAccess: '' });
+    levelOverrides.set('/no/such/dir/gone-project', 'on');
+    await runOrchestratorTick({ ...makeDeps(), dirExists: (p: string) => p !== '/no/such/dir/gone-project' });
+    expect(buildCalls).toEqual([]);  // gone dir → skipped before any pass
+    expect(notifyCalls).toEqual([]);
   });
 });
 

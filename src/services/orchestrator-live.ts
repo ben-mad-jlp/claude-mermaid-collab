@@ -16,6 +16,7 @@
  *             (behind the proof gate + rate limits).
  */
 
+import { existsSync } from 'node:fs';
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
 import { listWatchedProjects, type Escalation } from './supervisor-store.js';
 import { runBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
@@ -130,13 +131,20 @@ async function runSummaryGuarded(): Promise<void> {
  *  on its per-project toggle + debounce, so this is a cheap no-op unless a mission is actionable.
  *  Own overlap guard (conductorRunning) — mirrors runSummaryGuarded; it does NOT read tickRunning,
  *  which is exactly why the build tick can't block it. Exported for the saturation test. */
-export async function runConductorGuarded(deps: Pick<TickDeps, 'conductor' | 'watchedProjects'> = {}): Promise<void> {
+export async function runConductorGuarded(deps: Pick<TickDeps, 'conductor' | 'watchedProjects' | 'dirExists'> = {}): Promise<void> {
   if (conductorRunning) return; // previous conductor beat still in flight — skip this beat
   conductorRunning = true;
   try {
     const conductor = deps.conductor ?? runConductorPass;
+    const dirExists = deps.dirExists ?? existsSync;
     const watched = (deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project))))();
     for (const project of watched) {
+      // Skip a project whose directory is GONE (a removed leaf-exec worktree, a cleaned temp/smoke
+      // project) — a leaked watched_project row otherwise makes the conductor pass open a dead SQLite
+      // DB every beat, and bun:sqlite is SYNCHRONOUS so a disk-I/O hang stalls the whole event loop
+      // (the incident of 2026-07-19: ~61 stale worktrees + leaked conductorEnabled temp projects
+      // wedged the server on every 30s conductor beat). withPassTimeout can't save a sync hang.
+      if (!dirExists(project)) continue;
       try {
         // A conductor node can take a while, so it gets the build-pass timeout — but on ITS OWN
         // loop, so that latency never delays the build tick (or vice-versa).
@@ -264,6 +272,10 @@ export interface TickDeps {
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
    *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
   watchedProjects?: () => Set<string>;
+  /** Does a project's directory still exist? A leaked watched row for a removed worktree/temp
+   *  project is skipped so a pass never opens its dead SQLite DB (sync hang wedges the loop).
+   *  Default: node:fs existsSync. Injected in tests that use fictional project paths. */
+  dirExists?: (project: string) => boolean;
   /** Persist a level (used to force an unwatched project off). Default: setOrchestratorLevel. */
   setLevel?: (project: string, level: ReturnType<typeof getOrchestratorLevel>) => void;
   /** All CONFIGURED projects + levels (the unwatched-auto-off sweep reads these so it also
@@ -315,7 +327,11 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     return;
   }
 
+  const dirExists = deps.dirExists ?? existsSync;
   for (const { path: project } of projects) {
+    // Skip a project whose directory is GONE — a synchronous SQLite hang on a dead worktree/temp DB
+    // stalls the event loop for every pass below (see runConductorGuarded for the full incident note).
+    if (!dirExists(project)) continue;
     let lvl: ReturnType<typeof getOrchestratorLevel>;
     try {
       lvl = getLevel(project);
