@@ -2,6 +2,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { mkdirSync } from 'fs';
+import { getConfiguredPort } from './services/config-file.ts';
 
 // Get the directory where this module lives (src/)
 // Go up one level to reach the project root where public/ is located
@@ -24,18 +25,7 @@ const PROJECT_ROOT = process.env.MERMAID_RESOURCES_PATH ?? dirname(
  * @throws {Error} If PORT is not a valid number or out of range
  */
 function validatePort(): number {
-  const portValue = process.env.PORT || '9002';
-  const port = parseInt(portValue, 10);
-
-  if (isNaN(port)) {
-    throw new Error(`Invalid PORT value: "${portValue}" is not a valid number`);
-  }
-
-  if (port < 0 || port > 65535) {
-    throw new Error(`Invalid PORT value: ${port} is out of valid range (0-65535)`);
-  }
-
-  return port;
+  return getConfiguredPort();
 }
 
 /**
@@ -90,7 +80,7 @@ export const config = {
  */
 export const PORT_REQUEST = (process.env.PORT ?? '9002') === '0'
   ? 0
-  : Number.parseInt(process.env.PORT ?? '9002', 10);
+  : getConfiguredPort();
 
 /**
  * Project root advertised by this server instance for instance discovery.

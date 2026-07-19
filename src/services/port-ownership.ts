@@ -14,6 +14,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { getConfiguredPort } from './config-file.ts';
 
 /** Identity block returned by GET /api/health (the unauthenticated route). */
 export interface ServerIdentity {
@@ -328,7 +329,7 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   const portFreeTimeoutMs = deps.portFreeTimeoutMs ?? 8000;
 
   const lock = readLock(env);
-  const port = deps.port ?? lock?.port ?? Number(env.PORT ?? '9002');
+  const port = deps.port ?? lock?.port ?? getConfiguredPort();
 
   const inUse = await portInUse(port, host);
 
