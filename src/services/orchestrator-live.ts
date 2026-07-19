@@ -19,7 +19,7 @@
 import { existsSync } from 'node:fs';
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
 import { listWatchedProjects, type Escalation } from './supervisor-store.js';
-import { runBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
+import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
 import { runConductorPass } from './conductor-pass.js';
 import { listTodos } from './todo-store.js';
 import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
@@ -47,11 +47,39 @@ let conductorTimer: ReturnType<typeof setInterval> | null = null;
 let conductorRunning = false; // overlap guard for the independent conductor loop (B0)
 let tickRunning = false;
 let rerunRequested = false;
+// Phase 5: a kick (ready-todo event) requests the build gate be BYPASSED on the next tick,
+// so the todo is claimed immediately rather than waiting out the periodic build throttle.
+// Latched here so a kick arriving mid-tick still forces the coalesced rerun (see runTickGuarded).
+let forceBuildNextTick = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
 const SUMMARY_INTERVAL_MS = 30_000;
 export const CONDUCTOR_INTERVAL_MS = 30_000;
+
+// Phase 5 (mission c4eb4fcc): throttle the Zen summary heartbeat's per-session work off the
+// every-30s beat. runSessionSummaryTick does a per-session pane-capture + suppression-diagnose
+// sweep (diagnoseClaimSuppression → listReadyTodos/listTodos on the 8MB DB) every beat; Zen cards
+// do not need 30s freshness (a summary is a slow-moving read-model broadcast, and the expensive
+// interpret pass is already gated on a human ACTIVELY viewing Zen). Gate the whole tick to ~2min
+// (first beat on boot always runs, so cards refresh promptly), leaving the summaryTimer's 30s
+// cadence for the cheap overlap check only. Same proven throttle shape as shouldRunReconcilePass.
+export const SUMMARY_HEARTBEAT_INTERVAL_MS = 120_000; // 2 min
+let lastSummaryHeartbeatAt: number | null = null;
+
+/** Throttle gate for the summary heartbeat. Returns true (recording `now`) when the per-session
+ *  summary sweep is due; false while within SUMMARY_HEARTBEAT_INTERVAL_MS. First call always runs
+ *  (boot freshness). `now` injectable for deterministic tests. */
+export function shouldRunSummaryHeartbeat(now: number = Date.now()): boolean {
+  if (lastSummaryHeartbeatAt !== null && now - lastSummaryHeartbeatAt < SUMMARY_HEARTBEAT_INTERVAL_MS) return false;
+  lastSummaryHeartbeatAt = now;
+  return true;
+}
+
+/** Test seam: clear the summary-heartbeat throttle clock. */
+export function _resetSummaryHeartbeatThrottle(): void {
+  lastSummaryHeartbeatAt = null;
+}
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
 // `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
 // tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
@@ -106,8 +134,13 @@ export function withPassTimeout<T>(p: Promise<T>, ms: number, label: string): Pr
  * output), so it runs independently here. Own overlap guard so a slow interpret pass can't
  * stack intervals; bounded by withPassTimeout so a wedged capture can't freeze the loop.
  */
-async function runSummaryGuarded(): Promise<void> {
+async function runSummaryGuarded(deps: { shouldRun?: () => boolean } = {}): Promise<void> {
   if (summaryRunning) return; // previous heartbeat still in flight — skip this beat
+  // Phase 5: throttle the per-session sweep to SUMMARY_HEARTBEAT_INTERVAL_MS. The summaryTimer
+  // still fires every 30s but only this cheap gate check runs between due beats. Checked AFTER the
+  // overlap guard so a skipped-because-running beat doesn't consume the throttle clock.
+  const shouldRun = deps.shouldRun ?? shouldRunSummaryHeartbeat;
+  if (!shouldRun()) return;
   summaryRunning = true;
   try {
     const watchedProjects = () => new Set(listWatchedProjects().map((w) => w.project));
@@ -164,7 +197,10 @@ export async function runConductorGuarded(deps: Pick<TickDeps, 'conductor' | 'wa
 /** Run one tick under the overlap guard, coalescing any kick that arrives mid-tick
  *  (so a todo that becomes ready WHILE a tick runs still gets serviced immediately
  *  after, not 30s later). Shared by the interval and kickOrchestrator(). */
-async function runTickGuarded(): Promise<void> {
+async function runTickGuarded(opts: { force?: boolean } = {}): Promise<void> {
+  // A kick sets force — latch it so it survives an in-flight tick and forces the coalesced
+  // rerun (below) to bypass the build throttle, even if the kick arrived mid-tick.
+  if (opts.force) forceBuildNextTick = true;
   if (tickRunning) {
     rerunRequested = true; // a tick is in flight — ask it to run once more when done
     return;
@@ -179,7 +215,11 @@ async function runTickGuarded(): Promise<void> {
   try {
     do {
       rerunRequested = false;
-      await runOrchestratorTick();
+      // Consume the latch: this iteration bypasses the build throttle iff a kick requested it.
+      // Cleared before the await so a kick landing DURING the pass re-latches for the next rerun.
+      const force = forceBuildNextTick;
+      forceBuildNextTick = false;
+      await runOrchestratorTick({ force });
     } while (rerunRequested); // drain kicks that landed during the pass
   } catch (err) {
     console.warn('[orchestrator] Unhandled tick error:', err);
@@ -204,7 +244,9 @@ export function kickOrchestrator(_reason?: string): void {
   if (kickTimer !== null) return; // already scheduled within the debounce window
   kickTimer = setTimeout(() => {
     kickTimer = null;
-    void runTickGuarded();
+    // force: a kick means a todo became ready — bypass the periodic build throttle so it is
+    // claimed NOW, not on the next 2-min safety-net scan. This is the claim-latency guarantee.
+    void runTickGuarded({ force: true });
   }, KICK_DEBOUNCE_MS);
   (kickTimer as { unref?: () => void }).unref?.();
 }
@@ -239,6 +281,16 @@ export interface TickDeps {
   listProjects?: () => Promise<Array<{ path: string }>>;
   getLevel?: (project: string) => ReturnType<typeof getOrchestratorLevel>;
   build?: (project: string) => Promise<void>;
+  /** Phase 5 throttle gate: returns true (and records the run) when the PERIODIC build
+   *  safety-net scan is due for a project, false while within BUILD_PASS_INTERVAL_MS.
+   *  Bypassed when `force` is set (a kick), so ready-todo claim latency is preserved —
+   *  only the time-based lease/orphan/stall catch-up scan is coarsened. Default:
+   *  shouldRunBuildPass. */
+  shouldRunBuild?: (project: string) => boolean;
+  /** Phase 5: this tick was triggered by a kickOrchestrator event (a todo became ready),
+   *  so BYPASS the periodic build throttle and claim immediately. The interval-driven tick
+   *  leaves this false (throttled safety-net cadence). Threaded from runTickGuarded. */
+  force?: boolean;
   reconcile?: (project: string) => Promise<void>;
   /** Phase 3 throttle gate: returns true (and records the run) when the reconcile
    *  hygiene pass is due for a project, false while within RECONCILE_INTERVAL_MS.
@@ -308,6 +360,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const listProjects = deps.listProjects ?? (() => projectRegistry.list());
   const getLevel = deps.getLevel ?? getOrchestratorLevel;
   const build = deps.build ?? runBuildPass;
+  const shouldRunBuild = deps.shouldRunBuild ?? shouldRunBuildPass;
+  const force = deps.force ?? false;
   const reconcile = deps.reconcile ?? runReconcilePass;
   const shouldRunReconcile = deps.shouldRunReconcile ?? shouldRunReconcilePass;
   const notify = deps.notify ?? runNotificationTick;
@@ -469,7 +523,14 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     const passes = passesForLevel(lvl);
 
-    if (passes.build) {
+    // Phase 5 (mission c4eb4fcc): throttle the PERIODIC build safety-net scan off the every-tick
+    // cadence (at most once per BUILD_PASS_INTERVAL_MS/project). runTick's per-tick lease/orphan/
+    // stall sweep + listReadyTodos claim scan is the LAST every-tick synchronous block on the 8MB
+    // DB. A KICK (force) — fired the instant a todo becomes ready — BYPASSES the gate and claims
+    // immediately, so this coarsens ONLY the time-based safety net, never claim latency. `force ||`
+    // short-circuits so a kicked tick doesn't even consume the gate clock (periodic cadence stays
+    // regular regardless of kicks).
+    if (passes.build && (force || shouldRunBuild(project))) {
       try {
         currentPhase = `${project}:build`;
         await withPassTimeout(build(project), BUILD_PASS_TIMEOUT_MS, `${project}:build`);
@@ -592,6 +653,7 @@ export function stopOrchestrator(): void {
     clearTimeout(kickTimer);
     kickTimer = null;
   }
+  forceBuildNextTick = false; // drop any un-serviced kick's force latch
 }
 
 /** Whether the daemon interval is currently active. */

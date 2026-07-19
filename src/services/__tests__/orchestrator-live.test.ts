@@ -89,6 +89,11 @@ function makeDeps(): TickDeps {
     shouldRunNotify: () => true,
     shouldRunFrictionWatch: () => true,
     shouldRunMissionLoop: () => true,
+    // Phase 5: the PERIODIC build scan is now throttled off the every-tick cadence too. Force
+    // the gate open here so the build wiring assertions hold; the throttle + kick-bypass
+    // (claim-latency) behaviour has its own dedicated tests below. A kicked tick sets force=true
+    // in runTickGuarded, which bypasses this gate entirely.
+    shouldRunBuild: () => true,
     triage: async (project: string, opts: { autoResolve: boolean }) => {
       triageCalls.push(project);
       triageAutoResolve.push({ project, autoResolve: opts.autoResolve });

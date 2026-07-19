@@ -3497,3 +3497,50 @@ export async function runBuildPass(project: string): Promise<void> {
   // WATCHED project regardless of level — so subscribe-and-be-notified works even
   // when autonomous building is off. See orchestrator-live.ts.
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 (mission c4eb4fcc) — throttle the PERIODIC build scan off the every-tick loop.
+//
+// runTick's per-tick work (releaseExpiredClaims, reapDeadClaims/OrphanedLeaves,
+// detectStalls, enforceBudgetCaps, listReadyTodos + claimGuard) is a synchronous
+// bun:sqlite sweep over the whole todos table — the LAST every-tick block still
+// starving the shared HTTP loop after Phase 1–4. But real-time claiming is NOT
+// carried by this periodic scan: a todo becoming `ready` (approve/unheld/dep-terminal/
+// created-approved) fires fireOrchestratorKick → kickOrchestrator, which forces an
+// immediate tick. The periodic scan is therefore a SAFETY NET (lease expiry at the
+// 40-min DEFAULT_LEASE_MS, orphan/stall reap, any missed kick) — correct to run at a
+// coarser cadence, exactly like the reconcile pass (RECONCILE_INTERVAL_MS).
+//
+// So gate the PERIODIC build scan to at most once per BUILD_PASS_INTERVAL_MS per
+// project (same proven shape as shouldRunReconcilePass). A KICK-triggered tick BYPASSES
+// this gate (force=true in runOrchestratorTick), so a ready-todo event still claims
+// immediately — claim latency is preserved. Only the time-based safety-net scan is
+// throttled.
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between PERIODIC build-safety-net scans for a single project. The
+ *  event-driven kick path bypasses this (force), so latency-sensitive claiming is
+ *  unaffected; this only coarsens the lease/orphan/stall catch-up cadence. */
+export const BUILD_PASS_INTERVAL_MS = 120_000; // 2 min
+
+const lastBuildPassMs = new Map<string, number>();
+
+/**
+ * Throttle gate for the PERIODIC build pass. Returns true (and records `now` as the
+ * last run) when the periodic scan is due for `project`; false when a previous run is
+ * still within BUILD_PASS_INTERVAL_MS. First call for a project always runs. `now` is
+ * injectable for deterministic tests. NB: a kicked (force) tick does NOT consult this
+ * gate — it always builds — so this never delays claiming a ready todo.
+ */
+export function shouldRunBuildPass(project: string, now: number = Date.now()): boolean {
+  const last = lastBuildPassMs.get(project);
+  if (last !== undefined && now - last < BUILD_PASS_INTERVAL_MS) return false;
+  lastBuildPassMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project build throttle clock (all projects, or one). */
+export function _resetBuildPassThrottle(project?: string): void {
+  if (project === undefined) lastBuildPassMs.clear();
+  else lastBuildPassMs.delete(project);
+}
