@@ -321,6 +321,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'missionLoopMode', 'missionLoopMode TEXT');
   addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'conductorEnabled', 'conductorEnabled INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'conductorTargetMissionId', 'conductorTargetMissionId TEXT');
   addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectActiveConstraints', 'promptInjectActiveConstraints INTEGER');
   addColumnIfMissing(db, 'watched_project', 'gateShadowMode', 'gateShadowMode INTEGER');
@@ -472,6 +473,23 @@ export function setConductorEnabled(project: string, on: boolean): void {
   const d = openDb();
   d.prepare('UPDATE watched_project SET conductorEnabled = ? WHERE project = ?')
     .run(on ? 1 : 0, project);
+}
+
+/** Per-project conductor target mission. The mission the conductor pass drives for this
+ *  project when the conductor is on — an EXPLICIT pin, distinct from mission.active (which
+ *  cannot disambiguate: multiple missions can be active at once). Unset (null) preserves
+ *  today's first-active-mission behavior. UPDATE-only (like the other per-project setters —
+ *  never auto-watch a project); a project must be watched first. */
+export function getConductorTargetMission(project: string): string | null {
+  const d = openDb();
+  const row = d.query('SELECT conductorTargetMissionId FROM watched_project WHERE project = ?')
+    .get(project) as { conductorTargetMissionId: string | null } | undefined;
+  return row?.conductorTargetMissionId ?? null;
+}
+export function setConductorTargetMission(project: string, missionId: string | null): void {
+  const d = openDb();
+  d.prepare('UPDATE watched_project SET conductorTargetMissionId = ? WHERE project = ?')
+    .run(missionId, project);
 }
 
 /** Per-project retry-context injection flag. Default ON (6d67a801 lesson): unset/NULL reads
