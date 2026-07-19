@@ -118,6 +118,33 @@ describe('missionConstitutionHealth — enforcement teeth', () => {
     const r = await forgeMission(project, { ...base() }); // no handoffDocId
     expect(missionConstitutionHealth(project, r.missionId).flag).toBe('ok');
   });
+
+  test('a PROJECT-LEVEL active constraint credits the mission (removes the hand-rolled false not-injected)', async () => {
+    const { createDecisionRecord, approveDecisionRecord } = await import('../../../services/decision-record-store');
+    const r = await forgeMission(project, { ...base(), handoffDocId: 'doc-1' }); // handoff, zero LINKED constraints
+    expect(missionConstitutionHealth(project, r.missionId).flag).toBe('constitution-not-injected');
+    // A project-level (epicId omitted → null) active constraint NOT linked to this mission. Payload C
+    // injects it into every build node regardless, so the constitution DID reach the builders.
+    const rec = createDecisionRecord(project, { kind: 'constraint', title: 'a project-level rule' });
+    approveDecisionRecord(project, rec.id, 'ben');
+    const h = missionConstitutionHealth(project, r.missionId);
+    expect(h.linkedActiveConstraints).toBe(0);
+    expect(h.projectActiveConstraints).toBeGreaterThan(0);
+    expect(h.flag).toBe('ok');
+  });
+});
+
+describe('get_mission handler resolves a short id for ALL sub-queries (not just the row)', () => {
+  test('a leading-8-hex short todoId returns the SAME criteria/rollup as the full id (regression: was empty)', async () => {
+    const { handleMissionTool } = await import('../../mission-tools');
+    const r = await forgeMission(project, { ...base() }); // 2 criteria
+    const shortId = r.missionId.slice(0, 8);
+    const full = JSON.parse((await handleMissionTool('get_mission', { project, todoId: r.missionId })) as string);
+    const short = JSON.parse((await handleMissionTool('get_mission', { project, todoId: shortId })) as string);
+    expect(full.criteria).toHaveLength(2);
+    expect(short.criteria).toHaveLength(2);            // used to be 0 — sub-queries got the raw short id
+    expect(short.rollup.capability.total).toBe(2);
+  });
 });
 
 describe('forgeMissionFromDoc — server forge node → unapproved mission', () => {

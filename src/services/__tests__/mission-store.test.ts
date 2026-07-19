@@ -287,6 +287,17 @@ describe('mission meta-fixes', () => {
     expect(getMission(project, id)).toBeUndefined(); // control row pruned
     expect(listCriteria(project, id)).toHaveLength(0);
   });
+
+  test('listMissions self-heals: a TERMINAL mission left active=1 is swept inactive', async () => {
+    const { setMissionActive } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
+    upsertMission(project, a);
+    setMissionAbandoned(project, a, Date.now()); // terminal
+    setMissionActive(project, a, true);          // simulate a historical / externally-set stale active=1
+    expect(getMission(project, a)!.active).toBe(true);
+    listMissions(project);                        // the read-path sweep clears terminal-active rows
+    expect(getMission(project, a)!.active).toBe(false);
+  });
 });
 
 describe('updateCriterionText', () => {

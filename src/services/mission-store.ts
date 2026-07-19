@@ -835,8 +835,16 @@ export function listMissions(project: string, opts: { session?: string } = {}): 
   pruneOrphanMissions(project, new Set(roots.map((t) => t.id)));
   const out: MissionSummary[] = [];
   for (const node of roots) {
-    const mission = getMission(project, node.id);
+    let mission = getMission(project, node.id);
     if (!mission) continue; // a mission-kind node without control state — not a real mission
+    // Self-heal: a TERMINAL mission (converged/abandoned) must not linger active=1. The transition
+    // setters (setMissionAbandoned / criterion setters) clear it going forward; this sweep also
+    // catches historical rows and any active flip set outside those paths, since a stale active pads
+    // first-wins conductor selection and lights the UI ● active badge. One write per mission, then inert.
+    if (mission.active && isMissionTerminal(mission)) {
+      setMissionActive(project, node.id, false);
+      mission = { ...mission, active: false };
+    }
     if (opts.session && node.ownerSession !== opts.session && node.assigneeSession !== opts.session) {
       continue; // session-scoped filter (mission↔session tie)
     }
