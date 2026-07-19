@@ -17,6 +17,7 @@ import { WatchAggregator } from './watch-aggregator';
 import { crossServerCall, validateWatchEvent } from './remote-boundary';
 import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main';
 import { installLinuxAutostart } from './linux-autostart';
+import { deriveCdpPort } from '../../../src/services/project-registry';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -554,7 +555,10 @@ async function bootstrap(): Promise<void> {
   // a known endpoint); otherwise a free port is chosen. MC_INSPECT exposes the
   // Node main process to the inspector (e.g. MC_INSPECT=9229). Both are opt-in —
   // normal launches are unaffected.
-  const cdpPort = await enableCdp(app, { port: process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : undefined });
+  const projectSeed = process.env.MC_REPO_ROOT ?? join(app.getAppPath(), '..');
+  const cdpPort = await enableCdp(app, {
+    port: process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : deriveCdpPort(projectSeed),
+  });
   if (process.env.MC_INSPECT) app.commandLine.appendSwitch('inspect', process.env.MC_INSPECT);
   // MC_GL controls the GL backend (opt-in). Useful in remote-desktop sessions
   // (e.g. xrdp) where the X server exposes no hardware GLX, so hardware GL init

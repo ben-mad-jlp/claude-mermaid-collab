@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { mkdirSync } from 'fs';
 import { getConfiguredPort } from './services/config-file.ts';
+import { deriveCdpPort } from './services/project-registry.js';
 
 // Get the directory where this module lives (src/)
 // Go up one level to reach the project root where public/ is located
@@ -157,14 +158,20 @@ export const STEWARD_SESSION = process.env.MERMAID_STEWARD_SESSION ?? 'steward';
 
 /**
  * CDP (Chrome DevTools Protocol) port the browser tools connect to.
- * Defaults to 9333. Settable via the CDP_PORT env var so the Electron-spawned
- * sidecar can point at the app's own --remote-debugging-port. Falls back to
- * 9333 if the env value is not a valid number. The server-owned Chrome
+ * Defaults to a deterministic port derived from MERMAID_PROJECT (see
+ * deriveCdpPort in project-registry.ts) so two same-user instances for
+ * different projects land on different default ports without colliding.
+ * Settable via the CDP_PORT env var so the Electron-spawned sidecar can
+ * point at the app's own --remote-debugging-port. The server-owned Chrome
  * (streamed-panel / owned-chrome) is spawned with this same --remote-debugging-port.
  */
 export const CDP_PORT = (() => {
-  const v = Number(process.env.CDP_PORT ?? '9333');
-  return Number.isNaN(v) ? 9333 : v;
+  const envVal = process.env.CDP_PORT;
+  if (envVal !== undefined) {
+    const v = Number(envVal);
+    if (!Number.isNaN(v)) return v;
+  }
+  return deriveCdpPort(MERMAID_PROJECT);
 })();
 
 /**
