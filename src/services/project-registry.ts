@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import * as fs from 'fs';
 import { join, isAbsolute, basename } from 'path';
 import { homedir } from 'os';
+import { createHash } from 'crypto';
 
 export interface Project {
   path: string;       // Absolute path (primary key)
@@ -37,6 +38,23 @@ export function isTransientProjectPath(path: string): boolean {
 export function trackingProjectRoot(path: string): string {
   const m = path.match(/^(.*?)[/\\]\.collab[/\\]agent-sessions[/\\]/);
   return m ? m[1] : path;
+}
+
+/** First 8 hex chars of sha256(s). Shared by tabRegistryKey and CDP-port derivation. */
+export function hash8(s: string): string {
+  return createHash('sha256').update(s).digest('hex').slice(0, 8);
+}
+
+/**
+ * Deterministic per-project CDP port in [20000, 29999), derived from the
+ * project root so two same-user instances for different projects land on
+ * different default ports without needing a live collision check. Still
+ * overridable via the CDP_PORT env var (see config.ts).
+ */
+export function deriveCdpPort(project: string): number {
+  const root = trackingProjectRoot(project);
+  const n = parseInt(hash8(root), 16);
+  return 20000 + (n % 10000);
 }
 
 export class ProjectRegistry {
