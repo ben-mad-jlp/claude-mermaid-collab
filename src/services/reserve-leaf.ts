@@ -22,6 +22,7 @@ import { queryLedger } from './worker-ledger';
 import { RUN_GAP_MS } from './ledger-stats';
 import { createTodo, updateTodo, getTodo, openDb, type Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
+import { recordAutonomousMutation } from './autonomy-log';
 
 /** Hard cap: a leaf lineage is re-cut to a fresh id at most this many times, then escalated. */
 export const RESERVE_CAP = 2;
@@ -188,6 +189,17 @@ export async function reserveLeaf(
         `itself needs human attention (rescope, split, or abandon).`,
       operatorGated: true,
     });
+    // B6 observability — fail-open: a throw in the recorder must NEVER break the reserve path.
+    try {
+      recordAutonomousMutation({
+        kind: 'reserve-leaf',
+        actor: opts.actor,
+        reason: `cap-exhausted:${opts.reason}`,
+        project,
+        detail: oldId,
+        at: Date.now(),
+      });
+    } catch { /* fail-open */ }
     return {
       escalated: true,
       reason: 'cap-exhausted',
@@ -234,6 +246,18 @@ export async function reserveLeaf(
   // Abandon the old todo (status 'dropped') so VERIFY/rollups don't double-count the
   // superseded lineage. force:true releases any lingering claim on the poisoned leaf.
   await updateTodo(project, oldId, { status: 'dropped', force: true });
+
+  // B6 observability — fail-open: a throw in the recorder must NEVER break the reserve path.
+  try {
+    recordAutonomousMutation({
+      kind: 'reserve-leaf',
+      actor: opts.actor,
+      reason: opts.reason,
+      project,
+      detail: `${oldId}→${clone.id}`,
+      at: Date.now(),
+    });
+  } catch { /* fail-open */ }
 
   return { reserved: clone.id, reason: 'reserved', supersededTodoId: oldId };
 }

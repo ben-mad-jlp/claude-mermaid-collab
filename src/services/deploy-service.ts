@@ -29,6 +29,15 @@ import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
 import { listLeafInflight, reapStaleInflight } from './worker-ledger';
 import { treeStatus } from './tree-integrity';
+import { recordAutonomousMutation } from './autonomy-log';
+
+/** B6 observability — record a deploy-gate refusal, fail-open (a throw here must never
+ *  turn a safe refusal into an unsafe deploy or crash the gate). */
+function recordDeployRefusal(project: string, reason: DeploySafetyRefusal): void {
+  try {
+    recordAutonomousMutation({ kind: 'deploy-refusal', actor: 'deploy-gate', reason, project, at: Date.now() });
+  } catch { /* fail-open */ }
+}
 
 /**
  * Directory the deploy script + this service share for logs and the outcome
@@ -222,18 +231,25 @@ export function deploySafetyGate(
   if (!opts.force) {
     reap();
     const live = inflight(project);
-    if (live.length > 0) return { ok: false, reason: 'leaves-in-flight', inflightLeaves: live.map((r) => r.leafId) };
+    if (live.length > 0) {
+      recordDeployRefusal(project, 'leaves-in-flight');
+      return { ok: false, reason: 'leaves-in-flight', inflightLeaves: live.map((r) => r.leafId) };
+    }
   }
 
   const st = tree(project);
   if (st.resolved && !st.match) {
     console.error(`[deploy] refused — working tree does not match HEAD\n  write-tree   ${st.workTree}\n  HEAD^{tree}  ${st.headTree}`);
+    recordDeployRefusal(project, 'tree-does-not-match-head');
     return { ok: false, reason: 'tree-does-not-match-head' };
   }
 
   let midLand = true; // fail CLOSED if the probe throws (deploying is the exceptional act)
   try { midLand = epicMidLand(project); } catch { midLand = true; }
-  if (midLand) return { ok: false, reason: 'epic-mid-land' };
+  if (midLand) {
+    recordDeployRefusal(project, 'epic-mid-land');
+    return { ok: false, reason: 'epic-mid-land' };
+  }
 
   return { ok: true };
 }

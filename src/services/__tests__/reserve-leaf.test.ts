@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { createTodo, getTodo, listTodos, _closeProject } from '../todo-store';
 import { recordNode, _closeLedgerDb } from '../worker-ledger';
 import { isPoisonLooped, reserveLeaf, RESERVE_CAP } from '../reserve-leaf';
+import { recentAutonomousMutations, _resetAutonomyLog } from '../autonomy-log';
 
 let project: string;
 
@@ -119,6 +120,53 @@ describe('reserveLeaf', () => {
     // No THIRD id was minted — only the old + the one clone exist as leaves.
     const leaves = listTodos(project, { includeCompleted: true }).filter((t) => t.kind === 'leaf');
     expect(leaves.length).toBe(2);
+  });
+
+  test('B6: the reserved path records a reserve-leaf autonomy-log entry (fail-open)', async () => {
+    _resetAutonomyLog();
+    const leaf = await makeLeaf();
+    recordRejectedRun(leaf, 'PLAN-A', 0);
+    recordRejectedRun(leaf, 'PLAN-A', 1);
+
+    const res = await reserveLeaf(project, leaf, { actor: 'conductor:test', reason: 'poison-loop' });
+    expect(res.reason).toBe('reserved');
+
+    const entries = recentAutonomousMutations({ project });
+    const rec = entries.find((e) => e.kind === 'reserve-leaf');
+    expect(rec).toBeTruthy();
+    expect(rec!.actor).toBe('conductor:test');
+    expect(rec!.reason).toBe('poison-loop');
+    expect(rec!.detail).toBe(`${leaf}→${res.reserved}`);
+    _resetAutonomyLog();
+  });
+
+  test('B6: the cap-exhausted path records a cap-exhausted autonomy-log entry', async () => {
+    _resetAutonomyLog();
+    let currentId = await makeLeaf();
+    recordRejectedRun(currentId, 'B0', 0);
+    recordRejectedRun(currentId, 'B0', 1);
+    currentId = (await reserveLeaf(project, currentId, { actor: 'c', reason: 'r' })).reserved!;
+    recordRejectedRun(currentId, 'B1', 0);
+    recordRejectedRun(currentId, 'B1', 1);
+    currentId = (await reserveLeaf(project, currentId, { actor: 'c', reason: 'r' })).reserved!;
+    recordRejectedRun(currentId, 'B2', 0);
+    recordRejectedRun(currentId, 'B2', 1);
+
+    // Inject the escalation seam (like the sibling cap test) so this stays deterministic and
+    // does not open a second real supervisor DB in the same run.
+    const res = await reserveLeaf(
+      project, currentId, { actor: 'conductor:x', reason: 'poison' },
+      { createEscalation: (input) => ({ escalation: { id: 'esc-b6', ...input } as never, isNew: true }) },
+    );
+    expect(res.reason).toBe('cap-exhausted');
+
+    const entries = recentAutonomousMutations({ project });
+    const rec = entries.find((e) => e.reason.startsWith('cap-exhausted'));
+    expect(rec).toBeTruthy();
+    expect(rec!.kind).toBe('reserve-leaf');
+    expect(rec!.actor).toBe('conductor:x');
+    expect(rec!.reason).toBe('cap-exhausted:poison');
+    _resetAutonomyLog();
   });
 
   test('CHANGED blueprint → no-op (not-poisoned)', async () => {
