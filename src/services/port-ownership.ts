@@ -58,20 +58,30 @@ export interface HandshakeResult {
   holder?: ServerIdentity | null;
 }
 
-/** Resolve the runtime lock directory: $XDG_RUNTIME_DIR (tmpfs, self-clearing) → tmpdir() fallback (macOS). */
-export function lockDir(env: NodeJS.ProcessEnv = process.env): string {
-  const base = env.XDG_RUNTIME_DIR && env.XDG_RUNTIME_DIR.trim() ? env.XDG_RUNTIME_DIR : os.tmpdir();
-  return path.join(base, 'mermaid-collab');
+/** The POSIX uid of this process, or 'nouid' on platforms without getuid (e.g. Windows). */
+function runUid(): string {
+  return typeof process.getuid === 'function' ? String(process.getuid()) : 'nouid';
 }
 
-/** Path to the canonical ownership lockfile. */
-export function lockPath(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(lockDir(env), 'server.lock');
+/** Resolve the per-user runtime lock directory: $XDG_RUNTIME_DIR (tmpfs, self-clearing) → tmpdir() fallback (macOS). */
+export function lockDir(env: NodeJS.ProcessEnv = process.env): string {
+  const base = env.XDG_RUNTIME_DIR && env.XDG_RUNTIME_DIR.trim() ? env.XDG_RUNTIME_DIR : os.tmpdir();
+  return path.join(base, `mermaid-collab-${runUid()}`);
+}
+
+/** Path to the port-scoped ownership lockfile. */
+export function lockPath(port: number, env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(lockDir(env), `server-${port}.lock`);
 }
 
 /** Path to the short-lived takeover mutex (serializes concurrent take-overs — risk #1). */
-export function takeoverMutexPath(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(lockDir(env), 'server.takeover.lock');
+export function takeoverMutexPath(port: number, env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(lockDir(env), `server-${port}.takeover.lock`);
+}
+
+/** Path to the port-scoped pidfile. */
+export function pidPath(port: number, env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(lockDir(env), `server-${port}.pid`);
 }
 
 /**
@@ -115,7 +125,7 @@ export function serverOwner(env: NodeJS.ProcessEnv = process.env): string {
  */
 export function acquireExclusive(filePath: string, contents: string): boolean {
   try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
     const fd = fs.openSync(filePath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
     try {
       fs.writeSync(fd, contents);
@@ -142,11 +152,12 @@ export const TAKEOVER_MUTEX_TTL_MS = 10 * 60 * 1000;
  * A fresh file means a concurrent takeover is genuinely in progress → false.
  */
 export function acquireTakeoverMutex(
+  port: number,
   env: NodeJS.ProcessEnv,
   contents: string,
   ttlMs: number = TAKEOVER_MUTEX_TTL_MS,
 ): boolean {
-  const p = takeoverMutexPath(env);
+  const p = takeoverMutexPath(port, env);
   if (acquireExclusive(p, contents)) return true;
   try {
     const stat = fs.statSync(p);
@@ -162,15 +173,15 @@ export function acquireTakeoverMutex(
 
 /** Write (or overwrite) the canonical ownership lockfile. Called by the server on a successful bind. */
 export function writeLock(data: LockData, env: NodeJS.ProcessEnv = process.env): void {
-  const p = lockPath(env);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const p = lockPath(data.port, env);
+  fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
   fs.writeFileSync(p, JSON.stringify(data), { mode: 0o600 });
 }
 
 /** Read and parse the ownership lockfile, or null if absent/corrupt. */
-export function readLock(env: NodeJS.ProcessEnv = process.env): LockData | null {
+export function readLock(port: number = getConfiguredPort(), env: NodeJS.ProcessEnv = process.env): LockData | null {
   try {
-    const raw = fs.readFileSync(lockPath(env), 'utf8');
+    const raw = fs.readFileSync(lockPath(port, env), 'utf8');
     const parsed = JSON.parse(raw) as LockData;
     if (typeof parsed.pid === 'number' && typeof parsed.port === 'number') return parsed;
   } catch {
@@ -180,10 +191,27 @@ export function readLock(env: NodeJS.ProcessEnv = process.env): LockData | null 
 }
 
 /** Remove the ownership lockfile iff it still records our pid (best-effort, on shutdown). */
-export function releaseLock(pid: number = process.pid, env: NodeJS.ProcessEnv = process.env): void {
+export function releaseLock(port: number, pid: number = process.pid, env: NodeJS.ProcessEnv = process.env): void {
   try {
-    const lock = readLock(env);
-    if (lock && lock.pid === pid) fs.unlinkSync(lockPath(env));
+    const lock = readLock(port, env);
+    if (lock && lock.pid === pid) fs.unlinkSync(lockPath(port, env));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Write (or overwrite) the port-scoped pidfile. Paired with writeLock on a successful bind. */
+export function writePidFile(port: number, pid: number = process.pid, env: NodeJS.ProcessEnv = process.env): void {
+  const p = pidPath(port, env);
+  fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(p, String(pid), { mode: 0o600 });
+}
+
+/** Remove the pidfile iff it still records our pid (best-effort, on shutdown). */
+export function removePidFile(port: number, pid: number = process.pid, env: NodeJS.ProcessEnv = process.env): void {
+  try {
+    const raw = fs.readFileSync(pidPath(port, env), 'utf8');
+    if (parseInt(raw.trim(), 10) === pid) fs.unlinkSync(pidPath(port, env));
   } catch {
     /* best-effort */
   }
@@ -328,8 +356,8 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   const termGraceMs = deps.termGraceMs ?? 5000;
   const portFreeTimeoutMs = deps.portFreeTimeoutMs ?? 8000;
 
-  const lock = readLock(env);
-  const port = deps.port ?? lock?.port ?? getConfiguredPort();
+  const port = deps.port ?? getConfiguredPort();
+  const lock = readLock(port, env);
 
   const inUse = await portInUse(port, host);
 
@@ -338,7 +366,7 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
     const claim = JSON.stringify({
       pid: process.pid, exePath: self.exePath, version: self.version, port, owner: self.owner,
     });
-    if (acquireExclusive(lockPath(env), claim)) {
+    if (acquireExclusive(lockPath(port, env), claim)) {
       return { action: 'proceed', reason: 'port-free-claimed', holder: null };
     }
     // A lockfile already exists but the port is FREE → its recorded owner isn't
@@ -347,8 +375,8 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
     if (lock && isPidAlive(lock.pid)) {
       return { action: 'defer', reason: 'claim-lost-to-concurrent-starter', holder: null };
     }
-    try { fs.unlinkSync(lockPath(env)); } catch { /* raced away */ }
-    if (acquireExclusive(lockPath(env), claim)) {
+    try { fs.unlinkSync(lockPath(port, env)); } catch { /* raced away */ }
+    if (acquireExclusive(lockPath(port, env), claim)) {
       return { action: 'proceed', reason: 'reclaimed-stale-lock', holder: null };
     }
     return { action: 'defer', reason: 'claim-lost-to-concurrent-starter', holder: null };
@@ -367,11 +395,11 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
         return { action: 'refuse', reason: 'foreign-process-eperm', holder: null };
       }
       try {
-        acquireTakeoverMutex(env, String(process.pid));
+        acquireTakeoverMutex(port, env, String(process.pid));
         return { action: 'proceed', reason: 'evicted-dead-own-holder', holder: null };
       } finally {
         try {
-          fs.unlinkSync(takeoverMutexPath(env));
+          fs.unlinkSync(takeoverMutexPath(port, env));
         } catch {
           /* best-effort */
         }
@@ -406,7 +434,7 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   }
 
   // Serialize concurrent take-overs with the O_EXCL mutex BEFORE killing (risk #1).
-  if (!acquireTakeoverMutex(env, String(process.pid))) {
+  if (!acquireTakeoverMutex(port, env, String(process.pid))) {
     // Another starter is taking over — defer to the owner it will install.
     return { action: 'defer', reason: 'takeover-in-progress-elsewhere', holder };
   }
@@ -424,7 +452,7 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
     return { action: 'proceed', reason: 'took-over-stale-holder', holder };
   } finally {
     try {
-      fs.unlinkSync(takeoverMutexPath(env));
+      fs.unlinkSync(takeoverMutexPath(port, env));
     } catch {
       /* best-effort */
     }
