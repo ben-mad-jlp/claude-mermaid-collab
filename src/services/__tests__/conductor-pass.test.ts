@@ -9,7 +9,7 @@ const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, createEscalation } from '../supervisor-store';
+import { addWatchedProject, setConductorEnabled, createEscalation, getConductorTargetMission, setConductorTargetMission } from '../supervisor-store';
 import { getMission, _resetMissionDbCache } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
@@ -101,6 +101,64 @@ describe('runConductorPass — scheduling', () => {
     expect(r.ran).toBe(false);
     expect(r.reason).toBe('no-actionable-mission');
     expect(invokeCalls).toBe(0);
+  });
+});
+
+describe('runConductorPass — target pin', () => {
+  test('pin swaps which mission is driven', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const first = await forgeApprovedActive();
+    const second = await forgeMission(project, { session: 's1', title: 'Second mission to drive', criteria: ['a second correct leaf is accepted'] });
+
+    setConductorTargetMission(project, second.missionId);
+    const r1 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r1.ran).toBe(true);
+    expect(r1.reason).toBe('conducted');
+    expect(r1.missionId).toBe(second.missionId);
+
+    setConductorTargetMission(project, first.missionId);
+    const r2 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r2.ran).toBe(true);
+    expect(r2.reason).toBe('conducted');
+    expect(r2.missionId).toBe(first.missionId);
+  });
+
+  test('unpinned single mission still uses first-active', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted');
+    expect(r.missionId).toBe(forged.missionId);
+  });
+
+  test('pin an awaiting-approval mission while another actionable mission exists ⇒ target-not-actionable, never falls back', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    const unapproved = await forgeMission(project, { session: 's1', title: 'pending pin target', criteria: ['c'], approved: false });
+
+    setConductorTargetMission(project, unapproved.missionId);
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('target-not-actionable');
+    expect(r.missionId).toBe(unapproved.missionId);
+    expect(invokeCalls).toBe(0);
+  });
+
+  test('pin a missing mission clears it lazily', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+
+    setConductorTargetMission(project, 'deadbeef-0000-0000-0000-000000000000');
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('target-cleared');
+    expect(invokeCalls).toBe(0);
+    expect(getConductorTargetMission(project)).toBe(null);
   });
 });
 
