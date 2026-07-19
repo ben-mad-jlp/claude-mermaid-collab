@@ -115,6 +115,7 @@ export interface DeployRequestResult {
     | 'deploy-script-missing'
     | 'leaves-in-flight'
     | 'tree-does-not-match-head'
+    | 'epic-mid-land'
     | 'spawn-failed';
   /** Absolute path to the deploy log (tail this to watch progress), when started. */
   logPath?: string;
@@ -178,6 +179,65 @@ export function selfDeployEligibility(project: string): DeployEligibility {
   return { eligible: true, reason: 'ok' };
 }
 
+/** A live-read precondition failure that makes a self-deploy unsafe (B2, fail-closed). */
+export type DeploySafetyRefusal = 'leaves-in-flight' | 'tree-does-not-match-head' | 'epic-mid-land';
+
+export type DeploySafetyResult =
+  | { ok: true }
+  | { ok: false; reason: DeploySafetyRefusal; inflightLeaves?: string[] };
+
+export interface DeploySafetyDeps {
+  reap?: () => void;
+  inflight?: (project: string) => Array<{ leafId: string }>;
+  tree?: (project: string) => ReturnType<typeof treeStatus>;
+  epicMidLand?: (project: string) => boolean;
+}
+
+/** True iff a git merge is in progress in the checkout (`.git/MERGE_HEAD` present) — i.e. master is
+ *  mid-land and in flux. Cheap fs probe; the self-deploy runs on the main checkout. */
+export function isEpicMidLand(project: string): boolean {
+  return existsSync(join(project, '.git', 'MERGE_HEAD'));
+}
+
+/** B2 — fail-CLOSED deploy safety gate. RE-READS live state at the decision point (never a stale
+ *  briefing) and refuses unless EVERY precondition holds, naming the exact failing one:
+ *   - no leaf in flight (reapStaleInflight drops phantom rows first) — a deploy hard-kills the sidecar
+ *     and orphans a live leaf. This is the courtesy check `force` may bypass.
+ *   - the working tree matches HEAD (git write-tree vs HEAD^{tree}) — never deploy a dirty/rolled-back
+ *     tree (the land_epic_clobbers_working_tree P0). HARD safety — `force` never bypasses it.
+ *   - no epic mid-land (no in-progress merge — master in flux). HARD safety.
+ *  master-green is NOT re-checked here: the land pipeline verifies green before every land, so a
+ *  landed master is green by construction; re-running tsc/tests would cost minutes for no added
+ *  safety. Pure over injected reads (deps) so each precondition is unit-testable. */
+export function deploySafetyGate(
+  project: string,
+  deps: DeploySafetyDeps = {},
+  opts: { force?: boolean } = {},
+): DeploySafetyResult {
+  const reap = deps.reap ?? reapStaleInflight;
+  const inflight = deps.inflight ?? ((p: string) => listLeafInflight({ project: p }));
+  const tree = deps.tree ?? treeStatus;
+  const epicMidLand = deps.epicMidLand ?? isEpicMidLand;
+
+  if (!opts.force) {
+    reap();
+    const live = inflight(project);
+    if (live.length > 0) return { ok: false, reason: 'leaves-in-flight', inflightLeaves: live.map((r) => r.leafId) };
+  }
+
+  const st = tree(project);
+  if (st.resolved && !st.match) {
+    console.error(`[deploy] refused — working tree does not match HEAD\n  write-tree   ${st.workTree}\n  HEAD^{tree}  ${st.headTree}`);
+    return { ok: false, reason: 'tree-does-not-match-head' };
+  }
+
+  let midLand = true; // fail CLOSED if the probe throws (deploying is the exceptional act)
+  try { midLand = epicMidLand(project); } catch { midLand = true; }
+  if (midLand) return { ok: false, reason: 'epic-mid-land' };
+
+  return { ok: true };
+}
+
 export function requestSelfDeploy(
   project: string,
   opts: { force?: boolean } = {},
@@ -186,29 +246,10 @@ export function requestSelfDeploy(
   if (!gate.eligible) {
     return { ok: false, started: false, reason: gate.reason as DeployRequestResult['reason'] };
   }
-  // Refuse-while-building guard (leaf-phase-checkpoint-design, slice 1): a deploy
-  // hard-kills the sidecar (and with it any in-flight leaf executor), wasting the
-  // 4.5min blueprint / 2.5min implement already spent — and orphaning the claim
-  // until its lease expires. Until reattach-on-resume exists, the safe default is
-  // to NOT deploy while a leaf is mid-flight. reapStaleInflight() first drops
-  // phantom rows from any prior-process death, so what remains is genuinely live.
-  if (!opts.force) {
-    reapStaleInflight();
-    const inflight = listLeafInflight({ project });
-    if (inflight.length > 0) {
-      return {
-        ok: false,
-        started: false,
-        reason: 'leaves-in-flight',
-        inflightLeaves: inflight.map((r) => r.leafId),
-      };
-    }
-  }
-
-  const st = treeStatus(project);
-  if (st.resolved && !st.match) {
-    console.error(`[deploy] refused — working tree does not match HEAD\n  write-tree   ${st.workTree}\n  HEAD^{tree}  ${st.headTree}`);
-    return { ok: false, started: false, reason: 'tree-does-not-match-head' };
+  // B2 — fail-closed live-read safety gate (refuse-while-building + tree-match + no-epic-mid-land).
+  const safety = deploySafetyGate(project, {}, { force: opts.force });
+  if (!safety.ok) {
+    return { ok: false, started: false, reason: safety.reason, inflightLeaves: safety.inflightLeaves };
   }
 
   const scriptPath = join(project, DEPLOY_SCRIPT_REL);
