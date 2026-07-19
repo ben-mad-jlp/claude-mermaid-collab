@@ -81,4 +81,9 @@ describe('conductor targetMissionId round-trip', () => {
     const res = await call('POST', '/api/supervisor/conductor', { project: PROJECT });
     expect(res!.status).toBe(400);
   });
+
+  it('GET includes lastPass, null before any runConductorPass tick', async () => {
+    const get = await call('GET', `/api/supervisor/conductor?project=${encodeURIComponent(PROJECT)}`);
+    expect((await get!.json() as any).lastPass).toBeNull();
+  });
 });
