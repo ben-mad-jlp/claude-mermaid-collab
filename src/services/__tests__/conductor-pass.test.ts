@@ -10,7 +10,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, getConductorTargetMission, setConductorTargetMission } from '../supervisor-store';
-import { getMission, _resetMissionDbCache } from '../mission-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
@@ -160,6 +160,33 @@ describe('runConductorPass — target pin', () => {
     expect(invokeCalls).toBe(0);
     expect(getConductorTargetMission(project)).toBe(null);
   });
+
+  test.each(['converged', 'abandoned'] as const)(
+    'pinning a %s mission clears the pin and drives nothing (not even the other actionable mission)',
+    async (terminalStatus) => {
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      // A second, actionable mission that MUST NOT be driven as a fallback.
+      const fallback = await forgeApprovedActive();
+      const target = await forgeMission(project, { session: 's1', title: 'Pin target going terminal', criteria: ['a terminal-status criterion'] });
+
+      if (terminalStatus === 'converged') {
+        const crit = listCriteria(project, target.missionId)[0];
+        setCriterionMet(project, crit.id, true);
+      } else {
+        setMissionAbandoned(project, target.missionId, 1);
+      }
+      expect(getMission(project, target.missionId)?.status).toBe(terminalStatus);
+
+      setConductorTargetMission(project, target.missionId);
+      const r = await runConductorPass(project, { invoke: okInvoke });
+      expect(r.ran).toBe(false);
+      expect(r.reason).toBe('target-cleared');
+      expect(invokeCalls).toBe(0);
+      expect(getConductorTargetMission(project)).toBe(null);
+      void fallback;
+    },
+  );
 });
 
 describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
