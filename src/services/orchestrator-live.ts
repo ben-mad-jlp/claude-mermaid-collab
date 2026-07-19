@@ -40,12 +40,15 @@ import { registerOrchestratorKick } from './orchestrator-kick.js';
 let timer: ReturnType<typeof setInterval> | null = null;
 let summaryTimer: ReturnType<typeof setInterval> | null = null;
 let summaryRunning = false; // overlap guard for the independent summary loop
+let conductorTimer: ReturnType<typeof setInterval> | null = null;
+let conductorRunning = false; // overlap guard for the independent conductor loop (B0)
 let tickRunning = false;
 let rerunRequested = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
 const SUMMARY_INTERVAL_MS = 30_000;
+const CONDUCTOR_INTERVAL_MS = 30_000;
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
 // `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
 // tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
@@ -117,6 +120,34 @@ async function runSummaryGuarded(): Promise<void> {
     console.warn('[orchestrator] session summary heartbeat failed:', err);
   } finally {
     summaryRunning = false;
+  }
+}
+
+/** B0 — independent CONDUCTOR heartbeat, decoupled from the serial build tick so a slow
+ *  reconcile/build pass can never starve mission-driving (the ~15min conductor starvation of
+ *  2026-07-18). Iterates WATCHED projects and runs the conductor pass for each; the pass self-gates
+ *  on its per-project toggle + debounce, so this is a cheap no-op unless a mission is actionable.
+ *  Own overlap guard (conductorRunning) — mirrors runSummaryGuarded; it does NOT read tickRunning,
+ *  which is exactly why the build tick can't block it. Exported for the saturation test. */
+export async function runConductorGuarded(deps: Pick<TickDeps, 'conductor' | 'watchedProjects'> = {}): Promise<void> {
+  if (conductorRunning) return; // previous conductor beat still in flight — skip this beat
+  conductorRunning = true;
+  try {
+    const conductor = deps.conductor ?? runConductorPass;
+    const watched = (deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project))))();
+    for (const project of watched) {
+      try {
+        // A conductor node can take a while, so it gets the build-pass timeout — but on ITS OWN
+        // loop, so that latency never delays the build tick (or vice-versa).
+        await withPassTimeout(conductor(project), BUILD_PASS_TIMEOUT_MS, `${project}:conductor`);
+      } catch (err) {
+        console.warn(`[orchestrator] conductor pass failed for ${project}:`, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[orchestrator] conductor heartbeat failed:', err);
+  } finally {
+    conductorRunning = false;
   }
 }
 
@@ -246,7 +277,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? runMissionLoopPass;
-  const conductor = deps.conductor ?? runConductorPass;
+  // NB: the conductor pass no longer runs in this serial tick — it moved to its own decoupled loop
+  // (runConductorGuarded / conductorTimer, B0). deps.conductor is consumed there.
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve, autoResolveScope: opts.autoResolveScope }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
@@ -351,17 +383,9 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       }
     }
 
-    // AUTONOMOUS CONDUCTOR (Phase 2): self-gates on the per-project conductor toggle (default OFF)
-    // + debounce, so it's a cheap no-op unless explicitly enabled and the mission state moved. Runs
-    // for WATCHED projects; a conductor node can take a while, so it gets the build-pass timeout.
-    if (watched.has(project)) {
-      try {
-        currentPhase = `${project}:conductor`;
-        await withPassTimeout(conductor(project), BUILD_PASS_TIMEOUT_MS, `${project}:conductor`);
-      } catch (err) {
-        console.warn(`[orchestrator] conductor pass failed for ${project}:`, err);
-      }
-    }
+    // AUTONOMOUS CONDUCTOR: moved OFF this serial tick onto its own decoupled loop
+    // (runConductorGuarded / conductorTimer, B0) so a slow reconcile/build pass can never starve
+    // mission-driving. See startOrchestrator.
 
     if (lvl === 'off') continue; // includes anything the sweep above just forced off
 
@@ -451,6 +475,15 @@ export function startOrchestrator(intervalMs = 30_000): void {
     summaryTimer = st;
   }
 
+  // B0 — independent conductor heartbeat, decoupled from the build tick so a long reconcile/build
+  // can never starve mission-driving. Own overlap guard (see runConductorGuarded). Idempotent.
+  if (conductorTimer === null) {
+    void runConductorGuarded();
+    const ct = setInterval(() => { void runConductorGuarded(); }, CONDUCTOR_INTERVAL_MS);
+    (ct as { unref?: () => void }).unref?.();
+    conductorTimer = ct;
+  }
+
   // Event-driven claim path: the todo-store fires this when a todo becomes ready, so
   // we tick within KICK_DEBOUNCE_MS instead of waiting for the interval.
   registerOrchestratorKick((reason) => kickOrchestrator(reason));
@@ -464,6 +497,10 @@ export function stopOrchestrator(): void {
   if (summaryTimer !== null) {
     clearInterval(summaryTimer);
     summaryTimer = null;
+  }
+  if (conductorTimer !== null) {
+    clearInterval(conductorTimer);
+    conductorTimer = null;
   }
   // Drop any kick scheduled within the debounce window so it can't tick after stop
   // (kickOrchestrator already no-ops new kicks once timer is null).
