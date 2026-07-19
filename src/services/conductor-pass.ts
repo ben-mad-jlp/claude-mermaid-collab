@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, listOpenEscalations } from './supervisor-store.js';
+import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -80,7 +80,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'no-actionable-mission' | 'building-wait' | 'debounced' | 'conducted' | 'node-failed';
+  reason: 'conductor-disabled' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'debounced' | 'conducted' | 'node-failed';
   missionId?: string;
   modelUsed?: string;
 }
@@ -93,16 +93,37 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
 
   // The approved + active, non-terminal, actionable mission. (One active mission per session; drive
   // the first that qualifies.) getMission gives the authoritative derived status + awaitingApprovalSince.
+  const pin = getConductorTargetMission(project);
   let target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } | undefined;
-  for (const summary of listMissions(project).filter((m) => m.mission.active)) {
-    const row = getMission(project, summary.node.id);
-    if (row && row.awaitingApprovalSince == null && row.status != null &&
-        !['unapproved', 'abandoned', 'converged'].includes(row.status)) {
-      target = { summary, row };
-      break;
+
+  if (pin == null) {
+    // No pin: back-compat first-active+actionable selection (unchanged behavior).
+    for (const summary of listMissions(project).filter((m) => m.mission.active)) {
+      const row = getMission(project, summary.node.id);
+      if (row && row.awaitingApprovalSince == null && row.status != null &&
+          !['unapproved', 'abandoned', 'converged'].includes(row.status)) {
+        target = { summary, row };
+        break;
+      }
     }
+    if (!target) return { ran: false, reason: 'no-actionable-mission' };
+  } else {
+    // Pinned: resolve EXACTLY that mission (getMission handles short-id resolution). Never fall
+    // back to a different mission — ambiguity is the bug the pin exists to kill.
+    const row = getMission(project, pin);
+    const summary = row ? listMissions(project).find((m) => m.node.id === row.todoId) : undefined;
+    if (!row || !summary || row.status == null || ['converged', 'abandoned'].includes(row.status)) {
+      // Pin points at a mission that no longer exists or is terminal — clear it lazily so the next
+      // tick falls back to unpinned selection instead of permanently no-op'ing.
+      setConductorTargetMission(project, null);
+      return { ran: false, reason: 'target-cleared' };
+    }
+    if (row.awaitingApprovalSince != null || row.status === 'unapproved') {
+      // Not yet actionable — hold the pin, do NOT select any other mission.
+      return { ran: false, reason: 'target-not-actionable', missionId: row.todoId };
+    }
+    target = { summary, row };
   }
-  if (!target) return { ran: false, reason: 'no-actionable-mission' };
   const missionId = target.row.todoId;
   const status = target.row.status!;
   const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
