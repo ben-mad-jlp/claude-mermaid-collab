@@ -403,6 +403,46 @@ export function activateMission(project: string, todoId: string): string[] {
   return deactivated;
 }
 
+export interface ConductorSelection {
+  /** The mission the conductor should drive, or undefined when none is actionable. */
+  target?: MissionSummary;
+  /** Ids of the OTHER actionable missions — parked purely by NON-selection (never mutated); drives
+   *  the caller's fail-open ">1 rival" advisory. */
+  rivals: string[];
+}
+
+/** Status precedence for unpinned selection: a verify gap is most urgent (a landed epic awaiting its
+ *  verdict), then discovery, then a building mission (quietest — work already in flight). Lower first. */
+function missionStatusRank(status: string | null | undefined): number {
+  switch (status) {
+    case 'needs-verify': return 0;
+    case 'needs-discovery': return 1;
+    case 'building': return 2;
+    default: return 3; // blocked / over-budget / any other still-actionable state
+  }
+}
+
+/** B4 — deterministic TOTAL-ORDER selection of the mission the (unpinned) conductor drives, replacing
+ *  first-wins. Filters to the SAME set the old loop considered (active + approved + non-terminal), then
+ *  picks a stable winner by status-rank (verify>discover>building) → oldest createdAt → id. Pure over
+ *  the store read (listMissions self-heals terminal-active rows first, so a converged mission can never
+ *  win); it NEVER writes a mission's active flag — rivals are parked purely by not being selected (the
+ *  H4 invariant). Returns the winner + the other actionable ids for a fail-open advisory. */
+export function selectConductorMission(project: string): ConductorSelection {
+  const actionable = listMissions(project).filter((m) =>
+    m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
+    !['unapproved', 'abandoned', 'converged'].includes(m.mission.status));
+  if (actionable.length === 0) return { rivals: [] };
+  const sorted = [...actionable].sort((a, b) => {
+    const ra = missionStatusRank(a.mission.status), rb = missionStatusRank(b.mission.status);
+    if (ra !== rb) return ra - rb;
+    if (a.mission.createdAt !== b.mission.createdAt) return a.mission.createdAt - b.mission.createdAt;
+    return a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0;
+  });
+  const [winner, ...rest] = sorted;
+  return { target: winner, rivals: rest.map((m) => m.node.id) };
+}
+
 /** True iff the session already has an active, NON-TERMINAL mission (used to default
  *  a newly created mission inactive only when its session is genuinely driving one).
  *  A converged/abandoned mission still carries active=1 but must NOT block a new one. */

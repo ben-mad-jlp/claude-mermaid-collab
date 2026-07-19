@@ -14,6 +14,7 @@ import {
   getMission,
   listCriteriaWithActions,
   stampConductorRun,
+  selectConductorMission,
 } from './mission-store.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
 import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
@@ -97,16 +98,16 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
   let target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } | undefined;
 
   if (pin == null) {
-    // No pin: back-compat first-active+actionable selection (unchanged behavior).
-    for (const summary of listMissions(project).filter((m) => m.mission.active)) {
-      const row = getMission(project, summary.node.id);
-      if (row && row.awaitingApprovalSince == null && row.status != null &&
-          !['unapproved', 'abandoned', 'converged'].includes(row.status)) {
-        target = { summary, row };
-        break;
-      }
+    // No pin: deterministic TOTAL-ORDER selection (B4) — replaces first-wins so which mission drives
+    // is stable and never depends on listMissions order. Rivals are parked by non-selection only.
+    const selection = selectConductorMission(project);
+    if (!selection.target) return { ran: false, reason: 'no-actionable-mission' };
+    if (selection.rivals.length > 0) {
+      // Fail-open advisory: >1 actionable mission and no pin. We drove the deterministic winner; the
+      // human can pin one to override. NEVER touches the rivals' active flag (H4 invariant).
+      console.warn(`[conductor] ${project}: ${selection.rivals.length} actionable rival mission(s); drove ${selection.target.node.id} by deterministic order — pin one to override.`);
     }
-    if (!target) return { ran: false, reason: 'no-actionable-mission' };
+    target = { summary: selection.target, row: selection.target.mission };
   } else {
     // Pinned: resolve EXACTLY that mission (getMission handles short-id resolution). Never fall
     // back to a different mission — ambiguity is the bug the pin exists to kill.

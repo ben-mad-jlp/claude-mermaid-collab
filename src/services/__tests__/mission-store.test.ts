@@ -300,6 +300,54 @@ describe('mission meta-fixes', () => {
   });
 });
 
+describe('selectConductorMission — deterministic total order (B4, replaces first-wins)', () => {
+  test('picks a STABLE winner + lists the rest as rivals; two calls agree', async () => {
+    const { selectConductorMission } = await import('../mission-store');
+    const ids: string[] = [];
+    for (const t of ['a', 'b', 'c']) {
+      const id = (await createTodo(project, { ownerSession: 'design', title: `[MISSION] ${t}`, kind: 'mission' })).id;
+      upsertMission(project, id);
+      addCriterion(project, id, 'gap'); // needs-discovery → actionable
+      ids.push(id);
+    }
+    const s1 = selectConductorMission(project);
+    const s2 = selectConductorMission(project);
+    expect(s1.target).toBeDefined();
+    expect(s1.target!.node.id).toBe(s2.target!.node.id);              // deterministic across calls
+    expect(s1.rivals).toHaveLength(2);                                // the other two are rivals
+    expect(new Set([s1.target!.node.id, ...s1.rivals])).toEqual(new Set(ids));
+  });
+
+  test('H4 invariant: selection NEVER mutates any mission active flag', async () => {
+    const { selectConductorMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a); addCriterion(project, a, 'g');
+    upsertMission(project, b); addCriterion(project, b, 'g');
+    expect([getMission(project, a)!.active, getMission(project, b)!.active]).toEqual([true, true]);
+    selectConductorMission(project);
+    selectConductorMission(project);
+    expect([getMission(project, a)!.active, getMission(project, b)!.active]).toEqual([true, true]); // untouched
+  });
+
+  test('excludes non-actionable (abandoned/terminal) missions from target AND rivals', async () => {
+    const { selectConductorMission } = await import('../mission-store');
+    const live = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] live', kind: 'mission' })).id;
+    const gone = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] gone', kind: 'mission' })).id;
+    upsertMission(project, live); addCriterion(project, live, 'g');
+    upsertMission(project, gone); addCriterion(project, gone, 'g');
+    setMissionAbandoned(project, gone, Date.now()); // terminal → excluded
+    const s = selectConductorMission(project);
+    expect(s.target!.node.id).toBe(live);
+    expect(s.rivals).toEqual([]); // the abandoned mission is neither driven nor a rival
+  });
+
+  test('no actionable missions → no target, no rivals', async () => {
+    const { selectConductorMission } = await import('../mission-store');
+    expect(selectConductorMission(project)).toEqual({ rivals: [] });
+  });
+});
+
 describe('updateCriterionText', () => {
   test('edits a criterion text without changing its verdict', async () => {
     const { updateCriterionText, setCriterionVerdict } = await import('../mission-store');
