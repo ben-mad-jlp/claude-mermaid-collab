@@ -581,6 +581,13 @@ interface SupervisorState {
    *  caller can render it. Returns [] on failure (fail open). */
   createMission: (serverId: string, project: string, body: { session: string; title: string; description?: string; criteria?: string[]; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
   activateMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
+  /** Read the per-project conductor target-mission pin (GET /api/supervisor/conductor).
+   *  Returns null on any failure or when unpinned — fail open, no pin badge stalls the UI. */
+  fetchConductorTarget: (serverId: string, project: string) => Promise<string | null>;
+  /** Pin (or, with missionId=null, unpin) the mission the autonomous conductor must drive
+   *  for this project (POST /api/supervisor/conductor { project, targetMissionId }). Returns
+   *  the server-confirmed target (null on failure, so callers don't show a false pin). */
+  setConductorTarget: (serverId: string, project: string, missionId: string | null) => Promise<string | null>;
   approveMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
   updateMission: (serverId: string, project: string, todoId: string, patch: { title?: string; description?: string; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
   deleteMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
@@ -973,6 +980,19 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const res = await invoke(serverId, '/api/supervisor/missions/activate', 'POST', { project, todoId });
     if (!res?.ok) return [];
     return get().fetchMissions(serverId, project);
+  },
+
+  fetchConductorTarget: async (serverId, project) => {
+    if (!serverId || !project) return null;
+    const res = await invoke(serverId, `/api/supervisor/conductor?project=${encodeURIComponent(project)}`, 'GET');
+    if (!res?.ok) return null;
+    return (res.body?.targetMissionId as string | null | undefined) ?? null;
+  },
+
+  setConductorTarget: async (serverId, project, missionId) => {
+    const res = await invoke(serverId, '/api/supervisor/conductor', 'POST', { project, targetMissionId: missionId });
+    if (!res?.ok) return null;
+    return (res.body?.targetMissionId as string | null | undefined) ?? null;
   },
 
   approveMission: async (serverId, project, todoId) => {
