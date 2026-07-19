@@ -15,7 +15,7 @@ import { migrateEnvAuthToken, writePortFile, clearPortFile } from './services/co
 import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
 import { installProcessGuards } from './services/process-guards.js';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
-import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
+import { writeLock, releaseLock, writePidFile, removePidFile, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
 import { snapshotSummaryMessages } from './services/session-summary-loop';
 import { DiagramManager } from './services/diagram-manager';
@@ -733,6 +733,7 @@ try {
     port: actualPort,
     owner: serverOwner(),
   });
+  writePidFile(actualPort, process.pid);
 } catch { /* best-effort lock write */ }
 
 // Supervisor + steward liveness heartbeat: while this server is alive, keep the
@@ -760,7 +761,8 @@ const armIdle = () => {
   cancelIdle();
   idleTimer = setTimeout(async () => {
     try { await removeInstance(sessionId); } catch {}
-    try { releaseLock(); } catch {}
+    try { releaseLock(actualPort); } catch {}
+    try { removePidFile(actualPort); } catch {}
     try { clearPortFile(); } catch {}
     process.exit(0);
   }, MERMAID_IDLE_SHUTDOWN_MS);
@@ -776,7 +778,8 @@ process.on('SIGINT', () => {
   lastFrameMeta.clear();
   screencastService?.stop();
   chromeManager?.stop();
-  try { releaseLock(); } catch {}
+  try { releaseLock(actualPort); } catch {}
+  try { removePidFile(actualPort); } catch {}
   try { clearPortFile(); } catch {}
   try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
@@ -796,7 +799,8 @@ process.on('SIGTERM', () => {
   lastFrameMeta.clear();
   screencastService?.stop();
   chromeManager?.stop();
-  try { releaseLock(); } catch {}
+  try { releaseLock(actualPort); } catch {}
+  try { removePidFile(actualPort); } catch {}
   try { clearPortFile(); } catch {}
   try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
