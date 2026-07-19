@@ -17,10 +17,11 @@
 import * as fs from 'node:fs';
 import { mux, argvListPanesPanePid } from './session-mux/index.ts';
 import { apiFetch } from '../mcp/tools/http-util.js';
+import { getConfiguredPort } from './config-file.ts';
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-const API_PORT = parseInt(process.env.PORT || '9002', 10);
+const API_PORT = getConfiguredPort();
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 

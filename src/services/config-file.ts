@@ -156,3 +156,48 @@ export function migrateEnvAuthToken(): 'migrated' | 'diverged' | 'noop' {
   if (cfg !== env) return 'diverged';
   return 'noop';
 }
+
+// ---------------------------------------------------------------------------
+// Server port resolution
+// ---------------------------------------------------------------------------
+
+const PORT_KEY = 'port';
+
+/** Unconfigured default server port (also the desktop app's fixed canonical port). */
+export const DEFAULT_MERMAID_PORT = 9002;
+
+/**
+ * Resolve the configured server port: process.env.PORT → config.json 'port'
+ * key → DEFAULT_MERMAID_PORT (9002). Range-validates any explicit value (env
+ * or file) the same way config.ts's old validatePort() did; throws on
+ * invalid/out-of-range so a bad value fails loudly at startup instead of
+ * silently falling back.
+ *
+ * Reads env under the 'PORT' key and the file layer under the lowercase
+ * 'port' key directly (not via getConfig/getSecret) since those helpers use
+ * ONE key name for both layers, and the env var name ('PORT') and the
+ * documented config.json key ('port') differ in case.
+ */
+export function getConfiguredPort(): number {
+  const envVal = process.env.PORT;
+  const raw = envVal !== undefined && envVal !== ''
+    ? envVal
+    : (() => {
+        const fileVal = getConfigEntries()[PORT_KEY];
+        return typeof fileVal === 'string' ? fileVal : undefined;
+      })();
+  if (raw === undefined) return DEFAULT_MERMAID_PORT;
+  const port = Number.parseInt(raw, 10);
+  if (Number.isNaN(port)) {
+    throw new Error(`Invalid PORT value: "${raw}" is not a valid number`);
+  }
+  if (port < 0 || port > 65535) {
+    throw new Error(`Invalid PORT value: ${port} is out of valid range (0-65535)`);
+  }
+  return port;
+}
+
+/** Persist the port to config.json (Settings UI / CLI port override). */
+export function setConfiguredPort(port: number): void {
+  setConfig({ [PORT_KEY]: String(port) });
+}

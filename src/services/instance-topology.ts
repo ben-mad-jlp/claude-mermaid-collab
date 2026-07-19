@@ -41,9 +41,10 @@ import {
   type ServerIdentity,
 } from './port-ownership';
 import { listPeers, type PeerInfo } from './supervisor-store';
+import { DEFAULT_MERMAID_PORT } from './config-file';
 
 /** The canonical port the desktop app's sidecar is supposed to own. */
-export const CANONICAL_PORT = 9002;
+export const CANONICAL_PORT = DEFAULT_MERMAID_PORT;
 
 /** How a single instance relates to the canonical port. */
 export type InstanceTag =
