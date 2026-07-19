@@ -34,6 +34,7 @@ import {
 import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
+import { yieldToLoop } from './loop-yield.ts';
 
 // ---------------------------------------------------------------------------
 // Main export
@@ -101,6 +102,12 @@ export async function runReconcilePass(project: string): Promise<void> {
   // auto-lands a green epic via the existing safe landEpic path. This lifts the old
   // mute that left rolled-up epics silent — the exact gap behind the incident.
   // -------------------------------------------------------------------------
+  // Phase 1 (mission c4eb4fcc): cede the HTTP event loop between each independent, idempotent
+  // sweep below. Every sweep does synchronous bun:sqlite/fs work inline; without a yield between
+  // them the whole reconcile pass holds the loop for its full duration. The sweeps are independent
+  // and order-preserved — inserting a macrotask boundary between them changes nothing but WHEN
+  // pending HTTP callbacks get to run.
+  await yieldToLoop();
   try {
     const { rolledUp, flagged } = await sweepEpicRollups(project);
     for (const epicId of rolledUp) {
@@ -134,6 +141,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // This sweep evaluates such epics directly and, on a green build proof,
   // promotes the land leaf so the armed surfaceEpicLand → landEpic path lands it.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     await autoLandArmedMissionEpics(project);
   } catch (err) {
@@ -151,6 +159,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // same human land card; never auto-land (surfaceEpicLand's own authority gate
   // refuses non-mission epics — constraint 55ee9d79).
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     await surfaceBuildGreenNonMissionEpics(project);
   } catch (err) {
@@ -166,6 +175,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // above — surfaceEpicLand only fires for epics that roll up THIS pass. Re-surface
   // each such epic (idempotent; auto-lands at level 'auto'). Bounded + throttled.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     await sweepStrandedEpics(project);
   } catch (err) {
@@ -179,6 +189,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // 3e. CORRUPT-EPIC self-heal: a land leaf stamped done while its branch is still
   // ahead>0 is a false stamp — reopen it so the land re-attempts. Best-effort.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     await sweepCorruptEpics(project);
   } catch (err) {
@@ -193,6 +204,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // worktree is dead weight on disk — reclaim the checkout dir but KEEP the
   // branch. A dirty worktree is skipped + friction-noted. Throttled + bounded.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     await releaseDroppedEpicWorktrees(project);
   } catch (err) {
@@ -206,6 +218,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // 3g. BUCKET HYGIENE SWEEP: archive (status→'dropped') bucket children that are
   // `done` and older than 7 days. Idempotent; only 'done' rows are selected.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     await sweepTerminalBucketChildren(project);
   } catch (err) {
@@ -224,6 +237,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // readiness is derived, so there is nothing to materialize. In steady state
   // this finds nothing. Best-effort; never aborts the pass.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   try {
     assertClaimInvariants(project);
   } catch (err) {
@@ -250,6 +264,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // KEEP it opt-in: OI-1's accept-time ancestor gate already prevents NEW strands at
   // the source, so this backlog sweep is lower-value, and the prior incident (2200+
   // escalations from the per-tick flood) means it stays off until verified live.
+  await yieldToLoop();
   if (process.env.MERMAID_BP0_SWEEP === '1') {
     try {
       const flagged = await sweepStrandedAccepted(project);
@@ -289,6 +304,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // A todo that is done but NOT accepted (pending/rejected) is deliberately left
   // alone: the work has not passed the gate, so its escalation may still be live.
   // -------------------------------------------------------------------------
+  await yieldToLoop();
   for (const esc of openEscalations) {
     try {
       // BP0 stranded-accept SUMMARY escalations are deliberately excluded: they
