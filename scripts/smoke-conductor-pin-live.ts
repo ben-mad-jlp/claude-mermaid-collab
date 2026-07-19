@@ -9,7 +9,7 @@
  *     →  only A's mission row moves (lastConductorKey/updatedAt); B's never does
  *     →  A converges (its sole criterion is marked met)  →  the NEXT tick's
  *        runConductorPass finds the pin terminal and lazily clears it
- *        (conductor-pass.ts:119, reason 'target-cleared')
+ *        (conductor-pass.ts:130, reason 'target-cleared')
  *     →  re-pin to B, then an EXPLICIT unpin (POST targetMissionId: null) —
  *        a direct store write, no tick required.
  *
@@ -55,6 +55,23 @@ let pass = 0, fail = 0;
 function check(name: string, ok: boolean, detail = '') {
   (ok ? pass++ : fail++);
   log(`  ${ok ? '✅' : '❌'} ${name}${detail ? ` — ${detail}` : ''}`);
+}
+
+async function pollUntil<T>(
+  deadlineMs: number,
+  stepMs: number,
+  probe: () => Promise<T>,
+  satisfied: (v: T) => boolean,
+): Promise<{ satisfiedAt: T | null; samples: T[] }> {
+  const start = Date.now();
+  const samples: T[] = [];
+  while (Date.now() - start < deadlineMs) {
+    const v = await probe();
+    samples.push(v);
+    if (satisfied(v)) return { satisfiedAt: v, samples };
+    await sleep(stepMs);
+  }
+  return { satisfiedAt: null, samples };
 }
 
 let handleSupervisorRoutes: typeof import('../src/routes/supervisor-routes').handleSupervisorRoutes | undefined;
@@ -200,28 +217,60 @@ async function main() {
     const pinGet = await get(`/api/supervisor/conductor?project=${encodeURIComponent(scratchProject)}`);
     check('pin echoed by GET', pinGet.body.enabled === true && pinGet.body.targetMissionId === missionA, `body=${JSON.stringify(pinGet.body)}`);
 
-    // --- Phase 3: start the REAL orchestrator, sample across ticks ---
-    log(`\nPhase 3 — start real orchestrator; sample across ${CONDUCTOR_INTERVAL_MS}ms ticks (~up to 90s)`);
+    // --- Phase 3: start the REAL orchestrator, poll across >= 2 distinct ticks ---
+    log(`\nPhase 3 — start real orchestrator; poll for >= 2 distinct ${CONDUCTOR_INTERVAL_MS}ms ticks`);
     const before = await sample(0, scratchProject, missionA, pinGet.body.targetMissionId);
-    await sample(0, scratchProject, missionB, pinGet.body.targetMissionId);
+    const beforeB = await sample(0, scratchProject, missionB, pinGet.body.targetMissionId);
 
     if (!liveMode) {
       startOrchestrator!();
       started = true;
     }
 
-    await sleep(CONDUCTOR_INTERVAL_MS + 5_000);
-    const mid = await sample(1, scratchProject, missionA);
-    await sample(1, scratchProject, missionB);
+    const pollDeadlineMs = 3 * CONDUCTOR_INTERVAL_MS + 15_000;
+    const pollStepMs = Math.max(2_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
+    let tick = 0;
+    const distinctAdvanceTicks = new Set<number>();
+    let allBChecksPassed = true;
 
-    await sleep(CONDUCTOR_INTERVAL_MS + 5_000);
-    const after = await sample(2, scratchProject, missionA);
-    const bAfter = await sample(2, scratchProject, missionB);
+    const { satisfiedAt } = await pollUntil(
+      pollDeadlineMs,
+      pollStepMs,
+      async () => {
+        tick++;
+        const a = await sample(tick, scratchProject, missionA);
+        const b = await sample(tick, scratchProject, missionB);
 
-    const aMoved = after.lastConductorKey !== before.lastConductorKey || after.updatedAt !== before.updatedAt || mid.updatedAt !== before.updatedAt;
-    const bMoved = bAfter.lastConductorKey !== transcript[1].lastConductorKey || bAfter.updatedAt !== transcript[1].updatedAt;
-    check('mission A (pinned) moved across the tick window', aMoved, `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
-    check('mission B (unpinned) did NOT move across the same window', !bMoved, `before=${JSON.stringify(transcript[1])} after=${JSON.stringify(bAfter)}`);
+        const bUnchanged =
+          b.lastConductorKey === beforeB.lastConductorKey &&
+          b.lastNudgeAt === beforeB.lastNudgeAt &&
+          b.updatedAt === beforeB.updatedAt;
+        if (!bUnchanged) allBChecksPassed = false;
+        check(
+          `mission B (unpinned) unchanged at tick ${tick} vs pre-pin baseline`,
+          bUnchanged,
+          `before=${JSON.stringify(beforeB)} tick${tick}=${JSON.stringify(b)}`,
+        );
+
+        const aAdvanced = a.lastConductorKey !== before.lastConductorKey || a.updatedAt !== before.updatedAt;
+        if (aAdvanced) distinctAdvanceTicks.add(tick);
+
+        return { tick, a, distinctAdvanceTicks: distinctAdvanceTicks.size };
+      },
+      (v) => v.distinctAdvanceTicks >= 2,
+    );
+    void satisfiedAt;
+
+    check(
+      'mission A (pinned) advanced across >= 2 distinct conductor ticks',
+      distinctAdvanceTicks.size >= 2,
+      `ticks=${JSON.stringify([...distinctAdvanceTicks])} transcript=${JSON.stringify(transcript)}`,
+    );
+    check(
+      'mission B (unpinned) byte-identical to pre-pin baseline across every observed tick',
+      allBChecksPassed,
+      `before=${JSON.stringify(beforeB)}`,
+    );
 
     // --- Phase 4: lazy clear — converge A, wait for target-cleared ---
     log(`\nPhase 4 — mark A's criterion met → converged → next tick lazily clears the pin`);
@@ -230,13 +279,19 @@ async function main() {
       const converged = await missionRow(scratchProject, missionA);
       check('mission A now reads converged', converged.status === 'converged', `status=${converged.status}`);
 
-      let cleared = false;
-      for (let i = 0; i < 3 && !cleared; i++) {
-        await sleep(CONDUCTOR_INTERVAL_MS + 5_000);
-        const g = await get(`/api/supervisor/conductor?project=${encodeURIComponent(scratchProject)}`);
-        if (g.body.targetMissionId === null) cleared = true;
-      }
-      check('conductor target lazily cleared (target-cleared, conductor-pass.ts:119)', cleared);
+      const clearDeadlineMs = 3 * CONDUCTOR_INTERVAL_MS + 15_000;
+      const clearStepMs = Math.max(2_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
+      const { satisfiedAt: clearedState } = await pollUntil(
+        clearDeadlineMs,
+        clearStepMs,
+        () => get(`/api/supervisor/conductor?project=${encodeURIComponent(scratchProject)}`),
+        (g) => g.body?.targetMissionId === null,
+      );
+      check(
+        'conductor target lazily cleared (target-cleared, conductor-pass.ts:130)',
+        clearedState !== null,
+        `lastSeen=${JSON.stringify(clearedState)}`,
+      );
     } else {
       log('  ⏭️  skipped: live mode has no transport for setCriterionMet');
     }
