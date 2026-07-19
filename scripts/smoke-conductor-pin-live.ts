@@ -19,9 +19,10 @@
  *
  * Transport: defaults to in-process. Set MERMAID_SMOKE_BASE_URL or pass
  * --base-url <url> to run against a real deployed server over HTTP instead — in
- * that mode the orchestrator timer and setCriterionMet are the DEPLOYED server's,
- * not this script's, so Phase 3's orchestrator start/stop and Phase 4's criterion-set
- * are skipped/gated accordingly (see markCriterionMet below).
+ * that mode a preflight enables the deployed conductor if needed, the tick interval
+ * is read from the deployed server's runtime config, and Phase 4's criterion set goes
+ * over the live /mcp transport (markCriterionMet); a live MCP failure there is a
+ * hard FAILING check, never a silent skip.
  *
  * Controlled: throwaway scratch git repo + isolated supervisor.db (in-process mode
  * only); guarded to never touch the collab self-project; never calls a deploy route.
@@ -46,8 +47,8 @@ const liveMode = baseUrl !== null;
 
 import { isSelfProject } from '../src/services/deploy-service';
 
-// Documented at src/services/orchestrator-live.ts:51 (CONDUCTOR_INTERVAL_MS, module-private).
-const CONDUCTOR_INTERVAL_MS = 30_000;
+// Documented at src/services/orchestrator-live.ts:51 (CONDUCTOR_INTERVAL_MS, exported).
+const CONDUCTOR_INTERVAL_MS = 30_000; // in-process default; live mode overrides via resolveTickIntervalMs()
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (s: string) => console.log(s);
@@ -55,6 +56,18 @@ let pass = 0, fail = 0;
 function check(name: string, ok: boolean, detail = '') {
   (ok ? pass++ : fail++);
   log(`  ${ok ? '✅' : '❌'} ${name}${detail ? ` — ${detail}` : ''}`);
+}
+
+async function resolveTickIntervalMs(project: string): Promise<number> {
+  if (!liveMode) return CONDUCTOR_INTERVAL_MS;
+  const g = await get(`/api/supervisor/conductor?project=${encodeURIComponent(project)}`);
+  const intervalMs = g.body?.intervalMs;
+  check(
+    'live mode: tick interval resolved from deployed server runtime config',
+    typeof intervalMs === 'number' && intervalMs > 0,
+    `body=${JSON.stringify(g.body)}`,
+  );
+  return typeof intervalMs === 'number' && intervalMs > 0 ? intervalMs : CONDUCTOR_INTERVAL_MS;
 }
 
 async function pollUntil<T>(
@@ -239,6 +252,34 @@ async function main() {
     const reg = await post('/api/supervisor/projects', { project: scratchProject });
     check('project registered+watched', reg.status === 200 && reg.body.projects.includes(scratchProject), `status=${reg.status}`);
 
+    // --- Phase 0.5 (live mode only): preflight the REAL deployed conductor state ---
+    if (liveMode) {
+      log(`\nPhase 0.5 — live preflight: read deployed conductor state for ${scratchProject}`);
+      const preflight = await get(`/api/supervisor/conductor?project=${encodeURIComponent(scratchProject)}`);
+      check(
+        'live preflight: GET /api/supervisor/conductor reachable',
+        preflight.status === 200 && typeof preflight.body?.enabled === 'boolean',
+        `status=${preflight.status} body=${JSON.stringify(preflight.body)}`,
+      );
+      if (!preflight.body?.enabled) {
+        const enable = await post('/api/supervisor/conductor', { project: scratchProject, enabled: true });
+        check(
+          'live preflight: conductor enabled for scratch project on deployed server',
+          enable.status === 200 && enable.body?.enabled === true,
+          `status=${enable.status} body=${JSON.stringify(enable.body)}`,
+        );
+      } else {
+        check('live preflight: conductor already enabled on deployed server', true, `body=${JSON.stringify(preflight.body)}`);
+      }
+      const reconfirm = await get(`/api/supervisor/conductor?project=${encodeURIComponent(scratchProject)}`);
+      check(
+        'live preflight: conductor enablement asserted (not assumed) before Phase 3 polling',
+        reconfirm.body?.enabled === true,
+        `body=${JSON.stringify(reconfirm.body)}`,
+      );
+    }
+    const tickIntervalMs = await resolveTickIntervalMs(scratchProject);
+
     // --- Phase 1: create + approve two missions ---
     log(`\nPhase 1 — create + approve missions A and B`);
     const createA = await post('/api/supervisor/missions', {
@@ -277,7 +318,7 @@ async function main() {
     check('pin echoed by GET', pinGet.body.enabled === true && pinGet.body.targetMissionId === missionA, `body=${JSON.stringify(pinGet.body)}`);
 
     // --- Phase 3: start the REAL orchestrator, poll across >= 2 distinct ticks ---
-    log(`\nPhase 3 — start real orchestrator; poll for >= 2 distinct ${CONDUCTOR_INTERVAL_MS}ms ticks`);
+    log(`\nPhase 3 — start real orchestrator; poll for >= 2 distinct ${tickIntervalMs}ms ticks`);
     const before = await sample(0, scratchProject, missionA, pinGet.body.targetMissionId);
     const beforeB = await sample(0, scratchProject, missionB, pinGet.body.targetMissionId);
 
@@ -286,8 +327,8 @@ async function main() {
       started = true;
     }
 
-    const pollDeadlineMs = 3 * CONDUCTOR_INTERVAL_MS + 15_000;
-    const pollStepMs = Math.max(2_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
+    const pollDeadlineMs = 3 * tickIntervalMs + 15_000;
+    const pollStepMs = Math.max(2_000, Math.floor(tickIntervalMs / 6));
     let tick = 0;
     const distinctAdvanceTicks = new Set<number>();
     let allBChecksPassed = true;
@@ -338,8 +379,8 @@ async function main() {
       const converged = await missionRow(scratchProject, missionA);
       check('mission A now reads converged', converged.status === 'converged', `status=${converged.status}`);
 
-      const clearDeadlineMs = 3 * CONDUCTOR_INTERVAL_MS + 15_000;
-      const clearStepMs = Math.max(2_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
+      const clearDeadlineMs = 3 * tickIntervalMs + 15_000;
+      const clearStepMs = Math.max(2_000, Math.floor(tickIntervalMs / 6));
       const { satisfiedAt: clearedState } = await pollUntil(
         clearDeadlineMs,
         clearStepMs,
@@ -352,7 +393,11 @@ async function main() {
         `lastSeen=${JSON.stringify(clearedState)}`,
       );
     } else {
-      log('  ⏭️  skipped: live mode has no transport for setCriterionMet');
+      check(
+        'mission A convergence leg (live MCP criterion set) did not run',
+        false,
+        'markCriterionMet failed — see prior check for live MCP error detail',
+      );
     }
 
     // --- Phase 5: explicit unpin path (direct store write, no tick needed) ---

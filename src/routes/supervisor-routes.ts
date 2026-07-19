@@ -35,6 +35,7 @@ import {
   getConductorLastPass,
 } from '../services/supervisor-store.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
+import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo } from '../services/todo-store.ts';
@@ -903,6 +904,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       enabled: getConductorEnabled(project),
       targetMissionId: getConductorTargetMission(project),
       lastPass: getConductorLastPass(project),
+      intervalMs: CONDUCTOR_INTERVAL_MS,
     });
   }
   // POST /api/supervisor/conductor — toggle it and/or pin a target mission.
