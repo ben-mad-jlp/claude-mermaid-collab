@@ -48,7 +48,7 @@ let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
 const SUMMARY_INTERVAL_MS = 30_000;
-const CONDUCTOR_INTERVAL_MS = 30_000;
+export const CONDUCTOR_INTERVAL_MS = 30_000;
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
 // `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
 // tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
