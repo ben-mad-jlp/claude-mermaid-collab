@@ -22,6 +22,7 @@ process.env.MERMAID_SUPERVISOR_DIR = dir;
 import {
   passesForLevel,
   runOrchestratorTick,
+  runConductorGuarded,
   startOrchestrator,
   stopOrchestrator,
   isOrchestratorRunning,
@@ -134,6 +135,57 @@ describe('withPassTimeout (per-pass backstop)', () => {
 
   it('propagates the pass\'s own rejection (does not swallow real errors)', async () => {
     await expect(withPassTimeout(Promise.reject(new Error('boom')), 1000, 'x')).rejects.toThrow('boom');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B0 — decoupled conductor timer (un-starvable by the serial build tick)
+// ---------------------------------------------------------------------------
+
+describe('B0 — decoupled conductor heartbeat', () => {
+  beforeEach(() => reset());
+
+  it('runOrchestratorTick does NOT run the conductor (it moved OFF the serial tick)', async () => {
+    const conductorCalls: string[] = [];
+    registeredProjects.push({ path: '/proj/b', name: 'b', lastAccess: '' });
+    levelOverrides.set('/proj/b', 'on');
+    await runOrchestratorTick({ ...makeDeps(), conductor: async (p: string) => { conductorCalls.push(p); } });
+    expect(buildCalls).toEqual(['/proj/b']); // the serial tick still builds…
+    expect(conductorCalls).toEqual([]);      // …but never touches the conductor — a slow build can't starve it
+  });
+
+  it('runConductorGuarded runs the conductor for every WATCHED project on its own loop', async () => {
+    const conductorCalls: string[] = [];
+    await runConductorGuarded({
+      conductor: async (p: string) => { conductorCalls.push(p); },
+      watchedProjects: () => new Set(['/proj/a', '/proj/b']),
+    });
+    expect(conductorCalls.sort()).toEqual(['/proj/a', '/proj/b']);
+  });
+
+  it('is overlap-guarded: a second beat is skipped while the first is still in flight', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const conductorCalls: string[] = [];
+    const deps = {
+      conductor: async (p: string) => { conductorCalls.push(p); await gate; },
+      watchedProjects: () => new Set(['/proj/a']),
+    };
+    const first = runConductorGuarded(deps); // enters, hangs on the gate (conductorRunning=true)
+    await Promise.resolve();                  // let it start
+    await runConductorGuarded(deps);          // second beat arrives → skipped immediately
+    expect(conductorCalls).toEqual(['/proj/a']); // only the first beat ran
+    release();
+    await first;
+  });
+
+  it('a conductor pass that throws is caught — the loop still runs the other projects', async () => {
+    const ran: string[] = [];
+    await runConductorGuarded({
+      conductor: async (p: string) => { if (p === '/proj/x') throw new Error('boom'); ran.push(p); },
+      watchedProjects: () => new Set(['/proj/x', '/proj/y']),
+    });
+    expect(ran).toEqual(['/proj/y']); // x threw and was swallowed; y still ran
   });
 });
 
