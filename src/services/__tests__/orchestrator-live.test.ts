@@ -83,6 +83,12 @@ function makeDeps(): TickDeps {
     // the pass WIRING (does it run at `on`, skip at `off`, etc.), not the throttle — so
     // force the gate open. The throttle itself is covered in reconcile-throttle.test.ts.
     shouldRunReconcile: () => true,
+    // Phase 4: same rationale — the notify / friction-watch / mission-loop scan passes are now
+    // throttled off the every-tick cadence. Force their gates open here so the wiring assertions
+    // (notifyCalls across multiple ticks, etc.) hold; each throttle has its own dedicated test.
+    shouldRunNotify: () => true,
+    shouldRunFrictionWatch: () => true,
+    shouldRunMissionLoop: () => true,
     triage: async (project: string, opts: { autoResolve: boolean }) => {
       triageCalls.push(project);
       triageAutoResolve.push({ project, autoResolve: opts.autoResolve });

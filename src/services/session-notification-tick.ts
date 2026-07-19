@@ -23,6 +23,45 @@ import { fireStamp } from './nudge-stamp';
 
 /** Don't re-nudge a session more often than this (coalesces a burst into one wake). */
 export const MIN_NUDGE_INTERVAL_MS = 60_000;
+
+// ---------------------------------------------------------------------------
+// Throttle (mission c4eb4fcc, Phase 4): keep the notification tick OFF the every-tick
+// (~30s) cadence.
+//
+// When a project has ≥1 active subscription, runNotificationTick does a synchronous full
+// todos-table scan (`listTodos(project, { includeCompleted: true })`) to diff against its
+// last snapshot — one more ~26-130ms `.all()` on the 8MB self-project DB every ~30s tick.
+// The diff is CUMULATIVE (it compares against the durable last snapshot, not the previous
+// tick), so a coarser cadence never drops an event — it only delays the nudge. Nudges are
+// themselves idle-gated and MIN_NUDGE_INTERVAL_MS-throttled, so 30s scan freshness buys no
+// real timeliness. Gate the whole pass to run at most once per NOTIFY_INTERVAL_MS per
+// project (same proven shape as reconcile-pass's RECONCILE_INTERVAL_MS). Not the CLAIM path.
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between notification ticks for a single project. Kept a touch tighter
+ *  than the hygiene passes since a subscriber nudge is mildly more latency-relevant, but
+ *  still well off the every-tick cadence. */
+export const NOTIFY_INTERVAL_MS = 120_000; // 2 min
+
+const lastNotifyMs = new Map<string, number>();
+
+/**
+ * Throttle gate for runNotificationTick. Returns true (and records `now` as the last run)
+ * when the pass is due for `project`; false when a previous run is still within
+ * NOTIFY_INTERVAL_MS. First call for a project always runs. `now` is injectable for tests.
+ */
+export function shouldRunNotificationTick(project: string, now: number = Date.now()): boolean {
+  const last = lastNotifyMs.get(project);
+  if (last !== undefined && now - last < NOTIFY_INTERVAL_MS) return false;
+  lastNotifyMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project throttle clock (all projects, or one). */
+export function _resetNotifyThrottle(project?: string): void {
+  if (project === undefined) lastNotifyMs.clear();
+  else lastNotifyMs.delete(project);
+}
 /** How many unseen summaries to carry inline in a nudge (triage without a pull). */
 export const NUDGE_SUMMARY_LIMIT = 3;
 /** Base delay before an UNCHANGED backlog is re-announced; doubles per re-announce (decay). */

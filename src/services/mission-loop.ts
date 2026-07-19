@@ -25,6 +25,50 @@ import { fireStamp } from './nudge-stamp.ts';
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
 export const MISSION_NUDGE_ESCALATION_MS = 2 * 60 * 60 * 1000; // 2 hour escalation ceiling
 
+// ---------------------------------------------------------------------------
+// Throttle (mission c4eb4fcc, Phase 4): keep the mission-loop pass OFF the every-tick
+// (~30s) cadence.
+//
+// runMissionLoopPass calls listMissions(project) once per tick, and listMissions is the
+// single heaviest per-tick scanner in the whole loop: for EACH mission root it reads the
+// full todos table THREE times — getMission → collectMissionStatusFacts (1 listTodos),
+// getMissionRollup (1 listTodos), and getMissionRollup → collectMissionStatusFacts
+// (1 listTodos) — plus one listTodos to enumerate the roots. On the 8MB self-project with
+// ~5 missions that is ~1 + 3×5 = 16 synchronous full-table `.all()` scans (each ~26-130ms)
+// EVERY tick, holding the shared HTTP event loop for hundreds of ms. None of that work is
+// latency-critical: the pass only NUDGES the steward for a mission's derived status, and
+// the nudge itself is already debounced by a 15-MINUTE cooldown — so 30s freshness buys
+// nothing. Gate the whole pass to run at most once per MISSION_LOOP_INTERVAL_MS per project
+// (same proven shape as reconcile-pass's RECONCILE_INTERVAL_MS). This is a HYGIENE/advance
+// pass, not the ready-todo CLAIM path (runBuildPass / kickOrchestrator), which stays
+// every-tick responsive.
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between mission-loop passes for a single project. The nudge cooldown is
+ *  15 min, so a 2.5-min scan cadence is still far tighter than the nudge it drives. */
+export const MISSION_LOOP_INTERVAL_MS = 150_000; // 2.5 min
+
+const lastMissionLoopMs = new Map<string, number>();
+
+/**
+ * Throttle gate for runMissionLoopPass. Returns true (and records `now` as the last run)
+ * when the pass is due for `project`; false when a previous run is still within
+ * MISSION_LOOP_INTERVAL_MS. First call for a project always runs. `now` is injectable for
+ * deterministic tests.
+ */
+export function shouldRunMissionLoopPass(project: string, now: number = Date.now()): boolean {
+  const last = lastMissionLoopMs.get(project);
+  if (last !== undefined && now - last < MISSION_LOOP_INTERVAL_MS) return false;
+  lastMissionLoopMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project throttle clock (all projects, or one). */
+export function _resetMissionLoopThrottle(project?: string): void {
+  if (project === undefined) lastMissionLoopMs.clear();
+  else lastMissionLoopMs.delete(project);
+}
+
 export type MissionLoopAction =
   | { kind: 'none'; reason: string }
   | { kind: 'nudge'; session: string; message: string; reason: string; key: string };
