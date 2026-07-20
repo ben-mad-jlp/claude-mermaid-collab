@@ -3,6 +3,7 @@ import { listTodos, listTodosChunked } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
 import { yieldToLoop } from './loop-yield.ts';
+import { buildEpicBranchStatus, makeGitProbe } from './epic-branch-status.ts';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -145,11 +146,17 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   return violations;
 }
 
+/** epicId -> ahead count from the git probe; null/absent = unprobeable (treated as satisfied). */
+export type AheadLookup = (epicId: string) => number | null | undefined;
+
 /** landedAt IS NOT NULL iff a done land-leaf child exists (W3 equivalence). Advisory —
  *  a divergent epic is NOT a structural defect the sweep repairs; it just means the
  *  backfill/dual-write missed a row. Pre-column epics converge via the one-shot backfill
- *  in todo-store.ts openDb(); a live divergence AFTER that backfill has run is a real bug. */
-export function findLandedAtDivergence(todos: Todo[]): InvariantViolation[] {
+ *  in todo-store.ts openDb(); a live divergence AFTER that backfill has run is a real bug.
+ *  The `landedAt set, no done [LAND] child` direction only fires when the epic is
+ *  genuinely git-stranded (ahead>0 via the injected AheadLookup) — land leaves are no
+ *  longer minted post-cutover (mission 48e1a624), so landedAt alone satisfies. */
+export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): InvariantViolation[] {
   const childrenOf = new Map<string, Todo[]>();
   for (const t of todos) {
     if (t.parentId) {
@@ -162,15 +169,25 @@ export function findLandedAtDivergence(todos: Todo[]): InvariantViolation[] {
   for (const t of todos) {
     if (!isEpicTodo(t)) continue;
     const hasDoneLand = (childrenOf.get(t.id) ?? []).some((c) => isLandTodo(c) && c.status === 'done');
-    if (hasDoneLand !== (t.landedAt != null)) {
+    if (hasDoneLand && t.landedAt == null) {
       violations.push({
         kind: 'landed-at-divergence',
         todoId: t.id,
         title: t.title,
-        reason: hasDoneLand
-          ? 'epic has a done [LAND] leaf child but landedAt is null'
-          : 'epic has landedAt set but no done [LAND] leaf child',
+        reason: 'epic has a done [LAND] leaf child but landedAt is null',
       });
+      continue;
+    }
+    if (!hasDoneLand && t.landedAt != null) {
+      const ahead = aheadOf?.(t.id) ?? 0;
+      if ((ahead ?? 0) > 0) {
+        violations.push({
+          kind: 'landed-at-divergence',
+          todoId: t.id,
+          title: t.title,
+          reason: `epic has landedAt set but branch is still ahead>0 of master (ahead=${ahead}) — stranded`,
+        });
+      }
     }
   }
   return violations;
@@ -179,7 +196,10 @@ export function findLandedAtDivergence(todos: Todo[]): InvariantViolation[] {
 /** DB-backed wrapper: load the project's full work-graph and return its violations. */
 export function checkInvariants(project: string): InvariantViolation[] {
   const todos = listTodos(project, { includeCompleted: true });
-  return [...findViolations(todos), ...findLandedAtDivergence(todos)];
+  const branchReport = buildEpicBranchStatus(todos, makeGitProbe(project));
+  const aheadById = new Map(branchReport.epics.map((e) => [e.epicId, e.ahead]));
+  const aheadOf: AheadLookup = (epicId) => aheadById.get(epicId);
+  return [...findViolations(todos), ...findLandedAtDivergence(todos, aheadOf)];
 }
 
 // ───────────────────────────────────────────────────────────────────────────
