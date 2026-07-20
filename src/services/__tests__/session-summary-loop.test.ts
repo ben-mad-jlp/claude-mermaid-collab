@@ -22,6 +22,7 @@ import {
   shouldSelfNudge,
   runSelfSummaryNudgePass,
   setSelfSummaryNudgeConfig,
+  setSummaryInterpretEnabled,
   type SummaryTickDeps,
   type InterpreterStructured,
   type SessionSummaryEntry,
@@ -31,6 +32,9 @@ import {
 beforeEach(() => {
   process.env.MERMAID_DATA_DIR = mkdtempSync(join(tmpdir(), 'mc-summary-'));
   __resetSummaryState();
+  // Interpret is OFF by default now (sessions self-report). These tests predate that, so enable it
+  // for the suite; the disabled-path test flips it off itself.
+  setSummaryInterpretEnabled(true);
 });
 
 const P = '/proj/alpha';
@@ -229,6 +233,21 @@ describe('runSessionSummaryTick', () => {
     expect(r.byState.unknown).toBe(1);
     expect(getSessionSummary(P, S)!.progressState).toBe('unknown');
     expect(interpretCallCount).toBe(0); // no token-burning interpret
+  });
+
+  it('interpret DISABLED → session still graded, but the daemon pane-scrape never spawns', async () => {
+    setSummaryInterpretEnabled(false); // the new default: sessions self-report, no interpret fallback
+    let interpretCallCount = 0;
+    const deps = makeDeps({
+      hasWs: () => true,
+      zenViewed: () => true, // even actively-watched + a changed pane...
+      interpret: async () => { interpretCallCount++; return { paragraph: 'x', status: 'working' as const }; },
+    });
+    const r = await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(0); // ...spends zero daemon LLM
+    expect(r.byState.unknown).toBe(0);
+    expect(getSessionSummary(P, S)!.progressState).toBe('active'); // still graded from the pane change
   });
 
   it('only supervised+watched sessions scanned; unwatched project sessions skipped', async () => {

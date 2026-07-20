@@ -308,6 +308,24 @@ export function setSelfSummaryNudgeConfig(c: { enabled?: boolean; intervalMs?: n
 }
 
 // ---------------------------------------------------------------------------
+// Summary INTERPRET enable — the daemon's costly pane-scrape fallback.
+//
+// The interpret pass reads a watched session's tmux pane and calls a model (sonnet) to infer a Zen
+// summary when the session hasn't self-reported. It is the FALLBACK; the intended path is a session
+// self-reporting via the `update_zen_summary` MCP tool. That fallback is the single biggest per-tick
+// token sink on the daemon (fires per changed watched session while Zen/terminal is viewed), so it is
+// OFF by default: sessions self-report, and a session that doesn't simply leaves its card stale — no
+// daemon LLM spend. Re-enable with MERMAID_SUMMARY_INTERPRET=1 or setSummaryInterpretEnabled(true).
+// ---------------------------------------------------------------------------
+function envSummaryInterpretEnabled(): boolean {
+  const v = process.env.MERMAID_SUMMARY_INTERPRET;
+  return v == null ? false : (v === '1' || v === 'true'); // default OFF
+}
+let SUMMARY_INTERPRET_ENABLED = envSummaryInterpretEnabled();
+export function getSummaryInterpretEnabled(): boolean { return SUMMARY_INTERPRET_ENABLED; }
+export function setSummaryInterpretEnabled(on: boolean): void { SUMMARY_INTERPRET_ENABLED = on; }
+
+// ---------------------------------------------------------------------------
 // Interpreter consts
 // ---------------------------------------------------------------------------
 
@@ -459,6 +477,9 @@ export interface SummaryTickDeps {
    *  pane-scrape so we don't burn plan tokens summarizing when nobody is watching.
    *  Default: the zen-presence heartbeat registry. */
   zenViewed?: () => boolean;
+  /** Gate for the daemon pane-scrape interpret pass. Default: getSummaryInterpretEnabled (OFF), so
+   *  the interpret never fires unless explicitly enabled. Tests that exercise interpret pass `() => true`. */
+  interpretEnabled?: () => boolean;
   now?: () => number;
   interpret?: (args: {
     project: string;
@@ -844,6 +865,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
     });
   const wsPresent = deps.hasWs ?? hasWebSocketHandler;
   const zenViewed = deps.zenViewed ?? isZenActivelyViewed;
+  const interpretEnabled = deps.interpretEnabled ?? getSummaryInterpretEnabled;
   // The expensive interpret pass runs only while a human is ACTIVELY watching Zen — a
   // connected-but-not-watching browser (wsPresent && !zenViewed) reads as no-corroboration,
   // exactly like a WS gap. Saves background plan-token burn (no one is reading the card).
@@ -1060,8 +1082,10 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
     broadcast({ type: 'session_summary_updated', project, session, progressState, paneSeenAt, updatedAt: ts, ...summaryFields(entry) });
     emitted++;
 
-    // Interpreter pass — fire-and-forget behind strict gate (watching() already true here).
-    if (shouldSummarize(prev, hash, progressState, true, watching(), ts, selfPushStalenessMs)) {
+    // Interpreter pass — fire-and-forget behind strict gate (watching() already true here). Gated
+    // FIRST on the interpret-enable flag: OFF by default (sessions self-report; the costly daemon
+    // pane-scrape fallback is retired), so this whole block is skipped and no summary node spawns.
+    if (interpretEnabled() && shouldSummarize(prev, hash, progressState, true, watching(), ts, selfPushStalenessMs)) {
       const { model, effort } = resolveModel(project);
       entry.summaryInFlight = true;
       entry.lastSummaryAt = ts; // stamp at LAUNCH so throttle counts attempts, not completions
