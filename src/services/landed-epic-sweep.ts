@@ -96,6 +96,11 @@ export interface BranchGcRunner {
   /** Commits on `branch` not on `baseRef` (git rev-list --count baseRef..branch). Returns -1 on
    *  error so the caller treats it as ahead>0 and never deletes speculatively (fail-closed). */
   aheadCount(branch: string, baseRef: string): number;
+  /** Remove the worktree holding `branch` (if any) so `git branch -D` can then delete it — a
+   *  fully-on-master epic's post-land worktree is stale cruft. Uses `git worktree remove` WITHOUT
+   *  --force, so a worktree with uncommitted changes (an active build) is preserved and its branch
+   *  stays undeleted. Optional (older/injected runners may omit it). */
+  pruneWorktreeFor?(branch: string): void;
 }
 
 export interface GcEpicBranchesResult {
@@ -134,6 +139,18 @@ export function makeBranchGcRunner(project: string): BranchGcRunner {
       const r = runGitLocal(project, ['rev-list', '--count', `${baseRef}..${branch}`]);
       const n = Number(r.stdout.trim());
       return r.code === 0 && Number.isFinite(n) ? n : -1; // -1 → fail-closed (treat as ahead, never delete)
+    },
+    pruneWorktreeFor(branch: string): void {
+      const r = runGitLocal(project, ['worktree', 'list', '--porcelain']);
+      if (r.code !== 0) return;
+      let wtPath = '';
+      for (const line of r.stdout.split('\n')) {
+        if (line.startsWith('worktree ')) wtPath = line.slice('worktree '.length).trim();
+        else if (line.trim() === `branch refs/heads/${branch}` && wtPath) {
+          runGitLocal(project, ['worktree', 'remove', wtPath]); // no --force → refuses if dirty (fail-safe)
+          return;
+        }
+      }
     },
   };
 }
@@ -180,6 +197,7 @@ export function gcEpicBranches(
     if ((e.ahead ?? 0) > 0) { flagged.push(e.epicId); continue; }
     const tip = runner.revParse(e.branch);
     if (tip == null) { skipped++; continue; }
+    runner.pruneWorktreeFor?.(e.branch); // remove a stale post-land worktree so the delete can succeed
     if (runner.deleteBranch(e.branch)) {
       appendRecoveryLog(project, e.branch, tip, now());
       deleted.push(e.branch);
@@ -201,6 +219,7 @@ export function gcEpicBranches(
     if (ahead !== 0) { flagged.push(branch); continue; } // ahead>0 or error(-1) → keep (fail-closed)
     const tip = runner.revParse(branch);
     if (tip == null) { skipped++; continue; }
+    runner.pruneWorktreeFor?.(branch); // remove a stale post-land worktree so the delete can succeed
     if (runner.deleteBranch(branch)) {
       appendRecoveryLog(project, branch, tip, now());
       deleted.push(branch);

@@ -167,4 +167,23 @@ describe('gcEpicBranches', () => {
     expect(deleteCalls).toEqual([branch]); // deleted exactly ONCE (handled-set dedup)
     expect(result.deleted.filter((b) => b === branch)).toHaveLength(1);
   });
+
+  test('a fully-on-master branch held by a worktree is pruned BEFORE deletion', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] worktree-held', kind: 'epic', status: 'planned' });
+    const branch = epicBranchName(epic.id);
+    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const order: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'wt111',
+      deleteBranch: (b) => { order.push('delete:' + b); return true; },
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
+      pruneWorktreeFor: (b) => { order.push('prune:' + b); },
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toContain(branch);
+    expect(order).toEqual(['prune:' + branch, 'delete:' + branch]); // worktree pruned, THEN branch deleted
+  });
 });
