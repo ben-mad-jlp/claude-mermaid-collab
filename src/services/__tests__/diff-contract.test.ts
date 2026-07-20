@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import {
   parseDiffContract, renderContract, DIFF_LEAF_KINDS, validateContractForKind, CONTRACT_STRICTNESS_MATRIX,
-  type DiffContract,
+  type DiffContract, type DiffContractVerdict,
 } from '../diff-contract';
 import { parseSizeManifest, buildBlueprintRepairPrompt } from '../leaf-executor';
 import type { Todo } from '../todo-store';
@@ -255,6 +255,27 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
       expect(row.invariant).toBe('optional');
       const keys = Object.keys(row).sort();
       expect(keys).toEqual(['invariant', 'named-test', 'observable', 'symbol-present', 'threshold']);
+    }
+  });
+});
+
+describe('DiffContractVerdict shape', () => {
+  it('carries a top-level id, a status incl undecided, mechanical, stage, and optional reason', () => {
+    const abstain: DiffContractVerdict = { id: 'r-1', status: 'undecided', mechanical: false, stage: 'observable' };
+    expect(abstain.id).toBe('r-1');
+    expect(abstain.status).toBe('undecided');
+    expect(abstain.mechanical).toBe(false);
+    expect(abstain.reason).toBeUndefined();
+
+    const mechanicalMet: DiffContractVerdict = {
+      id: 'r-2', status: 'met', mechanical: true, stage: 'named-test', reason: 'the named test exists',
+    };
+    expect(mechanicalMet.reason).toBe('the named test exists');
+
+    const statuses: DiffContractVerdict['status'][] = ['met', 'unmet', 'undecided', 'not-applicable'];
+    for (const s of statuses) {
+      const v: DiffContractVerdict = { id: 'r', status: s, mechanical: true, stage: 'threshold' };
+      expect(statuses).toContain(v.status);
     }
   });
 });

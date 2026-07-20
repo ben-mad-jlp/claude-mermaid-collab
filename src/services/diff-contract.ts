@@ -268,14 +268,17 @@ export function renderContract(c: DiffContract): string {
   return '```json\n' + JSON.stringify(c, null, 2) + '\n```';
 }
 
-/** A per-stage decision about one subject of a v2 contract. `mechanical` is a runtime convention,
- *  NOT enforced by the type: it is `true` ONLY for the five mechanical stages
- *  ('scope-breach' | 'absence' | 'out-of-scope' | 'named-test' | 'threshold'); the two LLM-decided
- *  stages ('observable' | 'invariant') are always `mechanical: false`. */
+/** A per-requirement verdict emitted by one gating stage. `id` addresses the declared
+ *  requirement this verdict decides — verdicts are keyed by requirement id, and an id
+ *  absent from the contract is discarded downstream. `mechanical` is a runtime convention:
+ *  it is `true` only for the mechanical stages (named-test / threshold / scope stages) and
+ *  `false` for the LLM-decided observable/invariant stages. `status: 'undecided'` is the LLM
+ *  ABSTAIN outcome (advisory, non-gating). `reason` is optional free text. `stage` is an open
+ *  string label naming the stage that produced the verdict. */
 export interface DiffContractVerdict {
-  stage: 'scope-breach' | 'absence' | 'out-of-scope' | 'named-test' | 'threshold' | 'observable' | 'invariant';
-  subject: { kind: 'requirement'; id: string } | { kind: 'file'; path: string };
-  decision: 'met' | 'unmet' | 'not-applicable' | 'breach';
+  id: string;
+  status: 'met' | 'unmet' | 'undecided' | 'not-applicable';
   mechanical: boolean;
-  reason: string;
+  stage: string;
+  reason?: string;
 }
