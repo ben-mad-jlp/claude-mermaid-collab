@@ -31,10 +31,6 @@ import { getOrchestratorHealth } from './orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from './context-watchdog';
 import {
   getWatchdogThreshold,
-  isStewardPaused,
-  isStewardLive,
-  stewardAutoEnabled,
-  isStewardEnabled,
   isSupervisorPaused,
   listSupervisorPauses,
   getProjectDigestEnabled,
@@ -72,15 +68,6 @@ export interface RuntimeConfig {
   };
   /** Every pause / override state in the control plane. */
   overrides: {
-    /** Steward pause + liveness (mirrors steward_pause_status). */
-    steward: {
-      paused: boolean;
-      live: boolean;
-      /** Env arm (MERMAID_STEWARD_AUTO). */
-      autoEnabled: boolean;
-      /** Live human on/off switch. */
-      switchedOn: boolean;
-    };
     /** Supervisor pauses (mirrors supervisor_pause_status) + this project's view. */
     supervisor: {
       /** True when this project's supervisor is paused (global or per-project scope). */
@@ -106,10 +93,6 @@ export interface RuntimeConfigInputs {
   perProjectWatchdogThreshold: number | null;
   defaultWatchdogThreshold: number;
   orchestratorLevel: string;
-  stewardPaused: boolean;
-  stewardLive: boolean;
-  stewardAutoEnabled: boolean;
-  stewardSwitchedOn: boolean;
   supervisorPausedForProject: boolean;
   supervisorPauses: Array<{ scope: string; pausedAt: number }>;
   selfSummaryNudgeEnabled: boolean;
@@ -142,12 +125,6 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
       gateShadowMode: inp.gateShadowMode ?? false,
     },
     overrides: {
-      steward: {
-        paused: inp.stewardPaused,
-        live: inp.stewardLive,
-        autoEnabled: inp.stewardAutoEnabled,
-        switchedOn: inp.stewardSwitchedOn,
-      },
       supervisor: {
         pausedForProject: inp.supervisorPausedForProject,
         pauses: inp.supervisorPauses,
@@ -158,7 +135,6 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
     },
     pointers: {
       watchdog: 'set_watchdog_threshold',
-      steward: 'steward_pause_status / steward_pause / steward_resume',
       supervisor: 'supervisor_pause_status / supervisor_pause / supervisor_resume',
       orchestrator: 'orchestrator_status',
       selfSummaryNudge: 'runtime_config (env: MERMAID_SELF_SUMMARY_NUDGE / MERMAID_SELF_SUMMARY_NUDGE_INTERVAL_MS)',
@@ -186,10 +162,6 @@ export function runtimeConfig(project: string, now: number = Date.now()): Runtim
     perProjectWatchdogThreshold: getWatchdogThreshold(project),
     defaultWatchdogThreshold: DEFAULT_WATCHDOG_CONFIG.thresholdPercent,
     orchestratorLevel,
-    stewardPaused: isStewardPaused(),
-    stewardLive: isStewardLive(now),
-    stewardAutoEnabled: stewardAutoEnabled(),
-    stewardSwitchedOn: isStewardEnabled(),
     supervisorPausedForProject: isSupervisorPaused(project),
     supervisorPauses: listSupervisorPauses(),
     selfSummaryNudgeEnabled: selfNudge.enabled,

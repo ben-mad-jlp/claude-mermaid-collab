@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, bumpRetryCountIfOwned } from './todo-store';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { findBlockedSplits, type BlockedSplit } from './claimability';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
@@ -327,6 +327,15 @@ function respawnBackoffMs(retryCount: number): number {
   if (retryCount <= 0) return 0;
   return Math.min(5_000 * 2 ** (retryCount - 1), 5 * 60_000); // 5s,10s,20s,40s… cap 5m
 }
+// HARD RE-DISPATCH CAP (loop breaker). A todo re-dispatched this many times without
+// reaching done/accepted is looping — each dispatch re-runs (and re-pays) a full
+// blueprint. Past the cap the daemon PARKS it held + escalates instead of paying
+// another blueprint. The counter is retryCount, which launchWorker bumps on EVERY
+// dispatch (releaseExpiredClaims only bumps on lease expiry, so the clean-release
+// escalation path was previously invisible to the cap — the observed opus-blueprint
+// burn). reset_todo clears retryCount, so a human/conductor can grant a fresh attempt
+// once the root cause is fixed. Override with MERMAID_MAX_REDISPATCH (default 3).
+const MAX_REDISPATCH = Math.max(1, Number(process.env.MERMAID_MAX_REDISPATCH) || 3);
 const MAX_COLD_STARTS = Math.max(1, Number(process.env.MERMAID_MAX_COLD_STARTS) || 2);
 // PER-PROJECT cold-start counter (keyed by the lane's project). The cap applies
 // per project so one busy project can't starve another project's cold-starts
@@ -781,6 +790,30 @@ async function parkStrandedAccept(
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'parked-held-reopen-cap', reversals }) });
   } catch (e) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'park-held-failed', reason: e instanceof Error ? e.message : String(e) }) });
+  }
+}
+
+/** HARD RE-DISPATCH CAP park (loop breaker). A todo dispatched MAX_REDISPATCH times
+ *  without converging is re-blueprinting on a loop. PARK it held (resetTodo 'blocked' →
+ *  heldAt set → not claimable, so the daemon stops re-dispatching) and raise ONE human
+ *  blocker escalation so a human or the conductor investigates the root cause. reset_todo
+ *  clears retryCount → the count restarts if the cause is fixed. Mirrors parkStrandedAccept. */
+async function parkRedispatchCap(project: string, todoId: string, title: string, dispatches: number): Promise<void> {
+  const session = 'coordinator';
+  try {
+    // resetTodo('blocked') → HOLD (heldAt set); it also auto-resolves stale escalations,
+    // so raise the new blocker AFTER.
+    await resetTodo(project, todoId, 'blocked');
+    createEscalation({
+      project,
+      session,
+      todoId,
+      kind: 'blocker',
+      questionText: `Re-dispatch cap: "${title}" has been dispatched ${dispatches}× without reaching done/accepted — each dispatch re-runs (and re-pays) a full blueprint, so this is a LOOP, not progress. PARKED (held) to stop the re-blueprint burn. Investigate the root cause (\`leaf_inspect ${todoId.slice(0, 8)}\` for the failure/parseError), fix the leaf spec / a bad constraint or drop it, then \`reset_todo\` to grant a fresh attempt.`,
+    });
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, redispatchCap: MAX_REDISPATCH, dispatches, oi1: 'parked-held-redispatch-cap' }) });
+  } catch (e) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, redispatchCap: MAX_REDISPATCH, park: 'failed', reason: e instanceof Error ? e.message : String(e) }) });
   }
 }
 
@@ -2640,6 +2673,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       return r;
     },
     launchWorker: async (project: string, todo: Todo): Promise<boolean> => {
+      // SAFETY VALVE 0 — HARD RE-DISPATCH CAP (loop breaker): a todo dispatched
+      // MAX_REDISPATCH times without reaching done/accepted is looping — each dispatch
+      // re-pays a full blueprint. PARK it held + escalate instead of paying another.
+      // Checked BEFORE backoff so a capped todo is retired, not just slowed. reset_todo
+      // clears retryCount, so a human/conductor can grant a fresh attempt post-fix.
+      if ((todo.retryCount ?? 0) >= MAX_REDISPATCH) {
+        await parkRedispatchCap(project, todo.id, todo.title ?? todo.id, todo.retryCount ?? 0);
+        recordSupervisorAudit({ kind: 'spawn', project, session: '', detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'redispatch-cap', dispatches: todo.retryCount ?? 0, cap: MAX_REDISPATCH }) });
+        return false;
+      }
+
       // SAFETY VALVE 1 — respawn backoff (944408c2): a todo whose worker was just
       // attempted waits backoff(retryCount) before another spawn, so a crash loop
       // can't hammer the sidecar tick after tick. Defer (release the claim) until
@@ -2737,6 +2781,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
           return false;
         }
+        // Count THIS dispatch toward the hard re-dispatch cap (SAFETY VALVE 0 above).
+        // releaseExpiredClaims only bumps retryCount on LEASE EXPIRY, so a leaf that
+        // finishes its run cleanly (e.g. raising a blocker/assumption escalation) would
+        // otherwise re-dispatch forever with retryCount≈1 — the observed re-blueprint
+        // burn. Bumping here (owned-guarded — we hold the claim) makes retryCount a true
+        // per-dispatch counter so the cap actually fires. Best-effort: never block a dispatch.
+        try { await bumpRetryCountIfOwned(project, todo.id, todo.claimToken ?? undefined); } catch { /* counter is telemetry — never break the dispatch */ }
         // FIRE-AND-TRACK: run the leaf in the BACKGROUND and return immediately so the
         // orchestrator tick is never blocked on a multi-minute leaf run (the coupling that
         // serialized the whole fleet). The leaf's in-flight slot was reserved by the tick

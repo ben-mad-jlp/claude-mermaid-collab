@@ -732,44 +732,6 @@ function mapEscalationRow(row: EscalationRow): Escalation {
  * is only stored when it names one of the provided options.
  */
 /**
- * Whether the steward auto-routing/acting path is enabled. Default OFF
- * (constraint 020b7ab1). While OFF, the role/routing machinery is INERT — every
- * escalation routes to the human exactly as before — so the Phase-1 migration can
- * never silently fence the live supervisor by diverting its escalations. Enable
- * with MERMAID_STEWARD_AUTO=1 (or =true) once the proof gate (Phase 2) is in.
- */
-export function stewardAutoEnabled(): boolean {
-  const v = process.env.MERMAID_STEWARD_AUTO;
-  return v === '1' || v === 'true';
-}
-
-/**
- * Pure, deterministic create-time routing (design §3) — by KIND, not prose.
- * While steward-auto is OFF, EVERYTHING routes to the human. While ON, the hard
- * server floors stay human: an operator-gated (irreversible/outward) escalation,
- * an `approval` (human sign-off), a `decision` (genuine product A/B), and an
- * `assumption-invalidated` (re-planning is the Planner's). `blocker`, `question`,
- * and `needs-design` (mechanical re-park only) route to the steward. Unknown
- * kinds fail SAFE to the human.
- */
-export function routeOf(kind: string, operatorGated: boolean): EscalationRoute {
-  if (!isStewardArmed()) return 'human';
-  if (operatorGated) return 'human';
-  switch (kind) {
-    case 'blocker':
-    case 'question':
-    case 'needs-design':
-      return 'steward';
-    case 'approval':
-    case 'decision':
-    case 'assumption-invalidated':
-    case 'operator-gated':
-      return 'human';
-    default:
-      return 'human';
-  }
-}
-
 /**
  * P3 (readiness ergonomics): which escalation kinds should auto-attach a durable
  * human [GATE] to their linked work-todo (via todo-store createGate) INSTEAD of
@@ -784,121 +746,13 @@ export function shouldAutoGate(kind: string, operatorGated: boolean): boolean {
   return operatorGated || kind === 'needs-design' || kind === 'operator-gated';
 }
 
-/** Pause scope for the steward role (design §4): a single sentinel scope in the
- *  shared supervisor_pause table, parallel to GLOBAL_PAUSE_SCOPE.
- *  @deprecated Use setSupervisorPause(GLOBAL_PAUSE_SCOPE, paused) instead; this scope is retained as vocabulary only. */
-export const STEWARD_PAUSE_SCOPE = '__steward__';
-
-/** Pause / resume the steward's auto-routing+acting. While paused the router
- *  forwards nothing (all→human) and the steward parks — the standin's
- *  "I've got it from here."
- *  @deprecated Use setSupervisorPause(GLOBAL_PAUSE_SCOPE, paused) instead — unified brake. */
-export function setStewardPause(paused: boolean): void {
-  setSupervisorPause(GLOBAL_PAUSE_SCOPE, paused);
-}
-
-/** Pause / resume the steward's auto-routing+acting. While paused the router
- *  forwards nothing (all→human) and the steward parks — the standin's
- *  "I've got it from here."
- *  @deprecated Use isSupervisorPaused() instead — unified brake. */
-export function isStewardPaused(): boolean {
-  return isSupervisorPaused();
-}
-
-/** Runtime ON/OFF switch for the steward's ESCALATION AUTO-ANSWER (the live human
- *  off-switch — distinct from MERMAID_STEWARD_AUTO, the build-time env arm, and from
- *  the transient steward_pause "I've got it"). PERSISTENT: survives a poll/restart,
- *  stored as a sentinel scope in the shared supervisor_pause table. Default ON
- *  (absent = enabled) so an env-armed steward auto-answers unless a human flips it
- *  off. The gate is NARROW (feedback_steward_dogfood_always_on): while OFF, the
- *  server routes every escalation to the human and the steward skill skips
- *  auto-answering them — but the steward's dogfood/friction-detection loop keeps
- *  running unconditionally. This switch never gates dogfooding. */
-export const STEWARD_DISABLED_SCOPE = '__steward_disabled__';
-export const STEWARD_ARMED_SCOPE = '__steward_armed__';
-
-function hasSentinel(scope: string): boolean {
-  const d = openDb();
-  return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(scope);
-}
-
 /**
- * The single ARM gate for steward routing — folded into the one UI switch.
- *  - explicit OFF (disabled sentinel) → disarmed;
- *  - explicit ON (armed sentinel) → armed;
- *  - no explicit choice yet → fall back to the MERMAID_STEWARD_AUTO env default.
- * When disarmed, every escalation fails open to the human. The env var is now
- * only the initial default; the switch (setStewardMode) persists the real state.
- */
-export function isStewardArmed(): boolean {
-  if (hasSentinel(STEWARD_DISABLED_SCOPE)) return false;
-  if (hasSentinel(STEWARD_ARMED_SCOPE)) return true;
-  return stewardAutoEnabled();
-}
-
-/** Back-compat alias: "enabled" == armed (drives the identity `switchedOn`). */
-export function isStewardEnabled(): boolean {
-  return isStewardArmed();
-}
-
-/** Runtime ON/OFF switch for the steward's escalation auto-answer (the A3 kill-switch).
- *  Sets the persistent arm sentinels directly so the choice survives restart
- *  and overrides the MERMAID_STEWARD_AUTO env default. */
-export function setStewardEnabled(enabled: boolean): void {
-  setSupervisorPause(STEWARD_DISABLED_SCOPE, !enabled);
-  setSupervisorPause(STEWARD_ARMED_SCOPE, enabled);
-}
-
-/** True iff a steward is registered AND its heartbeat is fresh (not stale/dead).
- *  Drives fail-open-to-human: a dead steward must not silently swallow escalations. */
-export function isStewardLive(now: number = Date.now()): boolean {
-  const id = getSupervisorIdentity('steward');
-  return id != null && now - id.updatedAt < SUPERVISOR_STALE_AFTER_MS;
-}
-
-/**
- * Create-time routing — Phase 1 (decision f0ec0b06): the ex-Steward triage now
- * runs in the Orchestrator daemon (Grok), not a session. Until Phase 2 wires it,
- * EVERY escalation goes to the human unconditionally.
- *
- * routeOf / isStewardArmed / isStewardPaused / isStewardLive / verbs / proof-gate
- * are all retained DORMANT below — they are reused unchanged in Phase 2.
+ * Create-time routing: EVERY escalation goes to the human. The AI steward that
+ * once triaged/auto-answered a subset has been removed — a human, the conductor
+ * node, or an explicit MCP call resolves escalations now.
  */
 export function routeEscalation(_kind: string, _operatorGated: boolean, _now: number = Date.now()): EscalationRoute {
   return 'human';
-}
-
-/** Sentinel session for the single fail-open summary escalation (keeps it deduped). */
-export const STEWARD_FAILOPEN_SESSION = '__steward_failopen__';
-
-/**
- * Fail-open-to-human (design §4/§5): when a steward IS registered but its
- * heartbeat is stale/dead, surface EXACTLY ONE human escalation summarising the
- * backlog ("steward dead, N queued") — never spawn a replacement LLM. Deduped via
- * the sentinel session, so repeated scans don't pile up. Returns the state so the
- * watchdog/UI can flip the StewardPanel to "crashed". A no-op when the steward is
- * disabled, unregistered, or live.
- */
-export function stewardFailOpenScan(now: number = Date.now()): { stale: boolean; queued: number; escalationId: string | null } {
-  if (!isStewardArmed()) return { stale: false, queued: 0, escalationId: null };
-  const id = getSupervisorIdentity('steward');
-  if (!id || isStewardLive(now)) return { stale: false, queued: 0, escalationId: null };
-  const d = openDb();
-  const queued = (d.query("SELECT COUNT(*) AS n FROM escalation WHERE status = 'open' AND routedTo = 'steward'").get() as { n: number }).n;
-  // Single summary escalation — reuse the open one if it already exists.
-  const existing = d
-    .query("SELECT id FROM escalation WHERE session = ? AND status = 'open' LIMIT 1")
-    .get(STEWARD_FAILOPEN_SESSION) as { id: string } | null;
-  if (existing) return { stale: true, queued, escalationId: existing.id };
-  // operatorGated forces the human floor regardless of kind/liveness routing.
-  const { escalation } = createEscalation({
-    project: id.project,
-    session: STEWARD_FAILOPEN_SESSION,
-    kind: 'operator-gated',
-    questionText: `Steward offline (heartbeat stale) — ${queued} steward-routed escalation(s) now need a human. Re-register a steward or triage them directly.`,
-    operatorGated: true,
-  });
-  return { stale: true, queued, escalationId: escalation.id };
 }
 
 export function createEscalation(input: {
@@ -1082,18 +936,6 @@ export function setEscalationOperatorGated(id: string, operatorGated: boolean): 
     d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(id);
   }
   return getEscalation(id);
-}
-
-/**
- * Thrash guard (design §7 rail 5): bump an escalation's stewardAttempts and return
- * the new count. The handler escalates as systemic once it exceeds a cap K so the
- * steward can't loop forever on an un-actionable escalation.
- */
-export function incrementStewardAttempts(id: string): number {
-  const d = openDb();
-  d.prepare('UPDATE escalation SET stewardAttempts = COALESCE(stewardAttempts, 0) + 1 WHERE id = ?').run(id);
-  const row = d.query('SELECT stewardAttempts FROM escalation WHERE id = ?').get(id) as { stewardAttempts: number } | null;
-  return row?.stewardAttempts ?? 0;
 }
 
 // --- Escalation decisions (poll-await relay; ED2) ---

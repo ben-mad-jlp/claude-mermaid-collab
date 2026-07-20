@@ -162,6 +162,40 @@ describe('makeCoordinatorDeps', () => {
   });
 });
 
+describe('launchWorker — HARD RE-DISPATCH CAP (loop breaker)', () => {
+  it('a todo at/over MAX_REDISPATCH is PARKED held + escalated, NOT dispatched (no blueprint re-run)', async () => {
+    resetTodoCalls = [];
+    const looping = {
+      id: 'redispatch-loop-1', kind: 'leaf', type: 'backend', title: 'looping todo',
+      assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
+      claimedBy: 'coordinator', claimToken: 'tok-loop', retryCount: 99, // ≫ MAX_REDISPATCH
+    } as unknown as Todo;
+    const deps = makeCoordinatorDeps();
+    const fired = await deps.launchWorker!(TEST_ROOT, looping);
+    // Capped → launchWorker returns false BEFORE any dispatch (no worker spawned, no blueprint).
+    expect(fired).toBe(false);
+    // Parked via resetTodo('blocked') → HOLD (not claimable, daemon stops re-dispatching).
+    expect(resetTodoCalls.some((c) => c.id === 'redispatch-loop-1' && c.status === 'blocked')).toBe(true);
+    // Audited as redispatch-cap so the reason is observable.
+    const capRow = listSupervisorAudit({ project: TEST_ROOT, kind: 'spawn', limit: 1000 })
+      .find((r) => { try { const d = JSON.parse(r.detail ?? '{}'); return d.todoId === 'redispatch-loop-1' && d.reason === 'redispatch-cap'; } catch { return false; } });
+    expect(capRow).toBeDefined();
+  });
+
+  it('a todo UNDER the cap is NOT early-parked by the cap gate', async () => {
+    resetTodoCalls = [];
+    const fresh = {
+      id: 'under-cap-1', kind: 'leaf', type: 'backend', title: 'fresh todo',
+      assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
+      claimedBy: 'coordinator', claimToken: 'tok-ok', retryCount: 0,
+    } as unknown as Todo;
+    const deps = makeCoordinatorDeps();
+    await deps.launchWorker!(TEST_ROOT, fresh);
+    // The cap gate must NOT park a todo under the threshold (it proceeds to normal dispatch).
+    expect(resetTodoCalls.some((c) => c.id === 'under-cap-1' && c.status === 'blocked')).toBe(false);
+  });
+});
+
 describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', () => {
   afterEach(() => { mockListTodosImpl = () => []; });
 

@@ -51,7 +51,7 @@ import { isEpicTodo } from '../services/invariant-check.ts';
 import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDeployStatus } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
 import { execFileSync } from 'node:child_process';
-import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
+import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
 import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 import { capturePaneText } from '../services/tmux-capture.ts';
@@ -424,22 +424,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
-  // ESCALATION BRIEFING — deep markdown decision briefing for one escalation
-  // (epic 40771aab). Lazy-generate-on-open + cached on the escalation row; the UI
-  // POSTs this when the human opens a card. FAILS OPEN to a deterministic briefing.
-  if (url.pathname === '/api/supervisor/escalation-brief' && req.method === 'POST') {
-    try {
-      const { project, escalationId, refresh } = (await req.json()) as {
-        project?: string; escalationId?: string; refresh?: boolean;
-      };
-      if (!project || !escalationId) return jsonError('project and escalationId are required', 400);
-      const { briefEscalation } = await import('../services/escalation-briefing.ts');
-      return Response.json(await briefEscalation(project, escalationId, { refresh }));
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
   if (url.pathname === '/api/supervisor/projects' && req.method === 'POST') {
     try {
       const { project } = (await req.json()) as { project?: string };
@@ -630,7 +614,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // POST /api/supervisor/escalations/mark — the Z9 operator "only you" pin. Forces the
   // escalation onto the human floor (deterministic outranking) via setEscalationRoute,
   // then re-broadcasts the full row (escalation_created upsert convention) so every
-  // client re-sorts. Pass operatorGated:false to clear the pin (route back to steward).
+  // client re-sorts. Pass operatorGated:false to clear the operator pin.
   if (url.pathname === '/api/supervisor/escalations/mark' && req.method === 'POST') {
     try {
       const { id, operatorGated } = (await req.json()) as { id?: string; operatorGated?: boolean };
@@ -638,7 +622,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const esc = getEscalation(id);
       if (!esc) return jsonError(`escalation not found: ${id}`, 404);
       const pin = operatorGated !== false; // default mark=on
-      setEscalationRoute(id, pin ? 'human' : 'steward', pin ? 'operator-marked: only you' : null);
+      setEscalationRoute(id, 'human', pin ? 'operator-marked: only you' : null);
       const updated = getEscalation(id);
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
@@ -884,12 +868,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
-  }
-
-  if (url.pathname === '/api/supervisor/steward-config' && req.method === 'GET') {
-    // Steward defaults mirror the supervisor: a fixed global workspace, not the
-    // current active project (the steward is a fleet-wide role like the supervisor).
-    return Response.json({ stewardProject: STEWARD_PROJECT, stewardSession: STEWARD_SESSION });
   }
 
   // GET /api/supervisor/watchdog-threshold?project= — the context-watchdog trigger
@@ -1190,37 +1168,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
       staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
     });
-  }
-
-  // GET /api/supervisor/steward-identity — Retired in Phase 1 (decision f0ec0b06)
-  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; kept as a
-  // dormant no-op for back-compat so any stale callers get a well-typed response.
-  if (url.pathname === '/api/supervisor/steward-identity' && req.method === 'GET') {
-    return Response.json({
-      identity: null,
-      running: false,
-      stale: true,
-      ageMs: null,
-      overrideAccepts: 0,
-      switchedOn: false,
-      mode: 'off',
-      heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
-      staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
-    });
-  }
-
-  // POST /api/supervisor/steward/mode — Retired in Phase 1 (decision f0ec0b06)
-  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; kept as a
-  // dormant no-op for back-compat.
-  if (url.pathname === '/api/supervisor/steward/mode' && req.method === 'POST') {
-    return Response.json({ ok: true, note: 'retired' });
-  }
-
-  // POST /api/supervisor/steward/enabled — Retired in Phase 1 (decision f0ec0b06)
-  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; kept as a
-  // dormant no-op for back-compat.
-  if (url.pathname === '/api/supervisor/steward/enabled' && req.method === 'POST') {
-    return Response.json({ ok: true, note: 'retired' });
   }
 
   // POST /api/supervisor/role/stop — Retired in Phase 1 (decision f0ec0b06)

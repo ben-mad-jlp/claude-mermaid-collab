@@ -17,7 +17,6 @@ const decideEscalation = vi.fn().mockResolvedValue(true);
 const decideRequirement = vi.fn().mockResolvedValue(true);
 const resolveEscalation = vi.fn().mockResolvedValue(true);
 const landEpic = vi.fn().mockResolvedValue(true);
-const fetchEscalationBrief = vi.fn().mockResolvedValue(null);
 
 vi.mock('@/stores/supervisorStore', () => ({
   useSupervisorStore: (sel: (s: {
@@ -25,14 +24,12 @@ vi.mock('@/stores/supervisorStore', () => ({
     decideRequirement: typeof decideRequirement;
     resolveEscalation: typeof resolveEscalation;
     landEpic: typeof landEpic;
-    fetchEscalationBrief: typeof fetchEscalationBrief;
   }) => unknown) =>
     sel({
       decideEscalation,
       decideRequirement,
       resolveEscalation,
       landEpic,
-      fetchEscalationBrief,
     }),
 }));
 
@@ -102,7 +99,6 @@ beforeEach(() => {
   decideRequirement.mockClear();
   resolveEscalation.mockClear();
   landEpic.mockClear();
-  fetchEscalationBrief.mockClear();
 });
 
 describe('Keyboard ownership (double-fire fix)', () => {

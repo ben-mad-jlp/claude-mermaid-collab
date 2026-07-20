@@ -40,27 +40,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // poll liveness internally, but a gated-out panel can't poll, so the Sidebar
   // drives the same liveness loads itself and decides what to render.
   const serverScope = currentSession?.serverId ?? 'local';
-  const stewardLiveness = useSupervisorStore((s) => s.stewardLiveness);
   const supLiveness = useSupervisorStore((s) => s.liveness);
   const supConfig = useSupervisorStore((s) => s.config);
-  const loadStewardIdentity = useSupervisorStore((s) => s.loadStewardIdentity);
   const loadLiveness = useSupervisorStore((s) => s.loadLiveness);
   const loadConfig = useSupervisorStore((s) => s.loadConfig);
 
   useEffect(() => {
     const refresh = () => {
-      void loadStewardIdentity(serverScope);
       void loadLiveness(serverScope);
       void loadConfig(serverScope);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadStewardIdentity, loadLiveness, loadConfig]);
+  }, [serverScope, loadLiveness, loadConfig]);
 
   // The Supervisor panel is now the UNIFIED Bridge project tree (the project
   // index) — always shown; it manages the supervisor role from its own header.
-  void stewardLiveness;
   void supLiveness;
   void supConfig;
 

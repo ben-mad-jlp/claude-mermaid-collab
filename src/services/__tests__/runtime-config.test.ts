@@ -30,10 +30,6 @@ function inputs(overrides: Partial<RuntimeConfigInputs> = {}): RuntimeConfigInpu
     perProjectWatchdogThreshold: null,
     defaultWatchdogThreshold: 80,
     orchestratorLevel: 'build',
-    stewardPaused: false,
-    stewardLive: true,
-    stewardAutoEnabled: false,
-    stewardSwitchedOn: false,
     supervisorPausedForProject: false,
     supervisorPauses: [],
     selfSummaryNudgeEnabled: true,
@@ -71,20 +67,12 @@ describe('summarizeRuntimeConfig', () => {
       inputs({
         workerIsolation: true,
         orchestratorLevel: 'plan',
-        stewardPaused: true,
-        stewardLive: false,
-        stewardAutoEnabled: true,
-        stewardSwitchedOn: true,
         supervisorPausedForProject: true,
         supervisorPauses: [{ scope: 'global', pausedAt: 500 }],
       }),
     );
     expect(c.flags.workerIsolation).toBe(true);
     expect(c.overrides.orchestrator.level).toBe('plan');
-    expect(c.overrides.steward.paused).toBe(true);
-    expect(c.overrides.steward.live).toBe(false);
-    expect(c.overrides.steward.autoEnabled).toBe(true);
-    expect(c.overrides.steward.switchedOn).toBe(true);
     expect(c.overrides.supervisor.pausedForProject).toBe(true);
     expect(c.overrides.supervisor.pauses).toEqual([{ scope: 'global', pausedAt: 500 }]);
   });
