@@ -14,6 +14,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { parseDiffContract, renderContract, type DiffContract, type DiffRequirement } from './diff-contract';
 
 export interface LedgerEntry {
   project: string;
@@ -222,6 +223,11 @@ function openDb(): Database {
     epicBaseSha TEXT,
     recordedAt INTEGER NOT NULL
   )`);
+  {
+    const lbc = db.query('PRAGMA table_info(leaf_blueprint)').all() as Array<{ name: string }>;
+    if (!lbc.some((c) => c.name === 'specJson')) db.exec('ALTER TABLE leaf_blueprint ADD COLUMN specJson TEXT');
+    if (!lbc.some((c) => c.name === 'specRev')) db.exec('ALTER TABLE leaf_blueprint ADD COLUMN specRev INTEGER');
+  }
   // G8 resume decision audit trail — records the per-claim resume verdict (mode/reason),
   // anomaly detection (blueprint discarded), and inputs used in the decision.
   // Append-only; never cleared except for database reset.
@@ -508,22 +514,34 @@ export interface LeafBlueprintRow {
   project: string;
   epicBaseSha: string | null;
   recordedAt: number;
+  specJson: string | null;
+  specRev: number | null;
 }
 
 /** Record or update the durable blueprint base SHA for a leaf. Upserts so a genuinely
  *  fresh re-blueprint against a new base overwrites the old base, never COALESCE.
- *  Best-effort. */
+ *  `specJson`/`specRev` are the exception: only overwritten when explicitly provided
+ *  (undefined preserves the existing edited-contract row); this lets non-editing callers
+ *  (e.g. a re-blueprint on a new base SHA) keep passing only leafId/project/epicBaseSha
+ *  without clobbering a human edit. Best-effort. */
 export function recordLeafBlueprint(
-  e: { leafId: string; project: string; epicBaseSha?: string | null },
+  e: { leafId: string; project: string; epicBaseSha?: string | null; specJson?: string | null; specRev?: number | null },
   now: number = Date.now(),
 ): void {
   try {
     openDb().prepare(
-      `INSERT INTO leaf_blueprint (leafId, project, epicBaseSha, recordedAt)
-       VALUES (?,?,?,?)
+      `INSERT INTO leaf_blueprint (leafId, project, epicBaseSha, recordedAt, specJson, specRev)
+       VALUES (?,?,?,?,?,?)
        ON CONFLICT(leafId) DO UPDATE SET
-         epicBaseSha=excluded.epicBaseSha, recordedAt=excluded.recordedAt`,
-    ).run(e.leafId, e.project, e.epicBaseSha ?? null, now);
+         epicBaseSha=excluded.epicBaseSha, recordedAt=excluded.recordedAt,
+         specJson=CASE WHEN ? THEN excluded.specJson ELSE leaf_blueprint.specJson END,
+         specRev=CASE WHEN ? THEN excluded.specRev ELSE leaf_blueprint.specRev END`,
+    ).run(
+      e.leafId, e.project, e.epicBaseSha ?? null, now,
+      e.specJson ?? null, e.specRev ?? null,
+      e.specJson !== undefined ? 1 : 0,
+      e.specRev !== undefined ? 1 : 0,
+    );
   } catch { /* best-effort */ }
 }
 
@@ -539,6 +557,95 @@ export function getLeafBlueprint(leafId: string): LeafBlueprintRow | null {
  *  (accepted/merged). Best-effort. */
 export function clearLeafBlueprint(leafId: string): void {
   try { openDb().prepare('DELETE FROM leaf_blueprint WHERE leafId=?').run(leafId); } catch { /* best-effort */ }
+}
+
+/** Reconstruct the blueprint prose a leaf should see: if an edited contract exists
+ *  (leaf_blueprint.specJson non-null), splice it back into the base blueprint prose in
+ *  place of the base contract's trailing json fence; otherwise (v1 leaves, or no row)
+ *  return the raw successful blueprint output verbatim. Best-effort: any parse failure
+ *  falls back to the verbatim base output, never throws. */
+export function restoreEditableBlueprint(leafId: string): string | null {
+  const base = getLatestSuccessfulNodeOutput(leafId, 'blueprint');
+  const row = getLeafBlueprint(leafId);
+  if (!row?.specJson) return base;
+  try {
+    const edited = parseDiffContract(row.specJson);
+    if (!edited || base == null) return base;
+    const fenceRe = /```json\s*[\s\S]*?```/;
+    const rendered = renderContract(edited);
+    return fenceRe.test(base) ? base.replace(fenceRe, rendered) : `${base}\n\n${rendered}`;
+  } catch {
+    return base;
+  }
+}
+
+type ContractFieldMutation =
+  | { target: 'filesToEdit'; file: string }
+  | { target: 'task'; taskId: string; file: string };
+
+/** Append a file path to a touchpoint array (filesToEdit or a task's files) on the leaf's
+ *  editable contract — e.g. to legalize an incidental file the diff already touches.
+ *  Seeds specJson from the base blueprint contract if no edit exists yet. Writes back with
+ *  specRev bumped by 1. NEVER touches worker_ledger.outputText. Best-effort: returns false
+ *  on any failure (no base contract, bad leaf, etc.), never throws. */
+export function editContractField(
+  leafId: string,
+  mutation: ContractFieldMutation,
+): boolean {
+  try {
+    const row = getLeafBlueprint(leafId);
+    if (!row) return false;
+    const seed = row.specJson
+      ? parseDiffContract(row.specJson)
+      : parseDiffContract(getLatestSuccessfulNodeOutput(leafId, 'blueprint') ?? undefined);
+    if (!seed) return false;
+
+    const contract: DiffContract = { ...seed };
+    if (mutation.target === 'filesToEdit') {
+      contract.filesToEdit = [...new Set([...contract.filesToEdit, mutation.file])];
+    } else {
+      const taskIdx = contract.tasks.findIndex((t) => t.id === mutation.taskId);
+      if (taskIdx === -1) return false;
+      const tasks = [...contract.tasks];
+      tasks[taskIdx] = { ...tasks[taskIdx], files: [...new Set([...tasks[taskIdx].files, mutation.file])] };
+      contract.tasks = tasks;
+    }
+
+    const nextRev = (row.specRev ?? 0) + 1;
+    recordLeafBlueprint({ leafId, project: row.project, specJson: renderContract(contract), specRev: nextRev });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Replace one entry in the leaf's editable contract's requirements[] (flip/replace a
+ *  DiffRequirement cite) at the given index. Seeds from specJson or the base blueprint
+ *  contract. Writes back with specRev bumped by 1. NEVER touches worker_ledger.outputText.
+ *  Best-effort: returns false on any failure (bad index, no base contract), never throws. */
+export function editLeafRequirement(
+  leafId: string,
+  index: number,
+  replacement: DiffRequirement,
+): boolean {
+  try {
+    const row = getLeafBlueprint(leafId);
+    if (!row) return false;
+    const seed = row.specJson
+      ? parseDiffContract(row.specJson)
+      : parseDiffContract(getLatestSuccessfulNodeOutput(leafId, 'blueprint') ?? undefined);
+    if (!seed || index < 0 || index >= seed.requirements.length) return false;
+
+    const requirements = [...seed.requirements];
+    requirements[index] = replacement;
+    const contract: DiffContract = { ...seed, requirements };
+
+    const nextRev = (row.specRev ?? 0) + 1;
+    recordLeafBlueprint({ leafId, project: row.project, specJson: renderContract(contract), specRev: nextRev });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // --- G8 resume decision audit trail (leaf_resume_decision) ---
