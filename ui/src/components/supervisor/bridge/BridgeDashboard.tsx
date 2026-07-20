@@ -41,7 +41,6 @@ import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
-import { MissionsPanel } from './MissionsPanel';
 import { UsagePanel } from './UsagePanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
@@ -502,10 +501,12 @@ export const BridgeDashboard: React.FC = () => {
       executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
       subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
       usage: <UsagePanel project={project} serverScope={serverScope} />,
-      missions: <MissionsPanel serverId={serverScope} project={project} />,
+      // The Missions rail tab renders the SAME detail panel the mission bar opens — it scrolls,
+      // has a hide-completed toggle, and lets you click any mission to read its description.
+      missions: <MissionDetailPanel serverId={serverScope} project={project} session={currentSession?.name} />,
       dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
     }),
-    [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump],
+    [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name],
   );
 
   // Mission detail is a stage view (design 2026-07-13): when the mission strip is
