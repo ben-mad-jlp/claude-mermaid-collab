@@ -1,6 +1,25 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate the GLOBAL supervisor.db (+ registry) so addWatchedProject('/tmp/inject-toggle-p')
+// below can never leak a phantom watched project into the live ~/.mermaid-collab that the
+// running server then services (observed: a leaked /tmp watched row burning tokens). The
+// supervisor store opens its DB lazily, so setting the env before the first call isolates it.
+const dir = mkdtempSync(join(tmpdir(), 'inject-flags-'));
+process.env.MERMAID_SUPERVISOR_DIR = dir;
+process.env.MERMAID_DATA_DIR = dir;
+
 import { handleSupervisorRoutes } from '../supervisor-routes';
-import { addWatchedProject } from '../../services/supervisor-store';
+import { addWatchedProject, _closeDb as supervisorCloseDb } from '../../services/supervisor-store';
+
+afterAll(() => {
+  supervisorCloseDb();
+  rmSync(dir, { recursive: true, force: true });
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+  delete process.env.MERMAID_DATA_DIR;
+});
 
 async function get(project?: string) {
   const qs = project === undefined ? '' : `?project=${encodeURIComponent(project)}`;
