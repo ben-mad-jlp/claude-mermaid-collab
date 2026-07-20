@@ -115,9 +115,13 @@ function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: 
 }
 
 function checkoutBase(c: CorpusCase): string {
-  const cwd = mkdtempSync(join(tmpdir(), `emitlab-${c.id}-`));
-  mkdirSync(cwd, { recursive: true });
-  execFileSync('sh', ['-c', `git archive "${c.diff.baseSha}" | tar -x -C "${cwd}"`], { cwd: REPO_ROOT });
+  // Materialize the base tree with `git worktree add --detach` rather than
+  // `git archive | tar`: on macOS bsdtar aborts restoring AppleDouble metadata
+  // for tracked *.meta.json files ("Failed to restore metadata: File exists"),
+  // which VOIDed every corpus case. worktree checkout is metadata-clean.
+  const parent = mkdtempSync(join(tmpdir(), `emitlab-${c.id}-`));
+  const cwd = join(parent, 'wt'); // must NOT pre-exist for `git worktree add`
+  execFileSync('git', ['worktree', 'add', '--detach', cwd, c.diff.baseSha], { cwd: REPO_ROOT });
   return cwd;
 }
 
@@ -147,7 +151,8 @@ async function runOne(c: CorpusCase): Promise<EmitResult> {
   } else {
     writeFileSync(join(OUT, `${c.id}.emit.md`), text);
   }
-  try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+  try { execFileSync('git', ['worktree', 'remove', '--force', cwd], { cwd: REPO_ROOT }); } catch {}
+  try { rmSync(dirname(cwd), { recursive: true, force: true }); } catch {}
   return { id: c.id, leafKindExpected: c.leafKind, contract, rawText: text };
 }
 

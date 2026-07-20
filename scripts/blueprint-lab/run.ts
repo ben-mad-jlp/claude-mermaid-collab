@@ -46,7 +46,7 @@ interface CaseScore {
   fileMatch: FileMatchStats | null;
 }
 
-interface AggregateStats {
+export interface AggregateStats {
   total: number;
   validationCounts: Record<string, number>;
   meanMatchRate: number;
@@ -61,7 +61,7 @@ interface ScoreFile {
   aggregate: AggregateStats;
 }
 
-interface GateVerdict {
+export interface GateVerdict {
   verdict: 'PASS' | 'ESCALATE';
   reason: string;
   recommendation?: string;
@@ -77,7 +77,7 @@ function runChildOrThrow(scriptRelPath: string, args: string[]) {
   }
 }
 
-function computeGateVerdict(agg: AggregateStats): GateVerdict {
+export function computeGateVerdict(agg: AggregateStats): GateVerdict {
   const acceptRate = agg.total > 0 ? (agg.validationCounts['accept'] ?? 0) / agg.total : 0;
 
   if (acceptRate >= GATE_MIN_ACCEPT_RATE && agg.meanMatchRate >= GATE_MIN_MATCH_RATE) {
@@ -201,4 +201,4 @@ function main() {
 
   process.exitCode = gate.verdict === 'PASS' ? 0 : 1;
 }
-main();
+if (import.meta.main) main();
