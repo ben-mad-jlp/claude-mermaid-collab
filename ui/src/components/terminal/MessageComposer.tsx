@@ -302,15 +302,14 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ghost interactions (only while a ghost is showing — i.e. the composer is empty):
     if (ghost) {
-      // Tab OR → (ArrowRight at the caret end) ACCEPTS the ghost into editable text.
-      // Empty textarea ⇒ caret is at 0 which is also the end, so → accepts.
+      // → (ArrowRight at the caret end) is the ONE key that STAGES the ghost into
+      // editable text — so the user can append/change it before sending. Empty textarea
+      // ⇒ caret is at 0 which is also the end, so → stages. (Tab is intentionally NOT a
+      // stage key: it keeps its native focus-move behavior. Clicking the ghost stages
+      // nothing either — see the inert overlay below. The only ways to commit a ghost are
+      // → to edit it, or Enter / Send to fire it as-is.)
       const ta = taRef.current;
       const atEnd = !ta || (ta.selectionStart === ta.selectionEnd && ta.selectionEnd === value.length);
-      if (e.key === 'Tab' && !e.shiftKey) {
-        e.preventDefault();
-        acceptGhost();
-        return;
-      }
       if (e.key === 'ArrowRight' && atEnd) {
         e.preventDefault();
         acceptGhost();
@@ -405,22 +404,23 @@ export function MessageComposer({ project, session, serverId, disabled = false, 
             onBlur={() => setFocused(false)}
           />
           {/* Inline GHOST: a greyed, muted overlay showing the AI-proposed reply over the
-              empty textarea. Click accepts it. Aligned to the textarea's text box (1px
-              border + 8/10 padding). Not in the tab order; clicking accepts-into-editable. */}
+              empty textarea. Aligned to the textarea's text box (1px border + 8/10 padding).
+              INERT: pointerEvents:none so a click passes straight through to the textarea
+              beneath — clicking the ghost (or clicking to focus the box) does NOTHING to it,
+              the ghost just stays. Committing a ghost is deliberate: → stages it into
+              editable text, Enter / Send fires it as-is. */}
           {ghost && (
             <div
-              role="button"
-              aria-label={`Suggested reply: ${ghost}`}
+              aria-hidden="true"
               data-testid="composer-ghost"
-              onMouseDown={(e) => { e.preventDefault(); acceptGhost(); }}
-              title={`Suggested reply — Tab or → to edit, Enter to send: "${ghost}"`}
+              title={`Suggested reply — → to edit, Enter to send: "${ghost}"`}
               style={{
                 position: 'absolute', inset: 0, zIndex: 2,
                 padding: '9px 11px', margin: 0,
                 fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
                 color: p.mutedFg, background: 'transparent',
                 whiteSpace: 'pre-wrap', overflow: 'hidden',
-                cursor: 'pointer', userSelect: 'none',
+                pointerEvents: 'none', userSelect: 'none',
               }}
             >
               {ghost}

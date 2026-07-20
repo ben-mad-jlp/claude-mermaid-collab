@@ -7,8 +7,9 @@ import { useQuickReplyStore } from '@/stores/quickReplyStore';
 /**
  * MessageComposer inline GHOST — Part 2 (replaces SuggestionChips). Verifies the
  * greyed inline suggestion renders over the EMPTY composer for a RECENT, same-session
- * payload; Tab accepts it into editable text; Enter-on-empty-with-ghost sends the EXACT
- * suggestion via /api/ide/tmux-send-keys; typing hides it; and a suggestion that is
+ * payload; → (ArrowRight) STAGES it into editable text while Tab and clicking do NOT;
+ * Enter-on-empty-with-ghost sends the EXACT suggestion via /api/ide/tmux-send-keys (as
+ * does the Send button); typing hides it; and a suggestion that is
  * stale (summaryUpdatedAt older than GHOST_MAX_AGE_MS), a 'working'-status payload
  * (pickGhost yields nothing), a cross-session payload, or one hidden by the Suggestions
  * toggle never renders.
@@ -80,30 +81,32 @@ describe('MessageComposer ghost', () => {
     expect(screen.getByTestId('composer-ghost').textContent).toBe('Run the tests');
   });
 
-  it('(b) Tab accepts the ghost into the editable textarea value', () => {
+  it('(b) Tab does NOT stage the ghost — only → stages (Tab keeps native focus behavior)', () => {
     seed({ paragraph: 'x', status: 'idle', suggestedAnswers: ['Push the branch'] });
     render(<MessageComposer {...PROPS} />);
     const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
     fireEvent.keyDown(ta, { key: 'Tab' });
-    expect(ta.value).toBe('Push the branch');
-    expect(screen.queryByTestId('composer-ghost')).toBeNull(); // hidden once text present
-    expect(globalThis.fetch).not.toHaveBeenCalled(); // accept never sends
+    expect(ta.value).toBe(''); // Tab no longer stages — box stays empty
+    expect(screen.getByTestId('composer-ghost').textContent).toBe('Push the branch'); // ghost still shown
+    expect(globalThis.fetch).not.toHaveBeenCalled(); // and nothing sent
   });
 
-  it('(b2) ArrowRight at caret end accepts; clicking the ghost accepts', () => {
+  it('(b2) → (ArrowRight at caret end) stages the ghost into editable text; clicking the ghost does NOTHING', () => {
     seed({ paragraph: 'x', status: 'idle', aiOption: 'Run the tests' });
     const { rerender } = render(<MessageComposer {...PROPS} />);
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowRight' });
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Run the tests');
 
-    // Fresh mount → click-accept.
+    // Fresh mount → clicking the (inert) ghost neither stages it into the box nor sends it.
     act(() => {
       useSupervisorStore.setState({ sessionSummaries: {} });
       seed({ paragraph: 'x', status: 'idle', aiOption: 'Run the tests' });
     });
     rerender(<MessageComposer {...PROPS} key="2" />);
     fireEvent.mouseDown(screen.getByTestId('composer-ghost'));
-    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Run the tests');
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(''); // NOT staged
+    expect(screen.getByTestId('composer-ghost').textContent).toBe('Run the tests'); // ghost persists
+    expect(globalThis.fetch).not.toHaveBeenCalled(); // NOT sent
   });
 
   it('(c) Enter on the empty composer sends the EXACT ghost text to /api/ide/tmux-send-keys', () => {
