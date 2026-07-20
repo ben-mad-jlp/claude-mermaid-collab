@@ -41,6 +41,8 @@ import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
+import { MissionsPanel } from './MissionsPanel';
+import { UsagePanel } from './UsagePanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 import { epicIdSet, isEpic } from '@/lib/todoKind';
@@ -499,6 +501,8 @@ export const BridgeDashboard: React.FC = () => {
       stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
       executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
       subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
+      usage: <UsagePanel project={project} serverScope={serverScope} />,
+      missions: <MissionsPanel serverId={serverScope} project={project} />,
       dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
     }),
     [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump],

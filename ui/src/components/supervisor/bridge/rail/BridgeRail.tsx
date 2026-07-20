@@ -49,6 +49,12 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
       label: 'HOME',
       items: [
         {
+          key: 'missions',
+          label: 'Missions',
+          icon: '⌖',
+          description: 'Convergence missions — status, criteria, and serving epics',
+        },
+        {
           key: 'plan',
           label: 'Plan',
           icon: '▤',
@@ -128,6 +134,12 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           label: 'Subscribers',
           icon: '◎',
           description: 'Session subscribers',
+        },
+        {
+          key: 'usage',
+          label: 'Usage',
+          icon: '◔',
+          description: 'Token-usage statistics — per-source LLM burn + account rate limits',
         },
         {
           key: 'dogfood',

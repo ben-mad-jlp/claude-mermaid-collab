@@ -1,10 +1,10 @@
 import React from 'react';
 
 export type RailKey =
-  | 'plan'                                            // HOME
+  | 'missions' | 'plan'                               // HOME
   | 'escalations' | 'land'          // ACT
   | 'work' | 'stranded'             // WORK
-  | 'stream' | 'executor' | 'subscribers' | 'dogfood'; // TELEMETRY
+  | 'stream' | 'executor' | 'subscribers' | 'usage' | 'dogfood'; // TELEMETRY
 
 export type RailTone = 'loud' | 'warn' | 'info';
 
