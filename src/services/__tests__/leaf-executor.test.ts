@@ -158,6 +158,8 @@ function makeDeps(opts: {
   coverage?: boolean | null;
   // crit 4: mock the contested-card decision. Absent ⇒ seams unwired (no card).
   contestedDecision?: 'accept' | 'reject' | 'timeout';
+  // crit 8: mock readBlueprint return values by call index. Absent ⇒ unwired.
+  readBlueprintReturns?: (string | undefined)[];
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -179,6 +181,7 @@ function makeDeps(opts: {
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
+  let readBlueprintIdx = 0;
   const deps: LeafExecutorDeps = {
     invoker: {
       async invoke(spec: NodeSpec): Promise<NodeResult> {
@@ -263,6 +266,13 @@ function makeDeps(opts: {
       : undefined,
     awaitContestedDecision: opts.contestedDecision !== undefined
       ? async () => opts.contestedDecision!
+      : undefined,
+    readBlueprint: opts.readBlueprintReturns !== undefined
+      ? async (_cwd: string, _leaf: Todo) => {
+          const result = opts.readBlueprintReturns![readBlueprintIdx];
+          readBlueprintIdx += 1;
+          return result;
+        }
       : undefined,
   };
   return { deps, spies };
@@ -3351,5 +3361,63 @@ describe('crit 4 — no-silent-park contested decision card', () => {
     expect(spies.contestedCalls.length).toBe(0);
     expect(spies.nodeRows.find((r) => r.nodeKind === 'contested-card')).toBeUndefined();
     expect(spies.nodeRows.find((r) => r.nodeKind === 'advisory-override')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('crit 8 — bounded blueprint contract repair', () => {
+  // Fixture: v2 contract underspecified for 'feature' leafKind (requires symbol-present AND
+  // named-test, but has only symbol-present). No ## Acceptance Criteria heading so citability
+  // ABSTAINS and never fires a second blueprint call (crit 7 citability gate).
+  const blueprintFenceUnderspecified = '```json\n{"schemaVersion":2,"estimatedFiles":2,"estimatedTasks":2,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/foo.ts"],"tasks":[{"id":"task-1","files":["src/foo.ts"],"description":"Add function"}],"leafKind":"feature","requirements":[{"kind":"symbol-present","file":"src/foo.ts","symbol":"fooBar","description":"New export fooBar"}],"outOfScope":[]}\n```';
+
+  // Fixture: same but with named-test added → now valid for 'feature' leafKind.
+  const blueprintFenceValid = '```json\n{"schemaVersion":2,"estimatedFiles":2,"estimatedTasks":2,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/foo.ts"],"tasks":[{"id":"task-1","files":["src/foo.ts"],"description":"Add function"}],"leafKind":"feature","requirements":[{"kind":"symbol-present","file":"src/foo.ts","symbol":"fooBar","description":"New export fooBar"},{"kind":"named-test","testFile":"src/foo.test.ts","testName":"fooBar works","mechanical":true}],"outOfScope":[]}\n```';
+
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('repairs an underspecified contract with exactly one re-prompt', async () => {
+    // readBlueprint returns underspecified on 1st call (seeded), valid on 2nd call (repair re-read).
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: greenGate,
+      readBlueprintReturns: [blueprintFenceUnderspecified, blueprintFenceValid],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // Count blueprint nodes: should be exactly 2 (initial + one repair).
+    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    expect(blueprintCalls).toBe(2);
+  });
+
+  it('falls back to v1 prose when still underspecified after the single retry', async () => {
+    // readBlueprint returns underspecified BOTH times → repair doesn't accept, falls back to prose path.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: greenGate,
+      readBlueprintReturns: [blueprintFenceUnderspecified, blueprintFenceUnderspecified],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // Still exactly 2 blueprint calls (repair fired once, never a 3rd).
+    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    expect(blueprintCalls).toBe(2);
+    // The pipeline continues with implement + review (degraded to v1 prose path).
+    const implementCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit')).length;
+    expect(implementCalls).toBeGreaterThan(0);
+  });
+
+  it('small-tier leaf never triggers a contract repair', async () => {
+    // small tier skips blueprint entirely (synth path, no v2 fence in body).
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: greenGate,
+      // Small tier doesn't read blueprint at all, so readBlueprintReturns is not used.
+    });
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('accepted');
+    // Small tier synthesizes blueprint (no node spent).
+    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    expect(blueprintCalls).toBe(0);
   });
 });
