@@ -26,8 +26,8 @@ import { addSessionTodo } from './session-todos.js';
 import {
   upsertMission,
   addCriterion,
-  setMissionActive,
   setMissionApproved,
+  enqueueMission,
   sessionHasActiveMission,
   getMission,
   listCriteria,
@@ -131,7 +131,7 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   const activate = (input.activate ?? true) && approved; // an unapproved mission is never the active driven one
   // One-active-per-session: never steal focus unless explicitly told to activate.
   if (!activate || sessionHasActiveMission(project, session, missionId)) {
-    setMissionActive(project, missionId, false);
+    enqueueMission(project, missionId);
   }
   for (const c of criteria) addCriterion(project, missionId, c);
 
