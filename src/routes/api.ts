@@ -555,6 +555,28 @@ export async function handleAPI(
     }
   }
 
+  // DELETE /api/subscriptions { project, session, scope, targetId? } — remove ONE subscription
+  // (the per-row X in the Bridge Subscribers list). scope 'project' ignores targetId. Idempotent:
+  // returns { removed: boolean }.
+  if (path === '/api/subscriptions' && req.method === 'DELETE') {
+    try {
+      const body = (await req.json()) as { project?: string; session?: string; scope?: string; targetId?: string | null };
+      const project = body.project ? expandPath(body.project) : null;
+      const { session, scope } = body;
+      if (!project || !session || !scope) {
+        return Response.json({ error: 'project, session and scope are required' }, { status: 400 });
+      }
+      if (!['todo', 'epic', 'project'].includes(scope)) {
+        return Response.json({ error: "scope must be 'todo' | 'epic' | 'project'" }, { status: 400 });
+      }
+      const { removeSubscription } = await import('../services/session-subscriptions');
+      const removed = removeSubscription(project, session, scope as 'todo' | 'epic' | 'project', body.targetId ?? null);
+      return Response.json({ removed }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error: any) {
+      return serverError(error);
+    }
+  }
+
   // POST /api/maintenance/kill-tmux { name } — kill one orphan tmux session.
   if (path === '/api/maintenance/kill-tmux' && req.method === 'POST') {
     try {

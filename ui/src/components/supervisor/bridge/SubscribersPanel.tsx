@@ -55,6 +55,29 @@ export const SubscribersPanel: React.FC<SubscribersPanelProps> = ({ project, ser
     return () => { cancelled = true; clearInterval(id); };
   }, [project, serverScope]);
 
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
+
+  const subKey = (s: Subscription) => `${s.session}:${s.scope}:${s.targetId}`;
+
+  const removeSub = async (s: Subscription) => {
+    const key = subKey(s);
+    setRemoving((prev) => new Set(prev).add(key));
+    // Optimistic remove; restore on failure.
+    setSubs((prev) => prev.filter((x) => subKey(x) !== key));
+    try {
+      const r = await apiFetch(serverScope, '/api/subscriptions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: s.project, session: s.session, scope: s.scope, targetId: s.targetId }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch {
+      setSubs((prev) => (prev.some((x) => subKey(x) === key) ? prev : [...prev, s]));
+    } finally {
+      setRemoving((prev) => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
+
   const titleById = useMemo(() => new Map(todos.map((t) => [t.id, t.title ?? t.id])), [todos]);
 
   const bySession = useMemo(() => {
@@ -92,17 +115,35 @@ export const SubscribersPanel: React.FC<SubscribersPanelProps> = ({ project, ser
                 {list.map((s) => {
                   const todo = s.scope !== 'project' ? todos.find((t) => t.id === s.targetId) : undefined;
                   const label = s.scope === 'project' ? 'whole project' : (titleById.get(s.targetId) ?? s.targetId.slice(0, 8));
+                  const key = subKey(s);
+                  const isRemoving = removing.has(key);
                   return (
-                    <button
+                    <div
                       key={`${s.scope}:${s.targetId}`}
-                      type="button"
-                      onClick={todo && onSelectTodo ? () => onSelectTodo(todo) : undefined}
-                      className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left ${todo ? 'hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer' : 'cursor-default'}`}
+                      className={`group w-full flex items-center gap-2 px-2 py-1 rounded ${todo ? 'hover:bg-gray-100 dark:hover:bg-gray-800' : ''}`}
                       title={s.scope === 'project' ? project : s.targetId}
                     >
                       <span className={`shrink-0 px-1 py-0.5 rounded text-3xs font-semibold uppercase ${SCOPE_CLASS[s.scope]}`}>{s.scope}</span>
-                      <span className="flex-1 min-w-0 truncate text-2xs text-gray-700 dark:text-gray-300">{label}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={todo && onSelectTodo ? () => onSelectTodo(todo) : undefined}
+                        disabled={!todo || !onSelectTodo}
+                        className={`flex-1 min-w-0 truncate text-left text-2xs text-gray-700 dark:text-gray-300 ${todo ? 'cursor-pointer' : 'cursor-default'}`}
+                      >
+                        {label}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="unsubscribe"
+                        disabled={isRemoving}
+                        onClick={() => void removeSub(s)}
+                        title="Remove this subscription"
+                        aria-label={`Remove ${s.scope} subscription`}
+                        className="shrink-0 h-4 w-4 flex items-center justify-center rounded text-2xs leading-none text-gray-400 hover:text-danger-600 hover:bg-danger-100 dark:hover:bg-danger-900/40 disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   );
                 })}
               </div>
