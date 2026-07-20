@@ -3,7 +3,7 @@
  * Run with `bun test src/services/__tests__/review-citations.test.ts`.
  */
 import { describe, it, expect } from 'bun:test';
-import { parseCriterionResults, extractCitations, citationResolves, validateReviewGrounding, checkConstraintCitations } from '../review-citations';
+import { parseCriterionResults, extractCitations, citationResolves, validateReviewGrounding, checkConstraintCitations, validateBallotGrounding } from '../review-citations';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -318,5 +318,108 @@ describe('two-line criterion format (8dbbdc8d regression)', () => {
     const g = validateReviewGrounding(text, ['src/a.ts']);
     expect(g.status).toBe('vacuous');
     expect(g.reasons.join(' ')).toContain('cites nothing');
+  });
+});
+
+describe('validateBallotGrounding', () => {
+  it('ok: met verdict on declared id citing change-set file:line', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'met' as const, text: 'done: src/a.ts:3' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], ['src/a.ts']);
+    expect(grounding.status).toBe('ok');
+  });
+
+  it('vacuous: verdict cites undeclared requirement id', () => {
+    const verdicts = [
+      { id: 'ghost', outcome: 'met' as const, text: 'done — src/a.ts:1' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], ['src/a.ts']);
+    expect(grounding.status).toBe('vacuous');
+    expect(grounding.reasons[0]).toContain('ghost');
+  });
+
+  it('vacuous: met verdict with no resolving citation', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'met' as const, text: 'trust me, done' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], ['src/a.ts']);
+    expect(grounding.status).toBe('vacuous');
+    expect(grounding.reasons[0]).toContain('real-id');
+  });
+
+  it('ok: unmet verdict needs no citation', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'unmet' as const, text: 'not done' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], ['src/a.ts']);
+    expect(grounding.status).toBe('ok');
+  });
+
+  it('ok: not-applicable verdict needs no citation', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'not-applicable' as const, text: 'n/a' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], ['src/a.ts']);
+    expect(grounding.status).toBe('ok');
+  });
+
+  it('abstain: changeSet === null', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'met' as const, text: 'done' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], null);
+    expect(grounding.status).toBe('abstain');
+  });
+
+  it('ok: met verdict resolving via worktree citationExists', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'met' as const, text: 'done: src/outside.ts:1' },
+    ];
+    const grounding = validateBallotGrounding(
+      verdicts,
+      ['real-id'],
+      ['src/a.ts'],
+      { citationExists: () => true },
+    );
+    expect(grounding.status).toBe('ok');
+  });
+
+  it('vacuous: met verdict with fabricated path (not in change-set or worktree)', () => {
+    const verdicts = [
+      { id: 'real-id', outcome: 'met' as const, text: 'done: src/ghost.ts:1' },
+    ];
+    const grounding = validateBallotGrounding(
+      verdicts,
+      ['real-id'],
+      ['src/a.ts'],
+      { citationExists: () => false },
+    );
+    expect(grounding.status).toBe('vacuous');
+  });
+
+  it('multiple undeclared ids report up to MAX_NAMED_OFFENDERS', () => {
+    const verdicts = [
+      { id: 'ghost1', outcome: 'met' as const, text: 'done src/a.ts:1' },
+      { id: 'ghost2', outcome: 'met' as const, text: 'done src/a.ts:2' },
+      { id: 'ghost3', outcome: 'met' as const, text: 'done src/a.ts:3' },
+      { id: 'ghost4', outcome: 'met' as const, text: 'done src/a.ts:4' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['real-id'], ['src/a.ts']);
+    expect(grounding.status).toBe('vacuous');
+    expect(grounding.reasons.length).toBeGreaterThan(1);
+    expect(grounding.reasons[grounding.reasons.length - 1]).toContain('more undeclared');
+  });
+
+  it('multiple uncited met verdicts report up to MAX_NAMED_OFFENDERS', () => {
+    const verdicts = [
+      { id: 'id1', outcome: 'met' as const, text: 'done 1' },
+      { id: 'id2', outcome: 'met' as const, text: 'done 2' },
+      { id: 'id3', outcome: 'met' as const, text: 'done 3' },
+      { id: 'id4', outcome: 'met' as const, text: 'done 4' },
+    ];
+    const grounding = validateBallotGrounding(verdicts, ['id1', 'id2', 'id3', 'id4'], ['src/a.ts']);
+    expect(grounding.status).toBe('vacuous');
+    expect(grounding.reasons.length).toBeGreaterThan(1);
   });
 });
