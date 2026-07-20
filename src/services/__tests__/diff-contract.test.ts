@@ -260,22 +260,28 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
 });
 
 describe('DiffContractVerdict shape', () => {
-  it('carries a top-level id, a status incl undecided, mechanical, stage, and optional reason', () => {
-    const abstain: DiffContractVerdict = { id: 'r-1', status: 'undecided', mechanical: false, stage: 'observable' };
-    expect(abstain.id).toBe('r-1');
-    expect(abstain.status).toBe('undecided');
-    expect(abstain.mechanical).toBe(false);
-    expect(abstain.reason).toBeUndefined();
-
-    const mechanicalMet: DiffContractVerdict = {
-      id: 'r-2', status: 'met', mechanical: true, stage: 'named-test', reason: 'the named test exists',
+  it('carries a stage, a subject (file | requirement id), a mechanical decision, mechanical:true, and a reason', () => {
+    // A file-subject finding (stages 1–3: scope-breach / absence / out-of-scope).
+    const fileBreach: DiffContractVerdict = {
+      stage: 'scope-breach', subject: { kind: 'file', path: 'src/x.ts' },
+      decision: 'breach', mechanical: true, reason: 'not a declared touchpoint',
     };
-    expect(mechanicalMet.reason).toBe('the named test exists');
+    expect(fileBreach.subject.kind).toBe('file');
+    expect(fileBreach.decision).toBe('breach');
+    expect(fileBreach.mechanical).toBe(true);
 
-    const statuses: DiffContractVerdict['status'][] = ['met', 'unmet', 'undecided', 'not-applicable'];
-    for (const s of statuses) {
-      const v: DiffContractVerdict = { id: 'r', status: s, mechanical: true, stage: 'threshold' };
-      expect(statuses).toContain(v.status);
+    // A requirement-subject finding (stages 5–6: named-test / threshold) carries the declared id.
+    const reqMet: DiffContractVerdict = {
+      stage: 'named-test', subject: { kind: 'requirement', id: 'r-2' },
+      decision: 'met', mechanical: true, reason: 'the named test flips base→branch',
+    };
+    expect(reqMet.subject.kind === 'requirement' && reqMet.subject.id).toBe('r-2');
+    expect(reqMet.reason).toBe('the named test flips base→branch');
+
+    const decisions: DiffContractVerdict['decision'][] = ['breach', 'unmet', 'met', 'not-applicable'];
+    for (const d of decisions) {
+      const v: DiffContractVerdict = { stage: 'threshold', subject: { kind: 'requirement', id: 'r' }, decision: d, mechanical: true, reason: '' };
+      expect(decisions).toContain(v.decision);
     }
   });
 });

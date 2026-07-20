@@ -275,10 +275,18 @@ export function renderContract(c: DiffContract): string {
  *  `false` for the LLM-decided observable/invariant stages. `status: 'undecided'` is the LLM
  *  ABSTAIN outcome (advisory, non-gating). `reason` is optional free text. `stage` is an open
  *  string label naming the stage that produced the verdict. */
+/**
+ * A single mechanical-stage finding from diffContractReview (mechanical:true).
+ * The six-stage engine (stages 1–3,5–6) emits one entry per triggered breach /
+ * decided requirement, deciding WITHOUT an LLM. `subject` is the changed/declared
+ * file or the decided requirement (carrying its declared id); `decision` is the
+ * mechanical outcome; `stage` names the producing stage. Only still-undecided
+ * observable/invariant requirements are forwarded to the closed LLM ballot.
+ */
 export interface DiffContractVerdict {
-  id: string;
-  status: 'met' | 'unmet' | 'undecided' | 'not-applicable';
-  mechanical: boolean;
   stage: string;
-  reason?: string;
+  subject: { kind: 'file'; path: string } | { kind: 'requirement'; id: string };
+  decision: 'breach' | 'unmet' | 'met' | 'not-applicable';
+  mechanical: boolean;
+  reason: string;
 }
