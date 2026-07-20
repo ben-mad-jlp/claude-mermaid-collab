@@ -10,7 +10,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP } from '../mission-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
@@ -18,7 +18,28 @@ import { createTodo, updateTodo } from '../todo-store';
 
 let project: string;
 let invokeCalls: number;
-const okInvoke = async () => { invokeCalls++; return { ok: true, rateLimited: false, text: 'served the gap' } as any; };
+/** Faithful "successful conductor node" mock: like the real node, it SERVES the active mission's
+ *  open 'discover' gaps by filing a serving epic, so the productive-pass guard sees real progress.
+ *  (A bare ok with no epic is the LLM-no-op WEDGE — see emptyServeInvoke.) */
+const okInvoke = async () => {
+  invokeCalls++;
+  // Mirror the pass's own target selection (pin → active) so the mock serves the SAME mission the
+  // pass drives.
+  const pin = getConductorTargetMission(project);
+  const missions = listMissions(project);
+  const m = pin
+    ? missions.find((x) => x.node.id === pin)
+    : missions.find((x) => x.mission.active && !isMissionTerminal(x.mission));
+  if (m) {
+    for (const c of listCriteriaWithActions(project, m.node.id).filter((x) => x.action === 'discover')) {
+      await createTodo(project, { ownerSession: 's1', title: `[EPIC] served ${c.id}`, kind: 'epic', parentId: m.node.id, servesCriterionIds: [c.id] });
+    }
+  }
+  return { ok: true, rateLimited: false, text: 'served the gap' } as any;
+};
+/** The WEDGE mock: a conductor node that returns ok but files NO epic (LLM no-op / swallowed
+ *  plan_mission_criterion). Must NOT stamp the success fp — the mission must retry, not debounce. */
+const emptyServeInvoke = async () => { invokeCalls++; return { ok: true, rateLimited: false, text: 'looked but did nothing' } as any; };
 
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'conductor-'));
@@ -156,6 +177,37 @@ describe('runConductorPass — target pin', () => {
     expect(r2.ran).toBe(true);
     expect(r2.reason).toBe('conducted');
     expect(r2.missionId).toBe(first.missionId);
+  });
+
+  test('EMPTY SERVE self-heals: node returns ok but files no epic → retries (bounded), never debounces', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive(); // one 'discover' criterion
+
+    // A conductor node that returns ok but serves NOTHING must NOT stamp the success fp (which would
+    // debounce a still-unmet mission forever — the 9688e874 wedge). It retries up to the cap, THEN
+    // (with the gap still unserved and now capped) raises the serve-cap escalation.
+    for (let i = 0; i < CONDUCTOR_SERVE_RETRY_CAP; i++) {
+      const r = await runConductorPass(project, { invoke: emptyServeInvoke });
+      expect(r.ran).toBe(true);
+      expect(r.reason).toBe('node-failed'); // empty serve is NOT counted as 'conducted'
+    }
+    expect(invokeCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // retried each tick — did NOT debounce after the 1st
+    // Past the cap: stops respinning the node on the same unservable state.
+    const capped = await runConductorPass(project, { invoke: emptyServeInvoke });
+    expect(capped.ran).toBe(false);
+    expect(capped.reason).toBe('debounced');
+    expect(invokeCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // no further node spawned
+
+  });
+
+  test('a node that ACTUALLY serves the gap is productive (conducted)', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    const r1 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r1.ran).toBe(true);
+    expect(r1.reason).toBe('conducted'); // served a real gap → productive
   });
 
   test('unpinned single mission still uses first-active', async () => {

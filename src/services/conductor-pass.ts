@@ -260,13 +260,25 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     transcriptLabel: 'conductor',
   });
 
-  // On SUCCESS, debounce this exact state (don't respin next tick). On FAILURE, stamp a bounded
-  // fail-counter instead of the plain fp so the mission RETRIES (up to the cap above) rather than
-  // wedging permanently on a transient node/planner failure.
-  if (res.ok) {
+  // PRODUCTIVE-PASS GUARD. A pass is a SUCCESS only if it actually moved the mission: the node
+  // returned ok AND either there were no 'discover' gaps to serve this pass (a verify/land/building
+  // pass legitimately files no epic), OR at least one criterion that WAS 'discover' now has a live
+  // serving epic. A conductor node can return ok yet file NO epic (an LLM no-op, or a swallowed
+  // plan_mission_criterion error). Stamping the plain success fp in that case debounces a still-unmet
+  // mission FOREVER — the wedge that stranded 9688e874 at 4/7 until a human hand-served a gap. Treat
+  // an empty serve like a node failure: stamp the bounded fail-counter so the mission RETRIES and
+  // self-heals across ticks (up to CONDUCTOR_SERVE_RETRY_CAP, then the serve-cap escalation fires).
+  const discoverIdsBefore = actions.filter((a) => a.action === 'discover').map((a) => a.id);
+  const servedAGap =
+    discoverIdsBefore.length === 0 ||
+    listCriteriaWithActions(project, missionId).some(
+      (c) => discoverIdsBefore.includes(c.id) && c.servingEpicState !== 'none',
+    );
+  const productive = res.ok && servedAGap;
+  if (productive) {
     stampConductorRun(project, missionId, fp);
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
-  return { ran: true, reason: res.ok ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised };
+  return { ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised };
 }
