@@ -2,7 +2,7 @@
 // findViolations tests need no DB.
 import { describe, test, expect } from 'bun:test';
 import type { Todo, TodoStatus } from '../todo-store';
-import { findViolations } from '../invariant-check';
+import { findViolations, findLandedAtDivergence } from '../invariant-check';
 import { mkTodo, mkLegacyTodo } from './fixtures/mk-todo';
 import { MissingKindError } from '../todo-kind';
 
@@ -113,5 +113,22 @@ describe('findViolations', () => {
     const childNoKind = mkLegacyTodo({ id: 'c2', title: 'child work', parentId: 'e2' });
     const landNoKind = mkLegacyTodo({ id: 'l2', title: 'to master', parentId: 'e2' });
     expect(() => findViolations([epicNoKind, childNoKind, landNoKind])).toThrow(MissingKindError);
+  });
+});
+
+describe('findLandedAtDivergence', () => {
+  test('landed-satisfies: landedAt set, no [LAND] child, ahead=0 → []', () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] shipped', status: 'done', kind: 'epic', landedAt: '2026-07-20T00:00:00Z' });
+    const aheadOf = (epicId: string) => (epicId === 'e1' ? 0 : undefined);
+    expect(findLandedAtDivergence([epic], aheadOf)).toEqual([]);
+  });
+
+  test('stranded-still-violates: landedAt set, no [LAND] child, ahead=3 → one violation', () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] stranded', status: 'done', kind: 'epic', landedAt: '2026-07-20T00:00:00Z' });
+    const aheadOf = (epicId: string) => (epicId === 'e1' ? 3 : undefined);
+    const v = findLandedAtDivergence([epic], aheadOf);
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('landed-at-divergence');
+    expect(v[0].todoId).toBe('e1');
   });
 });
