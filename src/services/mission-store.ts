@@ -75,6 +75,9 @@ export interface MissionRow {
    *  locked constraints, sequencing rationale, and out-of-scope list the conductor must
    *  honor. Durable link, not description-text convention. Null = none recorded. */
   handoffDocId: string | null;
+  /** Archive stamp (ms epoch), or null = live. Archived missions are excluded from
+   *  listMissions by default (see includeArchived/onlyArchived). */
+  archivedAt: number | null;
   /** Derived-on-read: populated by getMission, absent on the raw rowToMission row. */
   status?: MissionStatus;
 }
@@ -210,6 +213,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'mission_criterion', 'lastReopenSha', 'lastReopenSha TEXT');
+  // Archive storage layer: additive, nullable column. New/existing rows read
+  // archivedAt = NULL for free — hot by default, no backfill needed.
+  addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_mission_hot ON mission(active) WHERE archivedAt IS NULL');
   migrateDropPhaseMachine(db);
   dbCache.set(project, db);
   return db;
@@ -241,6 +248,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
     handoffDocId: (row.handoffDocId as string | null) ?? null,
+    archivedAt: (row.archivedAt as number | null) ?? null,
   };
 }
 
@@ -789,6 +797,8 @@ export function liveRunsOf<T extends { epicId: string | null }>(
 }
 
 export function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
+  // listTodos defaults to archivedAt IS NULL (hot-only) — archived todos never leak into
+  // allTodos/epics/runs below, so an archived leaf is invisible to the facts scan.
   const allTodos = listTodos(project, { includeCompleted: true });
   const epics = allTodos.filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
@@ -911,7 +921,10 @@ export interface MissionSummary {
  * surface. Pass `opts.session` to return ONLY missions owned by / assigned to that
  * session (the mission↔session tie) — omit for all project missions.
  */
-export function listMissions(project: string, opts: { session?: string } = {}): MissionSummary[] {
+export function listMissions(
+  project: string,
+  opts: { session?: string; includeArchived?: boolean; onlyArchived?: boolean } = {},
+): MissionSummary[] {
   const all = listTodos(project, { includeCompleted: true });
   const roots = all.filter(
     (t) => t.parentId == null && t.status !== 'dropped' && isMission(t),
@@ -924,6 +937,8 @@ export function listMissions(project: string, opts: { session?: string } = {}): 
   for (const node of roots) {
     let mission = getMission(project, node.id);
     if (!mission) continue; // a mission-kind node without control state — not a real mission
+    if (opts.onlyArchived) { if (mission.archivedAt == null) continue; }
+    else if (!opts.includeArchived) { if (mission.archivedAt != null) continue; }
     // Self-heal: a TERMINAL mission (converged/abandoned) must not linger active=1. The transition
     // setters (setMissionAbandoned / criterion setters) clear it going forward; this sweep also
     // catches historical rows and any active flip set outside those paths, since a stale active pads
