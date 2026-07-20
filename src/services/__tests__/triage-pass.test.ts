@@ -141,6 +141,18 @@ describe('runTriagePass', () => {
     expect(getEscalation(escalation.id)?.suggestedAction).toBeNull();
   });
 
+  it('conductor ON ⇒ AI triage is skipped entirely (the conductor handles escalations)', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'stuck?' });
+    let calls = 0;
+    await runTriagePass(project, {
+      conductorEnabled: () => true, // conductor drives this project
+      callGrok: async () => { calls++; return '{"bucket":"stale","confidence":0.6,"rationale":"x"}'; },
+      commitsBehindMaster: () => 0,
+    });
+    expect(calls).toBe(0); // no Grok classify spend
+  });
+
   it('a null classify (Grok down) is NOT re-classified every tick — it backs off, then retries after the window', async () => {
     const project = freshProject();
     createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'stuck?' });

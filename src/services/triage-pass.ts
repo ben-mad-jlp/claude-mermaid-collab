@@ -26,6 +26,7 @@ import {
   setEscalationTriageInFlight,
   getEscalation,
   recordSupervisorAudit,
+  getConductorEnabled,
   type Escalation,
 } from './supervisor-store.ts';
 import { classifyEscalation, AUTO_RESOLVE_MIN_CONFIDENCE, type TriageDeps } from './grok-triage.ts';
@@ -128,6 +129,10 @@ export function isTriageEligible(
 }
 
 export interface TriagePassDeps extends TriageDeps {
+  /** Is the autonomous conductor on for this project? When true, AI triage is SKIPPED — the conductor
+   *  drives the mission and handles its escalations, so a parallel Grok classify pass is redundant
+   *  spend. Default: getConductorEnabled. */
+  conductorEnabled?: (project: string) => boolean;
   /** Open escalations (defaults to the store). */
   listOpen?: () => Escalation[];
   /** Write the suggestion inline (defaults to the store). */
@@ -211,6 +216,11 @@ export async function runDriveLandPass(project: string, deps: TriagePassDeps = {
  * escalations and writes inline suggestions. Pure-ish: all IO behind deps.
  */
 export async function runTriagePass(project: string, deps: TriagePassDeps = {}): Promise<void> {
+  // Conductor on ⇒ it drives the mission and handles its escalations. Running AI triage in parallel
+  // is redundant Grok spend (and can suggest actions that conflict with the conductor). Skip it.
+  const conductorEnabled = deps.conductorEnabled ?? getConductorEnabled;
+  if (conductorEnabled(project)) return;
+
   const listOpen = deps.listOpen ?? listOpenEscalations;
   const setSuggestion = deps.setSuggestion ?? setEscalationSuggestion;
   const getTodoRevision =
