@@ -61,6 +61,10 @@ export interface MissionRow {
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
   active: boolean;
+  /** FIFO position within the owning session's queue while active=0 and approved
+   *  (set by enqueueMission). Null when not queued (active, terminal, or unapproved
+   *  and never enqueued). Cleared by activateMission/promoteQueuedMissions on promotion. */
+  queuePos: number | null;
   /** Human-set abandonment stamp (ms epoch), or null = active. A mission-requirements
    *  concept: an abandoned mission with unmet criteria is otherwise indistinguishable
    *  from an in-progress one; this makes "done with it" explicit. */
@@ -144,7 +148,8 @@ CREATE TABLE IF NOT EXISTS mission (
   active INTEGER NOT NULL DEFAULT 1,
   abandonedAt INTEGER,
   budgetUsd REAL,
-  handoffDocId TEXT
+  handoffDocId TEXT,
+  queuePos INTEGER
 );
 CREATE TABLE IF NOT EXISTS mission_criterion (
   id TEXT PRIMARY KEY,
@@ -217,6 +222,7 @@ function openDb(project: string): Database {
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_mission_hot ON mission(active) WHERE archivedAt IS NULL');
+  addColumnIfMissing(db, 'mission', 'queuePos', 'queuePos INTEGER');
   migrateDropPhaseMachine(db);
   dbCache.set(project, db);
   return db;
@@ -244,6 +250,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     lastNudgeKey: (row.lastNudgeKey as string | null) ?? null,
     lastConductorKey: (row.lastConductorKey as string | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
+    queuePos: (row.queuePos as number | null) ?? null,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
@@ -500,7 +507,78 @@ export function activateMission(project: string, todoId: string): string[] {
     }
   }
   setMissionActive(project, todoId, true);
+  openDb(project)
+    .prepare('UPDATE mission SET queuePos = NULL, updatedAt = ? WHERE todoId = ?')
+    .run(nowMs(), todoId);
   return deactivated;
+}
+
+/**
+ * Enqueue a mission for its owning session: set active=0 and assign the next FIFO
+ * queuePos (1 + max queuePos over the SAME session's OTHER queued missions). Ordering
+ * is per-session — missions owned by a different session are not considered. Does not
+ * touch awaitingApprovalSince (approval gate is orthogonal to queueing).
+ */
+export function enqueueMission(project: string, todoId: string): MissionRow {
+  const m = getMission(project, todoId);
+  if (!m) throw new Error(`mission not found: ${todoId}`);
+  const all = listMissions(project);
+  const self = all.find((x) => x.node.id === todoId);
+  const session = self?.ownerSession ?? self?.assigneeSession ?? null;
+  let maxPos = 0;
+  if (session) {
+    for (const other of all) {
+      if (other.node.id === todoId) continue;
+      const os = other.ownerSession ?? other.assigneeSession ?? null;
+      if (os === session && other.mission.queuePos != null) {
+        maxPos = Math.max(maxPos, other.mission.queuePos);
+      }
+    }
+  }
+  const nextPos = maxPos + 1;
+  openDb(project)
+    .prepare('UPDATE mission SET active = 0, queuePos = ?, updatedAt = ? WHERE todoId = ?')
+    .run(nextPos, nowMs(), todoId);
+  return getMission(project, todoId)!;
+}
+
+/**
+ * Promote the next queued mission for every session that currently has no active
+ * non-terminal mission. A candidate is queued (active=0), APPROVED
+ * (awaitingApprovalSince == null), non-terminal, and has queuePos set. Never touches
+ * a mission whose awaitingApprovalSince is set, and never writes
+ * awaitingApprovalSince itself (the approval gate is untouched). No-op for a session
+ * that already has an active mission. Returns the todoIds that were promoted.
+ */
+export function promoteQueuedMissions(project: string): string[] {
+  const all = listMissions(project);
+  const sessions = new Set<string>();
+  for (const m of all) {
+    const session = m.ownerSession ?? m.assigneeSession ?? null;
+    if (session) sessions.add(session);
+  }
+  const promoted: string[] = [];
+  for (const session of sessions) {
+    if (sessionHasActiveMission(project, session)) continue;
+    const candidates = all.filter((m) => {
+      const os = m.ownerSession ?? m.assigneeSession ?? null;
+      return (
+        os === session &&
+        !m.mission.active &&
+        m.mission.awaitingApprovalSince == null &&
+        m.mission.queuePos != null &&
+        !isMissionTerminal(m.mission)
+      );
+    });
+    if (candidates.length === 0) continue;
+    candidates.sort((a, b) => (a.mission.queuePos! - b.mission.queuePos!));
+    const winner = candidates[0];
+    openDb(project)
+      .prepare('UPDATE mission SET active = 1, queuePos = NULL, updatedAt = ? WHERE todoId = ?')
+      .run(nowMs(), winner.node.id);
+    promoted.push(winner.node.id);
+  }
+  return promoted;
 }
 
 export interface ConductorSelection {
