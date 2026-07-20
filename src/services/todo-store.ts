@@ -2262,6 +2262,20 @@ export interface CompleteTodoResult {
   skipped?: boolean;
 }
 
+/** Stamp archivedAt on a batch of todo ids (idempotent — re-archiving an already-
+ *  archived id is a no-op UPDATE). Used by the throttled archival sweep
+ *  (archival-sweep.ts) to move terminal rows out of the hot (archivedAt IS NULL)
+ *  index without touching status/derived-status. Returns the row count updated. */
+export function archiveTodosByIds(project: string, ids: string[], archivedAtMs: number): number {
+  if (ids.length === 0) return 0;
+  const db = openDb(project);
+  const placeholders = ids.map(() => '?').join(',');
+  const result = db
+    .prepare(`UPDATE todos SET archivedAt = ? WHERE id IN (${placeholders})`)
+    .run(archivedAtMs, ...ids);
+  return result.changes;
+}
+
 /**
  * Mark a todo done and unblock its dependents.
  * Status semantics: planned=proposed-not-yet-approved; ready=approved & deps-done (claimable);

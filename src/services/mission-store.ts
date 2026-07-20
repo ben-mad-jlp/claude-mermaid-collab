@@ -332,6 +332,19 @@ export function setMissionAbandoned(project: string, todoId: string, abandonedAt
   return getMission(project, todoId)!;
 }
 
+/** Stamp archivedAt on a batch of missions by their todoId (idempotent). Used by the
+ *  throttled archival sweep (archival-sweep.ts) to move converged/abandoned missions
+ *  out of the hot (archivedAt IS NULL) index. Returns the row count updated. */
+export function archiveMissionsByTodoIds(project: string, todoIds: string[], archivedAtMs: number): number {
+  if (todoIds.length === 0) return 0;
+  const db = openDb(project);
+  const placeholders = todoIds.map(() => '?').join(',');
+  const result = db
+    .prepare(`UPDATE mission SET archivedAt = ? WHERE todoId IN (${placeholders})`)
+    .run(archivedAtMs, ...todoIds);
+  return result.changes;
+}
+
 /** Delete a mission's control state (does NOT touch the graph node). */
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
