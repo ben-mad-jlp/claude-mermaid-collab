@@ -1,7 +1,7 @@
 // Store-integration tests for reconcileLandedEpics — real project DB (mission-store.test.ts
 // harness), injected git probe (epic-branch-status.test.ts style, no real repo needed).
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { epicBranchName, type GitProbe } from '../epic-branch-status';
-import { reconcileLandedEpics } from '../landed-epic-sweep';
+import { reconcileLandedEpics, gcEpicBranches, type BranchGcRunner } from '../landed-epic-sweep';
 
 let project: string;
 
@@ -79,5 +79,47 @@ describe('reconcileLandedEpics', () => {
     const after = getTodo(project, land.id);
     expect(after?.status).toBe('done');
     expect(after?.updatedAt).toBe(before?.updatedAt);
+  });
+});
+
+describe('gcEpicBranches', () => {
+  test('ahead===0 branch is deleted and its tip SHA is logged to the recovery file', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] gc me', kind: 'epic', status: 'planned' });
+    const branch = epicBranchName(epic.id);
+
+    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'abc123',
+      deleteBranch: (b) => { deleteCalls.push(b); return true; },
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toContain(branch);
+    expect(result.flagged).toEqual([]);
+    expect(deleteCalls).toEqual([branch]);
+
+    const log = readFileSync(join(project, '.collab', 'pruned-branches-recovery.md'), 'utf8');
+    expect(log).toContain(branch);
+    expect(log).toContain('abc123');
+  });
+
+  test('ahead>0 branch is flagged and left intact', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] keep me', kind: 'epic', status: 'planned' });
+    const branch = epicBranchName(epic.id);
+
+    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 1, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'def456',
+      deleteBranch: (b) => { deleteCalls.push(b); return true; },
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(result.flagged).toContain(epic.id);
+    expect(result.deleted).not.toContain(branch);
+    expect(deleteCalls.filter((b) => b === branch)).toEqual([]);
   });
 });

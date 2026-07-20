@@ -7,7 +7,9 @@
 import { listTodos, stampEpicLandedAt, completeTodo, type Todo } from './todo-store.js';
 import { listMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
-import { buildEpicBranchStatus, makeGitProbe, type GitProbe } from './epic-branch-status.js';
+import { buildEpicBranchStatus, makeGitProbe, epicBranchName, type GitProbe } from './epic-branch-status.js';
+import { mkdirSync, appendFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 export interface LandedEpicSweepResult {
   /** Epics whose [LAND] leaf was completed this pass. */
@@ -57,4 +59,96 @@ export async function reconcileLandedEpics(
   }
 
   return { reconciled, skipped };
+}
+
+/** A git delete/tip-read runner — injected so branch deletion is hermetically
+ *  testable without a real repo. Mirrors GitProbe's injection shape
+ *  (epic-branch-status.ts:44). */
+export interface BranchGcRunner {
+  /** HEAD SHA of `branch`, or null if it doesn't resolve. */
+  revParse(branch: string): string | null;
+  /** Force-delete `branch` (git branch -D). Returns true on success. */
+  deleteBranch(branch: string): boolean;
+}
+
+export interface GcEpicBranchesResult {
+  /** Branches deleted this pass (branch name, not epic id). */
+  deleted: string[];
+  /** Epic ids whose branch is ahead>0 and was left intact for human review. */
+  flagged: string[];
+  /** Epics inspected but with no branch to act on (missing/already gone). */
+  skipped: number;
+}
+
+function runGitLocal(cwd: string, args: string[]): { code: number; stdout: string } {
+  try {
+    const p = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'ignore' });
+    return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
+  } catch {
+    return { code: 1, stdout: '' };
+  }
+}
+
+export function makeBranchGcRunner(project: string): BranchGcRunner {
+  return {
+    revParse(branch: string): string | null {
+      const r = runGitLocal(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+      const sha = r.stdout.trim();
+      return r.code === 0 && sha ? sha : null;
+    },
+    deleteBranch(branch: string): boolean {
+      return runGitLocal(project, ['branch', '-D', branch]).code === 0;
+    },
+  };
+}
+
+/** Recovery log: one line per deleted branch, so a wrongly-deleted branch's tip
+ *  can be recovered by hand (`git branch <name> <sha>`). Mirrors the recovery-log
+ *  shape of docs/designs/ui-cleanup/pruned-branches-recovery.md. */
+function appendRecoveryLog(project: string, branch: string, tipSha: string, whenIso: string): void {
+  const path = join(project, '.collab', 'pruned-branches-recovery.md');
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, `- ${whenIso} ${branch} ${tipSha}\n`);
+}
+
+/**
+ * Delete an epic's `collab/epic/<id8>` branch ONLY when git proves it carries zero
+ * unlanded commits (exists && ahead===0). A branch with ahead>0 is flagged for
+ * human/supervisor review and left intact — never deleted speculatively. Before
+ * any delete, the branch's tip SHA is captured to a recovery log
+ * (.collab/pruned-branches-recovery.md) so a wrong delete is recoverable.
+ *
+ * Read-only fallback: an epic with no branch (exists:false) is skipped, not flagged
+ * — there's nothing to GC or recover.
+ */
+export function gcEpicBranches(
+  project: string,
+  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string } = {},
+): GcEpicBranchesResult {
+  const probe = opts.probe ?? makeGitProbe(project);
+  const runner = opts.runner ?? makeBranchGcRunner(project);
+  const baseRef = opts.baseRef ?? 'master';
+  const now = opts.now ?? (() => new Date().toISOString());
+
+  const todos = listTodos(project, { includeCompleted: true });
+  const report = buildEpicBranchStatus(todos, probe, baseRef, project);
+
+  const deleted: string[] = [];
+  const flagged: string[] = [];
+  let skipped = 0;
+
+  for (const e of report.epics) {
+    if (!e.exists) { skipped++; continue; }
+    if ((e.ahead ?? 0) > 0) { flagged.push(e.epicId); continue; }
+    const tip = runner.revParse(e.branch);
+    if (tip == null) { skipped++; continue; }
+    if (runner.deleteBranch(e.branch)) {
+      appendRecoveryLog(project, e.branch, tip, now());
+      deleted.push(e.branch);
+    } else {
+      skipped++;
+    }
+  }
+
+  return { deleted, flagged, skipped };
 }
