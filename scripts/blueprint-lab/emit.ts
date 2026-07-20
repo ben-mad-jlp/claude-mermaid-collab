@@ -17,12 +17,16 @@ import { execFileSync } from 'node:child_process';
 
 import { buildNodeArgv } from '../../src/agent/node-invoker';
 import { parseDiffContract, type DiffContract } from '../../src/services/diff-contract';
+import { resolveNodeModel, resolveNodeProvider } from '../../src/services/node-provider';
+import { listNodeProfileOverrides, getProjectEffort } from '../../src/services/orchestrator-config';
+import { NODE_PROFILE } from '../../src/services/leaf-executor';
 import { CORPUS, type CorpusCase } from './corpus';
 
 const OUT = join(import.meta.dir, 'results');
 mkdirSync(OUT, { recursive: true });
 
 const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+const PROJECT = REPO_ROOT;
 
 function buildV2BlueprintPrompt(c: CorpusCase): string {
   return [
@@ -55,18 +59,32 @@ function buildV2BlueprintPrompt(c: CorpusCase): string {
   ].join('\n');
 }
 
+function resolveBlueprintModel(): string {
+  if (process.env.BLUEPRINT_MODEL) return process.env.BLUEPRINT_MODEL; // explicit override wins
+  const provider = resolveNodeProvider(PROJECT, 'blueprint', NODE_PROFILE.blueprint.allowedTools);
+  return resolveNodeModel(PROJECT, 'blueprint', provider, NODE_PROFILE.blueprint.model);
+}
+
+function resolveBlueprintEffort(): string {
+  if (process.env.BLUEPRINT_EFFORT) return process.env.BLUEPRINT_EFFORT; // explicit override wins
+  const override = listNodeProfileOverrides(PROJECT).blueprint?.effort;
+  const projectEffort = getProjectEffort(PROJECT);
+  const envEffort = process.env.MERMAID_NODE_EFFORT;
+  return override ?? projectEffort ?? envEffort ?? NODE_PROFILE.blueprint.effort;
+}
+
 function buildSpec(prompt: string) {
   return {
     prompt,
-    model: process.env.BLUEPRINT_MODEL || 'sonnet',
-    effort: (process.env.BLUEPRINT_EFFORT || 'medium') as const,
+    model: resolveBlueprintModel(),
+    effort: resolveBlueprintEffort() as any,
     allowedTools: 'Read Grep Glob Bash',
     permissionMode: 'bypassPermissions' as const,
     strictMcpConfig: true,
   };
 }
 
-function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: string }> {
+function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: string; stderrTail: string }> {
   const argv = buildNodeArgv(buildSpec(prompt) as any);
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), {
@@ -89,7 +107,7 @@ function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: 
         } catch { /* skip non-json lines */ }
       }
       if (!text) text = `[[NO RESULT]] stderr=${err.slice(-400)}`;
-      resolve({ text, raw: out });
+      resolve({ text, raw: out, stderrTail: err.slice(-4000) });
     });
     child.stdin.write(prompt);
     child.stdin.end();
@@ -113,9 +131,22 @@ interface EmitResult {
 async function runOne(c: CorpusCase): Promise<EmitResult> {
   const cwd = checkoutBase(c);
   const prompt = buildV2BlueprintPrompt(c);
-  const { text } = await runEmitNode(cwd, prompt);
+  const { text, raw, stderrTail } = await runEmitNode(cwd, prompt);
   const contract = parseDiffContract(text);
-  writeFileSync(join(OUT, `${c.id}.emit.md`), text);
+  if (contract === null) {
+    const diagnostic = [
+      `[[PARSE FAILED for ${c.id}]]`,
+      '--- extracted text (what parseDiffContract saw) ---',
+      text,
+      '--- raw stdout tail (last 4000 chars) ---',
+      raw.slice(-4000),
+      '--- stderr tail (last 4000 chars) ---',
+      stderrTail,
+    ].join('\n\n');
+    writeFileSync(join(OUT, `${c.id}.emit.md`), diagnostic);
+  } else {
+    writeFileSync(join(OUT, `${c.id}.emit.md`), text);
+  }
   try { rmSync(cwd, { recursive: true, force: true }); } catch {}
   return { id: c.id, leafKindExpected: c.leafKind, contract, rawText: text };
 }
@@ -123,7 +154,7 @@ async function runOne(c: CorpusCase): Promise<EmitResult> {
 async function main() {
   const only = process.argv.slice(2);
   const cases = only.length ? CORPUS.filter((c) => only.includes(c.id)) : CORPUS;
-  console.log(`emitting ${cases.length} case(s), concurrency 8 — blueprint model=${process.env.BLUEPRINT_MODEL || 'sonnet'} effort=${process.env.BLUEPRINT_EFFORT || 'medium'}`);
+  console.log(`emitting ${cases.length} case(s), concurrency 8 — blueprint model=${resolveBlueprintModel()} effort=${resolveBlueprintEffort()}`);
   const results: EmitResult[] = [];
   const CONC = 8;
   let i = 0;
