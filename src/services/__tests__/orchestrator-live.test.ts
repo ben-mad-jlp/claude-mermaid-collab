@@ -138,6 +138,7 @@ describe('passesForLevel', () => {
       reconcile: false,
       triage: false,
       archival: false,
+      landedEpicSweep: false,
     });
   });
 
@@ -147,6 +148,7 @@ describe('passesForLevel', () => {
       reconcile: true,
       triage: true,
       archival: true,
+      landedEpicSweep: true,
     });
   });
 });
