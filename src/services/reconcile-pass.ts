@@ -35,6 +35,8 @@ import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-s
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
 import { yieldToLoop } from './loop-yield.ts';
+import { promoteQueuedMissions } from './mission-store.js';
+import { syncMissionSubscription } from './mission-subscription.js';
 
 // ---------------------------------------------------------------------------
 // Throttle (mission c4eb4fcc, Phase 3): keep the reconcile pass OFF the every-tick
@@ -271,6 +273,34 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] bucket-hygiene sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3h. QUEUED-MISSION PROMOTION SWEEP: for any session with no active
+  // non-terminal mission, promote the lowest-queuePos approved queued
+  // candidate. Deterministic, DB-only, idempotent by construction.
+  // -------------------------------------------------------------------------
+  await yieldToLoop();
+  try {
+    const promoted = promoteQueuedMissions(project);
+    for (const missionId of promoted) {
+      try {
+        syncMissionSubscription(project, missionId);
+      } catch {
+        /* fail-open, per mission-subscription.ts's own idempotent contract */
+      }
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({ source: 'reconcile-pass', missionId, reason: 'queued-mission-promoted' }),
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] queued-mission promotion failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
