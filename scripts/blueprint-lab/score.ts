@@ -18,7 +18,7 @@ import { CORPUS, type CorpusCase } from './corpus';
 const OUT = join(import.meta.dir, 'results');
 const RUN_JSON = join(OUT, 'run.json');
 
-interface EmitResult {
+export interface EmitResult {
   id: string;
   leafKindExpected: DiffLeafKind;
   contract: DiffContract | null;
@@ -35,9 +35,9 @@ function loadRun(): RunSummary {
   return JSON.parse(readFileSync(RUN_JSON, 'utf8'));
 }
 
-type ValidationMode = 'parse-null' | 'accept' | `missing:${DiffRequirementKind}`;
+export type ValidationMode = 'parse-null' | 'accept' | `missing:${DiffRequirementKind}`;
 
-function classifyValidation(r: EmitResult): ValidationMode {
+export function classifyValidation(r: EmitResult): ValidationMode {
   if (!r.contract) return 'parse-null';
   const v = validateContractForKind(r.contract, r.contract.leafKind);
   return v.underspecified ? `missing:${v.missingField}` : 'accept';
@@ -51,7 +51,7 @@ function declaredFiles(c: DiffContract): Set<string> {
   return s;
 }
 
-interface FileMatchStats {
+export interface FileMatchStats {
   declaredCount: number;
   actualCount: number;
   matched: string[];
@@ -60,7 +60,7 @@ interface FileMatchStats {
   matchRate: number; // matched.length / actualCount, 0 when actualCount === 0
 }
 
-function scoreFileMatch(declared: Set<string>, actual: string[]): FileMatchStats {
+export function scoreFileMatch(declared: Set<string>, actual: string[]): FileMatchStats {
   const actualSet = new Set(actual);
   const matched = [...declared].filter((f) => actualSet.has(f)).sort();
   const undeclaredActual = actual.filter((f) => !declared.has(f)).sort();
@@ -75,7 +75,7 @@ function scoreFileMatch(declared: Set<string>, actual: string[]): FileMatchStats
   };
 }
 
-interface CaseScore {
+export interface CaseScore {
   id: string;
   leafKindExpected: DiffLeafKind;
   leafKindActual: DiffLeafKind | null;
@@ -84,7 +84,7 @@ interface CaseScore {
   fileMatch: FileMatchStats | null; // null when contract is null (nothing declared)
 }
 
-function scoreCase(r: EmitResult, corpusById: Map<string, CorpusCase>): CaseScore {
+export function scoreCase(r: EmitResult, corpusById: Map<string, CorpusCase>): CaseScore {
   const validation = classifyValidation(r);
   const c = corpusById.get(r.id);
   const actualFiles = c ? c.diff.touchedFiles : [];
@@ -99,7 +99,7 @@ function scoreCase(r: EmitResult, corpusById: Map<string, CorpusCase>): CaseScor
   };
 }
 
-interface AggregateStats {
+export interface AggregateStats {
   total: number;
   validationCounts: Record<string, number>;
   meanMatchRate: number;
@@ -109,7 +109,7 @@ interface AggregateStats {
   leafKindMismatchCount: number;
 }
 
-function aggregate(scores: CaseScore[]): AggregateStats {
+export function aggregate(scores: CaseScore[]): AggregateStats {
   const validationCounts: Record<string, number> = {};
   let totalMatched = 0, totalUndeclaredActual = 0, totalDeclaredButUntouched = 0;
   let matchRateSum = 0, matchRateN = 0, leafKindMismatchCount = 0;
@@ -146,4 +146,4 @@ function main() {
   console.log(`mean file-match rate: ${(agg.meanMatchRate * 100).toFixed(1)}%`);
   console.log(`leafKind mismatches: ${agg.leafKindMismatchCount}/${scores.length}`);
 }
-main();
+if (import.meta.main) main();
