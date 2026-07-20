@@ -19,6 +19,7 @@ import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore, type PaneKey } from '@/stores/uiStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
+import { UsageMeters } from '@/components/common/UsageBar';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -374,6 +375,10 @@ export const Header: React.FC<HeaderProps> = ({
             />
             <span>{isConnected ? 'Live' : isConnecting ? 'Reconnecting…' : 'Offline'}</span>
           </div>
+
+          {/* Account rate-limit usage (5h / 7d) — the same gauges Zen shows, hydrated app-wide
+              from usageStore, so the plan quota is visible on every screen. */}
+          <UsageMeters className="hidden sm:flex" />
 
         </div>
 

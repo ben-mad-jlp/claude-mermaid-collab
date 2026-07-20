@@ -8,36 +8,10 @@ import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 import { pulseStage, isArmed, daemonBuildingFor, nextUp as computeNextUp, nextWorkSuggestions, type NextUp, type NextWork } from '@/lib/zenPulse';
 import { useUsageStore } from '@/stores/usageStore';
+import { UsageBar } from '@/components/common/UsageBar';
 import { activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
 import { conductingView } from '@/lib/conductingView';
 import type { MissionSummary } from '@/stores/supervisorStore';
-
-// One account-wide rate-limit gauge (5-hour or 7-day window) for the Zen top bar.
-// Colour mirrors the statusline: green < 50, yellow 50–79, red ≥ 80.
-const UsageBar: React.FC<{ label: string; percent: number | null }> = ({ label, percent }) => {
-  const pct = percent ?? 0;
-  // Tier colours mirror the statusline: green < 50, amber 50–79, red ≥ 80. Both the fill
-  // AND the percentage read-out take the tier colour so the level is legible at a glance.
-  const tier =
-    percent == null
-      ? { fill: 'bg-gray-400 dark:bg-gray-500', text: 'text-gray-400 dark:text-gray-500' }
-      : pct >= 80
-        ? { fill: 'bg-danger-500', text: 'text-danger-600 dark:text-danger-400' }
-        : pct >= 50
-          ? { fill: 'bg-yellow-500', text: 'text-yellow-600 dark:text-yellow-400' }
-          : { fill: 'bg-success-500', text: 'text-success-600 dark:text-success-400' };
-  return (
-    <div className="flex items-center gap-1.5" title={`${label} usage: ${percent == null ? 'unknown' : `${pct}%`}`}>
-      <span className={`text-3xs font-semibold tabular-nums ${tier.text}`}>{label}</span>
-      <div className="w-20 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden ring-1 ring-black/5 dark:ring-white/10">
-        <div className={`h-full rounded-full transition-all ${tier.fill}`} style={{ width: `${Math.max(percent == null ? 0 : 3, Math.min(pct, 100))}%` }} />
-      </div>
-      <span className={`text-3xs font-bold tabular-nums w-7 text-right ${tier.text}`}>
-        {percent == null ? '—' : `${pct}%`}
-      </span>
-    </div>
-  );
-};
 
 // ZenMode (redesign 2026-06-20) — the ENTIRE window is Zen: a calm vertical scroll
 // of one card per watched session. Each card is its project bar + a centered
