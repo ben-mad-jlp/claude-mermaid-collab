@@ -57,6 +57,13 @@ import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 import { capturePaneText } from '../services/tmux-capture.ts';
 import { fireStamp } from '../services/nudge-stamp.ts';
 
+/** Hard ceiling on the page size GET /api/supervisor/missions will serve, regardless of
+ *  the caller's `limit`. A read-only glance must never be able to ask for an unbounded
+ *  page — the pre-pagination route returned EVERY mission, which is the fan-out this caps. */
+export const MAX_MISSIONS_LIST_LIMIT = 200;
+/** Page size when the caller passes no (or an unparseable/non-positive) `limit`. */
+export const DEFAULT_MISSIONS_LIST_LIMIT = 50;
+
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
@@ -238,7 +245,23 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       if (!project) return jsonError('project is required', 400);
       const session = url.searchParams.get('session') ?? undefined;
       const { listMissions } = await import('../services/mission-store.ts');
-      return Response.json({ missions: listMissions(project, { session }) });
+      // withFacts:false — the list glance must NOT pay collectMissionStatusFacts per
+      // mission (a project-wide todo scan + a ledger scan per epic, twice over). A
+      // single-mission read that needs true facts goes through get_mission instead.
+      const rows = listMissions(project, { session, withFacts: false });
+      const rawLimit = Number(url.searchParams.get('limit'));
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), MAX_MISSIONS_LIST_LIMIT)
+        : DEFAULT_MISSIONS_LIST_LIMIT;
+      const cursor = url.searchParams.get('cursor') ?? undefined;
+      // Opaque cursor = "start after this mission id". An unknown cursor (-1) falls back
+      // to the head of the list rather than 404ing a read-only glance.
+      const start = cursor ? rows.findIndex((m) => m.node.id === cursor) + 1 : 0;
+      const page = rows.slice(start, start + limit);
+      const nextCursor = start + limit < rows.length && page.length > 0
+        ? page[page.length - 1]!.node.id
+        : null;
+      return Response.json({ missions: page, nextCursor });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
