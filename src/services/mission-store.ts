@@ -324,15 +324,24 @@ export function upsertMission(
   return getMission(project, todoId)!;
 }
 
-/** Approve a forged mission: clear awaitingApprovalSince (→ status leaves 'unapproved') and make it
- *  ACTIVE for its session so the mission-loop / conductor can drive it. Idempotent. The CALLER
+/** Approve a forged mission: clear awaitingApprovalSince (→ status leaves 'unapproved'), then either
+ *  activate it for its session (no rival active mission) or enqueue it behind the session's
+ *  already-active mission — a rival's active flag is never clobbered. Idempotent. The CALLER
  *  ratifies the constitution separately (approve the mission's proposed constraint records). */
 export function setMissionApproved(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   openDb(project)
-    .prepare('UPDATE mission SET awaitingApprovalSince = NULL, active = 1, updatedAt = ? WHERE todoId = ?')
+    .prepare('UPDATE mission SET awaitingApprovalSince = NULL, updatedAt = ? WHERE todoId = ?')
     .run(nowMs(), todoId);
+  const all = listMissions(project);
+  const self = all.find((x) => x.node.id === todoId);
+  const session = self?.ownerSession ?? self?.assigneeSession ?? null;
+  if (session && sessionHasActiveMission(project, session, todoId)) {
+    enqueueMission(project, todoId);
+  } else {
+    setMissionActive(project, todoId, true);
+  }
   return getMission(project, todoId)!;
 }
 
