@@ -133,11 +133,21 @@ function reset() {
 
 describe('passesForLevel', () => {
   it('off → no passes', () => {
-    expect(passesForLevel('off')).toEqual({ build: false, reconcile: false, triage: false });
+    expect(passesForLevel('off')).toEqual({
+      build: false,
+      reconcile: false,
+      triage: false,
+      archival: false,
+    });
   });
 
-  it('on → build + reconcile + triage (suggest write-only)', () => {
-    expect(passesForLevel('on')).toEqual({ build: true, reconcile: true, triage: true });
+  it('on → build + reconcile + triage + archival (suggest write-only)', () => {
+    expect(passesForLevel('on')).toEqual({
+      build: true,
+      reconcile: true,
+      triage: true,
+      archival: true,
+    });
   });
 });
 
