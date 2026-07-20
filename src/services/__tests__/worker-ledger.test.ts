@@ -3,7 +3,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
+import { parseDiffContract, renderContract, type DiffContract } from '../diff-contract';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -326,5 +327,67 @@ describe('epic_base_gate cache key (baseSha validation)', () => {
 
   test('resume decisions for non-existent leaf return empty array', () => {
     expect(getLeafResumeDecisions('nonexistent')).toEqual([]);
+  });
+});
+
+describe('editContractField / editLeafRequirement / restoreEditableBlueprint (edit_leaf_requirement MCP surface)', () => {
+  const baseContract = (): DiffContract => ({
+    schemaVersion: 2,
+    estimatedFiles: 1,
+    estimatedTasks: 1,
+    nonEnumerableFanout: false,
+    filesToCreate: [],
+    filesToEdit: ['a.ts'],
+    tasks: [{ id: 't1', files: ['a.ts'], description: 'do the thing' }],
+    leafKind: 'fix',
+    requirements: [
+      { kind: 'symbol-present', file: 'a.ts', symbol: 'doThing', description: 'the fix symbol' },
+      { kind: 'named-test', testFile: 'a.test.ts', testName: 'does the thing', mechanical: true },
+    ],
+    outOfScope: [],
+  });
+
+  const seedBlueprintLeaf = (leafId: string, contract: DiffContract) => {
+    recordPhase(entry({
+      phase: 'node', nodeKind: 'blueprint', leafId,
+      outputText: 'Some blueprint prose.\n\n' + renderContract(contract),
+      exitCode: 0,
+    }));
+    recordLeafBlueprint({ leafId, project: '/p' });
+  };
+
+  test('editing via editContractField and editLeafRequirement bumps specRev and restoreEditableBlueprint returns the edited spec', () => {
+    seedBlueprintLeaf('L1', baseContract());
+
+    expect(editContractField('L1', { target: 'filesToEdit', file: 'incidental.ts' })).toBe(true);
+    expect(editLeafRequirement('L1', 0, { kind: 'named-test', testFile: 'x.test.ts', testName: 'flipped', mechanical: true })).toBe(true);
+
+    const restored = restoreEditableBlueprint('L1');
+    const edited = parseDiffContract(restored ?? undefined);
+    expect(edited).not.toBeNull();
+    expect(edited!.filesToEdit).toContain('incidental.ts');
+    expect(edited!.requirements[0]).toEqual({ kind: 'named-test', testFile: 'x.test.ts', testName: 'flipped', mechanical: true });
+
+    expect(getLeafBlueprint('L1')!.specRev).toBe(2);
+  });
+
+  test("original worker_ledger row's outputText is unchanged after edits (append-only telemetry)", () => {
+    seedBlueprintLeaf('L1', baseContract());
+
+    const before = getLatestSuccessfulNodeOutput('L1', 'blueprint');
+    editContractField('L1', { target: 'filesToEdit', file: 'incidental.ts' });
+    editLeafRequirement('L1', 0, { kind: 'named-test', testFile: 'x.test.ts', testName: 'flipped', mechanical: true });
+    expect(getLatestSuccessfulNodeOutput('L1', 'blueprint')).toBe(before);
+  });
+
+  test('a v1 leaf (no specJson) restores verbatim from getLatestSuccessfulNodeOutput', () => {
+    recordPhase(entry({
+      phase: 'node', nodeKind: 'blueprint', leafId: 'L2',
+      outputText: 'v1 prose\n```json\n{"schemaVersion":1,"estimatedFiles":1}\n```',
+      exitCode: 0,
+    }));
+
+    expect(getLeafBlueprint('L2')?.specJson ?? null).toBeNull();
+    expect(restoreEditableBlueprint('L2')).toBe(getLatestSuccessfulNodeOutput('L2', 'blueprint'));
   });
 });
