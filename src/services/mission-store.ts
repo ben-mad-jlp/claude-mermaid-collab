@@ -951,6 +951,67 @@ export function listMissions(project: string, opts: { session?: string } = {}): 
   return out;
 }
 
+/** Hard ceiling on live (non-terminal) missions per project — guards against mass-minting
+ *  (e.g. a runaway forge loop). Counts missions whose derived status is not terminal
+ *  (see isMissionTerminal): converged/abandoned missions don't count against the ceiling. */
+export const MAX_MISSIONS_PER_PROJECT = 25;
+
+/** Rolling window + burst ceiling for mission CREATION calls (not mission count) — catches
+ *  a tight retry/loop minting many missions in a short span even under the count ceiling. */
+export const MISSION_CREATE_RATE_WINDOW_MS = 10 * 60_000; // 10 min
+export const MAX_MISSIONS_PER_WINDOW = 5;
+
+/** Per-project rolling log of mission-creation call timestamps (ms epoch), for the burst-rate
+ *  throttle. In-memory only — same proven shape as coordinator-live.ts's lastBuildPassMs; a
+ *  process restart resets the window, which is fine (it only bounds bursts within a live process). */
+const missionCreateTimestamps = new Map<string, number[]>();
+
+/** Escape hatch for the smoke-test harness ONLY. Defaults to enforced (unset/any value other
+ *  than '1' enforces the ceiling); set MERMAID_SKIP_MISSION_CEILING=1 to bypass in a harness
+ *  that intentionally mints many missions. */
+const CEILING_BYPASS_ENV = 'MERMAID_SKIP_MISSION_CEILING';
+
+/**
+ * Guard called at the START of every mission-creation path (create_mission, forge_mission)
+ * BEFORE any row/node is created. Throws a teaching Error when either:
+ *   (a) the project already has >= MAX_MISSIONS_PER_PROJECT non-terminal missions, or
+ *   (b) >= MAX_MISSIONS_PER_WINDOW missions were created for this project within the last
+ *       MISSION_CREATE_RATE_WINDOW_MS.
+ * On success, records `now` into the rolling creation-timestamp log (so the call itself
+ * counts toward the next check). `now` is injectable for deterministic tests.
+ */
+export function assertMissionCreationAllowed(project: string, now: number = nowMs()): void {
+  if (process.env[CEILING_BYPASS_ENV] === '1') return;
+
+  const nonTerminalCount = listMissions(project).filter((m) => !isMissionTerminal(m.mission)).length;
+  if (nonTerminalCount >= MAX_MISSIONS_PER_PROJECT) {
+    throw new Error(
+      `assertMissionCreationAllowed: project already has ${nonTerminalCount} non-terminal missions ` +
+      `(ceiling ${MAX_MISSIONS_PER_PROJECT}). Converge, abandon, or delete an existing mission before ` +
+      `creating another — set ${CEILING_BYPASS_ENV}=1 to bypass in a test harness only.`
+    );
+  }
+
+  const recent = (missionCreateTimestamps.get(project) ?? []).filter(
+    (t) => now - t < MISSION_CREATE_RATE_WINDOW_MS,
+  );
+  if (recent.length >= MAX_MISSIONS_PER_WINDOW) {
+    throw new Error(
+      `assertMissionCreationAllowed: ${recent.length} missions created for this project in the last ` +
+      `${MISSION_CREATE_RATE_WINDOW_MS}ms (ceiling ${MAX_MISSIONS_PER_WINDOW} per window). Slow down — ` +
+      `set ${CEILING_BYPASS_ENV}=1 to bypass in a test harness only.`
+    );
+  }
+  recent.push(now);
+  missionCreateTimestamps.set(project, recent);
+}
+
+/** Test seam: clear the per-project mission-creation rate-throttle log (all projects, or one). */
+export function _resetMissionCreateThrottle(project?: string): void {
+  if (project === undefined) missionCreateTimestamps.clear();
+  else missionCreateTimestamps.delete(project);
+}
+
 export function getMissionRollup(project: string, todoId: string): MissionRollup {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);

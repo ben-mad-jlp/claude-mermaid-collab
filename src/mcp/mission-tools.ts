@@ -11,6 +11,7 @@ import {
   upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
   activateMission, sessionHasActiveMission, setMissionActive, deleteMission, setMissionAbandoned,
+  assertMissionCreationAllowed,
 } from '../services/mission-store.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
@@ -55,6 +56,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // stripLabel drops a role bracket an operator may have typed, never a topic tag.
       const missionTitle = stripLabel(title);
       if (!missionTitle) throw new Error('title must be non-empty after stripping the role prefix');
+      assertMissionCreationAllowed(project);
       // A mission node is a legitimate top-level root (resolveTodoParent exempts it by
       // `kind`, not by title), so allowOrphan isn't needed — addSessionTodo creates it
       // parentless.
