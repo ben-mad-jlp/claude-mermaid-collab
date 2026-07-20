@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
+  createTodo, listTodos, listTodosChunked, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, resolveShortId,
@@ -1861,5 +1861,60 @@ describe('tier schema', () => {
     // Assert exactly one row has name === 'tier'
     const tierRows = rows.filter((r) => r.name === 'tier');
     expect(tierRows.length).toBe(1);
+  });
+
+  describe('archivedAt', () => {
+    function archiveTodo(proj: string, id: string) {
+      const db = new Database(join(proj, '.collab', 'todos.db'));
+      db.exec(`UPDATE todos SET archivedAt = ${Date.now()} WHERE id = '${id}'`);
+      db.close();
+      _closeProject(proj);
+    }
+
+    async function makeFixtures() {
+      const live1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'live-1' });
+      const live2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'live-2' });
+      const arch1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'arch-1' });
+      const arch2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'arch-2' });
+      archiveTodo(project, arch1.id);
+      archiveTodo(project, arch2.id);
+      return { live: [live1.id, live2.id], archived: [arch1.id, arch2.id] };
+    }
+
+    test('listTodos default excludes archived rows', async () => {
+      const { live } = await makeFixtures();
+      const ids = listTodos(project, {}).map((t) => t.id);
+      expect(new Set(ids)).toEqual(new Set(live));
+    });
+
+    test('listTodos includeArchived returns live + archived', async () => {
+      const { live, archived } = await makeFixtures();
+      const ids = listTodos(project, { includeArchived: true }).map((t) => t.id);
+      expect(new Set(ids)).toEqual(new Set([...live, ...archived]));
+    });
+
+    test('listTodos onlyArchived returns only archived rows', async () => {
+      const { archived } = await makeFixtures();
+      const ids = listTodos(project, { onlyArchived: true }).map((t) => t.id);
+      expect(new Set(ids)).toEqual(new Set(archived));
+    });
+
+    test('listTodosChunked default excludes archived rows (page-boundary pageSize:1)', async () => {
+      const { live } = await makeFixtures();
+      const ids = (await listTodosChunked(project, {}, { pageSize: 1 })).map((t) => t.id);
+      expect(new Set(ids)).toEqual(new Set(live));
+    });
+
+    test('listTodosChunked includeArchived returns live + archived (page-boundary pageSize:1)', async () => {
+      const { live, archived } = await makeFixtures();
+      const ids = (await listTodosChunked(project, { includeArchived: true }, { pageSize: 1 })).map((t) => t.id);
+      expect(new Set(ids)).toEqual(new Set([...live, ...archived]));
+    });
+
+    test('listTodosChunked onlyArchived returns only archived rows (page-boundary pageSize:1)', async () => {
+      const { archived } = await makeFixtures();
+      const ids = (await listTodosChunked(project, { onlyArchived: true }, { pageSize: 1 })).map((t) => t.id);
+      expect(new Set(ids)).toEqual(new Set(archived));
+    });
   });
 });
