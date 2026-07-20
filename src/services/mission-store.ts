@@ -345,6 +345,56 @@ export function archiveMissionsByTodoIds(project: string, todoIds: string[], arc
   return result.changes;
 }
 
+export interface ArchivedMissionPage {
+  items: MissionRow[];
+  nextCursor: string | null; // opaque: `${archivedAt}:${todoId}`, null when exhausted
+}
+
+/** Browse the mission archive: newest-archivedAt-first, keyset-paginated over
+ *  (archivedAt DESC, todoId DESC) — same cursor shape as listArchivedTodos
+ *  (todo-store.ts). Queries the mission table directly (not listMissions, which joins
+ *  the live work-graph and would drop a row whose node was itself archived/pruned);
+ *  returns raw MissionRow via rowToMission, same as getMission. */
+export function listArchivedMissions(
+  project: string,
+  opts: { limit?: number; cursor?: string | null } = {},
+): ArchivedMissionPage {
+  const db = openDb(project);
+  const limit = Math.max(1, Math.min(opts.limit ?? 50, 500));
+  const where = ['archivedAt IS NOT NULL'];
+  const params: unknown[] = [];
+  if (opts.cursor) {
+    const [atStr, todoId] = opts.cursor.split(':');
+    const at = Number(atStr);
+    if (Number.isFinite(at) && todoId) {
+      where.push('(archivedAt < ? OR (archivedAt = ? AND todoId < ?))');
+      params.push(at, at, todoId);
+    }
+  }
+  const sql = `SELECT * FROM mission WHERE ${where.join(' AND ')} ORDER BY archivedAt DESC, todoId DESC LIMIT ${limit + 1}`;
+  const rows = db.query(sql).all(...(params as never[])) as Record<string, unknown>[];
+  const page = rows.slice(0, limit);
+  const items = page.map(rowToMission);
+  const last = page[page.length - 1];
+  const nextCursor = rows.length > limit && last ? `${last.archivedAt}:${last.todoId}` : null;
+  return { items, nextCursor };
+}
+
+/** Clear archivedAt on one mission (restore from history). No-op-safe if already hot.
+ *  Resolves short ids via resolveShortId (same convention as getMission:270-278). */
+export function restoreMission(project: string, todoId: string): MissionRow {
+  const db = openDb(project);
+  let resolvedId = todoId;
+  if (!db.query('SELECT 1 FROM mission WHERE todoId = ?').get(todoId)) {
+    const resolved = resolveShortId(project, todoId);
+    if (resolved === null) throw new Error(`mission not found: ${todoId}`);
+    resolvedId = resolved;
+  }
+  db.prepare('UPDATE mission SET archivedAt = NULL WHERE todoId = ?').run(resolvedId);
+  const row = db.query('SELECT * FROM mission WHERE todoId = ?').get(resolvedId) as Record<string, unknown>;
+  return rowToMission(row);
+}
+
 /** Delete a mission's control state (does NOT touch the graph node). */
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
