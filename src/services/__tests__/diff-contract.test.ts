@@ -3,6 +3,8 @@ import {
   parseDiffContract, renderContract, DIFF_LEAF_KINDS, validateContractForKind,
   type DiffContract,
 } from '../diff-contract';
+import { parseSizeManifest, buildBlueprintRepairPrompt } from '../leaf-executor';
+import type { Todo } from '../todo-store';
 
 describe('parseDiffContract / renderContract round-trip', () => {
   it('round-trips a representative contract (all 3 requirement kinds + splitDecision)', () => {
@@ -76,6 +78,30 @@ describe('parseDiffContract / renderContract round-trip', () => {
     expect(parseDiffContract(undefined)).toBeNull();
   });
 
+  it('returns null for a real v1-shaped outputText (schemaVersion 1)', () => {
+    const v1 = {
+      schemaVersion: 1,
+      estimatedFiles: 2,
+      estimatedTasks: 1,
+      nonEnumerableFanout: false,
+      filesToCreate: [],
+      filesToEdit: ['a.ts'],
+      tasks: [{ id: 't1', files: ['a.ts'], description: 'x' }],
+    };
+    const src = '```json\n' + JSON.stringify(v1) + '\n```';
+    expect(parseDiffContract(src)).toBeNull();
+  });
+
+  it('returns null for a truncated fence sliced from valid renderContract output', () => {
+    const contract: DiffContract = {
+      schemaVersion: 2, estimatedFiles: 1, estimatedTasks: 1, nonEnumerableFanout: false,
+      filesToCreate: [], filesToEdit: [], tasks: [], leafKind: 'infra', requirements: [], outOfScope: [],
+    };
+    const rendered = renderContract(contract);
+    const truncated = rendered.slice(0, rendered.length - 20);
+    expect(parseDiffContract(truncated)).toBeNull();
+  });
+
   it('falls through to a later source when an earlier one fails', () => {
     const good = {
       schemaVersion: 2, estimatedFiles: 0, estimatedTasks: 0, nonEnumerableFanout: false,
@@ -128,5 +154,90 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
       requirements: [{ kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
     };
     expect(validateContractForKind(testKind, 'test')).toEqual({ underspecified: false });
+  });
+
+  it('an absent optional threshold cell is never reported as missingField', () => {
+    const feature: DiffContract = {
+      ...base,
+      requirements: [
+        { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' },
+        { kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },
+      ],
+    };
+    expect(validateContractForKind(feature, 'feature')).toEqual({ underspecified: false });
+
+    const refactor: DiffContract = {
+      ...base, leafKind: 'refactor',
+      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],
+    };
+    expect(validateContractForKind(refactor, 'refactor')).toEqual({ underspecified: false });
+
+    const testKind: DiffContract = {
+      ...base, leafKind: 'test',
+      requirements: [{ kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
+    };
+    expect(validateContractForKind(testKind, 'test')).toEqual({ underspecified: false });
+
+    const infra: DiffContract = {
+      ...base, leafKind: 'infra',
+      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],
+    };
+    expect(validateContractForKind(infra, 'infra')).toEqual({ underspecified: false });
+  });
+
+  it('rejects an unfalsifiable requirement at compile time', () => {
+    const badMechanical: import('../diff-contract').NamedTestRequirement = {
+      kind: 'named-test', testFile: 'a.test.ts', testName: 'x',
+      // @ts-expect-error mechanical must be literal true — false is not assignable
+      mechanical: false,
+    };
+    const badSource: import('../diff-contract').ThresholdRequirement = {
+      kind: 'threshold',
+      // @ts-expect-error 'shell-exec' is not a member of ThresholdRequirement['source']
+      source: 'shell-exec',
+      metric: 'x', comparison: 'eq', value: 1, mechanical: true,
+    };
+    expect(true).toBe(true); // presence of the two @ts-expect-error lines above is the assertion
+    void badMechanical;
+    void badSource;
+  });
+});
+
+describe('parseSizeManifest v1/v2 parity', () => {
+  it('a v1 fence and an equivalent v2 fence produce equal v1-key results', () => {
+    const common = {
+      estimatedFiles: 2,
+      estimatedTasks: 1,
+      nonEnumerableFanout: false,
+      filesToCreate: ['a.ts'],
+      filesToEdit: ['b.ts'],
+      tasks: [{ id: 't1', files: ['b.ts'], description: 'x' }],
+    };
+    const v1Fence = '```json\n' + JSON.stringify({ schemaVersion: 1, ...common }) + '\n```';
+    const v2Fence = '```json\n' + JSON.stringify({
+      schemaVersion: 2, ...common, leafKind: 'feature', requirements: [], outOfScope: [],
+    }) + '\n```';
+
+    const v1Result = parseSizeManifest(v1Fence);
+    const v2Result = parseSizeManifest(v2Fence);
+    expect(v1Result).not.toBeNull();
+    expect(v2Result).not.toBeNull();
+    expect({ ...v1Result, schemaVersion: 0 }).toEqual({ ...v2Result, schemaVersion: 0 });
+  });
+});
+
+describe('buildBlueprintRepairPrompt cites the missing field', () => {
+  it('quotes the missingField from validateContractForKind in the repair prompt', () => {
+    const base: DiffContract = {
+      schemaVersion: 2, estimatedFiles: 1, estimatedTasks: 1, nonEnumerableFanout: false,
+      filesToCreate: [], filesToEdit: [], tasks: [], leafKind: 'feature', requirements: [], outOfScope: [],
+    };
+    const result = validateContractForKind(base, 'feature');
+    expect(result.underspecified).toBe(true);
+    const missingField = result.underspecified ? result.missingField : '';
+
+    const leaf = { id: 'leaf-1', title: 't', description: 'd' } as unknown as Todo;
+    const prompt = buildBlueprintRepairPrompt(leaf, 'some blueprint text', missingField);
+    expect(prompt).toContain(`"${missingField}"`);
   });
 });
