@@ -244,6 +244,29 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // HISTORY — browse the archive (todos or missions) for a project, newest-archivedAt
+  // first, keyset-paginated. Read-only. Companion to the MISSIONS/todos hot-path routes
+  // above; the archival sweep (archival-sweep.ts) is what populates archivedAt.
+  if (url.pathname === '/api/supervisor/history' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      if (!project) return jsonError('project is required', 400);
+      const kind = url.searchParams.get('kind') ?? 'todos';
+      if (kind !== 'todos' && kind !== 'missions') return jsonError('kind must be todos or missions', 400);
+      const limitParam = url.searchParams.get('limit');
+      const limit = limitParam ? Number(limitParam) : undefined;
+      const cursor = url.searchParams.get('cursor');
+      if (kind === 'todos') {
+        const { listArchivedTodos } = await import('../services/todo-store.ts');
+        return Response.json(listArchivedTodos(project, { limit, cursor }));
+      }
+      const { listArchivedMissions } = await import('../services/mission-store.ts');
+      return Response.json(listArchivedMissions(project, { limit, cursor }));
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // MISSIONS (write) — AUTHORING surface for the Plan-board Missions strip. Each route
   // is a thin delegate to handleMissionTool (the same logic the MCP tools run), so the
   // UI shares the node-update + websocket-broadcast + integrity rules with the steward.
@@ -358,6 +381,23 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
       }
+    }
+  }
+
+  // HISTORY (write) — restore an archived todo or mission back to the hot set.
+  if (url.pathname === '/api/supervisor/history/restore' && req.method === 'POST') {
+    try {
+      const body = (await req.json()) as { project?: string; kind?: string; id?: string };
+      if (!body.project || !body.id) return jsonError('project and id are required', 400);
+      if (body.kind !== 'todos' && body.kind !== 'missions') return jsonError('kind must be todos or missions', 400);
+      if (body.kind === 'todos') {
+        const { restoreTodo } = await import('../services/todo-store.ts');
+        return Response.json({ todo: restoreTodo(body.project, body.id) });
+      }
+      const { restoreMission } = await import('../services/mission-store.ts');
+      return Response.json({ mission: restoreMission(body.project, body.id) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
   }
 

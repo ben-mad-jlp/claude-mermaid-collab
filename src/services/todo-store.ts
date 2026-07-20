@@ -1444,6 +1444,41 @@ export async function listTodosChunked(
   return todos;
 }
 
+export interface ArchivedTodoPage {
+  items: Todo[];
+  nextCursor: string | null; // opaque: `${archivedAt}:${id}`, null when exhausted
+}
+
+/** Browse the archive: newest-archivedAt-first, keyset-paginated over
+ *  (archivedAt DESC, id DESC) so a stable page boundary survives concurrent archival
+ *  sweeps (same keyset shape as listTodosChunked:1429-1434, just DESC + archivedAt-keyed
+ *  instead of ord-keyed). Thin wrapper over listTodos' onlyArchived filter (:1381) —
+ *  reuses rowToTodo, no new row shape. `cursor` is the opaque nextCursor from a prior page. */
+export function listArchivedTodos(
+  project: string,
+  opts: { limit?: number; cursor?: string | null } = {},
+): ArchivedTodoPage {
+  const db = openDb(project);
+  const limit = Math.max(1, Math.min(opts.limit ?? 50, 500));
+  const where = ['archivedAt IS NOT NULL'];
+  const params: unknown[] = [];
+  if (opts.cursor) {
+    const [atStr, id] = opts.cursor.split(':');
+    const at = Number(atStr);
+    if (Number.isFinite(at) && id) {
+      where.push('(archivedAt < ? OR (archivedAt = ? AND id < ?))');
+      params.push(at, at, id);
+    }
+  }
+  const sql = `SELECT * FROM todos WHERE ${where.join(' AND ')} ORDER BY archivedAt DESC, id DESC LIMIT ${limit + 1}`;
+  const rows = db.query(sql).all(...(params as never[])) as TodoRow[];
+  const page = rows.slice(0, limit);
+  const items = page.map(rowToTodo);
+  const last = page[page.length - 1];
+  const nextCursor = rows.length > limit && last ? `${last.archivedAt}:${last.id}` : null;
+  return { items, nextCursor };
+}
+
 /** The one mission a create should home under: `active`, non-terminal, live node.
  *  Prefers a mission owned by the creating session; with no session match and more
  *  than one candidate the answer is AMBIGUOUS → null (the epic stays a root rather
@@ -2274,6 +2309,24 @@ export function archiveTodosByIds(project: string, ids: string[], archivedAtMs: 
     .prepare(`UPDATE todos SET archivedAt = ? WHERE id IN (${placeholders})`)
     .run(archivedAtMs, ...ids);
   return result.changes;
+}
+
+/** Clear archivedAt on one todo (restore from history), returning the restored row.
+ *  No-op-safe: restoring an already-hot todo just returns it unchanged (COALESCE-free —
+ *  the UPDATE always runs but is a no-op when archivedAt is already NULL). Resolves
+ *  short ids via resolveShortId (same convention as getTodo:1359). Throws if the id
+ *  does not resolve to any row. */
+export function restoreTodo(project: string, id: string): Todo {
+  const db = openDb(project);
+  let resolvedId = id;
+  if (!db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) {
+    const resolved = resolveShortId(project, id);
+    if (resolved === null) throw new Error(`todo not found: ${id}`);
+    resolvedId = resolved;
+  }
+  db.prepare('UPDATE todos SET archivedAt = NULL WHERE id = ?').run(resolvedId);
+  const row = db.query('SELECT * FROM todos WHERE id = ?').get(resolvedId) as TodoRow;
+  return rowToTodo(row);
 }
 
 /**
