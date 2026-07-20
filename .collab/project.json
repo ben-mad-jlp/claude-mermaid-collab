@@ -7,6 +7,7 @@
     "typecheck": "npx tsc --noEmit -p tsconfig.json",
     "tests": [
       { "match": "^src/", "command": "bun test {file}" },
+      { "match": "^scripts/", "command": "bun test {file}" },
       { "match": "^ui/", "command": "bunx vitest --run {files}", "cwd": "ui" }
     ]
   }

@@ -36,16 +36,11 @@ const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encodi
 const RECORD_SEP = '\x1e';
 const UNIT_SEP = '\x1f';
 
-const SCAN_LIMIT = 2000;
-const TARGET_CASES = 12;
-const MAX_PER_KIND = 3;
+const MIN_CASES = 10;
+const MIN_LEAF_KINDS = 3;
 const MAX_SYMBOLS_PER_CASE = 40;
 
 const INFRA_PATH_RE = /^(scripts\/|\.github\/|bin\/|\.claude-plugin\/|docker|Dockerfile|package\.json$|tsconfig)/i;
-const TEST_PATH_RE = /\.test\.[tj]sx?$/;
-const REFACTOR_KEYWORD_RE = /\brefactor|\bconsolidat|\bdedupe\b|\bde-dup|\brestructur/i;
-
-const KIND_PRIORITY: DiffLeafKind[] = ['infra', 'refactor', 'test', 'fix', 'feature'];
 
 interface RawCommit {
   sha: string;
@@ -60,7 +55,7 @@ function git(args: string[]): string {
 }
 
 function parseLog(): RawCommit[] {
-  const out = git(['log', `--pretty=%H${UNIT_SEP}%h${UNIT_SEP}%P${UNIT_SEP}%s${UNIT_SEP}%b${RECORD_SEP}`, `-${SCAN_LIMIT}`]);
+  const out = git(['log', `--pretty=%H${UNIT_SEP}%h${UNIT_SEP}%P${UNIT_SEP}%s${UNIT_SEP}%b${RECORD_SEP}`, '-500']);
   const records = out.split(RECORD_SEP).map((r) => r.replace(/^\n/, '')).filter((r) => r.trim().length > 0);
   const commits: RawCommit[] = [];
   for (const record of records) {
@@ -73,12 +68,11 @@ function parseLog(): RawCommit[] {
   return commits;
 }
 
-export function classifyLeafKind(subject: string, body: string, touchedFiles: string[]): DiffLeafKind {
+export function classifyLeafKind(subject: string, touchedFiles: string[]): DiffLeafKind {
   if (/^feat(\(|:)/i.test(subject)) return 'feature';
   if (/^fix(\(|:)/i.test(subject)) return 'fix';
   if (/^test(\(|:)/i.test(subject)) return 'test';
-  if (touchedFiles.length > 0 && touchedFiles.every((f) => TEST_PATH_RE.test(f))) return 'test';
-  if (REFACTOR_KEYWORD_RE.test(`${subject} ${body}`)) return 'refactor';
+  if (/refactor/i.test(subject)) return 'refactor';
   if (touchedFiles.length > 0 && touchedFiles.every((f) => INFRA_PATH_RE.test(f))) return 'infra';
   return 'feature';
 }
@@ -133,66 +127,25 @@ function stripSubjectPrefix(subject: string): string {
   return subject.replace(/^[a-zA-Z]+(\([a-zA-Z_-]+\))?:\s*/, '').trim();
 }
 
-interface PoolEntry {
-  commit: RawCommit;
-  touchedFiles: string[];
-  leafKind: DiffLeafKind;
-}
-
-function selectBalancedSample(pool: PoolEntry[]): PoolEntry[] {
-  const byKind = new Map<DiffLeafKind, PoolEntry[]>();
-  for (const entry of pool) {
-    const bucket = byKind.get(entry.leafKind) ?? [];
-    bucket.push(entry);
-    byKind.set(entry.leafKind, bucket);
-  }
-
-  const selected: PoolEntry[] = [];
-  const selectedShas = new Set<string>();
-
-  for (const kind of KIND_PRIORITY) {
-    const bucket = byKind.get(kind) ?? [];
-    for (const entry of bucket.slice(0, MAX_PER_KIND)) {
-      if (selected.length >= TARGET_CASES) break;
-      selected.push(entry);
-      selectedShas.add(entry.commit.sha);
-    }
-  }
-
-  for (const entry of pool) {
-    if (selected.length >= TARGET_CASES) break;
-    if (selectedShas.has(entry.commit.sha)) continue;
-    selected.push(entry);
-    selectedShas.add(entry.commit.sha);
-  }
-
-  const order = new Map(pool.map((entry, i) => [entry.commit.sha, i]));
-  selected.sort((a, b) => (order.get(a.commit.sha) ?? 0) - (order.get(b.commit.sha) ?? 0));
-  return selected;
-}
-
 function buildCorpus(): CorpusCase[] {
   const commits = parseLog();
-  const pool: PoolEntry[] = [];
+  const cases: CorpusCase[] = [];
+  const seenKinds = new Set<DiffLeafKind>();
   let previousKeptSubject: string | null = null;
 
   for (const commit of commits) {
     if (commit.parents.length !== 1) continue;
     if (commit.subject.startsWith('collab:') || commit.subject.startsWith('Merge:')) continue;
     if (previousKeptSubject !== null && commit.subject === previousKeptSubject) continue;
+
     previousKeptSubject = commit.subject;
 
-    const touchedFiles = getTouchedFiles(commit.parents[0], commit.sha);
-    const leafKind = classifyLeafKind(commit.subject, commit.body, touchedFiles);
-    pool.push({ commit, touchedFiles, leafKind });
-  }
-
-  const selected = selectBalancedSample(pool);
-
-  return selected.map(({ commit, touchedFiles, leafKind }) => {
     const parentSha = commit.parents[0];
+    const touchedFiles = getTouchedFiles(parentSha, commit.sha);
+    const leafKind = classifyLeafKind(commit.subject, touchedFiles);
     const changedSymbols = extractChangedSymbols(commit.sha, parentSha, touchedFiles);
-    return {
+
+    cases.push({
       id: commit.shortSha,
       commitSha: commit.sha,
       leafKind,
@@ -206,8 +159,13 @@ function buildCorpus(): CorpusCase[] {
         touchedFiles,
         changedSymbols,
       },
-    };
-  });
+    });
+    seenKinds.add(leafKind);
+
+    if (cases.length >= MIN_CASES && seenKinds.size >= MIN_LEAF_KINDS) break;
+  }
+
+  return cases;
 }
 
 export const CORPUS: CorpusCase[] = buildCorpus();
