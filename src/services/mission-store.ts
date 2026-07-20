@@ -266,8 +266,15 @@ export function stampConductorRun(project: string, todoId: string, key: string):
     .run(key, nowMs(), todoId);
 }
 
-/** Read a mission's control state, or undefined if the node has none yet. */
-export function getMission(project: string, todoId: string): MissionRow | undefined {
+/**
+ * Read a mission's control ROW ONLY — the stored columns, with NO derived status.
+ * Deliberately does NOT call collectMissionStatusFacts (a project-wide todo scan plus
+ * one ledger scan per live epic), so a caller that only needs the stored fields — e.g.
+ * the paginated list path — pays a single indexed row read instead of a full fan-out.
+ * `status` on the returned row is whatever rowToMission's cheap default is; callers
+ * needing the true derived status must use getMission.
+ */
+export function getMissionRaw(project: string, todoId: string): MissionRow | undefined {
   const db = openDb(project);
   let row = db.query('SELECT * FROM mission WHERE todoId = ?').get(todoId) as Record<string, unknown> | null;
   if (!row) {
@@ -277,7 +284,13 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
     }
   }
   if (!row) return undefined;
-  const m = rowToMission(row);
+  return rowToMission(row);
+}
+
+/** Read a mission's control state, or undefined if the node has none yet. */
+export function getMission(project: string, todoId: string): MissionRow | undefined {
+  const m = getMissionRaw(project, todoId);
+  if (!m) return undefined;
   return { ...m, status: deriveMissionStatus(collectMissionStatusFacts(project, m)) };
 }
 
@@ -846,6 +859,27 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
 }
 
+/**
+ * A CHEAP, facts-free approximation of deriveMissionStatus for the paginated list glance.
+ * Uses only the stored mission columns plus the epic-status slice the list path has already
+ * read — no collectMissionStatusFacts, so no project-wide todo scan and no ledger scan.
+ *
+ * The terminal flags (abandoned/unapproved) are EXACT because they read stored columns.
+ * The 'converged' arm is a PROXY (all epics done) — good enough for a list badge, but not
+ * the real capability gauge, which needs criteria verdicts. Anything else reads 'building'.
+ * A caller that needs the true status must ask for it: getMission, or listMissions with
+ * `withFacts: true`.
+ */
+export function deriveCheapMissionStatus(
+  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'>,
+  epics: readonly { status: string }[],
+): MissionStatus {
+  if (m.abandonedAt != null) return 'abandoned';
+  if (m.awaitingApprovalSince != null) return 'unapproved';
+  if (epics.length > 0 && epics.every((e) => e.status === 'done')) return 'converged';
+  return 'building';
+}
+
 /** Gather the facts deriveMissionStatus needs from the work-graph + ledger. Does NOT call
  *  getMission/getMissionRollup (no recursion); the caller passes the already-read MissionRow. */
 /** Blocked/building state is LIVE only from epics still in play — a done/landed epic's historical
@@ -983,11 +1017,21 @@ export interface MissionSummary {
  * Missions with a node but no control row are skipped. For the Plan-board Missions
  * surface. Pass `opts.session` to return ONLY missions owned by / assigned to that
  * session (the mission↔session tie) — omit for all project missions.
+ *
+ * `opts.withFacts` (DEFAULT TRUE) controls per-mission cost. With facts, each mission
+ * costs two full collectMissionStatusFacts scans (one via getMission, one via
+ * getMissionRollup) — i.e. ~2N project-wide todo scans plus ~2 ledger scans per epic for
+ * N missions. That fan-out is what wedges a high-live-row project. Pass `withFacts: false`
+ * to take the cheap path: a single indexed mission-row read per mission, with `status` and
+ * `rollup` built from deriveCheapMissionStatus + the already-read epic/criteria slices —
+ * zero collectMissionStatusFacts calls. The default stays TRUE so every existing caller's
+ * output is bit-identical; opting into the cheap path is explicit, per call site.
  */
 export function listMissions(
   project: string,
-  opts: { session?: string; includeArchived?: boolean; onlyArchived?: boolean } = {},
+  opts: { session?: string; includeArchived?: boolean; onlyArchived?: boolean; withFacts?: boolean } = {},
 ): MissionSummary[] {
+  const withFacts = opts.withFacts !== false;
   const all = listTodos(project, { includeCompleted: true });
   const roots = all.filter(
     (t) => t.parentId == null && t.status !== 'dropped' && isMission(t),
@@ -998,7 +1042,15 @@ export function listMissions(
   pruneOrphanMissions(project, new Set(roots.map((t) => t.id)));
   const out: MissionSummary[] = [];
   for (const node of roots) {
-    let mission = getMission(project, node.id);
+    // Cheap path: read the stored row only, then layer on a facts-free status derived from
+    // the epic slice below. Full path: getMission, which derives from a full facts scan.
+    const epicsForNode = all
+      .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t))
+      .map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
+    const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
+    let mission = raw && !withFacts
+      ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode) }
+      : raw;
     if (!mission) continue; // a mission-kind node without control state — not a real mission
     if (opts.onlyArchived) { if (mission.archivedAt == null) continue; }
     else if (!opts.includeArchived) { if (mission.archivedAt != null) continue; }
@@ -1013,16 +1065,32 @@ export function listMissions(
     if (opts.session && node.ownerSession !== opts.session && node.assigneeSession !== opts.session) {
       continue; // session-scoped filter (mission↔session tie)
     }
-    const epics = all
-      .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t))
-      .map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
+    const epics = epicsForNode;
+    const criteria = listCriteria(project, node.id); // per-mission indexed lookup, not a facts scan
+    // Cheap rollup: the same two gauges, counted from the epic slice + criteria rows we
+    // already hold. `gaps`/`awaitingVerify` are per-criterion ACTIONS, which are only
+    // derivable from facts — the cheap path reports 0 rather than pay the scan.
+    const mechDone = epics.filter((e) => e.status === 'done').length;
+    const capMet = criteria.filter((c) => c.met).length;
+    const rollup: MissionRollup = withFacts
+      ? getMissionRollup(project, node.id)
+      : {
+          todoId: node.id,
+          mechanical: { done: mechDone, total: epics.length },
+          capability: { met: capMet, total: criteria.length },
+          converged: criteria.length > 0 && capMet === criteria.length,
+          stopped: isMissionTerminal(mission),
+          status: mission.status ?? deriveCheapMissionStatus(mission, epics),
+          gaps: 0,
+          awaitingVerify: 0,
+        };
     out.push({
       node: { id: node.id, title: node.title, status: node.status },
       ownerSession: node.ownerSession ?? null,
       assigneeSession: node.assigneeSession ?? null,
       mission,
-      rollup: getMissionRollup(project, node.id),
-      criteria: listCriteria(project, node.id),
+      rollup,
+      criteria,
       epics,
     });
   }
