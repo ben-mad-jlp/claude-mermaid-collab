@@ -49,6 +49,31 @@ export type DiffRequirement =
   | NamedTestRequirement
   | ThresholdRequirement;
 
+/** A DiffRequirement's discriminant, reused so the matrix stays keyed to the same 3 kinds as
+ *  the union — a 4th kind added to DiffRequirement forces a compile error here too. */
+export type DiffRequirementKind = DiffRequirement['kind'];
+
+/** §4 strictness matrix: for each of the 5 leafKinds, whether each of the 3 requirement kinds
+ *  is a REQUIRED cell (the contract must carry at least one requirement of that kind) or an
+ *  OPTIONAL cell (zero or more is fine). Every leafKind row must be a fully-covered
+ *  Record<DiffRequirementKind, ...> or DIFF_LEAF_KINDS.map below silently under-checks.
+ *
+ *  - feature / fix: both require a symbol-present AND a named-test (the citable code change
+ *    plus the test proving it) — threshold stays optional.
+ *  - refactor: requires only symbol-present (the moved/renamed symbol) — a refactor is not
+ *    obligated to add a new test if existing tests already cover the behavior.
+ *  - test: requires only named-test — a test-only leaf has no new production symbol to cite.
+ *  - infra: requires only symbol-present (the new config/wiring point) — infra leaves rarely
+ *    ship their own test.
+ */
+export const CONTRACT_STRICTNESS_MATRIX: Record<DiffLeafKind, Record<DiffRequirementKind, 'required' | 'optional'>> = {
+  feature: { 'symbol-present': 'required', 'named-test': 'required', threshold: 'optional' },
+  fix: { 'symbol-present': 'required', 'named-test': 'required', threshold: 'optional' },
+  refactor: { 'symbol-present': 'required', 'named-test': 'optional', threshold: 'optional' },
+  test: { 'symbol-present': 'optional', 'named-test': 'required', threshold: 'optional' },
+  infra: { 'symbol-present': 'required', 'named-test': 'optional', threshold: 'optional' },
+};
+
 /** v2 superset of LeafSizeManifest (leaf-executor.ts:261-274). v1 fields are carried
  *  verbatim under the same names/shapes; v2 adds leafKind/requirements/outOfScope. */
 export interface DiffContract {
@@ -64,6 +89,25 @@ export interface DiffContract {
   leafKind: DiffLeafKind;
   requirements: DiffRequirement[];
   outOfScope: string[];
+}
+
+/** Enforces the §4 strictness matrix for one leafKind against an already-parsed contract's
+ *  `requirements[]`. Returns the FIRST missing required cell (matrix key iteration order:
+ *  'symbol-present', 'named-test', 'threshold') so a caller reports one concrete, exact field
+ *  name at a time — never an aggregate list. `missingField` is always one of the 3 literal
+ *  DiffRequirementKind strings, i.e. directly citable back to CONTRACT_STRICTNESS_MATRIX. */
+export function validateContractForKind(
+  contract: DiffContract,
+  leafKind: DiffLeafKind,
+): { underspecified: true; missingField: DiffRequirementKind } | { underspecified: false } {
+  const cells = CONTRACT_STRICTNESS_MATRIX[leafKind];
+  const present = new Set(contract.requirements.map((r) => r.kind));
+  for (const kind of Object.keys(cells) as DiffRequirementKind[]) {
+    if (cells[kind] === 'required' && !present.has(kind)) {
+      return { underspecified: true, missingField: kind };
+    }
+  }
+  return { underspecified: false };
 }
 
 const toStrArr = (v: unknown): string[] =>
