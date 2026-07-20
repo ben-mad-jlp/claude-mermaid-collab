@@ -11,7 +11,7 @@ import {
   upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
   activateMission, sessionHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
-  assertMissionCreationAllowed,
+  assertMissionCreationAllowed, listMissions, isMissionTerminal,
 } from '../services/mission-store.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
@@ -34,6 +34,7 @@ export const MISSION_TOOL_DEFS = [
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'criterionId', 'text'] } },
       { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (criteria, verdicts). todoId must be a mission node (kind='mission').", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
+      { name: 'list_missions', description: "List a project's MISSIONS as compact summaries — the counterpart to get_mission (which needs a mission id you may not have yet). DEFAULT returns only OPEN missions: it EXCLUDES terminal (converged/abandoned) and archived missions, so you see just what is still in play. Filters: `activeOnly` = only the mission(s) currently being DRIVEN (active=true — at most one per session); `session` = scope to missions owned by / assigned to that session (the mission↔session tie); `includeTerminal` = also include converged/abandoned; `includeArchived` = also include archived. Each row: id, shortId, title, status, active, awaitingApproval, ownerSession/assigneeSession, capability {met,total}, mechanical {done,total}, gaps, awaitingVerify, converged. Rows are sorted active-first. Use this to find the id, then call get_mission for full per-criterion actions.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'Optional — return only missions owned by / assigned to this session.' }, activeOnly: { type: 'boolean', description: 'Only missions with active=true (the driven one). Default false.' }, includeTerminal: { type: 'boolean', description: 'Include converged/abandoned missions. Default false (open only).' }, includeArchived: { type: 'boolean', description: 'Include archived missions. Default false.' } }, required: ['project'] } },
       { name: 'get_mission', description: 'Read a mission\'s full state: control state, acceptance criteria (each with a DERIVED per-criterion `action`: met|building|verify|discover — serve EVERY discover gap in one pass, one epic per criterion), and the convergence rollup — mechanical (direct [EPIC] children done/total) + capability (criteria met/total) + gaps/awaitingVerify + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' } }, required: ['project', 'todoId'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
       { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
@@ -107,6 +108,39 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const t = getTodo(project, todoId);
       if (t) getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: t.ownerSession, ownerSession: t.ownerSession, assigneeSession: t.assigneeSession ?? undefined });
       return JSON.stringify({ ...result, rollup: getMissionRollup(project, todoId), constitutionHealth: missionConstitutionHealth(project, todoId) }, null, 2);
+    }
+    case 'list_missions': {
+      const { project, session, activeOnly, includeTerminal, includeArchived } = args as {
+        project: string; session?: string; activeOnly?: boolean; includeTerminal?: boolean; includeArchived?: boolean;
+      };
+      if (!project) throw new Error('Missing required: project');
+      const summaries = listMissions(project, { session, includeArchived: !!includeArchived });
+      const rows = summaries
+        .filter((m) => {
+          if (activeOnly && !m.mission.active) return false;
+          // Default: open only — drop terminal (converged/abandoned) unless asked.
+          if (!includeTerminal && isMissionTerminal(m.mission)) return false;
+          return true;
+        })
+        .map((m) => ({
+          id: m.node.id,
+          shortId: m.node.id.slice(0, 8),
+          title: m.node.title,
+          status: m.mission.status ?? m.rollup.status,
+          active: m.mission.active,
+          awaitingApproval: m.mission.awaitingApprovalSince != null,
+          ownerSession: m.ownerSession,
+          assigneeSession: m.assigneeSession,
+          capability: m.rollup.capability,
+          mechanical: m.rollup.mechanical,
+          gaps: m.rollup.gaps,
+          awaitingVerify: m.rollup.awaitingVerify,
+          converged: m.rollup.converged,
+          handoffDocId: m.mission.handoffDocId,
+        }))
+        // Active-first, then most open gaps first, then title — the driven mission on top.
+        .sort((a, b) => Number(b.active) - Number(a.active) || b.gaps - a.gaps || a.title.localeCompare(b.title));
+      return JSON.stringify({ count: rows.length, missions: rows }, null, 2);
     }
     case 'get_mission': {
       const { project, todoId } = args as { project: string; todoId: string };
