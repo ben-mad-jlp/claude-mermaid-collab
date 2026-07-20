@@ -15,6 +15,7 @@ import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
 import { createTodo, updateTodo } from '../todo-store';
+import { setOrchestratorLevel } from '../orchestrator-config';
 
 let project: string;
 let invokeCalls: number;
@@ -69,6 +70,17 @@ describe('runConductorPass — scheduling', () => {
     const r = await runConductorPass(project, { invoke: okInvoke });
     expect(r.ran).toBe(false);
     expect(r.reason).toBe('conductor-disabled');
+    expect(invokeCalls).toBe(0);
+  });
+
+  test('daemon OFF ⇒ conductor no-ops (it only directs the daemon; no daemon = nothing builds)', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    setOrchestratorLevel(project, 'off');
+    await forgeApprovedActive();
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('daemon-off');
     expect(invokeCalls).toBe(0);
   });
 

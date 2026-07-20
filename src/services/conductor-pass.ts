@@ -19,6 +19,7 @@ import {
   promoteQueuedMissions,
 } from './mission-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
+import { getOrchestratorLevel } from './orchestrator-config.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
 import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { config } from '../config.js';
@@ -103,7 +104,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   missionId?: string;
@@ -125,6 +126,12 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
 
 async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
   if (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled' };
+  // The conductor DIRECTS the daemon — it grounds gaps, files serving epics, and promotes leaves to
+  // READY for the daemon to build & land. With the daemon OFF the build pass never runs (the tick
+  // skips it at `lvl === 'off'`), so those leaves sit unclaimed and the mission stalls at 'building'
+  // while the conductor keeps spending expensive nodes on a pipeline that can't move. Conductor is a
+  // DEPENDENT of the daemon, not an independent switch: no daemon ⇒ no conductor spend.
+  if (getOrchestratorLevel(project) === 'off') return { ran: false, reason: 'daemon-off' };
 
   try {
     const promoted = promoteQueuedMissions(project);

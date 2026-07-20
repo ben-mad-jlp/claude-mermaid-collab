@@ -126,6 +126,10 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
         className={`shrink-0 w-1.5 h-1.5 rounded-full mx-1 ${daemonUp == null ? 'bg-gray-300 dark:bg-gray-600' : daemonUp ? 'bg-success-500' : 'bg-danger-500'}`}
         aria-hidden="true"
       />
+      {/* Label so this toggle reads as the DAEMON — parallels the adjacent Conductor ladder. */}
+      <span className="shrink-0 pr-1.5 py-0.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+        Daemon
+      </span>
       {LEVELS.map((stop, idx) => {
         const isActive = stop === level;
         // ONLY the selected stop is bright — it fills with its OWN heat color

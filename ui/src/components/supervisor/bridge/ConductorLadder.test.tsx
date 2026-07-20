@@ -48,6 +48,25 @@ describe('ConductorLadder', () => {
     expect(post).toHaveBeenCalledWith({ project: '/abs/p', enabled: true });
   });
 
+  it('disables the switch when the daemon is off (conductor depends on the daemon)', async () => {
+    const post = vi.fn();
+    global.fetch = vi.fn((url: any, init?: any) => {
+      if (init?.method === 'POST') { post(); return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) }); }
+      if (String(url).includes('/api/orchestrator/level')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: 'off' }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ enabled: false }) });
+    }) as any;
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('conductor-ladder').getAttribute('data-daemon-off')).toBe('true'),
+    );
+    expect((screen.getByTestId('conductor-stop-on') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('conductor-stop-on'));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(post).not.toHaveBeenCalled(); // can't enable the conductor while the daemon is off
+  });
+
   it('does not POST when the already-active stop is clicked', async () => {
     const { post } = mockConductor(true);
     render(<ConductorLadder project="/abs/p" />);
