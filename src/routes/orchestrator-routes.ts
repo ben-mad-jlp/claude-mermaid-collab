@@ -22,6 +22,7 @@ import {
   LEAF_NODE_KINDS,
   NODE_KIND_DESCRIPTIONS,
   LEAF_NODE_GROUPS,
+  MATRIX_HIDDEN_NODE_KINDS,
   ORCHESTRATION_NODE_KINDS,
   ORCHESTRATION_NODE_PROFILE,
   ORCHESTRATION_NODE_DESCRIPTIONS,
@@ -32,11 +33,12 @@ import { projectRegistry } from '../services/project-registry.ts';
 import { CLAUDE_MODELS, GROK_BUILD_MODELS, GROK_API_MODELS, providerModelMismatch } from '../services/provider-model.ts';
 import type { NodeProvider } from '../services/node-provider.ts';
 
-/** All node kinds shown in the daemon nodes matrix: every leaf-pipeline kind plus the
- *  three orchestration kinds. Excludes 'summary', which is the Zen interpret-model knob
- *  (never run via runNode), not a build node. */
+/** All node kinds shown in the daemon nodes matrix: every configurable leaf-pipeline kind plus the
+ *  three orchestration kinds. Excludes MATRIX_HIDDEN_NODE_KINDS — the RETIRED wave kinds
+ *  (research/wimplement/verify/fix) and 'summary' (the Zen interpret-model knob, never run via
+ *  runNode) — so no empty "Waves"/"Zen" section renders. */
 const MATRIX_NODE_KINDS: string[] = [
-  ...LEAF_NODE_KINDS.filter((k) => k !== 'summary'),
+  ...LEAF_NODE_KINDS.filter((k) => !MATRIX_HIDDEN_NODE_KINDS.includes(k)),
   ...ORCHESTRATION_NODE_KINDS,
 ];
 

@@ -681,12 +681,23 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
  *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
  *  ORCHESTRATION_NODE_KINDS. */
 export interface LeafNodeGroup {
-  key: 'floor' | 'waves' | 'verify-cad' | 'zen' | 'orchestration';
+  key: 'floor' | 'verify-cad' | 'orchestration';
   label: string;
   firesWhen: string;
   kinds: (LeafNodeKind | OrchestrationNodeKind)[];
   defaultCollapsed: boolean;
 }
+
+/** Node kinds that are NOT shown in the daemon-nodes settings matrix — kept as valid LeafNodeKinds
+ *  (historical ledger rows, resume, NODE_PROFILE defaults) but deliberately hidden from the config UI:
+ *   - the RETIRED wave kinds (research/wimplement/verify/fix): the fan-out path no longer runs
+ *     (2026-07-08) — every leaf runs linear (FLOOR) and oversized leaves auto-split, so there is
+ *     nothing to configure.
+ *   - 'summary' (the Zen session-summary interpret model): configured by the summary loop, never run
+ *     via runNode — it was only ever a non-configurable placeholder in the matrix.
+ *  The route excludes these from the served rows and there is no group for them, so the matrix does
+ *  not render an empty "Waves"/"Zen" section. */
+export const MATRIX_HIDDEN_NODE_KINDS: LeafNodeKind[] = ['research', 'wimplement', 'verify', 'fix', 'summary'];
 
 export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
   {
@@ -695,19 +706,9 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
     kinds: ['blueprint', 'implement', 'review'],
   },
   {
-    key: 'waves', label: 'Waves (RETIRED)', defaultCollapsed: true,
-    firesWhen: "RETIRED (2026-07-08): the fan-out path no longer runs — every leaf runs linear (FLOOR) and oversized leaves auto-split. Kept only to display historical waves runs.",
-    kinds: ['research', 'wimplement', 'verify', 'fix'],
-  },
-  {
     key: 'verify-cad', label: 'Verify / CAD', defaultCollapsed: true,
     firesWhen: 'Only when leaf.type ∈ verify | cad-dogfood | dogfood (build-assembly geometry gate) — never for ordinary backend/ui leaves.',
     kinds: ['driveplan', 'driveexec', 'report'],
-  },
-  {
-    key: 'zen', label: 'Zen', defaultCollapsed: true,
-    firesWhen: 'Session-summary loop, not a build leaf (not configurable here).',
-    kinds: ['summary'],
   },
   {
     key: 'orchestration', label: 'Orchestration', defaultCollapsed: false,

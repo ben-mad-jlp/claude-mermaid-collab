@@ -11,7 +11,7 @@ const dir = mkdtempSync(join(tmpdir(), 'orch-routes-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
-import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS, ORCHESTRATION_NODE_KINDS } from '../../services/leaf-executor';
+import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS, MATRIX_HIDDEN_NODE_KINDS, ORCHESTRATION_NODE_KINDS } from '../../services/leaf-executor';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds';
 import { projectRegistry } from '../../services/project-registry';
 import { _closeDb } from '../../services/orchestrator-config';
@@ -164,10 +164,14 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(res!.status).toBe(200);
     const body = await res!.json() as any;
     expect(Array.isArray(body.rows)).toBe(true);
-    // 'summary' is the Zen interpret-model knob, not a build node → excluded from the matrix.
-    // Orchestration kinds (forge/conductor/planner) are included alongside the leaf kinds.
-    expect(body.rows.length).toBe(LEAF_NODE_KINDS.filter((k) => k !== 'summary').length + ORCHESTRATION_NODE_KINDS.length);
-    expect(body.rows.find((r: any) => r.kind === 'summary')).toBeUndefined();
+    // MATRIX_HIDDEN_NODE_KINDS (retired waves + the Zen 'summary' knob) are excluded from the matrix.
+    // Orchestration kinds (forge/conductor/planner) are included alongside the configurable leaf kinds.
+    expect(body.rows.length).toBe(
+      LEAF_NODE_KINDS.filter((k) => !(MATRIX_HIDDEN_NODE_KINDS as string[]).includes(k)).length + ORCHESTRATION_NODE_KINDS.length,
+    );
+    for (const hidden of MATRIX_HIDDEN_NODE_KINDS) {
+      expect(body.rows.find((r: any) => r.kind === hidden)).toBeUndefined();
+    }
     const bp = body.rows.find((r: any) => r.kind === 'blueprint');
     expect(bp.defaultModel).toBe('opus');
     expect(bp.defaultEffort).toBe('high');
@@ -195,17 +199,23 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(res!.status).toBe(400);
   });
 
-  it('GET returns groups (5) whose kinds union equals LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS (partition/drift guard)', async () => {
+  it('GET returns groups (3) whose kinds union equals the CONFIGURABLE kinds — every non-hidden kind is grouped (partition/drift guard)', async () => {
     const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
     expect(res!.status).toBe(200);
     const body = await res!.json() as any;
     expect(Array.isArray(body.groups)).toBe(true);
-    expect(body.groups.length).toBe(5);
+    // The retired 'waves' group and the non-configurable 'zen' group were removed; their kinds
+    // (research/wimplement/verify/fix + summary) are MATRIX_HIDDEN_NODE_KINDS and belong to no group.
+    expect(body.groups.length).toBe(3);
+    const expectedGrouped = new Set(
+      [...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS].filter((k) => !(MATRIX_HIDDEN_NODE_KINDS as string[]).includes(k)),
+    );
     const union = (body.groups as any[]).flatMap((g) => g.kinds);
-    expect(new Set(union)).toEqual(new Set([...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS]));
-    // Also verify against the exported constant directly (single source)
+    expect(new Set(union)).toEqual(expectedGrouped);
+    // Also verify against the exported constant directly (single source) — and that NO hidden kind leaks into a group.
     const fromConst = LEAF_NODE_GROUPS.flatMap((g) => g.kinds);
-    expect(new Set(fromConst)).toEqual(new Set([...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS]));
+    expect(new Set(fromConst)).toEqual(expectedGrouped);
+    for (const hidden of MATRIX_HIDDEN_NODE_KINDS) expect(fromConst).not.toContain(hidden);
 
     // body.rows carries one row per orchestration kind too, with the right defaults + mcpForced.
     for (const kind of ORCHESTRATION_NODE_KINDS) {
