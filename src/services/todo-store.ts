@@ -182,6 +182,9 @@ export interface Todo {
   reservedByActor?: string | null;
   /** B5 observability (read by B6): the reason the re-serve was performed. */
   reservedReason?: string | null;
+  /** Archive stamp (ms epoch), or null = live. Archived rows are excluded from
+   *  listTodos/listTodosChunked by default (see TodoFilter.includeArchived/onlyArchived). */
+  archivedAt?: number | null;
 }
 
 export interface TodoFilter {
@@ -190,6 +193,10 @@ export interface TodoFilter {
   assigneeSession?: string;
   status?: TodoStatus;
   includeCompleted?: boolean;
+  /** Include archived rows alongside live ones. Default false (hot-only). */
+  includeArchived?: boolean;
+  /** Return ONLY archived rows. Default false. Takes precedence over includeArchived. */
+  onlyArchived?: boolean;
 }
 
 export interface CreateTodoInput {
@@ -486,6 +493,7 @@ interface TodoRow {
   supersedes: string | null;
   reservedByActor: string | null;
   reservedReason: string | null;
+  archivedAt: number | null;
 }
 
 const DDL = `
@@ -631,6 +639,10 @@ export function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'supersedes', 'supersedes TEXT');
   addColumnIfMissing(db, 'todos', 'reservedByActor', 'reservedByActor TEXT');
   addColumnIfMissing(db, 'todos', 'reservedReason', 'reservedReason TEXT');
+  // Archive storage layer: additive, nullable column. New/existing rows read
+  // archivedAt = NULL for free — hot by default, no backfill needed.
+  addColumnIfMissing(db, 'todos', 'archivedAt', 'archivedAt INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -1307,6 +1319,7 @@ function rowToTodo(row: TodoRow): Todo {
     supersedes: row.supersedes ?? null,
     reservedByActor: row.reservedByActor ?? null,
     reservedReason: row.reservedReason ?? null,
+    archivedAt: row.archivedAt ?? null,
   };
 }
 
@@ -1365,6 +1378,8 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
   if (filter.assigneeSession) { where.push('assigneeSession = ?'); params.push(filter.assigneeSession); }
   if (filter.status) { where.push('status = ?'); params.push(filter.status); }
   if (!filter.includeCompleted && !filter.status) { where.push("status != 'done'"); }
+  if (filter.onlyArchived) { where.push('archivedAt IS NOT NULL'); }
+  else if (!filter.includeArchived) { where.push('archivedAt IS NULL'); }
   const sql = `SELECT * FROM todos${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ord ASC`;
   const rows = db.query(sql).all(...(params as never[])) as TodoRow[];
   return rows.map(rowToTodo);
@@ -1403,6 +1418,8 @@ export async function listTodosChunked(
   if (filter.assigneeSession) { where.push('assigneeSession = ?'); params.push(filter.assigneeSession); }
   if (filter.status) { where.push('status = ?'); params.push(filter.status); }
   if (!filter.includeCompleted && !filter.status) { where.push("status != 'done'"); }
+  if (filter.onlyArchived) { where.push('archivedAt IS NOT NULL'); }
+  else if (!filter.includeArchived) { where.push('archivedAt IS NULL'); }
 
   const todos: Todo[] = [];
   let cursor: { ord: number; id: string } | null = null;

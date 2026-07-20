@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, completeTodo, sweepEpicRollups, getTodo, _closeProject,
+  createTodo, completeTodo, sweepEpicRollups, getTodo, updateTodo, _closeProject,
 } from '../todo-store';
 import {
   upsertMission, getMission, deleteMission,
@@ -14,8 +14,17 @@ import {
   CRITERION_SERVE_CAP,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
+import Database from 'bun:sqlite';
 
 let project: string;
+
+/** Directly stamp a mission control row's archivedAt (no setter exists yet). */
+function archiveMissionRaw(proj: string, todoId: string) {
+  const db = new Database(join(proj, '.collab', 'mission.db'));
+  db.exec(`UPDATE mission SET archivedAt = ${Date.now()} WHERE todoId = '${todoId}'`);
+  db.close();
+  _resetMissionDbCache(proj);
+}
 
 /** Create the `[MISSION]` graph node (a top-level durable root). Explicit kind
  *  (decision e852fb0c, stage C) — the title prefix no longer decides role. */
@@ -171,6 +180,20 @@ describe('mission-store: listMissions', () => {
 
   test('empty when no missions', () => {
     expect(listMissions(project)).toEqual([]);
+  });
+
+  test('archivedAt: default excludes an archived mission, includeArchived/onlyArchived toggle it', async () => {
+    const live = (await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] live', kind: 'mission' })).id;
+    upsertMission(project, live);
+    const archived = (await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] archived', kind: 'mission' })).id;
+    upsertMission(project, archived);
+    archiveMissionRaw(project, archived);
+
+    expect(listMissions(project).map((m) => m.node.id)).toEqual([live]);
+    expect(listMissions(project, { includeArchived: true }).map((m) => m.node.id).sort()).toEqual(
+      [live, archived].sort(),
+    );
+    expect(listMissions(project, { onlyArchived: true }).map((m) => m.node.id)).toEqual([archived]);
   });
 });
 
@@ -548,6 +571,33 @@ describe('per-criterion discovery', () => {
     }
   });
 
+  test('collectMissionStatusFacts: an archived ready leaf under a live epic does not count toward hasBuildingLeaf/hasOpenEpic', async () => {
+    const m = await makeMissionNode('[MISSION] archive-facts');
+    upsertMission(project, m);
+    const crit = addCriterion(project, m, 'does the thing');
+    const e = await makeEpicChild(m, '[EPIC] build A');
+    await updateTodo(project, e, { servesCriterionId: crit.id });
+    await updateTodo(project, e, { status: 'ready' }); // release the epic so its child can be claimable
+    const leaf = await createTodo(project, { ownerSession: 's1', title: 'leaf under A', kind: 'leaf', parentId: e });
+    await updateTodo(project, leaf.id, { status: 'ready' });
+
+    // Before archiving: the ready leaf under a live epic makes the mission read as building.
+    const before = collectMissionStatusFacts(project, getMission(project, m)!);
+    expect(before.hasBuildingLeaf).toBe(true);
+    expect(before.hasOpenEpic).toBe(true);
+
+    // Archive the leaf directly (no setter exists yet) — it must vanish from the facts scan.
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    db.exec(`UPDATE todos SET archivedAt = ${Date.now()} WHERE id = '${leaf.id}'`);
+    db.close();
+    _closeProject(project);
+
+    const after = collectMissionStatusFacts(project, getMission(project, m)!);
+    expect(after.hasBuildingLeaf).toBe(false);
+    // The epic itself is unarchived, so it's still open — only the archived leaf is invisible.
+    expect(after.hasOpenEpic).toBe(true);
+  });
+
   test('met-but-unverified landed criterion still owes verify (verification-as-event)', () => {
     expect(deriveCriterionAction(crit({ met: true, servingEpicState: 'landed' }))).toBe('verify');
   });
@@ -613,7 +663,7 @@ describe('mission handoffDocId (constitution link)', () => {
 // retired by the land-property cutover (mission 48e1a624): landedAt is the durable
 // landed signal and land leaves are no longer minted, so its test is gone. The
 // caller-supplied duplicate-land-leaf guard (DuplicateLandLeafError) survives below.
-import { updateTodo, DuplicateLandLeafError } from '../todo-store';
+import { DuplicateLandLeafError } from '../todo-store';
 
 describe('multi-criterion epic edges', () => {
   test('one epic serving 3 criteria via servesCriterionIds makes all 3 derive building/verify', async () => {
