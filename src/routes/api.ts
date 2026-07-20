@@ -3056,6 +3056,19 @@ export async function handleAPI(
     return Response.json({ rows: queryLedger(q) });
   }
 
+  // GET /api/usage/burn?project=&windowMs=
+  // The token-leak GAUGE: per-source LLM-call burn (calls + tokens + est USD) over a rolling window,
+  // grouped by the pass that spent it (conductor/summary/triage/forge/planner/digest/leaf/…). This is
+  // the surface that makes an invisible daemon leak visible. Omit project for the fleet-wide view.
+  if (path === '/api/usage/burn' && req.method === 'GET') {
+    const { getBurnBySource } = await import('../services/spend-ledger');
+    const project = url.searchParams.get('project') ?? undefined;
+    const windowRaw = url.searchParams.get('windowMs');
+    const windowMs = windowRaw ? Math.max(60_000, Number(windowRaw) || 0) : 60 * 60_000;
+    const rows = getBurnBySource({ project, sinceMs: Date.now() - windowMs });
+    return Response.json({ windowMs, project: project ?? null, sources: rows });
+  }
+
   // GET /api/worker-lanes?project=
   // Worker-fabric hydration (design-worker-fabric-ui §6.5): the live in-process worker
   // lanes for a project — one entry per in-progress todo with a lane, carrying the lane

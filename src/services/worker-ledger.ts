@@ -863,6 +863,45 @@ export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
   return (d.query(sql).all(...(params as never[])) as LedgerRow[]).map(rowToEntry);
 }
 
+/** One source's aggregated spend over a window — the burn gauge's row shape. Uncapped SQL
+ *  GROUP BY (unlike `summarize`, which is limited to the newest 2000 rows), so a busy window is
+ *  counted accurately. `source` is the pass/caller tag ('conductor' | 'summary' | 'triage' | … ). */
+export interface SourceBurnRow {
+  source: string;
+  /** Number of ledgered LLM calls from this source in the window (the plan-independent signal —
+   *  always meaningful even on the Max plan where costUsd is 0). */
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** Σ recorded costUsd. On the subscription plan this is ~0 (the CLI omits total_cost_usd) — the
+   *  burn gauge estimates a USD figure from tokens × price table on top of this. */
+  costUsd: number;
+}
+
+/** Aggregate spend GROUPED BY source over an optional project + time window. Uncapped. The single
+ *  read behind the burn gauge and the leak alarm. */
+export function burnBySource(q: { project?: string; since?: number } = {}): SourceBurnRow[] {
+  const d = openDb();
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (q.project) { where.push('project = ?'); params.push(q.project); }
+  if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
+  const sql =
+    `SELECT source,
+            COUNT(*) AS calls,
+            COALESCE(SUM(inputTokens),0) AS inputTokens,
+            COALESCE(SUM(outputTokens),0) AS outputTokens,
+            COALESCE(SUM(cacheReadTokens),0) AS cacheReadTokens,
+            COALESCE(SUM(cacheCreationTokens),0) AS cacheCreationTokens,
+            COALESCE(SUM(costUsd),0) AS costUsd
+       FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''}
+      GROUP BY source
+      ORDER BY calls DESC`;
+  return d.query(sql).all(...(params as never[])) as SourceBurnRow[];
+}
+
 export interface LedgerSummary {
   rows: number;
   totalUsd: number;

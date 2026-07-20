@@ -1823,7 +1823,10 @@ export async function runLeaf(
     // (above) so nodeKind stays fresh, but the row must SPAN the whole run — including
     // the between-nodes window — so the daemon's orphan-reclaim guard (isLeafInflightLive)
     // never reclaims a live leaf mid-run. The single clear lives in finishWith.
-    const res: NodeResult = await invoker.invoke(effSpec);
+    // Opt OUT of the invoke boundary's default-on spend capture: the leaf executor records its node
+    // spend richly itself (deps.recordNode below, with per-leaf/epic keying). Without this the boundary
+    // would write a SECOND, coarser row per node and double-count leaf burn in the gauge.
+    const res: NodeResult = await invoker.invoke({ ...effSpec, skipAutoLedger: true });
     // Cooperative abort — after the spawn returns. A `killLeafSubtree` SIGTERM (E1)
     // makes the node return non-zero; without this check the revise/WAVES loop reads
     // that as a plain node failure and spawns the NEXT node instead of stopping.

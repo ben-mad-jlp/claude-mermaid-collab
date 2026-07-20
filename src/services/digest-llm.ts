@@ -10,6 +10,7 @@
 import type { DigestLlm, DigestSynthesis } from './project-digest.ts';
 import { resolveTriageRoute } from './config-service.ts';
 import { makeJudgmentLLM } from './judgment-llm.ts';
+import { recordSpend } from './spend-ledger.ts';
 
 export const DIGEST_SYSTEM_PROMPT = `You are writing terse ORIENTATION HINTS for a code project.
 
@@ -64,6 +65,13 @@ export function makeDigestLlm(
 ): DigestLlm {
   const call =
     callLLM ??
-    ((system, user) => makeJudgmentLLM(resolveTriageRoute({ project })).complete(system, user));
+    ((system, user) => {
+      const route = resolveTriageRoute({ project });
+      return makeJudgmentLLM({
+        ...route,
+        // Track the project-digest LLM call's spend (source 'digest').
+        onUsage: (u) => recordSpend({ project, source: 'digest', provider: route.provider, model: route.model, usage: u }),
+      }).complete(system, user);
+    });
   return async (input) => parseDigestSynthesis(await call(DIGEST_SYSTEM_PROMPT, buildDigestUserPrompt(input)));
 }

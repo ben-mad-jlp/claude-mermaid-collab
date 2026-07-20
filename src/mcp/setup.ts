@@ -109,6 +109,7 @@ import { runtimeConfig } from '../services/runtime-config.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig, getSecret } from '../services/config-service.js';
 import { consultCodex } from '../services/consult-openai.js';
+import { recordSpend } from '../services/spend-ledger.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression, resolveEpicId } from '../services/coordinator-live.js';
 import { checkOwnership, landedByTrailer, type LandActor } from '../services/land-authority.js';
@@ -1577,6 +1578,19 @@ export async function setupMCPServer(): Promise<Server> {
             const data = await response.json() as any;
             const reply = data.choices?.[0]?.message?.content ?? '';
 
+            // Track this LLM call's spend (source 'consult-grok') like every other call.
+            recordSpend({
+              project: (args as any).project ?? 'consult',
+              source: 'consult-grok',
+              provider: 'grok',
+              model,
+              usage: {
+                inputTokens: data.usage?.prompt_tokens ?? 0,
+                outputTokens: data.usage?.completion_tokens ?? 0,
+                cacheReadTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+              },
+            });
+
             return JSON.stringify({
               model,
               response: reply,
@@ -1587,6 +1601,18 @@ export async function setupMCPServer(): Promise<Server> {
           case 'consult_codex': {
             const { prompt, system, model } = args as { prompt: string; system?: string; model?: string };
             const result = await consultCodex({ prompt, system, model });
+            // Track this LLM call's spend (source 'consult-codex').
+            recordSpend({
+              project: (args as any).project ?? 'consult',
+              source: 'consult-codex',
+              provider: 'openai',
+              model: result.model ?? model ?? '',
+              usage: {
+                inputTokens: (result.usage?.prompt_tokens as number) ?? 0,
+                outputTokens: (result.usage?.completion_tokens as number) ?? 0,
+                costUsd: (result.usage?.costUsd as number) ?? undefined,
+              },
+            });
             return JSON.stringify(result, null, 2);
           }
 

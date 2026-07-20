@@ -21,6 +21,15 @@ export interface JudgmentLLM {
 
 export type JudgmentProvider = 'xai' | 'openai' | 'anthropic' | 'claude';
 
+/** Token usage surfaced from a judgment call (side-channel — `complete` still returns just the
+ *  string). Fed to the spend ledger so triage/digest LLM burn is tracked like every other call. */
+export interface JudgmentUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}
+
 export interface JudgmentConfig {
   provider: JudgmentProvider;
   model: string;
@@ -29,6 +38,37 @@ export interface JudgmentConfig {
   /** TRUSTED cwd for the 'claude' (subscription) provider's `claude -p` spawn. Defaults to
    *  process.cwd(); set to the project being triaged so the CLI trusts the folder. */
   cwd?: string;
+  /** Best-effort usage sink — called once per successful `complete` with the call's token usage so
+   *  the caller can ledger it (spend-ledger). Never throws into the completion. */
+  onUsage?: (u: JudgmentUsage) => void;
+}
+
+/** Extract usage from an OpenAI-style chat/completions response. */
+function openAiStyleUsage(data: any): JudgmentUsage {
+  const u = data?.usage ?? {};
+  const cached = (u.prompt_tokens_details?.cached_tokens ?? 0) as number;
+  return {
+    inputTokens: (u.prompt_tokens ?? 0) as number,
+    outputTokens: (u.completion_tokens ?? 0) as number,
+    cacheReadTokens: cached,
+  };
+}
+
+/** Extract usage from an Anthropic /v1/messages response. */
+function anthropicUsage(data: any): JudgmentUsage {
+  const u = data?.usage ?? {};
+  return {
+    inputTokens: (u.input_tokens ?? 0) as number,
+    outputTokens: (u.output_tokens ?? 0) as number,
+    cacheReadTokens: (u.cache_read_input_tokens ?? 0) as number,
+    cacheCreationTokens: (u.cache_creation_input_tokens ?? 0) as number,
+  };
+}
+
+/** Fire an onUsage sink without ever letting it break the completion. */
+function emitUsage(onUsage: ((u: JudgmentUsage) => void) | undefined, u: JudgmentUsage): void {
+  if (!onUsage) return;
+  try { onUsage(u); } catch { /* usage sink is best-effort */ }
 }
 
 const OPENAI_STYLE_BASE: Record<'xai' | 'openai', string> = {
@@ -45,7 +85,7 @@ const JUDGMENT_TIMEOUT_MS = 120_000;
 const JUDGMENT_KILL_GRACE_MS = 3_000;
 
 /** xAI / OpenAI: identical OpenAI-style chat/completions request + parse. */
-function makeOpenAIStyle(base: string, model: string, apiKey: string, label: string): JudgmentLLM {
+function makeOpenAIStyle(base: string, model: string, apiKey: string, label: string, onUsage?: (u: JudgmentUsage) => void): JudgmentLLM {
   return {
     async complete(system: string, user: string): Promise<string> {
       if (!apiKey) throw new Error(`${label} API key is not set`);
@@ -63,13 +103,14 @@ function makeOpenAIStyle(base: string, model: string, apiKey: string, label: str
       });
       if (!res.ok) throw new Error(`${label} API error ${res.status}`);
       const data = (await res.json()) as any;
+      emitUsage(onUsage, openAiStyleUsage(data));
       return data.choices?.[0]?.message?.content ?? '';
     },
   };
 }
 
 /** Anthropic: POST /v1/messages with x-api-key + anthropic-version header. */
-function makeAnthropic(model: string, apiKey: string): JudgmentLLM {
+function makeAnthropic(model: string, apiKey: string, onUsage?: (u: JudgmentUsage) => void): JudgmentLLM {
   return {
     async complete(system: string, user: string): Promise<string> {
       if (!apiKey) throw new Error('Anthropic API key is not set');
@@ -90,6 +131,7 @@ function makeAnthropic(model: string, apiKey: string): JudgmentLLM {
       });
       if (!res.ok) throw new Error(`Anthropic API error ${res.status}`);
       const data = (await res.json()) as any;
+      emitUsage(onUsage, anthropicUsage(data));
       // Anthropic returns content as an array of blocks; concat the text blocks.
       const content = data.content;
       if (Array.isArray(content)) {
@@ -106,7 +148,7 @@ function makeAnthropic(model: string, apiKey: string): JudgmentLLM {
  * --append-system-prompt, the user prompt on stdin; parse the stream-json result text.
  * `cwd` must be a TRUSTED folder (else the CLI's trust prompt swallows the run).
  */
-function makeClaudeSubscription(model: string | undefined, cwd: string): JudgmentLLM {
+function makeClaudeSubscription(model: string | undefined, cwd: string, onUsage?: (u: JudgmentUsage) => void): JudgmentLLM {
   return {
     async complete(system: string, user: string): Promise<string> {
       const argv = buildNodeArgv({
@@ -143,6 +185,12 @@ function makeClaudeSubscription(model: string | undefined, cwd: string): Judgmen
       if (hardTimer) clearTimeout(hardTimer);
       const parsed = parseNodeJson(out);
       if (parsed.parseError) throw new Error(`claude -p judgment failed: ${parsed.parseError}`);
+      emitUsage(onUsage, {
+        inputTokens: parsed.usage?.inputTokens,
+        outputTokens: parsed.usage?.outputTokens,
+        cacheReadTokens: parsed.usage?.cacheReadTokens,
+        cacheCreationTokens: parsed.usage?.cacheCreationTokens,
+      });
       return parsed.text ?? '';
     },
   };
@@ -152,13 +200,13 @@ function makeClaudeSubscription(model: string | undefined, cwd: string): Judgmen
 export function makeJudgmentLLM(cfg: JudgmentConfig): JudgmentLLM {
   switch (cfg.provider) {
     case 'xai':
-      return makeOpenAIStyle(OPENAI_STYLE_BASE.xai, cfg.model, cfg.apiKey, 'xAI');
+      return makeOpenAIStyle(OPENAI_STYLE_BASE.xai, cfg.model, cfg.apiKey, 'xAI', cfg.onUsage);
     case 'openai':
-      return makeOpenAIStyle(OPENAI_STYLE_BASE.openai, cfg.model, cfg.apiKey, 'OpenAI');
+      return makeOpenAIStyle(OPENAI_STYLE_BASE.openai, cfg.model, cfg.apiKey, 'OpenAI', cfg.onUsage);
     case 'anthropic':
-      return makeAnthropic(cfg.model, cfg.apiKey);
+      return makeAnthropic(cfg.model, cfg.apiKey, cfg.onUsage);
     case 'claude':
-      return makeClaudeSubscription(cfg.model, cfg.cwd ?? process.cwd());
+      return makeClaudeSubscription(cfg.model, cfg.cwd ?? process.cwd(), cfg.onUsage);
     default: {
       const _exhaustive: never = cfg.provider;
       throw new Error(`Unknown judgment provider: ${String(_exhaustive)}`);

@@ -29,6 +29,7 @@ import { listSupervisorAudit } from './supervisor-store.ts';
 import { getEpicBranchStatus } from './epic-branch-status.ts';
 import { resolveTriageRoute } from './config-service.ts';
 import { makeJudgmentLLM } from './judgment-llm.ts';
+import { recordSpend } from './spend-ledger.ts';
 import { execFileSync } from 'node:child_process';
 
 const BUCKETS: TriageBucket[] = ['stale', 'verified-done', 'now-buildable', 'genuine-decision', 'needs-design'];
@@ -190,7 +191,13 @@ function realCommitsBehindMaster(project: string): number {
  * The `deps.callGrok` injection seam stays intact so tests still inject a fake.
  */
 function defaultClassify(project: string, system: string, prompt: string): Promise<string> {
-  return makeJudgmentLLM(resolveTriageRoute({ project })).complete(system, prompt);
+  const route = resolveTriageRoute({ project });
+  return makeJudgmentLLM({
+    ...route,
+    // Track this triage LLM call's token spend (source 'triage') — otherwise the daemon's classifier
+    // burn is invisible to the burn gauge, exactly the leak class this tracker exists to catch.
+    onUsage: (u) => recordSpend({ project, source: 'triage', provider: route.provider, model: route.model, usage: u }),
+  }).complete(system, prompt);
 }
 
 // ---------------------------------------------------------------------------

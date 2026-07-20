@@ -54,6 +54,7 @@ function inputs(overrides: Partial<SystemStatusInputs> = {}): SystemStatusInputs
       currentPhase: null,
       tickRunningMs: null,
       projects: [{ project: '/p', level: 'build' }],
+      burn: [],
     },
     poolOccupancy: 2,
     coldStartsInFlight: 0,
@@ -152,7 +153,7 @@ describe('summarizeSystemStatus', () => {
 
   test("level falls back to 'build' when the project has no explicit level row", () => {
     const s = summarizeSystemStatus(
-      inputs({ orchestratorHealth: { running: false, tickMs: 5000, lastTickAt: null, currentPhase: null, tickRunningMs: null, projects: [] } }),
+      inputs({ orchestratorHealth: { running: false, tickMs: 5000, lastTickAt: null, currentPhase: null, tickRunningMs: null, projects: [], burn: [] } }),
     );
     expect(s.orchestrator.running).toBe(false);
     expect(s.orchestrator.level).toBe('build');

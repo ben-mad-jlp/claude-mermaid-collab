@@ -22,6 +22,7 @@ import { resolveGrokModel } from './grok-model.js';
 import { SETTING_SOURCES_ARGS } from './contracts.js';
 import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
 import { parseNodeCommands } from '../services/node-commands.js';
+import { recordSpend } from '../services/spend-ledger.js';
 
 export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
 
@@ -135,6 +136,18 @@ export interface NodeSpec {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Grok-only: `--max-turns` cap (set by leaf-executor per node kind in PR-2). */
   maxTurns?: number;
+  // --- Spend accounting (default-on capture; see spend-ledger.ts) ---------------------------------
+  /** Source tag for the auto-recorded spend row ('conductor' | 'summary' | 'forge' | …). Defaults to
+   *  `transcriptLabel`, then 'node'. Set it so the burn gauge attributes this call to the right pass. */
+  ledgerSource?: string;
+  /** Correlation id for the spend row (missionId/session/…). Defaults to the source tag. */
+  ledgerTodoId?: string;
+  /** Session label for the spend row. Defaults to 'daemon'. */
+  ledgerSession?: string;
+  /** Opt OUT of the boundary's auto-recording. Set by the leaf executor, which records its node
+   *  spend richly itself (per-leaf/epic keying) — leaving this false would double-count. Every other
+   *  caller leaves it unset so its spend is captured by default. */
+  skipAutoLedger?: boolean;
 }
 
 export interface NodeUsage {
@@ -510,7 +523,34 @@ function extractResultObject(stdout: string): ClaudeJsonResult | null {
  *  6. Heuristic rate-limit detection (RATE_LIMIT_RE).
  *  7. Stamp authMode, return NodeResult.
  */
+/**
+ * Public entrypoint: run a claude `-p` node AND record its token spend to the unified ledger
+ * (default-on, unless `spec.skipAutoLedger`). All of `invokeNodeInner`'s return points funnel through
+ * here, so timeouts/failures/rate-limits are counted too (a killed node with 0 usage still records a
+ * CALL — that is how an idle-system leak stays visible). Recording is best-effort inside recordSpend.
+ */
 export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
+  const result = await invokeNodeInner(spec);
+  if (!spec.skipAutoLedger) {
+    recordSpend({
+      project: spec.project ?? spec.cwd,
+      source: spec.ledgerSource ?? spec.transcriptLabel ?? 'node',
+      nodeKind: spec.transcriptLabel ?? spec.ledgerSource ?? 'node',
+      provider: 'claude',
+      model: spec.model,
+      session: spec.ledgerSession,
+      todoId: spec.ledgerTodoId,
+      epicId: spec.epicId ?? null,
+      usage: result.usage,
+      durationMs: result.durationMs,
+      rateLimited: result.rateLimited,
+      ok: result.ok,
+    });
+  }
+  return result;
+}
+
+async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
   // WALL-CLOCK start (Date.now), NOT performance.now: the monotonic clock PAUSES while
   // the process is suspended (macOS App Nap / sleep), so a node that the OS napped for
   // 16 min then the wall-clock timeout killed reported durationMs≈47s — wildly under the
@@ -1070,7 +1110,29 @@ function grokParseError(msg: string): string {
 /**
  * Run ONE bounded headless `grok --prompt-file` node. Mirrors invokeNode structure.
  */
+/** Public entrypoint for a grok node — same default-on spend capture as {@link invokeNode}. */
 export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
+  const result = await invokeGrokNodeInner(spec);
+  if (!spec.skipAutoLedger) {
+    recordSpend({
+      project: spec.project ?? spec.cwd,
+      source: spec.ledgerSource ?? spec.transcriptLabel ?? 'grok-node',
+      nodeKind: spec.transcriptLabel ?? spec.ledgerSource ?? 'grok-node',
+      provider: 'grok',
+      model: spec.model,
+      session: spec.ledgerSession,
+      todoId: spec.ledgerTodoId,
+      epicId: spec.epicId ?? null,
+      usage: result.usage,
+      durationMs: result.durationMs,
+      rateLimited: result.rateLimited,
+      ok: result.ok,
+    });
+  }
+  return result;
+}
+
+async function invokeGrokNodeInner(spec: NodeSpec): Promise<NodeResult> {
   if ((spec.allowedTools ?? '').includes('mcp__')) {
     throw new Error(`invokeGrokNode: refused — allowedTools grants an mcp__ tool ('${spec.allowedTools}') but the grok CLI lane cannot carry an MCP config.`);
   }

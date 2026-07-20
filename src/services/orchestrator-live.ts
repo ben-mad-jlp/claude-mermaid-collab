@@ -37,6 +37,8 @@ import { registerOrchestratorKick } from './orchestrator-kick.js';
 import { yieldToLoop } from './loop-yield.js';
 import { runArchivalSweep, shouldRunArchivalSweep } from './archival-sweep.js';
 import { runLandedEpicSweep, shouldRunLandedEpicSweep } from './landed-epic-sweep.js';
+import { runBurnWatchPass, shouldRunBurnWatchPass } from './burn-watch.js';
+import { getBurnBySource } from './spend-ledger.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -343,6 +345,13 @@ export interface TickDeps {
    *  WATCHED project regardless of level (planned filing is non-claimable — the
    *  "suggest"; a human promotes to ready). Default: runFrictionTriagePass. */
   frictionTriage?: (project: string) => Promise<unknown>;
+  /** Token-leak alarm: read the burn gauge and raise a deduped escalation when a non-build LLM
+   *  source exceeds its call ceiling with no accepted work. Runs for every WATCHED project regardless
+   *  of level (observability isn't gated on building). Default: runBurnWatchPass. */
+  burnWatch?: (project: string) => Promise<unknown>;
+  /** Throttle gate for burn-watch (at most once per BURN_WATCH_INTERVAL_MS/project).
+   *  Default: shouldRunBurnWatchPass. */
+  shouldRunBurnWatch?: (project: string) => boolean;
   /** Mission A: DETERMINISTIC friction→forge intake. Escalates an over-threshold domain/orchestration
    *  friction cluster into an UNAPPROVED forged mission (one/tick). Self-gates on the per-project
    *  intake toggle (default OFF); runs for WATCHED projects. Default: runMissionIntakePass. */
@@ -398,6 +407,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
   const shouldRunFrictionWatch = deps.shouldRunFrictionWatch ?? shouldRunFrictionWatchPass;
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
+  const burnWatch = deps.burnWatch ?? runBurnWatchPass;
+  const shouldRunBurnWatch = deps.shouldRunBurnWatch ?? shouldRunBurnWatchPass;
   const missionIntake = deps.missionIntake ?? runMissionIntakePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? runMissionLoopPass;
@@ -495,6 +506,19 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(frictionTriage(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-triage`);
       } catch (err) {
         console.warn(`[orchestrator] friction-triage failed for ${project}:`, err);
+      }
+    }
+
+    // Token-leak alarm (burn-watch): read the per-source burn gauge over the last hour and raise a
+    // deduped escalation for any non-build LLM source exceeding its call ceiling with no accepted
+    // work — catches a daemon pass re-spinning on an idle system. Runs for every WATCHED project;
+    // cheap (one SQLite GROUP BY + an optional escalation), throttled off the every-tick beat.
+    if (watched.has(project) && shouldRunBurnWatch(project)) {
+      try {
+        currentPhase = `${project}:burn-watch`;
+        await withPassTimeout(burnWatch(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:burn-watch`);
+      } catch (err) {
+        console.warn(`[orchestrator] burn-watch failed for ${project}:`, err);
       }
     }
 
@@ -723,12 +747,27 @@ export function getOrchestratorHealth(): {
    *  non-null currentPhase = that pass is wedged — points straight at the culprit. */
   tickRunningMs: number | null;
   projects: Array<{ project: string; level: string }>;
+  /** Per-source LLM-call burn over the last hour (the leak gauge). Empty on any read failure. */
+  burn: Array<{ source: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number }>;
 } {
   // Synchronous snapshot of the projects with an explicitly-set level (SQLite is
   // cheap + sync). Projects on the 'build' default with no row aren't listed.
   let projects: Array<{ project: string; level: string }> = [];
   try {
     projects = listOrchestratorProjects();
+  } catch {
+    // ignore — health stays best-effort
+  }
+  // Fleet-wide LLM burn over the last hour, grouped by source — the leak gauge, right on /health.
+  let burn: Array<{ source: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number }> = [];
+  try {
+    burn = getBurnBySource({ sinceMs: Date.now() - 60 * 60_000 }).map((r) => ({
+      source: r.source,
+      calls: r.calls,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      costUsd: r.estCostUsd,
+    }));
   } catch {
     // ignore — health stays best-effort
   }
@@ -739,5 +778,6 @@ export function getOrchestratorHealth(): {
     currentPhase,
     tickRunningMs: tickStartedAt != null ? Date.now() - tickStartedAt : null,
     projects,
+    burn,
   };
 }
