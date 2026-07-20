@@ -53,7 +53,7 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
-import { parseDiffContract } from './diff-contract';
+import { parseDiffContract, validateContractForKind } from './diff-contract';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
@@ -2533,7 +2533,44 @@ export async function runLeaf(
     // reattach/in-run-carry results (those have durationMs === 0). Also seeds specJson
     // (the editable DiffContract) parsed from the just-derived blueprintBody.
     if (!reattach && !inRunCarry) {
-      const seededContract = parseDiffContract(blueprintBody);
+      let seededContract = parseDiffContract(blueprintBody);
+
+      // crit 8 — BOUNDED contract-underspecification repair (exactly once, fail-safe).
+      // When the fresh contract omits a §4-required requirement kind for its leafKind,
+      // re-prompt the blueprint node ONCE with the missing kind named. Adopt the repaired
+      // contract only if the single retry produced a valid, no-longer-underspecified one;
+      // otherwise DEGRADE to the v1 prose path (keep the blueprint we already have). Mirrors
+      // the citability repair (2587-2647): same runNode guards, same re-read/rebind mechanics.
+      if (!smallTier && seededContract) {
+        const check = validateContractForKind(seededContract, seededContract.leafKind);
+        if (check.underspecified) {
+          const repairSpec = {
+            ...buildSpec('blueprint', cwd),
+            prompt: buildBlueprintRepairPrompt(leaf, blueprintBody, check.missingField),
+          };
+          const repair = await runNode('blueprint', repairSpec);
+          if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
+          if (repair.rateLimited) return pausedResult('blueprint', repair);
+          if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+          if (repair.ok) {
+            // Re-read/re-parse the reply ONCE, re-validate ONCE. Never re-prompt again.
+            const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
+            const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';
+            const reContract = parseDiffContract(reBody);
+            if (reContract && !validateContractForKind(reContract, reContract.leafKind).underspecified) {
+              // Repaired + valid ⇒ adopt. Rebinding these lets flows the repaired blueprint
+              // into the per-attempt persistBlueprint (2555) and in-run carry (2549) below.
+              const reManifest = parseSizeManifest(reText, repair.text);
+              if (reText && reText.trim()) manifestText = reText;
+              if (reManifest) manifest = reManifest;
+              blueprintBody = reBody;
+              seededContract = reContract;
+            }
+            // else: null OR still underspecified ⇒ DEGRADE to v1 — keep the first blueprint.
+          }
+        }
+      }
+
       deps.persistBlueprintBase?.({
         project,
         leafId: leaf.id,
