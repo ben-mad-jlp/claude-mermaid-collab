@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
-  parseDiffContract, renderContract, DIFF_LEAF_KINDS,
+  parseDiffContract, renderContract, DIFF_LEAF_KINDS, validateContractForKind,
   type DiffContract,
 } from '../diff-contract';
 
@@ -89,5 +89,44 @@ describe('parseDiffContract / renderContract round-trip', () => {
 
   it('DIFF_LEAF_KINDS lists all 5 members', () => {
     expect([...DIFF_LEAF_KINDS].sort()).toEqual(['feature', 'fix', 'infra', 'refactor', 'test']);
+  });
+});
+
+describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
+  const base: DiffContract = {
+    schemaVersion: 2, estimatedFiles: 1, estimatedTasks: 1, nonEnumerableFanout: false,
+    filesToCreate: [], filesToEdit: [], tasks: [], leafKind: 'feature', requirements: [], outOfScope: [],
+  };
+
+  it('reports missingField for a required cell with zero requirements of that kind', () => {
+    const result = validateContractForKind(base, 'feature');
+    expect(result).toEqual({ underspecified: true, missingField: 'symbol-present' });
+  });
+
+  it('passes when every required cell for the leafKind has at least one requirement', () => {
+    const ok: DiffContract = {
+      ...base,
+      requirements: [
+        { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' },
+        { kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },
+      ],
+    };
+    expect(validateContractForKind(ok, 'feature')).toEqual({ underspecified: false });
+  });
+
+  it('refactor only requires symbol-present, not named-test', () => {
+    const refactor: DiffContract = {
+      ...base, leafKind: 'refactor',
+      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],
+    };
+    expect(validateContractForKind(refactor, 'refactor')).toEqual({ underspecified: false });
+  });
+
+  it('test leafKind only requires named-test, not symbol-present', () => {
+    const testKind: DiffContract = {
+      ...base, leafKind: 'test',
+      requirements: [{ kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
+    };
+    expect(validateContractForKind(testKind, 'test')).toEqual({ underspecified: false });
   });
 });
