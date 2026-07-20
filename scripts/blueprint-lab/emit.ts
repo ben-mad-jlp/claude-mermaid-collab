@@ -3,7 +3,10 @@
  * blueprint-node prompt (extended to require a v2 DiffContract json fence instead of the
  * v1 size-manifest fence), spawns the REAL `claude -p` node via buildNodeArgv at the model/
  * effort the daemon actually runs (NOT the opus/high NODE_PROFILE.blueprint default),
- * parses the reply with parseDiffContract, and returns a contract-or-null result per case.
+ * parses the reply with parseDiffContract, applies exactly one bounded contract-repair pass
+ * (when a parsed contract is non-null but underspecified per validateContractForKind, the node
+ * is re-spawned once via buildBlueprintRepairPrompt and the repaired contract adopted iff it
+ * re-parses; else the original is kept), and returns a contract-or-null result per case.
  *
  * This is a lab-harness measurement script — it does not wire into the daemon pipeline,
  * does not modify diff-contract.ts / leaf-executor.ts / node-invoker.ts / corpus.ts, and
