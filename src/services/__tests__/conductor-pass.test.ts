@@ -8,7 +8,7 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker } from '../conductor-pass';
+import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
@@ -82,6 +82,27 @@ describe('runConductorPass — scheduling', () => {
     expect(r2.ran).toBe(false);
     expect(r2.reason).toBe('debounced');
     expect(invokeCalls).toBe(1); // still 1 — no second node
+  });
+
+  test('a FAILED serve retries up to the cap, then stops — never a permanent wedge, never infinite thrash', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    let failCalls = 0;
+    const failInvoke = async () => { failCalls++; return { ok: false, rateLimited: false, text: '' } as any; };
+    // Each tick on the SAME unservable state: retries CONDUCTOR_SERVE_RETRY_CAP (3) times (node-failed),
+    // then debounces (no more node spawned). The OLD bug stamped the plain fp on the FIRST failure and
+    // debounced forever (0 epics, permanent wedge). The fix bounds the retry instead.
+    for (let i = 0; i < CONDUCTOR_SERVE_RETRY_CAP; i++) {
+      const r = await runConductorPass(project, { invoke: failInvoke });
+      expect(r.ran).toBe(true);
+      expect(r.reason).toBe('node-failed');
+    }
+    expect(failCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // retried, did not wedge on the first failure
+    const capped = await runConductorPass(project, { invoke: failInvoke });
+    expect(capped.ran).toBe(false);
+    expect(capped.reason).toBe('debounced'); // stopped — no infinite thrash
+    expect(failCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // no further node spawned past the cap
   });
 
   test('a build-green mission (criterion building) STILL runs when an epic-ready-to-land card is open (to land it)', async () => {

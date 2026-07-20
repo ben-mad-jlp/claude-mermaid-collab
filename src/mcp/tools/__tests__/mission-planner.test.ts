@@ -6,7 +6,7 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'mission-planner-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt } from '../mission-planner';
+import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
 import { listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
 import { getTodo, listTodos, deriveTodoViews, _closeProject as closeTodos } from '../../../services/todo-store';
@@ -68,7 +68,35 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
       planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, {
         invoke: async () => ({ ok: true, rateLimited: false, text: 'I could not plan it' } as any),
       }),
-    ).rejects.toThrow(/no parseable epic-spec JSON/i);
+    ).rejects.toThrow(/no (parseable epic-spec JSON|complete JSON object)/i);
+  });
+
+  test('parseEpicSpec: a `}` inside a string value does NOT truncate (the Unterminated-string bug)', async () => {
+    // A leaf description containing a literal `}` used to break the naive lastIndexOf('}') slice.
+    const spec = { title: 'T', leaves: [{ title: 'L', description: 'call foo() { return x } here' }] };
+    const parsed = parseEpicSpec('```json\n' + JSON.stringify(spec) + '\n```');
+    expect(parsed.title).toBe('T');
+    expect(parsed.leaves[0].description).toContain('{ return x }');
+  });
+
+  test('extractBalancedJsonObject: returns null on a truncated/unbalanced emission', () => {
+    expect(extractBalancedJsonObject('{"a":"has } a brace","b":1}')).toBe('{"a":"has } a brace","b":1}');
+    expect(extractBalancedJsonObject('{"title":"T","leaves":[{"title":"unclosed')).toBeNull();
+    expect(extractBalancedJsonObject('no json here')).toBeNull();
+  });
+
+  test('planner unparseable on attempt 1 → repair-retry succeeds on attempt 2 (no serve failure)', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    let n = 0;
+    const invoke = async () => {
+      n++;
+      return n === 1
+        ? { ok: true, rateLimited: false, text: 'here is the plan: {"title":"T","leaves":[{"title":"unclosed' } as any
+        : { ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(EPIC_SPEC) + '\n```' } as any;
+    };
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke });
+    expect(n).toBe(2); // retried exactly once
+    expect(r.leafIds).toHaveLength(2); // recovered — the serve did NOT fail
   });
 
   test('unknown criterionIds throw before spawning', async () => {

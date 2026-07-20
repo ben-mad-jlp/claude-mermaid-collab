@@ -62,18 +62,40 @@ export function buildPlannerPrompt(project: string, missionId: string, criteria:
   ].join('\n');
 }
 
+/** Extract the first brace-BALANCED JSON object from a blob, tracking string literals +
+ *  escapes so a `}` inside a string value never truncates the slice. The old naive
+ *  `lastIndexOf('}')` cut at a `}` embedded in a description string, leaving an unterminated
+ *  string — the deterministic `JSON Parse error: Unterminated string` the planner tripped on.
+ *  Returns null when no balanced object closes (a truncated / cut-off emission), so the caller
+ *  can distinguish "malformed" from "truncated" and retry. */
+export function extractBalancedJsonObject(s: string): string | null {
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') { if (--depth === 0) return s.slice(start, i + 1); }
+  }
+  return null; // never balanced ⇒ truncated / unterminated
+}
+
 /** Extract + validate the epic spec from the planner node's final text. */
 export function parseEpicSpec(text: string): EpicSpec {
   const t = (text ?? '').trim();
   const fenced = t.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
-  let jsonStr = fenced && fenced[1].includes('{') ? fenced[1] : t;
-  if (!fenced) {
-    const first = jsonStr.indexOf('{');
-    const last = jsonStr.lastIndexOf('}');
-    if (first >= 0 && last > first) jsonStr = jsonStr.slice(first, last + 1);
+  const source = fenced && fenced[1].includes('{') ? fenced[1] : t;
+  const jsonStr = extractBalancedJsonObject(source);
+  if (jsonStr == null) {
+    throw new Error('planner node emitted no complete JSON object (truncated or unbalanced)');
   }
   let raw: any;
-  try { raw = JSON.parse(jsonStr.trim()); } catch (e) {
+  try { raw = JSON.parse(jsonStr); } catch (e) {
     throw new Error(`planner node emitted no parseable epic-spec JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) throw new Error('planner epic-spec is missing a title');
@@ -136,22 +158,40 @@ export async function planMissionCriterion(
   const model = input.model ?? resolveNodeModel(project, 'planner', provider, ORCHESTRATION_NODE_PROFILE.planner.model);
   const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'planner');
 
-  const res = await (deps.invoke ?? invokeNode)({
-    prompt: buildPlannerPrompt(project, input.missionId, criteria),
-    model,
-    effort,
-    allowedTools: ORCHESTRATION_NODE_PROFILE.planner.allowedTools,
-    mcpConfig: mcpConfigFor(config.PORT),
-    strictMcpConfig: true,
-    cwd: project,
-    project,
-    permissionMode: 'bypassPermissions',
-    transcriptLabel: 'planner',
-  });
-  if (!res.ok || !res.text || !res.text.trim()) {
-    throw new Error(`plan_mission_criterion: the planner node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
+  // Invoke the planner with ONE repair retry: a truncated/malformed final-reply JSON must not
+  // fail the whole serve (that failure is what wedges the conductor — see conductor-pass.ts). On a
+  // parse failure, re-ask ONCE for compact, escaped, prose-free JSON with terser leaf descriptions.
+  const basePrompt = buildPlannerPrompt(project, input.missionId, criteria);
+  const REPAIR_SUFFIX =
+    '\n\nIMPORTANT: your FINAL reply must be ONLY the single JSON object — compact, on as few lines ' +
+    'as possible, every string properly escaped (no literal newline inside a string, no unescaped ' +
+    'quote or brace-breaking content), no prose before or after, no markdown fence. Keep every leaf ' +
+    'description to ONE short line. A previous attempt was rejected as unparseable or truncated.';
+  const invoke = deps.invoke ?? invokeNode;
+  let spec: EpicSpec | undefined;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2 && !spec; attempt++) {
+    const res = await invoke({
+      prompt: attempt === 0 ? basePrompt : basePrompt + REPAIR_SUFFIX,
+      model,
+      effort,
+      allowedTools: ORCHESTRATION_NODE_PROFILE.planner.allowedTools,
+      mcpConfig: mcpConfigFor(config.PORT),
+      strictMcpConfig: true,
+      cwd: project,
+      project,
+      permissionMode: 'bypassPermissions',
+      transcriptLabel: 'planner',
+    });
+    if (!res.ok || !res.text || !res.text.trim()) {
+      lastErr = new Error(`the planner node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
+      continue;
+    }
+    try { spec = parseEpicSpec(res.text); } catch (e) { lastErr = e; }
   }
-  const spec = parseEpicSpec(res.text);
+  if (!spec) {
+    throw new Error(`plan_mission_criterion: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+  }
 
   // Instantiate: one epic homed to the mission, serving the criteria, with its leaves promoted to
   // READY (claimable by the daemon). Approve the epic (status:'ready' stamps approvedAt; the

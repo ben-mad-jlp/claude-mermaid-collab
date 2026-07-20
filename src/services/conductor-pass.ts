@@ -37,6 +37,11 @@ export interface ConductorActionRow {
  *  time — the debounce below skips creating a second while one is still open. */
 export const CRITERION_SERVE_CAP_KIND = 'criterion-serve-cap';
 
+/** How many times a FAILED conductor serve (node/planner failure) retries the SAME mission state
+ *  across ticks before the pass stops respinning an expensive node on it. Bounds the retry so a
+ *  transient failure self-heals but a persistently-unservable state does not thrash forever. */
+export const CONDUCTOR_SERVE_RETRY_CAP = 3;
+
 /** Debounce marker embedded in the escalation questionText so listOpenEscalations can be
  *  matched back to an exact (mission, criterion) even though the card carries only todoId
  *  (=missionId) and free text. Stable + greppable. */
@@ -212,7 +217,16 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   }
 
   const fp = conductorFingerprint(status, actions) + `|land:${landCards}`;
-  if (target.row.lastConductorKey === fp) return { ran: false, reason: 'debounced', missionId };
+  const lastKey = target.row.lastConductorKey;
+  // A prior SUCCESSFUL pass on this exact state ⇒ debounce (unchanged behaviour).
+  if (lastKey === fp) return { ran: false, reason: 'debounced', missionId };
+  // A prior FAILED pass encodes `${fp}|fail:N`. Bug fix: a node FAILURE used to stamp the plain
+  // fp and permanently wedge the mission (serve fails ⇒ 0 epics ⇒ state never moves ⇒ identical fp
+  // ⇒ debounced forever). Now a failure retries up to CONDUCTOR_SERVE_RETRY_CAP times across ticks,
+  // then stops respinning an expensive node on an unservable state (bounded, not a permanent wedge).
+  const failPrefix = `${fp}|fail:`;
+  const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
+  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return { ran: false, reason: 'debounced', missionId };
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
   const model = resolveNodeModel(project, 'conductor', provider, ORCHESTRATION_NODE_PROFILE.conductor.model);
@@ -231,8 +245,13 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     transcriptLabel: 'conductor',
   });
 
-  // Stamp the fingerprint whether or not the node succeeded: we spent the pass on THIS state, so we
-  // won't respin on the identical state next tick. A node failure retries once state (or the node) moves.
-  stampConductorRun(project, missionId, fp);
+  // On SUCCESS, debounce this exact state (don't respin next tick). On FAILURE, stamp a bounded
+  // fail-counter instead of the plain fp so the mission RETRIES (up to the cap above) rather than
+  // wedging permanently on a transient node/planner failure.
+  if (res.ok) {
+    stampConductorRun(project, missionId, fp);
+  } else {
+    stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
+  }
   return { ran: true, reason: res.ok ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised };
 }
