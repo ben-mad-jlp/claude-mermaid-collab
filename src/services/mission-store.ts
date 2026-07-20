@@ -959,11 +959,18 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
  */
 export function deriveCheapMissionStatus(
   m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'>,
-  epics: readonly { status: string }[],
+  _epics: readonly { status: string }[],
+  criteria: readonly { met: boolean }[] = [],
 ): MissionStatus {
   if (m.abandonedAt != null) return 'abandoned';
   if (m.awaitingApprovalSince != null) return 'unapproved';
-  if (epics.length > 0 && epics.every((e) => e.status === 'done')) return 'converged';
+  // Converged = the CAPABILITY gauge: every acceptance criterion met (stored verdicts — cheap, no
+  // facts scan), NOT "all epics done". Keying off epics gave the wrong badge both ways: a
+  // criteria-converged mission with zero epics read 'building' (aad41fd5), and an all-epics-done
+  // mission with an unmet criterion read 'converged' (b90bfa21). The criteria are the true
+  // done-signal, so this keeps `status` consistent with the `converged` flag. Non-converged reads
+  // 'building' (the list badge; the detail view carries the exact building/needs-discovery status).
+  if (criteria.length > 0 && criteria.every((c) => c.met)) return 'converged';
   return 'building';
 }
 
@@ -1134,9 +1141,10 @@ export function listMissions(
     const epicsForNode = all
       .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t))
       .map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
+    const criteriaForNode = listCriteria(project, node.id); // cheap indexed lookup — the capability gauge
     const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
     let mission = raw && !withFacts
-      ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode) }
+      ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode, criteriaForNode) }
       : raw;
     if (!mission) continue; // a mission-kind node without control state — not a real mission
     if (opts.onlyArchived) { if (mission.archivedAt == null) continue; }
@@ -1153,7 +1161,7 @@ export function listMissions(
       continue; // session-scoped filter (mission↔session tie)
     }
     const epics = epicsForNode;
-    const criteria = listCriteria(project, node.id); // per-mission indexed lookup, not a facts scan
+    const criteria = criteriaForNode; // loaded above (capability gauge), not a facts scan
     // Cheap rollup: the same two gauges, counted from the epic slice + criteria rows we
     // already hold. `gaps`/`awaitingVerify` are per-criterion ACTIONS, which are only
     // derivable from facts — the cheap path reports 0 rather than pay the scan.
@@ -1167,7 +1175,7 @@ export function listMissions(
           capability: { met: capMet, total: criteria.length },
           converged: criteria.length > 0 && capMet === criteria.length,
           stopped: isMissionTerminal(mission),
-          status: mission.status ?? deriveCheapMissionStatus(mission, epics),
+          status: mission.status ?? deriveCheapMissionStatus(mission, epics, criteria),
           gaps: 0,
           awaitingVerify: 0,
         };

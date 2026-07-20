@@ -10,7 +10,7 @@ import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
-  liveRunsOf, deriveMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
+  liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
   CRITERION_SERVE_CAP,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
@@ -795,5 +795,34 @@ describe('mission-store: queueing — rival-preservation, approval gate, idempot
     const secondPromoted = promoteQueuedMissions(project);
     expect(secondPromoted).toEqual([]);
     expect(getMission(project, b)!.active).toBe(true);
+  });
+});
+
+describe('deriveCheapMissionStatus — list-badge status keys off CRITERIA, not epics', () => {
+  const live = { abandonedAt: null, awaitingApprovalSince: null };
+  const met = (n: number) => Array.from({ length: n }, () => ({ met: true }));
+  const mixed = (m: number, u: number) => [...met(m), ...Array.from({ length: u }, () => ({ met: false }))];
+
+  test('all criteria met but ZERO epics → converged (was wrongly "building")', () => {
+    // aad41fd5 repro: 6/6 criteria met, mech 0/0.
+    expect(deriveCheapMissionStatus(live, [], met(6))).toBe('converged');
+  });
+
+  test('all epics done but a criterion UNMET → building (was wrongly "converged")', () => {
+    // b90bfa21 repro: epics all done, 6/7 criteria.
+    expect(deriveCheapMissionStatus(live, [{ status: 'done' }, { status: 'done' }], mixed(6, 1))).toBe('building');
+  });
+
+  test('all criteria met AND epics done → converged', () => {
+    expect(deriveCheapMissionStatus(live, [{ status: 'done' }], met(3))).toBe('converged');
+  });
+
+  test('no criteria at all → building (never a vacuous converged)', () => {
+    expect(deriveCheapMissionStatus(live, [{ status: 'done' }], [])).toBe('building');
+  });
+
+  test('abandoned / unapproved take precedence over the criteria gauge', () => {
+    expect(deriveCheapMissionStatus({ abandonedAt: 1, awaitingApprovalSince: null }, [], met(2))).toBe('abandoned');
+    expect(deriveCheapMissionStatus({ abandonedAt: null, awaitingApprovalSince: 1 }, [], met(2))).toBe('unapproved');
   });
 });
