@@ -410,3 +410,27 @@ test('classifyCriterion: bare "tests pass" STAYS command-result (no invocation+a
   expect(v.citable).toBe(false);
   expect(v.kind).toBe('command-result');
 });
+
+test('classifyCriterion: artifact-content assertion is CITABLE (measurement/spike shape)', () => {
+  // The exact shape that blocked the author-fidelity spike leaves — falsifiable by reading the file.
+  const v1 = classifyCriterion('results/report.md contains a ## GATE verdict section with a bold PASS or ESCALATE', []);
+  expect(v1.citable).toBe(true);
+
+  const v2 = classifyCriterion('After running the harness, score.json records the declared-vs-actual match rate for each case', []);
+  expect(v2.citable).toBe(true);
+
+  const v3 = classifyCriterion('run.json shows 10 emitted contracts with a leafKind field on each entry', []);
+  expect(v3.citable).toBe(true);
+});
+
+test('classifyCriterion: artifact acquit does NOT rescue vague suite claims or absences', () => {
+  // No concrete artifact file → still a command-result (uncitable).
+  expect(classifyCriterion('the test suite passes', []).citable).toBe(false);
+  expect(classifyCriterion('tsc --noEmit exits 0', []).citable).toBe(false);
+  // A file mention that asserts an ABSENCE stays uncitable (not masked by the artifact rule).
+  expect(classifyCriterion('config.json is unchanged', []).citable).toBe(false);
+  expect(classifyCriterion('no new entries in manifest.json', []).citable).toBe(false);
+  // A source-code (.ts) citation is NOT an output artifact → still routed to the code rules.
+  const codeCite = classifyCriterion('src/services/foo.ts:42 gains a new branch', ['src/services/bar.ts']);
+  expect(codeCite.citable).toBe(false);
+});

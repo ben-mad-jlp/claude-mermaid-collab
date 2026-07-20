@@ -234,6 +234,23 @@ function namesVerificationCommand(text: string): boolean {
   return hasResult;
 }
 
+/** A criterion that asserts a positive, readable property of a concrete OUTPUT-ARTIFACT file (a
+ *  report/score/data file — .md/.json/.csv/.log/…, NOT source code) is CITABLE: the review reads
+ *  that artifact, regardless of which command produced it. This is the measurement/spike shape
+ *  ("run the harness → results/report.md contains a ## GATE verdict section"), which is falsifiable
+ *  by READING the file — the opposite of the vague "tests pass" prose the command-result rule
+ *  exists to reject. Requires a concrete artifact filename, so it can never acquit a suite-wide
+ *  pass/green claim; positive-assertion only, so it never masks an absence ("no changes to X.json").
+ *  This is what lets the daemon author + pass author-fidelity / measurement criteria autonomously
+ *  instead of escalating them to a human. */
+export function assertsCitableArtifact(text: string): boolean {
+  // A concrete artifact filename with a report/data extension (source-code extensions excluded).
+  if (!/\b[\w./-]+\.(?:md|json|jsonl|ndjson|csv|tsv|txt|log|html|svg|xml)\b/i.test(text)) return false;
+  // A POSITIVE property of its content/existence — never an absence ("no …", "unchanged").
+  if (/\bno\s+\S|\b(unchanged|untouched)\b/i.test(text)) return false;
+  return /\b(contains?|shows?|reports?|records?|lists?|includes?|exists?|written|produced?|generated?|has\s+(?:a|an|the)\b|with\s+(?:a|an|the)\b|section|field|column|row|entry|line|value)\b/i.test(text);
+}
+
 /** Classify a single criterion: Rule 0 (acquit-first), then Rules 1–3. */
 export function classifyCriterion(
   text: string,
@@ -242,6 +259,14 @@ export function classifyCriterion(
   // Rule 0: ACQUIT on a resolving citation
   if (acquitOnResolvingCitation(text, declaredFiles)) {
     return { text, citable: true };
+  }
+
+  // Rule 0.5: ACQUIT on a concrete output-ARTIFACT content assertion (report.md contains a ## GATE
+  // verdict). A produced artifact is citable-by-reading even though it's a runtime output not in the
+  // code change-set, so this must precede the out-of-diff conviction. Reuse the 'command-result'
+  // kind so the review-time defer predicate honours it too.
+  if (assertsCitableArtifact(text)) {
+    return { text, citable: true, kind: 'command-result' };
   }
 
   // Rule 1: CONVICT on out-of-diff-location
