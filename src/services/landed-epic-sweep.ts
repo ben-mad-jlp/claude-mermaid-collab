@@ -5,12 +5,13 @@
  * already-reconciled epic makes zero writes.
  */
 import { listTodos, stampEpicLandedAt, completeTodo, type Todo } from './todo-store.js';
-import { listMissions } from './mission-store.js';
+import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, type GitProbe } from './epic-branch-status.js';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
+import { syncMissionSubscription } from './mission-subscription.js';
 
 /** Minimum spacing between PERIODIC landed-epic sweeps for a single project. Same
  *  throttle shape as ARCHIVAL_SWEEP_INTERVAL_MS (archival-sweep.ts) — hygiene, not
@@ -176,6 +177,7 @@ export function gcEpicBranches(
 export interface RunLandedEpicSweepResult {
   reconcile: LandedEpicSweepResult;
   gc: GcEpicBranchesResult;
+  promoted: string[];
 }
 
 /**
@@ -196,7 +198,7 @@ export async function runLandedEpicSweep(
 ): Promise<RunLandedEpicSweepResult> {
   const now = opts.now ?? Date.now();
   if (!opts.force && !shouldRunLandedEpicSweep(project, now)) {
-    return { reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 } };
+    return { reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, promoted: [] };
   }
   const doYield = opts.yieldFn ?? yieldToLoop;
 
@@ -204,5 +206,23 @@ export async function runLandedEpicSweep(
   await doYield();
   const gc = gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
 
-  return { reconcile, gc };
+  await doYield();
+  let promoted: string[] = [];
+  try {
+    promoted = promoteQueuedMissions(project);
+    for (const missionId of promoted) {
+      try {
+        syncMissionSubscription(project, missionId);
+      } catch {
+        /* fail-open, per mission-subscription.ts's own idempotent contract */
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[landed-epic-sweep] queued-mission promotion failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  return { reconcile, gc, promoted };
 }
