@@ -1,0 +1,1065 @@
+{
+  "total": 15,
+  "parsed": 12,
+  "unparsed": [
+    "9180370f",
+    "cf9f3b59",
+    "f092ab23"
+  ],
+  "results": [
+    {
+      "id": "079924bb",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 3,
+        "estimatedTasks": 3,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [
+          "src/routes/__tests__/subscriptions-delete.test.ts"
+        ],
+        "filesToEdit": [
+          "src/routes/api.ts",
+          "ui/src/components/supervisor/bridge/SubscribersPanel.tsx"
+        ],
+        "tasks": [
+          {
+            "id": "delete-route",
+            "files": [
+              "src/routes/api.ts"
+            ],
+            "description": "Add DELETE /api/subscriptions handler wrapping removeSubscription with project/session/scope validation"
+          },
+          {
+            "id": "panel-remove-button",
+            "files": [
+              "ui/src/components/supervisor/bridge/SubscribersPanel.tsx"
+            ],
+            "description": "Add removeSub optimistic handler + per-row hover-revealed × button in a group container"
+          },
+          {
+            "id": "route-test",
+            "files": [
+              "src/routes/__tests__/subscriptions-delete.test.ts"
+            ],
+            "description": "Route test: DELETE removes a sub (removed:true) and 400 on missing session"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/SubscribersPanel.tsx",
+            "symbol": "removeSub",
+            "description": "Optimistic-remove handler that DELETEs /api/subscriptions and rolls back on failure"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/routes/__tests__/subscriptions-delete.test.ts",
+            "testName": "removes a subscription",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "Adding a typed api.removeSubscription() to ui/src/lib/api.ts (panel calls apiFetch inline, matching its existing GET pattern)",
+          "Changing the MCP unsubscribe tool",
+          "Bulk/unsubscribe-all UI"
+        ]
+      },
+      "rawText": "I have everything needed. Here's the blueprint.\n\n## Implementation Blueprint: Remove a subscription from the Bridge Subscribers list\n\n### Context (verified)\n- **Service fn already exists**: `removeSubscription(project, session, scope, targetId?)` at `src/services/session-subscriptions.ts:140` returns `boolean` (`r.changes > 0`). `SubscriptionScope = 'todo' | 'epic' | 'mission' | 'project'` (`session-subscriptions.ts:17`). For `project` scope it forces `targetId=''`.\n- **Only a GET route exists** today: `GET /api/subscriptions` at `src/routes/api.ts:545–556` (inside `handleAPI`, `api.ts:319`). It already uses `expandPath(raw)` for the project param — so `expandPath` is in scope for the new handler. There is **no** DELETE route; removal was only reachable via the MCP `unsubscribe` tool (`src/mcp/setup.ts:2094–2101`).\n- **UI**: `SubscribersPanel.tsx` fetches inline via `apiFetch(serverScope, '/api/subscriptions?project=...')` (lines 43–52) and polls every 5s. Each subscription renders as a `<button>` (lines 96–105) keyed `${s.scope}:${s.targetId}`. `apiFetch` (`ui/src/lib/api.ts:62`) supports non-GET with a string `body` over the Electron IPC bridge.\n- **Hover-reveal × button pattern** to copy verbatim: `ProjectRailRow.tsx:82–98` — a `group-hover:opacity-100` button holding an inline SVG X, on a parent carrying the `group` class.\n\n---\n\n### Change 1 — `src/routes/api.ts`: add `DELETE /api/subscriptions`\n\nInsert a new block immediately **after** the GET handler's closing brace (after `api.ts:556`), mirroring its structure:\n\n```ts\n// DELETE /api/subscriptions { project, session, scope, targetId? } — unsubscribe one\n// row from the Bridge \"Subscribers\" tab. Wraps removeSubscription (the panel was\n// read-only; removal previously existed only as the MCP `unsubscribe` tool).\nif (path === '/api/subscriptions' && req.method === 'DELETE') {\n  try {\n    const body = (await req.json()) as { project?: string; session?: string; scope?: string; targetId?: string };\n    const project = body.project ? expandPath(body.project) : null;\n    const { session, scope, targetId } = body;\n    if (!project || !session || !scope) {\n      return Response.json({ error: 'project, session, scope required' }, { status: 400 });\n    }\n    if (!['todo', 'epic', 'mission', 'project'].includes(scope)) {\n      return Response.json({ error: `invalid scope \"${scope}\"` }, { status: 400 });\n    }\n    const { removeSubscription } = await import('../services/session-subscriptions');\n    const removed = removeSubscription(project, session, scope as any, targetId);\n    return Response.json({ ok: true, removed }, { headers: { 'Cache-Control': 'no-store' } });\n  } catch (error: any) {\n    return serverError(error);\n  }\n}\n```\n\nNotes: `expandPath` matches the GET route's project handling so the DELETE targets the same stored `project` value the GET returned. The scope allow-list mirrors the MCP tool (`setup.ts:2089`).\n\n### Change 2 — `ui/src/components/supervisor/bridge/SubscribersPanel.tsx`: hover × with optimistic remove\n\n**2a.** Add a `removeSub` handler inside the component (after the `bySession` memo, ~line 68):\n\n```tsx\nconst removeSub = async (s: Subscription) => {\n  const prev = subs;\n  // optimistic: drop the matching row immediately\n  setSubs((cur) => cur.filter((x) => !(x.session === s.session && x.scope === s.scope && x.targetId === s.targetId)));\n  try {\n    const r = await apiFetch(serverScope, '/api/subscriptions', {\n      method: 'DELETE',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ project, session: s.session, scope: s.scope, targetId: s.targetId }),\n    });\n    if (!r.ok) throw new Error(`HTTP ${r.status}`);\n    setError(null);\n  } catch (e) {\n    setSubs(prev); // rollback to the pre-remove snapshot\n    setError(e instanceof Error ? e.message : String(e));\n  }\n};\n```\n\n**2b.** Restructure the per-sub row (current `<button>` at lines 96–105) into a `group` container so a nested × button is valid HTML (no button-in-button). Replace lines 95–106 with:\n\n```tsx\nreturn (\n  <div\n    key={`${s.scope}:${s.targetId}`}\n    className={`group flex items-center gap-1 rounded ${todo ? 'hover:bg-gray-100 dark:hover:bg-gray-800' : ''}`}\n  >\n    <button\n      type=\"button\"\n      onClick={todo && onSelectTodo ? () => onSelectTodo(todo) : undefined}\n      className={`flex-1 min-w-0 flex items-center gap-2 px-2 py-1 rounded text-left ${todo ? 'cursor-pointer' : 'cursor-default'}`}\n      title={s.scope === 'project' ? project : s.targetId}\n    >\n      <span className={`shrink-0 px-1 py-0.5 rounded text-3xs font-semibold uppercase ${SCOPE_CLASS[s.scope]}`}>{s.scope}</span>\n      <span className=\"flex-1 min-w-0 truncate text-2xs text-gray-700 dark:text-gray-300\">{label}</span>\n    </button>\n    <button\n      type=\"button\"\n      onClick={() => removeSub(s)}\n      title=\"Remove subscription\"\n      className=\"opacity-0 group-hover:opacity-100 shrink-0 p-0.5 mr-1 rounded text-gray-400 hover:text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-900/30 transition-opacity\"\n    >\n      <svg className=\"w-2.5 h-2.5\" viewBox=\"0 0 20 20\" fill=\"currentColor\" aria-hidden=\"true\">\n        <path fillRule=\"evenodd\" d=\"M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z\" clipRule=\"evenodd\" />\n      </svg>\n    </button>\n  </div>\n);\n```\n\nThe `hover:bg` moves from the inner button to the `group` container so the whole row (including the × gutter) highlights; the × fades in via `opacity-0 group-hover:opacity-100` exactly as in `ProjectRailRow.tsx:93`.\n\n### Change 3 — new test `src/routes/__tests__/subscriptions-delete.test.ts`\n\nModel on `session-todos-promote.test.ts` (calls `handleAPI` with `null` managers) and isolate the subscriptions DB via `MERMAID_DATA_DIR` + `__resetForTest()` (`session-subscriptions.ts:111`):\n\n```ts\nimport { describe, test, expect, beforeEach, afterAll } from 'bun:test';\nimport { mkdtempSync, rmSync } from 'node:fs';\nimport { tmpdir } from 'node:os';\nimport { join } from 'node:path';\n\nconst dir = mkdtempSync(join(tmpdir(), 'subs-delete-'));\nprocess.env.MERMAID_DATA_DIR = dir;\n\nimport { handleAPI } from '../api';\nimport { addSubscription, listAllSubscriptions, __resetForTest } from '../../services/session-subscriptions';\n\nconst ws = { broadcast() {} } as any;\nconst P = '/tmp/subs-delete-proj';\nfunction del(body: unknown): Promise<Response> {\n  const req = new Request('http://x/api/subscriptions', { method: 'DELETE', body: JSON.stringify(body) });\n  return handleAPI(req, null as any, null as any, null as any, null as any, null as any, ws, new URL(req.url));\n}\nbeforeEach(() => { __resetForTest(); });\nafterAll(() => { __resetForTest(); rmSync(dir, { recursive: true, force: true }); delete process.env.MERMAID_DATA_DIR; });\n\ndescribe('DELETE /api/subscriptions', () => {\n  test('removes a subscription', async () => {\n    addSubscription(P, 's1', 'todo', 't1');\n    const res = await del({ project: P, session: 's1', scope: 'todo', targetId: 't1' });\n    expect(res.status).toBe(200);\n    expect((await res.json() as any).removed).toBe(true);\n    expect(listAllSubscriptions().length).toBe(0);\n  });\n  test('missing session → 400', async () => {\n    expect((await del({ project: P, scope: 'todo' })).status).toBe(400);\n  });\n});\n```\n\n(Note: `handleAPI` uses `expandPath` on the project; passing an already-absolute `/tmp/...` path is idempotent, so the stored and queried project match.)\n\n---\n\n### Acceptance criteria (positive, citable)\n1. `src/routes/api.ts` contains a handler guarded by `path === '/api/subscriptions' && req.method === 'DELETE'` that parses `{project, session, scope, targetId?}`, calls `removeSubscription`, and returns `{ ok: true, removed }` — point at the new block after `api.ts:556`.\n2. That handler returns HTTP 400 when `project`, `session`, or `scope` is missing (the `if (!project || !session || !scope)` guard).\n3. `SubscribersPanel.tsx` defines a `removeSub` async handler that optimistically filters `subs`, issues `apiFetch(serverScope, '/api/subscriptions', { method: 'DELETE', ... })`, and calls `setSubs(prev)` in the catch block for rollback.\n4. Each subscription row in `SubscribersPanel.tsx` renders inside a `group`-classed container holding a × `<button>` with `opacity-0 group-hover:opacity-100` and `onClick={() => removeSub(s)}`.\n5. `src/routes/__tests__/subscriptions-delete.test.ts` exists with a passing test named `removes a subscription` asserting `removed === true` and `listAllSubscriptions().length === 0`.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 3, \"estimatedTasks\": 3,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [\"src/routes/__tests__/subscriptions-delete.test.ts\"],\n  \"filesToEdit\": [\"src/routes/api.ts\", \"ui/src/components/supervisor/bridge/SubscribersPanel.tsx\"],\n  \"tasks\": [\n    { \"id\": \"delete-route\", \"files\": [\"src/routes/api.ts\"], \"description\": \"Add DELETE /api/subscriptions handler wrapping removeSubscription with project/session/scope validation\" },\n    { \"id\": \"panel-remove-button\", \"files\": [\"ui/src/components/supervisor/bridge/SubscribersPanel.tsx\"], \"description\": \"Add removeSub optimistic handler + per-row hover-revealed × button in a group container\" },\n    { \"id\": \"route-test\", \"files\": [\"src/routes/__tests__/subscriptions-delete.test.ts\"], \"description\": \"Route test: DELETE removes a sub (removed:true) and 400 on missing session\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/SubscribersPanel.tsx\", \"symbol\": \"removeSub\", \"description\": \"Optimistic-remove handler that DELETEs /api/subscriptions and rolls back on failure\" },\n    { \"kind\": \"named-test\", \"testFile\": \"src/routes/__tests__/subscriptions-delete.test.ts\", \"testName\": \"removes a subscription\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\"Adding a typed api.removeSubscription() to ui/src/lib/api.ts (panel calls apiFetch inline, matching its existing GET pattern)\", \"Changing the MCP unsubscribe tool\", \"Bulk/unsubscribe-all UI\"] }\n```"
+    },
+    {
+      "id": "152643e0",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 13,
+        "estimatedTasks": 11,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [
+          "src/services/spend-ledger.ts",
+          "src/services/burn-watch.ts",
+          "src/services/__tests__/spend-ledger.test.ts",
+          "src/services/__tests__/burn-watch.test.ts"
+        ],
+        "filesToEdit": [
+          "src/services/worker-ledger.ts",
+          "src/agent/node-invoker.ts",
+          "src/services/leaf-executor.ts",
+          "src/services/judgment-llm.ts",
+          "src/services/grok-triage.ts",
+          "src/services/digest-llm.ts",
+          "src/mcp/setup.ts",
+          "src/services/orchestrator-live.ts",
+          "src/routes/api.ts",
+          "src/services/__tests__/orchestrator-live.test.ts"
+        ],
+        "tasks": [
+          {
+            "id": "burn-aggregate",
+            "files": [
+              "src/services/worker-ledger.ts"
+            ],
+            "description": "add uncapped getBurnBySource GROUP BY source + BurnBySource type"
+          },
+          {
+            "id": "spend-ledger",
+            "files": [
+              "src/services/spend-ledger.ts"
+            ],
+            "description": "new recordSpend (tokens×MODEL_PRICING USD estimate) + re-export getBurnBySource"
+          },
+          {
+            "id": "node-capture",
+            "files": [
+              "src/agent/node-invoker.ts"
+            ],
+            "description": "NodeSpec.source+skipAutoLedger; default-on recordSpend in invokeNode/invokeGrokNode success paths"
+          },
+          {
+            "id": "leaf-optout",
+            "files": [
+              "src/services/leaf-executor.ts"
+            ],
+            "description": "stamp skipAutoLedger:true on every runNode spec to avoid double-count"
+          },
+          {
+            "id": "judgment-onusage",
+            "files": [
+              "src/services/judgment-llm.ts"
+            ],
+            "description": "JudgmentConfig.onUsage sink invoked with token usage in all three providers"
+          },
+          {
+            "id": "triage-digest-sources",
+            "files": [
+              "src/services/grok-triage.ts",
+              "src/services/digest-llm.ts"
+            ],
+            "description": "wire onUsage→recordSpend with sources 'triage' and 'digest'"
+          },
+          {
+            "id": "consult-sources",
+            "files": [
+              "src/mcp/setup.ts"
+            ],
+            "description": "recordSpend for consult_grok ('consult-grok') and consult_codex ('consult-codex')"
+          },
+          {
+            "id": "burn-watch",
+            "files": [
+              "src/services/burn-watch.ts"
+            ],
+            "description": "runBurnWatchPass: non-build source over call ceiling + no accepted work → deduped operator-gated token-burn escalation"
+          },
+          {
+            "id": "orchestrator-wire",
+            "files": [
+              "src/services/orchestrator-live.ts"
+            ],
+            "description": "add burn field to getOrchestratorHealth; run throttled burnWatch pass in the tick"
+          },
+          {
+            "id": "usage-route",
+            "files": [
+              "src/routes/api.ts"
+            ],
+            "description": "GET /api/usage/burn?project=&windowMs= returns getBurnBySource rollup"
+          },
+          {
+            "id": "tests",
+            "files": [
+              "src/services/__tests__/spend-ledger.test.ts",
+              "src/services/__tests__/burn-watch.test.ts",
+              "src/services/__tests__/orchestrator-live.test.ts"
+            ],
+            "description": "spend-ledger + burn-watch tests; update health-shape assertion for burn field"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "src/services/spend-ledger.ts",
+            "symbol": "recordSpend",
+            "description": "default-on spend capture writing worker_ledger tagged by source, USD estimated from tokens when costUsd absent"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/worker-ledger.ts",
+            "symbol": "getBurnBySource",
+            "description": "uncapped SQL GROUP BY source rollup over a window"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/agent/node-invoker.ts",
+            "symbol": "skipAutoLedger",
+            "description": "NodeSpec opt-out flag; leaf-executor sets it, all other invokeNode/invokeGrokNode calls auto-record"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/judgment-llm.ts",
+            "symbol": "onUsage",
+            "description": "JudgmentConfig usage sink so triage/digest surface API token usage to recordSpend"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/burn-watch.ts",
+            "symbol": "runBurnWatchPass",
+            "description": "deduped operator-gated token-burn alarm keyed on non-build source call count with no accepted work"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/orchestrator-live.ts",
+            "symbol": "runBurnWatchPass",
+            "description": "burn-watch wired into the throttled orchestrator tick for watched projects"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/routes/api.ts",
+            "symbol": "/api/usage/burn",
+            "description": "HTTP gauge endpoint returning the per-source burn rollup"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/spend-ledger.test.ts",
+            "testName": "getBurnBySource groups uncapped by source",
+            "mechanical": true
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/burn-watch.test.ts",
+            "testName": "raises a deduped operator-gated token-burn escalation for a non-build source over the ceiling with no accepted work",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No UI burn-gauge component (backend field + route only)",
+          "No new MODEL_PRICING entries — unknown models stay knownPrice=false, alarm keys on call count",
+          "leaf spend recording via recordNode unchanged except adding skipAutoLedger"
+        ]
+      },
+      "rawText": "I now have full grounding. Here is the implementation blueprint.\n\n---\n\n# Blueprint — unified LLM token-spend tracker + burn gauge + leak alarm\n\n## Grounding summary\n\nNothing in the memory's target design exists yet in this worktree. What exists today:\n- `src/services/worker-ledger.ts` — the `worker_ledger` SQLite table + `recordPhase`/`recordNode`/`summarize`/`queryLedger`. It already has a `source TEXT NOT NULL` column and `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`. **No `recordSpend`, no `getBurnBySource`.**\n- `src/agent/node-invoker.ts` — `invokeNode`/`invokeGrokNode` return `NodeResult.usage` (`NodeUsage`) but **do not** write any ledger row themselves; `NodeSpec` has no `source`/`skipAutoLedger`.\n- `src/services/leaf-executor.ts` `runNode` (≈1836) already records richly via `deps.recordNode` (source defaults to `'node'`).\n- `src/agent/worker-core/cost.ts` — `MODEL_PRICING`, `estimateCostUsd`, `knownPricing` (USD/1M-tok). Max plan: `total_cost_usd` absent → `NodeUsage.costUsd` undefined.\n- `src/services/orchestrator-live.ts` — `runOrchestratorTick` (per-watched-project passes, throttle-gated, `withPassTimeout`) + `getOrchestratorHealth()` (fixed-shape return, no `burn`).\n- `src/services/supervisor-store.ts` `createEscalation` — dedups on `(project, session, questionText)` open rows; `operatorGated` routes to human.\n- `src/services/judgment-llm.ts` `makeJudgmentLLM(cfg).complete()` returns bare string; the three providers each have `data.usage`/`parseNodeJson().usage` available but discard it.\n- Callers: `grok-triage.ts:193` and `digest-llm.ts:67` both `makeJudgmentLLM(resolveTriageRoute({project})).complete(...)`. `consult_grok` (`setup.ts:1544`, has `data.usage`), `consult_codex` (`setup.ts:1587`, `consultCodex` returns `result.usage`).\n- Account-usage HTTP routes live in `src/routes/api.ts` (`/api/usage`, `/api/usage-update` ≈3578–3591) — the right home for `/api/usage/burn`.\n\n## Change shape\n\n### 1. `src/services/worker-ledger.ts` (edit) — uncapped burn aggregate\nAdd, next to `summarize`, a raw uncapped GROUP-BY (must NOT go through `queryLedger`'s 2000-row cap):\n\n```ts\nexport interface BurnBySource {\n  source: string;\n  calls: number;\n  inputTokens: number;\n  outputTokens: number;\n  cacheReadTokens: number;\n  cacheCreationTokens: number;\n  usd: number;\n  unknownPrice: boolean;   // any row with knownPrice=0 in this source bucket\n}\n\n/** Uncapped per-source spend rollup over [since, now]. Best-effort → [] on error. */\nexport function getBurnBySource(opts: { project?: string; since?: number } = {}): BurnBySource[] {\n  try {\n    const d = openDb();\n    const where: string[] = [];\n    const params: unknown[] = [];\n    if (opts.project) { where.push('project = ?'); params.push(opts.project); }\n    if (opts.since != null) { where.push('ts >= ?'); params.push(opts.since); }\n    const sql =\n      `SELECT source,\n              COUNT(*) AS calls,\n              COALESCE(SUM(inputTokens),0) AS inputTokens,\n              COALESCE(SUM(outputTokens),0) AS outputTokens,\n              COALESCE(SUM(cacheReadTokens),0) AS cacheReadTokens,\n              COALESCE(SUM(cacheCreationTokens),0) AS cacheCreationTokens,\n              COALESCE(SUM(costUsd),0) AS usd,\n              MIN(knownPrice) AS minKnown\n       FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''}\n       GROUP BY source ORDER BY calls DESC`;\n    const rows = d.query(sql).all(...(params as never[])) as Array<BurnBySource & { minKnown: number }>;\n    return rows.map((r) => ({ ...r, unknownPrice: r.minKnown === 0 }));\n  } catch { return []; }\n}\n```\n(`openDb` is module-private here — this is why the aggregate lives in `worker-ledger.ts`, re-exported below.)\n\n### 2. `src/services/spend-ledger.ts` (new) — `recordSpend` + re-export\nThin capture wrapper over `recordPhase`; estimates USD from tokens×`MODEL_PRICING` when the CLI omitted `costUsd` (Max plan). Cohesive surface for the named test.\n\n```ts\nimport { recordPhase, getBurnBySource, type BurnBySource } from './worker-ledger.js';\nimport { estimateCostUsd, knownPricing } from '../agent/worker-core/cost.js';\n\nexport interface SpendUsage {\n  inputTokens?: number; outputTokens?: number;\n  cacheReadTokens?: number; cacheCreationTokens?: number;\n  costUsd?: number; numTurns?: number;\n}\nexport interface SpendEntry {\n  project: string;\n  source: string;                 // conductor|summary|triage|digest|forge|planner|consult-grok|consult-codex|node…\n  provider?: string;              // 'claude' | 'grok' | 'xai' | 'openai' | 'anthropic'\n  model?: string;\n  usage?: SpendUsage;\n  leafId?: string | null;\n  todoId?: string | null;\n  epicId?: string | null;\n  session?: string;\n}\n\n/** Record ONE non-leaf LLM call's spend into worker_ledger, tagged by source.\n *  USD: prefer the CLI's own costUsd; else estimate tokens×MODEL_PRICING (Max plan).\n *  Best-effort — never throws (recordPhase already swallows, but guard the estimate too). */\nexport function recordSpend(e: SpendEntry, now: number = Date.now()): number | null {\n  try {\n    const u = e.usage ?? {};\n    const known = knownPricing(e.model);\n    const usd = (u.costUsd && u.costUsd > 0)\n      ? u.costUsd\n      : estimateCostUsd(e.model, { inputTokens: u.inputTokens, outputTokens: u.outputTokens });\n    return recordPhase({\n      project: e.project, todoId: e.todoId ?? e.leafId ?? '-', epicId: e.epicId ?? null,\n      session: e.session ?? e.source, phase: 'spend',\n      provider: e.provider ?? 'claude', model: e.model ?? '', source: e.source,\n      inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0,\n      cacheReadTokens: u.cacheReadTokens ?? 0, cacheCreationTokens: u.cacheCreationTokens ?? 0,\n      costUsd: usd, knownPrice: known, steps: u.numTurns ?? 0,\n      nodeKind: null, nodesSpent: null, leafId: e.leafId ?? null,\n    }, now);\n  } catch { return null; }\n}\n\nexport { getBurnBySource, type BurnBySource };\n```\n\n### 3. `src/agent/node-invoker.ts` (edit) — default-on capture at the invoke boundary\n- Add two fields to `NodeSpec` (near `leafId`/`project`):\n  ```ts\n  /** Ledger source tag for the default-on spend capture (e.g. 'conductor','summary','forge','planner'). Default 'node'. */\n  source?: string;\n  /** Opt OUT of the default-on spend capture — set ONLY by leaf-executor, which records richly itself (else double-count). */\n  skipAutoLedger?: boolean;\n  ```\n- Add `import { recordSpend } from '../services/spend-ledger.js';` (no cycle: spend-ledger → worker-ledger/cost only).\n- In `invokeNode`, immediately before the terminal `return { ok, … }` (≈751), record on the success path:\n  ```ts\n  if (!spec.skipAutoLedger) {\n    recordSpend({ project: spec.project ?? '', source: spec.source ?? 'node',\n      provider: 'claude', model: spec.model, usage: parsed.usage, leafId: spec.leafId, epicId: spec.epicId });\n  }\n  ```\n- In `invokeGrokNode`, same guard before its terminal `return` (≈1237) with `provider: 'grok'`, `usage: parsed.usage`.\n  (Skip the halt/timeout early-returns: no usage to record.)\n\n### 4. `src/services/leaf-executor.ts` (edit) — opt out (avoid double-count)\nIn `runNode`, stamp `skipAutoLedger` so every dispatched spec bypasses the new default-on capture (leaf spend is already written by `deps.recordNode` at ≈1837). Set it once where `effSpec` is derived — e.g. change the base to `let effSpec = { ...spec, skipAutoLedger: true };` and keep the per-provider spreads (which already spread `spec`) preserving the flag by spreading `effSpec` instead of `spec`. Net: the `invoker.invoke(effSpec)` call at ≈1826 always carries `skipAutoLedger:true`.\n\n### 5. `src/services/judgment-llm.ts` (edit) — `onUsage` sink\n- Add to `JudgmentConfig`: `onUsage?: (u: SpendUsage) => void;` (import `type SpendUsage` from `./spend-ledger.js`).\n- OpenAI-style (`makeOpenAIStyle`): after parsing `data`, `cfg`/config isn't in scope there — thread `onUsage` as a param. Simplest: pass `onUsage` into each `make*` factory and, before `return`, call `onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens })`.\n- Anthropic (`makeAnthropic`): `onUsage?.({ inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens })`.\n- Claude subscription (`makeClaudeSubscription`): after `parseNodeJson(out)`, `onUsage?.(parsed.usage ?? {})`.\n- `makeJudgmentLLM` passes `cfg.onUsage` into each factory.\n\n### 6. `src/services/grok-triage.ts` (edit) — source `'triage'`\nAt line 193 wire the sink:\n```ts\nreturn makeJudgmentLLM({ ...resolveTriageRoute({ project }),\n  onUsage: (u) => recordSpend({ project, source: 'triage', provider: 'xai', model: resolveTriageRoute({ project }).model, usage: u }),\n}).complete(system, prompt);\n```\n(import `recordSpend`.)\n\n### 7. `src/services/digest-llm.ts` (edit) — source `'digest'`\nAt line 67, same `{ ...resolveTriageRoute({project}), onUsage: (u) => recordSpend({ project, source: 'digest', usage: u, model: … }) }` shape.\n\n### 8. `src/mcp/setup.ts` (edit) — consult sources\n- `consult_grok` (≈1583): after `const data = …`, `recordSpend({ project: <cwd/project in scope>, source: 'consult-grok', provider: 'xai', model, usage: { inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens } });`\n- `consult_codex` (≈1589): `recordSpend({ project, source: 'consult-codex', provider: 'openai', model: result.model, usage: { inputTokens: result.usage?.prompt_tokens, outputTokens: result.usage?.completion_tokens } });`\n  (import `recordSpend`; use the existing project/cwd binding in that MCP handler scope, `''` fallback.)\n\n### 9. `src/services/burn-watch.ts` (new) — the alarm\n```ts\nimport { getBurnBySource } from './spend-ledger.js';\nimport { queryLedger } from './worker-ledger.js';\nimport { createEscalation } from './supervisor-store.js';\n\n/** Leaf/build spend is EXPECTED (tracked by mission-cost) — exempt from the leak alarm.\n *  Everything else (conductor/summary/triage/digest/forge/planner/consult-*) is a candidate leak. */\nexport const BUILD_SOURCES = new Set(['node', 'leaf', 'implement', 'review', 'verify', 'blueprint', 'research', 'fix', 'plan']);\nexport const BURN_WATCH_WINDOW_MS = 60 * 60_000;   // 1h rolling window\nexport const SOURCE_CALL_CEILING = 40;             // per-source calls/window before it's suspicious\nexport const BURN_WATCH_INTERVAL_MS = 5 * 60_000;  // throttle: at most once / 5min / project\n\nlet lastBurnWatchAt: number | null = null;\nexport function shouldRunBurnWatchPass(now: number = Date.now()): boolean {\n  if (lastBurnWatchAt !== null && now - lastBurnWatchAt < BURN_WATCH_INTERVAL_MS) return false;\n  lastBurnWatchAt = now; return true;\n}\nexport function _resetBurnWatchThrottle(): void { lastBurnWatchAt = null; }\n\n/** Accepted-work signal: any leaf that reached an 'accepted' terminal outcome in the window. */\nexport function countAcceptedWork(project: string, since: number): number {\n  return queryLedger({ project, since, limit: 2000 }).filter((r) => r.leafOutcome === 'accepted').length;\n}\n\nexport interface BurnWatchDeps {\n  now?: number;\n  burnBySource?: typeof getBurnBySource;\n  acceptedWork?: (project: string, since: number) => number;\n  raise?: typeof createEscalation;\n}\n\n/** One throttled leak-watch pass. Raises a deduped, operator-gated 'token-burn' escalation\n *  when a NON-build source exceeds SOURCE_CALL_CEILING with ZERO accepted work in the window.\n *  Keys on CALL COUNT (plan-independent — Max plan omits USD). Returns the raised source (or null). */\nexport function runBurnWatchPass(project: string, deps: BurnWatchDeps = {}): string | null {\n  const now = deps.now ?? Date.now();\n  const since = now - BURN_WATCH_WINDOW_MS;\n  const rows = (deps.burnBySource ?? getBurnBySource)({ project, since });\n  const accepted = (deps.acceptedWork ?? countAcceptedWork)(project, since);\n  if (accepted > 0) return null;               // real work is landing — spend is legitimate\n  const leak = rows.find((r) => !BUILD_SOURCES.has(r.source) && r.calls >= SOURCE_CALL_CEILING);\n  if (!leak) return null;\n  (deps.raise ?? createEscalation)({\n    project, session: 'burn-watch',            // stable session → createEscalation dedups the open card\n    kind: 'token-burn',\n    questionText: `Token-burn leak: source '${leak.source}' made ${leak.calls} calls in the last hour with no accepted work. Investigate/stop the loop.`,\n    operatorGated: true,\n  });\n  return leak.source;\n}\n```\n\n### 10. `src/services/orchestrator-live.ts` (edit) — surface + wire the alarm\n- `import { getBurnBySource } from './spend-ledger.js';` and `import { runBurnWatchPass, shouldRunBurnWatchPass } from './burn-watch.js';`\n- **Surface** — add `burn` to `getOrchestratorHealth()`'s return type and body:\n  ```ts\n  burn: getBurnBySource({ since: Date.now() - 60 * 60_000 }),   // last-hour per-source rollup\n  ```\n  (wrap in try/catch → `[]`, matching the file's best-effort health idiom).\n- **Alarm** — add `burnWatch?` + `shouldRunBurnWatch?` to `TickDeps`, defaulted in `runOrchestratorTick`, and run it in the per-watched-project loop (alongside `friction-watch`, `NOTIFY_PASS_TIMEOUT_MS`):\n  ```ts\n  if (watched.has(project) && shouldRunBurnWatch(project)) {\n    try { currentPhase = `${project}:burn-watch`;\n      await withPassTimeout(Promise.resolve(burnWatch(project)), NOTIFY_PASS_TIMEOUT_MS, `${project}:burn-watch`);\n    } catch (err) { console.warn(`[orchestrator] burn-watch failed for ${project}:`, err); }\n  }\n  ```\n  defaults: `const burnWatch = deps.burnWatch ?? ((p: string) => runBurnWatchPass(p)); const shouldRunBurnWatch = deps.shouldRunBurnWatch ?? shouldRunBurnWatchPass;`\n\n### 11. `src/routes/api.ts` (edit) — gauge endpoint\nBeside `/api/usage` (≈3591):\n```ts\n// GET /api/usage/burn?project=&windowMs= — per-source token-spend rollup (leak gauge).\nif (path === '/api/usage/burn' && req.method === 'GET') {\n  const project = url.searchParams.get('project') ?? undefined;\n  const windowMs = Number(url.searchParams.get('windowMs')) || 60 * 60_000;\n  const { getBurnBySource } = await import('../services/spend-ledger.js' as string);\n  return Response.json({ project: project ?? null, windowMs, bySource: getBurnBySource({ project, since: Date.now() - windowMs }) });\n}\n```\n\n## Tests\n\n### `src/services/__tests__/spend-ledger.test.ts` (new)\n- `recordSpend estimates USD from tokens when costUsd absent` — with `_closeLedgerDb()` + a temp `MERMAID_SUPERVISOR_DIR`, `recordSpend({project, source:'triage', model:'grok-4.3', usage:{inputTokens:1_000_000, outputTokens:1_000_000}})`; assert the row's `costUsd ≈ 1.25 + 2.5` via `queryLedger`.\n- `getBurnBySource groups uncapped by source` — insert >0 rows across `'triage'`, `'digest'`, `'node'`; assert one bucket per source with correct `calls`/summed tokens, and that `'node'` (build) is present but tagged for the caller to exempt.\n\n### `src/services/__tests__/burn-watch.test.ts` (new)\n- `raises a deduped operator-gated token-burn escalation for a non-build source over the ceiling with no accepted work` — inject `burnBySource` returning `[{source:'triage', calls:50, …}]`, `acceptedWork:()=>0`, spy `raise`; assert `raise` called once with `kind:'token-burn'`, `operatorGated:true`.\n- `build sources are exempt` — inject `[{source:'node', calls:500}]`; assert `runBurnWatchPass` returns null / no raise.\n- `no alarm when accepted work landed` — `acceptedWork:()=>1`; assert null.\n- `dedup across passes` — real `createEscalation` twice on a temp store → one open row (stable `session:'burn-watch'`).\n\n### Health-shape assertion update\n`src/services/__tests__/orchestrator-live.test.ts` — extend any `getOrchestratorHealth()` shape assertion to include the new `burn: []` field so the additive field is covered (mechanical).\n\n## Acceptance criteria (positive, citable)\n1. `recordSpend` exists in `src/services/spend-ledger.ts` and estimates USD from tokens×`MODEL_PRICING` when `costUsd` is absent.\n2. `getBurnBySource` (uncapped `GROUP BY source`) exists in `src/services/worker-ledger.ts` and is re-exported from `spend-ledger.ts`.\n3. `NodeSpec.skipAutoLedger` exists in `src/agent/node-invoker.ts`, and both invokers call `recordSpend` on the success path unless it is set.\n4. `JudgmentConfig.onUsage` exists in `src/services/judgment-llm.ts` and each provider path invokes it with parsed token usage.\n5. `runBurnWatchPass` exists in `src/services/burn-watch.ts`, exempts `BUILD_SOURCES`, and raises an `operatorGated` `'token-burn'` escalation keyed on call count.\n6. `getOrchestratorHealth()` returns a `burn` field and `runOrchestratorTick` runs `burnWatch` for watched projects.\n7. `GET /api/usage/burn` is handled in `src/routes/api.ts`.\n8. Named tests `spend-ledger.test.ts` and `burn-watch.test.ts` pass.\n\n## Out of scope\n- No UI gauge component (backend `burn` field + `/api/usage/burn` only).\n- No changes to `recordNode`/leaf spend recording beyond setting `skipAutoLedger`.\n- No new pricing entries in `MODEL_PRICING` (unknown models → `knownPrice=false`, alarm keys on calls).\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 13, \"estimatedTasks\": 11,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [\"src/services/spend-ledger.ts\", \"src/services/burn-watch.ts\", \"src/services/__tests__/spend-ledger.test.ts\", \"src/services/__tests__/burn-watch.test.ts\"],\n  \"filesToEdit\": [\"src/services/worker-ledger.ts\", \"src/agent/node-invoker.ts\", \"src/services/leaf-executor.ts\", \"src/services/judgment-llm.ts\", \"src/services/grok-triage.ts\", \"src/services/digest-llm.ts\", \"src/mcp/setup.ts\", \"src/services/orchestrator-live.ts\", \"src/routes/api.ts\", \"src/services/__tests__/orchestrator-live.test.ts\"],\n  \"tasks\": [\n    { \"id\": \"burn-aggregate\", \"files\": [\"src/services/worker-ledger.ts\"], \"description\": \"add uncapped getBurnBySource GROUP BY source + BurnBySource type\" },\n    { \"id\": \"spend-ledger\", \"files\": [\"src/services/spend-ledger.ts\"], \"description\": \"new recordSpend (tokens×MODEL_PRICING USD estimate) + re-export getBurnBySource\" },\n    { \"id\": \"node-capture\", \"files\": [\"src/agent/node-invoker.ts\"], \"description\": \"NodeSpec.source+skipAutoLedger; default-on recordSpend in invokeNode/invokeGrokNode success paths\" },\n    { \"id\": \"leaf-optout\", \"files\": [\"src/services/leaf-executor.ts\"], \"description\": \"stamp skipAutoLedger:true on every runNode spec to avoid double-count\" },\n    { \"id\": \"judgment-onusage\", \"files\": [\"src/services/judgment-llm.ts\"], \"description\": \"JudgmentConfig.onUsage sink invoked with token usage in all three providers\" },\n    { \"id\": \"triage-digest-sources\", \"files\": [\"src/services/grok-triage.ts\", \"src/services/digest-llm.ts\"], \"description\": \"wire onUsage→recordSpend with sources 'triage' and 'digest'\" },\n    { \"id\": \"consult-sources\", \"files\": [\"src/mcp/setup.ts\"], \"description\": \"recordSpend for consult_grok ('consult-grok') and consult_codex ('consult-codex')\" },\n    { \"id\": \"burn-watch\", \"files\": [\"src/services/burn-watch.ts\"], \"description\": \"runBurnWatchPass: non-build source over call ceiling + no accepted work → deduped operator-gated token-burn escalation\" },\n    { \"id\": \"orchestrator-wire\", \"files\": [\"src/services/orchestrator-live.ts\"], \"description\": \"add burn field to getOrchestratorHealth; run throttled burnWatch pass in the tick\" },\n    { \"id\": \"usage-route\", \"files\": [\"src/routes/api.ts\"], \"description\": \"GET /api/usage/burn?project=&windowMs= returns getBurnBySource rollup\" },\n    { \"id\": \"tests\", \"files\": [\"src/services/__tests__/spend-ledger.test.ts\", \"src/services/__tests__/burn-watch.test.ts\", \"src/services/__tests__/orchestrator-live.test.ts\"], \"description\": \"spend-ledger + burn-watch tests; update health-shape assertion for burn field\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/spend-ledger.ts\", \"symbol\": \"recordSpend\", \"description\": \"default-on spend capture writing worker_ledger tagged by source, USD estimated from tokens when costUsd absent\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/worker-ledger.ts\", \"symbol\": \"getBurnBySource\", \"description\": \"uncapped SQL GROUP BY source rollup over a window\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/agent/node-invoker.ts\", \"symbol\": \"skipAutoLedger\", \"description\": \"NodeSpec opt-out flag; leaf-executor sets it, all other invokeNode/invokeGrokNode calls auto-record\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/judgment-llm.ts\", \"symbol\": \"onUsage\", \"description\": \"JudgmentConfig usage sink so triage/digest surface API token usage to recordSpend\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/burn-watch.ts\", \"symbol\": \"runBurnWatchPass\", \"description\": \"deduped operator-gated token-burn alarm keyed on non-build source call count with no accepted work\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/orchestrator-live.ts\", \"symbol\": \"runBurnWatchPass\", \"description\": \"burn-watch wired into the throttled orchestrator tick for watched projects\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/routes/api.ts\", \"symbol\": \"/api/usage/burn\", \"description\": \"HTTP gauge endpoint returning the per-source burn rollup\" },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/spend-ledger.test.ts\", \"testName\": \"getBurnBySource groups uncapped by source\", \"mechanical\": true },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/burn-watch.test.ts\", \"testName\": \"raises a deduped operator-gated token-burn escalation for a non-build source over the ceiling with no accepted work\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\"No UI burn-gauge component (backend field + route only)\", \"No new MODEL_PRICING entries — unknown models stay knownPrice=false, alarm keys on call count\", \"leaf spend recording via recordNode unchanged except adding skipAutoLedger\"]\n}\n```"
+    },
+    {
+      "id": "167d43a4",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 4,
+        "estimatedTasks": 4,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [
+          "ui/src/components/common/UsageBar.tsx",
+          "ui/src/components/layout/__tests__/Header.usageMeters.test.tsx"
+        ],
+        "filesToEdit": [
+          "ui/src/components/supervisor/zen/ZenMode.tsx",
+          "ui/src/components/layout/Header.tsx"
+        ],
+        "tasks": [
+          {
+            "id": "extract-shared-usagebar",
+            "files": [
+              "ui/src/components/common/UsageBar.tsx"
+            ],
+            "description": "Move Zen's inline UsageBar into a shared file as a named export and add a UsageMeters wrapper reading useUsageStore"
+          },
+          {
+            "id": "zen-reuse-shared",
+            "files": [
+              "ui/src/components/supervisor/zen/ZenMode.tsx"
+            ],
+            "description": "Delete inline UsageBar, import it from @/components/common/UsageBar, keep the two call sites"
+          },
+          {
+            "id": "header-usage-meters",
+            "files": [
+              "ui/src/components/layout/Header.tsx"
+            ],
+            "description": "Import and render <UsageMeters/> right after the ws-badge in the left status cluster"
+          },
+          {
+            "id": "header-usage-test",
+            "files": [
+              "ui/src/components/layout/__tests__/Header.usageMeters.test.tsx"
+            ],
+            "description": "Seed usageStore and assert the header renders usage-meters with 5h/7d readouts"
+          }
+        ],
+        "leafKind": "refactor",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/common/UsageBar.tsx",
+            "symbol": "UsageBar",
+            "description": "Shared named-export gauge component extracted from ZenMode"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/common/UsageBar.tsx",
+            "symbol": "UsageMeters",
+            "description": "Wrapper reading useUsageStore and rendering the 5h/7d pair for the header"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/layout/Header.tsx",
+            "symbol": "UsageMeters",
+            "description": "Header imports and renders UsageMeters next to the Live badge"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "ui/src/components/layout/__tests__/Header.usageMeters.test.tsx",
+            "testName": "renders account usage meters in the header",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No backend /api/usage or WS changes (App.tsx hydration already exists)",
+          "No usageStore shape or tier-threshold changes",
+          "Zen top strip keeps two explicit UsageBars rather than switching to UsageMeters"
+        ]
+      },
+      "rawText": "I now have a complete picture. Here is the implementation blueprint.\n\n---\n\n## Blueprint: Shared UsageBar + top-bar account usage meters\n\n### Goal\nExtract the inline `UsageBar` currently living in `ui/src/components/supervisor/zen/ZenMode.tsx:17-40` into a shared component at `ui/src/components/common/UsageBar.tsx`, add a `UsageMeters` wrapper that reads the app-wide `useUsageStore`, drop `UsageMeters` into the Header's left status cluster next to the Live badge, and have `ZenMode` re-render its two gauges via the shared component so the two surfaces stay pixel-identical.\n\n### Current state (verified)\n- The `UsageBar` FC is defined **inline** in `ZenMode.tsx:17-40`. It takes `{ label: string; percent: number | null }` and renders the tiered gauge (green `<50`, yellow `50–79`, red `≥80`; `bg-gray-400` when `null`). It is consumed at `ZenMode.tsx:330-331`:\n  ```tsx\n  <UsageBar label=\"5h\" percent={usage?.fiveHourPercent ?? null} />\n  <UsageBar label=\"7d\" percent={usage?.sevenDayPercent ?? null} />\n  ```\n- `usage` comes from `const usage = useUsageStore((s) => s.usage);` at `ZenMode.tsx:150`.\n- The store `ui/src/stores/usageStore.ts` exposes `useUsageStore` with `usage: UsageSnapshot | null` (`fiveHourPercent`, `sevenDayPercent`, `updatedAt`).\n- The store is already hydrated app-wide in `App.tsx` — `fetch('/api/usage')` at `App.tsx:337-339` and the `claude_usage_update` WS handler at `App.tsx:1050-1052`. **No hoisting needed** — any component can just read `useUsageStore`.\n- `Header.tsx` has its left status cluster ending with the **Live (ws-badge)** div at `Header.tsx:350-376`, which closes at line 376 immediately before the closing `</div>` of the logo cluster at line 378. There is no existing usage import in Header.\n- No `components/common/` dir exists yet — it will be created. (There is a `components/shared/`, but the leaf description explicitly specifies `components/common/UsageBar.tsx`; honoring that path.)\n\n### Change 1 — create `ui/src/components/common/UsageBar.tsx`\nMove the `UsageBar` FC verbatim (comment + tier logic + markup from `ZenMode.tsx:15-40`) into this new file as a **named export**, and add the `UsageMeters` wrapper in the same file.\n\n```tsx\nimport React from 'react';\nimport { useUsageStore } from '@/stores/usageStore';\n\n// One account-wide rate-limit gauge (5-hour or 7-day window).\n// Colour mirrors the statusline: green < 50, yellow 50–79, red ≥ 80.\nexport const UsageBar: React.FC<{ label: string; percent: number | null }> = ({ label, percent }) => {\n  // ...exact body moved from ZenMode.tsx:18-39 (unchanged)...\n};\n\n// App-wide pair of gauges (5h + 7d) reading the shared usageStore. Used in both\n// the Header status cluster and the Zen top strip so they stay identical.\nexport const UsageMeters: React.FC<{ className?: string }> = ({ className = '' }) => {\n  const usage = useUsageStore((s) => s.usage);\n  return (\n    <div className={`flex items-center gap-3 ${className}`} data-testid=\"usage-meters\">\n      <UsageBar label=\"5h\" percent={usage?.fiveHourPercent ?? null} />\n      <UsageBar label=\"7d\" percent={usage?.sevenDayPercent ?? null} />\n    </div>\n  );\n};\n```\nThe `UsageBar` markup is copied byte-for-byte so the two surfaces render identically.\n\n### Change 2 — `ZenMode.tsx` reuses the shared component\n- Delete the inline `UsageBar` definition (`ZenMode.tsx:15-40`).\n- Add `import { UsageBar } from '@/components/common/UsageBar';` alongside the existing imports (near `ZenMode.tsx:10-11`).\n- Leave the two consumption sites (`ZenMode.tsx:330-331`) and the `usage` selector (`ZenMode.tsx:150`) **unchanged** — they now bind to the imported `UsageBar`. (Keeping the explicit two `<UsageBar>` here rather than swapping to `<UsageMeters>` preserves Zen's existing `gap-4` layout in its top strip; identity is guaranteed by the shared `UsageBar`.)\n\n### Change 3 — Header renders `UsageMeters` next to the Live badge\n- Add `import { UsageMeters } from '@/components/common/UsageMeters';` — same file, so `import { UsageMeters } from '@/components/common/UsageBar';` (both exports live in `UsageBar.tsx`). Place near the other store imports (`Header.tsx:18-21`).\n- Insert `<UsageMeters className=\"ml-1\" />` immediately **after** the ws-badge closing `</div>` at `Header.tsx:376` and before the cluster-closing `</div>` at line 378, so the meters sit at the right end of the left status cluster, right after \"Live\".\n\n### Change 4 — test: Header shows the meters\nAdd `ui/src/components/layout/__tests__/Header.usageMeters.test.tsx` (vitest + RTL, following the `MemoryRouter` wrap convention already in `Header.test.tsx:19-27`). Seed the store via `useUsageStore.getState().setUsage({ fiveHourPercent: 42, sevenDayPercent: 88, updatedAt: 0 })`, render the Header, and assert `screen.getByTestId('usage-meters')` is present and that both `5h`/`42%` and `7d`/`88%` render (proving the shared gauge draws in the header).\n\n### Acceptance criteria (each citable)\n1. `ui/src/components/common/UsageBar.tsx` exists and exports a named `UsageBar` FC with the tiered-gauge markup (the `bg-danger-500`/`bg-yellow-500`/`bg-success-500` fill logic) — reviewer points at `common/UsageBar.tsx` `export const UsageBar`.\n2. `ui/src/components/common/UsageBar.tsx` exports `UsageMeters` which calls `useUsageStore((s) => s.usage)` and renders two `UsageBar`s (`5h`, `7d`) inside a `data-testid=\"usage-meters\"` container.\n3. `ZenMode.tsx` no longer defines `UsageBar` inline and instead imports it from `@/components/common/UsageBar` (the `import { UsageBar }` line is present; no local `const UsageBar` remains).\n4. `Header.tsx` imports `UsageMeters` and renders `<UsageMeters …/>` directly after the `ws-badge` block (within the logo/status cluster).\n5. `Header.usageMeters.test.tsx` `renders account usage meters in the header` passes: with the store seeded, `getByTestId('usage-meters')` and the `42%`/`88%` readouts are found.\n\n### Out of scope\n- No backend / `/api/usage` / WS changes — hydration already exists in `App.tsx`.\n- No change to store shape (`usageStore.ts`) or the tier-colour thresholds.\n- Not switching Zen's top strip to `UsageMeters` (kept as two explicit `UsageBar`s to preserve its `gap-4` spacing).\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 4, \"estimatedTasks\": 4,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [\"ui/src/components/common/UsageBar.tsx\", \"ui/src/components/layout/__tests__/Header.usageMeters.test.tsx\"],\n  \"filesToEdit\": [\"ui/src/components/supervisor/zen/ZenMode.tsx\", \"ui/src/components/layout/Header.tsx\"],\n  \"tasks\": [\n    { \"id\": \"extract-shared-usagebar\", \"files\": [\"ui/src/components/common/UsageBar.tsx\"], \"description\": \"Move Zen's inline UsageBar into a shared file as a named export and add a UsageMeters wrapper reading useUsageStore\" },\n    { \"id\": \"zen-reuse-shared\", \"files\": [\"ui/src/components/supervisor/zen/ZenMode.tsx\"], \"description\": \"Delete inline UsageBar, import it from @/components/common/UsageBar, keep the two call sites\" },\n    { \"id\": \"header-usage-meters\", \"files\": [\"ui/src/components/layout/Header.tsx\"], \"description\": \"Import and render <UsageMeters/> right after the ws-badge in the left status cluster\" },\n    { \"id\": \"header-usage-test\", \"files\": [\"ui/src/components/layout/__tests__/Header.usageMeters.test.tsx\"], \"description\": \"Seed usageStore and assert the header renders usage-meters with 5h/7d readouts\" }\n  ],\n  \"leafKind\": \"refactor\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/common/UsageBar.tsx\", \"symbol\": \"UsageBar\", \"description\": \"Shared named-export gauge component extracted from ZenMode\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/common/UsageBar.tsx\", \"symbol\": \"UsageMeters\", \"description\": \"Wrapper reading useUsageStore and rendering the 5h/7d pair for the header\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/layout/Header.tsx\", \"symbol\": \"UsageMeters\", \"description\": \"Header imports and renders UsageMeters next to the Live badge\" },\n    { \"kind\": \"named-test\", \"testFile\": \"ui/src/components/layout/__tests__/Header.usageMeters.test.tsx\", \"testName\": \"renders account usage meters in the header\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\"No backend /api/usage or WS changes (App.tsx hydration already exists)\", \"No usageStore shape or tier-threshold changes\", \"Zen top strip keeps two explicit UsageBars rather than switching to UsageMeters\"] }\n```"
+    },
+    {
+      "id": "1d38b170",
+      "leafKindExpected": "fix",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 2,
+        "estimatedTasks": 2,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [],
+        "filesToEdit": [
+          "ui/src/components/supervisor/bridge/BridgeDashboard.tsx"
+        ],
+        "tasks": [
+          {
+            "id": "repoint-missions-tab",
+            "files": [
+              "ui/src/components/supervisor/bridge/BridgeDashboard.tsx"
+            ],
+            "description": "Point panels.missions at MissionDetailPanel with session prop, add currentSession to useMemo deps, remove MissionsPanel import"
+          },
+          {
+            "id": "delete-missionspanel",
+            "files": [
+              "ui/src/components/supervisor/bridge/MissionsPanel.tsx"
+            ],
+            "description": "Delete the redundant MissionsPanel.tsx file (no remaining importers or tests)"
+          }
+        ],
+        "leafKind": "refactor",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/BridgeDashboard.tsx",
+            "symbol": "MissionDetailPanel",
+            "description": "The Missions rail tab (panels.missions) must render MissionDetailPanel, reusing the scroll/hide-completed/detail panel already opened by the mission strip."
+          },
+          {
+            "kind": "threshold",
+            "source": "grep-count",
+            "metric": "MissionsPanel references in ui/src",
+            "comparison": "eq",
+            "value": 0,
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No changes to MissionDetailPanel's internals (scroll/toggle/switcher already exist).",
+          "No rail/stage selection wiring changes (handleRailSelect already clears missionInStage).",
+          "No new tests authored; MissionsPanel had no dedicated test file to migrate."
+        ]
+      },
+      "rawText": "I have everything I need. Here's the blueprint.\n\n## Implementation Blueprint\n\n### Problem\nThe Bridge **Missions** rail tab renders a bespoke `MissionsPanel` (`ui/src/components/supervisor/bridge/MissionsPanel.tsx`) that: (a) has no scroll container (root `div.p-2`, `MissionsPanel.tsx:36`), (b) has no hide-completed filter, and (c) is rendered at `BridgeDashboard.tsx:505` **without** an `onOpenMission` prop, so every row is `disabled` (`MissionsPanel.tsx:50,57`) and un-clickable. Meanwhile `MissionDetailPanel` (`inspector/MissionDetailPanel.tsx`) — already opened from the mission strip and wired as `missionStagePanel` at `BridgeDashboard.tsx:513-514` — has all three: a scroll container (`h-full min-h-0 overflow-y-auto`, `MissionDetailPanel.tsx:59`), a \"Show completed\" toggle (`MissionDetailPanel.tsx:96-110`, testid `missions-show-completed`), and click-a-mission-to-read-detail via the \"Other missions\" switcher rows (`MissionDetailPanel.tsx:112-125`, `setSelectedId`).\n\n### Change shape\n\n**1. `ui/src/components/supervisor/bridge/BridgeDashboard.tsx`**\n\n- **Line 505** — repoint the `missions` panel entry from `MissionsPanel` to `MissionDetailPanel`, matching the exact prop set already used for `missionStagePanel` at line 514:\n  ```tsx\n  missions: <MissionDetailPanel serverId={serverScope} project={project} session={currentSession?.name} />,\n  ```\n  (`MissionDetailPanel` is already imported at `BridgeDashboard.tsx:56`; `currentSession` is in scope from `BridgeDashboard.tsx:102`.)\n\n- **Line 508** — the `panels` `useMemo` dependency array now references `currentSession?.name`, so add `currentSession` to the deps array (currently ends `...titleByTodoId, handleJump],`). Append `currentSession` to keep the memo correct and satisfy exhaustive-deps.\n\n- **Line 44** — delete the now-dead import `import { MissionsPanel } from './MissionsPanel';`.\n\n**2. `ui/src/components/supervisor/bridge/MissionsPanel.tsx`** — delete the entire file. It is the only definition of `MissionsPanel`; after edit #1 there are zero remaining importers (verified: only importer is `BridgeDashboard.tsx:44`), and its testids `missions-panel`/`mission-row` are referenced by no test file (no `MissionsPanel.test.tsx` exists; grep of those testids hits only `MissionsPanel.tsx` itself).\n\n### Verification notes\n- `serverScope` (`BridgeDashboard.tsx:104`) is the same value both current panels pass as `serverId`; no scope change.\n- `handleRailSelect` (`BridgeDashboard.tsx:518`) already clears `missionInStage` when a rail tab is picked, so selecting the Missions tab shows this panel in the stage exactly as before — no rail/stage wiring change needed.\n- After this change, both the Missions rail tab and the mission-strip click render `MissionDetailPanel` (the intended single source of truth).\n\n### Acceptance criteria (positive, citable)\n1. `BridgeDashboard.tsx` `panels.missions` renders `<MissionDetailPanel serverId={serverScope} project={project} session={currentSession?.name} />` (reviewer points at the edited line ~505).\n2. `currentSession` appears in the `panels` `useMemo` dependency array (edited line ~508).\n3. The `MissionsPanel` import line is gone from `BridgeDashboard.tsx` and `MissionsPanel.tsx` no longer exists — grep for `MissionsPanel` across `ui/src` returns 0 matches.\n4. `MissionDetailPanel` is the symbol referenced by the `missions` panel entry in `BridgeDashboard.tsx`.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 2, \"estimatedTasks\": 2,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [],\n  \"filesToEdit\": [\"ui/src/components/supervisor/bridge/BridgeDashboard.tsx\"],\n  \"tasks\": [\n    { \"id\": \"repoint-missions-tab\", \"files\": [\"ui/src/components/supervisor/bridge/BridgeDashboard.tsx\"], \"description\": \"Point panels.missions at MissionDetailPanel with session prop, add currentSession to useMemo deps, remove MissionsPanel import\" },\n    { \"id\": \"delete-missionspanel\", \"files\": [\"ui/src/components/supervisor/bridge/MissionsPanel.tsx\"], \"description\": \"Delete the redundant MissionsPanel.tsx file (no remaining importers or tests)\" }\n  ],\n  \"leafKind\": \"refactor\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/BridgeDashboard.tsx\", \"symbol\": \"MissionDetailPanel\", \"description\": \"The Missions rail tab (panels.missions) must render MissionDetailPanel, reusing the scroll/hide-completed/detail panel already opened by the mission strip.\" },\n    { \"kind\": \"threshold\", \"source\": \"grep-count\", \"metric\": \"MissionsPanel references in ui/src\", \"comparison\": \"eq\", \"value\": 0, \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"No changes to MissionDetailPanel's internals (scroll/toggle/switcher already exist).\",\n    \"No rail/stage selection wiring changes (handleRailSelect already clears missionInStage).\",\n    \"No new tests authored; MissionsPanel had no dedicated test file to migrate.\"\n  ] }\n```"
+    },
+    {
+      "id": "203ff9b2",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 2,
+        "estimatedTasks": 3,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [],
+        "filesToEdit": [
+          "scripts/blueprint-lab/emit.ts",
+          "scripts/blueprint-lab/__tests__/harness.test.ts"
+        ],
+        "tasks": [
+          {
+            "id": "add-repair-helper",
+            "files": [
+              "scripts/blueprint-lab/emit.ts"
+            ],
+            "description": "Add CONTRACT_REPAIR_SUFFIX const and exported emitContractWithRepair() with an attempt<2 retry loop mirroring mission-planner.ts"
+          },
+          {
+            "id": "rewire-runone-and-guard-main",
+            "files": [
+              "scripts/blueprint-lab/emit.ts"
+            ],
+            "description": "Wire runOne through emitContractWithRepair, add attempts to EmitResult, and guard top-level main() with if(import.meta.main)"
+          },
+          {
+            "id": "hermetic-retry-test",
+            "files": [
+              "scripts/blueprint-lab/__tests__/harness.test.ts"
+            ],
+            "description": "Add offline test asserting exactly-one repair retry with suffix on parse-null and no retry on first-parse success"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "scripts/blueprint-lab/emit.ts",
+            "symbol": "emitContractWithRepair",
+            "description": "Injectable-runner helper that runs the node up to twice, appending the repair suffix on attempt 2, returning the parsed DiffContract or null"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "scripts/blueprint-lab/emit.ts",
+            "symbol": "CONTRACT_REPAIR_SUFFIX",
+            "description": "Second-attempt prompt suffix demanding a single compact/escaped/prose-free json fence"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "scripts/blueprint-lab/__tests__/harness.test.ts",
+            "testName": "emitContractWithRepair re-asks exactly once with CONTRACT_REPAIR_SUFFIX on a parse-null first reply",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No changes to src/services/diff-contract.ts, src/mcp/tools/mission-planner.ts, corpus.ts, score.ts, or run.ts",
+          "No wiring into the daemon/leaf-executor pipeline — standalone lab harness only"
+        ]
+      },
+      "rawText": "I now have a complete understanding. Here's the blueprint.\n\n## Blueprint: Replicate the exactly-one contract-repair retry in the blueprint-lab emit harness\n\n### Context\n\n`src/mcp/tools/mission-planner.ts:161-194` implements an **exactly-one repair retry** around the planner node: a `for (let attempt = 0; attempt < 2 && !spec; attempt++)` loop invokes the node, on `attempt === 0` uses `basePrompt`, on `attempt === 1` appends a `REPAIR_SUFFIX` that demands compact/escaped/prose-free JSON, and parses each reply with `parseEpicSpec`. A parse success stops the loop; two failures throw.\n\nThe blueprint-lab emit harness (`scripts/blueprint-lab/emit.ts`) has **no such retry**: `runOne` (lines 135–157) calls `runEmitNode` exactly once and passes the reply straight to `parseDiffContract` (line 139). A single truncated/prose-wrapped reply becomes a `parse-null` — the exact failure mode the planner already guards against. This leaf ports that guard into the emit harness so the measured accept-rate reflects the retry the daemon planner path actually gets.\n\n### Changes\n\n**1. `scripts/blueprint-lab/emit.ts` — add the repair suffix + retry helper**\n\nAdd near the top (after the imports / `buildV2BlueprintPrompt`), mirroring `mission-planner.ts`'s `REPAIR_SUFFIX`:\n\n```ts\nexport const CONTRACT_REPAIR_SUFFIX =\n  '\\n\\nIMPORTANT: your FINAL reply must END with EXACTLY ONE ```json fenced block containing ONLY ' +\n  'the single v2 DiffContract object — compact, on as few lines as possible, every string properly ' +\n  'escaped (no literal newline inside a string, no unescaped quote or brace-breaking content), no ' +\n  'prose after the closing fence. A previous attempt was rejected as unparseable or truncated.';\n\n/** Emit a v2 DiffContract with ONE contract-repair retry (mirrors mission-planner.ts:161-194):\n *  on a parse-null first reply, re-ask ONCE with CONTRACT_REPAIR_SUFFIX appended. `run` is\n *  injected so this is unit-testable without spawning a node. */\nexport async function emitContractWithRepair(\n  basePrompt: string,\n  run: (prompt: string) => Promise<{ text: string; raw: string; stderrTail: string }>,\n): Promise<{ contract: DiffContract | null; text: string; raw: string; stderrTail: string; attempts: number }> {\n  let last: { text: string; raw: string; stderrTail: string } = { text: '', raw: '', stderrTail: '' };\n  let contract: DiffContract | null = null;\n  let attempts = 0;\n  for (let attempt = 0; attempt < 2 && contract === null; attempt++) {\n    attempts++;\n    last = await run(attempt === 0 ? basePrompt : basePrompt + CONTRACT_REPAIR_SUFFIX);\n    contract = parseDiffContract(last.text);\n  }\n  return { contract, ...last, attempts };\n}\n```\n\nThe `for (… attempt < 2 && contract === null …)` bound is the exact \"exactly-one retry\" shape from `mission-planner.ts:173`.\n\n**2. `scripts/blueprint-lab/emit.ts` — rewire `runOne` (lines 135–157)**\n\nReplace the single-shot call:\n\n```ts\nconst cwd = checkoutBase(c);\nconst prompt = buildV2BlueprintPrompt(c);\nconst { text, raw, stderrTail } = await runEmitNode(cwd, prompt);\nconst contract = parseDiffContract(text);\n```\n\nwith the retry helper:\n\n```ts\nconst cwd = checkoutBase(c);\nconst basePrompt = buildV2BlueprintPrompt(c);\nconst { contract, text, raw, stderrTail, attempts } = await emitContractWithRepair(\n  basePrompt,\n  (p) => runEmitNode(cwd, p),\n);\n```\n\nAdd `attempts` to the local `EmitResult` interface (line 128) as `attempts: number;` and include it in both `return` objects of `runOne` (line 156 and the catch-path fallback would set `attempts: 0` — but the catch is in `main`, line 177, so add `attempts: 0` there too) so the retry is observable in `run.json`. The `parseDiffContract` import (line 19) already covers the new usage.\n\n**3. `scripts/blueprint-lab/emit.ts:190` — guard top-level execution**\n\nChange the unconditional `main();` to:\n\n```ts\nif (import.meta.main) main();\n```\n\nmatching `run.ts:204` and `score.ts:149`. This is **required**: the new hermetic test imports `emitContractWithRepair` from this module, and without the guard the import would call `main()` and spawn real `claude -p` nodes.\n\n**4. `scripts/blueprint-lab/__tests__/harness.test.ts` — add a hermetic retry test**\n\nAdd an import for the new symbols from `../emit` and a `describe('emitContractWithRepair', …)` block with two `it` cases, following the existing offline/no-spawn convention (fake `run` closures, no node spawned):\n\n- **`'re-asks exactly once with CONTRACT_REPAIR_SUFFIX on a parse-null first reply'`** — a fake `run` that records prompts and returns unparseable text on call 1, then a valid v2 fence on call 2. Assert the returned `contract` is non-null, `attempts === 2`, the fake was called exactly twice, and the second prompt `.toContain(CONTRACT_REPAIR_SUFFIX)`.\n- **`'does not retry when the first reply parses'`** — a fake `run` returning a valid v2 fence immediately. Assert `attempts === 1` and the fake was called exactly once.\n\nReuse an inline valid fence string (e.g. `` '```json\\n' + JSON.stringify({schemaVersion:2, …}) + '\\n```' `` built from a shape like the existing `acceptContract` literal at lines 12–26).\n\n### Acceptance criteria (positive, citable)\n\n1. `scripts/blueprint-lab/emit.ts` exports `emitContractWithRepair`, whose loop is bounded `attempt < 2` and stops on the first non-null `parseDiffContract` result — the exactly-one-repair shape from `mission-planner.ts:173`.\n2. `scripts/blueprint-lab/emit.ts` exports the `CONTRACT_REPAIR_SUFFIX` string, appended only on the second attempt inside `emitContractWithRepair`.\n3. `runOne` in `scripts/blueprint-lab/emit.ts` obtains its `contract`/`text` from `emitContractWithRepair(basePrompt, (p) => runEmitNode(cwd, p))` rather than a single `runEmitNode`+`parseDiffContract` call.\n4. The local `EmitResult` interface in `scripts/blueprint-lab/emit.ts` gains an `attempts: number` field, populated on all return paths.\n5. `scripts/blueprint-lab/emit.ts`'s top-level `main()` call is guarded by `if (import.meta.main)`, matching `run.ts:204`.\n6. `scripts/blueprint-lab/__tests__/harness.test.ts` contains a named test asserting `emitContractWithRepair` re-asks exactly once (2 calls, `CONTRACT_REPAIR_SUFFIX` in the 2nd prompt) on a parse-null first reply, and does not retry when the first reply parses.\n\n### Out of scope\n- No changes to `src/services/diff-contract.ts`, `src/mcp/tools/mission-planner.ts`, `corpus.ts`, `score.ts`, or `run.ts`.\n- No change to the daemon/leaf-executor pipeline — this is the standalone lab harness only.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 2, \"estimatedTasks\": 3,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [],\n  \"filesToEdit\": [\"scripts/blueprint-lab/emit.ts\", \"scripts/blueprint-lab/__tests__/harness.test.ts\"],\n  \"tasks\": [\n    { \"id\": \"add-repair-helper\", \"files\": [\"scripts/blueprint-lab/emit.ts\"], \"description\": \"Add CONTRACT_REPAIR_SUFFIX const and exported emitContractWithRepair() with an attempt<2 retry loop mirroring mission-planner.ts\" },\n    { \"id\": \"rewire-runone-and-guard-main\", \"files\": [\"scripts/blueprint-lab/emit.ts\"], \"description\": \"Wire runOne through emitContractWithRepair, add attempts to EmitResult, and guard top-level main() with if(import.meta.main)\" },\n    { \"id\": \"hermetic-retry-test\", \"files\": [\"scripts/blueprint-lab/__tests__/harness.test.ts\"], \"description\": \"Add offline test asserting exactly-one repair retry with suffix on parse-null and no retry on first-parse success\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"scripts/blueprint-lab/emit.ts\", \"symbol\": \"emitContractWithRepair\", \"description\": \"Injectable-runner helper that runs the node up to twice, appending the repair suffix on attempt 2, returning the parsed DiffContract or null\" },\n    { \"kind\": \"symbol-present\", \"file\": \"scripts/blueprint-lab/emit.ts\", \"symbol\": \"CONTRACT_REPAIR_SUFFIX\", \"description\": \"Second-attempt prompt suffix demanding a single compact/escaped/prose-free json fence\" },\n    { \"kind\": \"named-test\", \"testFile\": \"scripts/blueprint-lab/__tests__/harness.test.ts\", \"testName\": \"emitContractWithRepair re-asks exactly once with CONTRACT_REPAIR_SUFFIX on a parse-null first reply\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"No changes to src/services/diff-contract.ts, src/mcp/tools/mission-planner.ts, corpus.ts, score.ts, or run.ts\",\n    \"No wiring into the daemon/leaf-executor pipeline — standalone lab harness only\"\n  ] }\n```"
+    },
+    {
+      "id": "375890db",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 4,
+        "estimatedTasks": 4,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [],
+        "filesToEdit": [
+          "src/services/diff-contract.ts",
+          "src/services/leaf-executor.ts",
+          "src/services/replay-corpus-store.ts",
+          "src/services/__tests__/diff-contract.test.ts"
+        ],
+        "tasks": [
+          {
+            "id": "add-underspec-helper",
+            "files": [
+              "src/services/diff-contract.ts"
+            ],
+            "description": "Add + export evaluateContractUnderspecification composing parseDiffContract + validateContractForKind, fail-safe on null contract"
+          },
+          {
+            "id": "extend-replay-gate",
+            "files": [
+              "src/services/replay-corpus-store.ts"
+            ],
+            "description": "Add 'contract-underspecified' to the ReplayGate union"
+          },
+          {
+            "id": "wire-bounded-repair",
+            "files": [
+              "src/services/leaf-executor.ts"
+            ],
+            "description": "Import the helper and add the bounded single-node blueprint-underspec repair block after the citability gate"
+          },
+          {
+            "id": "unit-test-helper",
+            "files": [
+              "src/services/__tests__/diff-contract.test.ts"
+            ],
+            "description": "Unit-test evaluateContractUnderspecification: underspecified, specified, and fail-safe cases"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "src/services/diff-contract.ts",
+            "symbol": "evaluateContractUnderspecification",
+            "description": "The composed parse+validate decision behind the bounded repair"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/leaf-executor.ts",
+            "symbol": "evaluateContractUnderspecification",
+            "description": "Imported and called in the blueprint path to drive the bounded repair via buildBlueprintRepairPrompt"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/diff-contract.test.ts",
+            "testName": "FAIL-SAFE: a blueprint with no parseable v2 contract is never underspecified",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "Parking/blocking the leaf on a persistently-underspecified contract (advisory-only by design; a future gate could escalate)",
+          "Changing buildNodePrompt to emit a v2 DiffContract instead of the v1 manifest",
+          "Any change to buildBlueprintRepairPrompt / validateContractForKind, which already exist"
+        ]
+      },
+      "rawText": "# Implementation Blueprint\n\n## Problem\n\nThe v2 `DiffContract` machinery is fully built and unit-tested but only *partially* wired into the blueprint pipeline. Today, `src/services/leaf-executor.ts` (the blueprint gate, lines ~2569–2648) runs a **bounded criteria-citability repair** (`validateCriteriaCitability` → `buildCriteriaRepairPrompt` → one `runNode('blueprint', …)` → re-validate), but there is **no analogous repair** for a v2 contract that is *underspecified for its own declared `leafKind`* per the §4 strictness matrix.\n\nThe two pure pieces already exist and are exported:\n- `validateContractForKind(contract, leafKind)` — `src/services/diff-contract.ts:99`\n- `buildBlueprintRepairPrompt(leaf, blueprintText, missingField)` — `src/services/leaf-executor.ts:1037`\n\nWhat is missing is (a) a small composed decision helper (parse + validate against the contract's own `leafKind`, fail-safe on a null/v1 contract) and (b) the wiring that spends **one** bounded repair node when a v2 contract is underspecified. `parseDiffContract` is already imported into `leaf-executor.ts:56` and already used at `leaf-executor.ts:2536`.\n\n## Change shape\n\n### 1. `src/services/diff-contract.ts` — add composed decision helper (new export)\n\nAdd, immediately after `validateContractForKind` (after line 111), a pure helper that composes `parseDiffContract` + `validateContractForKind` against the contract's **own** declared `leafKind`, and is FAIL-SAFE: a `blueprintBody` with no parseable v2 contract (e.g. a v1-only manifest, which is what `buildNodePrompt` at line 842 still emits) returns `{ underspecified: false }` — this repair only bites blueprints that opted into a v2 `DiffContract`.\n\n```ts\n/** Compose {@link parseDiffContract} + {@link validateContractForKind} against the contract's\n *  OWN declared leafKind — the one testable decision behind the bounded blueprint-underspec\n *  repair wired in leaf-executor.ts. FAIL-SAFE: a source with no parseable v2 contract (a v1-only\n *  manifest, the common case today) ⇒ { underspecified: false }, so this repair only bites\n *  blueprints that opted into a v2 DiffContract. Never throws (parseDiffContract never throws). */\nexport function evaluateContractUnderspecification(\n  ...sources: Array<string | undefined>\n):\n  | { underspecified: true; missingField: DiffRequirementKind; leafKind: DiffLeafKind }\n  | { underspecified: false } {\n  const contract = parseDiffContract(...sources);\n  if (!contract) return { underspecified: false };\n  const verdict = validateContractForKind(contract, contract.leafKind);\n  if (verdict.underspecified) {\n    return { underspecified: true, missingField: verdict.missingField, leafKind: contract.leafKind };\n  }\n  return { underspecified: false };\n}\n```\n\n(`parseDiffContract`, `validateContractForKind`, `DiffRequirementKind`, `DiffLeafKind` are all already defined above in this same file — no new imports.)\n\n### 2. `src/services/replay-corpus-store.ts` — extend the replay-gate union\n\nLine 13 is `export type ReplayGate = 'g3' | 'citability';`. Add the new gate name so the underspec evaluation is recordable/replayable on the same seam as citability:\n\n```ts\nexport type ReplayGate = 'g3' | 'citability' | 'contract-underspecified';\n```\n\nNo other change needed — `recordGateEval`/`RecordGateEvalInput` key off this union.\n\n### 3. `src/services/leaf-executor.ts` — import + wire the bounded repair\n\n**Import** (extend line 56):\n```ts\nimport { parseDiffContract, evaluateContractUnderspecification } from './diff-contract';\n```\n\n**Wiring block**: insert a new block immediately after the citability gate closes (after line 2648, before the `// --- AUTO-SPLIT` comment at line 2650). It mirrors the citability repair exactly — evaluate → record → one repair node → rebind `manifestText`/`manifest`/`blueprintBody` → re-evaluate + re-record — but is **advisory** (never parks): the v2 contract path is opt-in, so a still-underspecified contract continues to implement rather than stranding the leaf. Bounded = a single repair node, never a loop. All referenced closures (`smallTier`, `buildSpec`, `runNode`, `checkBudget`, `parkNodeStartFailure`, `pausedResult`, `parkBlocked`, `state.attempt`, `manifest`, `manifestText`, `blueprintBody`) are the same ones the citability block above it uses, and are confirmed in scope.\n\n```ts\n    // --- CONTRACT UNDERSPECIFICATION REPAIR (bounded, pre-implement) --------\n    // If the blueprint carries a v2 DiffContract (diff-contract.ts) that is UNDERSPECIFIED for\n    // its OWN declared leafKind per the §4 strictness matrix, re-prompt the blueprint node ONCE\n    // with the missing requirement-kind quoted (buildBlueprintRepairPrompt). BOUNDED to a single\n    // repair — never a thrash loop. ADVISORY: a still-underspecified contract continues to\n    // implement (does NOT park), since the v2 contract path is opt-in. FAIL-SAFE: a v1-only /\n    // unparseable blueprint ⇒ { underspecified: false } ⇒ no-op.\n    let underspec = evaluateContractUnderspecification(blueprintBody);\n    if (!smallTier && underspec.underspecified) {\n      try {\n        await deps.recordGateEval?.(project, {\n          gate: 'contract-underspecified',\n          leafId: leaf.id,\n          inputText: blueprintBody,\n          changeSet: [],\n          verdict: 'underspecified',\n          reasons: `missing ${underspec.missingField} for leafKind ${underspec.leafKind}`,\n        });\n      } catch { /* replay corpus is telemetry — never break the run */ }\n\n      const repairSpec = {\n        ...buildSpec('blueprint', cwd),\n        prompt: buildBlueprintRepairPrompt(leaf, blueprintBody, underspec.missingField),\n      };\n      const repair = await runNode('blueprint', repairSpec);\n      if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);\n      if (repair.rateLimited) return pausedResult('blueprint', repair);\n      if (!checkBudget()) return parkBlocked('node-budget-exhausted');\n      if (repair.ok) {\n        const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);\n        const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';\n        const reManifest = parseSizeManifest(reText, repair.text);\n        if (reText && reText.trim()) manifestText = reText;\n        if (reManifest) manifest = reManifest;\n        blueprintBody = reBody;\n        if (reText && reManifest) {\n          try {\n            await deps.persistBlueprint?.({\n              project, leaf, attempt: state.attempt, manifest: reManifest, blueprintMd: reText,\n            });\n          } catch { /* persistence is durable-telemetry — never break the run */ }\n        }\n        underspec = evaluateContractUnderspecification(blueprintBody);\n        try {\n          await deps.recordGateEval?.(project, {\n            gate: 'contract-underspecified',\n            leafId: leaf.id,\n            inputText: blueprintBody,\n            changeSet: [],\n            verdict: underspec.underspecified ? 'underspecified' : 'specified',\n            reasons: underspec.underspecified\n              ? `missing ${underspec.missingField} for leafKind ${underspec.leafKind}`\n              : 'repaired',\n          });\n        } catch { /* replay corpus is telemetry — never break the run */ }\n      }\n    }\n```\n\n### 4. `src/services/__tests__/diff-contract.test.ts` — unit tests for the helper\n\nThe test file already imports from `../diff-contract` (line 3) and `bun:test`. Add `evaluateContractUnderspecification` to that import and append a new `describe` block. This is the \"unit test\" deliverable — it exercises the exact composed decision the wiring calls, including the fail-safe.\n\n```ts\ndescribe('evaluateContractUnderspecification (bounded blueprint-underspec repair decision)', () => {\n  const base: DiffContract = {\n    schemaVersion: 2, estimatedFiles: 1, estimatedTasks: 1, nonEnumerableFanout: false,\n    filesToCreate: [], filesToEdit: [], tasks: [], leafKind: 'feature', requirements: [], outOfScope: [],\n  };\n\n  it('flags a feature contract missing named-test against its own declared leafKind', () => {\n    const c: DiffContract = {\n      ...base,\n      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],\n    };\n    const result = evaluateContractUnderspecification(renderContract(c));\n    expect(result).toEqual({ underspecified: true, missingField: 'named-test', leafKind: 'feature' });\n  });\n\n  it('passes a fully-specified feature contract', () => {\n    const c: DiffContract = {\n      ...base,\n      requirements: [\n        { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' },\n        { kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },\n      ],\n    };\n    expect(evaluateContractUnderspecification(renderContract(c))).toEqual({ underspecified: false });\n  });\n\n  it('FAIL-SAFE: a blueprint with no parseable v2 contract is never underspecified', () => {\n    expect(evaluateContractUnderspecification('prose only, no json fence')).toEqual({ underspecified: false });\n    expect(evaluateContractUnderspecification('```json\\n{ \"schemaVersion\": 1 }\\n```')).toEqual({ underspecified: false });\n    expect(evaluateContractUnderspecification(undefined)).toEqual({ underspecified: false });\n  });\n});\n```\n\nRun with `npm run test:ci -- src/services/__tests__/diff-contract.test.ts` (backend `bun:test` file, per the dual-runner convention).\n\n## Acceptance criteria (positive, citable)\n\n1. `src/services/diff-contract.ts` exports a new `evaluateContractUnderspecification(...sources)` that returns `{ underspecified: true, missingField, leafKind }` when its parsed contract fails `validateContractForKind` for the contract's own `leafKind`, and `{ underspecified: false }` when the contract passes **or** no v2 contract parses.\n2. `src/services/leaf-executor.ts:56` imports `evaluateContractUnderspecification` from `'./diff-contract'`.\n3. `src/services/leaf-executor.ts` gains a repair block (after the citability gate, before `// --- AUTO-SPLIT`) that calls `evaluateContractUnderspecification(blueprintBody)` and, when `underspecified`, builds `buildBlueprintRepairPrompt(leaf, blueprintBody, underspec.missingField)` and runs exactly one `runNode('blueprint', repairSpec)`.\n4. That block rebinds `manifestText`, `manifest`, and `blueprintBody` to the repaired blueprint on `repair.ok`, then re-calls `evaluateContractUnderspecification` — the repair is bounded to a single node (no loop).\n5. The block honors the same pause/budget seams as the citability block: `repair.startFailure → parkNodeStartFailure('blueprint', repair)`, `repair.rateLimited → pausedResult('blueprint', repair)`, `!checkBudget() → parkBlocked('node-budget-exhausted')`.\n6. `src/services/replay-corpus-store.ts:13` `ReplayGate` union includes `'contract-underspecified'`, and the wiring calls `deps.recordGateEval` with `gate: 'contract-underspecified'` both before and after the repair.\n7. `src/services/__tests__/diff-contract.test.ts` adds a `describe('evaluateContractUnderspecification …')` block whose cases cover: an underspecified feature contract (asserts `missingField: 'named-test'`), a fully-specified feature contract (`{ underspecified: false }`), and the fail-safe no-v2-contract case.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 4, \"estimatedTasks\": 4,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [],\n  \"filesToEdit\": [\n    \"src/services/diff-contract.ts\",\n    \"src/services/leaf-executor.ts\",\n    \"src/services/replay-corpus-store.ts\",\n    \"src/services/__tests__/diff-contract.test.ts\"\n  ],\n  \"tasks\": [\n    { \"id\": \"add-underspec-helper\", \"files\": [\"src/services/diff-contract.ts\"], \"description\": \"Add + export evaluateContractUnderspecification composing parseDiffContract + validateContractForKind, fail-safe on null contract\" },\n    { \"id\": \"extend-replay-gate\", \"files\": [\"src/services/replay-corpus-store.ts\"], \"description\": \"Add 'contract-underspecified' to the ReplayGate union\" },\n    { \"id\": \"wire-bounded-repair\", \"files\": [\"src/services/leaf-executor.ts\"], \"description\": \"Import the helper and add the bounded single-node blueprint-underspec repair block after the citability gate\" },\n    { \"id\": \"unit-test-helper\", \"files\": [\"src/services/__tests__/diff-contract.test.ts\"], \"description\": \"Unit-test evaluateContractUnderspecification: underspecified, specified, and fail-safe cases\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/diff-contract.ts\", \"symbol\": \"evaluateContractUnderspecification\", \"description\": \"The composed parse+validate decision behind the bounded repair\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/leaf-executor.ts\", \"symbol\": \"evaluateContractUnderspecification\", \"description\": \"Imported and called in the blueprint path to drive the bounded repair via buildBlueprintRepairPrompt\" },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/diff-contract.test.ts\", \"testName\": \"FAIL-SAFE: a blueprint with no parseable v2 contract is never underspecified\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"Parking/blocking the leaf on a persistently-underspecified contract (advisory-only by design; a future gate could escalate)\",\n    \"Changing buildNodePrompt to emit a v2 DiffContract instead of the v1 manifest\",\n    \"Any change to buildBlueprintRepairPrompt / validateContractForKind, which already exist\"\n  ]\n}\n```"
+    },
+    {
+      "id": "5c1482ef",
+      "leafKindExpected": "fix",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 7,
+        "estimatedTasks": 4,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [],
+        "filesToEdit": [
+          "src/services/conductor-pass.ts",
+          "src/services/session-summary-loop.ts",
+          "src/services/triage-pass.ts",
+          "src/services/supervisor-store.ts",
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/__tests__/session-summary-loop.test.ts",
+          "src/services/__tests__/triage-pass.test.ts"
+        ],
+        "tasks": [
+          {
+            "id": "conductor-failkey-and-ledger",
+            "files": [
+              "src/services/conductor-pass.ts",
+              "src/services/__tests__/conductor-pass.test.ts"
+            ],
+            "description": "Key the fail counter on serveFp (drop global land count); tag the conductor invoke ledgerSource:'conductor'"
+          },
+          {
+            "id": "summary-normalized-changegate",
+            "files": [
+              "src/services/session-summary-loop.ts",
+              "src/services/__tests__/session-summary-loop.test.ts"
+            ],
+            "description": "Add normalizePaneForHash + paneSig/summaryPaneSig; interpret change-gate uses the normalized sig; tag interpret invoke ledgerSource:'summary'"
+          },
+          {
+            "id": "triage-null-backoff-store",
+            "files": [
+              "src/services/supervisor-store.ts"
+            ],
+            "description": "Add triageNullUntil/triageNullRevision columns+fields and setEscalationTriageNullBackoff setter"
+          },
+          {
+            "id": "triage-null-backoff-pass",
+            "files": [
+              "src/services/triage-pass.ts",
+              "src/services/__tests__/triage-pass.test.ts"
+            ],
+            "description": "Stamp a null-result backoff on null classify; isTriageEligible skips backed-off escalations, released early on todo revision change"
+          }
+        ],
+        "leafKind": "fix",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "src/services/conductor-pass.ts",
+            "symbol": "serveFp",
+            "description": "fail counter keyed on the serve-state fingerprint alone, not the global land-card count"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/session-summary-loop.ts",
+            "symbol": "normalizePaneForHash",
+            "description": "strips volatile spinner/timer/token sub-tokens so the interpret change-gate ignores idle re-renders"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/session-summary-loop.ts",
+            "symbol": "summaryPaneSig",
+            "description": "normalized change-gate anchor, distinct from raw summaryPaneHash (answerability preserved)"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/supervisor-store.ts",
+            "symbol": "setEscalationTriageNullBackoff",
+            "description": "persists the per-escalation null-classify backoff window + revision"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/triage-pass.ts",
+            "symbol": "isTriageNullBackedOff",
+            "description": "gates re-classify while backed off; released early on linked-todo revision change"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/session-summary-loop.ts",
+            "symbol": "ledgerSource",
+            "description": "summary interpret invokeNode tagged ledgerSource:'summary' for the spend tracker"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/conductor-pass.test.ts",
+            "testName": "conductor fail-counter stays capped when an unrelated global land card toggles",
+            "mechanical": true
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/session-summary-loop.test.ts",
+            "testName": "normalizePaneForHash strips spinner/timer/token but keeps real content",
+            "mechanical": true
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/triage-pass.test.ts",
+            "testName": "null classify backs off and is re-eligible only when the linked todo revision changes",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "The self-summary-nudge change-gate (shouldSelfNudge, line 1170) is tmux-nudge-only (no model tokens) and keeps its raw paneHash===summaryPaneHash comparison — not part of this token-spend fix.",
+          "summaryPaneHash stays the RAW pane hash so paneStillMatches answerability is unchanged; only the new summaryPaneSig is normalized.",
+          "No change to grok-triage.ts spend recording (already source:'triage')."
+        ]
+      },
+      "rawText": "I now have a complete picture of all three leak sites and the ledger-tagging surface. Here is the implementation blueprint.\n\n---\n\n# Blueprint — stop three idle-system token leaks (conductor / summary / triage)\n\nEach leak shares one shape: a \"don't re-spend\" gate keyed on a value that **drifts while the system is idle**, so the gate keeps reopening and re-firing an expensive model call. Fix each by keying the gate on a value that only changes when *real* work state changes, and tag the two currently-untagged daemon calls with a ledger source.\n\n## Leak 1 — conductor fail-counter keyed on the global land-card count\n\n**File:** `src/services/conductor-pass.ts` (`runConductorPassInner`, lines ~234–283)\n\nToday `fp = conductorFingerprint(status, actions) + '|land:${landCards}'` (line 234), where `landCards` (line 223) is the **project-global** open `epic-ready-to-land` count. The failure retry counter is stored as `` `${fp}|fail:N` `` and read back via `failPrefix = '${fp}|fail:'` (line 242). Because `fp` embeds `landCards`, any unrelated land card appearing/clearing anywhere in the project changes `fp`, so `lastKey.startsWith(failPrefix)` goes false, `priorFails` resets to `0` (line 243), and a structurally-unservable mission (9688e874 crit7) re-spawns `CONDUCTOR_SERVE_RETRY_CAP` fresh conductor nodes.\n\n**Change shape:**\n- Split the fingerprint at line 234:\n  ```ts\n  const serveFp = conductorFingerprint(status, actions);     // serve-state ALONE — stable while idle\n  const fp = serveFp + `|land:${landCards}`;                 // full state incl land — success debounce only\n  ```\n- Line 242: key the fail counter on the serve-state fingerprint alone:\n  ```ts\n  const failPrefix = `${serveFp}|fail:`;\n  ```\n  The success-debounce check (line 237 `lastKey === fp`) and the success stamp (line 279 `stampConductorRun(project, missionId, fp)`) keep using `fp` — a genuine land-state change should still let a productive/landing pass run. Only the **fail** counter (lines 243–244 read, line 281 stamp `` `${failPrefix}${priorFails + 1}` ``) moves to `serveFp`, so an unservable serve-state caps once (`priorFails >= CONDUCTOR_SERVE_RETRY_CAP`) and stays capped regardless of unrelated global land-card churn.\n- Tag the conductor node call (lines 250–261): add `ledgerSource: 'conductor',` to the `invoke` spec (it currently relies on `transcriptLabel: 'conductor'` as the fallback source; make the ledger tag explicit for the spend tracker).\n\n## Leak 2 — summary interpret change-gate hashes the raw pane\n\n**File:** `src/services/session-summary-loop.ts`\n\nThe interpret change-gate (`shouldSummarize`, line 692: `if (hash === prev?.summaryPaneHash) return false`) compares a SHA-1 of the **raw** pane (`hash`, line 946). A spinner glyph / elapsed timer / token counter re-rendering on an otherwise-idle pane flips that raw hash every window, so the gate reopens and re-fires the sonnet interpret (line 629 `invokeNode`) each tick.\n\nThe raw `paneHash` must **stay raw** — it drives progress-state activity detection (`changed`, line 947 → `active`/`paneSeenAt`, and the spinner-is-still-working note at lines 972–974) and answerability (`paneStillMatches` compares `summaryPaneHash` against raw `paneHash`, read-model lines 521–534, and `websocket/handler.ts:127`). So introduce a **separate normalized signature** for the interpret change-gate only.\n\n**Change shape:**\n- Add exported `normalizePaneForHash(pane: string): string` (near the other pure helpers). It replaces only volatile sub-tokens with a fixed placeholder, leaving all other text intact:\n  - Claude/braille spinner glyphs (`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏·✢✳✽✻*✶✷]`),\n  - elapsed timers (`\\(\\d+s\\)`, `\\b\\d+m\\s*\\d+s\\b`, `\\b\\d+s\\b` adjacent to a spinner/\"esc to interrupt\" line),\n  - token counters (`\\b[\\d.]+k?\\s*tokens\\b`, `↑\\s*[\\d.]+k?`).\n  Collapse runs of the placeholder so a spinner cycling `⠋→⠙` yields an identical normalized string; a real content change still differs.\n- Add two optional fields to `SessionSummaryEntry` (after `summaryPaneHash`, line 95): `paneSig?: string` (live normalized signature) and `summaryPaneSig?: string` (normalized signature at the last interpret).\n- In the tick (line 946 area) compute alongside the raw hash:\n  ```ts\n  const paneSig = createHash('sha1').update(normalizePaneForHash(pane)).digest('hex');\n  ```\n  Set `entry.paneSig = paneSig` (line ~1005 entry) and carry `summaryPaneSig: prev?.summaryPaneSig` in every entry construction (lines ~897, ~930, ~1015).\n- `shouldSummarize` (lines 668–698): rename the second param `hash`→`sig` and change the change-gate to `if (sig === prev?.summaryPaneSig) return false;` (line 692). Update the two call sites to pass the normalized sig: line 1029 `shouldSummarize(prev, paneSig, …)`.\n- `runInterpretAndEmit` (lines 712–724): add a `sig: string` arg and, on success, stamp `cur.summaryPaneSig = args.sig;` next to the existing `cur.summaryPaneHash = args.hash;` (line 756). `summaryPaneHash` stays the **raw** hash (answerability preserved); `summaryPaneSig` is the normalized change-gate anchor. Pass `sig: paneSig` from both callers (tick line 1036; `refreshSummaryNow` line 1140 — compute `paneSig` there too, line ~1122).\n- `pushSessionSummary` (lines 188–204): set `summaryPaneSig: prev?.paneSig ?? ''` and carry `paneSig: prev?.paneSig` (leave `summaryPaneHash: paneHash` unchanged, raw, for answerability).\n- Tag the interpret call: add `ledgerSource: 'summary',` (and `transcriptLabel: 'summary'`) to the `invokeNode` spec at line 629 (currently no source → falls back to `'node'`; the spend tracker needs it attributed to `summary`).\n\n## Leak 3 — triage null classify leaves the escalation eternally eligible\n\n**Files:** `src/services/triage-pass.ts`, `src/services/supervisor-store.ts`\n\nWhen `classifyEscalation` returns `null` (Grok down / unparseable), `runTriagePass` does a bare `continue` (line 231) — no suggestion stored, so `isSuggestionFresh` returns false (line 65–66) and `isTriageEligible` (line 86) keeps it eligible, re-classifying it every tick.\n\n**Change shape (store):**\n- Add two columns via `addColumnIfMissing` (after line 349): `triageNullUntil INTEGER` and `triageNullRevision TEXT`.\n- Add fields to `interface Escalation` (after `triageInFlight`, line 151): `triageNullUntil: number | null;` and `triageNullRevision: string | null;`. They flow through `mapEscalationRow`'s `...rest` (line 711–713) automatically; add `?? null` coercion for older rows if needed and initialize both to `null` in the create path (line ~971).\n- Add setter `setEscalationTriageNullBackoff(id: string, untilMs: number | null, revision: string | null): void` (next to `setEscalationTriageInFlight`, line 998):\n  ```ts\n  d.prepare('UPDATE escalation SET triageNullUntil = ?, triageNullRevision = ? WHERE id = ?')\n   .run(untilMs, revision, id);\n  ```\n\n**Change shape (pass):**\n- Add `export const TRIAGE_NULL_BACKOFF_MS = 10 * 60_000;` near `TRIAGE_CAP` (line 39).\n- Add `export function isTriageNullBackedOff(esc, getTodoFn, nowMs): boolean` — true iff `esc.triageNullUntil != null && nowMs < esc.triageNullUntil` AND the linked todo revision is unchanged (`esc.todoId` → `getTodoFn(esc.project, esc.todoId)?.updatedAt === esc.triageNullRevision`); a differing revision (todo moved on) **releases the backoff early** → returns false.\n- `isTriageEligible` (lines 75–88): add a `nowMs = Date.now()` param and, before `return true`, add `if (isTriageNullBackedOff(esc, getTodoFn, nowMs)) return false;`. Update the one internal caller (line 189) to pass `now`.\n- At the null branch (lines 230–231), replace the bare `continue` with a backoff stamp:\n  ```ts\n  const suggestion = await classifyEscalation(project, esc, deps);\n  if (!suggestion) {\n    const rev = esc.todoId ? getTodoRevision(project, esc.todoId)?.updatedAt ?? null : null;\n    (deps.setNullBackoff ?? setEscalationTriageNullBackoff)(esc.id, Date.now() + TRIAGE_NULL_BACKOFF_MS, rev);\n    continue; // fail-open: human still sees the plain escalation, but we don't re-spend every tick\n  }\n  ```\n  Add an optional `setNullBackoff?: typeof setEscalationTriageNullBackoff` to `TriagePassDeps` (line 90) for injectability. (Triage spend itself is already tagged `source: 'triage'` at `grok-triage.ts:199` — no ledger change needed there.)\n\n## Tests (named, mechanical)\n\n- `src/services/__tests__/conductor-pass.test.ts` — `conductor fail-counter stays capped when an unrelated global land card toggles`: drive to `CONDUCTOR_SERVE_RETRY_CAP` fails on an unservable mission, then flip an unrelated `epic-ready-to-land` card in the same project between ticks; assert the next pass is still `debounced` and no additional node is invoked.\n- `src/services/__tests__/session-summary-loop.test.ts` — `normalizePaneForHash strips spinner/timer/token but keeps real content`: two panes differing only in spinner glyph + elapsed timer + token counter normalize to the same string (equal sigs); a pane with a changed content line normalizes to a different string.\n- `src/services/__tests__/triage-pass.test.ts` — `null classify backs off and is re-eligible only when the linked todo revision changes`: a classify returning `null` stamps `triageNullUntil`; `isTriageEligible` returns false on the next tick while the todo revision is unchanged, and true again once `getTodoRevision` reports a new `updatedAt`.\n\n## Acceptance criteria (positive, citable)\n\n1. `conductor-pass.ts` defines `serveFp = conductorFingerprint(status, actions)` and `failPrefix` is derived from `serveFp` (not `fp`).\n2. `conductor-pass.ts` conductor `invoke` spec passes `ledgerSource: 'conductor'`.\n3. `session-summary-loop.ts` exports `normalizePaneForHash` and the interpret change-gate in `shouldSummarize` compares against `summaryPaneSig`.\n4. `session-summary-loop.ts` interpret `invokeNode` spec passes `ledgerSource: 'summary'`.\n5. `supervisor-store.ts` exports `setEscalationTriageNullBackoff` and `Escalation` carries `triageNullUntil`.\n6. `triage-pass.ts` exports `isTriageNullBackedOff` and `isTriageEligible` consults it.\n7. The three named tests above exist and pass.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 7, \"estimatedTasks\": 4,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [],\n  \"filesToEdit\": [\n    \"src/services/conductor-pass.ts\",\n    \"src/services/session-summary-loop.ts\",\n    \"src/services/triage-pass.ts\",\n    \"src/services/supervisor-store.ts\",\n    \"src/services/__tests__/conductor-pass.test.ts\",\n    \"src/services/__tests__/session-summary-loop.test.ts\",\n    \"src/services/__tests__/triage-pass.test.ts\"\n  ],\n  \"tasks\": [\n    { \"id\": \"conductor-failkey-and-ledger\", \"files\": [\"src/services/conductor-pass.ts\", \"src/services/__tests__/conductor-pass.test.ts\"], \"description\": \"Key the fail counter on serveFp (drop global land count); tag the conductor invoke ledgerSource:'conductor'\" },\n    { \"id\": \"summary-normalized-changegate\", \"files\": [\"src/services/session-summary-loop.ts\", \"src/services/__tests__/session-summary-loop.test.ts\"], \"description\": \"Add normalizePaneForHash + paneSig/summaryPaneSig; interpret change-gate uses the normalized sig; tag interpret invoke ledgerSource:'summary'\" },\n    { \"id\": \"triage-null-backoff-store\", \"files\": [\"src/services/supervisor-store.ts\"], \"description\": \"Add triageNullUntil/triageNullRevision columns+fields and setEscalationTriageNullBackoff setter\" },\n    { \"id\": \"triage-null-backoff-pass\", \"files\": [\"src/services/triage-pass.ts\", \"src/services/__tests__/triage-pass.test.ts\"], \"description\": \"Stamp a null-result backoff on null classify; isTriageEligible skips backed-off escalations, released early on todo revision change\" }\n  ],\n  \"leafKind\": \"fix\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/conductor-pass.ts\", \"symbol\": \"serveFp\", \"description\": \"fail counter keyed on the serve-state fingerprint alone, not the global land-card count\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/session-summary-loop.ts\", \"symbol\": \"normalizePaneForHash\", \"description\": \"strips volatile spinner/timer/token sub-tokens so the interpret change-gate ignores idle re-renders\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/session-summary-loop.ts\", \"symbol\": \"summaryPaneSig\", \"description\": \"normalized change-gate anchor, distinct from raw summaryPaneHash (answerability preserved)\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/supervisor-store.ts\", \"symbol\": \"setEscalationTriageNullBackoff\", \"description\": \"persists the per-escalation null-classify backoff window + revision\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/triage-pass.ts\", \"symbol\": \"isTriageNullBackedOff\", \"description\": \"gates re-classify while backed off; released early on linked-todo revision change\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/session-summary-loop.ts\", \"symbol\": \"ledgerSource\", \"description\": \"summary interpret invokeNode tagged ledgerSource:'summary' for the spend tracker\" },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/conductor-pass.test.ts\", \"testName\": \"conductor fail-counter stays capped when an unrelated global land card toggles\", \"mechanical\": true },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/session-summary-loop.test.ts\", \"testName\": \"normalizePaneForHash strips spinner/timer/token but keeps real content\", \"mechanical\": true },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/triage-pass.test.ts\", \"testName\": \"null classify backs off and is re-eligible only when the linked todo revision changes\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"The self-summary-nudge change-gate (shouldSelfNudge, line 1170) is tmux-nudge-only (no model tokens) and keeps its raw paneHash===summaryPaneHash comparison — not part of this token-spend fix.\",\n    \"summaryPaneHash stays the RAW pane hash so paneStillMatches answerability is unchanged; only the new summaryPaneSig is normalized.\",\n    \"No change to grok-triage.ts spend recording (already source:'triage').\"\n  ] }\n```"
+    },
+    {
+      "id": "5f3e8413",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 7,
+        "estimatedTasks": 5,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [
+          "ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx",
+          "ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx",
+          "ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx",
+          "ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx"
+        ],
+        "filesToEdit": [
+          "ui/src/components/supervisor/bridge/rail/RailNav.tsx",
+          "ui/src/components/supervisor/bridge/rail/BridgeRail.tsx",
+          "ui/src/components/supervisor/bridge/BridgeDashboard.tsx"
+        ],
+        "tasks": [
+          {
+            "id": "railkey-and-items",
+            "files": [
+              "ui/src/components/supervisor/bridge/rail/RailNav.tsx",
+              "ui/src/components/supervisor/bridge/rail/BridgeRail.tsx"
+            ],
+            "description": "Add 'missions' (HOME) and 'usage' (TELEMETRY) to RailKey and the rail sections"
+          },
+          {
+            "id": "missions-panel",
+            "files": [
+              "ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx"
+            ],
+            "description": "Read-only missions overview via useMissions + missionView"
+          },
+          {
+            "id": "usage-panel",
+            "files": [
+              "ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx"
+            ],
+            "description": "UsageMeters + per-source burn table with window+scope toggles, build dimmed / overhead bold"
+          },
+          {
+            "id": "wire-panels",
+            "files": [
+              "ui/src/components/supervisor/bridge/BridgeDashboard.tsx"
+            ],
+            "description": "Add missions and usage entries to the panels map"
+          },
+          {
+            "id": "tests",
+            "files": [
+              "ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx",
+              "ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx"
+            ],
+            "description": "Vitest coverage for both panels"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/rail/RailNav.tsx",
+            "symbol": "usage",
+            "description": "RailKey union gains 'missions' and 'usage' literals"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx",
+            "symbol": "MissionsPanel",
+            "description": "Read-only missions overview panel wiring useMissions+missionView"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx",
+            "symbol": "UsagePanel",
+            "description": "Usage panel: UsageMeters + /api/usage/burn table grouped build vs overhead"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/BridgeDashboard.tsx",
+            "symbol": "MissionsPanel",
+            "description": "BridgeDashboard imports and mounts the new panels in the panels map"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx",
+            "testName": "renders one row per mission with derived status",
+            "mechanical": true
+          },
+          {
+            "kind": "named-test",
+            "testFile": "ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx",
+            "testName": "splits build (dimmed) from overhead (bold) burn rows",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No backend/route changes — /api/supervisor/missions and /api/usage/burn already exist",
+          "No mission authoring/mutation controls in MissionsPanel — read-only (MissionDetailPanel keeps authoring)",
+          "No new burn store/WS event — panels fetch directly like ExecutorStatsPanel"
+        ]
+      },
+      "rawText": "I now have a complete picture. Here is the blueprint.\n\n## Implementation Blueprint — Missions & Usage tabs in the left rail\n\n### Context (verified)\n\nThe Bridge left rail is data-driven: `BridgeRail` (`ui/src/components/supervisor/bridge/rail/BridgeRail.tsx`) builds four `RailSection`s (`home`/`act`/`work`/`telemetry`) whose items are keyed by the `RailKey` union in `rail/RailNav.tsx:3`. Clicking an item calls `BridgeDashboard`'s `handleRailSelect` (`BridgeDashboard.tsx:514`), which sets `railPanel`; the corresponding node in the `panels` map (`BridgeDashboard.tsx:493-505`) then renders in the stage via `activePanel` (`BridgeDashboard.tsx:512` → `BridgeStage`). So a new tab = **(1)** add a `RailKey`, **(2)** add a `RailItem` to a section, **(3)** add a `panels[key]` entry pointing at a new panel component. No backend/routing change.\n\nData sources already exist:\n- **Missions**: `useMissions(serverId, project)` (`rail/useMissions.ts`) polls `GET /api/supervisor/missions`; `missionView(m)` + `StatusPill` in `rail/missionShared.tsx:774,75` derive status/criteria(`cap.met/total`)/iteration/epics.\n- **Usage**: `UsageMeters` in `ui/src/components/common/UsageBar.tsx:38` renders the 5h/7d gauges from `usageStore`. `GET /api/usage/burn?project=&windowMs=` (`src/routes/api.ts:3063`) returns `{ windowMs, project, sources: BurnRow[] }` where each row is `{ source, calls, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, estCostUsd }`. Build-vs-overhead split is defined by `BURN_EXEMPT_SOURCES` in `src/services/burn-watch.ts:31` (build/leaf sources) vs the overhead sources it alarms on.\n\n### Changes\n\n**1. `ui/src/components/supervisor/bridge/rail/RailNav.tsx`** — extend the `RailKey` union (line 3-7): add `'missions'` in the HOME group and `'usage'` in the TELEMETRY group:\n```ts\nexport type RailKey =\n  | 'plan' | 'missions'                                  // HOME\n  | 'escalations' | 'land'                               // ACT\n  | 'work' | 'stranded'                                  // WORK\n  | 'stream' | 'executor' | 'subscribers' | 'dogfood' | 'usage'; // TELEMETRY\n```\n\n**2. `ui/src/components/supervisor/bridge/rail/BridgeRail.tsx`** — in the `sections` memo:\n- HOME `items` (after the `plan` item, `:50-57`): add `{ key: 'missions', label: 'Missions', icon: '◈', description: 'Convergence missions — status, criteria, serving epics' }`.\n- TELEMETRY `items` (after `dogfood`, `:132-137`): add `{ key: 'usage', label: 'Usage', icon: '$', description: 'Token usage — account meters + per-pass LLM burn' }`.\n\n**3. New `ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx`** — read-only overview. Signature `MissionsPanel: React.FC<{ serverId: string; project: string }>`. Body: `const { missions } = useMissions(serverId, project);` then map each mission through `missionView(m)` (imported from `../missionShared`) rendering one row per mission (`data-testid=\"missions-panel-row\"`): title via `stripKindPrefix(m.node?.title)`, `<StatusPill status={view.status} />`, `{view.cap.met}/{view.cap.total}` criteria, `{view.epics.length}` serving epics, `iter {view.iteration}`. Empty state (`data-testid=\"missions-panel-empty\"`) when `missions.length === 0`. Wrapper `data-testid=\"missions-panel\"`, `className=\"p-2 flex flex-col gap-1 overflow-y-auto\"`. Purely read-only (no MissionDetail/authoring buttons).\n\n**4. New `ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx`** — `UsagePanel: React.FC<{ project: string; serverScope?: string }>`. \n- Header renders `<UsageMeters />` (import from `@/components/common/UsageBar`).\n- Local state `windowMs` (buttons 1h/24h/7d → `3_600_000`/`86_400_000`/`604_800_000`, `data-testid=\"usage-window-<label>\"`) and `scope` (`'project' | 'fleet'`, `data-testid=\"usage-scope-toggle\"`).\n- `useEffect` (deps `[project, windowMs, scope]`, cancelled-flag pattern per `ExecutorStatsPanel.tsx:304`) fetches `` `/api/usage/burn?windowMs=${windowMs}${scope==='project' ? `&project=${encodeURIComponent(project)}` : ''}` `` into `sources: BurnRow[]`. Bounded 15s poll like `ExecutorStatsPanel` `POLL_MS`.\n- Classify each source with a module-level `const BUILD_SOURCES = new Set(['leaf','node','implement','review','blueprint','verify','driveplan','driveexec','research','grok-node'])` (mirrors `BURN_EXEMPT_SOURCES`; add a comment citing `src/services/burn-watch.ts:31` as source of truth). Split into **overhead** (not in set) and **build** (in set).\n- Render two groups: `data-testid=\"usage-overhead-group\"` (bold rows, `data-testid=\"usage-row-overhead\"`) sorted by `calls` desc, and `data-testid=\"usage-build-group\"` (dimmed rows, `className` includes `opacity-60`, `data-testid=\"usage-row-build\"`). Each row shows `source`, `calls` (prominent — the leak signal), token total, and `estCostUsd`. Empty state `data-testid=\"usage-panel-empty\"`. Wrapper `data-testid=\"usage-panel\"`.\n\n**5. `ui/src/components/supervisor/bridge/BridgeDashboard.tsx`** — import the two panels (near `:51`), then add to the `panels` memo (`:493-505`) and its dep array (`:504`):\n```tsx\nmissions: <MissionsPanel serverId={serverScope} project={project} />,\nusage: <div className=\"p-2\"><UsagePanel project={project} serverScope={serverScope} /></div>,\n```\n`handleRailSelect` already routes any non-`plan` key to `setRailPanel(k)`, so both render in the stage with no further wiring.\n\n**6. New tests**\n- `ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx` — `vi.mock('../useMissions')` (pattern from `MissionStrip.test.tsx:7`) returning two fixture missions; assert `missions-panel-row` count === 2 and a rendered `StatusPill` label + `met/total` text.\n- `ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx` — stub `global.fetch` to resolve `{ sources: [...] }` with one overhead (`conductor`, high `calls`) and one build (`review`) source; assert a `usage-row-overhead` and a dimmed `usage-row-build` render, and that clicking `usage-window-7d` refetches with `windowMs=604800000`.\n\n### Acceptance criteria (positive, citable)\n1. `RailKey` in `rail/RailNav.tsx` includes the string literals `'missions'` and `'usage'`.\n2. `BridgeRail.tsx` `sections` memo contains a HOME `RailItem` with `key: 'missions'` and a TELEMETRY `RailItem` with `key: 'usage'`.\n3. `MissionsPanel.tsx` exports `MissionsPanel`, calls `useMissions`, and renders one `data-testid=\"missions-panel-row\"` per mission with a `StatusPill` and `cap.met/cap.total`.\n4. `UsagePanel.tsx` exports `UsagePanel`, renders `<UsageMeters />`, fetches `/api/usage/burn`, and renders a dimmed `usage-row-build` group and a bold `usage-row-overhead` group.\n5. `BridgeDashboard.tsx` `panels` map has a `missions:` entry (→ `MissionsPanel`) and a `usage:` entry (→ `UsagePanel`).\n6. `MissionsPanel.test.tsx` test `renders one row per mission with derived status` passes.\n7. `UsagePanel.test.tsx` test `splits build (dimmed) from overhead (bold) burn rows` passes.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 7, \"estimatedTasks\": 5,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [\n    \"ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx\",\n    \"ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx\",\n    \"ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx\",\n    \"ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx\"\n  ],\n  \"filesToEdit\": [\n    \"ui/src/components/supervisor/bridge/rail/RailNav.tsx\",\n    \"ui/src/components/supervisor/bridge/rail/BridgeRail.tsx\",\n    \"ui/src/components/supervisor/bridge/BridgeDashboard.tsx\"\n  ],\n  \"tasks\": [\n    { \"id\": \"railkey-and-items\", \"files\": [\"ui/src/components/supervisor/bridge/rail/RailNav.tsx\", \"ui/src/components/supervisor/bridge/rail/BridgeRail.tsx\"], \"description\": \"Add 'missions' (HOME) and 'usage' (TELEMETRY) to RailKey and the rail sections\" },\n    { \"id\": \"missions-panel\", \"files\": [\"ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx\"], \"description\": \"Read-only missions overview via useMissions + missionView\" },\n    { \"id\": \"usage-panel\", \"files\": [\"ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx\"], \"description\": \"UsageMeters + per-source burn table with window+scope toggles, build dimmed / overhead bold\" },\n    { \"id\": \"wire-panels\", \"files\": [\"ui/src/components/supervisor/bridge/BridgeDashboard.tsx\"], \"description\": \"Add missions and usage entries to the panels map\" },\n    { \"id\": \"tests\", \"files\": [\"ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx\", \"ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx\"], \"description\": \"Vitest coverage for both panels\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/rail/RailNav.tsx\", \"symbol\": \"usage\", \"description\": \"RailKey union gains 'missions' and 'usage' literals\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.tsx\", \"symbol\": \"MissionsPanel\", \"description\": \"Read-only missions overview panel wiring useMissions+missionView\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/rail/panels/UsagePanel.tsx\", \"symbol\": \"UsagePanel\", \"description\": \"Usage panel: UsageMeters + /api/usage/burn table grouped build vs overhead\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/BridgeDashboard.tsx\", \"symbol\": \"MissionsPanel\", \"description\": \"BridgeDashboard imports and mounts the new panels in the panels map\" },\n    { \"kind\": \"named-test\", \"testFile\": \"ui/src/components/supervisor/bridge/rail/panels/MissionsPanel.test.tsx\", \"testName\": \"renders one row per mission with derived status\", \"mechanical\": true },\n    { \"kind\": \"named-test\", \"testFile\": \"ui/src/components/supervisor/bridge/rail/panels/UsagePanel.test.tsx\", \"testName\": \"splits build (dimmed) from overhead (bold) burn rows\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"No backend/route changes — /api/supervisor/missions and /api/usage/burn already exist\",\n    \"No mission authoring/mutation controls in MissionsPanel — read-only (MissionDetailPanel keeps authoring)\",\n    \"No new burn store/WS event — panels fetch directly like ExecutorStatsPanel\"\n  ] }\n```"
+    },
+    {
+      "id": "74a67df5",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 5,
+        "estimatedTasks": 5,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [],
+        "filesToEdit": [
+          "ui/src/components/supervisor/bridge/OrchestratorLadder.tsx",
+          "src/services/conductor-pass.ts",
+          "src/services/__tests__/conductor-pass.test.ts",
+          "ui/src/components/supervisor/bridge/ConductorLadder.tsx",
+          "ui/src/components/supervisor/bridge/ConductorLadder.test.tsx"
+        ],
+        "tasks": [
+          {
+            "id": "label-daemon-ladder",
+            "files": [
+              "ui/src/components/supervisor/bridge/OrchestratorLadder.tsx"
+            ],
+            "description": "Add a 'Daemon' label span parallel to the Conductor label"
+          },
+          {
+            "id": "conductor-gate-daemon-off",
+            "files": [
+              "src/services/conductor-pass.ts"
+            ],
+            "description": "runConductorPass no-ops with reason 'daemon-off' when orchestrator level is off; add reason union member + injectable getOrchestratorLevel seam"
+          },
+          {
+            "id": "conductor-gate-test",
+            "files": [
+              "src/services/__tests__/conductor-pass.test.ts"
+            ],
+            "description": "Named test: daemon-off project no-ops with reason 'daemon-off', no node spawned"
+          },
+          {
+            "id": "conductor-ladder-disabled",
+            "files": [
+              "ui/src/components/supervisor/bridge/ConductorLadder.tsx"
+            ],
+            "description": "Fetch daemon level; disable + dim the conductor ladder while daemon off"
+          },
+          {
+            "id": "conductor-ladder-test",
+            "files": [
+              "ui/src/components/supervisor/bridge/ConductorLadder.test.tsx"
+            ],
+            "description": "Named test: ladder disabled and does not POST when daemon level GET returns off"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/OrchestratorLadder.tsx",
+            "symbol": "Daemon",
+            "description": "Daemon label span so the two adjacent off/on ladders are distinguishable"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/conductor-pass.ts",
+            "symbol": "daemon-off",
+            "description": "'daemon-off' reason literal added to ConductorPassResult.reason union and returned by the gate"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "src/services/conductor-pass.ts",
+            "symbol": "getOrchestratorLevel",
+            "description": "Level reader imported and invoked (via deps seam) to gate the pass when daemon is off"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/ConductorLadder.tsx",
+            "symbol": "daemonOff",
+            "description": "Derived daemon-off state driving disabled + dimmed rendering of the conductor ladder"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/services/__tests__/conductor-pass.test.ts",
+            "testName": "daemon off ⇒ no-op with reason daemon-off, no node spawned",
+            "mechanical": true
+          },
+          {
+            "kind": "named-test",
+            "testFile": "ui/src/components/supervisor/bridge/ConductorLadder.test.tsx",
+            "testName": "disables the stops and does not POST when the daemon is off",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "Not mutual exclusion: conductor=on with daemon=on is unchanged; only daemon=off gates the pass",
+          "No new backend route — ConductorLadder reuses the existing GET /api/orchestrator/level",
+          "No change to runConductorGuarded's per-project loop; the gate lives inside runConductorPass"
+        ]
+      },
+      "rawText": "# Implementation Blueprint\n\n## Observation → two coupled changes\n\nThe daemon ladder (`OrchestratorLadder`) sits unlabeled next to the labeled `ConductorLadder` — a reader can't tell which off/on switch is which. And the conductor runs on its **own** decoupled heartbeat (`runConductorGuarded` → `runConductorPass`, `src/services/orchestrator-live.ts:174-201`) that self-gates ONLY on the conductor toggle + debounce — it never reads the orchestrator (daemon) level. So `conductor=on, daemon=off` spins expensive conductor nodes that ground gaps, `plan_mission_criterion`-file serving epics, and promote leaves to READY — but the build pass that would claim those leaves is skipped at `orchestrator-live.ts:575` (`if (lvl === 'off') continue`). The leaves sit unbuilt, the mission never converges, and the conductor keeps re-spending. The fix makes the dependency real (enforced in code, not just UI) and legible (a label + a dimmed switch).\n\n---\n\n## Change 1 — Label the daemon ladder\n\n**File:** `ui/src/components/supervisor/bridge/OrchestratorLadder.tsx`\n\nThe `ConductorLadder` renders a `Conductor` label span (`ConductorLadder.tsx:54-57`). Add the parallel `Daemon` label to `OrchestratorLadder`. Insert it as the first child of the wrapper `<div>` (before the health dot at `OrchestratorLadder.tsx:122-128`), mirroring the Conductor label's exact classes:\n\n```tsx\n{/* Label so the two adjacent off/on ladders (daemon vs conductor) are distinguishable. */}\n<span className=\"shrink-0 px-1.5 py-0.5 text-gray-500 dark:text-gray-400 whitespace-nowrap\">\n  Daemon\n</span>\n```\n\nThe health dot and stops follow unchanged.\n\n---\n\n## Change 2 — Enforce the dependency in code (conductor no-ops when daemon off)\n\n**File:** `src/services/conductor-pass.ts`\n\n**2a.** Import the level reader + type (new import near line 22-26):\n```ts\nimport { getOrchestratorLevel, type OrchestratorLevel } from './orchestrator-config.js';\n```\n\n**2b.** Add `'daemon-off'` to the `ConductorPassResult.reason` union (`conductor-pass.ts:106`):\n```ts\nreason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | ...\n```\n\n**2c.** Add a testable seam to `ConductorPassDeps` (`conductor-pass.ts:97-102`):\n```ts\n/** Injectable orchestrator-level reader (test spy). Defaults to the real store fn. */\ngetOrchestratorLevel?: (project: string) => OrchestratorLevel;\n```\n\n**2d.** Gate at the top of `runConductorPassInner` — immediately AFTER the `conductor-disabled` check (`conductor-pass.ts:127`), BEFORE `promoteQueuedMissions`, so an off daemon spends nothing:\n```ts\nif (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled' };\n// The conductor only DIRECTS the daemon (grounds gaps, files serving epics, promotes\n// leaves to READY). With the daemon off the build pass never claims them (the tick skips\n// at lvl==='off', orchestrator-live.ts) — so those leaves sit unbuilt and the mission\n// stalls while the conductor spends expensive nodes on a pipeline that can't move. No-op.\nif ((deps.getOrchestratorLevel ?? getOrchestratorLevel)(project) === 'off') {\n  return { ran: false, reason: 'daemon-off' };\n}\n```\nThe wrapping `runConductorPass` (`conductor-pass.ts:116-124`) already stamps `setConductorLastPass` with `result.reason`, so `'daemon-off'` surfaces in the last-pass telemetry for free.\n\nExisting tests are unaffected: unset projects `coalesceLevel` to `'on'` (`orchestrator-config.ts:157-163`), so every current test that enables the conductor keeps running.\n\n---\n\n## Change 3 — Conductor ladder reflects the dependency (disabled + dimmed while daemon off)\n\n**File:** `ui/src/components/supervisor/bridge/ConductorLadder.tsx`\n\nFetch the daemon level inline (mirroring `OrchestratorLadder.tsx:57-79`'s `/api/orchestrator/level` GET via the `window.mc` / `fetch` fallback) and derive `daemonOff`:\n\n- Add `const [daemonOff, setDaemonOff] = useState(false);` and a `useEffect([project])` that GETs `/api/orchestrator/level?project=…` and sets `daemonOff = data.level === 'off'` (default `false` when the field is absent, so a missing/loading level never falsely disables).\n- Extend `handleSelect` guard (`ConductorLadder.tsx:39-44`): `if (busy || daemonOff || !project || next === level) return;`\n- Buttons: `disabled={busy || daemonOff}` (`ConductorLadder.tsx:68`).\n- Wrapper: add `${daemonOff ? 'opacity-50' : ''}` to the container className (`ConductorLadder.tsx:52`) and set `data-daemon-off={String(daemonOff)}` for test/inspection. When `daemonOff`, override the wrapper `title` to explain: `'Daemon off — the conductor can direct the daemon but the build pass is idle, so mission-driving is paused until the daemon is on.'`\n\n---\n\n## Acceptance criteria (positive, citable)\n\n1. `OrchestratorLadder.tsx` renders a `Daemon` text label span as the first child of the ladder wrapper, matching the Conductor label's classes — a reviewer points at the new `<span>…Daemon…</span>`.\n2. `conductor-pass.ts` `ConductorPassResult.reason` union includes the `'daemon-off'` literal.\n3. `runConductorPassInner` returns `{ ran: false, reason: 'daemon-off' }` when `getOrchestratorLevel(project) === 'off'`, placed before `promoteQueuedMissions` — a reviewer points at the guard line.\n4. `ConductorPassDeps` gains an injectable `getOrchestratorLevel?` seam used via `deps.getOrchestratorLevel ?? getOrchestratorLevel`.\n5. `ConductorLadder.tsx` disables its stop buttons (`disabled={busy || daemonOff}`) and applies `opacity-50` + `data-daemon-off` when the fetched daemon level is `'off'`.\n6. New named test in `conductor-pass.test.ts` proves a daemon-off project no-ops with `reason: 'daemon-off'` and spawns no node (`invokeCalls === 0`).\n7. New named test in `ConductorLadder.test.tsx` proves the ladder disables its stops (and does not POST) when the daemon level GET returns `off`.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 5, \"estimatedTasks\": 5,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [],\n  \"filesToEdit\": [\n    \"ui/src/components/supervisor/bridge/OrchestratorLadder.tsx\",\n    \"src/services/conductor-pass.ts\",\n    \"src/services/__tests__/conductor-pass.test.ts\",\n    \"ui/src/components/supervisor/bridge/ConductorLadder.tsx\",\n    \"ui/src/components/supervisor/bridge/ConductorLadder.test.tsx\"\n  ],\n  \"tasks\": [\n    { \"id\": \"label-daemon-ladder\", \"files\": [\"ui/src/components/supervisor/bridge/OrchestratorLadder.tsx\"], \"description\": \"Add a 'Daemon' label span parallel to the Conductor label\" },\n    { \"id\": \"conductor-gate-daemon-off\", \"files\": [\"src/services/conductor-pass.ts\"], \"description\": \"runConductorPass no-ops with reason 'daemon-off' when orchestrator level is off; add reason union member + injectable getOrchestratorLevel seam\" },\n    { \"id\": \"conductor-gate-test\", \"files\": [\"src/services/__tests__/conductor-pass.test.ts\"], \"description\": \"Named test: daemon-off project no-ops with reason 'daemon-off', no node spawned\" },\n    { \"id\": \"conductor-ladder-disabled\", \"files\": [\"ui/src/components/supervisor/bridge/ConductorLadder.tsx\"], \"description\": \"Fetch daemon level; disable + dim the conductor ladder while daemon off\" },\n    { \"id\": \"conductor-ladder-test\", \"files\": [\"ui/src/components/supervisor/bridge/ConductorLadder.test.tsx\"], \"description\": \"Named test: ladder disabled and does not POST when daemon level GET returns off\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/OrchestratorLadder.tsx\", \"symbol\": \"Daemon\", \"description\": \"Daemon label span so the two adjacent off/on ladders are distinguishable\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/conductor-pass.ts\", \"symbol\": \"daemon-off\", \"description\": \"'daemon-off' reason literal added to ConductorPassResult.reason union and returned by the gate\" },\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/conductor-pass.ts\", \"symbol\": \"getOrchestratorLevel\", \"description\": \"Level reader imported and invoked (via deps seam) to gate the pass when daemon is off\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/ConductorLadder.tsx\", \"symbol\": \"daemonOff\", \"description\": \"Derived daemon-off state driving disabled + dimmed rendering of the conductor ladder\" },\n    { \"kind\": \"named-test\", \"testFile\": \"src/services/__tests__/conductor-pass.test.ts\", \"testName\": \"daemon off ⇒ no-op with reason daemon-off, no node spawned\", \"mechanical\": true },\n    { \"kind\": \"named-test\", \"testFile\": \"ui/src/components/supervisor/bridge/ConductorLadder.test.tsx\", \"testName\": \"disables the stops and does not POST when the daemon is off\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"Not mutual exclusion: conductor=on with daemon=on is unchanged; only daemon=off gates the pass\",\n    \"No new backend route — ConductorLadder reuses the existing GET /api/orchestrator/level\",\n    \"No change to runConductorGuarded's per-project loop; the gate lives inside runConductorPass\"\n  ] }\n```"
+    },
+    {
+      "id": "7f473bf8",
+      "leafKindExpected": "infra",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 2,
+        "estimatedTasks": 2,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [
+          "scripts/blueprint-lab/results/score.json",
+          "scripts/blueprint-lab/results/report.md"
+        ],
+        "filesToEdit": [],
+        "tasks": [
+          {
+            "id": "commit-score-json",
+            "files": [
+              "scripts/blueprint-lab/results/score.json"
+            ],
+            "description": "Commit the real-run score.json (score.ts output: 77 scores + aggregate accept 37 / missing:named-test 34 / parse-null 6)"
+          },
+          {
+            "id": "commit-report-md",
+            "files": [
+              "scripts/blueprint-lab/results/report.md"
+            ],
+            "description": "Commit the real-run report.md (buildReport output: acceptance table, rejection breakdown, match-rate summary, ESCALATE GATE verdict)"
+          }
+        ],
+        "leafKind": "infra",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "scripts/blueprint-lab/results/score.json",
+            "symbol": "\"validationCounts\"",
+            "description": "committed score.json carries the aggregate validationCounts block (accept 37 / missing:named-test 34 / parse-null 6) from the real run"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "scripts/blueprint-lab/results/report.md",
+            "symbol": "## GATE verdict",
+            "description": "committed report.md carries the GATE verdict section reporting ESCALATE with the repair-loop recommendation"
+          },
+          {
+            "kind": "threshold",
+            "source": "grep-count",
+            "metric": "occurrences of the string '\"accept\": 37' in results/score.json aggregate",
+            "comparison": "eq",
+            "value": 1,
+            "mechanical": true
+          },
+          {
+            "kind": "threshold",
+            "source": "grep-count",
+            "metric": "occurrences of 'ESCALATE' in results/report.md GATE verdict line",
+            "comparison": "gte",
+            "value": 1,
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No changes to run.ts / emit.ts / score.ts / src/services/diff-contract.ts — those are read-only inputs to this measurement commit",
+          "Do NOT re-run emit.ts (real claude -p node spawns, non-deterministic); score.json is regenerated deterministically from the existing results/run.json via score.ts",
+          "Committing results/run.json and per-case results/<id>.emit.md is handled separately; this leaf lands only score.json + report.md per the title"
+        ]
+      },
+      "rawText": "I have full understanding of the harness. Here is the blueprint.\n\n## Blueprint — commit `report.md` + `score.json` from the real-model harness run\n\n### Context (what already happened, what this leaf does)\nA real-model `bun run scripts/blueprint-lab/run.ts` pass already ran the 77-case corpus through the **real** blueprint node (`scripts/blueprint-lab/emit.ts`), producing `scripts/blueprint-lab/results/run.json` (77 cases, 71 parsed / 6 unparsed). That same `run.ts` pass emitted → scored → reported in one go, so `run.ts:buildReport` (`run.ts:127-181`) and `score.ts:main` (`score.ts:138-148`) already produced the human-readable `report.md` and machine-readable `score.json` byproducts.\n\nThis leaf is **artifact-commit only**: land those two produced files under version control so the crit-7 measurement is durable and citable. **No script or `src/` changes** — `run.ts` / `emit.ts` / `score.ts` / `src/services/diff-contract.ts` are read-only inputs here. `leafKind = infra`.\n\nThe `results/` directory is **not** gitignored (`git check-ignore scripts/blueprint-lab/results/run.json` → no match), and no `results/*` file is currently tracked (`git ls-files scripts/blueprint-lab/` lists only source), so these are net-new committed paths.\n\n### Files to create (commit)\n- `scripts/blueprint-lab/results/score.json` — the scored output: a `{ scores: CaseScore[], aggregate: AggregateStats }` object exactly as written by `score.ts:143` (`writeFileSync(join(OUT, 'score.json'), ...)`), i.e. 77 `CaseScore` entries (`score.ts:78-85` shape) plus the `aggregate` block (`score.ts:102-110` shape).\n- `scripts/blueprint-lab/results/report.md` — the human-readable report exactly as written by `run.ts:194` (`writeFileSync(join(OUT, 'report.md'), report)`), i.e. the `buildReport` output (`run.ts:127-181`).\n\n### Change shape / procedure for the implementer\n1. **Obtain the real run's `results/run.json`** (the completed emit output; do **not** re-run `emit.ts` — it spawns real `claude -p` nodes per case and is non-deterministic/expensive). Confirm it carries `\"total\": 77` and `\"unparsed\"` of length 6.\n2. **Regenerate `score.json` deterministically** from that `run.json` — `bun run scripts/blueprint-lab/score.ts` (pure function of `run.json` + `corpus.ts`, no node spawn; `score.ts:34-35` reads only `results/run.json`). This is the canonical way to produce the committed `score.json` and lets a reviewer reproduce it.\n3. **Produce `report.md`** from the completed run's `report.md` byproduct (already written by the original `run.ts` pass; `run.ts:192-194` computes `computeGateVerdict` + `buildReport` from the same `score.json`). Its content is fully determined by `buildReport` over `run.json` + `score.json`, so it must match the strings `buildReport` emits for this aggregate.\n4. **`git add` + commit** exactly `scripts/blueprint-lab/results/score.json` and `scripts/blueprint-lab/results/report.md` (use the mission's Co-Authored-By / Claude-Session trailer already supplied).\n\n### Exact expected content (verifiable invariants — derived from `score.ts`/`run.ts` over the stated aggregate)\n`score.json` `aggregate` (`score.ts:112-136`):\n- `validationCounts`: `{ \"accept\": 37, \"missing:named-test\": 34, \"parse-null\": 6 }` (sums to `total` 77; acceptRate 37/77 = 48.1%)\n- `total`: 77 · `meanMatchRate`: ≈ 0.595 · `totalUndeclaredActual`: 74 · `leafKindMismatchCount`: 34\n- `scores`: array of 77 `CaseScore` entries.\n\n`report.md` (`buildReport`, `run.ts:132-180`):\n- `## Acceptance table` header line ends in a `| file match rate |` column (`run.ts:143`).\n- `## Rejection-mode breakdown` rows (`run.ts:156-159`): `| accept | 37 | 48.1% |`, `| missing:named-test | 34 | 44.2% |`, `| parse-null | 6 | 7.8% |`.\n- `## Match-rate summary` (`run.ts:164-168`): `mean file-match rate: 59.5%`, `total undeclared-actual: 74`, `leafKind mismatches: 34/77`.\n- `## GATE verdict` (`run.ts:171-177`): `**ESCALATE** — acceptRate=48.1% < 70% threshold` and `Recommendation: repair loop — re-prompt the node with the specific missing requirement kind named (named-test), one bounded retry.` (matches `computeGateVerdict` dominant-`missing:`-bucket branch, `run.ts:109-114`).\n\n### Acceptance criteria (positive, citable)\n1. `scripts/blueprint-lab/results/score.json` is committed and its `aggregate.validationCounts` object shows `\"accept\": 37`, `\"missing:named-test\": 34`, `\"parse-null\": 6` — reviewer points at those JSON lines.\n2. In the same `score.json`, `aggregate.total` is `77`, `aggregate.totalUndeclaredActual` is `74`, and `aggregate.leafKindMismatchCount` is `34`.\n3. `score.json`'s `scores` array contains 77 `CaseScore` entries (one per corpus case).\n4. `scripts/blueprint-lab/results/report.md` is committed and its `## Acceptance table` header row includes the `file match rate` column.\n5. `report.md`'s `## Rejection-mode breakdown` table carries the rows `accept | 37 | 48.1%`, `missing:named-test | 34 | 44.2%`, and `parse-null | 6 | 7.8%`.\n6. `report.md`'s `## Match-rate summary` shows `mean file-match rate: 59.5%`, `total undeclared-actual: 74`, and `leafKind mismatches: 34/77`.\n7. `report.md`'s `## GATE verdict` section reads `**ESCALATE** — acceptRate=48.1% < 70% threshold` followed by the `Recommendation: repair loop ... (named-test)` line.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 2, \"estimatedTasks\": 2,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [\"scripts/blueprint-lab/results/score.json\", \"scripts/blueprint-lab/results/report.md\"],\n  \"filesToEdit\": [],\n  \"tasks\": [\n    { \"id\": \"commit-score-json\", \"files\": [\"scripts/blueprint-lab/results/score.json\"], \"description\": \"Commit the real-run score.json (score.ts output: 77 scores + aggregate accept 37 / missing:named-test 34 / parse-null 6)\" },\n    { \"id\": \"commit-report-md\", \"files\": [\"scripts/blueprint-lab/results/report.md\"], \"description\": \"Commit the real-run report.md (buildReport output: acceptance table, rejection breakdown, match-rate summary, ESCALATE GATE verdict)\" }\n  ],\n  \"leafKind\": \"infra\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"scripts/blueprint-lab/results/score.json\", \"symbol\": \"\\\"validationCounts\\\"\", \"description\": \"committed score.json carries the aggregate validationCounts block (accept 37 / missing:named-test 34 / parse-null 6) from the real run\" },\n    { \"kind\": \"symbol-present\", \"file\": \"scripts/blueprint-lab/results/report.md\", \"symbol\": \"## GATE verdict\", \"description\": \"committed report.md carries the GATE verdict section reporting ESCALATE with the repair-loop recommendation\" },\n    { \"kind\": \"threshold\", \"source\": \"grep-count\", \"metric\": \"occurrences of the string '\\\"accept\\\": 37' in results/score.json aggregate\", \"comparison\": \"eq\", \"value\": 1, \"mechanical\": true },\n    { \"kind\": \"threshold\", \"source\": \"grep-count\", \"metric\": \"occurrences of 'ESCALATE' in results/report.md GATE verdict line\", \"comparison\": \"gte\", \"value\": 1, \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"No changes to run.ts / emit.ts / score.ts / src/services/diff-contract.ts — those are read-only inputs to this measurement commit\",\n    \"Do NOT re-run emit.ts (real claude -p node spawns, non-deterministic); score.json is regenerated deterministically from the existing results/run.json via score.ts\",\n    \"Committing results/run.json and per-case results/<id>.emit.md is handled separately; this leaf lands only score.json + report.md per the title\"\n  ] }\n```"
+    },
+    {
+      "id": "9180370f",
+      "leafKindExpected": "feature",
+      "contract": null,
+      "rawText": "[[NO RESULT]] stderr=Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.\nError: Input must be provided either through stdin or as a prompt argument when using --print\n"
+    },
+    {
+      "id": "980462ae",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 3,
+        "estimatedTasks": 3,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [],
+        "filesToEdit": [
+          "src/services/leaf-executor.ts",
+          "src/routes/orchestrator-routes.ts",
+          "src/routes/__tests__/orchestrator-routes.test.ts"
+        ],
+        "tasks": [
+          {
+            "id": "add-hidden-const-drop-groups",
+            "files": [
+              "src/services/leaf-executor.ts"
+            ],
+            "description": "Add MATRIX_HIDDEN_NODE_KINDS single source; remove waves + zen entries from LEAF_NODE_GROUPS; update partition doc comment"
+          },
+          {
+            "id": "route-filter-from-hidden-const",
+            "files": [
+              "src/routes/orchestrator-routes.ts"
+            ],
+            "description": "Import MATRIX_HIDDEN_NODE_KINDS and build MATRIX_NODE_KINDS by excluding it instead of only 'summary'"
+          },
+          {
+            "id": "update-drift-and-rowcount-tests",
+            "files": [
+              "src/routes/__tests__/orchestrator-routes.test.ts"
+            ],
+            "description": "Group count 5→3, union minus MATRIX_HIDDEN_NODE_KINDS, row-count filter via same const"
+          }
+        ],
+        "leafKind": "refactor",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "src/services/leaf-executor.ts",
+            "symbol": "MATRIX_HIDDEN_NODE_KINDS",
+            "description": "Single source of matrix-hidden leaf kinds (retired waves + zen summary) consumed by the route filter and the drift-guard test"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/routes/__tests__/orchestrator-routes.test.ts",
+            "testName": "GET returns groups (3) whose kinds union equals (LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS) minus MATRIX_HIDDEN_NODE_KINDS (partition/drift guard)",
+            "mechanical": true
+          },
+          {
+            "kind": "named-test",
+            "testFile": "src/routes/__tests__/orchestrator-routes.test.ts",
+            "testName": "GET returns a row per node kind with defaults + choice lists",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "LeafNodeKind / LEAF_NODE_KINDS / NODE_PROFILE / NODE_KIND_DESCRIPTIONS entries — kinds stay valid, unchanged",
+          "The 'waves' | 'zen' literals in the LeafNodeGroup.key type union — left in place (unused but harmless)",
+          "ui/src/components/settings/DaemonNodesMatrix.tsx and its .test.tsx — UI is data-driven off the served groups and the test mocks its own body; no change needed"
+        ]
+      },
+      "rawText": "## Implementation Blueprint: drop the Waves + Zen groups from the node-models matrix\n\n### Current state (verified)\n\n- **`src/services/leaf-executor.ts`**\n  - `LeafNodeKind` (line 249) and `LEAF_NODE_KINDS` (line 656) list all 11 kinds including the waves kinds (`research`, `wimplement`, `verify`, `fix`) and `summary`. **These stay — kinds remain valid** for ledger rows, resume, and `NODE_PROFILE` (line 727) / `NODE_KIND_DESCRIPTIONS` (line 664) defaults.\n  - `LeafNodeGroup` interface (line 683) — `key: 'floor' | 'waves' | 'verify-cad' | 'zen' | 'orchestration'`, with a doc comment (line 681) stating *\"Kinds must partition LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS.\"*\n  - `LEAF_NODE_GROUPS` (line 691) has **5** entries: `floor`, `waves` (line 697), `verify-cad`, `zen` (line 707), `orchestration`.\n- **`src/routes/orchestrator-routes.ts`**\n  - `MATRIX_NODE_KINDS` (line 38) currently filters out only `'summary'`: `[...LEAF_NODE_KINDS.filter((k) => k !== 'summary'), ...ORCHESTRATION_NODE_KINDS]`. It drives the served `rows` (line 158) and the POST kind-validation (line 204).\n  - The served `groups` (line 182) maps `LEAF_NODE_GROUPS` verbatim.\n- **`src/routes/__tests__/orchestrator-routes.test.ts`**\n  - Row-count test (line 169): `body.rows.length === LEAF_NODE_KINDS.filter((k) => k !== 'summary').length + ORCHESTRATION_NODE_KINDS.length`.\n  - Drift-guard test (line 198): asserts `body.groups.length === 5` and that both the served group-union and `LEAF_NODE_GROUPS` union equal `new Set([...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS])`.\n- **UI is data-driven** (`ui/src/components/settings/DaemonNodesMatrix.tsx` line 239 maps `groups` from the API response) — no UI source change needed. Its test (`DaemonNodesMatrix.test.tsx`) supplies its own mock `groups` body, so it stays green and is **out of scope**.\n\n### Change shape\n\n**1. `src/services/leaf-executor.ts` — add the single hidden-kinds source, drop the two groups**\n\nImmediately before `LEAF_NODE_GROUPS` (line 691), add:\n\n```ts\n/** Leaf kinds intentionally hidden from the settings node-models matrix: the RETIRED\n *  waves fan-out (2026-07-08 — never spawned; every leaf runs linear FLOOR and oversized\n *  leaves auto-split) and the Zen 'summary' interpret-model knob (never run via runNode).\n *  They remain valid LeafNodeKinds for historical ledger rows, resume, and NODE_PROFILE\n *  defaults — only the settings-UI grouping/row is dropped. Single source consumed by the\n *  orchestrator-routes matrix filter AND the LEAF_NODE_GROUPS partition drift-guard test. */\nexport const MATRIX_HIDDEN_NODE_KINDS: LeafNodeKind[] = [\n  'research', 'wimplement', 'verify', 'fix', // waves (RETIRED)\n  'summary', // zen session-summary interpret model\n];\n```\n\nUpdate the `LeafNodeGroup` doc comment (line 681) to read: *\"Kinds must partition (LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS) minus MATRIX_HIDDEN_NODE_KINDS.\"*\n\nDelete the `waves` group object (lines 697–701) and the `zen` group object (lines 707–711) from the `LEAF_NODE_GROUPS` array, leaving exactly three entries: `floor`, `verify-cad`, `orchestration`. Leave the `key` type union (line 684) unchanged — `'waves' | 'zen'` are now unused literals but remain harmless valid keys.\n\n**2. `src/routes/orchestrator-routes.ts` — filter the served matrix via the single source**\n\nAdd `MATRIX_HIDDEN_NODE_KINDS` to the import block from `../services/leaf-executor.ts` (lines 20–30). Replace `MATRIX_NODE_KINDS` (lines 35–41):\n\n```ts\n/** All node kinds shown in the daemon nodes matrix: every leaf-pipeline kind EXCEPT the\n *  matrix-hidden kinds (retired waves + Zen 'summary'), plus the three orchestration kinds. */\nconst MATRIX_NODE_KINDS: string[] = [\n  ...LEAF_NODE_KINDS.filter((k) => !MATRIX_HIDDEN_NODE_KINDS.includes(k)),\n  ...ORCHESTRATION_NODE_KINDS,\n];\n```\n\nNo other route change — `rows` (line 158) and the POST validator (line 204) both derive from `MATRIX_NODE_KINDS`, and `groups` (line 182) now maps the trimmed `LEAF_NODE_GROUPS` automatically.\n\n**3. `src/routes/__tests__/orchestrator-routes.test.ts` — update drift-guard + row-count**\n\n- Add `MATRIX_HIDDEN_NODE_KINDS` to the import on line 14.\n- Row-count test (line 169): change the expected length to `LEAF_NODE_KINDS.filter((k) => !MATRIX_HIDDEN_NODE_KINDS.includes(k)).length + ORCHESTRATION_NODE_KINDS.length`. Keep the `summary` undefined assertion (line 170) and optionally add one for a waves kind (`body.rows.find((r) => r.kind === 'research')` is undefined).\n- Drift-guard test (line 198): rename to `'GET returns groups (3) whose kinds union equals (LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS) minus MATRIX_HIDDEN_NODE_KINDS (partition/drift guard)'`; change `toBe(5)` (line 203) to `toBe(3)`; replace both union expectations (lines 205, 208) with a set that filters out the hidden kinds:\n  ```ts\n  const expected = new Set(\n    [...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS].filter((k) => !MATRIX_HIDDEN_NODE_KINDS.includes(k as LeafNodeKind)),\n  );\n  expect(new Set(union)).toEqual(expected);\n  expect(new Set(fromConst)).toEqual(expected);\n  ```\n\n### Verification\n\n`npm run test:ci -- src/routes/__tests__/orchestrator-routes.test.ts` (dual-runner backend suite; the file is vitest). Also confirm `tsc` is clean given the trimmed array.\n\n### Acceptance criteria (citable)\n\n1. `src/services/leaf-executor.ts` exports `MATRIX_HIDDEN_NODE_KINDS: LeafNodeKind[]` listing `research`, `wimplement`, `verify`, `fix`, `summary`, and `LEAF_NODE_GROUPS` contains exactly the three keys `floor`, `verify-cad`, `orchestration`.\n2. `src/routes/orchestrator-routes.ts` `MATRIX_NODE_KINDS` derives its leaf-kind portion from `LEAF_NODE_KINDS.filter((k) => !MATRIX_HIDDEN_NODE_KINDS.includes(k))`.\n3. The renamed partition/drift-guard test asserts `body.groups.length === 3` and both unions equal the `LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS` set minus `MATRIX_HIDDEN_NODE_KINDS`, and the row-count test uses the same filter.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 3, \"estimatedTasks\": 3,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [],\n  \"filesToEdit\": [\"src/services/leaf-executor.ts\", \"src/routes/orchestrator-routes.ts\", \"src/routes/__tests__/orchestrator-routes.test.ts\"],\n  \"tasks\": [\n    { \"id\": \"add-hidden-const-drop-groups\", \"files\": [\"src/services/leaf-executor.ts\"], \"description\": \"Add MATRIX_HIDDEN_NODE_KINDS single source; remove waves + zen entries from LEAF_NODE_GROUPS; update partition doc comment\" },\n    { \"id\": \"route-filter-from-hidden-const\", \"files\": [\"src/routes/orchestrator-routes.ts\"], \"description\": \"Import MATRIX_HIDDEN_NODE_KINDS and build MATRIX_NODE_KINDS by excluding it instead of only 'summary'\" },\n    { \"id\": \"update-drift-and-rowcount-tests\", \"files\": [\"src/routes/__tests__/orchestrator-routes.test.ts\"], \"description\": \"Group count 5→3, union minus MATRIX_HIDDEN_NODE_KINDS, row-count filter via same const\" }\n  ],\n  \"leafKind\": \"refactor\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"src/services/leaf-executor.ts\", \"symbol\": \"MATRIX_HIDDEN_NODE_KINDS\", \"description\": \"Single source of matrix-hidden leaf kinds (retired waves + zen summary) consumed by the route filter and the drift-guard test\" },\n    { \"kind\": \"named-test\", \"testFile\": \"src/routes/__tests__/orchestrator-routes.test.ts\", \"testName\": \"GET returns groups (3) whose kinds union equals (LEAF_NODE_KINDS ∪ ORCHESTRATION_NODE_KINDS) minus MATRIX_HIDDEN_NODE_KINDS (partition/drift guard)\", \"mechanical\": true },\n    { \"kind\": \"named-test\", \"testFile\": \"src/routes/__tests__/orchestrator-routes.test.ts\", \"testName\": \"GET returns a row per node kind with defaults + choice lists\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\n    \"LeafNodeKind / LEAF_NODE_KINDS / NODE_PROFILE / NODE_KIND_DESCRIPTIONS entries — kinds stay valid, unchanged\",\n    \"The 'waves' | 'zen' literals in the LeafNodeGroup.key type union — left in place (unused but harmless)\",\n    \"ui/src/components/settings/DaemonNodesMatrix.tsx and its .test.tsx — UI is data-driven off the served groups and the test mocks its own body; no change needed\"\n  ]\n}\n```"
+    },
+    {
+      "id": "cba8df7d",
+      "leafKindExpected": "feature",
+      "contract": {
+        "schemaVersion": 2,
+        "estimatedFiles": 4,
+        "estimatedTasks": 4,
+        "nonEnumerableFanout": false,
+        "filesToCreate": [
+          "ui/src/components/supervisor/bridge/ConductorLadder.tsx",
+          "ui/src/components/supervisor/bridge/ConductorLadder.test.tsx"
+        ],
+        "filesToEdit": [
+          "ui/src/components/supervisor/bridge/CommandBar.tsx"
+        ],
+        "tasks": [
+          {
+            "id": "conductor-ladder-component",
+            "files": [
+              "ui/src/components/supervisor/bridge/ConductorLadder.tsx"
+            ],
+            "description": "Create interactive off·on ConductorLadder backed by useConductorEnabled (setEnabled on click), styled to match OrchestratorLadder"
+          },
+          {
+            "id": "commandbar-swap",
+            "files": [
+              "ui/src/components/supervisor/bridge/CommandBar.tsx"
+            ],
+            "description": "Replace ConductorStatusBadge import+render with ConductorLadder beside OrchestratorLadder"
+          },
+          {
+            "id": "remove-dead-badge",
+            "files": [
+              "ui/src/components/supervisor/bridge/ConductorStatusBadge.tsx",
+              "ui/src/components/supervisor/bridge/ConductorStatusBadge.test.tsx"
+            ],
+            "description": "Delete the now-unused read-only badge and its test"
+          },
+          {
+            "id": "conductor-ladder-test",
+            "files": [
+              "ui/src/components/supervisor/bridge/ConductorLadder.test.tsx"
+            ],
+            "description": "Test that clicking the on stop POSTs to /api/supervisor/conductor"
+          }
+        ],
+        "leafKind": "feature",
+        "requirements": [
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/ConductorLadder.tsx",
+            "symbol": "ConductorLadder",
+            "description": "Interactive segmented control component replacing the read-only badge"
+          },
+          {
+            "kind": "symbol-present",
+            "file": "ui/src/components/supervisor/bridge/CommandBar.tsx",
+            "symbol": "ConductorLadder",
+            "description": "CommandBar imports and renders the interactive ladder instead of ConductorStatusBadge"
+          },
+          {
+            "kind": "named-test",
+            "testFile": "ui/src/components/supervisor/bridge/ConductorLadder.test.tsx",
+            "testName": "toggles the conductor on via POST",
+            "mechanical": true
+          }
+        ],
+        "outOfScope": [
+          "No change to useConductorEnabled.ts (optimistic + rollback already present)",
+          "No backend route change",
+          "No change to ProjectSettingsModal conductor controls"
+        ]
+      },
+      "rawText": "I have everything needed. Here's the blueprint.\n\n## Blueprint — Interactive Conductor on/off ladder in CommandBar\n\n### Context\n`CommandBar.tsx:72` renders a **read-only** `<ConductorStatusBadge project={project} />` next to the interactive daemon `<OrchestratorLadder>` (line 71). The badge (`ConductorStatusBadge.tsx`) only shows a dot + \"Conductor\" label with a tooltip saying \"change it in project settings\" — it calls `useConductorEnabled` but only reads `enabled`, never `setEnabled`.\n\nThe hook `useConductorEnabled` (`useConductorEnabled.ts:23`) already exposes everything an interactive control needs: `{ enabled: boolean|null, busy, setEnabled }`, with optimistic-set + rollback already implemented (`setEnabled` at line 39 sets state optimistically then reconciles/rolls back from the POST response). **No backend or hook change is required.**\n\nThe daemon control `OrchestratorLadder.tsx` is the visual template to match: a bordered, rounded, `overflow-hidden`, `text-3xs` segmented control with per-stop `<button>`s, `data-testid=\"orchestrator-stop-<level>\"`, `data-active`, `disabled={busy}`, optimistic select, and only the active stop brightly colored (`STOP_ACTIVE`) while inactive stops are dim.\n\n### Change 1 — new `ui/src/components/supervisor/bridge/ConductorLadder.tsx`\nCreate an interactive off·on segmented control modeled structurally on `OrchestratorLadder`, but backed by `useConductorEnabled` (boolean) rather than the orchestrator level string. Shape:\n\n- `import { useConductorEnabled } from './useConductorEnabled';`\n- Props: `{ project: string }` (mirror `ConductorStatusBadgeProps`).\n- Inside: `const { enabled, busy, setEnabled } = useConductorEnabled(project);`\n- Map boolean → two stops. Define `const STOPS = [false, true] as const;` with label map `{ [String(false)]: 'off', [String(true)]: 'on' }` (or a small `({false:'off',true:'on'})` lookup). Active stop = the one whose boolean equals `enabled`.\n- Container `<div data-testid=\"conductor-ladder\" data-project={project} data-enabled={String(enabled)} title=\"Autonomous conductor\" className=...>` — reuse `OrchestratorLadder`'s container className (bordered rounded `text-3xs font-medium select-none shrink-0 transition-opacity`, plus `busy ? 'opacity-60' : ''`, and a dim `opacity-50` while `enabled === null` to signal not-yet-loaded, matching OrchestratorLadder's `loaded` treatment).\n- Each stop is a `<button type=\"button\" data-testid={`conductor-stop-${label}`} data-active={isActive} disabled={busy} onClick={() => void setEnabled(stopBool)} title=... className=...>` where active uses `bg-success-500 dark:bg-success-600 text-white` for `on` and `bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200` for `off` (identical heat semantics to `OrchestratorLadder`'s `STOP_ACTIVE`), inactive stops use the `dim` class from OrchestratorLadder, and `idx > 0` adds the left border divider.\n- Clicking a stop calls `setEnabled(stopBool)` — the hook does the optimistic update + POST + rollback, so the component just delegates (no local optimistic state needed; `enabled` from the hook already flips optimistically at `useConductorEnabled.ts:42`).\n- `export const ConductorLadder` + `export default ConductorLadder`.\n- Tooltip per stop: `off → 'Off — conductor will not drive this project's missions'`, `on → 'On — conductor drives this project's missions autonomously, including landing'` (draw wording from `ProjectSettingsModal.tsx:220`/`:230`).\n\n### Change 2 — `CommandBar.tsx`\n- Line 18: replace `import { ConductorStatusBadge } from './ConductorStatusBadge';` with `import { ConductorLadder } from './ConductorLadder';`.\n- Line 72: replace `{project && <ConductorStatusBadge project={project} />}` with `{project && <ConductorLadder project={project} />}` — keeping it positioned immediately after the `<OrchestratorLadder>` (line 71) so it sits directly beside the daemon toggle.\n\n### Change 3 — remove the now-dead read-only badge\n`ConductorStatusBadge` is imported **only** by `CommandBar` (grep-confirmed). Once Change 2 lands it is dead. Delete `ui/src/components/supervisor/bridge/ConductorStatusBadge.tsx` and `ui/src/components/supervisor/bridge/ConductorStatusBadge.test.tsx` so the read-only badge is genuinely replaced, not left orphaned.\n\n### Change 4 — new test `ui/src/components/supervisor/bridge/ConductorLadder.test.tsx`\nModel on `ConductorStatusBadge.test.tsx` + the interactive pattern. Uses `@testing-library/react` (`render`, `screen`, `waitFor`, `fireEvent`) and mocks `global.fetch` (the hook's `apiGet`/`apiPost` fall back to `fetch` when `window.mc` is absent). Cover:\n- **`toggles the conductor on via POST`**: mock GET → `{enabled:false}`, then click `conductor-stop-on`, assert a `fetch` call to `/api/supervisor/conductor` with `method:'POST'` and body containing `\"enabled\":true`.\n- Renders active stop reflecting fetched state (`data-active` on the matching stop / `data-enabled` on container).\n\n### ACCEPTANCE CRITERIA (positive, citable)\n1. `ConductorLadder.tsx` exports a `ConductorLadder` React component that destructures `setEnabled` from `useConductorEnabled` and calls it from a stop `onClick`.\n2. `ConductorLadder.tsx` renders a container with `data-testid=\"conductor-ladder\"` and two interactive `<button>` stops with `data-testid=\"conductor-stop-off\"` and `data-testid=\"conductor-stop-on\"`, each `disabled={busy}`.\n3. `CommandBar.tsx` imports `ConductorLadder` (not `ConductorStatusBadge`) and renders `<ConductorLadder project={project} />` at line ~72, beside `<OrchestratorLadder>`.\n4. Test `ConductorLadder.test.tsx` contains a case asserting that clicking `conductor-stop-on` issues a `POST` to `/api/supervisor/conductor`.\n\n### Out of scope\n- No change to `useConductorEnabled.ts` (optimistic + rollback already present) or any backend route.\n- No change to the `ProjectSettingsModal` conductor controls.\n\n```json\n{ \"schemaVersion\": 2, \"estimatedFiles\": 4, \"estimatedTasks\": 4,\n  \"nonEnumerableFanout\": false,\n  \"filesToCreate\": [\"ui/src/components/supervisor/bridge/ConductorLadder.tsx\", \"ui/src/components/supervisor/bridge/ConductorLadder.test.tsx\"],\n  \"filesToEdit\": [\"ui/src/components/supervisor/bridge/CommandBar.tsx\"],\n  \"tasks\": [\n    { \"id\": \"conductor-ladder-component\", \"files\": [\"ui/src/components/supervisor/bridge/ConductorLadder.tsx\"], \"description\": \"Create interactive off·on ConductorLadder backed by useConductorEnabled (setEnabled on click), styled to match OrchestratorLadder\" },\n    { \"id\": \"commandbar-swap\", \"files\": [\"ui/src/components/supervisor/bridge/CommandBar.tsx\"], \"description\": \"Replace ConductorStatusBadge import+render with ConductorLadder beside OrchestratorLadder\" },\n    { \"id\": \"remove-dead-badge\", \"files\": [\"ui/src/components/supervisor/bridge/ConductorStatusBadge.tsx\", \"ui/src/components/supervisor/bridge/ConductorStatusBadge.test.tsx\"], \"description\": \"Delete the now-unused read-only badge and its test\" },\n    { \"id\": \"conductor-ladder-test\", \"files\": [\"ui/src/components/supervisor/bridge/ConductorLadder.test.tsx\"], \"description\": \"Test that clicking the on stop POSTs to /api/supervisor/conductor\" }\n  ],\n  \"leafKind\": \"feature\",\n  \"requirements\": [\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/ConductorLadder.tsx\", \"symbol\": \"ConductorLadder\", \"description\": \"Interactive segmented control component replacing the read-only badge\" },\n    { \"kind\": \"symbol-present\", \"file\": \"ui/src/components/supervisor/bridge/CommandBar.tsx\", \"symbol\": \"ConductorLadder\", \"description\": \"CommandBar imports and renders the interactive ladder instead of ConductorStatusBadge\" },\n    { \"kind\": \"named-test\", \"testFile\": \"ui/src/components/supervisor/bridge/ConductorLadder.test.tsx\", \"testName\": \"toggles the conductor on via POST\", \"mechanical\": true }\n  ],\n  \"outOfScope\": [\"No change to useConductorEnabled.ts (optimistic + rollback already present)\", \"No backend route change\", \"No change to ProjectSettingsModal conductor controls\"] }\n```"
+    },
+    {
+      "id": "cf9f3b59",
+      "leafKindExpected": "feature",
+      "contract": null,
+      "rawText": "[[NO RESULT]] stderr=Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.\nError: Input must be provided either through stdin or as a prompt argument when using --print\n"
+    },
+    {
+      "id": "f092ab23",
+      "leafKindExpected": "feature",
+      "contract": null,
+      "rawText": "[[NO RESULT]] stderr=Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.\nError: Input must be provided either through stdin or as a prompt argument when using --print\n"
+    }
+  ]
+}
