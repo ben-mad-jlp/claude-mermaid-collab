@@ -5,9 +5,10 @@
  * fixture .md files, no spawned node.
  */
 import { describe, it, expect } from 'bun:test';
-import { parseDiffContract, validateContractForKind, type DiffContract } from '../../../src/services/diff-contract';
+import { parseDiffContract, validateContractForKind, renderContract, type DiffContract } from '../../../src/services/diff-contract';
 import { classifyValidation, scoreFileMatch, type EmitResult } from '../score';
 import { computeGateVerdict, type AggregateStats } from '../run';
+import { emitWithRepair } from '../emit';
 
 const acceptContract: DiffContract = {
   schemaVersion: 2,
@@ -143,5 +144,52 @@ describe('computeGateVerdict', () => {
     const verdict = computeGateVerdict(agg);
     expect(verdict.verdict).toBe('ESCALATE');
     expect(verdict.recommendation).toContain('redesign');
+  });
+});
+
+const underspecFeature: DiffContract = {
+  ...acceptContract,
+  requirements: [
+    { kind: 'symbol-present', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
+  ], // missing named-test → underspecified for 'feature'
+};
+
+const fakeCase = {
+  id: 'c1', commitSha: 'deadbeef', leafKind: 'feature',
+  spec: { title: 'add formatDuration', description: 'ms formatter', files: ['src/util/time.ts'] },
+  diff: { baseSha: 'base', touchedFiles: ['src/util/time.ts'], changedSymbols: ['formatDuration'] },
+} as any; // CorpusCase-shaped literal
+
+const reply = (text: string) => ({ text, raw: '', stderrTail: '' });
+
+describe('emitWithRepair', () => {
+  it('drives exactly one repair re-spawn on an underspecified first emission and scores the repaired-valid contract', async () => {
+    const prompts: string[] = [];
+    let call = 0;
+    const spawn = async (p: string) => {
+      prompts.push(p);
+      return reply(call++ === 0 ? `first\n${renderContract(underspecFeature)}` : `repaired\n${renderContract(acceptContract)}`);
+    };
+    const out = await emitWithRepair(fakeCase, spawn);
+    expect(out.repairSpawns).toBe(1);
+    expect(prompts.length).toBe(2);
+    expect(validateContractForKind(out.contract!, out.contract!.leafKind)).toEqual({ underspecified: false });
+    expect(out.contract!.requirements.some((r) => r.kind === 'named-test')).toBe(true);
+  });
+
+  it('does not re-spawn when the first emission is already fully specified', async () => {
+    let call = 0;
+    const spawn = async () => { call++; return reply(`ok\n${renderContract(acceptContract)}`); };
+    const out = await emitWithRepair(fakeCase, spawn);
+    expect(out.repairSpawns).toBe(0);
+    expect(call).toBe(1);
+  });
+
+  it('falls back to the original contract when the repair re-spawn fails to parse', async () => {
+    let call = 0;
+    const spawn = async () => reply(call++ === 0 ? `first\n${renderContract(underspecFeature)}` : 'no fence at all');
+    const out = await emitWithRepair(fakeCase, spawn);
+    expect(out.repairSpawns).toBe(1);
+    expect(validateContractForKind(out.contract!, out.contract!.leafKind)).toEqual({ underspecified: true, missingField: 'named-test' });
   });
 });

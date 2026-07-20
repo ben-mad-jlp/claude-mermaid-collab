@@ -16,10 +16,10 @@ import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { buildNodeArgv } from '../../src/agent/node-invoker';
-import { parseDiffContract, type DiffContract } from '../../src/services/diff-contract';
+import { parseDiffContract, validateContractForKind, type DiffContract } from '../../src/services/diff-contract';
 import { resolveNodeModel, resolveNodeProvider } from '../../src/services/node-provider';
 import { listNodeProfileOverrides, getProjectEffort } from '../../src/services/orchestrator-config';
-import { NODE_PROFILE } from '../../src/services/leaf-executor';
+import { NODE_PROFILE, buildBlueprintRepairPrompt } from '../../src/services/leaf-executor';
 import { CORPUS, type CorpusCase } from './corpus';
 
 const OUT = join(import.meta.dir, 'results');
@@ -114,6 +114,41 @@ function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: 
   });
 }
 
+type NodeReply = { text: string; raw: string; stderrTail: string };
+type NodeSpawn = (prompt: string) => Promise<NodeReply>;
+
+/** Emit a contract for one case, then apply EXACTLY ONE bounded contract-repair retry —
+ *  mirroring the daemon's leaf-executor repair loop. If the first parsed contract is
+ *  non-null but underspecified for its own leafKind, re-spawn the blueprint node ONCE via
+ *  buildBlueprintRepairPrompt, re-parse, and keep the repaired contract when it parses (else
+ *  fall back to the original). `spawn` is injected so tests can run without a real node. */
+export async function emitWithRepair(
+  c: CorpusCase,
+  spawn: NodeSpawn,
+): Promise<{ contract: DiffContract | null; reply: NodeReply; repairSpawns: number }> {
+  const reply = await spawn(buildV2BlueprintPrompt(c));
+  let contract = parseDiffContract(reply.text);
+  let finalReply = reply;
+  let repairSpawns = 0;
+
+  if (contract !== null) {
+    const validation = validateContractForKind(contract, contract.leafKind);
+    if (validation.underspecified) {
+      const leaf = { id: c.id, title: c.spec.title, description: c.spec.description } as
+        Parameters<typeof buildBlueprintRepairPrompt>[0];
+      const repairPrompt = buildBlueprintRepairPrompt(leaf, reply.text, validation.missingField);
+      repairSpawns = 1;
+      const repairReply = await spawn(repairPrompt);
+      const repaired = parseDiffContract(repairReply.text);
+      if (repaired !== null) {
+        contract = repaired;
+        finalReply = repairReply;
+      }
+    }
+  }
+  return { contract, reply: finalReply, repairSpawns };
+}
+
 function checkoutBase(c: CorpusCase): string {
   // Materialize the base tree with `git worktree add --detach` rather than
   // `git archive | tar`: on macOS bsdtar aborts restoring AppleDouble metadata
@@ -134,9 +169,8 @@ interface EmitResult {
 
 async function runOne(c: CorpusCase): Promise<EmitResult> {
   const cwd = checkoutBase(c);
-  const prompt = buildV2BlueprintPrompt(c);
-  const { text, raw, stderrTail } = await runEmitNode(cwd, prompt);
-  const contract = parseDiffContract(text);
+  const { contract, reply } = await emitWithRepair(c, (prompt) => runEmitNode(cwd, prompt));
+  const { text, raw, stderrTail } = reply;
   if (contract === null) {
     const diagnostic = [
       `[[PARSE FAILED for ${c.id}]]`,
@@ -187,4 +221,5 @@ async function main() {
   console.log(`\n=== ${parsed}/${results.length} parsed ===`);
   console.log(`UNPARSED: ${unparsed.join(', ') || 'none'}`);
 }
-main();
+
+if (import.meta.main) main();
