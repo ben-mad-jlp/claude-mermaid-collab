@@ -21,6 +21,13 @@ export default defineConfig({
     build: {
       lib: { entry: resolve(__dirname, 'src/main/index.ts') },
       rollupOptions: {
+        // The main imports pure helpers (deriveCdpPort) from ../../src/services,
+        // and rollup bundles those whole — dragging in project-registry's dynamic
+        // `import('./todo-store.js')`, which imports the Bun builtin `bun:sqlite`.
+        // The main process (Node runtime) NEVER executes that path (it only calls
+        // deriveCdpPort), so leave any `bun:*` builtin external instead of trying to
+        // bundle it. Without this the SSR/main build fails to resolve bun:sqlite.
+        external: [/^bun:/],
         output: {
           // `ws` is bundled into the main process. Vite replaces its optional
           // native deps (bufferutil / utf-8-validate) with frozen empty objects
