@@ -727,3 +727,73 @@ describe('duplicate land-leaf guard', () => {
     }
   });
 });
+
+describe('mission-store: queueing — rival-preservation, approval gate, idempotent promotion', () => {
+  test('approving mission B while A is active leaves A active and enqueues B (rival preserved)', async () => {
+    const { setMissionApproved, activateMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'design', assigneeSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 'design', assigneeSession: 'design', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a);
+    upsertMission(project, b, { awaitingApprovalSince: Date.now() });
+    activateMission(project, a);
+    expect(getMission(project, a)!.active).toBe(true);
+    expect(getMission(project, b)!.active).toBe(false);
+
+    setMissionApproved(project, b);
+
+    expect(getMission(project, a)!.active).toBe(true); // rival untouched
+    expect(getMission(project, b)!.active).toBe(false);
+    expect(getMission(project, b)!.queuePos).not.toBeNull();
+  });
+
+  test('promoteQueuedMissions never activates an unapproved queued mission; awaitingApprovalSince is untouched', async () => {
+    const { enqueueMission, promoteQueuedMissions, sessionHasActiveMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'q-session', assigneeSession: 'q-session', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 'q-session', assigneeSession: 'q-session', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a);
+    const c = addCriterion(project, a, 'only gap');
+    setCriterionMet(project, c.id, true); // converges A → deactivated (terminal)
+    expect(getMission(project, a)!.active).toBe(false);
+
+    upsertMission(project, b, { awaitingApprovalSince: Date.now() });
+    enqueueMission(project, b);
+    const awaitingApprovalSinceBefore = getMission(project, b)!.awaitingApprovalSince;
+    expect(awaitingApprovalSinceBefore).not.toBeNull();
+    expect(getMission(project, b)!.queuePos).not.toBeNull();
+    expect(getMission(project, b)!.active).toBe(false);
+
+    const promoted = promoteQueuedMissions(project);
+
+    expect(promoted).not.toContain(b);
+    expect(sessionHasActiveMission(project, 'q-session')).toBe(false);
+    expect(getMission(project, b)!.active).toBe(false);
+    expect(getMission(project, b)!.awaitingApprovalSince).toBe(awaitingApprovalSinceBefore);
+  });
+
+  test('promoteQueuedMissions activates the lowest-queuePos approved candidate and is idempotent on replay', async () => {
+    const { enqueueMission, promoteQueuedMissions, sessionHasActiveMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'r-session', assigneeSession: 'r-session', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 'r-session', assigneeSession: 'r-session', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a);
+    const c = addCriterion(project, a, 'only gap');
+    setCriterionMet(project, c.id, true); // converges A → deactivated (terminal)
+    expect(getMission(project, a)!.active).toBe(false);
+
+    upsertMission(project, b);
+    enqueueMission(project, b);
+    expect(getMission(project, b)!.active).toBe(false);
+    expect(getMission(project, b)!.queuePos).not.toBeNull();
+
+    expect(sessionHasActiveMission(project, 'r-session')).toBe(false);
+
+    const promoted = promoteQueuedMissions(project);
+    expect(promoted).toEqual([b]);
+    expect(getMission(project, b)!.active).toBe(true);
+    expect(getMission(project, b)!.queuePos).toBeNull();
+    expect(sessionHasActiveMission(project, 'r-session')).toBe(true);
+
+    const secondPromoted = promoteQueuedMissions(project);
+    expect(secondPromoted).toEqual([]);
+    expect(getMission(project, b)!.active).toBe(true);
+  });
+});
