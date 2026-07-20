@@ -44,7 +44,7 @@ import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
@@ -53,6 +53,7 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
+import { parseDiffContract } from './diff-contract';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
@@ -418,7 +419,7 @@ export interface LeafExecutorDeps {
   persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
   /** G8: persist the durable blueprint base SHA so a reusable blueprint survives when
    *  the run checkpoint is cleared by a terminal outcome. Best-effort; unwired in tests. */
-  persistBlueprintBase?: (e: { project: string; leafId: string; epicBaseSha?: string | null }) => void;
+  persistBlueprintBase?: (e: { project: string; leafId: string; epicBaseSha?: string | null; specJson?: string | null; specRev?: number | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
   /** FM1 Phase-B hardening: durably stamp the REJECT intent (acceptanceStatus='rejected')
@@ -2511,13 +2512,6 @@ export async function runLeaf(
       continue; // fresh attempt — never implement against a missing blueprint
     }
 
-    // G8: Record the blueprint base SHA so a reusable blueprint survives when the run
-    // checkpoint is cleared by a terminal outcome. Guarded to NOT rewrite on synthetic
-    // reattach/in-run-carry results (those have durationMs === 0).
-    if (!reattach && !inRunCarry) {
-      deps.persistBlueprintBase?.({ project, leafId: leaf.id, epicBaseSha: deps.epicBaseSha });
-    }
-
     // --- P5 SIZE GATE ---
     // Read the blueprint artifact (its trailing ```json size block) and derive the
     // manifest. Unparseable ⇒ null ⇒ the proven FLOOR (linear) fail-safe path.
@@ -2529,6 +2523,21 @@ export async function runLeaf(
     // the executor build the wrong feature). The blueprint node is instructed to emit
     // its full text as its final message, so bp.text is a reliable fallback.
     let blueprintBody = (manifestText && manifestText.trim() ? manifestText : bp.text) ?? '';
+
+    // G8: Record the blueprint base SHA so a reusable blueprint survives when the run
+    // checkpoint is cleared by a terminal outcome. Guarded to NOT rewrite on synthetic
+    // reattach/in-run-carry results (those have durationMs === 0). Also seeds specJson
+    // (the editable DiffContract) parsed from the just-derived blueprintBody.
+    if (!reattach && !inRunCarry) {
+      const seededContract = parseDiffContract(blueprintBody);
+      deps.persistBlueprintBase?.({
+        project,
+        leafId: leaf.id,
+        epicBaseSha: deps.epicBaseSha,
+        specJson: seededContract ? JSON.stringify(seededContract) : null,
+        specRev: seededContract ? 0 : null,
+      });
+    }
 
     // Carry this good blueprint forward so a later attempt of THIS run reuses it (in-run
     // reattach) instead of re-running the blueprint node. Prefer the read-back .md (carries
@@ -3501,7 +3510,7 @@ export async function makeLeafExecutorDeps(
         return await holdLeafIfOwned(p, leafId, reason, runClaimToken);
       } catch { return false; }
     },
-    restoreBlueprint: (leafId) => getLatestSuccessfulNodeOutput(leafId, 'blueprint'),
+    restoreBlueprint: (leafId) => restoreEditableBlueprint(leafId),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {
       try {
