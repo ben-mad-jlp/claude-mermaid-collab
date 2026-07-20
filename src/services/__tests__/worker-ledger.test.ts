@@ -341,8 +341,8 @@ describe('editContractField / editLeafRequirement / restoreEditableBlueprint (ed
     tasks: [{ id: 't1', files: ['a.ts'], description: 'do the thing' }],
     leafKind: 'fix',
     requirements: [
-      { kind: 'symbol-present', file: 'a.ts', symbol: 'doThing', description: 'the fix symbol' },
-      { kind: 'named-test', testFile: 'a.test.ts', testName: 'does the thing', mechanical: true },
+      { kind: 'symbol-present', id: 'r-sym', file: 'a.ts', symbol: 'doThing', description: 'the fix symbol' },
+      { kind: 'named-test', id: 'r-test', testFile: 'a.test.ts', testName: 'does the thing', mechanical: true },
     ],
     outOfScope: [],
   });
@@ -360,13 +360,13 @@ describe('editContractField / editLeafRequirement / restoreEditableBlueprint (ed
     seedBlueprintLeaf('L1', baseContract());
 
     expect(editContractField('L1', { target: 'filesToEdit', file: 'incidental.ts' })).toBe(true);
-    expect(editLeafRequirement('L1', 0, { kind: 'named-test', testFile: 'x.test.ts', testName: 'flipped', mechanical: true })).toBe(true);
+    expect(editLeafRequirement('L1', 0, { kind: 'named-test', id: 'r-flip', testFile: 'x.test.ts', testName: 'flipped', mechanical: true })).toBe(true);
 
     const restored = restoreEditableBlueprint('L1');
     const edited = parseDiffContract(restored ?? undefined);
     expect(edited).not.toBeNull();
     expect(edited!.filesToEdit).toContain('incidental.ts');
-    expect(edited!.requirements[0]).toEqual({ kind: 'named-test', testFile: 'x.test.ts', testName: 'flipped', mechanical: true });
+    expect(edited!.requirements[0]).toEqual({ kind: 'named-test', id: 'r-flip', testFile: 'x.test.ts', testName: 'flipped', mechanical: true });
 
     expect(getLeafBlueprint('L1')!.specRev).toBe(2);
   });
@@ -376,7 +376,7 @@ describe('editContractField / editLeafRequirement / restoreEditableBlueprint (ed
 
     const before = getLatestSuccessfulNodeOutput('L1', 'blueprint');
     editContractField('L1', { target: 'filesToEdit', file: 'incidental.ts' });
-    editLeafRequirement('L1', 0, { kind: 'named-test', testFile: 'x.test.ts', testName: 'flipped', mechanical: true });
+    editLeafRequirement('L1', 0, { kind: 'named-test', id: 'r-flip', testFile: 'x.test.ts', testName: 'flipped', mechanical: true });
     expect(getLatestSuccessfulNodeOutput('L1', 'blueprint')).toBe(before);
   });
 
