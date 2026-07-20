@@ -1,0 +1,1501 @@
+{
+  "scores": [
+    {
+      "id": "0b71906b",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/__tests__/conductor-pass.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "0c1c2a86",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 3,
+        "matched": [
+          "ui/src/components/supervisor/bridge/rail/missionShared.tsx",
+          "ui/src/stores/supervisorStore.ts"
+        ],
+        "undeclaredActual": [
+          "ui/src/components/supervisor/bridge/rail/__tests__/MissionDetail.authoring.test.tsx"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "0c1d3816",
+      "leafKindExpected": "test",
+      "leafKindActual": "test",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/mcp/tools/__tests__/inbox-epic.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "0c4766c3",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "scripts/landed-epic-sweep-live-evidence.ts"
+        ],
+        "declaredButUntouched": [
+          "scripts/live-landed-epic-sweep-evidence.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "16a71d67",
+      "leafKindExpected": "feature",
+      "leafKindActual": "refactor",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 13,
+        "actualCount": 6,
+        "matched": [
+          "src/config.ts",
+          "src/services/lane-session-register.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/config-file.test.ts",
+          "src/services/config-file.ts",
+          "src/services/instance-topology.ts",
+          "src/services/port-ownership.ts"
+        ],
+        "declaredButUntouched": [
+          "bin/mermaid-collab.ts",
+          "src/mcp/server.ts",
+          "src/mcp/tools/code.ts",
+          "src/mcp/tools/design.ts",
+          "src/mcp/tools/dismiss-ui.ts",
+          "src/mcp/tools/embed.ts",
+          "src/mcp/tools/http-util.ts",
+          "src/mcp/tools/image.ts",
+          "src/mcp/tools/snippet.ts",
+          "src/mcp/tools/update-ui.ts",
+          "src/routes/api.ts"
+        ],
+        "matchRate": 0.3333333333333333
+      }
+    },
+    {
+      "id": "1a7bbd85",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 3,
+        "matched": [
+          "ui/src/components/supervisor/bridge/rail/missionShared.tsx",
+          "ui/src/stores/supervisorStore.ts"
+        ],
+        "undeclaredActual": [
+          "ui/src/components/supervisor/bridge/rail/__tests__/missionShared.statusVocab.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "1f8531ed",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "scripts/smoke-sweep-convergence-live.ts"
+        ],
+        "declaredButUntouched": [
+          "package.json",
+          "scripts/live-sweep-measurement.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "2465dacc",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 3,
+        "matched": [
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/conductor-pass.ts"
+        ],
+        "undeclaredActual": [
+          "docs/autonomous-conductor.md"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "277c10d1",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 2,
+        "matched": [
+          "src/services/invariant-check.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/__tests__/invariant-check.test.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/epic-landed-at-equivalence.test.ts"
+        ],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "27a58a65",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 3,
+        "matched": [
+          "ui/src/components/supervisor/bridge/rail/missionShared.tsx"
+        ],
+        "undeclaredActual": [
+          "ui/src/components/supervisor/bridge/rail/__tests__/MissionPinConductor.test.tsx",
+          "ui/src/stores/supervisorStore.ts"
+        ],
+        "declaredButUntouched": [
+          "ui/src/components/supervisor/bridge/inspector/MissionDetailPanel.tsx",
+          "ui/src/components/supervisor/bridge/useConductorEnabled.ts"
+        ],
+        "matchRate": 0.3333333333333333
+      }
+    },
+    {
+      "id": "296f7901",
+      "leafKindExpected": "fix",
+      "leafKindActual": null,
+      "leafKindMismatch": false,
+      "validation": "parse-null",
+      "fileMatch": null
+    },
+    {
+      "id": "2aa92d7a",
+      "leafKindExpected": "fix",
+      "leafKindActual": "fix",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 5,
+        "matched": [
+          "src/services/__tests__/landed-epic-sweep.test.ts",
+          "src/services/landed-epic-sweep.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/__tests__/landed-epic-sweep-same-pass-activation.test.ts",
+          "src/services/__tests__/landed-epic-sweep-throttle.test.ts",
+          "src/services/__tests__/sweep-measurement.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.4
+      }
+    },
+    {
+      "id": "32d04f86",
+      "leafKindExpected": "fix",
+      "leafKindActual": "fix",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 2,
+        "matched": [
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/conductor-pass.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "37d2639d",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "ui/src/components/settings/DaemonNodesMatrix.test.tsx"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "38447d5a",
+      "leafKindExpected": "feature",
+      "leafKindActual": "refactor",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 5,
+        "actualCount": 7,
+        "matched": [
+          "src/mcp/tools/mission-forge.ts",
+          "src/mcp/tools/mission-planner.ts",
+          "src/services/conductor-pass.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/__tests__/orchestrator-routes.test.ts",
+          "src/services/leaf-executor.ts",
+          "src/services/node-kinds.ts",
+          "src/services/node-provider.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/orchestration-node-registry.test.ts",
+          "src/services/orchestration-node-registry.ts"
+        ],
+        "matchRate": 0.42857142857142855
+      }
+    },
+    {
+      "id": "3d22e9ca",
+      "leafKindExpected": "fix",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/__tests__/orchestrator-live.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "44187e80",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 2,
+        "matched": [],
+        "undeclaredActual": [
+          "src/services/__tests__/landed-epic-sweep.test.ts",
+          "src/services/landed-epic-sweep.ts"
+        ],
+        "declaredButUntouched": [
+          "src/agent/__tests__/worktree-land.test.ts",
+          "src/agent/worktree-manager.ts",
+          "src/services/coordinator-live.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "465d8237",
+      "leafKindExpected": "fix",
+      "leafKindActual": "fix",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/__tests__/orchestrator-live.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "4f30aa57",
+      "leafKindExpected": "feature",
+      "leafKindActual": null,
+      "leafKindMismatch": false,
+      "validation": "parse-null",
+      "fileMatch": null
+    },
+    {
+      "id": "51fcbaa6",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 9,
+        "actualCount": 9,
+        "matched": [
+          "scripts/blueprint-lab/__fixtures__/accept-feature.md",
+          "scripts/blueprint-lab/__fixtures__/file-mix.md",
+          "scripts/blueprint-lab/__fixtures__/missing-named-test.md",
+          "scripts/blueprint-lab/__fixtures__/missing-symbol-present.md",
+          "scripts/blueprint-lab/__fixtures__/parse-null.md",
+          "scripts/blueprint-lab/__tests__/harness.test.ts",
+          "scripts/blueprint-lab/emit.ts",
+          "scripts/blueprint-lab/run.ts",
+          "scripts/blueprint-lab/score.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "556c96e2",
+      "leafKindExpected": "feature",
+      "leafKindActual": "infra",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "docs/autonomous-conductor.md"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "594d741c",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/leaf-executor.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "597bd3c1",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 4,
+        "actualCount": 3,
+        "matched": [
+          "src/services/__tests__/landed-epic-sweep-throttle.test.ts",
+          "src/services/landed-epic-sweep.ts",
+          "src/services/orchestrator-live.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [
+          "src/services/__tests__/orchestrator-live.test.ts"
+        ],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "62b34feb",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 4,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "scripts/blueprint-lab/corpus.ts"
+        ],
+        "declaredButUntouched": [
+          "scripts/corpus-builder/build-corpus.ts",
+          "scripts/corpus-builder/corpus.json",
+          "scripts/corpus-builder/mine.ts",
+          "src/services/__tests__/corpus-builder-mine.test.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "6839bcc4",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 6,
+        "matched": [
+          "src/services/todo-store.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/__tests__/archival-sweep-throttle.test.ts",
+          "src/services/__tests__/archival-sweep.test.ts",
+          "src/services/archival-sweep.ts",
+          "src/services/mission-store.ts",
+          "src/services/orchestrator-live.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/reconcile-pass.ts"
+        ],
+        "matchRate": 0.16666666666666666
+      }
+    },
+    {
+      "id": "6c3ce0b9",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 4,
+        "actualCount": 3,
+        "matched": [
+          "src/mcp/mission-tools.ts",
+          "src/mcp/tools/mission-forge.ts",
+          "src/services/mission-store.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [
+          "src/services/__tests__/mission-store.test.ts"
+        ],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "72658d6d",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 3,
+        "matched": [
+          "src/mcp/mission-tools.ts",
+          "src/mcp/tools/mission-forge.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/mission-store.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "73ef63d6",
+      "leafKindExpected": "feature",
+      "leafKindActual": "refactor",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 3,
+        "matched": [
+          "src/routes/supervisor-routes.ts",
+          "src/services/mission-store.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/__tests__/supervisor-missions-bounded.test.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/mission-store-pagination.test.ts"
+        ],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "75828d39",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 3,
+        "matched": [
+          "ui/src/components/supervisor/bridge/CommandBar.tsx",
+          "ui/src/components/supervisor/bridge/ConductorStatusBadge.tsx"
+        ],
+        "undeclaredActual": [
+          "ui/src/components/supervisor/bridge/ConductorStatusBadge.test.tsx"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "7c340a9a",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 3,
+        "matched": [
+          "scripts/smoke-conductor-pin-live.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/supervisor-routes.ts",
+          "src/services/orchestrator-live.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.3333333333333333
+      }
+    },
+    {
+      "id": "8039dbe7",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 3,
+        "matched": [
+          "src/routes/orchestrator-routes.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/__tests__/orchestrator-node-profiles-validation.test.ts",
+          "src/routes/__tests__/orchestrator-routes.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.3333333333333333
+      }
+    },
+    {
+      "id": "81f8f5de",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "scripts/smoke-conductor-pin-live.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "835c2e4c",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [
+          "src/services/worker-ledger.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [
+          "src/services/__tests__/worker-ledger.test.ts"
+        ],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "873e24fd",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/__tests__/mission-store.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "8a2efaf6",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          "src/services/diff-contract.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/__tests__/diff-contract.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "8c054756",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 2,
+        "matched": [
+          "scripts/blueprint-lab/README.md",
+          "scripts/blueprint-lab/run.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "90ba58d9",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "scripts/smoke-conductor-pin-live.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "929910f1",
+      "leafKindExpected": "feature",
+      "leafKindActual": "infra",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 5,
+        "actualCount": 2,
+        "matched": [
+          "src/services/port-ownership.ts"
+        ],
+        "undeclaredActual": [
+          "src/server.ts"
+        ],
+        "declaredButUntouched": [
+          "bin/mermaid-collab.ts",
+          "hooks/server-check.sh",
+          "src/services/config-file.ts",
+          "src/services/run-dir.ts"
+        ],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "980c5c24",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 5,
+        "matched": [
+          "src/config.ts",
+          "src/services/cdp-session.ts"
+        ],
+        "undeclaredActual": [
+          "desktop/src/main/index.ts",
+          "src/mcp/tools/browser.ts",
+          "src/services/project-registry.ts"
+        ],
+        "declaredButUntouched": [
+          "src/server.ts"
+        ],
+        "matchRate": 0.4
+      }
+    },
+    {
+      "id": "99f156b9",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [
+          "src/services/landed-epic-sweep.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [
+          "src/services/__tests__/landed-epic-sweep-throttle.test.ts"
+        ],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "9e506ad4",
+      "leafKindExpected": "feature",
+      "leafKindActual": null,
+      "leafKindMismatch": false,
+      "validation": "parse-null",
+      "fileMatch": null
+    },
+    {
+      "id": "a4d8a493",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 6,
+        "actualCount": 4,
+        "matched": [
+          "skills/mission-forge/SKILL.md",
+          "src/mcp/mission-tools.ts"
+        ],
+        "undeclaredActual": [
+          "src/mcp/tools/__tests__/mission-forge.test.ts",
+          "src/mcp/tools/mission-forge.ts"
+        ],
+        "declaredButUntouched": [
+          "src/mcp/__tests__/tool-dispatch-coverage.test.ts",
+          "src/services/__tests__/prompt-injection.test.ts",
+          "src/services/mission-store.ts",
+          "src/services/project-digest.ts"
+        ],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "a6d70f99",
+      "leafKindExpected": "feature",
+      "leafKindActual": "infra",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "docs/conductor-target-live-measurement.md"
+        ],
+        "declaredButUntouched": [
+          "package.json",
+          "scripts/__tests__/measure-conductor-pin-live.test.ts",
+          "scripts/measure-conductor-pin-live.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "a7d91455",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 4,
+        "matched": [
+          "src/services/todo-store.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/__tests__/mission-store.test.ts",
+          "src/services/__tests__/todo-store.test.ts",
+          "src/services/mission-store.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.25
+      }
+    },
+    {
+      "id": "b2de6979",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "scripts/blueprint-lab/emit.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "b3f165cd",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [
+          "src/services/__tests__/diff-contract.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [
+          "src/services/__tests__/leaf-executor.test.ts"
+        ],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "b6d256c1",
+      "leafKindExpected": "fix",
+      "leafKindActual": null,
+      "leafKindMismatch": false,
+      "validation": "parse-null",
+      "fileMatch": null
+    },
+    {
+      "id": "b885debd",
+      "leafKindExpected": "fix",
+      "leafKindActual": "fix",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 2,
+        "matched": [
+          "src/services/__tests__/landed-epic-sweep.test.ts",
+          "src/services/landed-epic-sweep.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "b9134768",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "src/services/__tests__/landed-epic-sweep-same-pass-activation.test.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/sweep-measurement.test.ts",
+          "src/services/sweep-measurement.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "ba037b12",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          "src/routes/supervisor-routes.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/__tests__/conductor-target-route.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "bc6ec69e",
+      "leafKindExpected": "feature",
+      "leafKindActual": null,
+      "leafKindMismatch": false,
+      "validation": "parse-null",
+      "fileMatch": null
+    },
+    {
+      "id": "bdd4ea79",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          "ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"
+        ],
+        "undeclaredActual": [
+          "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "c02a97ce",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/__tests__/sweep-measurement.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "c2e6f88f",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 3,
+        "matched": [
+          "src/services/__tests__/diff-contract.test.ts",
+          "src/services/diff-contract.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/leaf-executor.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "c2f0716c",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 4,
+        "actualCount": 2,
+        "matched": [
+          "src/mcp/setup.ts",
+          "src/services/__tests__/worker-ledger.test.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [
+          "src/mcp/tools/session-todos.ts",
+          "src/services/__tests__/leaf-executor.test.ts"
+        ],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "c69d7d35",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 4,
+        "matched": [
+          "bin/mermaid-collab.ts",
+          "hooks/server-check.sh"
+        ],
+        "undeclaredActual": [
+          "src/server.ts",
+          "src/services/config-file.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "cac7af6e",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 3,
+        "matched": [
+          "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx",
+          "ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"
+        ],
+        "undeclaredActual": [
+          "ui/src/components/supervisor/bridge/useConductorEnabled.ts"
+        ],
+        "declaredButUntouched": [
+          "ui/src/hooks/useConductorEnabled.ts"
+        ],
+        "matchRate": 0.6666666666666666
+      }
+    },
+    {
+      "id": "ccde8d7e",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 4,
+        "matched": [],
+        "undeclaredActual": [
+          "src/routes/supervisor-routes.ts",
+          "src/services/__tests__/archive-history-restore.test.ts",
+          "src/services/mission-store.ts",
+          "src/services/todo-store.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/update-log-manager.test.ts",
+          "src/services/update-log-manager.ts",
+          "src/types/update-log.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "cf490efb",
+      "leafKindExpected": "fix",
+      "leafKindActual": "fix",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 4,
+        "actualCount": 4,
+        "matched": [
+          "src/mcp/tools/__tests__/mission-planner.test.ts",
+          "src/mcp/tools/mission-planner.ts",
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/conductor-pass.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "d0c4cb52",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          "src/routes/supervisor-routes.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/__tests__/supervisor-missions-approve.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "d329744a",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "scripts/blueprint-lab/corpus.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "dabc980d",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "src/services/sweep-measurement.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/loop-yield.test.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "db8fd872",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "scripts/smoke-conductor-pin-live.ts"
+        ],
+        "declaredButUntouched": [
+          "package.json",
+          "src/mcp/__tests__/live/mcp-http-live.test.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "e55114a0",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 2,
+        "matched": [
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/conductor-pass.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "e6706c86",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "src/services/mission-store.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "e681766b",
+      "leafKindExpected": "feature",
+      "leafKindActual": null,
+      "leafKindMismatch": false,
+      "validation": "parse-null",
+      "fileMatch": null
+    },
+    {
+      "id": "eaad6c73",
+      "leafKindExpected": "feature",
+      "leafKindActual": "test",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "src/services/__tests__/mission-creation-cap.test.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/mission-store.test.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "ee9aee37",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 4,
+        "actualCount": 2,
+        "matched": [],
+        "undeclaredActual": [
+          "src/services/__tests__/landed-epic-sweep.test.ts",
+          "src/services/landed-epic-sweep.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/epic-landed-at-equivalence.test.ts",
+          "src/services/coordinator-live.ts",
+          "src/services/invariant-check.ts",
+          "src/services/reconcile-pass.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "eeaf47f4",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 3,
+        "actualCount": 5,
+        "matched": [
+          "src/routes/supervisor-routes.ts"
+        ],
+        "undeclaredActual": [
+          "src/routes/__tests__/conductor-target-route.test.ts",
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/conductor-pass.ts",
+          "src/services/supervisor-store.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/orchestrator-live.test.ts",
+          "src/services/orchestrator-live.ts"
+        ],
+        "matchRate": 0.2
+      }
+    },
+    {
+      "id": "f60d57d5",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "scripts/blueprint-lab/score.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/diff-contract-scorer.test.ts",
+          "src/services/diff-contract-scorer.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "f6233fef",
+      "leafKindExpected": "feature",
+      "leafKindActual": "refactor",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [
+          "scripts/live-conductor-pin-evidence.ts"
+        ],
+        "undeclaredActual": [],
+        "declaredButUntouched": [],
+        "matchRate": 1
+      }
+    },
+    {
+      "id": "f78d19a6",
+      "leafKindExpected": "feature",
+      "leafKindActual": "infra",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          ".collab/project.json"
+        ],
+        "undeclaredActual": [
+          "scripts/blueprint-lab/corpus.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "f8fa94d3",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 2,
+        "actualCount": 2,
+        "matched": [
+          "src/services/reconcile-pass.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/conductor-pass.ts"
+        ],
+        "declaredButUntouched": [
+          "src/services/__tests__/reconcile-pass.test.ts"
+        ],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "fbb7e001",
+      "leafKindExpected": "feature",
+      "leafKindActual": "infra",
+      "leafKindMismatch": true,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 1,
+        "matched": [],
+        "undeclaredActual": [
+          "scripts/smoke-conductor-pin-live.ts"
+        ],
+        "declaredButUntouched": [
+          "scripts/smoke-conductor-target-pin-live.ts"
+        ],
+        "matchRate": 0
+      }
+    },
+    {
+      "id": "fec75a4b",
+      "leafKindExpected": "feature",
+      "leafKindActual": "fix",
+      "leafKindMismatch": true,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          "scripts/live-conductor-pin-evidence.ts"
+        ],
+        "undeclaredActual": [
+          "docs/conductor-target-live-measurement.md"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "fedfd37c",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "missing:named-test",
+      "fileMatch": {
+        "declaredCount": 1,
+        "actualCount": 2,
+        "matched": [
+          "src/services/supervisor-store.ts"
+        ],
+        "undeclaredActual": [
+          "src/services/__tests__/supervisor-store-conductor-target.test.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.5
+      }
+    },
+    {
+      "id": "ffe7bae7",
+      "leafKindExpected": "feature",
+      "leafKindActual": "feature",
+      "leafKindMismatch": false,
+      "validation": "accept",
+      "fileMatch": {
+        "declaredCount": 5,
+        "actualCount": 7,
+        "matched": [
+          "src/routes/supervisor-routes.ts",
+          "src/services/__tests__/conductor-pass.test.ts",
+          "src/services/conductor-pass.ts",
+          "src/services/mission-store.ts",
+          "src/services/orchestrator-live.ts"
+        ],
+        "undeclaredActual": [
+          "docs/autonomous-conductor.md",
+          "src/services/supervisor-store.ts"
+        ],
+        "declaredButUntouched": [],
+        "matchRate": 0.7142857142857143
+      }
+    }
+  ],
+  "aggregate": {
+    "total": 77,
+    "validationCounts": {
+      "accept": 37,
+      "missing:named-test": 34,
+      "parse-null": 6
+    },
+    "meanMatchRate": 0.5947350771294433,
+    "totalMatched": 97,
+    "totalUndeclaredActual": 74,
+    "totalDeclaredButUntouched": 67,
+    "leafKindMismatchCount": 34
+  }
+}
