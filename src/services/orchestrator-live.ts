@@ -35,6 +35,7 @@ import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { registerOrchestratorKick } from './orchestrator-kick.js';
 import { yieldToLoop } from './loop-yield.js';
+import { runArchivalSweep, shouldRunArchivalSweep } from './archival-sweep.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -110,6 +111,7 @@ const NOTIFY_PASS_TIMEOUT_MS = 90_000; // 1.5min — git-diff probes only
 const BUILD_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — awaits leaf run(s)
 const RECONCILE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — reconcile harness
 const TRIAGE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — bounded Grok calls
+const ARCHIVAL_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — archival sweep
 
 /** Race a pass against a backstop deadline. Rejects with a labelled error on timeout so
  *  the caller's existing try/catch logs it and the tick proceeds. The underlying work is
@@ -261,12 +263,14 @@ export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): 
   build: boolean;
   reconcile: boolean;
   triage: boolean;
+  archival: boolean;
 } {
   const active = level !== 'off';
   return {
     build: active,
     reconcile: active,
     triage: active,
+    archival: active,
   };
 }
 
@@ -297,6 +301,14 @@ export interface TickDeps {
    *  Keeps the every-tick loop free of the pass's ~5-6 full-table todos scans.
    *  Default: shouldRunReconcilePass. */
   shouldRunReconcile?: (project: string) => boolean;
+  /** Throttled archival sweep: stamp archivedAt on terminal (done/dropped todos,
+   *  converged/abandoned missions) rows past retention. Hygiene, not claim/build-latency-
+   *  sensitive — same throttle shape as reconcile. Default: p => runArchivalSweep(p, { force: true }). */
+  archival?: (project: string) => Promise<void>;
+  /** Throttle gate for the archival sweep: returns true (and records the run) when the
+   *  pass is due for a project, false while within ARCHIVAL_SWEEP_INTERVAL_MS.
+   *  Default: shouldRunArchivalSweep. */
+  shouldRunArchival?: (project: string) => boolean;
   /** Diff todos → enqueue subscription notifications → nudge idle subscribers.
    *  Runs for every WATCHED project regardless of level (decoupled from build).
    *  Default: runNotificationTick. */
@@ -364,6 +376,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const force = deps.force ?? false;
   const reconcile = deps.reconcile ?? runReconcilePass;
   const shouldRunReconcile = deps.shouldRunReconcile ?? shouldRunReconcilePass;
+  const archival = deps.archival ?? ((p: string) => runArchivalSweep(p, { force: true }).then(() => {}));
+  const shouldRunArchival = deps.shouldRunArchival ?? shouldRunArchivalSweep;
   const notify = deps.notify ?? runNotificationTick;
   const shouldRunNotify = deps.shouldRunNotify ?? shouldRunNotificationTick;
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
@@ -551,6 +565,17 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(reconcile(project), RECONCILE_PASS_TIMEOUT_MS, `${project}:reconcile`);
       } catch (err) {
         console.warn(`[orchestrator] runReconcilePass failed for ${project}:`, err);
+      }
+    }
+
+    // Throttled archival sweep: stamp archivedAt on terminal rows past retention (mission
+    // 03a968f5). Hygiene, not claim/build-latency-sensitive — same throttle shape as reconcile.
+    if (passes.archival && shouldRunArchival(project)) {
+      try {
+        currentPhase = `${project}:archival`;
+        await withPassTimeout(archival(project), ARCHIVAL_PASS_TIMEOUT_MS, `${project}:archival`);
+      } catch (err) {
+        console.warn(`[orchestrator] runArchivalSweep failed for ${project}:`, err);
       }
     }
 
