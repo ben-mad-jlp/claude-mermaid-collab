@@ -16,7 +16,9 @@ import {
   stampConductorRun,
   selectConductorMission,
   CRITERION_SERVE_CAP,
+  promoteQueuedMissions,
 } from './mission-store.js';
+import { syncMissionSubscription } from './mission-subscription.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
 import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { config } from '../config.js';
@@ -123,6 +125,19 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
 
 async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
   if (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled' };
+
+  try {
+    const promoted = promoteQueuedMissions(project);
+    for (const missionId of promoted) {
+      try {
+        syncMissionSubscription(project, missionId);
+      } catch {
+        /* fail-open */
+      }
+    }
+  } catch {
+    /* fail-open — promotion must never block a conductor pass */
+  }
 
   // The approved + active, non-terminal, actionable mission. (One active mission per session; drive
   // the first that qualifies.) getMission gives the authoritative derived status + awaitingApprovalSince.
