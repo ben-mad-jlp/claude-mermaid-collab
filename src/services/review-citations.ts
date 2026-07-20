@@ -321,3 +321,76 @@ export function checkConstraintCitations(
   }
   return { fabricated };
 }
+
+/** One LLM ballot verdict about a single declared requirement. text is the justification the
+ *  reviewer wrote, carrying any file:line citations (parsed with the same extractCitations). */
+export interface BallotVerdict {
+  /** The requirement id the reviewer claims to decide. */
+  id: string;
+  outcome: CriterionOutcome; // 'met' | 'unmet' | 'not-applicable'
+  text: string;
+}
+
+export interface BallotGrounding {
+  status: 'ok' | 'vacuous' | 'abstain';
+  reasons: string[];
+}
+
+/**
+ * The CLOSED-ballot grounding gate (constraint 3bfda28e): a ballot verdict is valid ONLY when it
+ * is keyed to a DECLARED requirement id, and a met verdict must resolve a real file:line into
+ * the change-set. Exactly the vacuous/offender machinery of validateReviewGrounding, now keyed to
+ * requirement ids instead of criterion text.
+ *
+ *  - changeSet === null ⇒ 'abstain' (unreadable — do not pretend to validate; mirrors rule 1).
+ *  - a verdict whose id is NOT in declaredIds ⇒ 'vacuous' (fabricated/undeclared id, discarded).
+ *  - a 'met' verdict whose citations ALL fail to resolve into the change-set (and, if
+ *    opts.citationExists is given, the worktree) ⇒ 'vacuous' (uncited met; the offender is NAMED).
+ *  - otherwise ⇒ 'ok'.
+ */
+export function validateBallotGrounding(
+  verdicts: readonly BallotVerdict[],
+  declaredIds: readonly string[],
+  changeSet: readonly string[] | null,
+  opts?: GroundingOpts,
+): BallotGrounding {
+  if (changeSet === null) {
+    return { status: 'abstain', reasons: ['ballot-grounding: change-set unreadable'] };
+  }
+  const declared = new Set(declaredIds);
+  const exists = opts?.citationExists;
+
+  // Fabricated / undeclared id ⇒ rejected.
+  const fabricated = verdicts.filter((v) => !declared.has(v.id)).map((v) => v.id);
+  if (fabricated.length > 0) {
+    const named = fabricated.slice(0, MAX_NAMED_OFFENDERS);
+    const reasons = named.map((id) => `ballot: verdict cites undeclared requirement id "${id}"`);
+    const rest = fabricated.length - named.length;
+    if (rest > 0) reasons.push(`ballot: ${rest} more undeclared id(s)`);
+    return { status: 'vacuous', reasons };
+  }
+
+  // A 'met' verdict must resolve ≥1 citation into the change-set (or worktree via citationExists).
+  const offenders: string[] = [];
+  for (const v of verdicts) {
+    if (v.outcome !== 'met') continue; // unmet/N-A need no citation
+    const cites = extractCitations(v.text);
+    const grounded =
+      cites.some((c) => citationResolves(c.path, changeSet)) ||
+      (exists != null && cites.some((c) => exists(c.path, c.line)));
+    if (!grounded) {
+      offenders.push(cites.length === 0
+        ? `"${v.id}" (met, cites nothing)`
+        : `"${v.id}" (${cites[0].raw}:${cites[0].line})`);
+    }
+  }
+  if (offenders.length > 0) {
+    const named = offenders.slice(0, MAX_NAMED_OFFENDERS)
+      .map((o) => `ballot: met verdict ${o} does not resolve into the change-set`);
+    const rest = offenders.length - named.length;
+    if (rest > 0) named.push(`ballot: ${rest} more uncited met verdict(s)`);
+    return { status: 'vacuous', reasons: named };
+  }
+
+  return { status: 'ok', reasons: [] };
+}
