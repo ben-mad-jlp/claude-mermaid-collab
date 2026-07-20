@@ -231,15 +231,26 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     if (status === 'building') return { ran: false, reason: 'building-wait', missionId };
   }
 
-  const fp = conductorFingerprint(status, actions) + `|land:${landCards}`;
+  // The SUCCESS-debounce key includes the open land-card count: a new epic-ready-to-land card is
+  // genuinely new work (the conductor must wake to land it), so it must reopen a previously-served
+  // state. The FAIL-RETRY counter, however, keys on the SERVE-STATE fingerprint ALONE (status +
+  // per-criterion actions) — NOT on landCards. landCards is a project-GLOBAL count that flips as
+  // unrelated epics across the project surface/clear their land cards; folding it into the fail key
+  // let any such flip reset priorFails and re-spawn CONDUCTOR_SERVE_RETRY_CAP fresh (expensive)
+  // conductor nodes on a mission whose serve-state is structurally UNSERVABLE (the 9688e874 crit7
+  // token churn: an undelegatable criterion got 3 brand-new nodes every time an unrelated land card
+  // came or went). Keying the cap on the serve-state alone makes an unservable state cap ONCE and
+  // STAY capped until the serve-state itself changes (a criterion actually progresses).
+  const serveFp = conductorFingerprint(status, actions);
+  const fp = serveFp + `|land:${landCards}`;
   const lastKey = target.row.lastConductorKey;
-  // A prior SUCCESSFUL pass on this exact state ⇒ debounce (unchanged behaviour).
+  // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   if (lastKey === fp) return { ran: false, reason: 'debounced', missionId };
-  // A prior FAILED pass encodes `${fp}|fail:N`. Bug fix: a node FAILURE used to stamp the plain
-  // fp and permanently wedge the mission (serve fails ⇒ 0 epics ⇒ state never moves ⇒ identical fp
-  // ⇒ debounced forever). Now a failure retries up to CONDUCTOR_SERVE_RETRY_CAP times across ticks,
-  // then stops respinning an expensive node on an unservable state (bounded, not a permanent wedge).
-  const failPrefix = `${fp}|fail:`;
+  // A prior FAILED pass encodes `${serveFp}|fail:N`. A node FAILURE (or empty serve) used to stamp
+  // the plain fp and permanently wedge the mission; it now retries up to CONDUCTOR_SERVE_RETRY_CAP
+  // times across ticks, then stops respinning an expensive node on an unservable serve-state
+  // (bounded, not a permanent wedge — and NOT re-armed by landCards drift).
+  const failPrefix = `${serveFp}|fail:`;
   const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
   if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return { ran: false, reason: 'debounced', missionId };
 
@@ -258,6 +269,10 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     project,
     permissionMode: 'bypassPermissions',
     transcriptLabel: 'conductor',
+    // Spend accounting: correlate this (expensive) conductor node's burn to its mission + session
+    // (source defaults to transcriptLabel 'conductor'; default-on capture at the invoke boundary).
+    ledgerTodoId: missionId,
+    ledgerSession: session,
   });
 
   // PRODUCTIVE-PASS GUARD. A pass is a SUCCESS only if it actually moved the mission: the node

@@ -126,6 +126,30 @@ describe('runConductorPass — scheduling', () => {
     expect(failCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // no further node spawned past the cap
   });
 
+  test('a capped unservable serve-state stays capped when an unrelated land card flips (no token re-churn)', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    // Cap the mission on an UNSERVABLE discover gap: the node returns ok but files no epic, so the
+    // criterion stays 'discover' and the serve-state never moves. Retries to the cap, then stops.
+    for (let i = 0; i < CONDUCTOR_SERVE_RETRY_CAP; i++) {
+      await runConductorPass(project, { invoke: emptyServeInvoke });
+    }
+    expect(invokeCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP);
+    const cappedBefore = await runConductorPass(project, { invoke: emptyServeInvoke });
+    expect(cappedBefore.reason).toBe('debounced');
+    expect(invokeCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // capped — no extra node
+
+    // An UNRELATED epic-ready-to-land card appears project-wide (landCards 0 → 1). This used to change
+    // the fail fingerprint and reset the retry counter, re-spawning CONDUCTOR_SERVE_RETRY_CAP fresh
+    // nodes on the same unservable state. The cap now keys on the serve-state alone, so it must HOLD.
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: null });
+    const afterLandCard = await runConductorPass(project, { invoke: emptyServeInvoke });
+    expect(afterLandCard.ran).toBe(false);
+    expect(afterLandCard.reason).toBe('debounced');
+    expect(invokeCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // STILL capped — the land-card flip spent no node
+  });
+
   test('a build-green mission (criterion building) STILL runs when an epic-ready-to-land card is open (to land it)', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);

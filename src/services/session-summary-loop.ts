@@ -511,6 +511,34 @@ function extractPendingQuestion(pane: string): string | null {
   return lines.length ? lines[lines.length - 1] : null;
 }
 
+/**
+ * Normalize a captured pane for the CHANGE-GATE hash only (never for the interpreted content).
+ *
+ * The working indicator on an otherwise-idle Claude pane animates every render: the spinner glyph
+ * cycles, an elapsed-seconds counter ticks, and a live token counter creeps — all WITHOUT any real
+ * progress. Hashing the raw pane makes each of those frames a distinct `paneHash`, which re-opens
+ * the change-gate (`hash === summaryPaneHash`) and re-fires the sonnet interpret every throttle
+ * window — burning summary tokens on a session that is not actually doing anything new. That is the
+ * "burning even when nothing is happening" drip.
+ *
+ * We strip ONLY these volatile sub-tokens (spinner glyph, elapsed timer, token counter) — never whole
+ * lines — so a genuine content change (new output, a changed status verb) still flips the hash and is
+ * still graded `active`. A spinner-only pane whose sole motion is the ticker now hashes stably and is
+ * correctly graded quiet/stalled rather than falsely perpetually-active. Exported for unit tests.
+ */
+export function normalizePaneForHash(pane: string): string {
+  return pane
+    // Braille + star/asterisk spinner glyphs Claude Code cycles as its working indicator.
+    .replace(/[⠀-⣿✖✳✴✵✶✷✸✹✺✻✼✽❃❄❅❆❇]/g, '')
+    // Live token counters: "↑ 3.2k tokens", "12.3k tokens", "↓ 800 tokens".
+    .replace(/[↑↓]?\s*\d[\d.,]*\s*[kmKM]?\s*tokens?/gi, ' tokens')
+    // Elapsed-time tickers: "(45s)", "· 45s ·", "1m 4s", "1m 04s".
+    .replace(/\b\d+\s*m\s*\d+\s*s\b/g, ' ')
+    .replace(/\b\d+\s*s\b/g, ' ')
+    // Collapse the whitespace the deletions leave so spacing jitter alone can't flip the hash.
+    .replace(/[ \t]+/g, ' ');
+}
+
 function summaryFields(e: SessionSummaryEntry): {
   summaryText?: string;
   firstClause?: string;
@@ -633,8 +661,14 @@ async function interpretViaNode(args: {
       allowedTools: '',
       appendSystemPrompt: INTERPRETER_SYSTEM,
       cwd: args.project,
+      project: args.project,
       permissionMode: 'bypassPermissions',
       timeoutMs: INTERPRETER_TIMEOUT_MS,
+      // Spend accounting: the Zen summary interpreter is a high-frequency daemon LLM call — tag it so
+      // the burn gauge attributes it to 'summary' (default-on capture at the invoke boundary).
+      ledgerSource: 'summary',
+      ledgerSession: args.session,
+      ledgerTodoId: args.session,
     });
     const structured = result.ok && result.text ? parseInterpretJson(result.text) : null;
     const reason = classifyInterpretFailure(result, !!structured);
@@ -942,8 +976,9 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
       continue;
     }
 
-    // Hash and apply the change-gate.
-    const hash = createHash('sha1').update(pane).digest('hex');
+    // Hash and apply the change-gate. Hash the NORMALIZED pane (cosmetic spinner/timer/token-counter
+    // churn stripped) so an idle-but-animating pane doesn't re-fire the interpret every window.
+    const hash = createHash('sha1').update(normalizePaneForHash(pane)).digest('hex');
     const changed = !prev || prev.paneHash !== hash;
 
     let paneSeenAt: number;

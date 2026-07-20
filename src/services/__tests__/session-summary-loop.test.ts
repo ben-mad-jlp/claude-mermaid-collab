@@ -16,6 +16,7 @@ import {
   getSummaryHealth,
   isInterpretRateLimited,
   parseInterpretJson,
+  normalizePaneForHash,
   pushSessionSummary,
   getSelfSummaryNudgeConfig,
   shouldSelfNudge,
@@ -1188,5 +1189,30 @@ describe('runSelfSummaryNudgePass (pass orchestration)', () => {
     // Pass 2 at same time — throttle was advanced, so not eligible
     const r2 = await runSelfSummaryNudgePass(passDeps);
     expect(r2.nudged).toEqual([]);
+  });
+});
+
+describe('normalizePaneForHash — cosmetic churn is stripped, real change is not', () => {
+  const norm = normalizePaneForHash;
+
+  it('an idle pane whose ONLY motion is the working ticker hashes identically across frames', () => {
+    const frame1 = 'user@box\n✻ Cogitating… (esc to interrupt · 12s · ↑ 3.2k tokens)\n> ';
+    const frame2 = 'user@box\n✳ Cogitating… (esc to interrupt · 47s · ↑ 8.9k tokens)\n> ';
+    const frame3 = 'user@box\n✶ Cogitating… (esc to interrupt · 1m 3s · ↑ 12.1k tokens)\n> ';
+    expect(norm(frame1)).toBe(norm(frame2));
+    expect(norm(frame2)).toBe(norm(frame3));
+  });
+
+  it('a REAL content change (new output, different status verb) still flips the normalized value', () => {
+    const working = '✻ Cogitating… (esc to interrupt · 12s · ↑ 3.2k tokens)\n> ';
+    const newOutput = '✻ Cogitating… (esc to interrupt · 12s · ↑ 3.2k tokens)\nWrote file foo.ts\n> ';
+    const differentVerb = '✻ Manifesting… (esc to interrupt · 12s · ↑ 3.2k tokens)\n> ';
+    expect(norm(working)).not.toBe(norm(newOutput));
+    expect(norm(working)).not.toBe(norm(differentVerb));
+  });
+
+  it('is a no-op (modulo whitespace collapse) on a pane with no ticker at all', () => {
+    const idle = 'user@box:~/proj$\n> the quick brown fox\n';
+    expect(norm(idle).replace(/ +/g, ' ')).toBe(idle.replace(/ +/g, ' '));
   });
 });

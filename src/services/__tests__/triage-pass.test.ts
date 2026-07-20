@@ -19,7 +19,10 @@ import {
   runDriveLandPass,
   isTriageEligible,
   isSuggestionFresh,
+  isTriageNullBackedOff,
+  _resetTriageNullBackoff,
   TRIAGE_CAP,
+  TRIAGE_NULL_BACKOFF_MS,
   AUTO_RESOLVE_CAP,
   EPIC_LAND_CAP,
 } from '../triage-pass';
@@ -46,6 +49,7 @@ beforeAll(() => { _closeDb(); });
 beforeEach(() => {
   process.env.MERMAID_SUPERVISOR_DIR = supDir;
   _closeDb();
+  _resetTriageNullBackoff();
 });
 afterAll(() => {
   _closeDb();
@@ -135,6 +139,59 @@ describe('runTriagePass', () => {
     const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'stuck?' });
     await runTriagePass(project, { callGrok: async () => { throw new Error('boom'); }, commitsBehindMaster: () => 0 });
     expect(getEscalation(escalation.id)?.suggestedAction).toBeNull();
+  });
+
+  it('a null classify (Grok down) is NOT re-classified every tick — it backs off, then retries after the window', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'stuck?' });
+    let calls = 0;
+    let clock = 1_000_000;
+    const downGrok = { callGrok: async () => { calls++; throw new Error('grok unreachable'); }, commitsBehindMaster: () => 0, now: () => clock };
+
+    // Tick 1: Grok is down → one classify attempt → back-off recorded.
+    await runTriagePass(project, downGrok);
+    expect(calls).toBe(1);
+
+    // Ticks 2..N within the back-off window: the SAME unchanged escalation is skipped — no re-spend.
+    clock += TRIAGE_NULL_BACKOFF_MS - 1;
+    await runTriagePass(project, downGrok);
+    await runTriagePass(project, downGrok);
+    expect(calls).toBe(1); // still 1 — the down-Grok hammer is gone
+
+    // Past the window: retried once (and backs off again if still failing).
+    clock += 2;
+    await runTriagePass(project, downGrok);
+    expect(calls).toBe(2);
+  });
+
+  it('the null back-off releases early when the linked todo revision changes (its world moved)', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'stuck?', todoId: 't1' });
+    let calls = 0;
+    let clock = 1_000_000;
+    let rev = 'rev-a';
+    const downGrok = {
+      callGrok: async () => { calls++; throw new Error('grok unreachable'); },
+      commitsBehindMaster: () => 0,
+      getTodoRevision: () => ({ updatedAt: rev }),
+      now: () => clock,
+    };
+
+    await runTriagePass(project, downGrok);
+    expect(calls).toBe(1); // classified once, backed off at rev-a
+
+    // Same revision, inside the window → skipped.
+    clock += 1000;
+    await runTriagePass(project, downGrok);
+    expect(calls).toBe(1);
+    // isTriageNullBackedOff agrees at rev-a, disagrees once the revision moves.
+    expect(isTriageNullBackedOff(getEscalation(escalation.id)!, () => ({ updatedAt: 'rev-a' }), clock)).toBe(true);
+    expect(isTriageNullBackedOff(getEscalation(escalation.id)!, () => ({ updatedAt: 'rev-b' }), clock)).toBe(false);
+
+    // The linked todo moves → the escalation is re-classified immediately, still inside the window.
+    rev = 'rev-b';
+    await runTriagePass(project, downGrok);
+    expect(calls).toBe(2);
   });
 });
 

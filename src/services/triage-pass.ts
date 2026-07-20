@@ -38,6 +38,46 @@ import { getWebSocketHandler } from './ws-handler-manager.js';
  *  cost; the remainder are picked up on subsequent ticks. */
 export const TRIAGE_CAP = 3;
 
+/** Back-off window for an escalation whose classify returned NULL (Grok unreachable or unparseable
+ *  output). Without it, a null result stores no suggestion, so the escalation stays "eligible" and is
+ *  re-classified EVERY tick — when Grok is down that hammers the classifier at TRIAGE_CAP/tick/project
+ *  on the same unchanged backlog indefinitely (the classic fail-open token drip). The escalation is
+ *  retried once its linked todo revision changes (its world moved) OR this window elapses. */
+export const TRIAGE_NULL_BACKOFF_MS = 10 * 60_000; // 10 min
+
+/** Per-escalation null-classify back-off: escalationId → { linked-todo revision at attempt, retry-not-
+ *  before }. In-memory (mirrors self-nudge's throttle map): a daemon restart re-attempts once, which is
+ *  harmless. Cleared on a successful classify; overwritten on each repeated null. */
+const triageNullBackoff = new Map<string, { rev: string | null; until: number }>();
+
+/** Test seam: clear the null-classify back-off. */
+export function _resetTriageNullBackoff(): void {
+  triageNullBackoff.clear();
+}
+
+/** The linked todo's revision (updatedAt), or null when the escalation has no todo — the key we
+ *  detect "the escalation's world changed, worth re-classifying" against. */
+function triageTodoRevision(
+  esc: Escalation,
+  getTodoFn: (project: string, id: string) => { updatedAt: string } | null,
+): string | null {
+  if (!esc.todoId) return null;
+  return getTodoFn(esc.project, esc.todoId)?.updatedAt ?? null;
+}
+
+/** True when a prior classify returned NULL for this escalation, its linked todo hasn't moved since,
+ *  and the back-off window has not yet elapsed — so we must NOT re-spend Grok on it this tick. */
+export function isTriageNullBackedOff(
+  esc: Escalation,
+  getTodoFn: (project: string, id: string) => { updatedAt: string } | null,
+  now: number,
+): boolean {
+  const b = triageNullBackoff.get(esc.id);
+  if (!b) return false;
+  if (b.rev !== triageTodoRevision(esc, getTodoFn)) return false; // world moved → allow a fresh classify
+  return now < b.until;
+}
+
 /** Phase 3 (drive): max UNATTENDED auto-resolutions per project per tick. A hard
  *  ceiling on silent autonomy — the rest wait for a human or the next tick. */
 export const AUTO_RESOLVE_CAP = 2;
@@ -108,6 +148,8 @@ export interface TriagePassDeps extends TriageDeps {
   /** Drive auto-land executor (defaults to the real proof-gated landEpic). Injectable
    *  for unit tests so the land path doesn't shell out to git. */
   landEpic?: (project: string, escalationId: string) => Promise<LandEpicOutcome>;
+  /** Injectable clock for the null-classify back-off (default Date.now). */
+  now?: () => number;
 }
 
 /**
@@ -185,8 +227,12 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
     await runDriveLandPass(project, deps);
   }
 
+  const nowFn = deps.now ?? Date.now;
   const open = listOpen().filter((e) => e.project === project);
-  const eligible = open.filter((e) => isTriageEligible(e, getTodoRevision));
+  const eligible = open
+    .filter((e) => isTriageEligible(e, getTodoRevision))
+    // Skip escalations still inside their null-classify back-off (Grok-down hammer guard).
+    .filter((e) => !isTriageNullBackedOff(e, getTodoRevision, nowFn()));
 
   if (eligible.length === 0) return;
 
@@ -228,7 +274,18 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
     broadcastEsc(esc.id, esc.session, esc.kind);
     try {
       const suggestion = await classifyEscalation(project, esc, deps);
-      if (!suggestion) continue; // fail-open: no suggestion, human sees plain escalation
+      if (!suggestion) {
+        // Fail-open: no suggestion (Grok unreachable / unparseable). Record a back-off so the SAME
+        // unchanged escalation isn't re-classified every tick — otherwise a down Grok is hammered at
+        // TRIAGE_CAP/tick forever. Retries when its todo revision changes or TRIAGE_NULL_BACKOFF_MS
+        // elapses. The human still sees the plain escalation card in the meantime.
+        triageNullBackoff.set(esc.id, {
+          rev: triageTodoRevision(esc, getTodoRevision),
+          until: nowFn() + TRIAGE_NULL_BACKOFF_MS,
+        });
+        continue;
+      }
+      triageNullBackoff.delete(esc.id); // classify succeeded — drop any prior back-off
       setSuggestion(esc.id, suggestion);
       recordSupervisorAudit({
         kind: 'classify',
