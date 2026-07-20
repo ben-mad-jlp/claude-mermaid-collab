@@ -10,6 +10,26 @@ import { isEpic } from './todo-kind.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, type GitProbe } from './epic-branch-status.js';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { yieldToLoop } from './loop-yield.js';
+
+/** Minimum spacing between PERIODIC landed-epic sweeps for a single project. Same
+ *  throttle shape as ARCHIVAL_SWEEP_INTERVAL_MS (archival-sweep.ts) — hygiene, not
+ *  claim/build-latency-sensitive. */
+export const LANDED_EPIC_SWEEP_INTERVAL_MS = 300_000; // 5 min
+
+const lastLandedEpicSweepMs = new Map<string, number>();
+
+export function shouldRunLandedEpicSweep(project: string, now: number = Date.now()): boolean {
+  const last = lastLandedEpicSweepMs.get(project);
+  if (last !== undefined && now - last < LANDED_EPIC_SWEEP_INTERVAL_MS) return false;
+  lastLandedEpicSweepMs.set(project, now);
+  return true;
+}
+
+export function _resetLandedEpicSweepThrottle(project?: string): void {
+  if (project === undefined) lastLandedEpicSweepMs.clear();
+  else lastLandedEpicSweepMs.delete(project);
+}
 
 export interface LandedEpicSweepResult {
   /** Epics whose [LAND] leaf was completed this pass. */
@@ -151,4 +171,38 @@ export function gcEpicBranches(
   }
 
   return { deleted, flagged, skipped };
+}
+
+export interface RunLandedEpicSweepResult {
+  reconcile: LandedEpicSweepResult;
+  gc: GcEpicBranchesResult;
+}
+
+/**
+ * Throttled composed pass: reconcileLandedEpics then gcEpicBranches, yielding to the
+ * event loop between the two batches (same two-batch yield shape as
+ * runArchivalSweep's todo/mission batches — archival-sweep.ts).
+ */
+export async function runLandedEpicSweep(
+  project: string,
+  opts: {
+    now?: number;
+    yieldFn?: () => Promise<void>;
+    force?: boolean;
+    probe?: GitProbe;
+    runner?: BranchGcRunner;
+    baseRef?: string;
+  } = {},
+): Promise<RunLandedEpicSweepResult> {
+  const now = opts.now ?? Date.now();
+  if (!opts.force && !shouldRunLandedEpicSweep(project, now)) {
+    return { reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 } };
+  }
+  const doYield = opts.yieldFn ?? yieldToLoop;
+
+  const reconcile = await reconcileLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
+  await doYield();
+  const gc = gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
+
+  return { reconcile, gc };
 }

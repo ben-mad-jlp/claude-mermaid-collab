@@ -36,6 +36,7 @@ import { getWebSocketHandler } from './ws-handler-manager.js';
 import { registerOrchestratorKick } from './orchestrator-kick.js';
 import { yieldToLoop } from './loop-yield.js';
 import { runArchivalSweep, shouldRunArchivalSweep } from './archival-sweep.js';
+import { runLandedEpicSweep, shouldRunLandedEpicSweep } from './landed-epic-sweep.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -112,6 +113,7 @@ const BUILD_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — awaits leaf run(s)
 const RECONCILE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — reconcile harness
 const TRIAGE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — bounded Grok calls
 const ARCHIVAL_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — archival sweep
+const LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — landed-epic sweep
 
 /** Race a pass against a backstop deadline. Rejects with a labelled error on timeout so
  *  the caller's existing try/catch logs it and the tick proceeds. The underlying work is
@@ -264,6 +266,7 @@ export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): 
   reconcile: boolean;
   triage: boolean;
   archival: boolean;
+  landedEpicSweep: boolean;
 } {
   const active = level !== 'off';
   return {
@@ -271,6 +274,7 @@ export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): 
     reconcile: active,
     triage: active,
     archival: active,
+    landedEpicSweep: active,
   };
 }
 
@@ -309,6 +313,15 @@ export interface TickDeps {
    *  pass is due for a project, false while within ARCHIVAL_SWEEP_INTERVAL_MS.
    *  Default: shouldRunArchivalSweep. */
   shouldRunArchival?: (project: string) => boolean;
+  /** Throttled landed-epic sweep: reconcile [LAND] leaves + GC fully-landed epic branches
+   *  (reconcileLandedEpics + gcEpicBranches, landed-epic-sweep.ts). Hygiene, not claim/
+   *  build-latency-sensitive — same throttle shape as archival. Default:
+   *  p => runLandedEpicSweep(p, { force: true }). */
+  landedEpicSweep?: (project: string) => Promise<void>;
+  /** Throttle gate for the landed-epic sweep: returns true (and records the run) when the
+   *  pass is due for a project, false while within LANDED_EPIC_SWEEP_INTERVAL_MS.
+   *  Default: shouldRunLandedEpicSweep. */
+  shouldRunLandedEpicSweep?: (project: string) => boolean;
   /** Diff todos → enqueue subscription notifications → nudge idle subscribers.
    *  Runs for every WATCHED project regardless of level (decoupled from build).
    *  Default: runNotificationTick. */
@@ -378,6 +391,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunReconcile = deps.shouldRunReconcile ?? shouldRunReconcilePass;
   const archival = deps.archival ?? ((p: string) => runArchivalSweep(p, { force: true }).then(() => {}));
   const shouldRunArchival = deps.shouldRunArchival ?? shouldRunArchivalSweep;
+  const landedEpicSweep = deps.landedEpicSweep ?? ((p: string) => runLandedEpicSweep(p, { force: true }).then(() => {}));
+  const shouldRunLandedEpicSweepDep = deps.shouldRunLandedEpicSweep ?? shouldRunLandedEpicSweep;
   const notify = deps.notify ?? runNotificationTick;
   const shouldRunNotify = deps.shouldRunNotify ?? shouldRunNotificationTick;
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
@@ -576,6 +591,17 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(archival(project), ARCHIVAL_PASS_TIMEOUT_MS, `${project}:archival`);
       } catch (err) {
         console.warn(`[orchestrator] runArchivalSweep failed for ${project}:`, err);
+      }
+    }
+
+    // Throttled landed-epic sweep: reconcile [LAND] leaves + GC fully-landed epic branches.
+    // Hygiene, not claim/build-latency-sensitive — same throttle shape as archival.
+    if (passes.landedEpicSweep && shouldRunLandedEpicSweepDep(project)) {
+      try {
+        currentPhase = `${project}:landed-epic-sweep`;
+        await withPassTimeout(landedEpicSweep(project), LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS, `${project}:landed-epic-sweep`);
+      } catch (err) {
+        console.warn(`[orchestrator] runLandedEpicSweep failed for ${project}:`, err);
       }
     }
 
