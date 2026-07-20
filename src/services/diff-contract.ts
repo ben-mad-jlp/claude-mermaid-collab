@@ -18,6 +18,7 @@ export const DIFF_LEAF_KINDS: DiffLeafKind[] = ['feature', 'fix', 'refactor', 't
 /** A positive, citable fact: a named symbol exists in a named file. */
 export interface SymbolPresentRequirement {
   kind: 'symbol-present';
+  id: string;
   file: string;
   symbol: string;
   description: string;
@@ -27,6 +28,7 @@ export interface SymbolPresentRequirement {
  *  `true` tag means a contract author cannot construct this with `mechanical: false`. */
 export interface NamedTestRequirement {
   kind: 'named-test';
+  id: string;
   testFile: string;
   testName: string;
   mechanical: true;
@@ -37,6 +39,7 @@ export interface NamedTestRequirement {
  *  so arbitrary shell execution is unrepresentable, not just discouraged. */
 export interface ThresholdRequirement {
   kind: 'threshold';
+  id: string;
   source: 'gate-output' | 'grep-count';
   metric: string;
   comparison: 'gte' | 'lte' | 'eq';
@@ -44,10 +47,28 @@ export interface ThresholdRequirement {
   mechanical: true;
 }
 
+/** A positive, citable behavioral expectation the diff should satisfy. LLM-decided:
+ *  it carries NO `mechanical` literal, so a machine stage can never claim to have proven it. */
+export interface ObservableRequirement {
+  kind: 'observable';
+  id: string;
+  description: string;
+}
+
+/** A positive, cited invariant the diff must preserve (the TYPED positive form a "do not break X"
+ *  takes — never an absence). LLM-decided: NO `mechanical` literal. */
+export interface InvariantRequirement {
+  kind: 'invariant';
+  id: string;
+  description: string;
+}
+
 export type DiffRequirement =
   | SymbolPresentRequirement
   | NamedTestRequirement
-  | ThresholdRequirement;
+  | ThresholdRequirement
+  | ObservableRequirement
+  | InvariantRequirement;
 
 /** A DiffRequirement's discriminant, reused so the matrix stays keyed to the same 3 kinds as
  *  the union — a 4th kind added to DiffRequirement forces a compile error here too. */
@@ -67,11 +88,11 @@ export type DiffRequirementKind = DiffRequirement['kind'];
  *    ship their own test.
  */
 export const CONTRACT_STRICTNESS_MATRIX: Record<DiffLeafKind, Record<DiffRequirementKind, 'required' | 'optional'>> = {
-  feature: { 'symbol-present': 'required', 'named-test': 'required', threshold: 'optional' },
-  fix: { 'symbol-present': 'required', 'named-test': 'required', threshold: 'optional' },
-  refactor: { 'symbol-present': 'required', 'named-test': 'optional', threshold: 'optional' },
-  test: { 'symbol-present': 'optional', 'named-test': 'required', threshold: 'optional' },
-  infra: { 'symbol-present': 'required', 'named-test': 'optional', threshold: 'optional' },
+  feature: { 'symbol-present': 'required', 'named-test': 'required', threshold: 'optional', observable: 'optional', invariant: 'optional' },
+  fix: { 'symbol-present': 'required', 'named-test': 'required', threshold: 'optional', observable: 'optional', invariant: 'optional' },
+  refactor: { 'symbol-present': 'required', 'named-test': 'optional', threshold: 'optional', observable: 'optional', invariant: 'optional' },
+  test: { 'symbol-present': 'optional', 'named-test': 'required', threshold: 'optional', observable: 'optional', invariant: 'optional' },
+  infra: { 'symbol-present': 'required', 'named-test': 'optional', threshold: 'optional', observable: 'optional', invariant: 'optional' },
 };
 
 /** v2 superset of LeafSizeManifest (leaf-executor.ts:261-274). v1 fields are carried
@@ -116,6 +137,8 @@ const toStrArr = (v: unknown): string[] =>
 function validateRequirement(raw: unknown): DiffRequirement | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
+  const id = typeof r.id === 'string' && r.id.trim() ? r.id : null;
+  if (id === null) return null; // every requirement must be addressable
   switch (r.kind) {
     case 'symbol-present': {
       if (
@@ -123,7 +146,7 @@ function validateRequirement(raw: unknown): DiffRequirement | null {
         typeof r.symbol === 'string' && r.symbol.trim() &&
         typeof r.description === 'string' && r.description.trim()
       ) {
-        return { kind: 'symbol-present', file: r.file, symbol: r.symbol, description: r.description };
+        return { kind: 'symbol-present', id, file: r.file, symbol: r.symbol, description: r.description };
       }
       return null;
     }
@@ -133,7 +156,7 @@ function validateRequirement(raw: unknown): DiffRequirement | null {
         typeof r.testName === 'string' && r.testName.trim() &&
         r.mechanical === true
       ) {
-        return { kind: 'named-test', testFile: r.testFile, testName: r.testName, mechanical: true };
+        return { kind: 'named-test', id, testFile: r.testFile, testName: r.testName, mechanical: true };
       }
       return null;
     }
@@ -145,7 +168,19 @@ function validateRequirement(raw: unknown): DiffRequirement | null {
         typeof r.value === 'number' && Number.isFinite(r.value) &&
         r.mechanical === true
       ) {
-        return { kind: 'threshold', source: r.source, metric: r.metric, comparison: r.comparison, value: r.value, mechanical: true };
+        return { kind: 'threshold', id, source: r.source, metric: r.metric, comparison: r.comparison, value: r.value, mechanical: true };
+      }
+      return null;
+    }
+    case 'observable': {
+      if (typeof r.description === 'string' && r.description.trim()) {
+        return { kind: 'observable', id, description: r.description };
+      }
+      return null;
+    }
+    case 'invariant': {
+      if (typeof r.description === 'string' && r.description.trim()) {
+        return { kind: 'invariant', id, description: r.description };
       }
       return null;
     }
@@ -231,4 +266,16 @@ export function parseDiffContract(
  *  entirely when absent rather than set to `undefined`). */
 export function renderContract(c: DiffContract): string {
   return '```json\n' + JSON.stringify(c, null, 2) + '\n```';
+}
+
+/** A per-stage decision about one subject of a v2 contract. `mechanical` is a runtime convention,
+ *  NOT enforced by the type: it is `true` ONLY for the five mechanical stages
+ *  ('scope-breach' | 'absence' | 'out-of-scope' | 'named-test' | 'threshold'); the two LLM-decided
+ *  stages ('observable' | 'invariant') are always `mechanical: false`. */
+export interface DiffContractVerdict {
+  stage: 'scope-breach' | 'absence' | 'out-of-scope' | 'named-test' | 'threshold' | 'observable' | 'invariant';
+  subject: { kind: 'requirement'; id: string } | { kind: 'file'; path: string };
+  decision: 'met' | 'unmet' | 'not-applicable' | 'breach';
+  mechanical: boolean;
+  reason: string;
 }

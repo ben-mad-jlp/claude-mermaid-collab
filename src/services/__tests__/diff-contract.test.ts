@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
-  parseDiffContract, renderContract, DIFF_LEAF_KINDS, validateContractForKind,
+  parseDiffContract, renderContract, DIFF_LEAF_KINDS, validateContractForKind, CONTRACT_STRICTNESS_MATRIX,
   type DiffContract,
 } from '../diff-contract';
 import { parseSizeManifest, buildBlueprintRepairPrompt } from '../leaf-executor';
@@ -21,9 +21,9 @@ describe('parseDiffContract / renderContract round-trip', () => {
       splitDecision: { split: false, reason: 'coupled primitive', items: [] },
       leafKind: 'feature',
       requirements: [
-        { kind: 'symbol-present', file: 'src/services/diff-contract.ts', symbol: 'DiffContract', description: 'v2 type exists' },
-        { kind: 'named-test', testFile: 'src/services/__tests__/diff-contract.test.ts', testName: 'round-trips a representative contract', mechanical: true },
-        { kind: 'threshold', source: 'grep-count', metric: 'DIFF_LEAF_KINDS.length', comparison: 'eq', value: 5, mechanical: true },
+        { kind: 'symbol-present', id: 'r-sym', file: 'src/services/diff-contract.ts', symbol: 'DiffContract', description: 'v2 type exists' },
+        { kind: 'named-test', id: 'r-test', testFile: 'src/services/__tests__/diff-contract.test.ts', testName: 'round-trips a representative contract', mechanical: true },
+        { kind: 'threshold', id: 'r-thr', source: 'grep-count', metric: 'DIFF_LEAF_KINDS.length', comparison: 'eq', value: 5, mechanical: true },
       ],
       outOfScope: ['wiring into leaf-executor.ts'],
     };
@@ -45,7 +45,7 @@ describe('parseDiffContract / renderContract round-trip', () => {
       tasks: [],
       leafKind: 'fix',
       requirements: [
-        { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'exists' },
+        { kind: 'symbol-present', id: 'r-1', file: 'a.ts', symbol: 'Foo', description: 'exists' },
         { kind: 'named-test', testFile: 'a.test.ts', testName: 'x', mechanical: false }, // invalid: mechanical must be true
         { kind: 'threshold', source: 'shell-exec', metric: 'x', comparison: 'gte', value: 1, mechanical: true }, // invalid source
         { kind: 'unknown-kind' },
@@ -56,7 +56,7 @@ describe('parseDiffContract / renderContract round-trip', () => {
     const parsed = parseDiffContract(src);
     expect(parsed).not.toBeNull();
     expect(parsed?.requirements).toEqual([
-      { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'exists' },
+      { kind: 'symbol-present', id: 'r-1', file: 'a.ts', symbol: 'Foo', description: 'exists' },
     ]);
   });
 
@@ -133,8 +133,8 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
     const ok: DiffContract = {
       ...base,
       requirements: [
-        { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' },
-        { kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },
+        { kind: 'symbol-present', id: 'r-sym', file: 'a.ts', symbol: 'Foo', description: 'x' },
+        { kind: 'named-test', id: 'r-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },
       ],
     };
     expect(validateContractForKind(ok, 'feature')).toEqual({ underspecified: false });
@@ -143,7 +143,7 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
   it('refactor only requires symbol-present, not named-test', () => {
     const refactor: DiffContract = {
       ...base, leafKind: 'refactor',
-      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],
+      requirements: [{ kind: 'symbol-present', id: 'r-sym', file: 'a.ts', symbol: 'Foo', description: 'x' }],
     };
     expect(validateContractForKind(refactor, 'refactor')).toEqual({ underspecified: false });
   });
@@ -151,7 +151,7 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
   it('test leafKind only requires named-test, not symbol-present', () => {
     const testKind: DiffContract = {
       ...base, leafKind: 'test',
-      requirements: [{ kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
+      requirements: [{ kind: 'named-test', id: 'r-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
     };
     expect(validateContractForKind(testKind, 'test')).toEqual({ underspecified: false });
   });
@@ -160,39 +160,39 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
     const feature: DiffContract = {
       ...base,
       requirements: [
-        { kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' },
-        { kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },
+        { kind: 'symbol-present', id: 'r-sym', file: 'a.ts', symbol: 'Foo', description: 'x' },
+        { kind: 'named-test', id: 'r-test', testFile: 'a.test.ts', testName: 'y', mechanical: true },
       ],
     };
     expect(validateContractForKind(feature, 'feature')).toEqual({ underspecified: false });
 
     const refactor: DiffContract = {
       ...base, leafKind: 'refactor',
-      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],
+      requirements: [{ kind: 'symbol-present', id: 'r-sym', file: 'a.ts', symbol: 'Foo', description: 'x' }],
     };
     expect(validateContractForKind(refactor, 'refactor')).toEqual({ underspecified: false });
 
     const testKind: DiffContract = {
       ...base, leafKind: 'test',
-      requirements: [{ kind: 'named-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
+      requirements: [{ kind: 'named-test', id: 'r-test', testFile: 'a.test.ts', testName: 'y', mechanical: true }],
     };
     expect(validateContractForKind(testKind, 'test')).toEqual({ underspecified: false });
 
     const infra: DiffContract = {
       ...base, leafKind: 'infra',
-      requirements: [{ kind: 'symbol-present', file: 'a.ts', symbol: 'Foo', description: 'x' }],
+      requirements: [{ kind: 'symbol-present', id: 'r-sym', file: 'a.ts', symbol: 'Foo', description: 'x' }],
     };
     expect(validateContractForKind(infra, 'infra')).toEqual({ underspecified: false });
   });
 
   it('rejects an unfalsifiable requirement at compile time', () => {
     const badMechanical: import('../diff-contract').NamedTestRequirement = {
-      kind: 'named-test', testFile: 'a.test.ts', testName: 'x',
+      kind: 'named-test', id: 'r-bad', testFile: 'a.test.ts', testName: 'x',
       // @ts-expect-error mechanical must be literal true — false is not assignable
       mechanical: false,
     };
     const badSource: import('../diff-contract').ThresholdRequirement = {
-      kind: 'threshold',
+      kind: 'threshold', id: 'r-bad',
       // @ts-expect-error 'shell-exec' is not a member of ThresholdRequirement['source']
       source: 'shell-exec',
       metric: 'x', comparison: 'eq', value: 1, mechanical: true,
@@ -200,6 +200,62 @@ describe('validateContractForKind / CONTRACT_STRICTNESS_MATRIX', () => {
     expect(true).toBe(true); // presence of the two @ts-expect-error lines above is the assertion
     void badMechanical;
     void badSource;
+  });
+
+  it('round-trips a contract with observable and invariant requirements', () => {
+    const contract: DiffContract = {
+      schemaVersion: 2,
+      estimatedFiles: 1,
+      estimatedTasks: 1,
+      nonEnumerableFanout: false,
+      filesToCreate: [],
+      filesToEdit: ['a.ts'],
+      tasks: [],
+      leafKind: 'feature',
+      requirements: [
+        { kind: 'observable', id: 'obs-1', description: 'the feature behaves predictably' },
+        { kind: 'invariant', id: 'inv-1', description: 'backwards compatibility maintained' },
+      ],
+      outOfScope: [],
+    };
+    const rendered = renderContract(contract);
+    const parsed = parseDiffContract(rendered);
+    expect(parsed).toEqual(contract);
+  });
+
+  it('drops a requirement with missing or blank id', () => {
+    const raw = {
+      schemaVersion: 2,
+      estimatedFiles: 1,
+      estimatedTasks: 1,
+      nonEnumerableFanout: false,
+      filesToCreate: [],
+      filesToEdit: [],
+      tasks: [],
+      leafKind: 'feature',
+      requirements: [
+        { kind: 'observable', description: 'no id' },
+        { kind: 'symbol-present', id: '', file: 'a.ts', symbol: 'F', description: 'blank id' },
+        { kind: 'invariant', id: 'inv-1', description: 'has id' },
+      ],
+      outOfScope: [],
+    };
+    const src = '```json\n' + JSON.stringify(raw) + '\n```';
+    const parsed = parseDiffContract(src);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.requirements).toEqual([
+      { kind: 'invariant', id: 'inv-1', description: 'has id' },
+    ]);
+  });
+
+  it('matrix exhaustiveness: observable and invariant are optional for all leafKinds', () => {
+    for (const leafKind of DIFF_LEAF_KINDS) {
+      const row = CONTRACT_STRICTNESS_MATRIX[leafKind];
+      expect(row.observable).toBe('optional');
+      expect(row.invariant).toBe('optional');
+      const keys = Object.keys(row).sort();
+      expect(keys).toEqual(['invariant', 'named-test', 'observable', 'symbol-present', 'threshold']);
+    }
   });
 });
 
