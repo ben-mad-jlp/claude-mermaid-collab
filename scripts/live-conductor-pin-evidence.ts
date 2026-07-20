@@ -7,27 +7,28 @@
  * indirectly via mission-row fields — this script reads the pass outcome directly.
  *
  * Talks ONLY over HTTP to an already-running server at BASE_URL — no in-process
- * transport, no orchestrator start/stop, no scratch-repo creation. The target project
- * must already be a real git repo the operator has chosen; this script does not create
- * one (unlike smoke-conductor-pin-live.ts's throwaway scratch project).
+ * transport, no orchestrator start/stop. The target project is a throwaway scratch
+ * git repo this script creates and tears down itself (mirroring
+ * smoke-conductor-pin-live.ts's scratch project), never an operator-chosen path.
  *
  * Writes a JSON evidence artifact to docs/evidence/live-conductor-pin-evidence-<ts>.json
  * and also prints the same JSON to stdout.
  *
- * Run:  bun run scripts/live-conductor-pin-evidence.ts [--project=<path>] [--base-url=<url>]
+ * Run:  bun run scripts/live-conductor-pin-evidence.ts [--base-url=<url>]
  *       MERMAID_LIVE_BASE_URL=http://host:9002 bun run scripts/live-conductor-pin-evidence.ts
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { isSelfProject } from '../src/services/deploy-service';
 
 const BASE_URL =
   process.env.MERMAID_LIVE_BASE_URL ??
   process.argv.find((a) => a.startsWith('--base-url='))?.slice('--base-url='.length) ??
   'http://127.0.0.1:9002';
 
-const project =
-  process.argv.find((a) => a.startsWith('--project='))?.slice('--project='.length) ??
-  process.cwd();
+const project = mkdtempSync(join(tmpdir(), 'cp-pin-'));
 
 // Documented at src/services/orchestrator-live.ts:51 (CONDUCTOR_INTERVAL_MS, module-private).
 const CONDUCTOR_INTERVAL_MS = 30_000;
@@ -61,6 +62,7 @@ interface EvidenceBlob {
 
 const assertions: Assertion[] = [];
 const notes: string[] = [];
+const createdMissionIds: string[] = [];
 
 function check(name: string, ok: boolean, detail = ''): boolean {
   assertions.push({ name, ok, detail: detail || undefined });
@@ -87,6 +89,16 @@ async function post(path: string, body: unknown): Promise<{ status: number; body
 async function patch(path: string, body: unknown): Promise<{ status: number; body: any }> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const status = res.status;
+  const respBody = await res.json().catch(() => null);
+  return { status, body: respBody };
+}
+async function del(path: string, body: unknown): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -121,6 +133,18 @@ async function main() {
   log(`   project:  ${project}`);
   log('');
 
+  log(`Phase 0 — scratch git repo + self-project guard`);
+  execSync('git init -q', { cwd: project });
+  if (isSelfProject(project)) {
+    throw new Error(`refusing to run: scratch project ${project} resolves to the collab self-project`);
+  }
+  check('scratch project is NOT the collab self-project', true, `project=${project}`);
+
+  let missionA: string;
+  let missionB: string;
+  let samples: LastPassSample[];
+
+  try {
   // --- (a) ensure watched + conductor enabled ---
   log(`Step (a) — ensure project watched + conductor enabled`);
   const reg = await post('/api/supervisor/projects', { project });
@@ -141,6 +165,7 @@ async function main() {
       criteria: ['smoke: trivial criterion'],
     });
     const id = created.body?.node?.id as string;
+    if (id) createdMissionIds.push(id);
     check(`mission created (${title})`, created.status === 200 && !!id, `status=${created.status}`);
     const approved = await post('/api/supervisor/missions/approve', { project, todoId: id });
     check(`mission approved (${title})`, approved.status === 200, `status=${approved.status}`);
@@ -153,8 +178,8 @@ async function main() {
     actionable = ((relisted.body?.missions ?? []) as any[]).filter((m) => !notActionable.has(m.mission?.status));
   }
 
-  const missionA = actionable[0].node.id as string;
-  const missionB = actionable[1].node.id as string;
+  missionA = actionable[0].node.id as string;
+  missionB = actionable[1].node.id as string;
   check('two distinct actionable missions present', missionA !== missionB && !!missionA && !!missionB, `missionA=${missionA} missionB=${missionB}`);
 
   const missionBBaselineList = await get(`/api/supervisor/missions?project=${encodeURIComponent(project)}`);
@@ -170,7 +195,7 @@ async function main() {
   log(`\nStep (d) — poll lastPass for >= 2 distinct ticks`);
   const pollDeadlineMs = 5 * CONDUCTOR_INTERVAL_MS;
   const pollStepMs = Math.max(3_000, Math.floor(CONDUCTOR_INTERVAL_MS / 6));
-  const samples: LastPassSample[] = [];
+  samples = [];
   const seenTickAt = new Set<number>();
 
   await pollUntil(
@@ -234,6 +259,14 @@ async function main() {
     satisfiedAt !== null,
     `lastSeen=${JSON.stringify(satisfiedAt)}`,
   );
+  } finally {
+    log(`\nCleanup`);
+    for (const missionId of createdMissionIds) {
+      await del('/api/supervisor/missions', { project, todoId: missionId }).catch(() => {});
+    }
+    await del('/api/supervisor/projects', { project }).catch(() => {});
+    if (existsSync(project)) { rmSync(project, { recursive: true, force: true }); log(`  🧹 removed scratch project`); }
+  }
 
   const finishedAt = Date.now();
   const assertionsSkipped = notes.filter((n) => n.includes('SKIPPED')).length;
