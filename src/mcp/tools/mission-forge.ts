@@ -32,6 +32,7 @@ import {
   getMission,
   listCriteria,
   getMissionRollup,
+  assertMissionCreationAllowed,
   type MissionCriterion,
   type MissionRollup,
   type MissionRow,
@@ -111,6 +112,8 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   }
   const constraints = (input.constraints ?? []).filter((c) => c.rule?.trim());
   const rejected = (input.rejectedAlternatives ?? []).filter((r) => r.title?.trim() && (r.alternatives ?? []).length > 0);
+
+  assertMissionCreationAllowed(project);
 
   // 1. Mission node + row + criteria (same core as create_mission).
   const node = await addSessionTodo(project, session, missionTitle, undefined, {
