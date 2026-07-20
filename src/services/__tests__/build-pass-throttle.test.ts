@@ -83,7 +83,6 @@ describe('build throttle — kick (force) preserves claim latency', () => {
       recycle: async () => ({}),
       missionLoop: async () => ({}),
       shouldRunMissionLoop: () => true,
-      triage: async () => {},
     };
   }
 

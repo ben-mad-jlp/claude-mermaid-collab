@@ -340,27 +340,6 @@ export interface SupervisorLiveness {
   ageMs: number | null;
 }
 
-/**
- * Liveness of the STEWARD process (Steward P3), derived from
- * /api/supervisor/steward-identity. Same shape as SupervisorLiveness plus the
- * scary observability metric the panel leads with: `overrideAccepts` — how many
- * todos the steward force-accepted past the mechanical gate.
- */
-export interface StewardLiveness {
-  identity: { project: string; session: string; updatedAt: number; serverId?: string } | null;
-  running: boolean;
-  stale: boolean;
-  ageMs: number | null;
-  overrideAccepts: number;
-  /** Live human ON/OFF switch state (persistent; default ON when absent). */
-  switchedOn?: boolean;
-  /** 3-way mode (persistent): off = all→human; auto = answer-only; dogfood =
-   *  answer + proactively drive/build. Defaults to auto/off derived from switchedOn. */
-  mode?: StewardMode;
-}
-
-export type StewardMode = 'off' | 'auto' | 'dogfood';
-
 interface InvokeResult {
   ok: boolean;
   status: number;
@@ -559,10 +538,6 @@ interface SupervisorState {
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
   loadLiveness: (serverId: string) => Promise<void>;
-  // Steward P3: independent steward role liveness + the override-accept count.
-  stewardLiveness: StewardLiveness | null;
-  loadStewardIdentity: (serverId: string, project?: string) => Promise<void>;
-  setStewardMode: (serverId: string, mode: StewardMode) => Promise<void>;
   auditByProject: Record<string, AuditEntry[]>;
   loadAudit: (serverId: string, project: string, kind?: string) => Promise<void>;
   loadSupervised: (serverId: string) => Promise<void>;
@@ -599,18 +574,18 @@ interface SupervisorState {
   /** Hard-delete a work-graph todo (DELETE /api/supervisor/roadmap). Does NOT
    *  reload the plan — callers batch-deleting should reload once at the end. */
   deleteTodo: (serverId: string, project: string, id: string) => Promise<boolean>;
-  /** Start a global LLM role (steward/supervisor) via /api/ide/launch-session —
-   *  the ON half of the Bridge role switch. `remoteControl` launches with Claude
-   *  Code Remote Control so the session is drivable from the Claude app. */
+  /** Start the supervisor LLM role via /api/ide/launch-session — the ON half of
+   *  the Bridge role switch. `remoteControl` launches with Claude Code Remote
+   *  Control so the session is drivable from the Claude app. */
   startRole: (
     serverId: string,
-    role: 'steward' | 'supervisor',
+    role: 'supervisor',
     project: string,
     session: string,
     remoteControl?: boolean,
   ) => Promise<{ started: boolean; reason?: string }>;
-  /** Stop a global LLM role: kill its tmux + clear identity (Bridge switch OFF). */
-  stopRole: (serverId: string, role: 'steward' | 'supervisor') => Promise<void>;
+  /** Stop the supervisor LLM role: kill its tmux + clear identity (Bridge switch OFF). */
+  stopRole: (serverId: string, role: 'supervisor') => Promise<void>;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   /** L3 bootstrap/reconnect hydrate (design-ui-status-coherence §2 + §2.1).
    *  Fetch the open escalations across the watched `serverIds` and merge them
@@ -633,11 +608,6 @@ interface SupervisorState {
    *  master. Server re-derives readiness, merges, removes the epic, resolves the
    *  card. Returns the server outcome (landed / conflict / rejected). */
   landEpic: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; landed: boolean; conflict?: boolean; reason: string }>;
-  /** Escalation-briefing (deep markdown context): lazily generate+cache a human
-   *  briefing for one escalation on the server, returned as GFM markdown. Safe to
-   *  call on card open; `refresh` forces a regenerate. Returns null on any failure
-   *  (the card still works without it). */
-  fetchEscalationBrief: (serverId: string, project: string, escalationId: string, refresh?: boolean) => Promise<{ md: string; model: string; cached: boolean; at: number } | null>;
   /** Human-gated self-deploy of the running sidecar (STRICTLY SEPARATE from land).
    * Server hard-gates self-project; the deploy is detached and will kill+relaunch
    * the sidecar, so this resolves immediately and the UI should then poll for the
@@ -645,11 +615,6 @@ interface SupervisorState {
   deploySelf: (serverId: string, project: string, force?: boolean) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string; inflightLeaves?: string[] }>;
   /** Read the deploy-drift status for the banner (live version, staleness, gate). */
   fetchDeployStatus: (serverId: string, project: string) => Promise<DeployStatus | null>;
-  /** Orch P2: confirm an inline Grok suggestion → server re-validates the proof
-   *  gate then applies the verb. Returns the server result message. */
-  confirmSuggestion: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; reason: string }>;
-  /** Orch P2: dismiss an inline Grok suggestion → clears it; escalation stays open. */
-  dismissSuggestion: (serverId: string, project: string, id: string) => Promise<void>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   /** Answer a Claude Code multi-select question: toggle the chosen 1-based option numbers then submit. */
   answerPaneMulti: (serverId: string, project: string, session: string, numbers: number[]) => Promise<boolean>;
@@ -815,7 +780,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
   liveness: null,
-  stewardLiveness: null,
   auditByProject: {},
   requirementsByProject: hydrate<Record<string, Requirement[]>>(REQUIREMENTS_KEY, {}),
   coverageByProject: {},
@@ -838,37 +802,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
       },
     });
-  },
-
-  // Steward P3: poll the steward's INDEPENDENT liveness + override-accept count
-  // from /api/supervisor/steward-identity (role='steward'). Project-scoped so the
-  // server can count the steward's force-accepts in this project. Like liveness,
-  // kept out of localStorage — a hydrated stale value would falsely read crashed.
-  loadStewardIdentity: async (serverId, project?) => {
-    const path = project
-      ? `/api/supervisor/steward-identity?project=${encodeURIComponent(project)}`
-      : '/api/supervisor/steward-identity';
-    const res = await invoke(serverId, path, 'GET');
-    if (!res?.ok) return; // keep prior verdict on transient failure
-    const b = res.body ?? {};
-    set({
-      stewardLiveness: {
-        identity: b.identity ?? null,
-        running: !!b.running,
-        stale: !!b.stale,
-        ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
-        overrideAccepts: typeof b.overrideAccepts === 'number' ? b.overrideAccepts : 0,
-        switchedOn: b.switchedOn !== false, // default ON when the field is absent
-        mode: (b.mode as StewardMode) ?? (b.switchedOn !== false ? 'auto' : 'off'),
-      },
-    });
-  },
-
-  setStewardMode: async (serverId, mode) => {
-    // Optimistic: reflect the new mode immediately, then persist.
-    const prev = get().stewardLiveness;
-    if (prev) set({ stewardLiveness: { ...prev, mode, switchedOn: mode !== 'off' } });
-    await invoke(serverId, '/api/supervisor/steward/mode', 'POST', { mode });
   },
 
   loadAudit: async (serverId, project, kind?) => {
@@ -1053,12 +986,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   },
 
   startRole: async (serverId, role, project, session, remoteControl) => {
-    const invokeSkill = role === 'steward' ? '/steward' : '/supervisor';
     const body = {
       project,
       session,
       role,
-      invokeSkill,
+      invokeSkill: '/supervisor',
       allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
       remoteControl: !!remoteControl,
     };
@@ -1071,17 +1003,9 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const res = await invoke(serverId, '/api/supervisor/role/stop', 'POST', { role });
     if (!res?.ok) return;
     // Reflect not-running immediately; the next liveness poll confirms.
-    if (role === 'steward') {
-      set((state) => ({
-        stewardLiveness: state.stewardLiveness
-          ? { ...state.stewardLiveness, identity: null, running: false }
-          : state.stewardLiveness,
-      }));
-    } else {
-      set((state) => ({
-        liveness: state.liveness ? { ...state.liveness, running: false } : state.liveness,
-      }));
-    }
+    set((state) => ({
+      liveness: state.liveness ? { ...state.liveness, running: false } : state.liveness,
+    }));
   },
 
   // Route the fetch into the matching slice. status==='resolved' writes ONLY the
@@ -1235,15 +1159,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     };
   },
 
-  fetchEscalationBrief: async (serverId, project, escalationId, refresh) => {
-    if (!project || !escalationId) return null;
-    const res = await invoke(serverId, '/api/supervisor/escalation-brief', 'POST', { project, escalationId, refresh: !!refresh });
-    if (!res?.ok) return null;
-    const body = res.body as { md?: string; model?: string; cached?: boolean; at?: number } | null;
-    if (!body || typeof body.md !== 'string') return null;
-    return { md: body.md, model: body.model ?? '', cached: !!body.cached, at: body.at ?? Date.now() };
-  },
-
   deploySelf: async (serverId, project, force) => {
     const res = await invoke(serverId, '/api/supervisor/deploy', 'POST', { project, force: !!force });
     const result = (res?.body as { ok?: boolean; started?: boolean; reason?: string; logPath?: string; inflightLeaves?: string[] }) ?? {};
@@ -1260,26 +1175,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const res = await invoke(serverId, `/api/supervisor/deploy-status?project=${encodeURIComponent(project)}`, 'GET');
     if (!res?.ok || !res.body) return null;
     return res.body as DeployStatus;
-  },
-
-  confirmSuggestion: async (serverId, project, id) => {
-    const res = await invoke(serverId, `/api/orchestrator/escalation/${encodeURIComponent(id)}/confirm-suggestion`, 'POST', { project });
-    const result = (res?.body as { ok?: boolean; reason?: string }) ?? {};
-    const ok = !!result.ok;
-    // On a successful apply the escalation is resolved server-side; either way the
-    // suggestion is cleared. Optimistically reflect that locally.
-    set((state) =>
-      ok
-        ? moveOpenToResolved(state, id, { suggestedAction: null, status: 'resolved', resolvedAt: Date.now() })
-        : updateOpenItem(state, id, { suggestedAction: null, routedTo: 'human' }),
-    );
-    return { ok, reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed') };
-  },
-
-  dismissSuggestion: async (serverId, project, id) => {
-    const res = await invoke(serverId, `/api/orchestrator/escalation/${encodeURIComponent(id)}/dismiss-suggestion`, 'POST', { project });
-    if (!res?.ok) return;
-    set((state) => updateOpenItem(state, id, { suggestedAction: null }));
   },
 
   // ── SPEC API surface (design-system-object-ui §8) ─────────────────────────

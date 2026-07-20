@@ -84,7 +84,6 @@ import { DESIGN_TOOL_DEFS, handleDesignTool } from './design-tools.js';
 // Design service handlers still called directly by non-design flows (clear-artifacts,
 // session summary); the design tool group itself lives in ./design-tools.ts.
 import { handleCreateDesign, handleGetDesign, handleListDesigns, handleDeleteDesign } from './tools/design.js';
-import { briefEscalation } from '../services/escalation-briefing.js';
 import { checkInvariants } from '../services/invariant-check.js';
 import { gateStatus } from '../services/gate-status.js';
 import { instanceTopology } from '../services/instance-topology.js';
@@ -106,7 +105,6 @@ import { listLeafInflight, editLeafRequirement, editContractField } from '../ser
 import { breakerOpen } from '../services/headless-breaker.js';
 import { frictionTrends } from '../services/friction-trends.js';
 import { runtimeConfig } from '../services/runtime-config.js';
-import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig, getSecret } from '../services/config-service.js';
 import { consultCodex } from '../services/consult-openai.js';
 import { recordSpend } from '../services/spend-ledger.js';
@@ -289,74 +287,6 @@ function recordSupervisorDecision(kind: string, project: string, session: string
   } catch { /* audit must never break the action it records */ }
 }
 
-/** Max auto override_accepts per hour (design §7 rail 2). Operator-tunable. */
-const STEWARD_OVERRIDE_CAP = Math.max(0, parseInt(process.env.MERMAID_STEWARD_OVERRIDE_CAP ?? '2', 10) || 0);
-/** Thrash cap K (design §7 rail 5): after this many steward attempts on one escalation, escalate systemic. */
-const STEWARD_THRASH_CAP = Math.max(1, parseInt(process.env.MERMAID_STEWARD_THRASH_CAP ?? '3', 10) || 3);
-
-interface StewardGateInput {
-  verb: StewardVerb;
-  project: string;
-  todoId: string;
-  proof?: StewardProof;
-  escalationId?: string;
-  changeSetFiles?: string[];
-}
-/** Decision from the server proof gate: allow the act, or reject + (re)route to human. */
-interface StewardGateDecision { ok: boolean; reason: string; }
-
-/**
- * The keystone safety rail (design §3/§5/§7, constraint 020b7ab1): under a steward
- * epoch, an act-verb is allowed ONLY when the SERVER re-derives the cited proof
- * from ground truth. Absent/false proof, rate-limit, or thrash → reject the act,
- * flip the linked escalation routedTo='human', and audit the deferral. Returns a
- * decision; the caller performs the actual reset/override only when ok=true.
- */
-function stewardProofGate(input: StewardGateInput): StewardGateDecision {
-  const { verb, project, todoId, proof, escalationId } = input;
-  const audit = (kind: string, detail: string) =>
-    supervisorStore.recordSupervisorAudit({ kind, project, session: 'steward', detail });
-  const deferToHuman = (reason: string) => {
-    if (escalationId) supervisorStore.setEscalationRoute(escalationId, 'human', proof ? JSON.stringify(proof) : null);
-    audit('steward_defer', JSON.stringify({ verb, todoId, escalationId: escalationId ?? null, reason }));
-    return { ok: false, reason };
-  };
-
-  // Thrash guard FIRST: a repeatedly-failing escalation is systemic, not retryable.
-  if (escalationId) {
-    const attempts = supervisorStore.incrementStewardAttempts(escalationId);
-    if (attempts > STEWARD_THRASH_CAP) return deferToHuman(`thrash:${attempts}>${STEWARD_THRASH_CAP}`);
-  }
-
-  // override_accept rate-limit (the scary verb): cap auto-overrides/hr.
-  if (verb === 'override_accept_todo') {
-    const recent = supervisorStore
-      .listSupervisorAudit({ project, kind: 'steward_override', limit: 1000 })
-      .map((e) => e.ts);
-    if (isOverrideRateLimited(recent, Date.now(), STEWARD_OVERRIDE_CAP)) {
-      return deferToHuman(`rate-limit:${STEWARD_OVERRIDE_CAP}/hr`);
-    }
-  }
-
-  const todo = getTodo(project, todoId);
-  if (!todo) return deferToHuman('todo-not-found');
-
-  const verdict = validateStewardProof(verb, proof, {
-    project,
-    dependsOn: todo.dependsOn ?? [],
-    getDep: (id) => {
-      const d = getTodo(project, id);
-      return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
-    },
-    changeSetFiles: input.changeSetFiles,
-  });
-  if (!verdict.ok) return deferToHuman(verdict.reason);
-
-  // Proof re-validated green → record the auto-act with its proof + escalation link.
-  audit(verb === 'reset_todo' ? 'steward_reset' : 'steward_override',
-    JSON.stringify({ todoId, escalationId: escalationId ?? null, proof }));
-  return { ok: true, reason: 'ok' };
-}
 
 /**
  * Single-writer fence for mutating supervisor tools. Returns a structured
@@ -1009,7 +939,6 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
       { name: 'escalation_history', description: "Read-only escalation history — OPEN and RESOLVED escalations with how each was triaged and resolved (escalation_list shows OPEN only). The store is GLOBAL, so an unfiltered call spans all projects and defaults to the recent-N newest-first. FILTERS (all optional): epicId (resolves escalation.todoId → parentId chain → [EPIC] ancestor), project, todoId, session, status, kind, routedTo ('steward'=ai-resolved | 'human'=escalated-to-human), since/until (createdAt ms range), limit (default 50). PER-ROW: kind, status, createdAt/resolvedAt, timeToResolutionMs, routedTo, stewardAttempts, suggestedAction (Grok bucket+confidence+rationale), the human decision (optionId/note/decidedBy), resolutionActor (decider handle | 'daemon-auto'), recurrenceCount (how many escalations share project+session+questionText). With epicId, folds in that epic's decision records. summary:true returns aggregate counts (auto-resolved vs escalated-to-human), avg stewardAttempts, median timeToResolution, grouped by epic/project — answers 'is drive-level Grok triage resolving escalations or just bouncing them to the human?'.", inputSchema: { type: 'object', properties: { epicId: { type: 'string' }, project: { type: 'string' }, todoId: { type: 'string' }, session: { type: 'string' }, status: { type: 'string' }, kind: { type: 'string' }, routedTo: { type: 'string', enum: ['steward', 'human'] }, since: { type: 'number', description: 'Lower bound on createdAt (ms epoch).' }, until: { type: 'number', description: 'Upper bound on createdAt (ms epoch).' }, limit: { type: 'number', description: 'Recent-N cap, newest-first (default 50).' }, summary: { type: 'boolean', description: 'Return the aggregate breakdown instead of rows.' } } } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
-      { name: 'escalation_brief', description: "Get a DEEP markdown decision briefing for one escalation — Decision (with the fixed options + each consequence) / Situation (what led here) / System context (plan-graph blast radius, epic branch health, prior escalations) / Recommendation (labelled steward opinion). Generated LAZILY on first call from the enriched ground-truth bundle via the swappable triage tier-role LLM, then CACHED on the escalation (so a reload keeps it). FAILS OPEN to a deterministic no-LLM briefing on any model error. Pass refresh:true to regenerate. This is what the human reads to decide.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, escalationId: { type: 'string' }, refresh: { type: 'boolean', description: 'Regenerate even if a cached briefing exists.' } }, required: ['project', 'escalationId'] } },
       { name: 'land_epic', description: "LAND an epic onto master (FBPE P4 — human-gated, irreversible). Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at click time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the work-graph + escalation live).' }, escalationId: { type: 'string', description: "The open 'epic-ready-to-land' escalation id to land." }, allowDirty: { type: 'boolean', description: "Bypass the clean-tree guard: land even though the main checkout has uncommitted/untracked changes. The dirty paths are still printed, an `Allow-Dirty: <paths>` trailer is added to the land commit, and an orchestration friction note is recorded. Per-call only — NOT a persistent flag." }, actor: { type: 'string', enum: ['human', 'conductor', 'daemon'], description: "Who is taking this irreversible action. Defaults to 'human'. 'conductor' additionally requires `session` and is gated on OWNERSHIP: the epic must be a descendant of that session's ACTIVE mission, and must not be a bucket root." }, session: { type: 'string', description: "Conductor session id. Required when actor='conductor'." } }, required: ['project', 'escalationId'] } },
       { name: 'deploy_self', description: "DEPLOY the running sidecar from its own repo (human-gated, STRICTLY SEPARATE from land). After a self-project epic lands, the live :9002 binary is stale against master; this rebuilds sidecar+UI and restarts the app. Server hard-gates self-project (project must equal the sidecar's MERMAID_PROJECT) AND macOS AND the presence of scripts/deploy-desktop.sh — never deploys another repo. Spawned DETACHED, so it survives killing this very process; returns immediately with a logPath to tail. Reasons: ok | not-self-project | unsupported-platform | deploy-script-missing | spawn-failed.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: "The project to deploy — must be the sidecar's own repo (MERMAID_PROJECT)." } }, required: ['project'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch. Workers escalating omit this; a superseded supervisor that passes its stale epoch is rejected (superseded).' } }, required: ['project', 'session', 'kind', 'questionText'] } },
@@ -1033,8 +962,8 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'launch_remote_server', description: "Start a collab server on a REMOTE machine over SSH — the same detect→launch flow the desktop 'Launch' button runs (POST /api/server/detect then /api/server/launch), exposed as one tool so it can be driven/tested headlessly. Runs on THIS sidecar (which owns the system `ssh`). Two phases: (1) DETECT — SSH into the host, probe for bun / a global mermaid-collab / the newest plugin-cache version dir, adopt the server's existing config.json token (or mint one), and synthesize a start command that binds 0.0.0.0 AND sets MERMAID_AUTH_TOKEN (a 0.0.0.0 bind is always auth-required — never an open LAN hole). (2) LAUNCH — SSH again, detach the server (setsid/nohup), and poll the remote /api/health. Pass `command` to skip detect and launch a specific command; pass `detectOnly:true` to only probe+synthesize and NOT launch. `password` is used once for the SSH prompt and never persisted; omit it to use keys/agent (BatchMode). Returns { detect?, launch?, token? } — the token is what a client must present to reach the launched (auth-required) server. NOTE: the host must be a bare host/IP; the SSH user goes in `user`, not baked into `host`.", inputSchema: { type: 'object', properties: { host: { type: 'string', description: 'Bare remote host or IP (NOT user@host). The SSH user goes in `user`.' }, port: { type: 'number', description: 'Port the server should listen on / be probed at (default 9002).' }, user: { type: 'string', description: 'SSH user (blank = ssh default / ~/.ssh/config).' }, password: { type: 'string', description: 'One-time SSH password. Never persisted. Omit to use keys/agent (BatchMode, fails fast).' }, command: { type: 'string', description: 'Explicit start command to launch. If omitted, detect synthesizes one. Ignored when detectOnly is true.' }, token: { type: 'string', description: "Existing bearer token to thread through so detect REUSES it (avoids diverging from the server's config-authoritative token)." }, detectOnly: { type: 'boolean', description: 'Only run the SSH probe + synthesize a command; do NOT launch. Returns { detect }.' } }, required: ['host'] } },
       { name: 'orchestrator_off', description: "STEWARD KILL-SWITCH (one-way): force a project's Orchestrator autonomy level to 'off', stopping the daemon from driving todos. This is the steward's ONLY autonomy control — it can ALWAYS brake but can NEVER raise the level (decision 3bf1292b). It takes no level argument; raising autonomy stays human-only on the Bridge ladder. Reuses the server-side 'off' transition. Optional project (defaults to the server's cwd). Returns the resulting level for confirmation.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Project to brake (defaults to the current working directory).' } } } },
       { name: 'friction_trends', description: "Read-only recurrence rollup over the friction store. Groups the most-recent friction notes by LAYER (orchestration vs domain vs operational) with counts, and within each layer by retryReason, so a repeating problem (e.g. tmux-pane accumulation showing up as repeated orchestration friction) surfaces as a high-count reason instead of being buried in list_friction's flat newest-first list. Returns { total, considered, byLayer:[{ layer, count, reasons:[{ retryReason, count, sessions[], lastAt }] }], recurring:[{ layer, retryReason, count }] } — `recurring` is the cross-layer 'what keeps going wrong' shortlist (reasons seen >1, most-recurring first).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose friction to roll up.' }, layer: { type: 'string', enum: ['orchestration', 'domain', 'operational'], description: 'Optional: restrict to one layer.' }, limit: { type: 'number', description: 'Max most-recent notes to consider (default 100, capped 1000).' } }, required: ['project'] } },
-      { name: 'reset_todo', description: "STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready')." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, proof: { type: 'object', description: "STEWARD proof the server RE-VALIDATES at act time (never trusted as asserted). One of: {kind:'merged'} (HEAD..master==0), {kind:'tsc-clean'}, {kind:'grep',symbol,present}, {kind:'dep-done'} (all deps done/accepted in store). Required for an autonomous steward act when MERMAID_STEWARD_AUTO is on; a no-proof steward act is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — links the audit + is flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate).' } }, required: ['project','todoId'] } },
-      { name: 'override_accept_todo', description: 'STEWARD override-accept: force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance; records the steward as completer for provenance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'steward')." }, proof: { type: 'object', description: "STEWARD DUAL proof, server-re-validated: {kind:'override', artifactPath?|artifactSymbol? (the deliverable provably IN-TREE), foreignErrorFiles:[] (the gate failure provably OUTSIDE this todo's change-set)}. DEFAULT DEFER — without both halves the override is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate + rate limit).' }, changeSetFiles: { type: 'array', items: { type: 'string' }, description: "This todo's change-set files — used to prove the gate error is foreign." } }, required: ['project','todoId'] } },
+      { name: 'reset_todo', description: "Unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db. Reset authority: a human, the conductor node, or this explicit MCP call.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready'). Use 'blocked' to PARK a repeatedly-failing todo (a HOLD — not claimable, so the daemon stops re-dispatching it)." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, escalationId: { type: 'string', description: 'Open escalation this reset resolves (marks it resolved).' } }, required: ['project','todoId'] } },
+      { name: 'override_accept_todo', description: 'Force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'operator')." }, escalationId: { type: 'string', description: 'Open escalation this override resolves (marks it resolved).' } }, required: ['project','todoId'] } },
       { name: 'edit_contract_field', description: "Append a file path to a leaf's editable v2 diff-contract (leaf_blueprint.specJson): either the top-level filesToEdit array or one task's files array. Use to legalize an incidental file the diff already touches without touching worker_ledger.outputText (append-only telemetry). Bumps specRev.", inputSchema: { type: 'object', properties: { leafId: { type: 'string' }, mutation: { type: 'object', properties: { target: { type: 'string', enum: ['filesToEdit', 'task'] }, file: { type: 'string' }, taskId: { type: 'string', description: "Required when target='task' — the task id whose files array to append to." } }, required: ['target', 'file'] } }, required: ['leafId', 'mutation'] } },
       { name: 'edit_leaf_requirement', description: "Replace one entry in a leaf's editable v2 diff-contract requirements[] at the given index (e.g. flip a mis-cited requirement to a different kind/target). `replacement` is a full DiffRequirement: kind:'symbol-present'|'named-test'|'threshold' plus that kind's fields. Bumps specRev.", inputSchema: { type: 'object', properties: { leafId: { type: 'string' }, index: { type: 'number' }, replacement: { type: 'object', description: "A DiffRequirement — { kind: 'symbol-present' | 'named-test' | 'threshold', ... kind-specific fields }.", properties: { kind: { type: 'string', enum: ['symbol-present', 'named-test', 'threshold'] } }, required: ['kind'] } }, required: ['leafId', 'index', 'replacement'] } },
       { name: 'create_gate', description: "READINESS GATE: attach a HUMAN gate to a work-todo so it can't be claimed until a human clears the gate. Creates a '[GATE]' human todo (assigneeKind:'human', ready) and appends it to the work-todo's dependsOn, parking the work-todo 'blocked'. The coordinator never claims the gate (human) nor the blocked work-todo; completing the gate auto-promotes the work-todo to 'ready' on the same tick — no reset_todo, no new status. Use to hold a design-gated/needs-review todo until a human signs off.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, workTodoId: { type: 'string', description: 'The agent work-todo to gate.' }, title: { type: 'string', description: "Gate title (auto-prefixed '[GATE]' if absent)." }, description: { type: 'string', description: 'What the human must confirm/decide.' }, gateKind: { type: 'string', description: "Optional label folded into the title, e.g. 'spec-review' → '[GATE:spec-review]'." }, parentId: { type: 'string', description: 'Optional human-gate epic to parent the gate under (e.g. the [EPIC] human-gates id).' }, decisionRef: { type: 'string', description: 'Optional decision-record id: approving that record (approve_decision_record) auto-completes this gate — for design/decision gates that clear when the design lands.' } }, required: ['project', 'workTodoId', 'title'] } },
@@ -1056,10 +985,6 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'supervisor_pause', description: 'EMERGENCY OVERRIDE: pause supervisor driving-actions (nudge/clear/watchdog) — globally or for one project. Use when the supervisor is misbehaving. Resume with supervisor_resume.', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
       { name: 'supervisor_resume', description: 'Lift a supervisor pause (the scope you paused: "global" or a project path).', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
       { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_pause', description: "Deprecated alias for supervisor_pause (unified brake). Pause the steward's auto-routing+acting (design §4 human-reclaim). While paused the router forwards nothing (every new escalation → human) and the steward parks — the human standin's \"I've got it from here.\" Resume with steward_resume.", inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_resume', description: 'Deprecated alias for supervisor_resume (unified brake). Lift the steward pause — auto-routing+acting resume (subject to the steward being live).', inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_pause_status', description: 'Steward liveness + pause snapshot: { paused, live, autoEnabled (env arm), switchedOn (live human on/off) }. Drives the StewardPanel crashed/paused/off state.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_set_enabled', description: "Deprecated alias for the mission-scoped kill-switch (A3). Runtime ON/OFF for the steward escalation auto-answer — the live human off-switch (distinct from the MERMAID_STEWARD_AUTO env arm and the transient steward_pause). PERSISTENT. While OFF the router sends every escalation to the human and the running steward skill idles. The skill checks this each loop.", inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] } },
       { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns, recentAutonomousMutations:[{kind,actor,reason,project?,detail?,at}] }. `recentAutonomousMutations` (B6) is the in-memory newest-first log of self-driven mutations — reserve-leaf re-cuts, deploy-gate refusals, and terminal-mission self-heals — scoped to `project` when given (global entries always included), else all. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Scope recentAutonomousMutations to this project (global entries are always included). Omit for all.' } } } },
@@ -1969,12 +1894,6 @@ export async function setupMCPServer(): Promise<Server> {
             };
             return JSON.stringify(getEscalationHistory(f), null, 2);
           }
-          case 'escalation_brief': {
-            const { project, escalationId, refresh } = args as { project: string; escalationId: string; refresh?: boolean };
-            if (!project || !escalationId) throw new Error('Missing required: project, escalationId');
-            const brief = await briefEscalation(project, escalationId, { refresh });
-            return JSON.stringify(brief, null, 2);
-          }
           case 'escalation_resolve': {
             const { id, status, supervisorEpoch } = args as { id: string; status: string; supervisorEpoch?: number };
             if (!id || !status) throw new Error('Missing required: id, status');
@@ -2422,18 +2341,12 @@ export async function setupMCPServer(): Promise<Server> {
             return JSON.stringify(result, null, 2);
           }
           case 'reset_todo': {
-            const { project, todoId, status, targetProject, proof, escalationId, stewardEpoch } = args as { project: string; todoId: string; status?: import('../services/todo-store.js').TodoStatus; targetProject?: string | null; proof?: StewardProof; escalationId?: string; stewardEpoch?: number };
+            const { project, todoId, status, targetProject, escalationId } = args as { project: string; todoId: string; status?: import('../services/todo-store.js').TodoStatus; targetProject?: string | null; escalationId?: string };
             if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            // Steward proof gate: enforced only for an autonomous steward act
-            // (proof/escalationId/epoch present AND MERMAID_STEWARD_AUTO on). A plain
-            // operator call (no steward context) keeps the manual undo behaviour.
-            const asSteward = supervisorStore.stewardAutoEnabled() && (proof !== undefined || escalationId !== undefined || stewardEpoch !== undefined);
-            if (asSteward) {
-              const gate = stewardProofGate({ verb: 'reset_todo', project, todoId, proof, escalationId });
-              if (!gate.ok) return JSON.stringify({ rejected: true, reason: gate.reason, routedTo: 'human' }, null, 2);
-            }
+            // Explicit operator/MCP reset — the manual undo. resetTodo also auto-resolves
+            // the todo's stale escalations; resolve the linked one explicitly when supplied.
             const result = await resetTodo(project, todoId, status ?? 'ready', targetProject);
-            if (asSteward && escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
+            if (escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
             return JSON.stringify(deriveTodoViews(project, [result])[0], null, 2);
           }
@@ -2445,15 +2358,11 @@ export async function setupMCPServer(): Promise<Server> {
             return JSON.stringify(result, null, 2);
           }
           case 'override_accept_todo': {
-            const { project, todoId, completedBy, proof, escalationId, stewardEpoch, changeSetFiles } = args as { project: string; todoId: string; completedBy?: string; proof?: StewardProof; escalationId?: string; stewardEpoch?: number; changeSetFiles?: string[] };
+            const { project, todoId, completedBy, escalationId } = args as { project: string; todoId: string; completedBy?: string; escalationId?: string };
             if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            const asSteward = supervisorStore.stewardAutoEnabled() && (proof !== undefined || escalationId !== undefined || stewardEpoch !== undefined);
-            if (asSteward) {
-              const gate = stewardProofGate({ verb: 'override_accept_todo', project, todoId, proof, escalationId, changeSetFiles });
-              if (!gate.ok) return JSON.stringify({ rejected: true, reason: gate.reason, routedTo: 'human' }, null, 2);
-            }
-            const result = await overrideAcceptTodo(project, todoId, completedBy ?? 'steward');
-            if (asSteward && escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
+            // Explicit operator/MCP force-accept.
+            const result = await overrideAcceptTodo(project, todoId, completedBy ?? 'operator');
+            if (escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
             return JSON.stringify({ ...result, completed: deriveTodoViews(project, [result.completed])[0] }, null, 2);
           }
@@ -2645,33 +2554,6 @@ export async function setupMCPServer(): Promise<Server> {
           case 'supervisor_pause_status': {
             return JSON.stringify({ pauses: supervisorStore.listSupervisorPauses() }, null, 2);
           }
-          case 'steward_pause': {
-            supervisorStore.setSupervisorPause(supervisorStore.GLOBAL_PAUSE_SCOPE, true);
-            recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_pause' }));
-            return JSON.stringify({ paused: true, scope: 'steward' }, null, 2);
-          }
-          case 'steward_resume': {
-            supervisorStore.setSupervisorPause(supervisorStore.GLOBAL_PAUSE_SCOPE, false);
-            recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_resume' }));
-            return JSON.stringify({ paused: false, scope: 'steward' }, null, 2);
-          }
-          case 'steward_pause_status': {
-            return JSON.stringify({
-              paused: supervisorStore.isStewardPaused(),
-              live: supervisorStore.isStewardLive(),
-              autoEnabled: supervisorStore.stewardAutoEnabled(),
-              switchedOn: supervisorStore.isStewardEnabled(),
-              // back-compat: `enabled` historically meant the env arm.
-              enabled: supervisorStore.stewardAutoEnabled(),
-            }, null, 2);
-          }
-          case 'steward_set_enabled': {
-            const { enabled } = args as { enabled: boolean };
-            if (typeof enabled !== 'boolean') throw new Error('Missing required: enabled (boolean)');
-            supervisorStore.setStewardEnabled(enabled);
-            recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_set_enabled', enabled }));
-            return JSON.stringify({ switchedOn: enabled }, null, 2);
-          }
           case 'check_graph_drift': {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
@@ -2785,14 +2667,7 @@ export async function setupMCPServer(): Promise<Server> {
             const actions = all.filter((a) =>
               a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
             );
-            // Fail-open-to-human: if the steward crashed (stale heartbeat), surface
-            // the single "steward dead, N queued" summary escalation (role-agnostic —
-            // the steward session is also checkpoint/clear-managed by the scan above).
-            const stewardFailOpen = supervisorStore.stewardFailOpenScan(now);
-            if (stewardFailOpen.stale && stewardFailOpen.escalationId) {
-              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session: supervisorStore.STEWARD_FAILOPEN_SESSION, kind: 'operator-gated', id: stewardFailOpen.escalationId, routedTo: 'human', escalation: supervisorStore.listOpenEscalations().find((e) => e.id === stewardFailOpen.escalationId) });
-            }
-            return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold, stewardFailOpen }, null, 2);
+            return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold }, null, 2);
           }
           case 'context_usage': {
             // Read-only per-session context-window report. Built from the SAME

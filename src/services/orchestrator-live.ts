@@ -18,10 +18,9 @@
 
 import { existsSync } from 'node:fs';
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
-import { listWatchedProjects, type Escalation } from './supervisor-store.js';
-import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped, mayAutoAnswerEscalation } from './coordinator-live.js';
+import { listWatchedProjects } from './supervisor-store.js';
+import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped } from './coordinator-live.js';
 import { runConductorPass } from './conductor-pass.js';
-import { listTodos } from './todo-store.js';
 import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick, shouldRunNotificationTick } from './session-notification-tick.js';
 import { runFrictionWatchPass, shouldRunFrictionWatchPass } from './friction-watch.js';
@@ -30,7 +29,6 @@ import { runMissionIntakePass } from './mission-intake.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
 import { runSessionSummaryTick, runSelfSummaryNudgePass } from './session-summary-loop.js';
-import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { registerOrchestratorKick } from './orchestrator-kick.js';
@@ -113,7 +111,6 @@ const KICK_DEBOUNCE_MS = 250;
 const NOTIFY_PASS_TIMEOUT_MS = 90_000; // 1.5min — git-diff probes only
 const BUILD_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — awaits leaf run(s)
 const RECONCILE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — reconcile harness
-const TRIAGE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — bounded Grok calls
 const ARCHIVAL_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — archival sweep
 const LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — landed-epic sweep
 
@@ -262,11 +259,10 @@ export function kickOrchestrator(_reason?: string): void {
 // ---------------------------------------------------------------------------
 
 /** Which passes should run for a given level (epic 4b81ca59 — off/on).
- *  `on` runs build + reconcile + triage SUGGEST (write-only). Off runs nothing. */
+ *  `on` runs build + reconcile. Off runs nothing. */
 export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): {
   build: boolean;
   reconcile: boolean;
-  triage: boolean;
   archival: boolean;
   landedEpicSweep: boolean;
 } {
@@ -274,7 +270,6 @@ export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): 
   return {
     build: active,
     reconcile: active,
-    triage: active,
     archival: active,
     landedEpicSweep: active,
   };
@@ -374,7 +369,6 @@ export interface TickDeps {
    *  active mission. Self-gates on the per-project conductor toggle (default OFF) + debounce; runs
    *  for WATCHED projects. Default: runConductorPass. */
   conductor?: (project: string) => Promise<unknown>;
-  triage?: (project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => Promise<void>;
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
    *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
   watchedProjects?: () => Set<string>;
@@ -415,7 +409,6 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunMissionLoop = deps.shouldRunMissionLoop ?? shouldRunMissionLoopPass;
   // NB: the conductor pass no longer runs in this serial tick — it moved to its own decoupled loop
   // (runConductorGuarded / conductorTimer, B0). deps.conductor is consumed there.
-  const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean; autoResolveScope?: (esc: Escalation) => boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve, autoResolveScope: opts.autoResolveScope }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
   const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
@@ -626,32 +619,6 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(landedEpicSweep(project), LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS, `${project}:landed-epic-sweep`);
       } catch (err) {
         console.warn(`[orchestrator] runLandedEpicSweep failed for ${project}:`, err);
-      }
-    }
-
-    // Triage runs LAST (after reconcile auto-closes the deterministic stale/done
-    // buckets), so Grok only sees escalations the cheap passes couldn't resolve.
-    // Write-only suggest at `on`; auto-resolve was folded away with the `auto` level.
-    if (passes.triage) {
-      try {
-        currentPhase = `${project}:triage`;
-        // Best-effort: the todos read only feeds the auto-answer SCOPE. A read failure must not
-        // skip the whole (suggest-only) triage pass — degrade to an empty scope (no auto-answer).
-        let missionTodos: ReturnType<typeof listTodos> = [];
-        try {
-          missionTodos = listTodos(project, { includeCompleted: true });
-        } catch (e) {
-          console.warn(`[orchestrator] triage: could not read todos for ${project} (auto-answer scope disabled):`, e);
-        }
-        const autoResolveScope = (esc: Escalation): boolean =>
-          mayAutoAnswerEscalation(project, esc, missionTodos);
-        await withPassTimeout(
-          triage(project, { autoResolve: false, autoResolveScope }),
-          TRIAGE_PASS_TIMEOUT_MS,
-          `${project}:triage`,
-        );
-      } catch (err) {
-        console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
       }
     }
   }

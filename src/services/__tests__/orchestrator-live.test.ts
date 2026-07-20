@@ -47,9 +47,7 @@ afterAll(() => {
 const buildCalls: string[] = [];
 const notifyCalls: string[] = [];
 const reconcileCalls: string[] = [];
-const triageCalls: string[] = [];
 const frictionTriageCalls: string[] = [];
-const triageAutoResolve: Array<{ project: string; autoResolve: boolean }> = [];
 let buildShouldThrow: string | null = null; // project path whose build should throw
 const registeredProjects: Array<{ path: string; name: string; lastAccess: string }> = [];
 const levelOverrides = new Map<string, string>();
@@ -94,10 +92,6 @@ function makeDeps(): TickDeps {
     // (claim-latency) behaviour has its own dedicated tests below. A kicked tick sets force=true
     // in runTickGuarded, which bypasses this gate entirely.
     shouldRunBuild: () => true,
-    triage: async (project: string, opts: { autoResolve: boolean }) => {
-      triageCalls.push(project);
-      triageAutoResolve.push({ project, autoResolve: opts.autoResolve });
-    },
     // Mock the friction-triage pass too: unmocked it falls back to the real
     // runFrictionTriagePass, which opens a DB under the dummy '/proj' path and throws EROFS.
     frictionTriage: async (project: string) => { frictionTriageCalls.push(project); },
@@ -115,9 +109,7 @@ function reset() {
   buildCalls.length = 0;
   notifyCalls.length = 0;
   reconcileCalls.length = 0;
-  triageCalls.length = 0;
   frictionTriageCalls.length = 0;
-  triageAutoResolve.length = 0;
   buildShouldThrow = null;
   registeredProjects.length = 0;
   levelOverrides.clear();
@@ -136,17 +128,15 @@ describe('passesForLevel', () => {
     expect(passesForLevel('off')).toEqual({
       build: false,
       reconcile: false,
-      triage: false,
       archival: false,
       landedEpicSweep: false,
     });
   });
 
-  it('on → build + reconcile + triage + archival (suggest write-only)', () => {
+  it('on → build + reconcile + archival', () => {
     expect(passesForLevel('on')).toEqual({
       build: true,
       reconcile: true,
-      triage: true,
       archival: true,
       landedEpicSweep: true,
     });
@@ -278,19 +268,6 @@ describe('runOrchestratorTick', () => {
     expect(notifyCalls).toEqual([]); // unwatched → no notify, matching unwatched-auto-off intent
   });
 
-  it('on level: runs build + reconcile + triage (suggest), autoResolve=false', async () => {
-    registeredProjects.push({ path: '/proj/b', name: 'b', lastAccess: '' });
-    levelOverrides.set('/proj/b', 'on');
-
-    await runOrchestratorTick(makeDeps());
-
-    expect(buildCalls).toEqual(['/proj/b']);
-    expect(reconcileCalls).toEqual(['/proj/b']);
-    expect(triageCalls).toEqual(['/proj/b']);
-    // `on` writes suggestions but does NOT auto-resolve.
-    expect(triageAutoResolve).toEqual([{ project: '/proj/b', autoResolve: false }]);
-  });
-
   it('unwatched projects are forced off — registered AND config-only (never built)', async () => {
     reset();
     registeredProjects.push(
@@ -307,18 +284,6 @@ describe('runOrchestratorTick', () => {
     // Both unwatched non-off projects forced off (the sweep covers the config-only one too).
     expect(setLevelCalls.map((c) => c.project).sort()).toEqual(['/p/orphan', '/tmp/stale']);
     expect(setLevelCalls.every((c) => c.level === 'off')).toBe(true);
-  });
-
-  it('on level: triage runs with autoResolve=false', async () => {
-    registeredProjects.push({ path: '/proj/x', name: 'x', lastAccess: '' });
-    levelOverrides.set('/proj/x', 'on');
-
-    await runOrchestratorTick(makeDeps());
-
-    expect(buildCalls).toEqual(['/proj/x']);
-    expect(reconcileCalls).toEqual(['/proj/x']);
-    expect(triageCalls).toEqual(['/proj/x']);
-    expect(triageAutoResolve).toEqual([{ project: '/proj/x', autoResolve: false }]);
   });
 
   it('fail-open: a throwing build pass does NOT block other projects', async () => {

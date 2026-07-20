@@ -139,24 +139,6 @@ try {
 export const SUPERVISOR_SESSION = process.env.MERMAID_SUPERVISOR_SESSION ?? 'supervisor';
 
 /**
- * Project the global steward session lives in. Mirrors SUPERVISOR_PROJECT:
- * a dedicated, always-writable workspace at `~/.mermaid-collab/steward` — NOT
- * the current active project (the steward is a global, fleet-wide role like the
- * supervisor, not scoped to whatever project the user is viewing). The directory
- * is created on first use so launchAndBind can spawn the steward there.
- */
-export const STEWARD_PROJECT =
-  process.env.MERMAID_STEWARD_PROJECT ?? join(homedir(), '.mermaid-collab', 'steward');
-try {
-  mkdirSync(STEWARD_PROJECT, { recursive: true });
-} catch {
-  /* best-effort; launch will surface a clear error if the dir is unusable */
-}
-
-/** Session name reserved for the global steward. Defaults to 'steward'. */
-export const STEWARD_SESSION = process.env.MERMAID_STEWARD_SESSION ?? 'steward';
-
-/**
  * CDP (Chrome DevTools Protocol) port the browser tools connect to.
  * Defaults to a deterministic port derived from MERMAID_PROJECT (see
  * deriveCdpPort in project-registry.ts) so two same-user instances for

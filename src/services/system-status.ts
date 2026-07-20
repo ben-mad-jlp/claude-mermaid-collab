@@ -44,7 +44,6 @@ import { listPool } from './worker-pool';
 import {
   listOpenEscalations,
   pendingDecisionCount,
-  isStewardPaused,
   isSupervisorPaused,
 } from './supervisor-store';
 
@@ -120,7 +119,6 @@ export interface SystemStatus {
   };
   /** inline pause state. */
   pause: {
-    steward: boolean;
     supervisor: boolean;
   };
   /** Drill-down: which focused tool to call for the full detail behind a field. */
@@ -176,7 +174,6 @@ export interface SystemStatusInputs {
   uncommittedCount: number | null;
   openEscalations: number;
   pendingDecisions: number;
-  stewardPaused: boolean;
   supervisorPaused: boolean;
 }
 
@@ -250,7 +247,6 @@ export function summarizeSystemStatus(inp: SystemStatusInputs): SystemStatus {
       pendingDecisions: inp.pendingDecisions,
     },
     pause: {
-      steward: inp.stewardPaused,
       supervisor: inp.supervisorPaused,
     },
     pointers: {
@@ -259,7 +255,7 @@ export function summarizeSystemStatus(inp: SystemStatusInputs): SystemStatus {
       invariants: 'invariant_check',
       instances: 'instance_topology',
       inbox: 'escalation_list / supervisor_next_decision',
-      pause: 'steward_pause_status / supervisor_pause_status',
+      pause: 'supervisor_pause_status',
     },
   };
 }
@@ -304,7 +300,6 @@ export async function systemStatus(project: string, deps: SystemStatusDeps = {})
     uncommittedCount,
     openEscalations: listOpenEscalations().length,
     pendingDecisions: pendingDecisionCount(project),
-    stewardPaused: isStewardPaused(),
     supervisorPaused: isSupervisorPaused(project),
   });
 }

@@ -66,7 +66,6 @@ function inputs(overrides: Partial<SystemStatusInputs> = {}): SystemStatusInputs
     uncommittedCount: 0,
     openEscalations: 0,
     pendingDecisions: 0,
-    stewardPaused: false,
     supervisorPaused: false,
     ...overrides,
   };
@@ -84,7 +83,6 @@ describe('summarizeSystemStatus', () => {
     expect(s.instances.canonicalConfirmed).toBe(true);
     expect(s.instances.canonicalHolder?.pid).toBe(4242);
     expect(s.inbox.openEscalations).toBe(0);
-    expect(s.pause.steward).toBe(false);
   });
 
   test('no deploy drift when live version matches repo and tree is clean', () => {
@@ -136,7 +134,6 @@ describe('summarizeSystemStatus', () => {
         ] as SystemStatusInputs['violations'],
         openEscalations: 4,
         pendingDecisions: 1,
-        stewardPaused: true,
         supervisorPaused: true,
       }),
     );
@@ -147,7 +144,6 @@ describe('summarizeSystemStatus', () => {
     expect(s.invariants.kinds.sort()).toEqual(['orphan', 'stranded-epic']);
     expect(s.inbox.openEscalations).toBe(4);
     expect(s.inbox.pendingDecisions).toBe(1);
-    expect(s.pause.steward).toBe(true);
     expect(s.pause.supervisor).toBe(true);
   });
 

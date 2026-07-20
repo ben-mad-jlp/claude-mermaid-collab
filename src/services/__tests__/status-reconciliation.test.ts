@@ -63,7 +63,6 @@ function inputsFor(project: string, health: ReturnType<typeof getOrchestratorHea
     uncommittedCount: null,
     openEscalations: 0,
     pendingDecisions: 0,
-    stewardPaused: false,
     supervisorPaused: false,
   };
 }

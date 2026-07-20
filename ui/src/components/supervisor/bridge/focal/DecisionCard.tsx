@@ -13,12 +13,11 @@
  * green in the graph).
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
 import { useKeyboardOwner, KeyboardPriority } from '@/hooks/useKeyboardOwner';
 import { parseUiSpec } from './catalog';
 import { Renderer } from './Renderer';
-import { Markdown } from '@/components/ai-ui/display/Markdown';
 
 export interface DecisionCardProps {
   escalation: Escalation;
@@ -37,32 +36,6 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverSc
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
-  const fetchEscalationBrief = useSupervisorStore((s) => s.fetchEscalationBrief);
-
-  // Deep markdown briefing (escalation-briefing epic): lazily fetched from the
-  // server when this focal card opens, rendered ABOVE the raw structured context.
-  // Cached in component state so re-renders don't re-fetch. Fails open: on error
-  // we render nothing extra and the card still works.
-  const [brief, setBrief] = useState<string | null>(null);
-  const [briefLoading, setBriefLoading] = useState(false);
-
-  const loadBrief = React.useCallback(
-    async (refresh: boolean) => {
-      if (!escalation.project || !escalation.id) return;
-      setBriefLoading(true);
-      const res = await fetchEscalationBrief(serverScope, escalation.project, escalation.id, refresh);
-      setBriefLoading(false);
-      if (res) setBrief(res.md);
-    },
-    [fetchEscalationBrief, serverScope, escalation.project, escalation.id],
-  );
-
-  useEffect(() => {
-    // Fetch on open / when the focal escalation changes. Skip if no project.
-    setBrief(null);
-    if (escalation.project) void loadBrief(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [escalation.id, escalation.project]);
 
   const spec = useMemo(() => parseUiSpec(escalation.ui), [escalation.ui]);
   const isLand = escalation.kind === 'epic-ready-to-land';
@@ -148,29 +121,6 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverSc
             ✕
           </button>
         </div>
-
-        {(brief || briefLoading) && (
-          <div data-testid="escalation-brief" className="space-y-1">
-            {briefLoading && !brief ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500">Preparing briefing…</p>
-            ) : (
-              <>
-                <div className="text-sm">
-                  <Markdown content={brief as string} unstyled ariaLabel="Escalation briefing" />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void loadBrief(true)}
-                  disabled={briefLoading}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 disabled:opacity-50"
-                >
-                  {briefLoading ? 'Refreshing…' : '↻ Refresh briefing'}
-                </button>
-                <hr className="border-gray-200 dark:border-gray-700" />
-              </>
-            )}
-          </div>
-        )}
 
         {spec ? (
           <Renderer spec={spec} onDecide={decide} onSubmit={submit} />

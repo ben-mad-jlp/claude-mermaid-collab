@@ -736,20 +736,16 @@ try {
   writePidFile(actualPort, process.pid);
 } catch { /* best-effort lock write */ }
 
-// Supervisor + steward liveness heartbeat: while this server is alive, keep the
-// registered roles' updatedAt advancing so the UI can tell a running role from a
-// crashed/stale one. No-op until each role registers. Both roles are kept fresh
-// here (server-alive = role-alive) — otherwise an idle steward that only touches
-// its identity when it loops goes stale within the 60s window between escalations
-// and the StewardPanel flaps back to the "Restart steward" front door.
-// Cleared on shutdown so a killed server lets updatedAt go stale.
+// Supervisor liveness heartbeat: while this server is alive, keep the registered
+// supervisor's updatedAt advancing so the UI can tell a running role from a
+// crashed/stale one. No-op until the role registers. Cleared on shutdown so a
+// killed server lets updatedAt go stale.
 let supervisorHeartbeat: ReturnType<typeof setInterval> | null = null;
 const cancelSupervisorHeartbeat = () => {
   if (supervisorHeartbeat) { clearInterval(supervisorHeartbeat); supervisorHeartbeat = null; }
 };
 supervisorHeartbeat = setInterval(() => {
   try { touchSupervisorIdentity(); } catch { /* best-effort liveness */ }
-  try { touchSupervisorIdentity(undefined, 'steward'); } catch { /* best-effort liveness */ }
 }, SUPERVISOR_HEARTBEAT_INTERVAL_MS);
 // Don't let the heartbeat alone keep the process alive.
 supervisorHeartbeat.unref?.();

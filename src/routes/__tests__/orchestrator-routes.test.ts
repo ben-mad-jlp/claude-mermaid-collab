@@ -1,6 +1,8 @@
 /**
  * Unit tests for src/routes/orchestrator-routes.ts (handleOrchestratorRoutes).
- * Isolates the orchestrator-config DB via MERMAID_SUPERVISOR_DIR before import.
+ * Isolates the orchestrator-config + supervisor DBs via MERMAID_SUPERVISOR_DIR and
+ * the project registry (projects.json) via MERMAID_DATA_DIR — otherwise register()
+ * leaks the /tmp source/target fixtures into the live ~/.mermaid-collab Projects list.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -9,6 +11,7 @@ import { join } from 'node:path';
 
 const dir = mkdtempSync(join(tmpdir(), 'orch-routes-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
+process.env.MERMAID_DATA_DIR = dir;
 
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
 import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS, MATRIX_HIDDEN_NODE_KINDS, ORCHESTRATION_NODE_KINDS } from '../../services/leaf-executor';
@@ -35,6 +38,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   process.env.MERMAID_SUPERVISOR_DIR = dir;
+  process.env.MERMAID_DATA_DIR = dir;
   _closeDb();
   supervisorCloseDb();
 });
@@ -43,6 +47,7 @@ afterAll(() => {
   supervisorCloseDb();
   rmSync(dir, { recursive: true, force: true });
   delete process.env.MERMAID_SUPERVISOR_DIR;
+  delete process.env.MERMAID_DATA_DIR;
 });
 
 describe('handleOrchestratorRoutes', () => {

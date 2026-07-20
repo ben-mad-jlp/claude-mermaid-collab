@@ -17,8 +17,15 @@ export interface ProjectRegistryData {
 // MERMAID_DATA_DIR lets tests (and any embed) isolate projects.json off the real
 // ~/.mermaid-collab — without it, a test's register() leaks into the live app's
 // Projects list (mirrors MERMAID_SUPERVISOR_DIR on the supervisor/ledger stores).
-const DATA_DIR = process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
-const PROJECTS_PATH = join(DATA_DIR, 'projects.json');
+// Resolved LAZILY (per call, not captured at module load) so a test that sets
+// MERMAID_DATA_DIR before its first registry call is honoured even though the
+// singleton `projectRegistry` is constructed at import time.
+function dataDir(): string {
+  return process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
+}
+function projectsPath(): string {
+  return join(dataDir(), 'projects.json');
+}
 
 /** A worker worktree (and the __integration__/supervisor scratch dirs) lives under
  *  <repo>/.collab/agent-sessions/ — a per-todo isolation checkout, never a project.
@@ -58,10 +65,17 @@ export function deriveCdpPort(project: string): number {
 }
 
 export class ProjectRegistry {
-  private registryPath: string;
+  /** Explicit path pins a test/embed instance to its own file. Undefined = the
+   *  live default singleton, which resolves projects.json LAZILY (per call) so
+   *  MERMAID_DATA_DIR set after import still isolates it. */
+  private readonly explicitPath?: string;
 
-  constructor(registryPath: string = PROJECTS_PATH) {
-    this.registryPath = registryPath;
+  constructor(registryPath?: string) {
+    this.explicitPath = registryPath;
+  }
+
+  private get registryPath(): string {
+    return this.explicitPath ?? projectsPath();
   }
 
   /**
@@ -245,9 +259,9 @@ export class ProjectRegistry {
   private async discoverProjectPaths(): Promise<string[]> {
     const paths = new Set<string>();
     // Only cross-reference the global session registry for the default
-    // singleton. Test instances (and any non-default registryPath) stay
-    // isolated to their own file rather than pulling in the real registry.
-    if (this.registryPath !== PROJECTS_PATH) {
+    // singleton. Test instances (an explicit registryPath) stay isolated to
+    // their own file rather than pulling in the real registry.
+    if (this.explicitPath !== undefined) {
       return [];
     }
     try {

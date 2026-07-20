@@ -81,8 +81,6 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
-  const confirmSuggestion = useSupervisorStore((s) => s.confirmSuggestion);
-  const dismissSuggestion = useSupervisorStore((s) => s.dismissSuggestion);
   const resolvedEscalations = useSupervisorStore((s) => s.resolvedEscalations);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
@@ -205,53 +203,6 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                     <span className="flex-1 min-w-0 truncate text-2xs text-gray-700 dark:text-gray-200">{todo.title}</span>
                     <span className="shrink-0 text-3xs px-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">{todo.status}</span>
                   </button>
-                )}
-                {/* Orch P2: inline Grok-suggested action (level `propose`). Amber
-                    (one-red discipline: red stays the escalation). verb→Confirm
-                    runs the server proof gate; classify-only just routes attention. */}
-                {e.suggestedAction && (
-                  <div
-                    data-testid="escalation-suggestion"
-                    data-bucket={e.suggestedAction.bucket}
-                    className="mt-1 rounded border border-warning-300 dark:border-warning-700 bg-warning-50/70 dark:bg-warning-900/20 px-2.5 py-2 space-y-1.5"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-2xs">🤖</span>
-                      <span className="text-2xs font-semibold uppercase tracking-wide text-warning-700 dark:text-warning-300">
-                        {e.suggestedAction.bucket}
-                      </span>
-                      <span className="text-2xs text-gray-400 dark:text-gray-500" title="AI confidence">
-                        {Math.round((e.suggestedAction.confidence ?? 0) * 100)}%
-                      </span>
-                    </div>
-                    <div className="text-2xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                      {e.suggestedAction.rationale}
-                    </div>
-                    <div className="flex items-center gap-2 pt-1">
-                      {e.suggestedAction.verb ? (
-                        <button
-                          type="button"
-                          data-testid="suggestion-confirm"
-                          onClick={() => void confirmSuggestion(serverScope, e.project, e.id)}
-                          title={`Confirm — server re-validates the proof, then runs ${e.suggestedAction.verb}`}
-                          className="px-2 py-1 text-2xs font-medium rounded bg-warning-500 text-white hover:bg-warning-600 transition-colors"
-                        >
-                          Confirm {e.suggestedAction.verb}
-                        </button>
-                      ) : (
-                        <span className="text-2xs italic text-gray-500 dark:text-gray-400">classify-only — decide below</span>
-                      )}
-                      <button
-                        type="button"
-                        data-testid="suggestion-dismiss"
-                        onClick={() => void dismissSuggestion(serverScope, e.project, e.id)}
-                        className="px-2 py-1 text-2xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        title="Dismiss the suggestion (the escalation stays open)"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
                 )}
                 {hasOptions ? (
                   <div className="space-y-1.5 pt-1">
