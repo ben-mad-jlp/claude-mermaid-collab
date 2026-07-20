@@ -1025,6 +1025,50 @@ export function buildCriteriaRepairPrompt(
   ].join('\n');
 }
 
+/** Build the repair prompt for a blueprint node whose v2 diff contract (diff-contract.ts) is
+ *  UNDERSPECIFIED for its declared leafKind per the §4 strictness matrix
+ *  (validateContractForKind) — a required requirement kind has zero entries. Mirrors
+ *  buildCriteriaRepairPrompt's shape (quote-the-offense, restate-the-rule, re-emit the same
+ *  trailing json-fence contract). Takes only the missing field's kind name, not a DiffContract
+ *  value, so this file does not import diff-contract.ts (avoids the circular import its header
+ *  comment calls out). */
+export function buildBlueprintRepairPrompt(
+  leaf: Todo,
+  blueprintText: string,
+  missingField: string,
+): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const bp = blueprintPath(leaf);
+
+  return [
+    'You are the BLUEPRINT node. Make REAL, compiling code edits.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    '',
+    `The prior blueprint's diff contract is UNDERSPECIFIED for this leaf's declared leafKind: it has zero "${missingField}" requirements, and the §4 strictness matrix requires at least one for this leafKind.`,
+    '',
+    `Add at least one "${missingField}" requirement object to the contract's requirements[] array, citing a real file/symbol/test/metric that this leaf's diff actually delivers — never a placeholder.`,
+    '',
+    'Then read the relevant code, and produce your corrected blueprint and WRITE it to `' +
+      bp +
+      '`.',
+    "The blueprint must cite the real files/symbols to touch and the exact change shape.",
+    '',
+    "FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file and parse as:",
+    '```json',
+    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
+    '  "nonEnumerableFanout": <bool>,',
+    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
+    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
+    '```',
+    '',
+    'ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.',
+  ].join('\n');
+}
+
 /** Build the inline prompt for a VERIFY-pipeline node (epic f5c7fc46). Three kinds:
  *  - driveplan: LLM authors an AssemblyBuildPlan (plan ONLY — no build, no code).
  *  - driveexec: constrained to the single deterministic gate verb — invokes it with the
