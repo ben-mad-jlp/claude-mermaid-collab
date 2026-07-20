@@ -92,6 +92,8 @@ describe('gcEpicBranches', () => {
     const runner: BranchGcRunner = {
       revParse: () => 'abc123',
       deleteBranch: (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
     };
 
     const result = gcEpicBranches(project, { probe, runner });
@@ -114,6 +116,8 @@ describe('gcEpicBranches', () => {
     const runner: BranchGcRunner = {
       revParse: () => 'def456',
       deleteBranch: (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
     };
 
     const result = gcEpicBranches(project, { probe, runner });
@@ -121,5 +125,46 @@ describe('gcEpicBranches', () => {
     expect(result.flagged).toContain(epic.id);
     expect(result.deleted).not.toContain(branch);
     expect(deleteCalls.filter((b) => b === branch)).toEqual([]);
+  });
+
+  test('ORPHAN branch (no epic todo) fully-on-master is GC\'d; ahead>0 orphan is flagged', async () => {
+    // No epic todo exists for these refs → absent from report.epics; only reachable via listEpicBranches.
+    const orphanClean = 'collab/epic/deadbeef';
+    const orphanAhead = 'collab/epic/feed0000';
+    const probe: GitProbe = () => ({ exists: false, ahead: null, behind: null, mergeable: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'cafe123',
+      deleteBranch: (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: () => [orphanClean, orphanAhead],
+      aheadCount: (b) => (b === orphanClean ? 0 : 2),
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toContain(orphanClean); // fully-on-master orphan deleted
+    expect(deleteCalls).toEqual([orphanClean]);
+    expect(result.flagged).toContain(orphanAhead); // ahead>0 orphan flagged, not deleted
+    expect(result.deleted).not.toContain(orphanAhead);
+    const log = readFileSync(join(project, '.collab', 'pruned-branches-recovery.md'), 'utf8');
+    expect(log).toContain(orphanClean);
+  });
+
+  test('a live epic\'s branch surfacing in BOTH passes is processed exactly once (no double delete)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] once', kind: 'epic', status: 'planned' });
+    const branch = epicBranchName(epic.id);
+    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'aaa111',
+      deleteBranch: (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: () => [branch], // the SAME branch also appears in the orphan enumeration
+      aheadCount: () => 0,
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(deleteCalls).toEqual([branch]); // deleted exactly ONCE (handled-set dedup)
+    expect(result.deleted.filter((b) => b === branch)).toHaveLength(1);
   });
 });

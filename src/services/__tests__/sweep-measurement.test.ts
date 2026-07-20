@@ -63,6 +63,8 @@ describe('runSweepMeasurement', () => {
     const runner: BranchGcRunner = {
       revParse: () => 'deadbeef',
       deleteBranch: (b) => { deletedBranches.add(b); return true; },
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
     };
 
     const run1 = runSweepMeasurement(project, { probe, runner, baseRef: 'master' });

@@ -90,6 +90,12 @@ export interface BranchGcRunner {
   revParse(branch: string): string | null;
   /** Force-delete `branch` (git branch -D). Returns true on success. */
   deleteBranch(branch: string): boolean;
+  /** All local `collab/epic/<id8>` branch names (short refs) — including ORPHANS whose epic
+   *  todo no longer exists, which buildEpicBranchStatus (built from live todos) cannot see. */
+  listEpicBranches(): string[];
+  /** Commits on `branch` not on `baseRef` (git rev-list --count baseRef..branch). Returns -1 on
+   *  error so the caller treats it as ahead>0 and never deletes speculatively (fail-closed). */
+  aheadCount(branch: string, baseRef: string): number;
 }
 
 export interface GcEpicBranchesResult {
@@ -119,6 +125,15 @@ export function makeBranchGcRunner(project: string): BranchGcRunner {
     },
     deleteBranch(branch: string): boolean {
       return runGitLocal(project, ['branch', '-D', branch]).code === 0;
+    },
+    listEpicBranches(): string[] {
+      const r = runGitLocal(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/collab/epic']);
+      return r.code === 0 ? r.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : [];
+    },
+    aheadCount(branch: string, baseRef: string): number {
+      const r = runGitLocal(project, ['rev-list', '--count', `${baseRef}..${branch}`]);
+      const n = Number(r.stdout.trim());
+      return r.code === 0 && Number.isFinite(n) ? n : -1; // -1 → fail-closed (treat as ahead, never delete)
     },
   };
 }
@@ -158,7 +173,9 @@ export function gcEpicBranches(
   const flagged: string[] = [];
   let skipped = 0;
 
+  const handled = new Set<string>();
   for (const e of report.epics) {
+    handled.add(e.branch);
     if (!e.exists) { skipped++; continue; }
     if ((e.ahead ?? 0) > 0) { flagged.push(e.epicId); continue; }
     const tip = runner.revParse(e.branch);
@@ -166,6 +183,27 @@ export function gcEpicBranches(
     if (runner.deleteBranch(e.branch)) {
       appendRecoveryLog(project, e.branch, tip, now());
       deleted.push(e.branch);
+    } else {
+      skipped++;
+    }
+  }
+
+  // ORPHAN branches: `collab/epic/<id8>` refs whose epic todo no longer exists are absent from
+  // report.epics (built from live todos), so the loop above structurally cannot reach them — this is
+  // exactly the gap that left fully-on-master orphan branches accumulating. Enumerate ALL collab/epic
+  // refs directly and GC the orphans by the SAME fail-closed rule: delete only when git proves the
+  // branch fully-on-master (ahead===0), flag ahead>0 (or a probe error, ahead<0) for review, and
+  // capture every deleted tip to the recovery log. `flagged` carries the branch name for orphans
+  // (they have no epic id).
+  for (const branch of runner.listEpicBranches()) {
+    if (handled.has(branch)) continue; // already processed via its live epic todo above
+    const ahead = runner.aheadCount(branch, baseRef);
+    if (ahead !== 0) { flagged.push(branch); continue; } // ahead>0 or error(-1) → keep (fail-closed)
+    const tip = runner.revParse(branch);
+    if (tip == null) { skipped++; continue; }
+    if (runner.deleteBranch(branch)) {
+      appendRecoveryLog(project, branch, tip, now());
+      deleted.push(branch);
     } else {
       skipped++;
     }

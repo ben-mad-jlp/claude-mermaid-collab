@@ -68,6 +68,8 @@ function makeStatefulRunner(): BranchGcRunner {
   return {
     revParse: (branch) => (deleted.has(branch) ? null : `sha-${branch}`),
     deleteBranch: (branch) => { deleted.add(branch); return true; },
+    listEpicBranches: () => [],
+    aheadCount: () => 0,
   };
 }
 

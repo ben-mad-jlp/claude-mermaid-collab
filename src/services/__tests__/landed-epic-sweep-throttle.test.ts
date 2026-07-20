@@ -73,6 +73,8 @@ describe('runLandedEpicSweep — force bypass + yield-between-batches', () => {
     const runner = {
       revParse: () => null,
       deleteBranch: () => false,
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
     };
 
     let yieldCalls = 0;
