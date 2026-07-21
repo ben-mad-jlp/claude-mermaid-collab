@@ -17,6 +17,8 @@ import {
   type RecordedCommand,
   type ResultAssertion,
 } from '../node-commands';
+import { validateReviewGrounding } from '../review-citations';
+import { uncitedCriteriaAreAllCommandResults } from '../criteria-citability';
 
 describe('node-commands', () => {
   let tempDir: string;
@@ -430,6 +432,69 @@ describe('node-commands', () => {
       expect(result.reject).toBe(true);
       expect(result.contradictedClaims).toHaveLength(1);
       expect(result.escapes).toHaveLength(1);
+    });
+  });
+
+  describe('end-to-end: review-grounding accepts a zero-match-evidenced DELETION criterion', () => {
+    // The exact wall shape: a removal leaf's ONLY proof for "ptyManager import removed" is a
+    // command result, which has no file:line to cite. The reviewer marks it [N/A] (per the
+    // review-node prompt's ABSENCE/NON-GOAL instruction) — so G3 grounding never treats it as an
+    // offender — AND separately the command-evidence gate verifies the underlying claim against
+    // the command actually recorded at the spawn boundary, never trusting the reviewer's prose.
+    it('N/A-marked absence + a recorded, matching zero-match command ⇒ grounding ok AND evidence accepts', () => {
+      const changeSet = ['src/server.ts'];
+      const reviewText = [
+        '## CRITERIA',
+        "- [N/A] the sole import of ptyManager is removed — verified via grep -rn 'ptyManager' src/ returns no matches",
+        '- [MET] server.ts drops the pty-manager wiring — src/server.ts:12',
+        '',
+        'VERIFICATION:',
+        "- ran: grep -rn 'ptyManager' src/",
+        '',
+        'VERDICT: PASS',
+      ].join('\n');
+
+      const grounding = validateReviewGrounding(reviewText, changeSet);
+      expect(grounding.status).toBe('ok'); // N/A criteria are never offenders, never "cites nothing"
+
+      // The command-evidence gate independently verifies the reviewer's VERIFICATION: claim
+      // against what actually ran (recorded at the spawn boundary) — it does not trust the marker.
+      const recordedCommands: RecordedCommand[] = [
+        { cmd: "grep -rn 'ptyManager' src/", cwd: worktreeRoot, exitCode: 1 }, // no matches → exit 1
+      ];
+      const claims = parseVerificationClaims(grounding.criteria, reviewText);
+      expect(claims.some((c) => c.includes('ptyManager'))).toBe(true);
+      const evidence = evaluateCommandEvidence({ commands: recordedCommands, claims, worktreeRoot });
+      expect(evidence.reject).toBe(false);
+      expect(evidence.contradictedClaims).toHaveLength(0);
+    });
+
+    it('a FABRICATED zero-match claim (command never ran) is REJECTED by command-evidence, fail-closed', () => {
+      const changeSet = ['src/server.ts'];
+      const reviewText = [
+        '## CRITERIA',
+        "- [N/A] the sole import of ptyManager is removed — verified via grep -rn 'ptyManager' src/ returns no matches",
+        '- [MET] server.ts drops the pty-manager wiring — src/server.ts:12',
+        '',
+        'VERIFICATION:',
+        "- ran: grep -rn 'ptyManager' src/",
+        '',
+        'VERDICT: PASS',
+      ].join('\n');
+      const grounding = validateReviewGrounding(reviewText, changeSet);
+      const claims = parseVerificationClaims(grounding.criteria, reviewText);
+      // No matching command was actually recorded this cycle.
+      const evidence = evaluateCommandEvidence({ commands: [], claims, worktreeRoot });
+      expect(evidence.unbackedClaims.length).toBeGreaterThan(0);
+    });
+
+    it('the same absence criterion, uncited, still defers cleanly via uncitedCriteriaAreAllCommandResults', () => {
+      // Regression path for a reviewer that (incorrectly) marks the criterion MET/UNMET
+      // instead of N/A but still cites nothing — the floor-path defer must still hold.
+      const criteria = [
+        { text: "the sole import of ptyManager is removed — grep -rn 'ptyManager' src/ returns no matches", outcome: 'unmet', citations: [] as unknown[] },
+      ];
+      expect(uncitedCriteriaAreAllCommandResults(criteria, [])).toBe(true);
     });
   });
 });
