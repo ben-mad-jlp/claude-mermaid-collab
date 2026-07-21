@@ -47,7 +47,6 @@ import { systemStatus } from './system-status.js';
 import { invokeNode } from '../agent/node-invoker.js';
 import { NODE_PROFILE } from './leaf-executor.js';
 import { listNodeProfileOverrides, getProjectEffort } from './orchestrator-config.js';
-import { nudgeSession } from './claude-launch.js';
 import { fireStamp } from './nudge-stamp.js';
 import { isZenActivelyViewed } from './zen-presence.js';
 import type { EffortLevel } from '../agent/contracts.js';
@@ -1261,7 +1260,7 @@ export async function runSelfSummaryNudgePass(
   // Don't nudge sessions to spend tokens self-summarizing when nobody is watching Zen.
   if (!(deps.zenViewed ?? isZenActivelyViewed)()) return { scanned: 0, eligible: 0, nudged: [] };
   const list = (deps.listSummaries ?? listSessionSummaries)();
-  const nudge = deps.nudge ?? nudgeSession;
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
   const now = deps.now ?? Date.now;
   const nowMs = now();
 
