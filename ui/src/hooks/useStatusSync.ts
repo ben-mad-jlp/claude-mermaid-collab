@@ -3,6 +3,7 @@ import { getWebSocketClient } from '@/lib/websocket';
 import { useSupervisorStore, type Escalation, type ProgressState, type ZenStructured } from '@/stores/supervisorStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
 import { useFreshnessStore } from '@/stores/freshnessStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 
 /**
  * useStatusSync — the single owner of status refresh
@@ -101,6 +102,7 @@ export function useStatusSync(serverIds: string[]) {
           };
           if (typeof m.project !== 'string' || typeof m.session !== 'string') break;
           if (typeof m.progressState !== 'string') break;
+          useSubscriptionStore.getState().ensureSubscribed(`local:${m.project}:${m.session}`, { serverId: 'local', project: m.project, session: m.session });
           useSupervisorStore.getState().ingestSessionSummary({
             project: m.project,
             session: m.session,
