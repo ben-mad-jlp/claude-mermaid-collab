@@ -1,61 +1,17 @@
-import { readFile } from 'node:fs/promises';
 import type { WebSocketHandler } from '../websocket/handler.ts';
 import { ideState } from '../services/ide-state.ts';
 import { tmuxBaseName } from '../services/tmux-naming.js';
 import { getSupervisedLaunchProject } from '../services/supervisor-store.ts';
-import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { launchAndBind } from '../services/claude-launch.ts';
-import { mux, argvNewSession, argvLs } from '../services/session-mux/index.ts';
-import { capturePaneText } from '../services/tmux-capture.ts';
+import { mux, argvNewSession } from '../services/session-mux/index.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
 
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
 export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSocketHandler): Promise<Response | null> {
   if (url.pathname === '/api/ide/status' && req.method === 'GET') {
     return Response.json(ideState.getStatus());
-  }
-
-  if (url.pathname === '/api/ide/focus-terminal' && req.method === 'POST') {
-    try {
-      const { claudeSessionId } = await req.json() as { claudeSessionId?: string };
-      if (!claudeSessionId || !UUID_RE.test(claudeSessionId)) {
-        return jsonError('claudeSessionId must be a valid UUID', 400);
-      }
-
-      const bindingPath = `/tmp/.mermaid-collab-binding-${claudeSessionId}.json`;
-      let bindingRaw: string;
-      try {
-        bindingRaw = await readFile(bindingPath, 'utf-8');
-      } catch (err: any) {
-        if (err?.code === 'ENOENT') return jsonError('Session not registered or binding missing', 404);
-        return jsonError(`Failed to read binding: ${err?.message || String(err)}`, 500);
-      }
-
-      let binding: { claudePid?: string | number; project?: string; session?: string };
-      try {
-        binding = JSON.parse(bindingRaw);
-      } catch {
-        return jsonError('Corrupt binding file', 500);
-      }
-
-      if (!binding.claudePid) return jsonError('claudePid not available for this session', 404);
-
-      wsHandler.broadcastToChannel('ide', {
-        type: 'ide_focus_terminal',
-        claudePid: Number(binding.claudePid),
-        claudeSessionId,
-        project: binding.project ?? '',
-        session: binding.session ?? '',
-      });
-
-      return Response.json({ success: true });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
   }
 
   if (url.pathname === '/api/ide/create-terminal' && req.method === 'POST') {
@@ -114,73 +70,6 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
     }
   }
 
-  if (url.pathname === '/api/ide/tmux-send-keys' && req.method === 'POST') {
-    try {
-      const { project, session, text, submit, quiet } = await req.json() as { project?: string; session?: string; text?: string; submit?: boolean; quiet?: boolean };
-      if (!project || typeof project !== 'string') {
-        return jsonError('project is required', 400);
-      }
-      if (!session || typeof session !== 'string') {
-        return jsonError('session is required', 400);
-      }
-      if (!text || typeof text !== 'string') {
-        return jsonError('text is required', 400);
-      }
-      // Default true → existing callers (supervisor nudge) byte-identical; a
-      // compose-stage quick-reply chip passes submit:false to type without Enter.
-      const doSubmit = submit !== false;
-      const result = await sendTmuxKeys(project, session, text, { submit: doSubmit });
-      if (result.reason === 'no-session') return jsonError('tmux session not found', 404);
-      // This route is the nudge-delivery endpoint (the supervisor's remote
-      // nudge peerFetches it). Broadcast so a user watching THIS server sees a
-      // toast for nudges that land here, mirroring the local-nudge broadcast in
-      // the supervisor_nudge MCP handler. A compose-stage (submit:false) is not
-      // a nudge — it stages text for the user to edit — so don't broadcast it.
-      // `quiet` suppresses the toast for USER-originated sends (the terminal
-      // composer + quick-reply chips): a person typing into their own session is
-      // not a supervisor nudge. Real supervisor/remote nudges omit `quiet`.
-      if (doSubmit && !quiet) {
-        wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
-      }
-      return Response.json({ success: true, tmux: result.sent });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
-  if (url.pathname === '/api/ide/tmux-send-selection' && req.method === 'POST') {
-    try {
-      const { project, session, numbers } = await req.json() as { project?: string; session?: string; numbers?: unknown };
-      if (!project || typeof project !== 'string') return jsonError('project is required', 400);
-      if (!session || typeof session !== 'string') return jsonError('session is required', 400);
-      if (!Array.isArray(numbers) || !numbers.every((n) => typeof n === 'number')) {
-        return jsonError('numbers must be an array of option numbers', 400);
-      }
-      // Drive a Claude Code multi-select prompt: toggle the chosen options then submit.
-      const result = await sendTmuxSelection(project, session, numbers as number[]);
-      if (result.reason === 'no-session') return jsonError('tmux session not found', 404);
-      if (result.reason === 'bad-selection') return jsonError('invalid selection (expected 1..9)', 400);
-      if (result.sent) {
-        wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text: `selected: ${(numbers as number[]).join(', ')}`, sent: true });
-      }
-      return Response.json({ success: true, tmux: result.sent });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
-  if (url.pathname === '/api/ide/capture-pane' && req.method === 'POST') {
-    try {
-      const { project, session } = await req.json() as { project?: string; session?: string };
-      if (!project || typeof project !== 'string') return jsonError('project is required', 400);
-      if (!session || typeof session !== 'string') return jsonError('session is required', 400);
-      const lines = await capturePaneText(project, session);
-      return Response.json({ lines });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
   if (url.pathname === '/api/ide/open-diff' && req.method === 'POST') {
     const timeoutPromise = new Promise<Response>(resolve =>
       setTimeout(() => resolve(Response.json({ error: 'IDE request timed out' }, { status: 504 })), 3000)
@@ -204,18 +93,6 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       }
     })();
     return Promise.race([handlerPromise, timeoutPromise]);
-  }
-
-  if (url.pathname === '/api/ide/tmux-sessions' && req.method === 'GET') {
-    try {
-      const proc = Bun.spawn(mux.cmd(argvLs('#{session_name}')), { stdout: 'pipe', stderr: 'ignore' });
-      const stdout = await new Response(proc.stdout).text();
-      await proc.exited;
-      const sessions = stdout.trim().split('\n').filter(Boolean);
-      return Response.json({ sessions });
-    } catch {
-      return Response.json({ sessions: [] });
-    }
   }
 
   if (url.pathname === '/api/ide/launch-session' && req.method === 'POST') {
