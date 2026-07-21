@@ -24,7 +24,6 @@
 import { getStatuses, type SessionStatusRow, type ClaudeStatus } from './session-status-store.js';
 import { listTodos, type Todo } from './todo-store.js';
 import * as supervisorStore from './supervisor-store.js';
-import { listPool } from './worker-pool.js';
 
 export type Liveness = 'active' | 'idle' | 'crashed';
 
@@ -95,8 +94,6 @@ export interface RuntimeSources {
   supervisorSession: string | null;
   /** Sessions in this project with an open escalation. */
   escalatedSessions: Set<string>;
-  /** session → slot tmux (from the in-memory worker pool). */
-  slotTmuxBySession: Map<string, string>;
   now: number;
 }
 
@@ -133,7 +130,7 @@ export function buildSessionRuntime(
     claimedTodoId: claim?.id ?? null,
     claimedAt: claim?.claimedAt ?? null,
     retryCount: claim?.retryCount ?? 0,
-    slotTmux: src.slotTmuxBySession.get(status.session) ?? null,
+    slotTmux: null,
     idleSince: status.status === 'active' ? null : status.updatedAt,
     escalated: src.escalatedSessions.has(status.session),
     liveness,
@@ -156,12 +153,7 @@ function readSources(project: string, now: number): RuntimeSources {
   const escalatedSessions = new Set(
     supervisorStore.listOpenEscalations().filter((e) => e.project === project).map((e) => e.session),
   );
-  const slotTmuxBySession = new Map<string, string>();
-  for (const slot of listPool()) {
-    // Registry is partitioned by project; only this project's slots are relevant.
-    if (slot.project === project && slot.tmux) slotTmuxBySession.set(slot.sessionName, slot.tmux);
-  }
-  return { statuses, inProgressTodos, supervisorSession, escalatedSessions, slotTmuxBySession, now };
+  return { statuses, inProgressTodos, supervisorSession, escalatedSessions, now };
 }
 
 /** Unified runtime for every session known to a project's session-status store. */

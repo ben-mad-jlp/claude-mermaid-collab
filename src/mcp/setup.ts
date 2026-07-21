@@ -2591,7 +2591,6 @@ export async function setupMCPServer(): Promise<Server> {
               slot: s.slot,
               status: s.status,
               todoId: s.currentTodoId ?? null,
-              tmux: s.tmux ?? null,
             }));
 
             // recentSpawns: the durable spawn audit trail, most-recent-first.

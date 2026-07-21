@@ -29,7 +29,6 @@ function sources(over: Partial<RuntimeSources> = {}): RuntimeSources {
     inProgressTodos: [],
     supervisorSession: null,
     escalatedSessions: new Set(),
-    slotTmuxBySession: new Map(),
     now: NOW,
     ...over,
   };
@@ -83,7 +82,6 @@ describe('buildSessionRuntime — the join', () => {
         ],
         supervisorSession: 'backend-2',
         escalatedSessions: new Set(['backend-2']),
-        slotTmuxBySession: new Map([['backend-2', 'tmux-backend-2']]),
       }),
     );
     expect(rt).toEqual({
@@ -99,7 +97,7 @@ describe('buildSessionRuntime — the join', () => {
       claimedTodoId: 'todo-1',
       claimedAt: '2026-06-05T00:00:00Z',
       retryCount: 2,
-      slotTmux: 'tmux-backend-2',
+      slotTmux: null,
       idleSince: null,
       escalated: true,
       liveness: 'active',
