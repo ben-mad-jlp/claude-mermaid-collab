@@ -13,6 +13,8 @@ import {
   buildNodePrompt,
   buildReviewPrompt,
   buildBlueprintRefreshPrompt,
+  buildCriteriaRepairPrompt,
+  buildBlueprintRepairPrompt,
   parseSizeManifest,
   leafExecutionMode,
   parseVerifyGate,
@@ -28,6 +30,7 @@ import {
   NODE_PROFILE,
   ESCALATION_MODEL,
   IMPLEMENT_TIMEOUT_MS,
+  BLUEPRINT_TIMEOUT_MS,
   makeCitationExists,
   escalateImplementModel,
   isNonFalsifiableReviewDoubt,
@@ -401,10 +404,11 @@ describe('buildNodePrompt per-node specs', () => {
     expect(impl.cwd).toBe('/tmp/wt/1');
     expect(rev.cwd).toBe('/tmp/wt/1');
     // implement gets the long wall-clock cap (Haiku pins routinely exceed the 600s
-    // invoker default); blueprint/review keep the default (undefined → 600s), so
-    // start-window stall detection latency is unchanged for them.
+    // invoker default); blueprint gets its own distinct (smaller) cap — large removal
+    // leaves were observed GROUNDING past the 600s default before ever reaching the
+    // citability gate; review keeps the default (undefined → 600s).
     expect(impl.timeoutMs).toBe(IMPLEMENT_TIMEOUT_MS);
-    expect(bp.timeoutMs).toBeUndefined();
+    expect(bp.timeoutMs).toBe(BLUEPRINT_TIMEOUT_MS);
     expect(rev.timeoutMs).toBeUndefined();
     // review prompt asks for the VERDICT contract
     expect(buildNodePrompt('review', makeLeaf())).toContain('VERDICT: PASS');
@@ -417,6 +421,44 @@ describe('buildNodePrompt per-node specs', () => {
     expect(bp).toContain('BUILD SUCCEEDED');
     // no absence / non-goal criteria (existing guidance, asserted for completeness)
     expect(bp).toMatch(/NEVER write an absence or non-goal as an acceptance criterion/);
+  });
+
+  it('blueprint prompt carries the DELETION/REMOVAL citable-absence exception', () => {
+    const bp = buildNodePrompt('blueprint', makeLeaf());
+    expect(bp).toContain('DELETION/REMOVAL criteria');
+    expect(bp).toMatch(/SURVIVING-STATE citation/);
+    expect(bp).toMatch(/MECHANICAL zero-match gate/);
+    expect(bp).toMatch(/grep-count/); // diff-contract v2 structural-absence form
+    expect(bp).toMatch(/REJECTED/); // bare prose absence stays rejected (fail-closed)
+  });
+
+  it('blueprint conciseness rules ban enumerating every deletion site', () => {
+    const bp = buildNodePrompt('blueprint', makeLeaf());
+    expect(bp).toMatch(/do NOT enumerate every deleted symbol or line/);
+    expect(bp).toMatch(/zero-match gates/);
+  });
+
+  it('blueprint node gets its own distinct wall-clock cap, smaller than implement\'s', () => {
+    expect(BLUEPRINT_TIMEOUT_MS).toBeGreaterThan(600_000); // above the invoker default
+    expect(BLUEPRINT_TIMEOUT_MS).toBeLessThan(IMPLEMENT_TIMEOUT_MS);
+    expect(NODE_PROFILE.blueprint.timeoutMs).toBe(BLUEPRINT_TIMEOUT_MS);
+  });
+
+  it('criteria-repair prompt carves out the DELETION/REMOVAL exception instead of a flat absence ban', () => {
+    const citability = {
+      verdicts: [],
+      offenders: [{ text: 'ptyManager import removed', kind: 'absence', reason: 'criterion asserts an absence, which is uncitable' }],
+      reasons: ['criterion "ptyManager import removed": criterion asserts an absence, which is uncitable'],
+    };
+    const repair = buildCriteriaRepairPrompt(makeLeaf(), 'prior blueprint text', citability);
+    expect(repair).toContain('UNLESS it takes one of the three citable DELETION/REMOVAL forms');
+    expect(repair).toContain('DELETION/REMOVAL criteria');
+    expect(repair).toMatch(/MECHANICAL zero-match gate/);
+  });
+
+  it('blueprint-repair (underspecified contract) prompt also carries the deletion-criteria rules', () => {
+    const repair = buildBlueprintRepairPrompt(makeLeaf(), 'prior blueprint text', 'symbol-present');
+    expect(repair).toContain('DELETION/REMOVAL criteria');
   });
 
   it('blueprint prompt caps length and forbids no-signal verbosity (cost lever)', () => {
@@ -432,6 +474,7 @@ describe('buildNodePrompt per-node specs', () => {
     const refresh = buildBlueprintRefreshPrompt(makeLeaf(), 'inherited plan text', ['a.ts']);
     expect(refresh).toContain('LENGTH BUDGET');
     expect(refresh).toMatch(/quote or restate existing code\/file contents/);
+    expect(refresh).toContain('DELETION/REMOVAL criteria');
   });
 });
 

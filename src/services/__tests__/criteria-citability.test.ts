@@ -399,6 +399,34 @@ test('uncitedCriteriaAreAllCommandResults: true for the acquitted verification s
   expect(uncitedCriteriaAreAllCommandResults(criteria, [])).toBe(true);
 });
 
+test('classifyCriterion: ACQUITS the exact wall example — grep -rn pattern+scope, "no matches"', () => {
+  // The literal shape observed live on parked removal leaves: name the pattern AND the scope.
+  const v = classifyCriterion(
+    "the sole import of ptyManager is removed — grep -rn 'ptyManager' src/ returns no matches",
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: a vague removal absence with NO pattern+scope STAYS rejected (fail-closed)', () => {
+  // "ZenMode.tsx deleted" / "server.ts no longer defines X" with no runnable check attached.
+  const v1 = classifyCriterion('ZenMode.tsx is deleted, no longer referenced anywhere', []);
+  expect(v1.citable).toBe(false);
+  expect(v1.kind).toBe('absence');
+
+  const v2 = classifyCriterion('session-summary-loop.ts no longer defines runSessionSummaryTick', []);
+  expect(v2.citable).toBe(false);
+  expect(v2.kind).toBe('absence');
+});
+
+test('uncitedCriteriaAreAllCommandResults: defers the exact wall example to command-evidence', () => {
+  const criteria = [
+    cr("the sole import of ptyManager is removed — grep -rn 'ptyManager' src/ returns no matches"),
+  ];
+  expect(uncitedCriteriaAreAllCommandResults(criteria, [])).toBe(true);
+});
+
 test('classifyCriterion: bare "No regression in the auth flow" STAYS uncitable absence', () => {
   const v = classifyCriterion('No regression in the auth flow', []);
   expect(v.citable).toBe(false);

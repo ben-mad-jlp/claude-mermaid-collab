@@ -754,12 +754,21 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
  *  START WINDOW still kills a zero-output node at 600s (see node-invoker START_WINDOW_MS). */
 export const IMPLEMENT_TIMEOUT_MS = 1_800_000;
 
+/** Wall-clock cap for the blueprint node. Distinct from (and smaller than)
+ *  {@link IMPLEMENT_TIMEOUT_MS} — blueprint does not edit code, but a large REMOVAL leaf's
+ *  blueprint node was observed GROUNDING (enumerating every site to delete) past the
+ *  invoker's 600s default before it ever reaches the citability gate, parking correct work
+ *  as a start-window/timeout failure rather than a real rejection. 900s gives it room without
+ *  matching implement's 1800s (blueprint still writes no code — a runaway blueprint should
+ *  fail faster than a runaway build). */
+export const BLUEPRINT_TIMEOUT_MS = 900_000;
+
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel; timeoutMs?: number }> = {
   // Demoted opus→sonnet (2026-07-21): blueprint was the #1 cost center ($368/wk, more than
   // implement) with no measured reliability gain over sonnet at 'high' effort. A project that
   // wants opus back can set a per-(project,kind) override (resolveNodeModel in node-provider.ts).
   // Effort stays 'high' — reasoning depth, not model tier, is what blueprint needs most.
-  blueprint: { model: 'sonnet', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
+  blueprint: { model: 'sonnet', allowedTools: 'Read Write Grep Glob Bash', effort: 'high', timeoutMs: BLUEPRINT_TIMEOUT_MS },
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS },
   review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // P5 waves:
@@ -859,6 +868,37 @@ const BLUEPRINT_CONCISENESS_RULES_LINES: readonly string[] = [
   'competent implementer who can already read the code: WHAT to build, WHERE (file:line',
   'touchpoints), the acceptance criteria, and any risk/invariant NOT obvious from the code —',
   'nothing else.',
+  'REMOVAL/DELETION leaves specifically: do NOT enumerate every deleted symbol or line — that is',
+  'exactly the verbosity this budget bans, and it is what times out a large removal blueprint before',
+  'it ever reaches acceptance criteria. Instead name: the modules/entry points to remove, the',
+  'surviving references that must be updated to stop pointing at them, and the zero-match gates (see',
+  'the DELETION/REMOVAL criteria rules) that prove the removal is complete.',
+];
+
+/** Deletion/removal leaves assert an ABSENCE — but bare prose ("X no longer exists", "Y is
+ *  untouched") is uncitable and is rejected by BOTH the blueprint-time citability gate
+ *  (criteria-citability.ts's classifyCriterion, Rule 3 convictOnAbsence) and the terminal G3
+ *  review-grounding gate (review-citations.ts's validateReviewGrounding — "cites nothing").
+ *  Both gates ALREADY carry a narrow, fail-closed exception for a WELL-FORMED MECHANICAL
+ *  absence (classifyCriterion's Rule 1.5 namesVerificationCommand; the review-side deferral is
+ *  uncitedCriteriaAreAllCommandResults) — the command-evidence gate (node-commands.ts) verifies
+ *  it against the command actually RECORDED at the spawn boundary, never trusted from prose. This
+ *  block tells the blueprint author how to land inside that exception instead of outside it.
+ *  Shared VERBATIM by the same four blueprint-authoring prompts as
+ *  BLUEPRINT_CONCISENESS_RULES_LINES. */
+const BLUEPRINT_DELETION_CRITERIA_RULES_LINES: readonly string[] = [
+  'DELETION/REMOVAL criteria — a criterion asserting an absence MUST take one of these three',
+  'citable forms, or it stays rejected exactly like any other bare prose absence:',
+  '  (a) SURVIVING-STATE citation: cite the positive fact about what remains, not what is gone —',
+  '      "App.tsx:42 renders OpsScreen; the sole remaining reference to ptyManager is server.ts:10".',
+  '  (b) MECHANICAL zero-match gate: name the EXACT pattern AND scope as a command a reviewer can',
+  '      run, plus the asserted result — e.g. "`grep -rn \'ptyManager\' src/` returns no matches" or',
+  '      "`grep -c ZenMode ui/src/App.tsx` returns 0". State it as a named check, not a claim.',
+  '  (c) diff-contract v2 (diff-contract.ts) structural absence: a ThresholdRequirement with',
+  '      source "grep-count", comparison "eq", value 0 — the typed, mechanically-decided form —',
+  '      when this leaf authors a v2 contract.',
+  'A bare absence with no exact pattern+scope ("X no longer defines Y", "Z is gone") is REJECTED —',
+  'this is a narrow exception to the no-absence rule above, not a loophole for vague prose.',
 ];
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
@@ -925,6 +965,9 @@ export function buildNodePrompt(
         'changes", "X untouched/unchanged", "Y not modified") — a negative cannot be cited and will',
         'strand the leaf at review. When the spec constrains scope with a "do not touch X", record it as',
         'a NON-GOALS note in the prose, kept OUT of the acceptance-criteria list — not as a criterion.',
+        '',
+        ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
+        '',
         'Every acceptance criterion MUST be a STRUCTURAL fact about the diff — a concrete symbol',
         '(function, type, enum, field, string) that a reviewer can point a `file:line` at. A criterion',
         'MUST NOT assert a build, command, or gate RESULT (e.g. "xcodebuild BUILD SUCCEEDED", "tsc',
@@ -1042,6 +1085,8 @@ export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, f
     '',
     ...BLUEPRINT_CONCISENESS_RULES_LINES,
     '',
+    ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
+    '',
     'Emit `splitDecision.split: false` unless your slice genuinely decomposes further — you are',
     'already a split child.',
     '',
@@ -1082,11 +1127,13 @@ export function buildCriteriaRepairPrompt(
     '',
     "Every acceptance criterion in a blueprint must be satisfiable by a `file:line` citation inside the diff this leaf produces.",
     "These three criterion types are NEVER citable in principle:",
-    "1. A command's result: a criterion that invokes a build/test (bun run, npm test, npx vitest, tsc, make, etc.) or asserts its outcome (tests pass, suite green, build clean, etc.).",
-    "2. An absence: a criterion that asserts a negative about code (no file touched, no field added, not changed, etc.).",
+    "1. A command's result: a criterion that invokes a build/test (bun run, npm test, npx vitest, tsc, make, etc.) or asserts its outcome (tests pass, suite green, build clean, etc.) — UNLESS it names a runnable read-only verification command (grep/rg/tsc/vitest/bun test) WITH a real argument AND an asserted checkable result token ('returns 0', 'no matches', ...); that shape is verified against the command actually recorded, not trusted from prose.",
+    "2. An absence: a criterion that asserts a negative about code (no file touched, no field added, not changed, etc.) — UNLESS it takes one of the three citable DELETION/REMOVAL forms below.",
     "3. A location outside your diff: a citation to a file:line you do not modify.",
     '',
-    "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass or an absence true.",
+    ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
+    '',
+    "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass, or — if it is a genuine absence — as one of the three citable forms above.",
     MANIFEST_GLOB_RULE_LINE,
     "Then read the relevant code, and produce your corrected blueprint and WRITE it to `" +
       bp +
@@ -1136,6 +1183,8 @@ export function buildBlueprintRepairPrompt(
     ...MANIFEST_JSON_SCHEMA_LINES,
     '',
     ...BLUEPRINT_CONCISENESS_RULES_LINES,
+    '',
+    ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
     '',
     'ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.',
   ].join('\n');
