@@ -456,7 +456,7 @@ describe('completeTodo merge-back conflict (DEFECT 2+3)', () => {
     // Register the pool slot so we can prove teardown removes it.
     const slot = getOrCreateSlot(repo, 'backend');
     expect(slot).toBeDefined();
-    markBusy(repo, SESSION, TODO_ID, `tmux-${SESSION}`);
+    markBusy(repo, SESSION, TODO_ID);
     expect(listPool().some((s) => s.project === repo && s.sessionName === SESSION)).toBe(true);
 
     completeSessionName = SESSION;
