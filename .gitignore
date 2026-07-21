@@ -70,3 +70,6 @@ Thumbs.db
 *.db-wal
 **/.collab/*.db-shm
 **/.collab/*.db-wal
+
+# Stray mis-rooted .collab artifacts (a process ran with cwd=proj/)
+/proj/
