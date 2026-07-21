@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useSessionStore } from '@/stores/sessionStore';
 
 /**
  * Feeds claude_session_* events forwarded by the main-process WatchAggregator
@@ -19,6 +20,8 @@ export function useWatchEvents() {
       if (!serverId) return;
       switch (type) {
         case 'claude_session_registered':
+          useSubscriptionStore.getState().ensureSubscribed(`${serverId}:${project}:${session}`, { serverId, project, session, status: 'active' });
+          useSessionStore.getState().upsertSession({ project, name: session, serverId });
           useSubscriptionStore.getState().updateStatus(serverId, claudeSessionId!, 'active', project, session, claudePid);
           break;
         case 'claude_session_status':

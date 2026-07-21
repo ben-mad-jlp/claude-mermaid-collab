@@ -94,6 +94,7 @@ export interface SessionState {
 
   // Sessions actions
   setSessions: (sessions: Session[]) => void;
+  upsertSession: (session: Session) => void;
 
   // Session actions
   setCurrentSession: (session: Session | null) => void;
@@ -226,6 +227,18 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   // Sessions list management
   setSessions: (sessions: Session[]) => set({ sessions }),
+
+  upsertSession: (session: Session) => {
+    const { sessions } = get();
+    const idx = sessions.findIndex((s) => s.project === session.project && s.name === session.name);
+    if (idx >= 0) {
+      const next = sessions.slice();
+      next[idx] = { ...sessions[idx], ...session };
+      set({ sessions: next });
+    } else {
+      set({ sessions: [...sessions, session] });
+    }
+  },
 
   // Session management
   setCurrentSession: (session: Session | null) => {

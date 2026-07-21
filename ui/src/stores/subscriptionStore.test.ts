@@ -60,3 +60,28 @@ describe('subscriptionStore.migrateLegacyEntries — local self-heal', () => {
     expect(subs[`${REAL}:/p:design`].status).toBe('active');
   });
 });
+
+describe('subscriptionStore.ensureSubscribed', () => {
+  beforeEach(() => useSubscriptionStore.setState({ subscriptions: {}, order: [] }));
+
+  it('creates a single entry on an empty store', () => {
+    useSubscriptionStore.getState().ensureSubscribed('srv1:/p:s1', { serverId: 'srv1', project: '/p', session: 's1', status: 'active' });
+    const subs = useSubscriptionStore.getState().subscriptions;
+    const order = useSubscriptionStore.getState().order;
+    expect(Object.keys(subs)).toEqual(['srv1:/p:s1']);
+    expect(order).toEqual(['srv1:/p:s1']);
+    expect(subs['srv1:/p:s1']).toEqual({ serverId: 'srv1', project: '/p', session: 's1', status: 'active', lastUpdate: expect.any(Number) });
+  });
+
+  it('is idempotent — a second call with the same args is a no-op', () => {
+    useSubscriptionStore.getState().ensureSubscribed('srv1:/p:s1', { serverId: 'srv1', project: '/p', session: 's1', status: 'active' });
+    const firstEntry = useSubscriptionStore.getState().subscriptions['srv1:/p:s1'];
+    useSubscriptionStore.getState().updateStatus('srv1', 'cs1', 'waiting', '/p', 's1');
+    const mutatedEntry = useSubscriptionStore.getState().subscriptions['srv1:/p:s1'];
+    expect(mutatedEntry.status).toBe('waiting');
+    useSubscriptionStore.getState().ensureSubscribed('srv1:/p:s1', { serverId: 'srv1', project: '/p', session: 's1', status: 'active' });
+    const afterSecondEnsure = useSubscriptionStore.getState().subscriptions['srv1:/p:s1'];
+    expect(Object.keys(useSubscriptionStore.getState().subscriptions)).toEqual(['srv1:/p:s1']);
+    expect(afterSecondEnsure.status).toBe('waiting');
+  });
+});

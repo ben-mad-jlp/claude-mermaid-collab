@@ -34,6 +34,7 @@ interface SubscriptionState {
   subscriptions: Record<string, SubscribedSession>;
   order: string[];
   subscribe: (serverId: string, project: string, session: string, opts?: SubscribeOpts) => void;
+  ensureSubscribed: (key: string, opts: { serverId: string; project: string; session: string; status?: SubscribedSession['status']; lastUpdate?: number }) => void;
   unsubscribe: (key: string) => void;
   reorder: (order: string[]) => void;
   updateStatus: (serverId: string, claudeSessionId: string, status: string, project: string, session: string, claudePid?: number) => void;
@@ -119,6 +120,26 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
         },
       };
       const nextOrder = state.order.includes(key) ? state.order : [...state.order, key];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));
+      return { subscriptions: next, order: nextOrder };
+    });
+  },
+
+  ensureSubscribed: (key, opts) => {
+    set((state) => {
+      if (state.subscriptions[key]) return state;
+      const next = {
+        ...state.subscriptions,
+        [key]: {
+          serverId: opts.serverId,
+          project: opts.project,
+          session: opts.session,
+          status: (opts.status ?? 'unknown') as const,
+          lastUpdate: opts.lastUpdate ?? Date.now(),
+        },
+      };
+      const nextOrder = [...state.order, key];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));
       return { subscriptions: next, order: nextOrder };
