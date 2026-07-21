@@ -160,6 +160,8 @@ const STATUS_BAR_BG: Record<string, string> = {
 
 /** Map the Zen session status → the ClaudePix animation pool (active dances, etc.). */
 function toPixStatus(status: string): string {
+  if (status === 'permission') return 'permission';
+  if (status === 'waiting') return 'waiting';
   if (status === 'working' || status === 'active') return 'active';
   if (status === 'needs-input') return 'permission';
   if (status === 'has-question') return 'waiting';
@@ -551,7 +553,8 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // Suppress a question we JUST answered while the summary still echoes the same text
   // (the re-summary can beat the session's reaction). Grace window, then it lapses so a
   // genuinely-new (or genuinely-repeated) question still surfaces.
-  const answeredSuppressed = !!answered && questionText === answered.q && (now - answered.at) < 60_000;
+  // Exception: don't suppress if we're showing the optimistic "Sent" confirmation.
+  const answeredSuppressed = !!answered && questionText === answered.q && (now - answered.at) < 60_000 && action?.kind !== 'sent';
   const hasQuestion = rawHasQuestion && !answeredSuppressed;
   const hasOpenQuestion = rawHasOpenQuestion && !answeredSuppressed;
   // Multi-select pane question (Claude Code AskUserQuestion multiSelect): accumulate
