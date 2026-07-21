@@ -18,7 +18,6 @@ import {
   expireSubscriptionsForTarget,
 } from './session-subscriptions';
 import { snapshotTodos, diffTodos, planNotifications, type SnapshotMap } from './session-notification-router';
-import { nudgeSession } from './claude-launch';
 import { fireStamp } from './nudge-stamp';
 
 /** Don't re-nudge a session more often than this (coalesces a burst into one wake). */
@@ -91,7 +90,7 @@ export async function runNotificationTick(
   deps: NotificationTickDeps = {},
 ): Promise<{ enqueued: number; nudged: string[] }> {
   const load = deps.loadTodos ?? ((p) => listTodos(p, { includeCompleted: true }));
-  const nudge = deps.nudge ?? nudgeSession;
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
   const now = deps.now ?? Date.now;
 
   const subs = listAllSubscriptions().filter((s) => s.project === project);
