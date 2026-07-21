@@ -547,15 +547,45 @@ export function displayTitle(t: { kind?: TodoKind | null; title?: string | null;
  *  (split becomes a proposal with a safe default). This change only restores the *ability*
  *  to decline; it does not make the decline survive the next tick.
  */
-function hasOpenChildren(project: string, todoId: string): boolean {
-  return listTodos(project, { includeCompleted: true })
-    .some((t) => t.parentId === todoId && t.status !== 'dropped' && t.status !== 'done');
+/** Groups todos by parentId so hasOpenChildren is an O(1)-ish Map lookup instead of a
+ *  full-table scan. Build ONCE per tick/scan (O(n)) from a `listTodos(includeCompleted:
+ *  true)` snapshot and thread the same index through every isHeadlessLeaf/
+ *  headlessExclusionReason call in that scan — each of those used to call listTodos
+ *  internally (via hasOpenChildren), so a per-todo loop over N candidates cost O(N)
+ *  FULL-TABLE reads (O(n^2) SQLite reads per tick). Exported so tests (and any other
+ *  caller with a todos array already in hand, e.g. a fixture list) can build one directly
+ *  instead of hand-rolling the grouping. */
+export function buildChildrenIndex(todos: Todo[]): Map<string, Todo[]> {
+  const idx = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (!t.parentId) continue;
+    const arr = idx.get(t.parentId);
+    if (arr) arr.push(t);
+    else idx.set(t.parentId, [t]);
+  }
+  return idx;
+}
+
+/** Containerhood is about OPEN work: a child that is `done` or `dropped` no longer makes its
+ *  parent a container. Without the `dropped` clause, the documented way to DECLINE a split
+ *  (drop the children) bricked the parent forever — `not-headless: has-children`, unclaimable,
+ *  with no path back to being a leaf (observed 2026-07-08).
+ *
+ *  Mirrors planCoordinatorTick's `openChildParents` guard (coordinator-core.ts) — same rule,
+ *  same two terminal statuses. Uses includeCompleted:true + an explicit filter rather than
+ *  leaning on listTodos' implicit `status != 'done'`, so the rule is readable in one place. */
+function hasOpenChildren(childrenIndex: Map<string, Todo[]>, todoId: string): boolean {
+  const children = childrenIndex.get(todoId);
+  if (!children) return false;
+  return children.some((t) => t.status !== 'dropped' && t.status !== 'done');
 }
 
 /** A leaf the headless executor may drive: a work todo with NO children (a leaf in
  *  the work-graph) that is not human-owned. Keeps gates/epics/missions/human todos out
- *  of the executor (those go the legacy path). `project` is the tracking project. */
-export function isHeadlessLeaf(todo: Todo, project: string): boolean {
+ *  of the executor (those go the legacy path). `childrenIndex` is a per-tick snapshot
+ *  from buildChildrenIndex — build it ONCE per scan, not once per todo (see that
+ *  function's doc for why). */
+export function isHeadlessLeaf(todo: Todo, childrenIndex: Map<string, Todo[]>): boolean {
   if (todo.assigneeKind === 'human') return false;
   if (isEpic(todo) || isMission(todo)) return false;
   // Dead-letter kind: no production path mints 'land' anymore, but a legacy row
@@ -569,7 +599,7 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   // shape (leafExecutionMode → runReviewPipeline) whose deliverable IS a committed report, so
   // it survives the re-verify exactly like the 'verify' shape. Reviewer leaves are now headless.
   // Leaf = no OPEN child todos parented to it in the tracking work-graph.
-  return !hasOpenChildren(project, todo.id);
+  return !hasOpenChildren(childrenIndex, todo.id);
 }
 
 /** P7 Phase-2 coverage probe: WHY is `todo` not a headless leaf? Returns the
@@ -577,14 +607,15 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
  *  when it IS headless. Used only to LOG tmux-fallback claims while the executor is
  *  default-on, so we can prove — before deleting the tmux lane — that every claim
  *  that still falls through is an EXPECTED non-work exclusion (human/epic/mission/gate/
- *  reviewer/parent) and never a genuine work leaf that would strand. Pure/read-only. */
-export function headlessExclusionReason(todo: Todo, project: string): string | null {
+ *  reviewer/parent) and never a genuine work leaf that would strand. Pure/read-only.
+ *  `childrenIndex` — see isHeadlessLeaf: one per-tick snapshot, not one per todo. */
+export function headlessExclusionReason(todo: Todo, childrenIndex: Map<string, Todo[]>): string | null {
   if (todo.assigneeKind === 'human') return 'human';
   if (isEpic(todo) || isMission(todo)) return 'epic-or-mission';
   if (isLand(todo)) return 'land';
   if (kindOf(todo) === 'gate') return 'gate';
   // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
-  if (hasOpenChildren(project, todo.id)) return 'has-children';
+  if (hasOpenChildren(childrenIndex, todo.id)) return 'has-children';
   return null;
 }
 
@@ -1039,7 +1070,12 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   const level = getOrchestratorLevel(project);
   const ready = listReadyTodos(project);
   const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: displayTitle(t), reason }));
-  const blockedSplits = findBlockedSplits(listTodos(project, { includeCompleted: true }));
+  // One full-table snapshot for the whole diagnostic pass: findBlockedSplits needs it,
+  // and the childrenIndex built from it is threaded into isHeadlessLeaf/
+  // headlessExclusionReason below instead of each re-querying per candidate.
+  const allTodosSnapshot = listTodos(project, { includeCompleted: true });
+  const childrenIndex = buildChildrenIndex(allTodosSnapshot);
+  const blockedSplits = findBlockedSplits(allTodosSnapshot);
   const pendingSplitProposals = listOpenSplitProposals(project);
   const blocked = blockedSplits.length > 0 || pendingSplitProposals.length > 0;
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
@@ -1052,10 +1088,10 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   const probeOk = ids(afterProbe);
   const afterBp1 = await bp1FilterStrandedFoundations(project, afterProbe);
   const bp1Ok = ids(afterBp1);
-  const afterHeadless = afterBp1.filter((t) => isHeadlessLeaf(t, project));
+  const afterHeadless = afterBp1.filter((t) => isHeadlessLeaf(t, childrenIndex));
   const headlessOk = ids(afterHeadless);
   const suppressed = classifyClaimSuppression(
-    ready.map((t) => ({ id: t.id, title: displayTitle(t), claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, project) })),
+    ready.map((t) => ({ id: t.id, title: displayTitle(t), claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, childrenIndex) })),
     probeOk, bp1Ok, headlessOk,
   );
   // The breaker gate applies AFTER the per-leaf filters in claimGuard, suppressing the
@@ -2413,7 +2449,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // would otherwise be claimed → launchWorker rejects (excl: epic-or-mission/gate) → released every tick —
       // pure churn, and a livelock when any release fires a kick. Pre-filter so it's NEVER
       // claimed. (Defense-in-depth with dropping the releaseClaim capacity-kick.)
-      claimable = claimable.filter((t) => isHeadlessLeaf(t, project));
+      // ONE full-table snapshot for this tick's filter (only when there's still something to
+      // filter) — isHeadlessLeaf used to call listTodos per candidate here, so this loop alone
+      // was an O(n) full-table reads per tick (O(n^2) across n ticks' worth of candidates).
+      if (claimable.length > 0) {
+        const childrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
+        claimable = claimable.filter((t) => isHeadlessLeaf(t, childrenIndex));
+      }
       // P3 headless circuit-breaker: while the per-process cap window is open, hold ALL headless
       // leaves out too (the only thing left after the filter) — claim nothing this window.
       if (breakerOpen()) return [];
@@ -2742,7 +2784,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // above (so the executor lane still shows in the fleet with a real sessionName).
       // On any auth-halt or hard error we release + escalate rather than silently
       // dropping the todo.
-      if (isHeadlessLeaf(todo, project)) {
+      // One snapshot for this single dispatch — shared by isHeadlessLeaf below and by
+      // headlessExclusionReason further down (mutually exclusive branches of the same
+      // check), so this call site still costs exactly one listTodos per launch, not two.
+      const launchChildrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
+      if (isHeadlessLeaf(todo, launchChildrenIndex)) {
         // P3 breaker gate: if the cap window is still open, do NOT spawn. Release the
         // claim so the todo returns to `ready` (the claimGuard filter normally holds
         // it out, but a todo claimed before the breaker tripped this tick can still
@@ -2858,7 +2904,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // claim and escalate a blocker rather than silently dropping it. (No tmux lane remains
       // to fall back to; the LEAF_EXECUTOR escape hatch is retired with it.)
       try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-      const exclReason = headlessExclusionReason(todo, project) ?? 'unknown';
+      const exclReason = headlessExclusionReason(todo, launchChildrenIndex) ?? 'unknown';
       try {
         createEscalation({
           project,
@@ -2883,6 +2929,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // we `continue`. We only reclaim a todo whose lease backstop applies AND whose
       // session/tmux is actually gone (hard-dead worker), then free its pool slot so
       // the slot isn't wedged busy on a vanished session.
+      // ONE full-table snapshot for this whole sweep — isHeadlessLeaf below used to call
+      // listTodos(includeCompleted:true) itself on EVERY iteration of this in_progress
+      // loop (O(n) full-table reads per sweep). Children of an in_progress todo need not
+      // themselves be in_progress, so this must be its own includeCompleted:true query,
+      // not the in_progress-only list being iterated.
+      const reapChildrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
       for (const t of listTodos(project, { status: 'in_progress' })) {
         if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
         // DUP-DISPATCH FIX (claim-lost churn root, audit c11df7d3): a headless leaf-exec
@@ -2896,7 +2948,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // each with a real staleness/epoch test rather than a volatile liveness bit:
         // prior-epoch reap (restart), pulse-reap (stale pulse), grace-fallback (null/aged
         // pulse), and the lease. So exclude headless leaves from this non-durable path.
-        if (isHeadlessLeaf(t, project)) continue;
+        if (isHeadlessLeaf(t, reapChildrenIndex)) continue;
         // Identity is the persisted pool lane. No sessionName → the todo was never
         // spawned under a lane (or its persist raced); treat as dead and reclaim,
         // rather than fabricating a `worker-<id8>` name that points at no real tmux.

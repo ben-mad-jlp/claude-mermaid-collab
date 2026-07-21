@@ -23,10 +23,13 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async () => null,
 }));
 
-import { isHeadlessLeaf, headlessExclusionReason } from '../coordinator-live';
+import { isHeadlessLeaf, headlessExclusionReason, buildChildrenIndex } from '../coordinator-live';
 import type { Todo } from '../todo-store';
 
-const PROJECT = '/tmp/mc-land-excl-project';
+// No fixture in this file ever registers a child todo, so an empty snapshot (no
+// parentId lookups match) is equivalent to the real per-tick index built from a full
+// listTodos(includeCompleted:true) scan — see coordinator-live.ts buildChildrenIndex.
+const PROJECT = buildChildrenIndex([]);
 
 const leaf = (over: Partial<Todo>): Todo =>
   ({

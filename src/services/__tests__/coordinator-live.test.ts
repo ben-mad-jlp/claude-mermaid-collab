@@ -34,6 +34,10 @@ let reclaimOrphanResult: 'ready' | 'blocked' | null = null;
 // module-wide (no real DB in this file), so those tests point this at fixture rows
 // instead of touching todo-store's real listTodos.
 let mockListTodosImpl: (project: string, opts: any) => any[] = () => [];
+// O(n^2)-claim-path regression guard: counts every listTodos call the mock sees so a
+// test can assert the claim scan makes a BOUNDED number of full-table reads regardless
+// of candidate-set size (see the 'claimGuard — bounded listTodos calls' describe below).
+let listTodosCallCount = 0;
 mock.module('../todo-store', () => ({
   listReadyTodos: () => [],
   claimTodo: async () => null,
@@ -42,13 +46,13 @@ mock.module('../todo-store', () => ({
   updateTodo: async (_project: string, id: string, patch: any) => { updateTodoCalls.push({ id, patch }); return { id, ...patch }; },
   resetTodo: async (_project: string, id: string, status: string) => { resetTodoCalls.push({ id, status }); return { id, status }; },
   getTodo: () => null,
-  listTodos: (project: string, opts: any) => mockListTodosImpl(project, opts),
+  listTodos: (project: string, opts: any) => { listTodosCallCount++; return mockListTodosImpl(project, opts); },
   reclaimClaim: async () => 'ready',
   releaseClaim: async () => {},
   reclaimOrphan: async (_project: string, id: string) => { reclaimOrphanCalls.push(id); return reclaimOrphanResult; },
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle, strandedEpicCandidates } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, buildChildrenIndex, displayTitle, strandedEpicCandidates } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised, listSupervisorAudit } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -71,31 +75,69 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-coord-live-s
 // tmuxBaseName slugs (and name assertions) are unchanged.
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
 
+// isHeadlessLeaf/headlessExclusionReason now take a per-tick childrenIndex (Map<parentId,
+// Todo[]>) built ONCE via buildChildrenIndex, not a `project` string — they no longer
+// query the store themselves (fixing the O(n^2) full-table-scan-per-todo claim path).
+// None of the fixtures below register a child, so an empty index is the correct snapshot.
+const NO_CHILDREN = buildChildrenIndex([]);
+
 describe('isHeadlessLeaf — non-code leaf exclusion', () => {
   const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', kind: 'leaf', ...(over as any) }) as Todo;
   it('ADMITS reviewer-type leaves (epic d8ac1a18: they run the review execution shape, no longer stranded)', () => {
-    expect(isHeadlessLeaf(base({ type: 'reviewer', id: 'reviewer-no-children' }), TEST_ROOT)).toBe(true);
+    expect(isHeadlessLeaf(base({ type: 'reviewer', id: 'reviewer-no-children' }), NO_CHILDREN)).toBe(true);
   });
   it('excludes human-owned, epic-kind, mission-kind, and [GATE] leaves', () => {
     // role now comes from `kind`, not the title; the stage-C strip removed the prefix
-    expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ kind: 'epic', title: 'Bugfix inbox' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ kind: 'mission', title: 'Converge X' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ kind: 'gate', title: 'x' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), NO_CHILDREN)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'epic', title: 'Bugfix inbox' }), NO_CHILDREN)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'mission', title: 'Converge X' }), NO_CHILDREN)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'gate', title: 'x' }), NO_CHILDREN)).toBe(false);
     // topic tag ≠ role prefix: a bare-titled leaf that merely starts with a bracket is claimable
-    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[UI] Plan list refresh' }), TEST_ROOT)).toBe(true);
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[UI] Plan list refresh' }), NO_CHILDREN)).toBe(true);
   });
   it('admits an ordinary agent code leaf', () => {
-    expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
+    expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), NO_CHILDREN)).toBe(true);
   });
   it('EXCLUDES land leaves even when agent-assigned (an agent must never build a merge)', () => {
-    expect(isHeadlessLeaf(base({ kind: 'land', title: 'merge epic to master', assigneeKind: 'agent' }), TEST_ROOT)).toBe(
+    expect(isHeadlessLeaf(base({ kind: 'land', title: 'merge epic to master', assigneeKind: 'agent' }), NO_CHILDREN)).toBe(
       false,
     );
     // The exclusion keys off `kind`: a bare-titled land node is still excluded, and a
     // plain leaf whose title merely mentions landing is still admitted.
-    expect(isHeadlessLeaf(base({ kind: 'land', title: 'no bracket in sight' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ kind: 'leaf', title: 'fix the landing page copy' }), TEST_ROOT)).toBe(true);
+    expect(isHeadlessLeaf(base({ kind: 'land', title: 'no bracket in sight' }), NO_CHILDREN)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: 'fix the landing page copy' }), NO_CHILDREN)).toBe(true);
+  });
+});
+
+describe('claimGuard — bounded listTodos calls (O(n^2) claim-scan regression guard)', () => {
+  afterEach(() => { mockListTodosImpl = () => []; });
+
+  it('makes a CONSTANT number of listTodos calls regardless of candidate-set size', async () => {
+    // Before the fix, isHeadlessLeaf called listTodos(includeCompleted:true) itself on
+    // EVERY candidate inside claimGuard's filter — N candidates cost N full-table reads.
+    // Now the filter builds ONE childrenIndex snapshot per invocation, so the call count
+    // must stay flat as N grows (bp1FilterStrandedFoundations adds exactly one more).
+    const many = (n: number): Todo[] => Array.from({ length: n }, (_, i) => ({
+      id: `cand-${i}`, kind: 'leaf', type: 'backend', title: `[UI] leaf ${i}`,
+      assigneeKind: 'agent', status: 'ready',
+    } as unknown as Todo));
+
+    mockListTodosImpl = () => []; // no children, no stranded foundations
+    const deps = makeCoordinatorDeps();
+
+    listTodosCallCount = 0;
+    await deps.claimGuard!(TEST_ROOT, many(5));
+    const callsFor5 = listTodosCallCount;
+
+    listTodosCallCount = 0;
+    await deps.claimGuard!(TEST_ROOT, many(200));
+    const callsFor200 = listTodosCallCount;
+
+    expect(callsFor5).toBeGreaterThan(0);
+    // Bounded: a fixed small number of scans per invocation, independent of N. An O(n)
+    // per-candidate regression would make callsFor200 track N (200), not stay flat.
+    expect(callsFor200).toBe(callsFor5);
+    expect(callsFor200).toBeLessThanOrEqual(3);
   });
 });
 
@@ -128,26 +170,23 @@ describe('displayTitle', () => {
 describe('isHeadlessLeaf / headlessExclusionReason — terminal children', () => {
   const parent = { id: 'parent-1', kind: 'leaf', title: 'leaf', assigneeKind: 'agent', type: 'backend' } as Todo;
   const childBase = { id: 'child-1', kind: 'leaf' as const, parentId: 'parent-1', title: 'child', assigneeKind: 'agent', type: 'backend' };
-  afterEach(() => {
-    mockListTodosImpl = () => [];
-  });
 
   it('a dropped-only child does not make the parent a container', () => {
-    mockListTodosImpl = () => [{ ...childBase, status: 'dropped' }];
-    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(true);
-    expect(headlessExclusionReason(parent, TEST_ROOT)).toBeNull();
+    const idx = buildChildrenIndex([{ ...childBase, status: 'dropped' } as Todo]);
+    expect(isHeadlessLeaf(parent, idx)).toBe(true);
+    expect(headlessExclusionReason(parent, idx)).toBeNull();
   });
 
   it('a done-only child does not make the parent a container (regression pin)', () => {
-    mockListTodosImpl = () => [{ ...childBase, status: 'done' }];
-    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(true);
-    expect(headlessExclusionReason(parent, TEST_ROOT)).toBeNull();
+    const idx = buildChildrenIndex([{ ...childBase, status: 'done' } as Todo]);
+    expect(isHeadlessLeaf(parent, idx)).toBe(true);
+    expect(headlessExclusionReason(parent, idx)).toBeNull();
   });
 
   it('a planned (open) child makes the parent a container', () => {
-    mockListTodosImpl = () => [{ ...childBase, status: 'planned' }];
-    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(false);
-    expect(headlessExclusionReason(parent, TEST_ROOT)).toBe('has-children');
+    const idx = buildChildrenIndex([{ ...childBase, status: 'planned' } as Todo]);
+    expect(isHeadlessLeaf(parent, idx)).toBe(false);
+    expect(headlessExclusionReason(parent, idx)).toBe('has-children');
   });
 });
 
