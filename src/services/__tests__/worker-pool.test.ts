@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   POOL_TYPES,
   POOL_CONFIG,
@@ -13,10 +13,12 @@ import {
   markIdle,
   listPool,
   resetPool,
+  removeSlot,
   reapDeadSlots,
   poolConfigForSize,
   type PoolSlot,
 } from '../worker-pool';
+import { reserveLeafSlot, totalWorkersActive, _resetLeafSlots } from '../inflight-limiter';
 
 // Single-slot config: pins capacity tests to budget=1 so they exercise the
 // at-capacity gate independent of the (now 3) default slots-per-type.
@@ -242,5 +244,66 @@ describe('reapDeadSlots (889e3e26 — slot release decoupled from todo status)',
     expect(freed).toEqual(['backend-claude-1']); // logical name reported
     expect(slotOf(A, 'backend-claude-1')!.status).toBe('idle'); // A freed
     expect(slotOf(B, 'backend-claude-1')!.status).toBe('busy'); // B untouched
+  });
+});
+
+describe('machine-wide total-worker cap wiring (capacity-fixes FIX 2)', () => {
+  beforeEach(() => {
+    resetPool();
+    _resetLeafSlots();
+    process.env.MERMAID_MAX_WORKERS_TOTAL = '3';
+  });
+  afterEach(() => {
+    delete process.env.MERMAID_MAX_WORKERS_TOTAL;
+    resetPool();
+    _resetLeafSlots();
+  });
+
+  it('counts newly-created pool slots into the shared total-worker count', () => {
+    expect(totalWorkersActive()).toBe(0);
+    getOrCreateSlot(P, 'frontend', 'claude', CFG1);
+    expect(totalWorkersActive()).toBe(1);
+  });
+
+  it('refuses to create a new pool slot once the combined cap (pool + headless) is hit', () => {
+    // 2 headless leaves reserved elsewhere in the machine…
+    expect(reserveLeafSlot('/proj/other-a')).toBe(true);
+    expect(reserveLeafSlot('/proj/other-b')).toBe(true);
+    expect(totalWorkersActive()).toBe(2);
+
+    // …leaves room for exactly one more pool slot before the cap (3) is hit.
+    const cfg3 = poolConfigForSize(3);
+    const first = getOrCreateSlot(P, 'frontend', 'claude', cfg3);
+    expect(first).toBeDefined();
+    expect(totalWorkersActive()).toBe(3);
+
+    // A second NEW slot (different type, so budget/idle-reuse isn't the blocker) is
+    // refused — fail-closed at the machine-wide ceiling.
+    const second = getOrCreateSlot(P, 'backend', 'claude', cfg3);
+    expect(second).toBeUndefined();
+  });
+
+  it('reusing an existing idle slot does not consume additional total-worker headroom', () => {
+    const cfg3 = poolConfigForSize(3);
+    getOrCreateSlot(P, 'frontend', 'claude', cfg3); // 1 pool slot
+    expect(reserveLeafSlot('/proj/other-a')).toBe(true);
+    expect(reserveLeafSlot('/proj/other-b')).toBe(true); // total = 3 = cap
+    // Reusing the existing idle frontend slot must succeed even at the cap — it
+    // isn't a NEW worker.
+    const reused = getOrCreateSlot(P, 'frontend', 'claude', cfg3);
+    expect(reused).toBeDefined();
+    expect(totalWorkersActive()).toBe(3);
+  });
+
+  it('removeSlot frees total-worker headroom for a subsequent creation', () => {
+    const cfg3 = poolConfigForSize(3);
+    getOrCreateSlot(P, 'frontend', 'claude', cfg3);
+    expect(reserveLeafSlot('/proj/other-a')).toBe(true);
+    expect(reserveLeafSlot('/proj/other-b')).toBe(true);
+    expect(getOrCreateSlot(P, 'backend', 'claude', cfg3)).toBeUndefined(); // at cap
+
+    removeSlot(P, 'frontend-claude-1');
+    expect(totalWorkersActive()).toBe(2);
+    expect(getOrCreateSlot(P, 'backend', 'claude', cfg3)).toBeDefined(); // headroom freed
   });
 });

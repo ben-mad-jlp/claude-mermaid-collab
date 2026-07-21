@@ -9,7 +9,7 @@ import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, g
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint, listLeafInflight } from './worker-ledger';
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
@@ -26,7 +26,7 @@ import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
-import { reserveLeafSlot, releaseLeafSlot } from './inflight-limiter';
+import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
@@ -3002,6 +3002,27 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // them (aborted/errored). isRunLive (run-level liveness) keeps a genuinely-running
       // leaf's row even between its nodes, where the per-node subprocess registry is empty.
       reapSameEpochOrphanInflight(isRunLive);
+
+      // capacity-fixes FIX 1: snap the inflight-limiter's in-process counters
+      // (globalActive/perProject) to observed truth. By this point BOTH reaps above have
+      // run, so every remaining leaf_inflight row is guaranteed current-epoch AND
+      // run-live — a durable, restart-surviving signal (preferred here over the in-memory
+      // leaf-subprocess-registry alone, which resets exactly like the counters being
+      // reconciled). This is global, not project-scoped (leaf_inflight spans every
+      // project), so it's harmless to recompute on every project's tick — idempotent,
+      // same cost class as the two reaps it rides alongside.
+      const liveInflight = listLeafInflight();
+      const perProjectLive: Record<string, number> = {};
+      for (const row of liveInflight) perProjectLive[row.project] = (perProjectLive[row.project] ?? 0) + 1;
+      const inflightRecon = reconcileInflight({ global: liveInflight.length, perProject: perProjectLive });
+      if (inflightRecon.corrected) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: '',
+          detail: JSON.stringify({ source: 'inflight-limiter-reconcile', before: inflightRecon.before, after: inflightRecon.after }),
+        });
+      }
 
       // E1 (epic e5acda93): stop a leaf whose todo was DROPPED or HELD while a node is
       // live — kill its subprocess group within a tick. (level→off kills immediately via

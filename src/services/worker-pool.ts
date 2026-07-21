@@ -19,6 +19,7 @@ import {
 } from '../config/agent-profiles';
 import type { ProviderId } from '../agent/worker-agent';
 import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
+import { hasWorkerHeadroom, reportPoolSlotCount } from './inflight-limiter';
 
 /**
  * The set of valid routing `type` values (canonical vocabulary: the todo routing
@@ -62,8 +63,11 @@ export type PoolConfig = Record<PoolType, number>;
 export const DEFAULT_SLOTS_PER_TYPE = 3;
 
 /** Hard upper clamp on the per-project pool size — each slot is a full agent
- *  process and there is no machine-wide total-worker cap, so a typo must not be
- *  able to spawn an unbounded fleet. */
+ *  process, so a typo must not be able to spawn an unbounded fleet. This is a
+ *  per-project-per-type clamp only; the machine-wide ceiling across ALL pool slots
+ *  AND headless in-flight leaves combined is `hasWorkerHeadroom`/`maxWorkersTotal`
+ *  in inflight-limiter.ts (capacity-fixes FIX 2), enforced at slot-creation time in
+ *  `getOrCreateSlot` below. */
 export const MAX_POOL_SIZE = 16;
 
 /** Clamp an arbitrary pool-size number to [1, MAX_POOL_SIZE]; non-finite → 1. */
@@ -207,6 +211,7 @@ function regKey(project: string, sessionName: string): string {
 /** Reset the registry. Test-only helper; harmless in prod. */
 export function resetPool(): void {
   registry.clear();
+  reportPoolSlotCount(0);
 }
 
 /**
@@ -228,13 +233,19 @@ export function getOrCreateSlot(
   // Prefer an existing idle slot of this (type, provider) IN THIS PROJECT.
   const idle = findIdleSlotForType(project, type, provider);
   if (idle) return idle;
-  // No idle slot — create the next one if this project's budget allows.
+  // No idle slot — create the next one if this project's budget allows AND the
+  // machine-wide total-worker cap (headless leaves + pool slots combined) has
+  // headroom. Fail-closed: same style as the budget-exhausted `undefined` return
+  // below — a new slot is a new full agent process, so refuse rather than spawn past
+  // the ceiling.
   for (let slot = 1; slot <= budget; slot++) {
     const name = poolSessionName(type, provider, slot);
     const key = regKey(project, name);
     if (!registry.has(key)) {
+      if (!hasWorkerHeadroom()) return undefined;
       const created: PoolSlot = { project, type, provider, slot, status: 'idle' };
       registry.set(key, created);
+      reportPoolSlotCount(registry.size);
       return created;
     }
   }
@@ -315,7 +326,9 @@ export function markIdle(project: string, sessionName: string): PoolSlot | undef
  *  true if a slot was removed. No-op (false) for the non-isolation keep-warm path,
  *  which calls markIdle instead. */
 export function removeSlot(project: string, sessionName: string): boolean {
-  return registry.delete(regKey(project, sessionName));
+  const removed = registry.delete(regKey(project, sessionName));
+  if (removed) reportPoolSlotCount(registry.size);
+  return removed;
 }
 
 /** Free every busy slot whose backing tmux session is dead. Decouples slot
