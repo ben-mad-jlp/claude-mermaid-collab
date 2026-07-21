@@ -19,7 +19,6 @@
 import type { MissionStatus, MissionSummary } from './mission-store.ts';
 import { listMissions, stampMissionNudge, isMissionTerminal } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
-import { nudgeSession } from './claude-launch.ts';
 import { fireStamp } from './nudge-stamp.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
@@ -218,7 +217,7 @@ export interface MissionLoopResult {
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
   const list = deps.list ?? listMissions;
   const isIdle = deps.isIdle ?? ((p: string, s: string) => getStatus(p, s)?.status === 'waiting');
-  const nudge = deps.nudge ?? nudgeSession;
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
   const stampNudge = deps.stampNudge ?? stampMissionNudge;
   const now = deps.now ?? Date.now();
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;

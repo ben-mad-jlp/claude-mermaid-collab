@@ -16,7 +16,6 @@ import {
   recordSupervisorAudit,
   type ContextRecycleMode,
 } from './supervisor-store';
-import { nudgeSession } from './claude-launch';
 import { fireStamp } from './nudge-stamp';
 
 /**
@@ -133,7 +132,7 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
   if (isPaused()) return;
 
   const now = deps.now ?? Date.now();
-  const nudge = deps.nudge ?? nudgeSession;
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
   const rows = (deps.getStatuses ?? getStatuses)(project);
   const threshold = (deps.getThreshold ?? getWatchdogThreshold)(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent;
   const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: threshold };
