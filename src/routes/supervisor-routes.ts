@@ -34,11 +34,13 @@ import {
   setConductorTargetMission,
   getConductorLastPass,
 } from '../services/supervisor-store.ts';
+import { verifyEpic } from '../services/verify-epic.ts';
+import { TOKEN_BURN_KIND } from '../services/burn-watch.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { projectRegistry } from '../services/project-registry.ts';
-import { listTodos, updateTodo, getTodo, removeTodo } from '../services/todo-store.ts';
+import { listTodos, updateTodo, getTodo, removeTodo, resetTodo, overrideAcceptTodo, deriveTodoViews } from '../services/todo-store.ts';
 import { isInboxEpic } from '../services/claimability.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
@@ -845,6 +847,79 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
       }
+    }
+  }
+
+  // POST /api/supervisor/escalations/resolve-todo — reset_todo + linked escalation resolve
+  if (url.pathname === '/api/supervisor/escalations/resolve-todo' && req.method === 'POST') {
+    try {
+      const { project, todoId, status, targetProject, escalationId } = (await req.json()) as {
+        project?: string; todoId?: string; status?: string; targetProject?: string; escalationId?: string;
+      };
+      if (!project || !todoId) return jsonError('project and todoId are required', 400);
+      const result = await resetTodo(project, todoId, (status as import('../services/todo-store.ts').TodoStatus) ?? 'ready', targetProject);
+      if (escalationId) {
+        resolveEscalation(escalationId, 'resolved', 'human');
+      }
+      getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+      return Response.json(deriveTodoViews(project, [result])[0]);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/escalations/resolve-override — override_accept_todo wrapper
+  if (url.pathname === '/api/supervisor/escalations/resolve-override' && req.method === 'POST') {
+    try {
+      const { project, todoId, completedBy, escalationId } = (await req.json()) as {
+        project?: string; todoId?: string; completedBy?: string; escalationId?: string;
+      };
+      if (!project || !todoId) return jsonError('project and todoId are required', 400);
+      const result = await overrideAcceptTodo(project, todoId, completedBy ?? 'operator');
+      if (escalationId) {
+        resolveEscalation(escalationId, 'resolved', 'human');
+      }
+      getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+      return Response.json({ ...result, completed: deriveTodoViews(project, [result.completed])[0] });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/escalations/resolve-verify — verify_epic wrapper
+  if (url.pathname === '/api/supervisor/escalations/resolve-verify' && req.method === 'POST') {
+    try {
+      const { project, epicId, base } = (await req.json()) as {
+        project?: string; epicId?: string; base?: string;
+      };
+      if (!project || !epicId) return jsonError('project and epicId are required', 400);
+      const resolved = getTodo(project, epicId);
+      const resolvedEpicId = resolved?.id ?? epicId;
+      const result = await verifyEpic(project, resolvedEpicId, { base });
+      // verifyEpic is a pure read/compute (runs suites, no mutation) — no WS broadcast needed.
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/escalations/resolve-burn — token-burn cap ack
+  if (url.pathname === '/api/supervisor/escalations/resolve-burn' && req.method === 'POST') {
+    try {
+      const { id } = (await req.json()) as { id?: string };
+      if (!id) return jsonError('id is required', 400);
+      const esc = getEscalation(id);
+      if (!esc) return jsonError(`escalation not found: ${id}`, 404);
+      if (esc.kind !== TOKEN_BURN_KIND) return jsonError(`escalation is not token-burn: ${esc.kind}`, 400);
+      resolveEscalation(id, 'resolved', 'human');
+      getWebSocketHandler()?.broadcast({
+        type: 'escalation_created',
+        project: esc.project, session: esc.session, kind: esc.kind, id,
+        routedTo: esc.routedTo ?? 'human', escalation: getEscalation(id),
+      });
+      return Response.json({ ok: true });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
   }
 
