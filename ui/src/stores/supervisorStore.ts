@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SessionTodo } from '@/types/sessionTodo';
+import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { kindOf } from '@/lib/todoKind';
 
 /**
@@ -52,6 +52,24 @@ export interface DeployStatus {
   stale: boolean;
   canDeploy: boolean;
   deployBlockedReason: string | null;
+}
+
+export interface VerifyEpicSummary {
+  project: string;
+  epicId: string;
+  base: string;
+  passed: boolean;
+  suites: Array<{
+    suite: string;
+    command: string;
+    ran: boolean;
+    branchFailing: string[];
+    baseFailing: string[];
+    newFailures: string[];
+    subsetHolds: boolean;
+    reason?: string;
+  }>;
+  reason?: string;
 }
 
 /** A collab/epic/* branch carrying commits not yet landed on master (accepted
@@ -615,6 +633,16 @@ interface SupervisorState {
   deploySelf: (serverId: string, project: string, force?: boolean) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string; inflightLeaves?: string[] }>;
   /** Read the deploy-drift status for the banner (live version, staleness, gate). */
   fetchDeployStatus: (serverId: string, project: string) => Promise<DeployStatus | null>;
+  resetTodo: (
+    serverId: string, project: string, todoId: string, status?: TodoStatus,
+    opts?: { targetProject?: string; escalationId?: string },
+  ) => Promise<SessionTodo | null>;
+  overrideAcceptTodo: (
+    serverId: string, project: string, todoId: string, completedBy?: string,
+    opts?: { escalationId?: string },
+  ) => Promise<{ ok: boolean; completed: SessionTodo | null }>;
+  verifyEpic: (serverId: string, project: string, epicId: string, base?: string) => Promise<VerifyEpicSummary | null>;
+  resolveBudgetCap: (serverId: string, id: string) => Promise<boolean>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   /** Answer a Claude Code multi-select question: toggle the chosen 1-based option numbers then submit. */
   answerPaneMulti: (serverId: string, project: string, session: string, numbers: number[]) => Promise<boolean>;
@@ -1175,6 +1203,41 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const res = await invoke(serverId, `/api/supervisor/deploy-status?project=${encodeURIComponent(project)}`, 'GET');
     if (!res?.ok || !res.body) return null;
     return res.body as DeployStatus;
+  },
+
+  resetTodo: async (serverId, project, todoId, status, opts) => {
+    const res = await invoke(serverId, '/api/supervisor/escalations/resolve-todo', 'POST', {
+      project, todoId, status: status ?? 'ready', targetProject: opts?.targetProject, escalationId: opts?.escalationId,
+    });
+    if (!res?.ok) return null;
+    if (opts?.escalationId) {
+      set((state) => moveOpenToResolved(state, opts.escalationId!, { status: 'resolved', resolvedAt: Date.now() }));
+    }
+    return (res.body as SessionTodo) ?? null;
+  },
+
+  overrideAcceptTodo: async (serverId, project, todoId, completedBy, opts) => {
+    const res = await invoke(serverId, '/api/supervisor/escalations/resolve-override', 'POST', {
+      project, todoId, completedBy: completedBy ?? 'operator', escalationId: opts?.escalationId,
+    });
+    if (!res?.ok) return { ok: false, completed: null };
+    if (opts?.escalationId) {
+      set((state) => moveOpenToResolved(state, opts.escalationId!, { status: 'resolved', resolvedAt: Date.now() }));
+    }
+    return { ok: true, completed: (res.body?.completed as SessionTodo) ?? null };
+  },
+
+  verifyEpic: async (serverId, project, epicId, base) => {
+    const res = await invoke(serverId, '/api/supervisor/escalations/resolve-verify', 'POST', { project, epicId, base });
+    if (!res?.ok) return null;
+    return res.body as VerifyEpicSummary;
+  },
+
+  resolveBudgetCap: async (serverId, id) => {
+    const res = await invoke(serverId, '/api/supervisor/escalations/resolve-burn', 'POST', { id });
+    if (!res?.ok) return false;
+    set((state) => moveOpenToResolved(state, id, { status: 'resolved', resolvedAt: Date.now() }));
+    return true;
   },
 
   // ── SPEC API surface (design-system-object-ui §8) ─────────────────────────
