@@ -88,7 +88,6 @@ import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProje
 
 // Import supervisor view
 import { BridgeDashboard } from '@/components/supervisor/bridge/BridgeDashboard';
-import { ZenMode } from '@/components/supervisor/zen/ZenMode';
 import { OpsScreen } from '@/components/ops/OpsScreen';
 import { DiveLayoutGroup } from '@/components/stream/DiveTransition';
 
@@ -175,7 +174,6 @@ const App: React.FC = () => {
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
-  const opsOpen = useUIStore((s) => s.opsOpen);
   const browserVisible = useBrowserStore((s) => s.visible);
   const terminalOpen = useTerminalStore((s) => s.open);
   const paneOrder = useUIStore((s) => s.paneOrder);
@@ -1806,12 +1804,12 @@ const App: React.FC = () => {
     );
   }
 
-  // Zen mode takes over the ENTIRE window (redesign 2026-06-20) — no Header, no
-  // sidebar, no chat panel. Just the calm card scroll; its own button exits back.
+  // Zen mode takes over the ENTIRE window (redesign 2026-06-20) — full-window
+  // OpsScreen; no Header, no sidebar, no chat panel. The close button exits back.
   if (zenMode) {
     return (
       <ErrorBoundary>
-        <ZenMode />
+        <OpsScreen serverScope={activeServerId ?? 'local'} />
       </ErrorBoundary>
     );
   }
@@ -1861,13 +1859,11 @@ const App: React.FC = () => {
                   ? bridgeOpen
                   : p === 'spec'
                     ? specOpen
-                    : p === 'ops'
-                      ? opsOpen
-                      : p === 'browser'
-                        ? browserVisible
-                        : p === 'terminal'
-                          ? terminalOpen
-                          : viewerVisible && !!currentSession,
+                    : p === 'browser'
+                      ? browserVisible
+                      : p === 'terminal'
+                        ? terminalOpen
+                        : viewerVisible && !!currentSession,
               );
               if (open.length === 0) {
                 return (
@@ -1888,7 +1884,6 @@ const App: React.FC = () => {
                         {p === 'bridge' && <BridgeDashboard />}
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
                         {p === 'spec' && <SpecWorkspace />}
-                        {p === 'ops' && <OpsScreen serverScope={activeServerId ?? 'local'} />}
                         {p === 'browser' && <BrowserPanel embedded />}
                         {p === 'terminal' && <TerminalDrawer embedded />}
                       </Panel>
