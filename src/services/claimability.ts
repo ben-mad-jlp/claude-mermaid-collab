@@ -162,6 +162,43 @@ export function resolveDepId(depId: string, byId: Map<string, Todo>): Todo | und
   return match;
 }
 
+/** One `dependsOn` entry that `resolveDepId` could not resolve to a todo — either it
+ *  matches NOTHING (typo'd / deleted id) or it matches TWO OR MORE todos by short-id
+ *  prefix (`ambiguous: true`). Both shapes make `depSatisfied` report "not satisfied"
+ *  forever (claimability.ts:104-107), so the dependent parks `deps-pending` with no
+ *  human-visible signal of WHY — this is the surfacing primitive reconcile-pass.ts's
+ *  dangling-dependency sweep uses to raise (and later auto-close) an escalation. */
+export interface DanglingDep {
+  depId: string;
+  /** true = 2+ todos share this short-id prefix (ambiguous); false = 0 matches (missing). */
+  ambiguous: boolean;
+}
+
+/**
+ * The `dependsOn` entries on `t` that `resolveDepId` cannot resolve to a todo — pure,
+ * zero new I/O, reuses `resolveDepId` so the short-id / ambiguity semantics are BYTE-
+ * IDENTICAL to what `depSatisfied`/`claimReason` already apply (this does not change
+ * their behavior; it only explains, for a todo already stuck `deps-pending`, WHICH of
+ * its deps are the dangling ones and whether each is missing or ambiguous).
+ */
+export function danglingDeps(t: Pick<Todo, 'dependsOn'>, byId: Map<string, Todo>): DanglingDep[] {
+  const out: DanglingDep[] = [];
+  for (const depId of t.dependsOn ?? []) {
+    if (resolveDepId(depId, byId) !== undefined) continue; // resolves fine — not dangling
+    // resolveDepId already collapsed "0 matches" and "2+ matches" to the same
+    // undefined; re-scan here ONLY to classify which one it was, for the operator.
+    let matches = 0;
+    for (const cand of byId.values()) {
+      if (cand.id.startsWith(depId)) {
+        matches++;
+        if (matches > 1) break;
+      }
+    }
+    out.push({ depId, ambiguous: matches > 1 });
+  }
+  return out;
+}
+
 /**
  * The ONE eligibility predicate. Order is load-bearing: terminal/in-flight first (lifecycle),
  * then the decision gates (unapproved, held) which apply to BOTH agent and human todos, then

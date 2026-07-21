@@ -12,6 +12,7 @@ import {
   isInboxEpic,
   isInboxEpicTitle,
   parentIsInbox,
+  danglingDeps,
   INBOX_EPIC_TITLE,
 } from '../claimability';
 import type { ClaimReason } from '../claimability';
@@ -326,6 +327,54 @@ describe('dep-dropped (68b8bb09) — derived, never stored', () => {
   it('a dangling dep id is not a drop — it reports deps-pending', () => {
     const t = mk({ id: 'T', ...approved, dependsOn: ['GHOST'] });
     expect(claimReason(t, map(t))).toBe('deps-pending');
+  });
+});
+
+describe('danglingDeps — surfacing helper (reuses resolveDepId semantics exactly)', () => {
+  it('empty for a todo with no dependsOn', () => {
+    const t = mk({ id: 'A', dependsOn: [] });
+    expect(danglingDeps(t, map(t))).toEqual([]);
+  });
+
+  it('missing: a dep id that resolves to no todo at all', () => {
+    const t = mk({ id: 'A', dependsOn: ['ghost'] });
+    expect(danglingDeps(t, map(t))).toEqual([{ depId: 'ghost', ambiguous: false }]);
+  });
+
+  it('satisfied: a dep id that resolves to exactly one todo is NOT dangling', () => {
+    const dep = mk({ id: 'D', status: 'done', acceptanceStatus: 'accepted' });
+    const t = mk({ id: 'A', dependsOn: ['D'] });
+    expect(danglingDeps(t, map(dep, t))).toEqual([]);
+  });
+
+  it('short-id resolves: a leading-8-hex prefix that uniquely matches is NOT dangling', () => {
+    const dep = mk({ id: 'depIdFull1234567890', status: 'in_progress' });
+    const t = mk({ id: 'A', dependsOn: ['depIdFul'] });
+    expect(danglingDeps(t, map(dep, t))).toEqual([]);
+  });
+
+  it('ambiguous: a short-id prefix matching 2+ todos is dangling and flagged ambiguous', () => {
+    const dep1 = mk({ id: 'dupPrefix1111' });
+    const dep2 = mk({ id: 'dupPrefix2222' });
+    const t = mk({ id: 'A', dependsOn: ['dupPrefi'] });
+    expect(danglingDeps(t, map(dep1, dep2, t))).toEqual([{ depId: 'dupPrefi', ambiguous: true }]);
+  });
+
+  it('mixed: reports each dangling dep, in order, and leaves resolvable deps out', () => {
+    const dep = mk({ id: 'D', status: 'done', acceptanceStatus: 'accepted' });
+    const dupA = mk({ id: 'dupXaaaa' });
+    const dupB = mk({ id: 'dupXbbbb' });
+    const t = mk({ id: 'A', dependsOn: ['D', 'missingOne', 'dupX'] });
+    expect(danglingDeps(t, map(dep, dupA, dupB, t))).toEqual([
+      { depId: 'missingOne', ambiguous: false },
+      { depId: 'dupX', ambiguous: true },
+    ]);
+  });
+
+  it('a dropped dep is NOT dangling (it resolves fine; dep-dropped is a distinct claimReason)', () => {
+    const dep = mk({ id: 'D', status: 'dropped' });
+    const t = mk({ id: 'A', dependsOn: ['D'] });
+    expect(danglingDeps(t, map(dep, t))).toEqual([]);
   });
 });
 

@@ -28,15 +28,23 @@ import {
   listOpenEscalations,
   resolveEscalation,
   getEscalation,
+  createEscalation,
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
-import { getTodo, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
+import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
+import { claimReason, danglingDeps } from './claimability.ts';
 import { yieldToLoop } from './loop-yield.ts';
 import { promoteQueuedMissions } from './mission-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
+
+/** Escalation `kind` reserved for the dangling-dependency sweep (below), mirroring
+ *  `BP0_STRANDED_SUMMARY_KIND`'s pattern of a dedicated kind so the sweep's own
+ *  auto-close pass can find exactly its own cards without touching any other
+ *  escalation kind (e.g. the generic 'blocker'/'verified-done' ones step 4 handles). */
+export const DANGLING_DEPS_KIND = 'dangling-deps';
 
 // ---------------------------------------------------------------------------
 // Throttle (mission c4eb4fcc, Phase 3): keep the reconcile pass OFF the every-tick
@@ -301,6 +309,89 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] queued-mission promotion failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3i. DANGLING-DEPENDENCY SWEEP (surfacing half of claimability.ts's dangling-dep
+  // handling): `depSatisfied`/`claimReason` deliberately treat a `dependsOn` id that
+  // resolves to NOTHING (typo'd id, a since-deleted todo, or an ambiguous short-id
+  // prefix — see `resolveDepId`/`danglingDeps`, claimability.ts) as merely
+  // 'deps-pending' — safe, but silent: the dependent parks forever with no signal of
+  // WHY. This sweep is the surfacing half: for every non-terminal todo whose
+  // claimReason is 'deps-pending' AND which has at least one dangling dep, raise ONE
+  // human 'dangling-deps'-kind escalation naming the todo + the dangling id(s)
+  // (missing vs ambiguous — different fixes). Dedup is the same stable-questionText
+  // discipline used throughout coordinator-live.ts: createEscalation collapses repeat
+  // calls to ONE open card per (project,session,questionText) as long as the text is
+  // built ONLY from stable facts (no per-run token/count), so a still-dangling dep
+  // does not re-raise every ~150s tick. Auto-close mirrors step 4 below: once the dep
+  // resolves (edge fixed) OR the todo itself goes terminal, the card is moot.
+  // -------------------------------------------------------------------------
+  await yieldToLoop();
+  try {
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const byId = new Map(allTodos.map((t) => [t.id, t]));
+
+    for (const t of allTodos) {
+      if (t.status === 'done' || t.status === 'dropped') continue;
+      if (claimReason(t, byId) !== 'deps-pending') continue;
+      const dangling = danglingDeps(t, byId);
+      if (dangling.length === 0) continue;
+
+      const shortId = t.id.slice(0, 8);
+      const depList = dangling
+        .map((d) => `${d.depId} (${d.ambiguous ? 'ambiguous — matches 2+ todos by short-id prefix' : 'missing — no such todo'})`)
+        .join(', ');
+      createEscalation({
+        project,
+        session: 'coordinator',
+        kind: DANGLING_DEPS_KIND,
+        todoId: t.id,
+        questionText:
+          `Todo "${t.title ?? shortId}" (${shortId}) is parked deps-pending indefinitely: dependsOn references ` +
+          `${dangling.length} dangling id(s) that resolve to no todo: ${depList}. Fix: re-point or remove the bad ` +
+          `dependsOn id(s) (edit the todo's deps), or drop this todo if it's no longer needed.`,
+      });
+    }
+
+    // Auto-close: a 'dangling-deps' card whose todo has since gone terminal, or whose
+    // dependsOn no longer has ANY dangling id (the edge was fixed / the ambiguity
+    // resolved), is moot.
+    const openDangling = listOpenEscalations().filter((e) => e.project === project && e.kind === DANGLING_DEPS_KIND);
+    for (const esc of openDangling) {
+      try {
+        if (!esc.todoId) continue;
+        if (getEscalation(esc.id)?.status !== 'open') continue;
+        const todo = byId.get(esc.todoId) ?? getTodo(project, esc.todoId);
+        if (!todo) continue; // todo itself gone — leave for the stale sweep to age it out
+        const terminal = todo.status === 'done' || todo.status === 'dropped';
+        const stillDangling = !terminal && danglingDeps(todo, byId).length > 0;
+        if (terminal || !stillDangling) {
+          resolveEscalation(esc.id, 'resolved', 'ai');
+          recordSupervisorAudit({
+            kind: 'reconcile',
+            project,
+            session: 'coordinator',
+            detail: JSON.stringify({
+              source: 'reconcile-pass',
+              escalationId: esc.id,
+              todoId: esc.todoId,
+              reason: terminal ? 'todo-terminal' : 'dangling-dep-resolved',
+            }),
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[reconcile-pass] dangling-deps auto-close failed for ${esc.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] dangling-dependency sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
