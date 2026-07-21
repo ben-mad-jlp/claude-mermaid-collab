@@ -276,12 +276,12 @@ describe('runTick', () => {
     expect(escalated).toEqual(['dead']);
   });
 
-  test('reapDeadClaims merges into released/exhausted and escalates dead-exhausted', async () => {
+  test('reapDeadWorkers merges into released/exhausted and escalates dead-exhausted', async () => {
     const escalated: string[] = [];
     const deps = makeDeps({
       listReadyTodos: () => [],
       releaseExpiredClaims: async () => ({ released: ['lease-x'], exhausted: [] }),
-      reapDeadClaims: async () => ({ reclaimed: ['dead-ready'], exhausted: ['dead-blocked'] }),
+      reapDeadWorkers: async () => ({ reclaimed: ['dead-ready'], exhausted: ['dead-blocked'] }),
       escalateExhausted: async (_p, id) => { escalated.push(id); },
     });
     const result = await runTick(deps, 'proj');
@@ -370,12 +370,12 @@ describe('runTick — swallowed reaper errors are recorded, not silent', () => {
   test('multiple swallowed reaper errors in one tick are all captured, in order', async () => {
     const deps = makeDeps({
       listReadyTodos: () => [],
-      reapDeadClaims: async () => { throw new Error('reap-dead blew up'); },
+      reapDeadWorkers: async () => { throw new Error('reap-dead blew up'); },
       detectStalls: async () => { throw new Error('stall-detect blew up'); },
     });
     const result = await runTick(deps, 'proj');
     expect(result.tickErrors).toEqual([
-      { step: 'reapDeadClaims', error: 'reap-dead blew up' },
+      { step: 'reapDeadWorkers', error: 'reap-dead blew up' },
       { step: 'detectStalls', error: 'stall-detect blew up' },
     ]);
   });

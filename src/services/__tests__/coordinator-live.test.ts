@@ -235,7 +235,7 @@ describe('launchWorker — HARD RE-DISPATCH CAP (loop breaker)', () => {
   });
 });
 
-describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', () => {
+describe('reapDeadWorkers — dead-claims rule: dup-dispatch / claim-lost guard (audit c11df7d3)', () => {
   afterEach(() => { mockListTodosImpl = () => []; });
 
   it('does NOT reclaim a headless leaf (its liveness shield isRunLive is wiped on restart → would re-mint the claim audit-silently and dup-dispatch)', async () => {
@@ -248,8 +248,10 @@ describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', 
     } as unknown as Todo;
     mockListTodosImpl = (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]);
     const deps = makeCoordinatorDeps();
-    const res = await deps.reapDeadClaims!(TEST_ROOT);
-    // Excluded before any probe/reclaim → not reclaimed, not exhausted.
+    const res = await deps.reapDeadWorkers!(TEST_ROOT);
+    // Excluded before any probe/reclaim → not reclaimed, not exhausted (by ANY rule —
+    // the dead-claims rule excludes it via isHeadlessLeaf, and the fixture has no
+    // claim.epoch / durable pulse / aged updatedAt for the later rules to pick up).
     expect(res.reclaimed).not.toContain('headless-leaf-1');
     expect(res.exhausted).not.toContain('headless-leaf-1');
   });
@@ -262,7 +264,7 @@ describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', 
     } as unknown as Todo;
     mockListTodosImpl = () => [land];
     const deps = makeCoordinatorDeps();
-    const res = await deps.reapDeadClaims!(TEST_ROOT);
+    const res = await deps.reapDeadWorkers!(TEST_ROOT);
     // isHeadlessLeaf(land) === false → not skipped → dead-lane reclaim proceeds (mock → 'ready').
     expect(res.reclaimed).toContain('land-leaf-1');
   });
@@ -275,9 +277,12 @@ describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', 
     } as unknown as Todo;
     mockListTodosImpl = () => [land];
     const deps = makeCoordinatorDeps();
-    await deps.reapDeadClaims!(TEST_ROOT);
+    await deps.reapDeadWorkers!(TEST_ROOT);
     const rows = listSupervisorAudit({ project: TEST_ROOT, kind: 'reconcile', limit: 1000 });
     const row = rows.find((r) => {
+      // Audit source string is UNCHANGED by the reapDeadClaims→reapDeadWorkers
+      // unification (worker-liveness.ts's dead-claims rule still stamps
+      // reap:'reapDeadClaims' — only the dep NAME changed, not the trace label).
       try { const d = JSON.parse(r.detail ?? '{}'); return d.reap === 'reapDeadClaims' && d.todoId === 'land-leaf-audit'; }
       catch { return false; }
     });
@@ -288,7 +293,7 @@ describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', 
   });
 });
 
-describe('reapOrphanedLeaves — isRunLive guard on the same-epoch reclaim loops (mission b3ef537f crit 1)', () => {
+describe('reapDeadWorkers — grace rule: isRunLive guard on the same-epoch reclaim loops (mission b3ef537f crit 1)', () => {
   afterEach(() => {
     mockListTodosImpl = () => [];
     reclaimOrphanCalls.length = 0;
@@ -311,7 +316,7 @@ describe('reapOrphanedLeaves — isRunLive guard on the same-epoch reclaim loops
     markRunLive(leaf.id);
     try {
       const deps = makeCoordinatorDeps();
-      const res = await deps.reapOrphanedLeaves!(TEST_ROOT);
+      const res = await deps.reapDeadWorkers!(TEST_ROOT);
       expect(reclaimOrphanCalls).not.toContain(leaf.id); // never reached reclaimOrphan — claimToken unchanged
       expect(res.reclaimed).not.toContain(leaf.id);
       expect(res.exhausted).not.toContain(leaf.id);
@@ -326,7 +331,7 @@ describe('reapOrphanedLeaves — isRunLive guard on the same-epoch reclaim loops
     reclaimOrphanResult = 'ready';
     // isRunLive('dead-leaf-1') is false by construction — nothing ever called markRunLive for it.
     const deps = makeCoordinatorDeps();
-    const res = await deps.reapOrphanedLeaves!(TEST_ROOT);
+    const res = await deps.reapDeadWorkers!(TEST_ROOT);
     expect(reclaimOrphanCalls).toContain(leaf.id);
     expect(res.reclaimed).toContain(leaf.id);
   });

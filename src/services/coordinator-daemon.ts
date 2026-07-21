@@ -5,7 +5,14 @@ import { DEFAULT_LEASE_MS } from './harness-caps';
 /** The Coordinator daemon: a non-LLM, per-project loop that claims ready todos and
  *  spawns workers for them, and reclaims expired leases. All I/O is injected (DI) so
  *  the orchestration is unit-testable; the live wiring (real launchAndBind worker
- *  spawn, the tick scheduler, worker-completion + acceptance gate) is Phase 2c. */
+ *  spawn, the tick scheduler, worker-completion + acceptance gate) is Phase 2c.
+ *
+ *  Dead-worker detection (`reapDeadWorkers`) is a SINGLE ordered rule engine — see
+ *  src/services/worker-liveness.ts — not a bag of independent reapers. It is the
+ *  one surface to change when a liveness rule needs adjusting; `releaseExpiredClaims`
+ *  (lease bookkeeping, todo-store) and `reapDeadPoolSlots` (pool-slot resource
+ *  reconciliation, worker-pool) are deliberately separate concerns and stay here
+ *  unmerged. */
 
 export const COORDINATOR_ID = 'coordinator';
 
@@ -55,19 +62,19 @@ export interface CoordinatorDeps {
    *  past the 2h total-wait ceiling, escalate (blocker) + park BLOCKED and clear it
    *  from the breaker. Called once per tick. Optional. */
   sweepExhaustedHeadless?: (project: string) => Promise<void>;
-  /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
-   *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
-  reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
-  /** Claim-INDEPENDENT sweep: reclaim a LEAF left in_progress with no live claim
-   *  (claimedBy NULL after a daemon restart, or a claim past its lease with a dead
-   *  worker) once it's older than the orphan grace. reapDeadClaims keys on a held
-   *  claim + tmux liveness and releaseExpiredClaims on a live lease, so a leaf with
-   *  claimedBy/claimedAt NULL is invisible to both (the 19b097a1 ~9h gap). Reaped
-   *  to 'ready' (retry-budget-aware). Returns reclaimed + retry-exhausted ids.
-   *  Survives daemon restarts (ages off persisted updatedAt). Optional. */
-  reapOrphanedLeaves?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
+  /** The SINGLE death-detection surface (unification of the former reapDeadClaims +
+   *  reapOrphanedLeaves deps, src/services/worker-liveness.ts): an ordered rule
+   *  engine — dead-claims (tmux-lane, excludes headless leaves) → side sweeps
+   *  (stale/same-epoch inflight, inflight-limiter reconcile, E1 stop-leaf, worktree
+   *  GC) → prior-epoch (heal-on-restart, no liveness shields) → pulse (durable
+   *  two-fact staleness, seconds) → grace (claim+age fallback, catches every
+   *  NULL-pulse lane) — run over ONE shared in_progress snapshot with one dedup
+   *  Set so a row reclaimed by an earlier rule is never reprocessed by a later one.
+   *  Returns the union of reclaimed-to-ready + retry-exhausted (parked blocked)
+   *  ids across every rule. Optional. */
+  reapDeadWorkers?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
   /** Free pool SLOTS whose backing worker tmux is gone, independent of any todo's
-   *  status. reapDeadClaims only visits in_progress todos, so a slot orphaned by a
+   *  status. reapDeadWorkers only visits in_progress todos, so a slot orphaned by a
    *  dropped/abandoned todo would otherwise stay wedged 'busy' forever (889e3e26).
    *  Returns the freed session names. Optional. */
   reapDeadPoolSlots?: (project: string) => Promise<string[]>;
@@ -147,24 +154,17 @@ export async function runTick(
     try { deps.onTickError?.(project, step, err); } catch { /* onTickError itself is best-effort */ }
   };
   const { released, exhausted } = await deps.releaseExpiredClaims(project, now);
-  // Hard-crash reap: a dead worker's claim is reclaimed now, not at lease end.
-  if (deps.reapDeadClaims) {
+  // Hard-crash + claim-independent reap, unified: dead-claims (tmux-lane) → side
+  // sweeps → prior-epoch (heal-on-restart) → pulse (durable staleness) → grace
+  // (claim+age fallback) — see worker-liveness.ts. A dead worker's claim (or a
+  // claim-independent orphan the lease/claimToken paths can't see, the 19b097a1
+  // ~9h gap) is reclaimed now, not at lease end.
+  if (deps.reapDeadWorkers) {
     try {
-      const dead = await deps.reapDeadClaims(project);
+      const dead = await deps.reapDeadWorkers(project);
       released.push(...dead.reclaimed);
       exhausted.push(...dead.exhausted);
-    } catch (err) { recordTickError('reapDeadClaims', err); }
-  }
-  // Claim-independent orphan reap: a LEAF stuck in_progress with no live claim
-  // (claimedBy NULL after a restart, or a lease-expired dead worker) is invisible
-  // to releaseExpiredClaims (no live lease) AND reapDeadClaims (no claimToken) — so
-  // sweep it to 'ready' here, retry-budget-aware (the 19b097a1 ~9h gap).
-  if (deps.reapOrphanedLeaves) {
-    try {
-      const orphans = await deps.reapOrphanedLeaves(project);
-      released.push(...orphans.reclaimed);
-      exhausted.push(...orphans.exhausted);
-    } catch (err) { recordTickError('reapOrphanedLeaves', err); }
+    } catch (err) { recordTickError('reapDeadWorkers', err); }
   }
   // Free pool slots orphaned by dropped/abandoned todos (their worker tmux gone).
   if (deps.reapDeadPoolSlots) {

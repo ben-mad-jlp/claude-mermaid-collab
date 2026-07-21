@@ -3,7 +3,8 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, bumpRetryCountIfOwned } from './todo-store';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { findBlockedSplits, type BlockedSplit } from './claimability';
-import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
+import { DEFAULT_ORPHAN_GRACE_MS, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
+import { reapDeadWorkers as reapDeadWorkersImpl, type WorkerLivenessDeps } from './worker-liveness';
 import { MAX_REDISPATCH, STRANDED_REOPEN_CAP } from './harness-caps';
 import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
@@ -1970,244 +1971,45 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'tmux-retired-not-headless-leaf', excl: exclReason, released: true }) });
       return false;
     },
-    reapDeadClaims: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
-      const reclaimed: string[] = [];
-      const exhausted: string[] = [];
-      // Only in_progress todos can have a dead worker. A WARM IDLE pool session is
-      // never reaped here: its todo is already `done` (not in_progress) so it isn't
-      // iterated, and even if an in_progress todo points at it, its tmux is alive →
-      // we `continue`. We only reclaim a todo whose lease backstop applies AND whose
-      // session/tmux is actually gone (hard-dead worker), then free its pool slot so
-      // the slot isn't wedged busy on a vanished session.
-      // ONE full-table snapshot for this whole sweep — isHeadlessLeaf below used to call
-      // listTodos(includeCompleted:true) itself on EVERY iteration of this in_progress
-      // loop (O(n) full-table reads per sweep). Children of an in_progress todo need not
-      // themselves be in_progress, so this must be its own includeCompleted:true query,
-      // not the in_progress-only list being iterated.
-      const reapChildrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
-      for (const t of listTodos(project, { status: 'in_progress' })) {
-        if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
-        // DUP-DISPATCH FIX (claim-lost churn root, audit c11df7d3): a headless leaf-exec
-        // lane has NO tmux — so THIS reaper's death signal (tmux/harness absence at the
-        // probes below) is meaningless for it, and its ONLY shield here is isRunLive, an
-        // in-memory Set wiped on every restart/hot-swap. A leaf that was in_progress across
-        // a restart (or a soft reload) therefore reads as a "dead claim", gets its claim
-        // re-minted (audit-SILENTLY — this loop records nothing), and the claim loop launches
-        // a DUPLICATE run → the still-live run's launchToken mismatches → claim-lost → repeat
-        // to retry-exhausted/held. Headless-leaf reclamation is covered durably elsewhere,
-        // each with a real staleness/epoch test rather than a volatile liveness bit:
-        // prior-epoch reap (restart), pulse-reap (stale pulse), grace-fallback (null/aged
-        // pulse), and the lease. So exclude headless leaves from this non-durable path.
-        if (isHeadlessLeaf(t, reapChildrenIndex)) continue;
-        // Identity is the persisted pool lane. No sessionName → the todo was never
-        // spawned under a lane (or its persist raced); treat as dead and reclaim,
-        // rather than fabricating a `worker-<id8>` name that points at no real tmux.
-        const session = t.sessionName;
-        // HARDENING (audit aadd927b/dup-dispatch root): a headless leaf-exec lane has NO
-        // tmux and NO registered in-process harness, and BETWEEN nodes its per-node
-        // leaf_inflight row is gone — so a genuinely-running leaf caught between nodes read
-        // as a "dead worker" here, got its claim reclaimed, and the claim loop launched a
-        // DUPLICATE run (same worktree+row) → false-block + retryCount inflation. The
-        // run-level liveness set (E4) is true for the whole run incl. between-nodes; the
-        // inflight row covers an active node. Either ⇒ a live current-epoch run, never reap.
-        if (isRunLive(t.id) || isLeafInflightLive(t.id)) continue; // live leaf run — not a dead claim
-        // In-process lanes have no tmux — ask the harness before the tmux probe, or a
-        // healthy in-process worker reads as dead (§6.7 bootstrap).
-        if (session && await inProcessLaneAlive(session)) continue; // live in-process lane
-        if (session && await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
-        const next = await reclaimClaim(project, t.id, leafHadProgress(project));
-        // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
-        // The slot lives in the project the worker's lane ran in (target for cross-project).
-        if (session) markIdle(t.targetProject ?? project, session);
-        if (next === 'ready') reclaimed.push(t.id);
-        else if (next === 'blocked') exhausted.push(t.id);
-        // Invariant 2: every reclaim decision logs a reason. This loop was audit-silent
-        // (see :2503) → the re-mint was invisible in the trace. Record one line per decision.
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session: 'coordinator',
-          detail: JSON.stringify({ todoId: t.id, reap: 'reapDeadClaims', priorClaimant: session ?? null, decision: next }),
-        });
-      }
-      return { reclaimed, exhausted };
-    },
-    reapOrphanedLeaves: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
-      // CLAIM-INDEPENDENT sweep (gap 2026-06-09, real instance 19b097a1): a LEAF left
-      // status=in_progress with claimedBy/claimedAt NULL is invisible to BOTH existing
-      // reapers — releaseExpiredClaims needs a live lease, reapDeadClaims needs a
-      // claimToken — so it never ages out (sat ~9h across 3 deploys). The in-memory
-      // deadTracker only holds workers THIS process spawned, wiped on every restart;
-      // this sweep instead ages off the PERSISTED updatedAt, so it survives restarts.
-      const reclaimed: string[] = [];
-      const exhausted: string[] = [];
-      const now = new Date().toISOString();
-      const nowMs = Date.parse(now);
-      const inProgress = listTodos(project, { status: 'in_progress' });
-
-      // Reap stranded leaf_inflight telemetry rows left by a now-dead daemon (a
-      // sidecar restart killed the in-process executor before its finally cleared
-      // the row) so daemon_status stops showing phantom running leaves. Global +
-      // idempotent; cheap to run each tick (epic 8e7386e4).
-      reapStaleInflight();
-      // E4: also drop SAME-epoch phantom rows whose run already ended without clearing
-      // them (aborted/errored). isRunLive (run-level liveness) keeps a genuinely-running
-      // leaf's row even between its nodes, where the per-node subprocess registry is empty.
-      reapSameEpochOrphanInflight(isRunLive);
-
-      // capacity-fixes FIX 1: snap the inflight-limiter's in-process counters
-      // (globalActive/perProject) to observed truth. By this point BOTH reaps above have
-      // run, so every remaining leaf_inflight row is guaranteed current-epoch AND
-      // run-live — a durable, restart-surviving signal (preferred here over the in-memory
-      // leaf-subprocess-registry alone, which resets exactly like the counters being
-      // reconciled). This is global, not project-scoped (leaf_inflight spans every
-      // project), so it's harmless to recompute on every project's tick — idempotent,
-      // same cost class as the two reaps it rides alongside.
-      const liveInflight = listLeafInflight();
-      const perProjectLive: Record<string, number> = {};
-      for (const row of liveInflight) perProjectLive[row.project] = (perProjectLive[row.project] ?? 0) + 1;
-      const inflightRecon = reconcileInflight({ global: liveInflight.length, perProject: perProjectLive });
-      if (inflightRecon.corrected) {
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session: '',
-          detail: JSON.stringify({ source: 'inflight-limiter-reconcile', before: inflightRecon.before, after: inflightRecon.after }),
-        });
-      }
-
-      // E1 (epic e5acda93): stop a leaf whose todo was DROPPED or HELD while a node is
-      // live — kill its subprocess group within a tick. (level→off kills immediately via
-      // the orchestrator_off hook; this catches drop/hold, which have no single MCP
-      // chokepoint.) The registry only holds leaves with a LIVE node, so this is a tiny
-      // set. The aborted run's late completion is a no-op via E2's ownership-CAS.
-      for (const tracked of listTrackedLeaves()) {
-        if (tracked.project !== project) continue;
-        const todo = getTodo(project, tracked.leafId);
-        // No launch token here (E1 has no dispatch context) — gone/dropped/held cover the
-        // ancestor-drop cascade. A tracked, still-`in_progress` leaf whose claim vanished
-        // (claimedBy null) is a claim RELEASE mid-run — the exact 22:09 CDT observation
-        // (row not dropped/held, so the plain leafAbortReason check misses it) — so stop it
-        // too, one tick after the release.
-        const reason = leafAbortReason(project, tracked.leafId, null)
-          ?? (todo && todo.status === 'in_progress' && todo.claimedBy == null ? 'claim-lost' : null);
-        if (reason && killLeafSubtree(tracked.leafId)) {
-          recordSupervisorAudit({
-            kind: 'reconcile',
-            project,
-            session: todo?.sessionName ?? '',
-            detail: JSON.stringify({ source: 'e1-stop-leaf', todoId: tracked.leafId, reason }),
-          });
-        }
-      }
-
-      // Safety-net: reap leaf-exec-* worktrees whose todo is terminal but worktree
-      // survived (epoch-death case — process killed before finishWith ran). Throttled
-      // to once per 5 min to avoid per-tick fs + git overhead.
-      void reapOrphanedLeafWorktrees(project);
-      // Directory-driven GC (its own coarser throttle): drains orphans whose JSON record
-      // was already deleted (invisible to the record-driven reap above).
-      void tickGcLeafWorktrees(project);
-
-      // PRIOR-EPOCH FAST PATH (heal-on-restart): a claim stamped with a daemon
-      // epoch other than THIS process's was minted by a now-dead daemon. The
-      // leaf-executor runs in-process, so it cannot have outlived that process —
-      // reclaim on sight, NO liveness probe (a lingering reusable tmux shell must
-      // not shield it; that gap stranded leaves across a sidecar hot-swap until
-      // lease expiry). Claims with no epoch (legacy/pre-this-feature) are left to
-      // the pulse/grace probes below — never worse than today.
-      const priorEpochReaped = new Set<string>();
-      for (const id of planPriorEpochReap(inProgress, COORDINATOR_EPOCH)) {
-        const t = inProgress.find((x) => x.id === id)!;
-        const next = await reclaimOrphan(project, id, leafHadProgress(project));
-        if (next == null) continue;                 // raced to terminal
-        clearLeafInflight(id);                        // drop the dead executor's inflight row
-        if (t.sessionName) markIdle(t.targetProject ?? project, t.sessionName); // free pool slot
-        priorEpochReaped.add(id);
-        if (next === 'ready') reclaimed.push(id);
-        else exhausted.push(id);
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session: t.sessionName ?? '',
-          detail: JSON.stringify({ source: 'prior-epoch-reap', todoId: id, outcome: next, claimEpoch: t.claim?.epoch, liveEpoch: COORDINATOR_EPOCH }),
-        });
-      }
-
-      // FAST PATH (Phase 1, decision 9cd01858): derive staleness from the DURABLE
-      // session_status pulse instead of the 15-min/​~9h todo-updatedAt grace. A leaf
-      // whose lane last pulsed > PULSE_STALE_MS ago AND whose worker is CONFIRMED
-      // not-alive (two-fact rule) is reclaimed in SECONDS. One ps snapshot for the
-      // whole pass keeps the subtree liveness walk to a single `ps`. Strictly
-      // additive: a lane with NO durable pulse is skipped here (shouldPulseReap →
-      // false) and falls through to the grace sweep below, so it can NEVER be worse
-      // than today.
-      const snap = await procSnapshot();
-      const fastReaped = new Set<string>();
-      for (const t of inProgress) {
-        if (priorEpochReaped.has(t.id)) continue; // already reclaimed by the prior-epoch pass
-        if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
-        if (t.parentId == null) continue; // epics are containers — never reaped
-        const session = t.sessionName;
-        if (!session) continue;           // never-spawned leaf → grace sweep handles it
-        const pulseAt = lanePulseAt(project, session);
-        if (pulseAt == null || nowMs - pulseAt <= PULSE_STALE_MS) continue; // fresh/absent → fall back
-        if (isRunLive(t.id)) continue; // run-level-live between nodes — never reclaim (mirrors reapDeadClaims:2830)
-        if (isLeafInflightLive(t.id)) continue; // bug 0f1df3d2: a live current-epoch node (e.g. a long blueprint) is NOT an orphan — inProcessLaneAlive is blind to the node-invoker `claude -p` subprocess, so the leaf_inflight row is the authoritative signal
-        if (await inProcessLaneAlive(session)) continue; // live in-process lane — no tmux to probe (§6.7)
-        const tmux = tmuxBaseName(project, session);
-        const dead = await laneConfirmedDead(tmux, snap);
-        if (!shouldPulseReap(pulseAt, nowMs, PULSE_STALE_MS, dead)) continue;
-        const next = await reclaimOrphan(project, t.id, leafHadProgress(project));
-        if (next == null) continue; // raced to a terminal state
-        markIdle(t.targetProject ?? project, session);          // free any pool slot it held
-        fastReaped.add(t.id);
-        if (next === 'ready') reclaimed.push(t.id);
-        else exhausted.push(t.id);
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session,
-          detail: JSON.stringify({ source: 'pulse-reap', todoId: t.id, outcome: next, stalePulseMs: nowMs - pulseAt }),
-        });
-      }
-
-      // FALLBACK (never-worse): the existing claim+age grace sweep for every leaf
-      // the fast path did not already reap (incl. all NULL-pulse / fresh-pulse lanes).
-      const candidates = planOrphanReap(inProgress, now, DEFAULT_ORPHAN_GRACE_MS);
-      for (const c of candidates) {
-        if (priorEpochReaped.has(c.id) || fastReaped.has(c.id)) continue; // already reclaimed (prior-epoch or pulse)
-        // bug 0f1df3d2: a live current-epoch leaf_inflight row means a node is running
-        // RIGHT NOW (e.g. a >lease blueprint) — never reap it via the age/lease grace
-        // path. Authoritative for headless leaves, which inProcessLaneAlive can't see.
-        if (isRunLive(c.id)) continue; // run-level-live between nodes — never reclaim (mirrors reapDeadClaims:2830)
-        if (isLeafInflightLive(c.id)) continue;
-        // Live in-process lane (no tmux) → never reap on tmux absence (§6.7 bootstrap).
-        if (c.sessionName && await inProcessLaneAlive(c.sessionName)) continue;
-        // Case B (claim past lease): only reap once the worker's tmux is confirmed
-        // gone — a still-live worker on an over-long task must not be yanked. Case A
-        // (claimedBy NULL → needsTmuxProbe false) has no live claim by definition.
-        if (c.needsTmuxProbe && c.sessionName && await isTmuxAlive(tmuxBaseName(project, c.sessionName))) continue;
-        // reclaimOrphan (NOT reclaimClaim) reclaims regardless of claimToken — an
-        // orphan's whole problem is the missing token. Retry-budget-aware: → ready,
-        // or blocked once the retry cap is exceeded.
-        const next = await reclaimOrphan(project, c.id, leafHadProgress(project));
-        if (next == null) continue; // raced to a terminal state — nothing to reap
-        if (c.sessionName) {
-          // The slot lives in the project the worker's lane ran in (target for cross-project).
-          const cProject = inProgress.find((t) => t.id === c.id)?.targetProject ?? project;
-          markIdle(cProject, c.sessionName); // free any pool slot it held
-        }
-        if (next === 'ready') reclaimed.push(c.id);
-        else exhausted.push(c.id);
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session: c.sessionName ?? 'orphan-reap',
-          detail: JSON.stringify({ source: 'orphan-reap', todoId: c.id, outcome: next, hadClaim: c.needsTmuxProbe }),
-        });
-      }
-      return { reclaimed, exhausted };
+    // Single death-detection surface (unification of the former reapDeadClaims +
+    // reapOrphanedLeaves deps — see src/services/worker-liveness.ts for the ordered
+    // rule engine + the shared shield chain). Wires the SAME functions/closures this
+    // file used inline before the extraction; the live wiring stays here, the pure
+    // ordered-rule logic lives in worker-liveness.ts.
+    reapDeadWorkers: (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
+      const wlDeps: WorkerLivenessDeps = {
+        listTodos,
+        getTodo,
+        reclaimClaim,
+        reclaimOrphan,
+        leafHadProgress,
+        isRunLive,
+        isLeafInflightLive,
+        inProcessLaneAlive,
+        isTmuxAlive,
+        tmuxBaseName,
+        laneConfirmedDead,
+        procSnapshot,
+        lanePulseAt,
+        markIdle,
+        recordSupervisorAudit,
+        clearLeafInflight,
+        reapStaleInflight,
+        reapSameEpochOrphanInflight,
+        listLeafInflight,
+        reconcileInflight,
+        listTrackedLeaves,
+        killLeafSubtree,
+        leafAbortReason,
+        reapOrphanedLeafWorktrees,
+        tickGcLeafWorktrees,
+        isHeadlessLeaf,
+        buildChildrenIndex,
+        coordinatorEpoch: COORDINATOR_EPOCH,
+        pulseStaleMs: PULSE_STALE_MS,
+        orphanGraceMs: DEFAULT_ORPHAN_GRACE_MS,
+      };
+      return reapDeadWorkersImpl(project, wlDeps);
     },
     reapDeadPoolSlots: async (_project: string): Promise<string[]> => {
       // Slot-level reconciliation: a slot records its tmux at markBusy, so we can
