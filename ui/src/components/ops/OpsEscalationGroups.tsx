@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
 import { BridgeEscalationInbox } from '@/components/supervisor/bridge/BridgeEscalationInbox';
+import { GROUP_TITLES, taxonomyEntryForKind } from './escalationTaxonomy';
 
 interface OpsEscalationGroupsProps {
   escalations: Escalation[];
@@ -13,22 +14,17 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
 }) => {
   const { resetTodo, overrideAcceptTodo, resolveBudgetCap, decideEscalation } = useSupervisorStore();
 
-  const landReady = escalations.filter((e) => e.kind === 'epic-ready-to-land');
-  const poisonOrReserve = escalations.filter(
-    (e) => e.kind === 'poison-loop-cap' || e.kind === 'reserve-leaf'
-  );
-  const tokenBurn = escalations.filter((e) => e.kind === 'token-burn');
-  const serveCap = escalations.filter((e) => e.kind === 'criterion-serve-cap');
-  const danglingDeps = escalations.filter((e) => e.kind === 'dangling-deps');
-  const other = escalations.filter(
-    (e) =>
-      e.kind !== 'epic-ready-to-land' &&
-      e.kind !== 'poison-loop-cap' &&
-      e.kind !== 'reserve-leaf' &&
-      e.kind !== 'token-burn' &&
-      e.kind !== 'criterion-serve-cap' &&
-      e.kind !== 'dangling-deps'
-  );
+  const grouped = escalations.reduce<Record<string, Escalation[]>>((acc, e) => {
+    const { groupTitle } = taxonomyEntryForKind(e.kind);
+    (acc[groupTitle] ??= []).push(e);
+    return acc;
+  }, {});
+  const landReady = grouped[GROUP_TITLES.landReady] ?? [];
+  const poisonOrReserve = grouped[GROUP_TITLES.poisonOrReserve] ?? [];
+  const tokenBurn = grouped[GROUP_TITLES.tokenBurn] ?? [];
+  const serveCap = grouped[GROUP_TITLES.serveCap] ?? [];
+  const danglingDeps = grouped[GROUP_TITLES.danglingDeps] ?? [];
+  const other = grouped[GROUP_TITLES.other] ?? [];
 
   const renderDecisionOrResetCard = (e: Escalation) => {
     const hasOptions = !!e.options && e.options.length > 0;
@@ -95,7 +91,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
   return (
     <div className="space-y-3">
       {renderGroup(
-        'Ready to Land',
+        GROUP_TITLES.landReady,
         landReady,
         <BridgeEscalationInbox
           bare
@@ -106,7 +102,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
       )}
 
       {renderGroup(
-        'Poison Loop / Reserve',
+        GROUP_TITLES.poisonOrReserve,
         poisonOrReserve,
         <div className="space-y-2">
           {poisonOrReserve.map((e) => (
@@ -145,7 +141,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
       )}
 
       {renderGroup(
-        'Token Burn',
+        GROUP_TITLES.tokenBurn,
         tokenBurn,
         <div className="space-y-2">
           {tokenBurn.map((e) => (
@@ -166,13 +162,13 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
       )}
 
       {renderGroup(
-        'Criterion Serve Cap',
+        GROUP_TITLES.serveCap,
         serveCap,
         <div className="space-y-2">{serveCap.map(renderDecisionOrResetCard)}</div>
       )}
 
       {renderGroup(
-        'Dangling Dependencies',
+        GROUP_TITLES.danglingDeps,
         danglingDeps,
         <div className="space-y-2">{danglingDeps.map(renderDecisionOrResetCard)}</div>
       )}
@@ -183,7 +179,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
           return acc;
         }, {});
         return renderGroup(
-          'Other Escalations',
+          GROUP_TITLES.other,
           other,
           <div className="space-y-3">
             {Object.entries(otherByProject).map(([project, items]) => (
