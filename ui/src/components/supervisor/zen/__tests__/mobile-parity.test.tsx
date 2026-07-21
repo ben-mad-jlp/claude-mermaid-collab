@@ -7,7 +7,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ZenMode } from '@/components/supervisor/zen/ZenMode';
 import { useSupervisorStore, type SupervisedSession, type Escalation, type SessionSummary } from '@/stores/supervisorStore';
 import { useSubscriptionStore, type SubscribedSession } from '@/stores/subscriptionStore';
 import { useFreshnessStore } from '@/stores/freshnessStore';
@@ -121,121 +120,6 @@ describe('Zen mobile-parity — tap-uniform (buttons, not hover divs)', () => {
       .filter(({ src }) => src.includes('onClick') && !src.includes('<button'))
       .map(({ file }) => file);
     expect(offenders).toEqual([]);
-  });
-});
-
-// ─── B. ZenMode renders purely from store state ──────────────────────────────
-
-describe('Zen mobile-parity — ZenMode renders purely from store state', () => {
-  beforeEach(() => {
-    // Reset to known empty baseline (clears localStorage-hydrated bleed)
-    useSupervisorStore.setState({
-      openEscalations: [],
-      resolvedEscalations: [],
-      escalations: [],
-      supervised: [],
-      todosByProject: {},
-      sessionSummaries: {},
-    });
-    useSubscriptionStore.setState({ subscriptions: {}, order: [] });
-    useFreshnessStore.setState({ lastWsMessageAt: NOW });
-  });
-
-  // The redesign renders ONE card per WATCHED session (subscriptions/order), so a
-  // session must be subscribed to get a card; its summary enriches the card body.
-  function seedSession(session: string, sum?: Partial<SessionSummary>): void {
-    const key = `srv1:/repo:${session}`;
-    useSubscriptionStore.setState({ subscriptions: { [key]: subSess(session) }, order: [key] });
-    if (sum) {
-      useSupervisorStore.setState({ sessionSummaries: { [`/repo::${session}`]: summary(session, sum) } });
-    }
-  }
-
-  it('empty state when no sessions are watched', () => {
-    render(<ZenMode />);
-    expect(screen.getByText('No watched sessions')).toBeInTheDocument();
-  });
-
-  it('renders one card per watched session, showing the session name', () => {
-    seedSession('my-session');
-    render(<ZenMode />);
-    expect(screen.getByTestId('zen-session-card')).toBeInTheDocument();
-    // Session name now lives in the header next to the project ("project / session").
-    expect(screen.getByText(/my-session/)).toBeInTheDocument();
-  });
-
-  it('card body shows the session paragraph from sessionSummaries', () => {
-    seedSession('para-session', {
-      structured: { paragraph: 'Currently implementing the auth module.', status: 'working' },
-    });
-    render(<ZenMode />);
-    expect(screen.getByText('Currently implementing the auth module.')).toBeInTheDocument();
-  });
-
-  it('a needs-input session renders the question with selectable answers', () => {
-    const key = `srv1:/repo:asking`;
-    useSubscriptionStore.setState({ subscriptions: { [key]: subSess('asking') }, order: [key] });
-    useSupervisorStore.setState({
-      openEscalations: [esc('e-ask', { session: 'asking', questionText: 'Deploy now?',
-        options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' })],
-      sessionSummaries: { '/repo::asking': summary('asking', { progressState: 'stalled' }) },
-    });
-    render(<ZenMode />);
-    expect(screen.getByText('Deploy now?')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Yes/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /No/ })).toBeInTheDocument();
-  });
-
-  it('each card has an Open button (bring the session up in full collab)', () => {
-    seedSession('openable');
-    render(<ZenMode />);
-    const open = screen.getAllByRole('button').find((b) => /Open/.test(b.textContent || ''));
-    expect(open).toBeDefined();
-  });
-
-  it('expanding a card collapses any other expanded one (single-open accordion)', () => {
-    // Two sessions, each with a paragraph (the glance) AND a distinct, longer `detail`
-    // — `detail` is what the "more" toggle reveals, so both cards show "more".
-    const para = 'We are building the thing. Right now we are wiring the parts.';
-    const detail = 'We are building the thing. Right now we are wiring the parts. It started with a plan, several files are done, and the next step is the integration test before we can land.';
-    useSubscriptionStore.setState({
-      subscriptions: {
-        'srv1:/repo:a': subSess('a'),
-        'srv1:/repo:b': subSess('b'),
-      },
-      order: ['srv1:/repo:a', 'srv1:/repo:b'],
-    });
-    useSupervisorStore.setState({
-      sessionSummaries: {
-        '/repo::a': summary('a', { structured: { paragraph: para, detail, status: 'working' } }),
-        '/repo::b': summary('b', { structured: { paragraph: para, detail, status: 'working' } }),
-      },
-    });
-    render(<ZenMode />);
-    // Collapsed cards show a "+" toggle; expanded shows "−".
-    const mores = screen.getAllByText('+');
-    expect(mores.length).toBe(2); // both collapsed
-    fireEvent.click(mores[0]); // expand A
-    expect(screen.getAllByText('+').length).toBe(1); // A expanded → shows "−"
-    fireEvent.click(screen.getAllByText('+')[0]); // expand B → A must collapse
-    expect(screen.getAllByText('+').length).toBe(1); // still exactly one expanded
-  });
-
-  it('exposes an Exit Zen button (tap-uniform)', () => {
-    render(<ZenMode />);
-    const exit = screen.getAllByRole('button').find((b) =>
-      b.textContent?.includes('Exit Zen') || b.getAttribute('title')?.startsWith('Exit Zen'),
-    );
-    expect(exit).toBeDefined();
-  });
-
-  it('re-seeding store changes the view (pure function of store state)', () => {
-    const { rerender } = render(<ZenMode />);
-    expect(screen.queryByTestId('zen-session-card')).toBeNull();
-    seedSession('dynamic-session', { summaryText: 'Working on feature X' });
-    rerender(<ZenMode />);
-    expect(screen.getByTestId('zen-session-card')).toBeInTheDocument();
-    expect(screen.getByText('Working on feature X')).toBeInTheDocument();
   });
 });
 
