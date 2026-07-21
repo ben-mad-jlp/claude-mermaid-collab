@@ -22,8 +22,7 @@ import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './
  *  out of in_progress, so they self-dedup; the escalation store dedups too. */
 const budgetSoftWarned = new Set<string>();
 import { tmuxBaseName } from './tmux-naming';
-import { sendTmuxKeysRaw } from './tmux-send';
-import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
+import { mux, argvKillSession, argvListPanesPanePid, argvPsComm } from './session-mux/index.ts';
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -187,15 +186,6 @@ function overDailyBudget(project: string): boolean {
   return true;
 }
 
-async function isTmuxAlive(tmux: string): Promise<boolean> {
-  try {
-    return (await execAsync(mux.cmd(argvHasSession(tmux)))).code === 0;
-  } catch {
-    // can't check → assume alive (don't reclaim on uncertainty; the lease still backstops).
-    return true;
-  }
-}
-
 /**
  * In-process lane liveness (worker-fabric bootstrap, design-worker-fabric-ui §6.7).
  * The grok-own / anthropic-core harnesses run the worker IN-PROCESS — there is NO
@@ -241,7 +231,7 @@ async function killTmuxSession(tmux: string): Promise<void> {
  *  Returns null if ps is unavailable (→ callers treat liveness as unknown). */
 export async function procSnapshot(): Promise<Map<number, { children: number[]; comm: string }> | null> {
   try {
-    const out = (await execAsync(mux.cmd(argvPsComm()), { capture: true })).stdout;
+    const out = (await execAsync(argvPsComm(), { capture: true })).stdout;
     if (!out.trim()) return null;
     const byPid = new Map<number, { children: number[]; comm: string }>();
     const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
@@ -310,38 +300,9 @@ export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { childr
 // leaf orphans → reapOrphanedLeaves). The interactive-terminal tmux sessions are not
 // worker lanes and were never reconciled here.
 
-/** Is a `claude` process alive in this tmux pane's process subtree? Returns
- *  true/false, or null when it can't be determined (no pane pid / no ps snapshot)
- *  — callers MUST treat null as "assume alive" and never escalate on uncertainty. */
-async function claudeProcessPresent(tmux: string, snap: Map<number, { children: number[]; comm: string }> | null): Promise<boolean | null> {
-  if (!snap) return null;
-  const panePid = await tmuxPanePid(tmux);
-  if (panePid == null) return null;
-  return claudeAliveInSubtree(panePid, snap);
-}
-
-/** Dead-worker tracker (tmux → first-confirmed-dead + escalated), parallel to
- *  idleTracker. A dead shell is confirmed across DEAD_GRACE_MS so we never trip on
- *  the spawn/handoff gap before claude launches. */
-const deadTracker = new Map<string, { since: number; escalated: boolean }>();
-/** How long a worker's Claude must be confirmed-gone (tmux still alive) before we
- *  declare it dead. Long enough to clear cold-start; override MERMAID_DEAD_GRACE. */
-const DEAD_GRACE_MS = (Number(process.env.MERMAID_DEAD_GRACE) || 45) * 1000;
-
-/** Rate-limit tracker (tmux → first-seen + last-nudge + attempt count). A worker
- *  whose Claude hit a TRANSIENT server-side rate limit and stopped is recovered by
- *  nudging it to retry — distinct from a stall (it's not stuck on a decision) and
- *  from the user's usage cap (which is human-gated). Cleared once the pane clears. */
-const rateLimitTracker = new Map<string, { firstSeen: number; lastNudge: number; attempts: number }>();
-/** Wait this long after first seeing (or last nudging) a rate-limited worker before
- *  nudging it to retry — give Claude Code's own backoff a chance first. */
-const RATE_LIMIT_NUDGE_MS = (Number(process.env.MERMAID_RATE_LIMIT_NUDGE_SEC) || 60) * 1000;
-/** After this many nudges with the rate limit still showing, escalate (persistently
- *  throttled — a human may want to pause the fleet). */
-const RATE_LIMIT_MAX_NUDGES = Number(process.env.MERMAID_RATE_LIMIT_MAX_NUDGES) || 5;
-
 /** Resolved dead-worker grace (ms) the daemon actually uses. Read-only snapshot
  *  for observability (e.g. the runtime_config MCP tool). */
+const DEAD_GRACE_MS = (Number(process.env.MERMAID_DEAD_GRACE) || 45) * 1000;
 export function getDeadGraceMs(): number {
   return DEAD_GRACE_MS;
 }
@@ -405,15 +366,6 @@ export function getMaxColdStarts(): number {
 // ones and surfaces them as a structured escalation so they don't sit invisibly
 // until lease-expiry.
 
-/** Read a worker's rendered tmux pane (point-in-time). '' if unreadable. */
-async function capturePane(tmux: string): Promise<string> {
-  try {
-    return (await execAsync(mux.cmd(argvCapturePane(tmux)), { capture: true })).stdout;
-  } catch {
-    return '';
-  }
-}
-
 /** Detect a TRANSIENT Anthropic server-side rate limit in a worker's pane — the
  *  throttle Claude Code surfaces as e.g.:
  *    "API Error: Server is temporarily limiting requests (not your usage limit) · Rate limited"
@@ -463,25 +415,6 @@ function lanePulseAt(project: string, session: string | null): number | null {
   try { return getStatus(project, session)?.updatedAt ?? null; }
   catch { return null; }
 }
-
-/** Two-fact "not-alive" confirmation shared by the orphan reaper and the pool-slot
- *  reaper (point 3/5): a lane is confirmed dead when its tmux is gone, OR its tmux
- *  is alive but no `claude` process remains in its pane subtree (a bare dead shell).
- *  An UNKNOWN liveness (no ps snapshot / no pane pid) is treated as ALIVE — never
- *  reclaim on uncertainty. */
-async function laneConfirmedDead(
-  tmux: string,
-  snap: Map<number, { children: number[]; comm: string }> | null,
-): Promise<boolean> {
-  if (!(await isTmuxAlive(tmux))) return true;            // tmux gone → dead
-  const present = await claudeProcessPresent(tmux, snap); // ps-BFS over the pane subtree
-  return present === false;                                // dead shell; null/true → alive
-}
-
-/** How long a worker must sit idle-at-prompt (unchanged pane) before it's a stall.
- *  Long enough not to false-trip on normal between-turn idle. Override with
- *  MERMAID_STALL_MIN. */
-const STALL_MS = (Number(process.env.MERMAID_STALL_MIN) || 3) * 60 * 1000;
 
 /** Per-todo agent profile → launch params (PCS Phase 3). The todo's `type`
  *  (when present; assigned at sync time per #8) resolves to a registry profile
@@ -1984,10 +1917,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         isRunLive,
         isLeafInflightLive,
         inProcessLaneAlive,
-        isTmuxAlive,
-        tmuxBaseName,
-        laneConfirmedDead,
-        procSnapshot,
         lanePulseAt,
         markIdle,
         recordSupervisorAudit,
@@ -2008,210 +1937,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         orphanGraceMs: DEFAULT_ORPHAN_GRACE_MS,
       };
       return reapDeadWorkersImpl(project, wlDeps);
-    },
-    detectStalls: async (project: string): Promise<string[]> => {
-      // DOGFOOD #6: surface ALIVE-but-idle (stalled) workers. Signal: the pane is
-      // not actively working (no spinner) AND its bottom is byte-identical across
-      // >= STALL_MS. On detection we file ONE structured escalation per episode so
-      // it appears in the inbox/UI decision card — we never auto-answer (the human
-      // decides). A worker that resumes (pane changes / spinner returns) resets.
-      const stalled: string[] = [];
-      const seen = new Set<string>();
-      // One process snapshot for the whole pass → the PID-liveness subtree walk
-      // (63a59bd6) costs a single `ps` regardless of how many workers are live.
-      const snap = await procSnapshot();
-      for (const t of listTodos(project, { status: 'in_progress' })) {
-        // No persisted lane → not a real spawned worker (reapDeadClaims reclaims it).
-        // Never fabricate a `worker-<id8>` name: it derives a tmux that matches no
-        // live session, so the worker would be invisible to stall detection.
-        const session = t.sessionName;
-        if (!session) continue;
-        const tmux = tmuxBaseName(project, session);
-        seen.add(tmux);
-        if (!(await isTmuxAlive(tmux))) continue; // dead → reapDeadClaims handles it
-        const pane = await capturePane(tmux);
-
-        // 63a59bd6 — DEAD CLAUDE IN A LIVE TMUX (the watchdog blind spot): the tmux
-        // is alive but no `claude` process remains in its pane subtree, and the pane
-        // shows no Claude TUI chrome (so it's a bare shell, not a mid-spawn gap).
-        // Confirm across DEAD_GRACE_MS, then ESCALATE (the death was previously
-        // silent), kill the dud session, and reclaim the claim so the lane resets.
-        const claudePresent = await claudeProcessPresent(tmux, snap);
-        if (claudePresent === false && !workerAgent.isTuiPresent(pane)) {
-          const now = Date.now();
-          const prevDead = deadTracker.get(tmux);
-          if (prevDead?.escalated) continue;
-          if (!prevDead) deadTracker.set(tmux, { since: now, escalated: false });
-          // Restart-robust grace (the bug this fixes): the in-memory deadTracker is
-          // wiped on every sidecar restart (deploy / app relaunch / crash), so a
-          // dead worker could silently hold its slot forever if restarts kept
-          // out-pacing the 45s confirmation. Use the PERSISTED claim age as the
-          // primary clock — a worker claimed > DEAD_GRACE_MS ago with NO Claude in
-          // its pane is past cold-start and genuinely dead, regardless of restarts.
-          // The in-memory timer remains a fallback for the (rare) no-claimedAt case.
-          const claimTs = t.claimedAt ? new Date(t.claimedAt as unknown as string).getTime() : NaN;
-          const claimAgeMs = Number.isFinite(claimTs) ? now - claimTs : Infinity;
-          const inMemAgeMs = now - (deadTracker.get(tmux)?.since ?? now);
-          const deadForMs = Math.max(claimAgeMs, inMemAgeMs);
-          if (deadForMs < DEAD_GRACE_MS) continue;
-          const prev = deadTracker.get(tmux)!;
-          try {
-            createEscalation({
-              project,
-              session,
-              kind: 'blocker',
-              todoId: t.id,
-              questionText:
-                `Worker for "${displayTitle(t)}" DIED — its Claude process exited but the tmux ` +
-                `session stayed alive (a bare shell), so it silently held its slot with nothing ` +
-                `running and showed RED without raising anything. The lane has been reset and the ` +
-                `claim reclaimed. Re-open/retry with guidance, or drop it. (63a59bd6 auto-detected).`,
-            });
-            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'dead-claude-live-tmux', deadMs: deadForMs }) });
-            // Reset the lane: kill the dud bare-shell tmux, free the pool slot, and
-            // reclaim the claim (retry-budget-aware → ready or blocked).
-            await killTmuxSession(tmux);
-            markIdle(t.targetProject ?? project, session);
-            await reclaimClaim(project, t.id, leafHadProgress(project));
-            prev.escalated = true;
-            stalled.push(t.id);
-          } catch { /* escalation/recovery best-effort; never abort the tick */ }
-          continue;
-        }
-        // Claude is present (or liveness unknown) → clear any dead-tracking for it.
-        deadTracker.delete(tmux);
-
-        if (!pane || workerAgent.isActivelyWorking(pane)) continue;
-
-        // TRANSIENT RATE-LIMIT RECOVERY: a worker whose Claude hit Anthropic's
-        // server-side throttle ("temporarily limiting requests · Rate limited")
-        // stops mid-turn but doesn't realize it — the lane silently stalls (the
-        // user's report: "the coordinator doesn't realize it, so it just stops
-        // everything"). This is NOT a stall (no decision pending) and NOT the
-        // user's usage cap (human-gated). After a backoff (RATE_LIMIT_NUDGE_MS),
-        // NUDGE the worker to retry; only escalate if it stays throttled past
-        // RATE_LIMIT_MAX_NUDGES. Handled BEFORE the stall path so a throttled
-        // worker is never parked 'blocked'.
-        if (detectRateLimit(pane)) {
-          const nowRL = Date.now();
-          const rl = rateLimitTracker.get(tmux) ?? { firstSeen: nowRL, lastNudge: 0, attempts: 0 };
-          if (!rateLimitTracker.has(tmux)) rateLimitTracker.set(tmux, rl);
-          // Wait out the backoff (since the last nudge, or since first seen) so
-          // Claude Code's own retry gets first crack before we intervene.
-          if (nowRL - (rl.lastNudge || rl.firstSeen) < RATE_LIMIT_NUDGE_MS) continue;
-          if (rl.attempts >= RATE_LIMIT_MAX_NUDGES) {
-            // Persistently throttled — surface it once so a human can pause the
-            // fleet (level→off) until it clears; then re-arm if it recurs.
-            try {
-              createEscalation({
-                project,
-                session,
-                kind: 'blocker',
-                todoId: t.id,
-                questionText:
-                  `Worker for "${displayTitle(t)}" has been API rate-limited for a while ` +
-                  `(${rl.attempts} retry nudges over ~${Math.max(1, Math.round((nowRL - rl.firstSeen) / 60000))} min) ` +
-                  `and isn't recovering. This is a TRANSIENT server throttle (not your usage cap) — ` +
-                  `consider pausing the fleet (level → off) until it clears, then resume.`,
-              });
-              recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'rate-limit-persistent', attempts: rl.attempts }) });
-            } catch { /* best-effort */ }
-            rateLimitTracker.delete(tmux);
-            continue;
-          }
-          // Nudge the worker to retry the throttled request.
-          try {
-            await sendTmuxKeysRaw(tmux, 'Please retry the request that was rate-limited and continue.');
-            rl.attempts += 1;
-            rl.lastNudge = nowRL;
-            recordSupervisorAudit({ kind: 'nudge', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'rate-limit', attempt: rl.attempts }) });
-          } catch { /* best-effort; retry next tick */ }
-          continue; // handled — do NOT fall through to the stall/park-blocked path
-        }
-        // Not rate-limited → clear any stale rate-limit tracking for this lane.
-        rateLimitTracker.delete(tmux);
-
-        // DURABLE staleness (Phase 1, decision 9cd01858): the idle clock is the
-        // restart-safe session_status pulse (updatedAt = the lane's last status
-        // report), not an in-memory pane-signature timer. A worker idle at its
-        // prompt stopped pulsing when it went quiet, so `now - pulseAt` is its true
-        // idle age and survives a daemon restart. A lane with NO durable pulse yet
-        // has no staleness signal here → skip (the orphan reaper + dead-shell
-        // detection backstop it). Re-escalation is debounced by the recovery below
-        // parking the todo `blocked` (it leaves the in_progress set next tick).
-        const now = Date.now();
-        const pulseAt = lanePulseAt(project, session);
-        if (pulseAt == null || now - pulseAt < STALL_MS) continue;
-        const prevSince = pulseAt;
-        // FALSE-STALL GUARD (a6fcbd79): a worker that has FINISHED — built its
-        // change-set and got it committed onto the epic branch — then sits idle
-        // at its prompt while its `complete_todo` handshake is still in flight
-        // (or about to fire) looks byte-identical to a genuinely stalled worker:
-        // alive, no spinner, pulse gone quiet. Parking it `blocked` here REVERTS
-        // a done leaf to status='blocked' with acceptanceStatus=null (the live
-        // defect: every type:ui / type:reviewer leaf flipped back to blocked,
-        // only un-stuck by a manual re-promote). type:backend was unaffected only
-        // because its completion handshake reliably lands before STALL_MS — a
-        // race, not a real difference. So: if the work is already on the epic
-        // branch, the worker is finished, NOT stalled — skip it and let the
-        // completion/roll-up path finalize it (done+accepted). Best-effort: any
-        // probe failure falls through to the normal stall handling (fail-safe).
-        if (await workCommittedOnEpic(project, t)) continue;
-        try {
-          // DOGFOOD #6 follow-up: classify the idle-at-prompt. A permission
-          // prompt is NOT a decision the human can answer in the inbox — it's a
-          // "permission needed: <tool>" signal whose root fix is the worker
-          // profile allowlist (P3). Surface it as a distinct 'approval'
-          // escalation naming the tool, so it reads as "allowlist this tool",
-          // not a generic stalled-decision card.
-          const perm = workerAgent.detectPermissionPrompt(pane);
-          const idleMin = Math.round((now - prevSince) / 60000);
-          if (perm.isPermission) {
-            const toolLabel = perm.tool ?? 'an unknown tool';
-            createEscalation({
-              project,
-              session,
-              kind: 'approval',
-              todoId: t.id,
-              questionText:
-                `Permission needed: worker for "${displayTitle(t)}" is blocked on a Claude Code ` +
-                `permission prompt for ${toolLabel} (non-allowlisted) and has been idle ${idleMin}+ min. ` +
-                `Root fix: add ${toolLabel} to the worker profile allowlist so it never prompts ` +
-                `(see P3 cad-profile). This is a permission stall, not a decision (DOGFOOD #6 follow-up).`,
-            });
-            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'permission-prompt', tool: perm.tool, idleMs: now - prevSince }) });
-          } else {
-            createEscalation({
-              project,
-              session,
-              kind: 'question',
-              todoId: t.id,
-              questionText:
-                `Worker for "${displayTitle(t)}" appears STALLED — idle at its prompt with no progress for ` +
-                `${idleMin}+ min, awaiting input but no escalation was filed ` +
-                `(DOGFOOD #6 auto-detected). Pending context:\n\n${workerAgent.extractStallContext(pane)}`,
-            });
-            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prevSince }) });
-          }
-          stalled.push(t.id);
-          // RECOVERY (41d24bee): a stalled worker would otherwise hold its claim
-          // (until the 40-min lease) AND its pool slot, wedging the whole lane —
-          // exactly the parked-worker-blocks-the-pool failure observed live. Now
-          // that it's escalated for a human, park the todo 'blocked' (not re-run —
-          // re-running a stall just re-stalls) and FREE the pool slot so the lane
-          // keeps flowing; the worker session becomes a warm idle slot reused for
-          // the next ready todo.
-          try {
-            await releaseClaim(project, t.id);
-            await updateTodo(project, t.id, { status: 'blocked' });
-            markIdle(t.targetProject ?? project, session);
-          } catch { /* recovery best-effort; never abort the tick */ }
-        } catch { /* escalation best-effort; never abort the tick */ }
-      }
-      // GC the dead-shell tracker for tmux sessions no longer in_progress. (The old
-      // in-memory idleTracker is gone — durable session_status replaces it.)
-      for (const k of deadTracker.keys()) if (!seen.has(k)) deadTracker.delete(k);
-      return stalled;
     },
     escalateExhausted: async (project: string, todoId: string): Promise<void> => {
       const todo = getTodo(project, todoId);
