@@ -1,7 +1,9 @@
 import React from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { OpsEscalationGroups } from './OpsEscalationGroups';
 import { OpsProjectPanel } from './OpsProjectPanel';
+import { OpsSessionCards } from './OpsSessionCards';
 
 interface OpsScreenProps {
   serverScope: string;
@@ -9,9 +11,16 @@ interface OpsScreenProps {
 
 export const OpsScreen: React.FC<OpsScreenProps> = ({ serverScope }) => {
   const { openEscalations, watchedProjects, unlandedEpicsByProject } = useSupervisorStore();
+  const watchedSessionCount = useSubscriptionStore((s) => s.order.length);
 
   return (
     <div className="space-y-4 p-4">
+      {watchedSessionCount > 0 && (
+        <section>
+          <OpsSessionCards serverScope={serverScope} />
+        </section>
+      )}
+
       {/* Escalations */}
       {openEscalations.length > 0 && (
         <section>
@@ -62,7 +71,7 @@ export const OpsScreen: React.FC<OpsScreenProps> = ({ serverScope }) => {
       )}
 
       {/* Empty state */}
-      {openEscalations.length === 0 && watchedProjects.length === 0 && (
+      {openEscalations.length === 0 && watchedProjects.length === 0 && watchedSessionCount === 0 && (
         <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-400">
           <span>No escalations or watched projects</span>
         </div>
