@@ -191,6 +191,12 @@ export interface NodeResult {
   timedOut?: boolean;
   /** Set by runNode when the node process died before doing any work (a config/infra fault). */
   startFailure?: { provider: string; model: string; detail: string };
+  /** True when a `--output-format json`/`stream-json` result object was parsed out of
+   *  stdout — positive evidence the node ran, independent of `text` or token usage (a
+   *  result object can parse with an empty/absent `result` string, and some providers
+   *  omit usage even on a genuine run). Undefined/false on a timeout-before-any-output
+   *  or a hard spawn/auth failure, where no result object was ever produced. */
+  hasResultJson?: boolean;
   /** Recorded by the executor from the node's own stream-json transcript — NEVER self-reported
    *  by the node. Extracted from tool_use (Bash) and tool_result blocks at the spawn boundary. */
   commands?: Array<{ cmd: string; cwd: string; exitCode: number | null }>;
@@ -453,6 +459,12 @@ export function parseNodeJson(stdout: string): {
   subtype?: string;
   apiErrorStatus?: number;
   parseError?: string;
+  /** True when a `--output-format json`/`stream-json` result object was actually parsed
+   *  out of stdout (distinct from `text` being present — the object can parse with no
+   *  `result` string). Positive evidence the node ran, used by the leaf-executor's
+   *  start-failure classifier so a real run that omits `result` text isn't misread as
+   *  never having started. */
+  hasResultJson: boolean;
 } {
   // Two accepted shapes, parsed identically once the result object is in hand:
   //   (a) --output-format json        → stdout IS the single result object.
@@ -465,6 +477,7 @@ export function parseNodeJson(stdout: string): {
       text: stdout,
       isError: false,
       parseError: 'no parseable result object in node output',
+      hasResultJson: false,
     };
   }
   const usage: NodeUsage = {
@@ -481,6 +494,7 @@ export function parseNodeJson(stdout: string): {
     isError: j.is_error === true,
     subtype: j.subtype,
     apiErrorStatus: typeof j.api_error_status === 'number' ? j.api_error_status : undefined,
+    hasResultJson: true,
   };
 }
 
@@ -736,6 +750,11 @@ async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
   }
 
   if (timedOut) {
+    // Best-effort: a result object can legitimately have been written to stdout just
+    // before the kill signal landed (race between the timer firing and the process
+    // exiting on its own). If so, that is positive evidence the node ran — surface it
+    // the same way the non-timeout path does rather than discarding it.
+    const timeoutParsed = parseNodeJson(stdout);
     return {
       ok: false,
       exitCode,
@@ -748,6 +767,7 @@ async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
         ? `node timed out after ${spec.startWindowMs ?? START_WINDOW_MS}ms (killed; ZERO output within the start window — start failure, not work)`
         : `node timed out after ${timeoutMs}ms (killed)`,
       timedOut: true,
+      hasResultJson: timeoutParsed.hasResultJson,
       commands,
     };
   }
@@ -805,6 +825,7 @@ async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
     authMode,
     text: parsed.text,
     parseError: parsed.parseError ?? (parsed.isError ? (stderr || 'result is_error=true') : undefined),
+    hasResultJson: parsed.hasResultJson,
     commands,
   };
 }

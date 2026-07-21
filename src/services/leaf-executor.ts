@@ -1652,21 +1652,33 @@ export function classifyWorktreeBaseFreshness(isAncestor: boolean | null): { fre
  *  dispatches), so a leaf that already burned a retry and STILL can't start stops spinning. */
 export const MAX_START_FAILURE_RETRIES = 1;
 
-/** A node that never STARTED: non-zero/negative exit, ZERO tokens in and out, and it
- *  died fast. Not a work failure — the model never ran. Rate-limited results are
- *  excluded (they have their own pause path). Require minimum ~100ms duration so we
- *  don't match test mocks; real CLI failures take at least that long to fork+exit. */
+/** A node that never STARTED: it produced NO positive evidence of running, and it died
+ *  fast or timed out. "Positive evidence of running" is ANY of: a parsed
+ *  `--output-format json` result object (`hasResultJson`), a non-empty final message
+ *  (`text`), or a non-zero token count. Absence of tokens ALONE is no longer
+ *  sufficient — a provider can omit usage data on a genuine run (e.g. rate-limited
+ *  responses, some grok shapes), and misclassifying that as a start failure trips the
+ *  start-failure circuit breaker (parkNodeStartFailure / MAX_START_FAILURE_RETRIES) on
+ *  a node that actually ran. Only when EVERY signal is absent (zero tokens AND no
+ *  parsed result JSON AND no non-empty text) do we treat it as never-started; a node
+ *  that timed out having already produced real output is a normal (mid-run) failure,
+ *  not a start failure. Rate-limited results are excluded (their own pause path).
+ *  Require minimum ~100ms duration so we don't match test mocks; real CLI failures
+ *  take at least that long to fork+exit. */
 export function isNodeStartFailure(res: NodeResult): boolean {
   if (res.rateLimited || res.ok) return false;
   const u = res.usage;
   const zeroTokens = ((u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) + (u?.cacheReadTokens ?? 0)) === 0;
-  if (!zeroTokens) return false;
-  // A node killed at its wall-clock timeout having burned ZERO tokens never ran — a
-  // provider/model/config startup fault (e.g. hung at SessionStart). Classify as a
-  // node-START failure regardless of duration; the discriminator is tokens==0, NOT dur.
+  const hasOutput = res.hasResultJson === true || !!(res.text && res.text.trim().length > 0);
+  if (!zeroTokens || hasOutput) return false;
+  // A node killed at its wall-clock timeout having burned ZERO tokens AND produced no
+  // usable result object/text never ran — a provider/model/config startup fault (e.g.
+  // hung at SessionStart). Classify as a node-START failure regardless of duration; the
+  // discriminator is "no output at all", NOT dur. A timeout that DID produce real
+  // output falls through (hasOutput above already returned false for it).
   if (res.timedOut) return true;
-  // Otherwise: only a FAST zero-token death (real CLI fork+exit fault); the [100,5000)
-  // floor avoids matching sub-100ms test mocks.
+  // Otherwise: only a FAST zero-token, no-output death (real CLI fork+exit fault); the
+  // [100,5000) floor avoids matching sub-100ms test mocks.
   const dur = res.durationMs ?? 0;
   return dur >= 100 && dur < 5_000;
 }

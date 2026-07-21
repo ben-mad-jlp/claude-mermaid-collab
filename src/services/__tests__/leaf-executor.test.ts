@@ -2477,6 +2477,68 @@ describe('isNodeStartFailure', () => {
     };
     expect(isNodeStartFailure(res)).toBe(false);
   });
+
+  it('returns true for zero tokens + empty output + fast exit (unchanged baseline)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: '   ',
+      parseError: 'no parseable result object in node output',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+
+  it('returns false for zero tokens (usage omitted) with a real final message', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: 'some real output',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: 'I looked at the file and could not find the function.',
+      parseError: 'result is_error=true',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for a parsed result JSON object with zero tokens', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '{"result":"","is_error":true}',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      hasResultJson: true,
+      text: undefined,
+      parseError: 'result is_error=true',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for a timeout with partial real output (mid-run timeout, not a start failure)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: -1,
+      stdout: 'partial transcript with real assistant output before the kill',
+      durationMs: 600_000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      timedOut: true,
+      text: 'partial transcript with real assistant output before the kill',
+      parseError: 'node timed out after 600000ms (killed)',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
 });
 
 describe('parkNodeStartFailure integration (node start-failure through runLeaf)', () => {
@@ -2489,7 +2551,6 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
       usage: { inputTokens: 0, outputTokens: 0 },
       rateLimited: false,
       authMode: 'subscription',
-      text: "There's an issue with the selected model (grok-4.3) — it's not available",
       parseError: "There's an issue with the selected model (grok-4.3) — it's not available",
     };
 
@@ -2581,7 +2642,6 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
       usage: { inputTokens: 0, outputTokens: 0 },
       rateLimited: false,
       authMode: 'subscription',
-      text: "There's an issue with the selected model (grok-4.3) — it's not available",
       parseError: "There's an issue with the selected model (grok-4.3) — it's not available",
     };
     const texts: string[] = [];
@@ -2639,7 +2699,6 @@ describe('F2: start-failure retry circuit-breaker (bug a8935a16 — cap the 4×6
     usage: { inputTokens: 0, outputTokens: 0 },
     rateLimited: false,
     authMode: 'subscription',
-    text: 'timed out at SessionStart',
     parseError: 'timed out at SessionStart',
   };
   const startFailingInvoker = (deps: LeafExecutorDeps) => {
@@ -2698,7 +2757,6 @@ describe('implement start-failure → reactive in-place model escalation', () =>
     usage: { inputTokens: 0, outputTokens: 0 },
     rateLimited: false,
     authMode: 'subscription',
-    text: 'timed out',
     parseError: 'timed out',
   };
   // implement node = has Edit, not Write (blueprint) and not the readonly review set.
