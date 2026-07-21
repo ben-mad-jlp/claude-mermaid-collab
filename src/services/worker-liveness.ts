@@ -31,11 +31,6 @@ export interface WorkerLivenessDeps {
   isLeafInflightLive: (todoId: string) => boolean;
   /** §6.7: grok-own/anthropic-core harnesses run in-process — no tmux to probe. */
   inProcessLaneAlive: (session: string) => Promise<boolean>;
-  isTmuxAlive: (tmux: string) => Promise<boolean>;
-  tmuxBaseName: (project: string, session: string) => string;
-  /** Two-fact "not-alive": tmux gone, OR alive-but-no-claude-in-subtree. */
-  laneConfirmedDead: (tmux: string, snap: ProcSnapshot | null) => Promise<boolean>;
-  procSnapshot: () => Promise<ProcSnapshot | null>;
   /** Durable per-lane pulse (session_status.updatedAt), or null if never recorded. */
   lanePulseAt: (project: string, session: string | null) => number | null;
   markIdle: (project: string, sessionName: string) => void;
@@ -156,7 +151,6 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     // In-process lanes have no tmux — ask the harness before the tmux probe, or a
     // healthy in-process worker reads as dead (§6.7 bootstrap).
     if (await leafShieldedFromReap(t.id, session, deps)) continue;
-    if (session && (await deps.isTmuxAlive(deps.tmuxBaseName(project, session)))) continue; // worker still running (incl. warm idle pool sessions)
     const next = await deps.reclaimClaim(project, t.id, hadProgress);
     // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
     // The slot lives in the project the worker's lane ran in (target for cross-project).
@@ -277,13 +271,10 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
   // ============================================================================
   // (d) FAST PATH (Phase 1, decision 9cd01858): derive staleness from the DURABLE
   // session_status pulse instead of the 15-min/​~9h todo-updatedAt grace. A leaf
-  // whose lane last pulsed > PULSE_STALE_MS ago AND whose worker is CONFIRMED
-  // not-alive (two-fact rule) is reclaimed in SECONDS. One ps snapshot for the
-  // whole pass keeps the subtree liveness walk to a single `ps`. Strictly
+  // whose lane last pulsed > PULSE_STALE_MS ago is reclaimed in SECONDS. Strictly
   // additive: a lane with NO durable pulse is skipped here (shouldPulseReap →
   // false) and falls through to the grace sweep below, so it can NEVER be worse
   // than today.
-  const snap = await deps.procSnapshot();
   for (const t of inProgress) {
     if (reaped.has(t.id)) continue; // already reclaimed by an earlier rule this sweep
     if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
@@ -293,9 +284,7 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     const pulseAt = deps.lanePulseAt(project, session);
     if (pulseAt == null || nowMs - pulseAt <= deps.pulseStaleMs) continue; // fresh/absent → fall back
     if (await leafShieldedFromReap(t.id, session, deps)) continue;
-    const tmux = deps.tmuxBaseName(project, session);
-    const dead = await deps.laneConfirmedDead(tmux, snap);
-    if (!shouldPulseReap(pulseAt, nowMs, deps.pulseStaleMs, dead)) continue;
+    if (!shouldPulseReap(pulseAt, nowMs, deps.pulseStaleMs, true)) continue;
     const next = await deps.reclaimOrphan(project, t.id, hadProgress);
     if (next == null) continue; // raced to a terminal state
     deps.markIdle(t.targetProject ?? project, session); // free any pool slot it held
@@ -320,10 +309,6 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     // RIGHT NOW (e.g. a >lease blueprint) — never reap it via the age/lease grace
     // path. Authoritative for headless leaves, which inProcessLaneAlive can't see.
     if (await leafShieldedFromReap(c.id, c.sessionName, deps)) continue;
-    // Case B (claim past lease): only reap once the worker's tmux is confirmed
-    // gone — a still-live worker on an over-long task must not be yanked. Case A
-    // (claimedBy NULL → needsTmuxProbe false) has no live claim by definition.
-    if (c.needsTmuxProbe && c.sessionName && (await deps.isTmuxAlive(deps.tmuxBaseName(project, c.sessionName)))) continue;
     // reclaimOrphan (NOT reclaimClaim) reclaims regardless of claimToken — an
     // orphan's whole problem is the missing token. Retry-budget-aware: → ready,
     // or blocked once the retry cap is exceeded.

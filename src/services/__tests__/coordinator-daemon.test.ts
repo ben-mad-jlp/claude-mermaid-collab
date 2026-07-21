@@ -290,16 +290,6 @@ describe('runTick', () => {
     expect(escalated).toEqual(['dead-blocked']);
   });
 
-  test('detectStalls (DOGFOOD #6) is invoked each tick', async () => {
-    const stallCalls: string[] = [];
-    const deps = makeDeps({
-      listReadyTodos: () => [],
-      detectStalls: async (project) => { stallCalls.push(project); return ['stalled-x']; },
-    });
-    await runTick(deps, 'proj');
-    expect(stallCalls).toEqual(['proj']);
-  });
-
   test('enforceBudgetCaps (P1 governance breaker) is invoked each tick', async () => {
     const capCalls: string[] = [];
     const deps = makeDeps({
@@ -317,16 +307,6 @@ describe('runTick', () => {
     });
     const result = await runTick(deps, 'proj');
     expect(result.claimed).toEqual(['a']);
-  });
-
-  test('detectStalls throwing does NOT abort the tick (ready todos still processed)', async () => {
-    const deps = makeDeps({
-      listReadyTodos: () => [makeTodo('a')],
-      detectStalls: async () => { throw new Error('capture-pane blew up'); },
-    });
-    const result = await runTick(deps, 'proj');
-    expect(result.claimed).toEqual(['a']);
-    expect(result.spawned).toEqual(['a']);
   });
 
   test('claimTodo is called with COORDINATOR_ID and leaseMs', async () => {
@@ -357,26 +337,26 @@ describe('runTick — swallowed reaper errors are recorded, not silent', () => {
     const calls: Array<[string, string, unknown]> = [];
     const deps = makeDeps({
       listReadyTodos: () => [],
-      detectStalls: async () => { throw new Error('capture-pane blew up'); },
+      enforceBudgetCaps: async () => { throw new Error('breaker blew up'); },
       onTickError: (project, step, err) => { calls.push([project, step, err]); },
     });
     await runTick(deps, 'proj');
     expect(calls.length).toBe(1);
     expect(calls[0][0]).toBe('proj');
-    expect(calls[0][1]).toBe('detectStalls');
-    expect((calls[0][2] as Error).message).toBe('capture-pane blew up');
+    expect(calls[0][1]).toBe('enforceBudgetCaps');
+    expect((calls[0][2] as Error).message).toBe('breaker blew up');
   });
 
   test('multiple swallowed reaper errors in one tick are all captured, in order', async () => {
     const deps = makeDeps({
       listReadyTodos: () => [],
       reapDeadWorkers: async () => { throw new Error('reap-dead blew up'); },
-      detectStalls: async () => { throw new Error('stall-detect blew up'); },
+      enforceBudgetCaps: async () => { throw new Error('breaker blew up'); },
     });
     const result = await runTick(deps, 'proj');
     expect(result.tickErrors).toEqual([
       { step: 'reapDeadWorkers', error: 'reap-dead blew up' },
-      { step: 'detectStalls', error: 'stall-detect blew up' },
+      { step: 'enforceBudgetCaps', error: 'breaker blew up' },
     ]);
   });
 

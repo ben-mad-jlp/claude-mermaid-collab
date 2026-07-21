@@ -70,10 +70,6 @@ export interface CoordinatorDeps {
    *  Returns the union of reclaimed-to-ready + retry-exhausted (parked blocked)
    *  ids across every rule. Optional. */
   reapDeadWorkers?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
-  /** Detect ALIVE-but-idle (stalled) workers — a worker sitting at its prompt
-   *  awaiting input without filing an escalation — and surface them as escalations
-   *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
-  detectStalls?: (project: string) => Promise<string[]>;
   /** P1 governance breaker (EPIC 01a1359f / 87452094): enforce per-lane HARD/soft
    *  budget caps — iteration count, wall-clock, token budget — in pure deterministic
    *  machinery (no LLM, no synthesized metric). On a HARD breach: park the lane
@@ -160,11 +156,6 @@ export async function runTick(
   }
   for (const id of exhausted) {
     try { await deps.escalateExhausted?.(project, id); } catch (err) { recordTickError(`escalateExhausted:${id}`, err); }
-  }
-  // Idle-at-prompt stall detection (DOGFOOD #6): file escalations for ALIVE-but-
-  // stalled workers so a silent stall surfaces instead of sitting until lease-expiry.
-  if (deps.detectStalls) {
-    try { await deps.detectStalls(project); } catch (err) { recordTickError('detectStalls', err); }
   }
   // P1 governance breaker: per-lane budget/iteration/wall-clock caps → park BLOCKED
   // (non-claimable, cannot re-spawn) + escalate + loud notify. Deterministic; runs

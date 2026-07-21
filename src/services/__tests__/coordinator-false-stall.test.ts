@@ -28,10 +28,11 @@ async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdo
 // change-set committed onto the epic branch — but is still `in_progress` and idle
 // at its prompt (completion handshake in flight) was mis-classified as a STALL and
 // parked status='blocked' (acceptanceStatus=null), only un-stuck by a manual
-// re-promote. The fix: detectStalls calls workCommittedOnEpic(project, todo) and
-// SKIPS a worker whose work is already on the epic branch — so it is NOT parked
-// blocked and the completion/roll-up path finalizes it done+accepted. type:backend
-// was unaffected only because its handshake reliably landed before STALL_MS.
+// re-promote. workCommittedOnEpic(project, todo) is a standalone predicate
+// (still exported for testing) that returns true if a worker's work is already on
+// the epic branch — so it is NOT a stall and the completion/roll-up path
+// finalizes it done+accepted. type:backend was unaffected only because its
+// handshake reliably landed before STALL_MS.
 describe('false-stall guard — a finished (committed) ui/reviewer leaf is NOT a stall', () => {
   let repo: string;
 
@@ -64,8 +65,8 @@ describe('false-stall guard — a finished (committed) ui/reviewer leaf is NOT a
     await runGit(bwt, ['commit', '-q', '-m', `ui leaf\n\nCollab-Todo: ${ui.id}`]);
     await runGit(repo, ['worktree', 'remove', '--force', bwt]);
 
-    // The guard reports "finished" → detectStalls skips it, so it is never parked
-    // blocked and the completion path can finalize it done+accepted.
+    // The guard reports "finished", so it is never parked blocked and the
+    // completion path can finalize it done+accepted.
     expect(await workCommittedOnEpic(repo, ui)).toBe(true);
   });
 
