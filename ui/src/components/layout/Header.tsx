@@ -79,6 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
+  const opsOpen = useUIStore((s) => s.opsOpen);
   const paneOrder = useUIStore((s) => s.paneOrder);
   // The selected/active project — shown next to the Bridge toggle so the Bridge
   // pane's scope is visible at a glance. activeProject (the Bridge/Plan project
@@ -187,6 +188,21 @@ export const Header: React.FC<HeaderProps> = ({
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+      ),
+    },
+    ops: {
+      testid: 'toggle-ops',
+      title: 'Ops',
+      aria: 'Toggle Ops pane',
+      active: opsOpen,
+      onClick: () => useUIStore.getState().toggleOps(),
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
+          <circle cx="5" cy="12" r="1" />
+          <path d="M12 5v14M5 12h14" />
         </svg>
       ),
     },
