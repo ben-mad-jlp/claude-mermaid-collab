@@ -17,8 +17,8 @@ export type UIMode = 'studio' | 'bridge' | 'plan';
 // (viewerVisible), `spec` = the project Spec Sheet, `browser`/`terminal` carry
 // their own visibility flags (browserStore.visible / terminalStore.open).
 // 'plan' is no longer a standalone pane — the Plan lives inside the Bridge.
-export type PaneKey = 'bridge' | 'studio' | 'spec' | 'browser' | 'terminal';
-export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'studio', 'spec', 'browser', 'terminal'];
+export type PaneKey = 'bridge' | 'studio' | 'spec' | 'browser' | 'terminal' | 'ops';
+export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'studio', 'spec', 'browser', 'terminal', 'ops'];
 
 export interface UIState {
   // Theme state
@@ -84,6 +84,7 @@ export interface UIState {
   bridgeOpen: boolean;
   planOpen: boolean;
   specOpen: boolean;
+  opsOpen: boolean;
   zenMode: boolean;
   setBridgeOpen: (open: boolean) => void;
   setPlanOpen: (open: boolean) => void;
@@ -92,6 +93,7 @@ export interface UIState {
   toggleBridge: () => void;
   togglePlan: () => void;
   toggleSpec: () => void;
+  toggleOps: () => void;
   toggleZenMode: () => void;
   paneOrder: PaneKey[];
   setPaneOrder: (order: PaneKey[]) => void;
@@ -258,6 +260,7 @@ export const useUIStore = create<UIState>()(
       bridgeOpen: true,
       planOpen: false,
       specOpen: false,
+      opsOpen: false,
       zenMode: false,
       setBridgeOpen: (open: boolean) => set({ bridgeOpen: open }),
       setPlanOpen: (open: boolean) => set({ planOpen: open }),
@@ -266,6 +269,7 @@ export const useUIStore = create<UIState>()(
       toggleBridge: () => set((s) => ({ bridgeOpen: !s.bridgeOpen })),
       togglePlan: () => set((s) => ({ planOpen: !s.planOpen })),
       toggleSpec: () => set((s) => ({ specOpen: !s.specOpen })),
+      toggleOps: () => set((s) => ({ opsOpen: !s.opsOpen })),
       toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
       paneOrder: [...ALL_PANE_KEYS],
       setPaneOrder: (order) => set({ paneOrder: order }),
@@ -364,7 +368,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 12,
+      version: 13,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -440,6 +444,19 @@ export const useUIStore = create<UIState>()(
             ...old,
             paneOrder: prev.filter((p) => p !== 'plan'),
             zenMode: typeof (old as Record<string, unknown>).zenMode === 'boolean' ? (old as Record<string, unknown>).zenMode : false,
+          } as UIState;
+        }
+        if (version < 13) {
+          // Ops pane joins the side-by-side reorderable pane row. Preserve the
+          // user's existing pane order, then APPEND 'ops' if it's missing.
+          const old = persistedState as Record<string, unknown>;
+          const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as PaneKey[]) : [];
+          const merged = [...prev.filter((p) => ALL_PANE_KEYS.includes(p))];
+          if (!merged.includes('ops')) merged.push('ops');
+          return {
+            ...old,
+            paneOrder: merged,
+            opsOpen: typeof old.opsOpen === 'boolean' ? old.opsOpen : false,
           } as UIState;
         }
         return persistedState as UIState;

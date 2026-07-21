@@ -89,6 +89,7 @@ import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProje
 // Import supervisor view
 import { BridgeDashboard } from '@/components/supervisor/bridge/BridgeDashboard';
 import { ZenMode } from '@/components/supervisor/zen/ZenMode';
+import { OpsScreen } from '@/components/ops/OpsScreen';
 import { DiveLayoutGroup } from '@/components/stream/DiveTransition';
 
 /**
@@ -174,6 +175,7 @@ const App: React.FC = () => {
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
+  const opsOpen = useUIStore((s) => s.opsOpen);
   const browserVisible = useBrowserStore((s) => s.visible);
   const terminalOpen = useTerminalStore((s) => s.open);
   const paneOrder = useUIStore((s) => s.paneOrder);
@@ -1859,11 +1861,13 @@ const App: React.FC = () => {
                   ? bridgeOpen
                   : p === 'spec'
                     ? specOpen
-                    : p === 'browser'
-                      ? browserVisible
-                      : p === 'terminal'
-                        ? terminalOpen
-                        : viewerVisible && !!currentSession,
+                    : p === 'ops'
+                      ? opsOpen
+                      : p === 'browser'
+                        ? browserVisible
+                        : p === 'terminal'
+                          ? terminalOpen
+                          : viewerVisible && !!currentSession,
               );
               if (open.length === 0) {
                 return (
@@ -1884,6 +1888,7 @@ const App: React.FC = () => {
                         {p === 'bridge' && <BridgeDashboard />}
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
                         {p === 'spec' && <SpecWorkspace />}
+                        {p === 'ops' && <OpsScreen serverScope={activeServerId ?? 'local'} />}
                         {p === 'browser' && <BrowserPanel embedded />}
                         {p === 'terminal' && <TerminalDrawer embedded />}
                       </Panel>
