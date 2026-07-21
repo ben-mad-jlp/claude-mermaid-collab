@@ -38,6 +38,7 @@ export type LandBlockCode =
   | 'presence-findings'
   | 'gate-regression'
   | 'gate-error'
+  | 'gate-failed'
   | 'tsc-failed'
   | 'merge-conflict';
 
@@ -383,6 +384,18 @@ export async function landReadiness(
     blockers.push({
       code: 'gate-error',
       message: `Land gate encountered errors: ${gate.reasons[0] ?? 'unknown'}`,
+    });
+  }
+
+  // Gate FAILED without regressions/incidents recorded (e.g. a gate-internal typecheck
+  // failure short-circuits with status:'fail' and empty regressions/incidents arrays) —
+  // blocking. The regression/incident checks above do not cover this case on their own,
+  // so it needs its own explicit check to keep landReadiness at least as strict as the
+  // pre-consolidation per-actor proof it replaces.
+  if (gate.status === 'fail' && gate.regressions.length === 0 && gate.incidents.length === 0) {
+    blockers.push({
+      code: 'gate-failed',
+      message: `Land gate failed: ${gate.reasons[0] ?? 'unknown'}`,
     });
   }
 

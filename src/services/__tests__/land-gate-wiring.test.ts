@@ -3,19 +3,25 @@ import { execSync } from 'node:child_process';
 
 describe('land-gate wiring invariants', () => {
   describe('single-path guarantee', () => {
-    it('deriveEpicLandProof should be the only call site of runEpicLandGate for land', () => {
+    it('landReadiness (land-authority.ts) should be the only call site of runEpicLandGate for land', () => {
+      // deriveEpicLandProof (coordinator-live.ts) delegates entirely to landReadiness, so the
+      // G10 gate itself now runs from exactly ONE place across both files: inside
+      // landReadiness. coordinator-live.ts must not re-derive it directly.
       const coordinatorFile = execSync('cat src/services/coordinator-live.ts', { encoding: 'utf8' });
-      // Count lines with 'await runEpicLandGate' (actual calls, not imports)
-      const callLines = coordinatorFile.split('\n').filter(l => /await\s+runEpicLandGate/.test(l));
+      expect(coordinatorFile.split('\n').filter(l => /await\s+runEpicLandGate/.test(l)).length).toBe(0);
+
+      const landAuthorityFile = execSync('cat src/services/land-authority.ts', { encoding: 'utf8' });
+      const callLines = landAuthorityFile.split('\n').filter(l => /await\s+gateProbe/.test(l) || /await\s+runEpicLandGate/.test(l));
       expect(callLines.length).toBe(1);
-      expect(callLines[0]).toContain('runEpicLandGate');
     });
 
-    it('validateStewardProof for land_epic should only be called from deriveEpicLandProof and landEpic fail-fast', () => {
+    it('validateStewardProof for land_epic should only be called from landEpic fail-fast', () => {
+      // deriveEpicLandProof no longer calls validateStewardProof directly — it delegates to
+      // landReadiness (checkLandDeps + tsc/merge/presence/gate probes). Only landEpic's
+      // cheap fail-fast pre-check still re-derives the steward proof.
       const coordinatorFile = execSync('cat src/services/coordinator-live.ts', { encoding: 'utf8' });
-      const landEpicProofCalls = coordinatorFile.match(/validateStewardProof\('land_epic'/g) || [];
-      // One in deriveEpicLandProof, one in the fail-fast early check of landEpic
-      expect(landEpicProofCalls.length).toBeLessThanOrEqual(2);
+      const landEpicProofCalls = coordinatorFile.match(/validateStewardProof\(\s*'land_epic'/g) || [];
+      expect(landEpicProofCalls.length).toBe(1);
     });
   });
 

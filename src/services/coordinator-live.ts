@@ -29,8 +29,8 @@ import { reserveLeafSlot, releaseLeafSlot } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
-import { runEpicLandGate, landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, findOwningMission, checkLandDeps, type LandReadinessVerdict, type LandBlocker } from './land-authority';
+import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
+import { landReadiness, findOwningMission, checkLandDeps, type LandReadinessVerdict } from './land-authority';
 import { getMission, isMissionTerminal } from './mission-store';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
@@ -1477,15 +1477,21 @@ export interface LandProof {
   gate: EpicLandGateResult;
 }
 
-/** Derive a unified land proof: steward predicates + land gate. BOTH must pass for a
- *  green proof. Used by BOTH surfaceEpicLand and landEpic to ensure the identical
- *  proof gates both paths. */
+/** ONE PROOF: delegates entirely to the SAME `landReadiness()` the human click and the
+ *  conductor call use (src/services/land-authority.ts — "ONE LAND PROOF, THREE ACTORS").
+ *  Used by BOTH surfaceEpicLand's armed-mission auto-land and landEpic's land-time
+ *  re-derivation, so the identical proof gates both paths. Kept as a named wrapper (rather
+ *  than inlining `landReadiness` at every call site) so `landEpic`'s land-time re-check
+ *  stays textually obvious (see land-proof-single-path.test.ts's "proof precedes merge"
+ *  topology check) and so callers keep the `{ok,reason,detail,gate}` shape they already
+ *  expect. `epicWorktreeCwd` is pinned via the `worktreeCwd` probe so this never re-derives
+ *  the worktree the caller already resolved. */
 async function deriveEpicLandProof(a: {
   project: string;
   repo: string;
   epicId: string;
   epicBranch: string;
-  epicChildIds: string[];
+  todos: Todo[];
   epicWorktreeCwd: string;
 }): Promise<LandProof> {
   const notRun: EpicLandGateResult = {
@@ -1496,41 +1502,21 @@ async function deriveEpicLandProof(a: {
     regressions: [],
     inherited: [],
     incidents: [],
-    reasons: ['gate not run — steward proof failed first'],
+    reasons: ['gate not run — land readiness failed first'],
     specFiles: [],
     epicTipSha: null,
     baseSha: null,
   };
 
-  const verdict = validateStewardProof('land_epic', { kind: 'epic-landable', epicId: a.epicId, epicBranch: a.epicBranch }, {
-    project: a.project,
-    dependsOn: [],
-    getDep: (cid) => {
-      const d = getTodo(a.project, cid);
-      return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
-    },
-    epicChildIds: a.epicChildIds,
-    epicWorktreeCwd: a.epicWorktreeCwd,
-    masterCwd: a.repo,
+  const readiness = await landReadiness(a.repo, a.epicId, {
+    todos: a.todos,
+    probes: { worktreeCwd: () => a.epicWorktreeCwd },
   });
+  const gate = readiness.gate ?? notRun;
 
-  if (!verdict.ok) {
-    return { ok: false, reason: verdict.reason, detail: verdict.detail, gate: notRun };
-  }
-
-  const gate = await runEpicLandGate({
-    project: a.project,
-    repo: a.repo,
-    epicId: a.epicId,
-    epicBranch: a.epicBranch,
-    epicWorktreeCwd: a.epicWorktreeCwd,
-  });
-
-  if (gate.status === 'error') {
-    return { ok: false, reason: 'land-gate-incident', detail: gate.reasons.join('\n'), gate };
-  }
-  if (gate.status === 'fail') {
-    return { ok: false, reason: 'land-gate-failed', detail: gate.reasons.join('\n'), gate };
+  if (!readiness.green) {
+    const reason = readiness.blockers[0]?.code ?? 'land-not-ready';
+    return { ok: false, reason, detail: readiness.summary, gate };
   }
   return { ok: true, reason: 'ok', gate };
 }
@@ -1774,7 +1760,7 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
       const epicWt = await wm.ensureEpic(epic.id).catch(() => null);
       const proof = await deriveEpicLandProof({
         project, repo, epicId: epic.id, epicBranch,
-        epicChildIds: buildIds, epicWorktreeCwd: epicWt?.path ?? repo,
+        todos: allTodos, epicWorktreeCwd: epicWt?.path ?? repo,
       });
       const proofGreen = proof.ok && proof.gate.status === 'pass';
       if (!proofGreen) {
@@ -1942,24 +1928,24 @@ export async function surfaceEpicLand(
       const wm = getWorktreeManager(repo);
       const epicBranch = wm.epicBranchName(epicId);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
-      const proof = await deriveEpicLandProof({
-        project,
-        repo,
-        epicId,
-        epicBranch,
-        epicChildIds: repoChildIds,
-        epicWorktreeCwd: epic?.path ?? repo,
+      // ONE PROOF: the same landReadiness() the human click and the conductor call use
+      // (src/services/land-authority.ts — "ONE LAND PROOF, THREE ACTORS") both drives the
+      // card text below AND gates the auto-land further down — computed exactly once, so
+      // there is no second, weaker derivation that could disagree with what the card says.
+      const readiness = await landReadiness(repo, epicId, {
+        todos: allTodos,
+        probes: { worktreeCwd: () => epic?.path ?? repo },
       });
-      const proofGreen = proof.ok && proof.gate.status === 'pass';
+      const proofGreen = readiness.green;
       const missionLandAuthority = epicAutoLandAuthority(project, epicId, allTodos) && proofGreen;
       const landAuthorized = missionLandAuthority;
       // Staleness FLAG (never auto-rebase): how far behind master the epic base drifted.
       const behind = await wm.epicBehindBase(epicId).catch(() => 0);
       const staleFlag = behind > 0 ? ` ⚠️ ${behind} commit(s) behind master (flag only — no auto-rebase)` : '';
       const repoTag = multiRepo ? ` [repo ${path.basename(repo)}]` : '';
-      const proofSummary = proof.ok
-        ? `✅ epic-landable: ${repoChildIds.length} children done+accepted, tsc clean, dry-merge into master clean, ${landGateSummary(proof.gate)}`
-        : `❌ blocked (${proof.reason}): epic ${epicBranch} is NOT ready to land`;
+      const proofSummary = proofGreen
+        ? `✅ epic-landable: ${repoChildIds.length} children done+accepted, tsc clean, dry-merge into master clean, ${readiness.gate ? landGateSummary(readiness.gate) : 'no gate declared'}`
+        : `❌ blocked (${readiness.blockers.map((b) => b.code).join(', ') || 'not-ready'}): epic ${epicBranch} is NOT ready to land`;
       // Link a child IN THIS REPO so the land click resolves the right repo
       // (landEpic keys the WorktreeManager off the linked todo's targetProject).
       const linkTodoId = epicId;
@@ -1970,28 +1956,12 @@ export async function surfaceEpicLand(
         kind: 'epic-ready-to-land',
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
       });
-      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proof.ok, reason: proof.reason, landGate: proof.gate.status, children: repoChildIds.length, behindMaster: behind, multiRepo, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proofGreen, reason: readiness.blockers.map((b) => b.code).join(',') || 'ok', landGate: readiness.gate?.status ?? 'unknown', children: repoChildIds.length, behindMaster: behind, multiRepo, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
 
       // AUTO-LAND at level>=drive on a green proof — reuse the safe landEpic path
       // (re-derives the proof, lands behind the mutex, conflict→rebase card). The
       // dedup above ensures we don't re-fire on an already-open card.
       if (proofGreen && landAuthorized && escalation?.id) {
-        // ONE PROOF: the daemon lands only through the same landReadiness() the human and
-        // conductor paths use. deriveEpicLandProof (above) is necessary but NOT sufficient:
-        // it omits the [LAND]-leaf dep check (a383bc2c) and the G9 presence check.
-        const readiness = await autoLandReadiness(repo, epicId, allTodos);
-        if (!readiness.green) {
-          recordSupervisorAudit({
-            kind: 'reconcile', project, session,
-            detail: JSON.stringify({
-              epicId, epicBranch, autoLand: true, landed: false,
-              reason: 'land-readiness-red',
-              blockers: readiness.blockers.map((b: LandBlocker) => b.code),
-              inheritedRed: readiness.inheritedRed,
-            }),
-          });
-          continue; // card is already surfaced above — a human lands it
-        }
         const outcome = await landEpic(project, escalation.id);
         const stamped = await stampLandLeafOnMerge(project, epicId, opts.landLeafId, outcome.landed);
         recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason, landLeafId: opts.landLeafId ?? null, stamped }) });
@@ -2167,9 +2137,8 @@ export async function landEpic(
       // Exclude the epic's own [LAND] leaf: it is stamped done AFTER the merge lands
       // (stampLandLeafOnMerge), so counting it as a required-done child would deadlock every
       // auto-land (epic-children-incomplete). Mirrors surfaceEpicLand's pre-check filter.
-      const { buildChildren, byRepo } = epicGatingChildren(
-        listTodos(project, { includeCompleted: true }), epicId, project,
-      );
+      const todosAtProofTime = listTodos(project, { includeCompleted: true });
+      const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
       const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
       const verdict = validateStewardProof(
@@ -2233,15 +2202,16 @@ export async function landEpic(
         recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
       }
 
-      // Run the land gate (G10) — re-derives after any forward-integration so the proof
-      // is authoritative against the current epic tip. Tighten the auto-land path: never
-      // bypass a land gate, never auto-land if the gate is misconfigured or missing.
+      // Run the land proof (ONE PROOF — landReadiness: deps + tsc + dry-merge + G9 presence +
+      // G10 gate) — re-derives after any forward-integration so it is authoritative against
+      // the current epic tip. Tighten the auto-land path: never bypass a check, never
+      // auto-land if the gate is misconfigured or missing.
       const proof = await deriveEpicLandProof({
         project,
         repo: targetProject,
         epicId,
         epicBranch,
-        epicChildIds,
+        todos: todosAtProofTime,
         epicWorktreeCwd: epic?.path ?? targetProject,
       });
       if (!proof.ok) {
