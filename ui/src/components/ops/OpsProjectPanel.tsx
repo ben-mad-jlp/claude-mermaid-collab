@@ -1,10 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useSupervisorStore, type DeployStatus } from '@/stores/supervisorStore';
 import { useOpsData } from '@/hooks/useOpsData';
+import { ClaudePixAvatar } from '@/components/layout/SessionCard';
+import { fleetStateToStatus } from '@/hooks/useFleetStatus';
 
 interface OpsProjectPanelProps {
   project: string;
   serverScope: string;
+}
+
+function daemonStateToStatus(state: string | undefined): 'active' | 'waiting' | 'permission' | 'unknown' {
+  switch (state) {
+    case 'working': return 'active';
+    case 'blocked-on-decision': return 'permission';
+    case 'claims-suppressed':
+    case 'claimable':
+    case 'idle': return 'waiting';
+    default: return 'unknown';
+  }
 }
 
 export const OpsProjectPanel: React.FC<OpsProjectPanelProps> = ({ project, serverScope }) => {
@@ -30,8 +43,9 @@ export const OpsProjectPanel: React.FC<OpsProjectPanelProps> = ({ project, serve
 
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
         <h3 className="font-semibold text-sm text-gray-900 dark:text-white">{project}</h3>
+        <ClaudePixAvatar status={daemonStateToStatus(data.daemon?.state)} size={32} />
       </div>
 
       <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -41,9 +55,17 @@ export const OpsProjectPanel: React.FC<OpsProjectPanelProps> = ({ project, serve
             <div className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 mb-2">
               Fleet ({fleetEntries.length})
             </div>
-            <div className="text-sm space-y-1 text-gray-600 dark:text-gray-300">
+            <div className="text-sm space-y-1 text-gray-600 dark:text-gray-300 mb-3">
               <div>Working: {workingCount}</div>
               <div>Idle: {idleCount}</div>
+            </div>
+            <div className="space-y-2">
+              {fleetEntries.map((entry) => (
+                <div key={entry.worker} className="flex items-center gap-2">
+                  <ClaudePixAvatar status={fleetStateToStatus(entry.state)} size={28} />
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{entry.worker}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}
