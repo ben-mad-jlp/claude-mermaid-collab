@@ -418,6 +418,21 @@ describe('buildNodePrompt per-node specs', () => {
     // no absence / non-goal criteria (existing guidance, asserted for completeness)
     expect(bp).toMatch(/NEVER write an absence or non-goal as an acceptance criterion/);
   });
+
+  it('blueprint prompt caps length and forbids no-signal verbosity (cost lever)', () => {
+    const bp = buildNodePrompt('blueprint', makeLeaf());
+    expect(bp).toContain('LENGTH BUDGET');
+    expect(bp).toContain('~120 lines');
+    expect(bp).toContain('~1000 words');
+    expect(bp).toMatch(/quote or restate existing code\/file contents/);
+    expect(bp).toContain('CONTRACT for a');
+  });
+
+  it('blueprint refresh prompt carries the same length-budget / no-restating rules', () => {
+    const refresh = buildBlueprintRefreshPrompt(makeLeaf(), 'inherited plan text', ['a.ts']);
+    expect(refresh).toContain('LENGTH BUDGET');
+    expect(refresh).toMatch(/quote or restate existing code\/file contents/);
+  });
 });
 
 describe('review pipeline baseRef (no hardcoded master fallback)', () => {

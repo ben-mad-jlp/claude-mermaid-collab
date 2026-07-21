@@ -841,6 +841,26 @@ const MANIFEST_SCHEMA_NOTES_LINES: readonly string[] = [
   MANIFEST_GLOB_RULE_LINE,
 ];
 
+/** Cost lever (ledger: blueprint output ≈ implement output in weekly token volume, all prose).
+ *  Shared VERBATIM by every prompt that asks a node to author or re-author the FULL blueprint
+ *  body (buildNodePrompt's 'blueprint' case, buildBlueprintRefreshPrompt, and the two repair
+ *  prompts, which re-emit the whole blueprint after a targeted fix) so the budget can never
+ *  drift between them. Adds a length ceiling and bans verbosity classes that cost tokens but
+ *  give the implementer no signal — it does NOT relax any citability/manifest/glob rule above. */
+const BLUEPRINT_CONCISENESS_RULES_LINES: readonly string[] = [
+  'LENGTH BUDGET: the blueprint prose (everything above the trailing json fence) fits ~120 lines',
+  '/ ~1000 words for a normal leaf. Go longer ONLY when the leaf genuinely spans many files or',
+  'tasks — length is not a proxy for rigor, and a short blueprint for a small leaf is correct, not',
+  'lazy.',
+  'Do NOT: quote or restate existing code/file contents (cite `file:line` instead), narrate your',
+  'exploration ("I read...", "I found that..."), repeat the task title/description back, give',
+  'step-by-step keystroke-level instructions, or hand out generic advice with no leaf-specific',
+  'signal ("write clean code", "handle errors", "add tests"). The blueprint is a CONTRACT for a',
+  'competent implementer who can already read the code: WHAT to build, WHERE (file:line',
+  'touchpoints), the acceptance criteria, and any risk/invariant NOT obvious from the code —',
+  'nothing else.',
+];
+
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 function blueprintPath(leaf: Todo): string {
   return `.collab/leaf-blueprints/${leaf.id}.md`;
@@ -916,6 +936,8 @@ export function buildNodePrompt(
         '',
         ...MANIFEST_JSON_SCHEMA_LINES,
         ...MANIFEST_SCHEMA_NOTES_LINES,
+        '',
+        ...BLUEPRINT_CONCISENESS_RULES_LINES,
         '',
         'YOU decide whether this leaf is decomposable — a file count cannot see coupling, you can.',
         '`splitDecision.split: false` ⇒ the leaf runs WHOLE in one worker, even at 12 files. Choose',
@@ -1018,6 +1040,8 @@ export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, f
     ...MANIFEST_JSON_SCHEMA_LINES,
     ...MANIFEST_SCHEMA_NOTES_LINES,
     '',
+    ...BLUEPRINT_CONCISENESS_RULES_LINES,
+    '',
     'Emit `splitDecision.split: false` unless your slice genuinely decomposes further — you are',
     'already a split child.',
     '',
@@ -1071,6 +1095,8 @@ export function buildCriteriaRepairPrompt(
     '',
     ...MANIFEST_JSON_SCHEMA_LINES,
     '',
+    ...BLUEPRINT_CONCISENESS_RULES_LINES,
+    '',
     `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.`,
   ].join('\n');
 }
@@ -1108,6 +1134,8 @@ export function buildBlueprintRepairPrompt(
     "The blueprint must cite the real files/symbols to touch and the exact change shape.",
     '',
     ...MANIFEST_JSON_SCHEMA_LINES,
+    '',
+    ...BLUEPRINT_CONCISENESS_RULES_LINES,
     '',
     'ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.',
   ].join('\n');
