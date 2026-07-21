@@ -82,12 +82,6 @@ export interface CoordinatorDeps {
    *  fire a loud notification. A soft breach warns only. Returns the parked todo ids.
    *  Optional — omitted ⇒ no budget enforcement. */
   enforceBudgetCaps?: (project: string) => Promise<string[]>;
-  /** Act on the supervisor decision queue (COORD handoff): apply resolved verdicts
-   *  (escalate/nudge/resume/wait) and time-out unresolved requests to a fail-safe
-   *  escalate, then mark them consumed. Returns the consumed decision ids. The
-   *  daemon detects+enqueues in detectStalls and ACTS here — the LLM only judges
-   *  in between. Optional. */
-  drainDecisions?: (project: string) => Promise<string[]>;
   /** Escalate a todo a worker REJECTED (mechanical gate failed). Optional. */
   escalateRejected?: (project: string, todoId: string) => Promise<void>;
   /** Run the project's DECLARED acceptance gate on a worker-completed todo and
@@ -107,9 +101,22 @@ export interface CoordinatorDeps {
    *  from the MCP tool handlers, so a daemon-side block/reclaim leaves the Bridge
    *  showing a stale in-flight card until a manual refresh. Optional. */
   notifyTodosChanged?: (project: string) => void;
+  /** A reaper/sweep step threw and was swallowed to protect the tick (the "must not
+   *  abort the tick" contract). Called once per swallowed error with the step name and
+   *  the error, so the failure is OBSERVABLE (audit log / metrics) instead of silent.
+   *  Best-effort: a throw from this hook itself is ignored. Optional. */
+  onTickError?: (project: string, step: string, err: unknown) => void;
 }
 
-export interface TickResult { released: string[]; exhausted: string[]; claimed: string[]; spawned: string[]; }
+export interface TickResult {
+  released: string[];
+  exhausted: string[];
+  claimed: string[];
+  spawned: string[];
+  /** Reaper/sweep + per-todo errors swallowed this tick (see onTickError). Empty on a
+   *  clean tick. */
+  tickErrors: Array<{ step: string; error: string }>;
+}
 
 /** Authoritative acceptance-gate verdict (5374e299). `passed` is the only thing
  *  that governs whether a worker's 'accepted' stands; `reasons`/`metrics` are for
@@ -130,6 +137,15 @@ export async function runTick(
   now: string = new Date().toISOString(),
   leaseMs: number = DEFAULT_LEASE_MS,
 ): Promise<TickResult> {
+  // Reaper/sweep steps below must NOT abort the tick on a throw — but a swallowed
+  // error must not go dark either: record it (tickErrors) and surface it via the
+  // optional onTickError hook (audit log / metrics), never both silent AND unbounded.
+  const tickErrors: Array<{ step: string; error: string }> = [];
+  const recordTickError = (step: string, err: unknown): void => {
+    const error = err instanceof Error ? err.message : String(err);
+    tickErrors.push({ step, error });
+    try { deps.onTickError?.(project, step, err); } catch { /* onTickError itself is best-effort */ }
+  };
   const { released, exhausted } = await deps.releaseExpiredClaims(project, now);
   // Hard-crash reap: a dead worker's claim is reclaimed now, not at lease end.
   if (deps.reapDeadClaims) {
@@ -137,7 +153,7 @@ export async function runTick(
       const dead = await deps.reapDeadClaims(project);
       released.push(...dead.reclaimed);
       exhausted.push(...dead.exhausted);
-    } catch { /* reaping must not abort the tick */ }
+    } catch (err) { recordTickError('reapDeadClaims', err); }
   }
   // Claim-independent orphan reap: a LEAF stuck in_progress with no live claim
   // (claimedBy NULL after a restart, or a lease-expired dead worker) is invisible
@@ -148,39 +164,36 @@ export async function runTick(
       const orphans = await deps.reapOrphanedLeaves(project);
       released.push(...orphans.reclaimed);
       exhausted.push(...orphans.exhausted);
-    } catch { /* orphan reaping must not abort the tick */ }
+    } catch (err) { recordTickError('reapOrphanedLeaves', err); }
   }
   // Free pool slots orphaned by dropped/abandoned todos (their worker tmux gone).
   if (deps.reapDeadPoolSlots) {
-    try { await deps.reapDeadPoolSlots(project); } catch { /* slot reaping must not abort the tick */ }
+    try { await deps.reapDeadPoolSlots(project); } catch (err) { recordTickError('reapDeadPoolSlots', err); }
   }
   for (const id of exhausted) {
-    try { await deps.escalateExhausted?.(project, id); } catch { /* escalation must not abort the tick */ }
+    try { await deps.escalateExhausted?.(project, id); } catch (err) { recordTickError(`escalateExhausted:${id}`, err); }
   }
   // Idle-at-prompt stall detection (DOGFOOD #6): file escalations for ALIVE-but-
   // stalled workers so a silent stall surfaces instead of sitting until lease-expiry.
   if (deps.detectStalls) {
-    try { await deps.detectStalls(project); } catch { /* stall detection must not abort the tick */ }
+    try { await deps.detectStalls(project); } catch (err) { recordTickError('detectStalls', err); }
   }
   // P1 governance breaker: per-lane budget/iteration/wall-clock caps → park BLOCKED
   // (non-claimable, cannot re-spawn) + escalate + loud notify. Deterministic; runs
   // right after stall detection, before claiming new work, so a runaway lane is
   // parked this tick rather than spawning alongside it.
   if (deps.enforceBudgetCaps) {
-    try { await deps.enforceBudgetCaps(project); } catch { /* breaker must not abort the tick */ }
+    try { await deps.enforceBudgetCaps(project); } catch (err) { recordTickError('enforceBudgetCaps', err); }
   }
   // P3: rate-cap exhaustion sweep — park leaves stuck paused past the 2h ceiling.
   if (deps.sweepExhaustedHeadless) {
-    try { await deps.sweepExhaustedHeadless(project); } catch { /* sweep must not abort the tick */ }
-  }
-  if (deps.drainDecisions) {
-    try { await deps.drainDecisions(project); } catch { /* decision drain must not abort the tick */ }
+    try { await deps.sweepExhaustedHeadless(project); } catch (err) { recordTickError('sweepExhaustedHeadless', err); }
   }
   let ready = deps.listReadyTodos(project);
   // Claim-time liveness filter (P4): drop probe-gated todos whose env is down. Pure
   // filter — a failing probe is just not claimed this tick (no status write).
   if (deps.claimGuard) {
-    try { ready = await deps.claimGuard(project, ready); } catch { /* probe filter must not abort the tick */ }
+    try { ready = await deps.claimGuard(project, ready); } catch (err) { recordTickError('claimGuard', err); }
   }
   // Priority-ordered claiming: deps GATE eligibility; priority ORDERS the eligible set so a
   // human can push work ahead without faking a dependency. Lower number = higher priority
@@ -214,8 +227,9 @@ export async function runTick(
         claimed.push(c.id);
         const fired = await deps.launchWorker(project, c);
         if (fired) { owned = false; spawned.push(c.id); } // leaf continuation owns the slot now
-      } catch {
+      } catch (err) {
         // one bad todo must not abort the whole tick; the lease handles recovery
+        recordTickError(`claim-dispatch:${t.id}`, err);
       } finally {
         if (owned) deps.releaseLeafSlot(laneProject);
       }
@@ -238,8 +252,9 @@ export async function runTick(
           claimed.push(c.id);
           const ok = await deps.launchWorker(project, c);
           if (ok) spawned.push(c.id);
-        } catch {
+        } catch (err) {
           // one bad todo must not abort the whole tick; the lease handles recovery
+          recordTickError(`claim-dispatch:${t.id}`, err);
         }
       }
     };
@@ -249,9 +264,9 @@ export async function runTick(
   // Bridge doesn't show a stale in-flight card after a block/reclaim happened
   // entirely server-side (no MCP tool call to ride the existing broadcast).
   if (released.length || exhausted.length || claimed.length) {
-    try { deps.notifyTodosChanged?.(project); } catch { /* notify must not abort the tick */ }
+    try { deps.notifyTodosChanged?.(project); } catch (err) { recordTickError('notifyTodosChanged', err); }
   }
-  return { released, exhausted, claimed, spawned };
+  return { released, exhausted, claimed, spawned, tickErrors };
 }
 
 /** Route a worker's completion to the store. ACCEPTED → done + unblock dependents.

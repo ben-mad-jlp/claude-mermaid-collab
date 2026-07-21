@@ -12,7 +12,7 @@ import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInf
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
-import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled, type Escalation } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
 import { regenerateProjectDigest, type DigestLlm } from './project-digest';
 import { makeDigestLlm } from './digest-llm';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
@@ -1707,13 +1707,6 @@ export function todoIsMissionScoped(project: string, todoId: string, todos: Todo
   return false;
 }
 
-/** A4 (crit_f1404796_9): the single escalation-auto-answer rule — mission scope (A3)
- *  AND NOT the per-escalation operator override. Pure over its inputs. */
-export function mayAutoAnswerEscalation(project: string, esc: Escalation, todos: Todo[]): boolean {
-  if (esc.operatorGated) return false;
-  return esc.todoId != null && todoIsMissionScoped(project, esc.todoId, todos);
-}
-
 /** Store-truth decision: should the daemon settle this epic's [LAND] leaf so the
  *  MISSION_AUTOLAND_ARMED path can land it? PURE — structural checks only (no DB,
  *  no git). The mission/active gate and the real tsc/merge/gate proof are applied
@@ -2414,6 +2407,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     notifyTodosChanged: (project: string) => {
       try { getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' } as any); }
       catch { /* broadcast is best-effort */ }
+    },
+    // A reaper/sweep step threw and runTick swallowed it (must-not-abort-the-tick
+    // contract) — surface it into the audit trail instead of leaving it silent, so a
+    // reaper that starts throwing every tick is observable (open-problem #10/obs).
+    onTickError: (project: string, step: string, err: unknown) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ tickError: step, reason }) });
     },
     // Concurrent-dispatch budget = the per-project pool size (uniform across types),
     // defaulting to DEFAULT_SLOTS_PER_TYPE when unset. Lets the daemon run up to N

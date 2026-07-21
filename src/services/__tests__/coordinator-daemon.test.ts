@@ -337,6 +337,70 @@ describe('runTick', () => {
   });
 });
 
+describe('runTick — swallowed reaper errors are recorded, not silent', () => {
+  test('a clean tick reports an empty tickErrors', async () => {
+    const deps = makeDeps({ listReadyTodos: () => [] });
+    const result = await runTick(deps, 'proj');
+    expect(result.tickErrors).toEqual([]);
+  });
+
+  test('a thrown reaper step is captured in tickErrors with its step name + message', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      enforceBudgetCaps: async () => { throw new Error('breaker blew up'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.tickErrors).toEqual([{ step: 'enforceBudgetCaps', error: 'breaker blew up' }]);
+  });
+
+  test('onTickError is invoked once per swallowed error, with project + step + the error', async () => {
+    const calls: Array<[string, string, unknown]> = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      detectStalls: async () => { throw new Error('capture-pane blew up'); },
+      onTickError: (project, step, err) => { calls.push([project, step, err]); },
+    });
+    await runTick(deps, 'proj');
+    expect(calls.length).toBe(1);
+    expect(calls[0][0]).toBe('proj');
+    expect(calls[0][1]).toBe('detectStalls');
+    expect((calls[0][2] as Error).message).toBe('capture-pane blew up');
+  });
+
+  test('multiple swallowed reaper errors in one tick are all captured, in order', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      reapDeadClaims: async () => { throw new Error('reap-dead blew up'); },
+      detectStalls: async () => { throw new Error('stall-detect blew up'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.tickErrors).toEqual([
+      { step: 'reapDeadClaims', error: 'reap-dead blew up' },
+      { step: 'detectStalls', error: 'stall-detect blew up' },
+    ]);
+  });
+
+  test('a per-todo claim-dispatch error is captured with the todo id (legacy path)', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [makeTodo('bad-todo')],
+      claimTodo: async () => { throw new Error('claim blew up'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.tickErrors).toEqual([{ step: 'claim-dispatch:bad-todo', error: 'claim blew up' }]);
+  });
+
+  test('onTickError itself throwing does not abort the tick or the error recording', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [makeTodo('a')],
+      enforceBudgetCaps: async () => { throw new Error('breaker blew up'); },
+      onTickError: () => { throw new Error('hook blew up too'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.tickErrors).toEqual([{ step: 'enforceBudgetCaps', error: 'breaker blew up' }]);
+    expect(result.claimed).toEqual(['a']);
+  });
+});
+
 describe('handleWorkerComplete', () => {
   test('calls completeTodo with accepted and returns promoted', async () => {
     const deps = makeDeps({

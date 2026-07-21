@@ -1,11 +1,11 @@
 /**
- * mission-loop.ts — the mission driver nudges the steward for convergence.
+ * mission-loop.ts — the mission driver nudges the conductor for convergence.
  *
- * A per-watched-project orchestrator pass that nudges the steward to drive their
- * active mission. Mission status is derived (never stored); the pass reads it and
- * decides whether to nudge:
+ * A per-watched-project orchestrator pass that nudges the (autonomous) conductor to
+ * drive their active mission. Mission status is derived (never stored); the pass
+ * reads it and decides whether to nudge:
  *
- *   - needs-discovery / needs-verify: nudge the steward (with status-specific instruction)
+ *   - needs-discovery / needs-verify: nudge the conductor (with status-specific instruction)
  *   - blocked: nudge ONCE, then silence (lastNudgeAt prevents spam)
  *   - building / over-budget / terminal (converged/abandoned): no nudge
  *
@@ -36,7 +36,7 @@ export const MISSION_NUDGE_ESCALATION_MS = 2 * 60 * 60 * 1000; // 2 hour escalat
 // (1 listTodos) — plus one listTodos to enumerate the roots. On the 8MB self-project with
 // ~5 missions that is ~1 + 3×5 = 16 synchronous full-table `.all()` scans (each ~26-130ms)
 // EVERY tick, holding the shared HTTP event loop for hundreds of ms. None of that work is
-// latency-critical: the pass only NUDGES the steward for a mission's derived status, and
+// latency-critical: the pass only NUDGES the conductor for a mission's derived status, and
 // the nudge itself is already debounced by a 15-MINUTE cooldown — so 30s freshness buys
 // nothing. Gate the whole pass to run at most once per MISSION_LOOP_INTERVAL_MS per project
 // (same proven shape as reconcile-pass's RECONCILE_INTERVAL_MS). This is a HYGIENE/advance
@@ -77,7 +77,7 @@ export interface MissionLoopStepInput {
   mission: { todoId: string; status: MissionStatus; lastNudgeAt: number | null; lastNudgeKey: string | null; title: string; active: boolean };
   rollup: { capability: { met: number; total: number }; gaps?: number; awaitingVerify?: number };
   ownerSession: string | null;
-  /** Is the steward session idle (safe to nudge without interrupting active work)? */
+  /** Is the conductor session idle (safe to nudge without interrupting active work)? */
   idle: boolean;
   now: number;
   cooldownMs: number;
@@ -211,7 +211,7 @@ export interface MissionLoopResult {
 }
 
 /**
- * Run one mission-loop pass for a project. Nudges the steward for their active,
+ * Run one mission-loop pass for a project. Nudges the conductor for their active,
  * non-terminal missions. The orchestrator only calls this for WATCHED projects —
  * that + the mission `active` flag are the gates; there is no per-project on/off mode.
  */

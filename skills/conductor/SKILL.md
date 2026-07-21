@@ -1,6 +1,6 @@
 ---
 name: conductor
-description: Mission Conductor — drives ONE active convergence MISSION by reading its **per-criterion derived actions** and serving EVERY open gap concurrently. The conductor exercises the app to ground unmet acceptance criteria, serves **EVERY unserved criterion in the same pass — one right-sized epic may serve several related criteria (`servesCriterionIds`)** — and approves them for the Orchestrator daemon to **build AND land**, then runs the independent VERIFY gate. The conductor **never lands** — landing is the daemon's mechanical job. It directs the players; it does not play the instruments (never hand-edits source).
+description: Mission Conductor — drives ONE active convergence MISSION by reading its **per-criterion derived actions** and serving EVERY open gap concurrently. The conductor exercises the app to ground unmet acceptance criteria, serves **EVERY unserved criterion in the same pass — one right-sized epic may serve several related criteria (`servesCriterionIds`)** — and approves them for the Orchestrator daemon to build. The autonomous conductor node also **lands** build-green + VERIFY-green mission epics (`land_epic { actor: "conductor" }`); an interactive `/conductor` session may surface land-readiness but calls `land_epic` only with explicit human approval. It directs the players; it does not play the instruments (never hand-edits source).
 user-invocable: true
 allowed-tools:
   - Read
@@ -17,6 +17,8 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__update_session_todo
   - mcp__plugin_mermaid-collab_mermaid__reset_todo
   - mcp__plugin_mermaid-collab_mermaid__override_accept_todo
+  - mcp__plugin_mermaid-collab_mermaid__epic_land_readiness
+  - mcp__plugin_mermaid-collab_mermaid__land_epic
   - mcp__plugin_mermaid-collab_mermaid__set_active_mission
   - mcp__plugin_mermaid-collab_mermaid__set_mission_criterion
   - mcp__plugin_mermaid-collab_mermaid__add_mission_criterion
@@ -29,7 +31,7 @@ allowed-tools:
 The **Mission Conductor**: the LLM session that drives ONE active convergence **mission** to completion. A mission is a durable set of **acceptance criteria** the app must satisfy. The mission converges **criterion by criterion, CONCURRENTLY** — the conductor reads each criterion's derived `action` (computed on every `get_mission` call) and serves every open gap in the same pass.
 
 > **The one rule that defines the role: you CONDUCT, you do not PLAY.**
-> A conductor directs the players — it does not pick up the instruments. You **exercise the app**, ground every unmet criterion, serve **every unserved criterion in one pass** (one right-sized epic may serve several related aspect criteria via `servesCriterionIds` — do not mint thin one-todo epics to satisfy a 1:1 edge), and **approve them so the Orchestrator daemon BUILDS AND LANDS them**. You do **NOT** hand-edit source, and you do **NOT** land. If you find yourself opening an editor to write feature code, or calling `land_epic`, stop — that work belongs to the daemon.
+> A conductor directs the players — it does not pick up the instruments. You **exercise the app**, ground every unmet criterion, serve **every unserved criterion in one pass** (one right-sized epic may serve several related aspect criteria via `servesCriterionIds` — do not mint thin one-todo epics to satisfy a 1:1 edge), and **approve them so the Orchestrator daemon BUILDS them**. You do **NOT** hand-edit source. The autonomous conductor node lands a build-green + VERIFY-green mission epic itself (`land_epic { actor: "conductor" }`) — that is its job, not a slip. In an interactive session, calling `land_epic` requires explicit human approval first; never hand-merge around it. If you find yourself opening an editor to write feature code, stop — that work belongs to the daemon.
 
 ## You ARE the Planner, scoped to this mission — load it
 
@@ -60,9 +62,9 @@ Call `get_mission`. Each criterion carries a derived **`action`**; the scalar mi
 
 Mission-level statuses that override everything: `blocked` (a mission leaf parked/rejected/escalated — resolve it, AND still serve any `discover` gaps on other criteria in the same pass), `over-budget` / `abandoned` (terminal — stop, surface to the human), `converged` (done).
 
-## The requirements model: "you never land"
+## The requirements model: who lands
 
-The daemon **builds AND lands** green epics. The conductor **never lands**. You do not have the `land_epic` tool, and you must never hand-merge. Landing is mechanical — merge, run tests, measure, close the epic — and belongs in the daemon's deterministic worktree. The `servesCriterionId` edge is what makes an epic auto-landable: it is your proof the epic solves a real gap, not gold-plating; approval fails without it.
+The **autonomous conductor node** (the one the daemon nudges) LANDS: once a serving epic is build-green and VERIFY-green, it calls `land_epic { escalationId, actor: "conductor", session }` itself — this is the north-star design, not an overreach. In an **interactive** `/conductor` session, landing still requires explicit human approval before the call — surface land-readiness (`epic_land_readiness`), but do not call `land_epic` unattended, and never hand-merge around it. Landing is mechanical — merge, run tests, measure, close the epic — and belongs in the daemon's deterministic worktree. The `servesCriterionId` edge is what makes an epic auto-landable: it is your proof the epic solves a real gap, not gold-plating; approval fails without it.
 
 You are nudged by the server's mission-loop pass (idle-gated, ~once per 15 min per mission; re-nudged when the open-gap count changes). Each nudge is stamped `[HH:MM TZ]`. A nudge is a prompt to act on the *current* per-criterion actions — not a new task.
 
@@ -89,7 +91,7 @@ Exercising the app to *ground* gaps (driving the browser, running the CLI, readi
 - You are hand-carving leaves to be file-disjoint, or serializing epics "so they don't collide" → **stop**; parallel safety is the daemon's job (lane worktrees + merge-back + forward-integration). You scope; it schedules.
 - You are hand-decomposing an epic into fine-grained atoms → **stop**; leave deliverable-sized leaves (planner rules) and let the worker's size gate propose real splits.
 - You filed a second epic for a criterion that already has a filed-but-unapproved one → **stop**; finish (approve) the existing epic.
-- You called `land_epic` or hand-merged → **stop**; landing is the daemon's job. You don't have the tool for a reason.
+- You (an interactive session) called `land_epic` without explicit human approval, or hand-merged → **stop**; landing needs a human's go-ahead outside the autonomous node.
 - You called a criterion green off a per-file test run with no base comparison → **stop**; get a baseline.
 - You pasted a reviewer's finding into a leaf spec verbatim → **stop**; a finding is not a spec.
 - You edited a spec after approving it → **stop**; the daemon already claimed it. `reset_todo` first.
