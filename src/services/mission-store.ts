@@ -137,6 +137,16 @@ export interface MissionRollup {
   gaps: number;
   /** Criteria whose derived action is 'verify' — landed, awaiting the independent gate. */
   awaitingVerify: number;
+  /** True when this rollup came from the CHEAP (facts-free) path — listMissions with
+   *  `withFacts: false`. `gaps`/`awaitingVerify` are reported as 0 (not computed — they
+   *  need the per-criterion serving-epic/ledger facts scan the cheap path deliberately
+   *  skips) and `status` is deriveCheapMissionStatus's approximation, not the true derived
+   *  status (which can disagree — e.g. cheap reads 'building' while the full path reads
+   *  'needs-discovery'). A caller making a scheduling/conductor decision off gaps/
+   *  awaitingVerify/status MUST check this flag and fall back to getMission /
+   *  getMissionRollup (or listMissions with withFacts:true) when it's true. False (the
+   *  default) when computed from the full collectMissionStatusFacts scan. */
+  factsOmitted: boolean;
 }
 
 const SCHEMA = `
@@ -275,6 +285,33 @@ export function stampConductorRun(project: string, todoId: string, key: string):
 }
 
 /**
+ * Centralized short-id resolution for every public mission-store entry point keyed by a
+ * todoId/missionId. Repo convention: a short id is the LEADING 8 hex chars of the full
+ * todo id, resolved by `startsWith` (see resolveShortId, todo-store.ts). A store function
+ * that looks a mission (or its criteria/rollup) up by SQL-exact todoId would silently see
+ * EMPTY results for a short id — that bug already bit once (get_mission had to hand-roll a
+ * resolve-then-reuse workaround in mission-tools.ts before this helper existed, because
+ * getMissionRollup/listCriteriaWithActions did not resolve on their own). Every public
+ * entry point that takes a todoId now resolves through this ONE helper first, so a short
+ * id behaves identically everywhere — no more per-call re-resolution.
+ *
+ * Tries the id as given first (the common, cheap full-id case — a single indexed lookup).
+ * On a miss, resolves the prefix via resolveShortId. resolveShortId THROWS on an ambiguous
+ * prefix (matches >1 todo); this swallows that and returns undefined instead — resolveDepId
+ * -style (claimability.ts:152): an ambiguous OR dangling short id is NOT-FOUND, never a
+ * silently-picked guess.
+ */
+function resolveMissionTodoId(project: string, todoId: string): string | undefined {
+  const db = openDb(project);
+  if (db.query('SELECT 1 FROM mission WHERE todoId = ?').get(todoId)) return todoId;
+  try {
+    return resolveShortId(project, todoId) ?? undefined;
+  } catch {
+    return undefined; // ambiguous prefix — never guess
+  }
+}
+
+/**
  * Read a mission's control ROW ONLY — the stored columns, with NO derived status.
  * Deliberately does NOT call collectMissionStatusFacts (a project-wide todo scan plus
  * one ledger scan per live epic), so a caller that only needs the stored fields — e.g.
@@ -283,14 +320,10 @@ export function stampConductorRun(project: string, todoId: string, key: string):
  * needing the true derived status must use getMission.
  */
 export function getMissionRaw(project: string, todoId: string): MissionRow | undefined {
+  const resolved = resolveMissionTodoId(project, todoId);
+  if (!resolved) return undefined;
   const db = openDb(project);
-  let row = db.query('SELECT * FROM mission WHERE todoId = ?').get(todoId) as Record<string, unknown> | null;
-  if (!row) {
-    const resolved = resolveShortId(project, todoId);
-    if (resolved && resolved !== todoId) {
-      row = db.query('SELECT * FROM mission WHERE todoId = ?').get(resolved) as Record<string, unknown> | null;
-    }
-  }
+  const row = db.query('SELECT * FROM mission WHERE todoId = ?').get(resolved) as Record<string, unknown> | null;
   if (!row) return undefined;
   return rowToMission(row);
 }
@@ -332,18 +365,19 @@ export function upsertMission(
 export function setMissionApproved(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
+  const id = m.todoId; // canonical — a short id must behave identically from here on
   openDb(project)
     .prepare('UPDATE mission SET awaitingApprovalSince = NULL, updatedAt = ? WHERE todoId = ?')
-    .run(nowMs(), todoId);
+    .run(nowMs(), id);
   const all = listMissions(project);
-  const self = all.find((x) => x.node.id === todoId);
+  const self = all.find((x) => x.node.id === id);
   const session = self?.ownerSession ?? self?.assigneeSession ?? null;
-  if (session && sessionHasActiveMission(project, session, todoId)) {
-    enqueueMission(project, todoId);
+  if (session && sessionHasActiveMission(project, session, id)) {
+    enqueueMission(project, id);
   } else {
-    setMissionActive(project, todoId, true);
+    setMissionActive(project, id, true);
   }
-  return getMission(project, todoId)!;
+  return getMission(project, id)!;
 }
 
 /** Human-set abandonment stamp. A mission-requirements concept: mark a mission
@@ -355,11 +389,12 @@ export function setMissionApproved(project: string, todoId: string): MissionRow 
 export function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
+  const id = m.todoId; // canonical — a short id must behave identically from here on
   openDb(project)
     .prepare('UPDATE mission SET abandonedAt = ?, updatedAt = ? WHERE todoId = ?')
-    .run(abandonedAt, nowMs(), todoId);
-  deactivateIfTerminal(project, todoId);
-  return getMission(project, todoId)!;
+    .run(abandonedAt, nowMs(), id);
+  deactivateIfTerminal(project, id);
+  return getMission(project, id)!;
 }
 
 /** Stamp archivedAt on a batch of missions by their todoId (idempotent). Used by the
@@ -411,25 +446,23 @@ export function listArchivedMissions(
 }
 
 /** Clear archivedAt on one mission (restore from history). No-op-safe if already hot.
- *  Resolves short ids via resolveShortId (same convention as getMission:270-278). */
+ *  Resolves short ids via the centralized resolveMissionTodoId helper. */
 export function restoreMission(project: string, todoId: string): MissionRow {
   const db = openDb(project);
-  let resolvedId = todoId;
-  if (!db.query('SELECT 1 FROM mission WHERE todoId = ?').get(todoId)) {
-    const resolved = resolveShortId(project, todoId);
-    if (resolved === null) throw new Error(`mission not found: ${todoId}`);
-    resolvedId = resolved;
-  }
+  const resolvedId = resolveMissionTodoId(project, todoId);
+  if (!resolvedId) throw new Error(`mission not found: ${todoId}`);
   db.prepare('UPDATE mission SET archivedAt = NULL WHERE todoId = ?').run(resolvedId);
   const row = db.query('SELECT * FROM mission WHERE todoId = ?').get(resolvedId) as Record<string, unknown>;
   return rowToMission(row);
 }
 
-/** Delete a mission's control state (does NOT touch the graph node). */
+/** Delete a mission's control state (does NOT touch the graph node). Resolves a short
+ *  id; a not-found id is a silent no-op (unchanged prior behavior — this never threw). */
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
-  db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(todoId);
-  db.prepare('DELETE FROM mission WHERE todoId = ?').run(todoId);
+  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
+  db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
 }
 
 /** Delete mission control rows (+ their criteria) whose todoId is NOT in the set of
@@ -450,11 +483,12 @@ export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): 
 }
 
 /** Set a mission's active flag directly (low-level; prefer activateMission to keep
- *  the one-active-per-session invariant). */
+ *  the one-active-per-session invariant). Resolves a short id. */
 export function setMissionActive(project: string, todoId: string, active: boolean): void {
+  const id = resolveMissionTodoId(project, todoId) ?? todoId;
   const res = openDb(project)
     .prepare('UPDATE mission SET active = ?, updatedAt = ? WHERE todoId = ?')
-    .run(active ? 1 : 0, nowMs(), todoId);
+    .run(active ? 1 : 0, nowMs(), id);
   if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
 }
 
@@ -468,7 +502,7 @@ export function setMissionActive(project: string, todoId: string, active: boolea
 export function deactivateIfTerminal(project: string, todoId: string): void {
   const m = getMission(project, todoId);
   if (m && m.active && isMissionTerminal(m)) {
-    setMissionActive(project, todoId, false);
+    setMissionActive(project, m.todoId, false);
     // B6 observability — only when a write ACTUALLY happened (this branch clears active).
     // Kept cheap: this runs from the listMissions terminal-active sweep, so we record at
     // most once per transition (the guard is idempotent). Fail-open: never break the sweep.
@@ -502,13 +536,14 @@ function missionIdOfCriterion(project: string, criterionId: string): string | un
 export function activateMission(project: string, todoId: string): string[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
+  const id = m.todoId; // canonical — a short id must behave identically from here on
   const all = listMissions(project);
-  const self = all.find((x) => x.node.id === todoId);
+  const self = all.find((x) => x.node.id === id);
   const session = self?.ownerSession ?? self?.assigneeSession ?? null;
   const deactivated: string[] = [];
   if (session) {
     for (const other of all) {
-      if (other.node.id === todoId) continue;
+      if (other.node.id === id) continue;
       const os = other.ownerSession ?? other.assigneeSession ?? null;
       if (os === session && other.mission.active) {
         setMissionActive(project, other.node.id, false);
@@ -516,10 +551,10 @@ export function activateMission(project: string, todoId: string): string[] {
       }
     }
   }
-  setMissionActive(project, todoId, true);
+  setMissionActive(project, id, true);
   openDb(project)
     .prepare('UPDATE mission SET queuePos = NULL, updatedAt = ? WHERE todoId = ?')
-    .run(nowMs(), todoId);
+    .run(nowMs(), id);
   return deactivated;
 }
 
@@ -532,13 +567,14 @@ export function activateMission(project: string, todoId: string): string[] {
 export function enqueueMission(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
+  const id = m.todoId; // canonical — a short id must behave identically from here on
   const all = listMissions(project);
-  const self = all.find((x) => x.node.id === todoId);
+  const self = all.find((x) => x.node.id === id);
   const session = self?.ownerSession ?? self?.assigneeSession ?? null;
   let maxPos = 0;
   if (session) {
     for (const other of all) {
-      if (other.node.id === todoId) continue;
+      if (other.node.id === id) continue;
       const os = other.ownerSession ?? other.assigneeSession ?? null;
       if (os === session && other.mission.queuePos != null) {
         maxPos = Math.max(maxPos, other.mission.queuePos);
@@ -548,8 +584,8 @@ export function enqueueMission(project: string, todoId: string): MissionRow {
   const nextPos = maxPos + 1;
   openDb(project)
     .prepare('UPDATE mission SET active = 0, queuePos = ?, updatedAt = ? WHERE todoId = ?')
-    .run(nextPos, nowMs(), todoId);
-  return getMission(project, todoId)!;
+    .run(nextPos, nowMs(), id);
+  return getMission(project, id)!;
 }
 
 /**
@@ -664,18 +700,22 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
   }));
 }
 
-/** Add an acceptance criterion (a capability assertion the mission converges to). */
+/** Add an acceptance criterion (a capability assertion the mission converges to).
+ *  Resolves a short todoId to the canonical id first — inserting against the raw short id
+ *  would create a mission_criterion row that listCriteria(fullId) can never see. */
 export function addCriterion(project: string, todoId: string, text: string): MissionCriterion {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('criterion text is empty');
-  const existing = listCriteria(project, todoId);
-  const id = `crit_${todoId.slice(0, 8)}_${existing.length + 1}_${nowMs().toString(36)}`;
+  const resolved = resolveMissionTodoId(project, todoId);
+  if (!resolved) throw new Error(`mission not found: ${todoId}`);
+  const existing = listCriteria(project, resolved);
+  const id = `crit_${resolved.slice(0, 8)}_${existing.length + 1}_${nowMs().toString(36)}`;
   const order = existing.length;
   const ts = nowMs();
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
-    .run(id, todoId, trimmed, order, ts);
-  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null };
+    .run(id, resolved, trimmed, order, ts);
+  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null };
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
@@ -1001,11 +1041,23 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
   // getMission is a hot, fundamental read — it must NOT crash because the OPTIONAL worker-ledger
   // read failed (e.g. the ledger DB is momentarily unavailable / not yet created). Degrade to
   // no run-facts: the mission still derives a status from its criteria + epic states.
+  //
+  // CRITICAL: a ledger-read failure is NOT the same signal as "no runs happened", and must NOT be
+  // degraded to that. Treating a throw as empty runs would make servingEpicLive/hasBuildingLeaf
+  // read false for a mission that is actually mid-build, flipping deriveCriterionAction/
+  // deriveMissionStatus to 'discover'/'needs-discovery' — which makes the autonomous conductor
+  // RE-FILE a serving epic for a criterion that's already being served. That direction of error
+  // costs real money (a duplicate epic + build spend). The other direction — a momentary ledger
+  // hiccup misread as "still building" — just delays one conductor pass. So on a ledger-read
+  // failure we fail toward LIVE: every epic still open (status !== 'done') is treated as though it
+  // has motion, via ledgerUnavailable below, rather than falling through to "no serving epic".
   let runs: ReturnType<typeof listLeafRuns> = [];
+  let ledgerUnavailable = false;
   try {
     runs = epics.flatMap((e) => listLeafRuns({ project, epicId: e.id }));
   } catch {
     runs = [];
+    ledgerUnavailable = true;
   }
   // Blocked/building state is LIVE only from epics still in play (see liveRunsOf) — a converged
   // mission that once had a parked leaf under a since-landed epic must not read "blocked" forever
@@ -1026,8 +1078,16 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
     abandonedAt: m.abandonedAt,
     budgetUsd: m.budgetUsd,
     spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
+    // Ledger unavailable: we cannot see the leaf runs that would normally reveal a blocked
+    // (rejected/parked) leaf, so we can't claim 'blocked' either — false here, same as the prior
+    // degrade-to-empty behavior (a ledger hiccup must never manufacture a block it can't see).
     hasBlockedLeaf: liveRuns.some((r) => r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
-    hasBuildingLeaf: liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused') || hasBuildingChildLeaf,
+    // Ledger unavailable: force LIVE (building) rather than fall through to the ledger-derived
+    // signal, which would read false and let a still-building mission misread as idle/discoverable
+    // (see the comment above the try/catch — this is the safe-direction failure).
+    hasBuildingLeaf: ledgerUnavailable
+      ? liveEpicIds.size > 0
+      : liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused') || hasBuildingChildLeaf,
     hasLandedEpic: epics.some((e) => e.status === 'done'),
     hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
     criteria: criteria.map((c) => {
@@ -1041,12 +1101,19 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
       // Live = the serving open epic has actual motion: a pending/paused ledger run, or a
       // ready/in_progress child leaf (covers approve→claim gap AND a ready land leaf).
       // A filed-but-unapproved epic is NOT live — its criterion stays 'discover'.
-      const servingEpicLive = serving.some((e) =>
-        e.status !== 'done' && (
-          runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
-          allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
-            (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'))
-        ));
+      //
+      // ledgerUnavailable: we cannot read the run motion signal at all, so a real serving OPEN
+      // epic must NOT fall back to "not live" — that would derive 'discover' for a criterion that
+      // is actually mid-build and cause the conductor to re-file a duplicate serving epic (real
+      // spend). Treat any open serving epic as live until the ledger is readable again.
+      const servingEpicLive = ledgerUnavailable
+        ? serving.some((e) => e.status !== 'done')
+        : serving.some((e) =>
+          e.status !== 'done' && (
+            runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
+            allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
+              (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'))
+          ));
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick
       // accrues its true thrash history (the serve-cap escalation trigger).
       const servedEpicCount = allEpicsEver.filter(
@@ -1068,7 +1135,9 @@ export function listCriteriaWithActions(
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m);
   const byId = new Map(facts.criteria.map((c) => [c.id, c]));
-  return listCriteria(project, todoId).map((c) => {
+  // Use the RESOLVED id (m.todoId), not the raw todoId param — a short id here used to
+  // return empty criteria (listCriteria was queried on the unresolved arg).
+  return listCriteria(project, m.todoId).map((c) => {
     const f = byId.get(c.id);
     return {
       ...c,
@@ -1178,6 +1247,10 @@ export function listMissions(
           status: mission.status ?? deriveCheapMissionStatus(mission, epics, criteria),
           gaps: 0,
           awaitingVerify: 0,
+          // Cheap path: gaps/awaitingVerify are NOT computed (see MissionRollup.factsOmitted) and
+          // status is deriveCheapMissionStatus's approximation — flag it so a caller relying on this
+          // for a scheduling decision knows to fall back to the full (withFacts:true) path instead.
+          factsOmitted: true,
         };
     out.push({
       node: { id: node.id, title: node.title, status: node.status },
@@ -1256,16 +1329,19 @@ export function _resetMissionCreateThrottle(project?: string): void {
 export function getMissionRollup(project: string, todoId: string): MissionRollup {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
+  // Use the RESOLVED id (m.todoId), not the raw todoId param — a short id here used to
+  // return an empty rollup (epics/criteria were both queried on the unresolved arg).
+  const id = m.todoId;
   const epics = listTodos(project, { includeCompleted: true }).filter(
-    (t) => t.parentId === todoId && t.status !== 'dropped' && isEpic(t),
+    (t) => t.parentId === id && t.status !== 'dropped' && isEpic(t),
   );
   const mechDone = epics.filter((e) => e.status === 'done').length;
-  const criteria = listCriteria(project, todoId);
+  const criteria = listCriteria(project, id);
   const capMet = criteria.filter((c) => c.met).length;
   const facts = collectMissionStatusFacts(project, m);
   const actions = facts.criteria.map(deriveCriterionAction);
   return {
-    todoId,
+    todoId: id,
     mechanical: { done: mechDone, total: epics.length },
     capability: { met: capMet, total: criteria.length },
     converged: criteria.length > 0 && capMet === criteria.length,
@@ -1273,5 +1349,6 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
     status: deriveMissionStatus(facts),
     gaps: actions.filter((a) => a === 'discover').length,
     awaitingVerify: actions.filter((a) => a === 'verify').length,
+    factsOmitted: false,
   };
 }

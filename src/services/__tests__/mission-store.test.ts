@@ -8,7 +8,7 @@ import {
 } from '../todo-store';
 import {
   upsertMission, getMission, deleteMission,
-  addCriterion, listCriteria, setCriterionMet, removeCriterion,
+  addCriterion, listCriteria, listCriteriaWithActions, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
   CRITERION_SERVE_CAP,
@@ -83,6 +83,61 @@ describe('mission-store: control state', () => {
     upsertMission(project, id);
     const short = id.slice(0, 8);
     expect(getMission(project, short)).toEqual(getMission(project, id));
+  });
+
+  test('short id resolves identically via getMissionRollup, listCriteriaWithActions, and addCriterion', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    addCriterion(project, id, 'seeded via full id');
+    const short = id.slice(0, 8);
+
+    // getMissionRollup: used to return an EMPTY rollup for a short id (its epics/criteria
+    // sub-queries were keyed on the raw arg, not the resolved mission row).
+    expect(getMissionRollup(project, short)).toEqual(getMissionRollup(project, id));
+    expect(getMissionRollup(project, short).capability.total).toBe(1);
+
+    // listCriteriaWithActions: same bug family — its listCriteria call used the raw arg.
+    const viaShort = listCriteriaWithActions(project, short);
+    const viaFull = listCriteriaWithActions(project, id);
+    expect(viaShort).toHaveLength(1);
+    expect(viaShort).toEqual(viaFull);
+
+    // addCriterion: inserting against a short id used to create an orphaned criterion row
+    // that listCriteria(fullId) could never see.
+    const added = addCriterion(project, short, 'seeded via short id');
+    expect(added.todoId).toBe(id); // resolved to the canonical full id, not stored as short
+    expect(listCriteria(project, id).map((c) => c.text)).toContain('seeded via short id');
+  });
+
+  test('ambiguous short-id prefix resolves to not-found, never a guessed match', async () => {
+    // Two todos whose full ids happen to share an 8-hex prefix are indistinguishable by that
+    // prefix — resolveDepId-style (claimability.ts:152), this must read as NOT-FOUND, never
+    // silently pick one. createTodo always mints a fresh uuid, so the collision is forced via
+    // a raw insert (same technique as archiveMissionRaw above) into the SAME todos.db the
+    // mission node lives in.
+    const a = await makeMissionNode('[MISSION] a');
+    upsertMission(project, a);
+    const prefix = a.slice(0, 8);
+    const bId = `${prefix}${'1'.repeat(a.length - 8)}`;
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    const now = new Date().toISOString();
+    db.exec(
+      `INSERT INTO todos (id, ownerSession, title, status, ord, createdAt, updatedAt, kind)
+       VALUES ('${bId}', 's1', '[MISSION] b', 'todo', 999999, '${now}', '${now}', 'mission')`,
+    );
+    db.close();
+    _closeProject(project); // force todo-store to reopen its cached handle and see the new row
+
+    expect(getMission(project, prefix)).toBeUndefined();
+    expect(() => getMissionRollup(project, prefix)).toThrow(/mission not found/);
+    // The FULL id is unaffected by the collision — exact match still resolves.
+    expect(getMission(project, a)).toBeDefined();
+  });
+
+  test('unknown short id (no matching todo at all) resolves to not-found', async () => {
+    expect(getMission(project, 'deadbeef')).toBeUndefined();
+    expect(() => getMissionRollup(project, 'deadbeef')).toThrow(/mission not found/);
+    expect(() => addCriterion(project, 'deadbeef', 'x')).toThrow(/mission not found/);
   });
 
   test('deleteMission removes control state + criteria', async () => {
@@ -824,5 +879,52 @@ describe('deriveCheapMissionStatus — list-badge status keys off CRITERIA, not 
   test('abandoned / unapproved take precedence over the criteria gauge', () => {
     expect(deriveCheapMissionStatus({ abandonedAt: 1, awaitingApprovalSince: null }, [], met(2))).toBe('abandoned');
     expect(deriveCheapMissionStatus({ abandonedAt: null, awaitingApprovalSince: 1 }, [], met(2))).toBe('unapproved');
+  });
+});
+
+describe('listMissions withFacts:false — cheap rollup is flagged, never mistaken for the full one', () => {
+  test('cheap path sets rollup.factsOmitted:true and reports gaps/awaitingVerify as 0', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    addCriterion(project, id, 'unserved gap'); // full path would read this as a real gap (>0)
+
+    const cheap = listMissions(project, { withFacts: false }).find((m) => m.node.id === id)!;
+    expect(cheap.rollup.factsOmitted).toBe(true);
+    expect(cheap.rollup.gaps).toBe(0);
+    expect(cheap.rollup.awaitingVerify).toBe(0);
+  });
+
+  test('full path (default / withFacts:true) sets rollup.factsOmitted:false and reports the real gap', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    addCriterion(project, id, 'unserved gap');
+
+    const full = listMissions(project, { withFacts: true }).find((m) => m.node.id === id)!;
+    expect(full.rollup.factsOmitted).toBe(false);
+    expect(full.rollup.gaps).toBe(1); // the true per-criterion action scan sees the unserved gap
+  });
+
+  test('getMissionRollup (used by the full path) always reports factsOmitted:false', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    expect(getMissionRollup(project, id).factsOmitted).toBe(false);
+  });
+
+  test('cheap and full status either AGREE, or the cheap result is explicitly flagged factsOmitted', async () => {
+    // Repro shape: a criterion with no serving epic at all reads 'needs-discovery' on the full
+    // path but the cheap approximation (deriveCheapMissionStatus) can only distinguish
+    // converged vs "building" — so cheap and full may legitimately disagree, but ONLY when the
+    // cheap row says so via factsOmitted.
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    addCriterion(project, id, 'never served'); // no epic at all → full path reads needs-discovery
+
+    const cheap = listMissions(project, { withFacts: false }).find((m) => m.node.id === id)!;
+    const full = listMissions(project, { withFacts: true }).find((m) => m.node.id === id)!;
+    expect(full.mission.status).toBe('needs-discovery');
+    expect(cheap.mission.status).toBe('building'); // the known cheap-path approximation
+    if (cheap.mission.status !== full.mission.status) {
+      expect(cheap.rollup.factsOmitted).toBe(true);
+    }
   });
 });
