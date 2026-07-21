@@ -54,9 +54,7 @@ import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDe
 import { systemStatus } from '../services/system-status.ts';
 import { execFileSync } from 'node:child_process';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
-import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
-import { capturePaneText } from '../services/tmux-capture.ts';
 import { fireStamp } from '../services/nudge-stamp.ts';
 
 /** Hard ceiling on the page size GET /api/supervisor/missions will serve, regardless of
@@ -106,8 +104,8 @@ async function deliverNudge(project: string, session: string, serverId: string |
     result = await res.json();
     sent = !!(result?.sent ?? result?.tmux ?? result?.success);
   } else {
-    result = await sendTmuxKeys(project, session, text);
-    sent = !!result?.sent;
+    result = { sent: false, reason: 'local tmux delivery removed' };
+    sent = false;
   }
   getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
   return { result, sent };
@@ -1145,8 +1143,8 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         result = await res.json();
         sent = !!(result?.tmux ?? result?.sent ?? result?.success);
       } else {
-        result = await sendTmuxSelection(project, session, numbers as number[]);
-        sent = !!result?.sent;
+        result = { sent: false, reason: 'local tmux selection removed' };
+        sent = false;
       }
       getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text: `selected: ${(numbers as number[]).join(', ')}`, sent });
       return Response.json(result);
@@ -1176,8 +1174,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         });
         return Response.json(await res.json());
       }
-      const lines = await capturePaneText(project, session);
-      return Response.json({ lines });
+      return Response.json({ lines: [] });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
