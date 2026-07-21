@@ -65,10 +65,8 @@ import {
   findIdleSessionForType,
   getOrCreateSlot,
   poolSessionName,
-  markBusy,
   markIdle,
   removeSlot,
-  reapDeadSlots,
   DEFAULT_SLOTS_PER_TYPE,
 } from './worker-pool';
 // PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
@@ -231,9 +229,9 @@ async function killTmuxSession(tmux: string): Promise<void> {
 
 // --- 63a59bd6: PID-based liveness (dead Claude in a live tmux) -------------------
 // A worker can sit with its tmux session ALIVE but its Claude process EXITED — the
-// pane is a bare shell. This falls through BOTH existing watchdog passes:
-// reapDeadClaims/reapDeadPoolSlots only fire on a DEAD tmux (this one's alive), and
-// the stall classifier only matches an idle Claude TUI (a shell matches neither).
+// pane is a bare shell. This falls through the existing dead-claim watchdog only fires
+// on a DEAD tmux (this one's alive), and the stall classifier only matches an idle
+// Claude TUI (a shell matches neither).
 // Result observed live: dead worker, slot held, UI red, human never notified. We
 // close it by walking the pane's process subtree and asking "is a `claude` process
 // still running?" — definitive, unlike pane scraping.
@@ -2010,19 +2008,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         orphanGraceMs: DEFAULT_ORPHAN_GRACE_MS,
       };
       return reapDeadWorkersImpl(project, wlDeps);
-    },
-    reapDeadPoolSlots: async (_project: string): Promise<string[]> => {
-      // Slot-level reconciliation: a slot records its tmux at markBusy, so we can
-      // free it on its worker's death regardless of the todo's status (dropped,
-      // completed out-of-band, or an operator-killed lane). Project-agnostic — it
-      // keys off each slot's own recorded tmux, not the in_progress todo list.
-      //
-      // Phase 1 (point 5): pooled-slot liveness reads the SAME two-fact not-alive
-      // path as the orphan reaper (no separate code path) — a slot is freed when its
-      // tmux is gone OR its tmux is a bare shell with no `claude` in its subtree.
-      // One ps snapshot for the pass; an UNKNOWN liveness stays alive (kept busy).
-      const snap = await procSnapshot();
-      return await reapDeadSlots(async (tmux) => !(await laneConfirmedDead(tmux, snap)));
     },
     detectStalls: async (project: string): Promise<string[]> => {
       // DOGFOOD #6: surface ALIVE-but-idle (stalled) workers. Signal: the pane is

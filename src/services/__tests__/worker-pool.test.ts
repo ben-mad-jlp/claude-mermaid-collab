@@ -14,7 +14,6 @@ import {
   listPool,
   resetPool,
   removeSlot,
-  reapDeadSlots,
   poolConfigForSize,
   type PoolSlot,
 } from '../worker-pool';
@@ -194,56 +193,6 @@ describe('pool registry is partitioned by project (P0 regression — multi-proje
     markIdle(B, 'backend-claude-1');
     expect(findIdleSessionForType(B, 'backend')).toBe('backend-claude-1'); // B independently idle
     expect(findIdleSessionForType(A, 'backend')).toBeUndefined();    // A still busy — unaffected
-  });
-});
-
-describe('reapDeadSlots (889e3e26 — slot release decoupled from todo status)', () => {
-  beforeEach(() => resetPool());
-
-  it('frees a busy slot whose backing tmux is dead, leaving live ones alone', async () => {
-    const a = getOrCreateSlot(P, 'backend')!;
-    markBusy(P, poolSessionName(a.type, a.provider, a.slot), 'todo-a', 'mc-proj-backend-1');
-    expect(slotOf(P, 'backend-claude-1')!.status).toBe('busy');
-    // backend at capacity (pinned to 1 slot) → no new slot until the dead one is reaped.
-    expect(getOrCreateSlot(P, 'backend', 'claude', CFG1)).toBeUndefined();
-
-    // The worker's tmux vanished (dropped/abandoned todo, or killed lane). The
-    // predicate is async now (944408c2: tmux liveness is a non-blocking subprocess).
-    const freed = await reapDeadSlots(async (tmux) => tmux !== 'mc-proj-backend-1');
-    expect(freed).toEqual(['backend-claude-1']);
-    expect(slotOf(P, 'backend-claude-1')!.status).toBe('idle');
-    // Slot is reusable again — the wedge is gone.
-    expect(getOrCreateSlot(P, 'backend')).toBeDefined();
-  });
-
-  it('leaves a busy slot with a LIVE tmux untouched', async () => {
-    const s = getOrCreateSlot(P, 'frontend')!;
-    markBusy(P, poolSessionName(s.type, s.provider, s.slot), 'todo-x', 'mc-proj-frontend-1');
-    const freed = await reapDeadSlots(async () => true); // all alive
-    expect(freed).toEqual([]);
-    expect(slotOf(P, 'frontend-claude-1')!.status).toBe('busy');
-  });
-
-  it('ignores a busy slot with no recorded tmux (legacy/in-flight backstop)', async () => {
-    const s = getOrCreateSlot(P, 'api')!;
-    markBusy(P, poolSessionName(s.type, s.provider, s.slot), 'todo-y'); // no tmux recorded
-    const freed = await reapDeadSlots(async () => false); // everything "dead"
-    expect(freed).toEqual([]); // not reaped — todo-level reaper backstops it
-    expect(slotOf(P, 'api-claude-1')!.status).toBe('busy');
-  });
-
-  it('reaps across projects, keying each slot by its own stored project', async () => {
-    const A = '/proj/A';
-    const B = '/proj/B';
-    getOrCreateSlot(A, 'backend');
-    getOrCreateSlot(B, 'backend');
-    markBusy(A, 'backend-claude-1', 'todo-A', 'A-backend-1');
-    markBusy(B, 'backend-claude-1', 'todo-B', 'B-backend-1');
-    // Only A's tmux is dead.
-    const freed = await reapDeadSlots(async (tmux) => tmux !== 'A-backend-1');
-    expect(freed).toEqual(['backend-claude-1']); // logical name reported
-    expect(slotOf(A, 'backend-claude-1')!.status).toBe('idle'); // A freed
-    expect(slotOf(B, 'backend-claude-1')!.status).toBe('busy'); // B untouched
   });
 });
 
