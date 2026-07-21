@@ -271,6 +271,24 @@ export async function runLeafGate(
       };
     }
     if (r.code !== 0) {
+      // Attribute the diagnostics: a whole-tree typecheck can report errors in files this
+      // leaf never touched (a stale base, a foreign leaf's half-landed work). Only fail the
+      // leaf when at least one error is INSIDE its own change-set; errors confined entirely
+      // to files outside it are an INFRA incident, not this leaf's finding. Fail-closed when
+      // the changeSet is unknown (null) or the diagnostics don't parse into file paths at all.
+      const foreignFiles = changeSet !== null ? foreignOnlyTypecheckFiles(r.output, changeSet) : null;
+      if (foreignFiles) {
+        return {
+          status: 'error',
+          command: cfg.typecheck,
+          output: r.output,
+          reasons: [
+            `foreign-typecheck-errors: typecheck failed only in file(s) outside this leaf's change-set: ${foreignFiles.join(', ')}`,
+            lastLines(r.output, 20),
+          ],
+          declared: true,
+        };
+      }
       return {
         status: 'fail',
         command: cfg.typecheck,
@@ -471,4 +489,34 @@ function shellQuote(p: string): string {
 /** Normalize a path by dropping leading `./` and surrounding quotes. Mirrors gate-runner's normPath. */
 function normPathLocal(p: string): string {
   return p.trim().replace(/^"(.*)"$/, '$1').replace(/^\.\//, '');
+}
+
+/** tsc's two diagnostic line shapes: `path/file.ts(12,5): error TS1234: ...` (the default
+ *  pretty-less format) and `path/file.ts:12:5 - error TS1234: ...` (`--pretty` format).
+ *  Returns the DISTINCT file paths named by every `error TS` line, or null when NOTHING
+ *  parses — the caller must fail-closed (treat as an ordinary in-scope failure) rather
+ *  than guess at attribution from unrecognised output. */
+function parseTypecheckFiles(output: string): string[] | null {
+  const reParen = /^(.+?)\((\d+),(\d+)\):\s*error\s+TS\d+/;
+  const reColon = /^(.+?):(\d+):(\d+)\s*-\s*error\s+TS\d+/;
+  const files = new Set<string>();
+  for (const rawLine of output.split('\n')) {
+    const line = rawLine.trim();
+    const m = reParen.exec(line) ?? reColon.exec(line);
+    if (m) files.add(normPathLocal(m[1]));
+  }
+  return files.size > 0 ? Array.from(files) : null;
+}
+
+/** Attribute a failed typecheck's diagnostics against the leaf's change-set. Returns the
+ *  list of offending files ONLY when EVERY parsed error file is OUTSIDE the change-set
+ *  (a pure foreign/base-drift incident); returns null when any error is in-scope (the leaf
+ *  owns at least one of the failures — a normal fail, mixed dominates in-set) OR when the
+ *  output didn't parse into any file paths at all (fail-closed on the unparseable case). */
+function foreignOnlyTypecheckFiles(output: string, changeSet: readonly string[]): string[] | null {
+  const parsed = parseTypecheckFiles(output);
+  if (!parsed) return null;
+  const inSet = new Set(changeSet.map(normPathLocal));
+  const inScope = parsed.filter((f) => inSet.has(f));
+  return inScope.length === 0 ? parsed : null;
 }

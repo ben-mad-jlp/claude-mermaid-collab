@@ -41,6 +41,25 @@ function normalizePaths(paths: string[]): string[] {
   return Array.from(normalized);
 }
 
+/** True if `p` is covered by one of the declared touchpoints: an exact path, a directory
+ *  prefix (`d/…`), or — a declared entry containing `*` or `**` — a GLOB pattern matched
+ *  via `Bun.Glob`. Globs let a blueprint pre-declare a CLASS of generated output it cannot
+ *  name exactly in advance (e.g. hash-named report files a lab harness emits), instead of
+ *  every such run re-triggering a scope incident because the exact filename was unknowable
+ *  at blueprint time. */
+function matchesDeclaredScope(p: string, declared: readonly string[]): boolean {
+  return declared.some((d) => {
+    if (d.includes('*')) {
+      try {
+        return new Bun.Glob(d).match(p);
+      } catch {
+        return false; // malformed glob pattern never matches — fail closed, not open
+      }
+    }
+    return p === d || p.startsWith(d + '/');
+  });
+}
+
 /** Get dirty/deleted/i-t-a-added tracked paths. Handles unborn HEAD. */
 export function trackedDirtyPaths(cwd: string): string[] {
   try {
@@ -91,7 +110,7 @@ export function computeCommitScope(cwd: string, input: ScopeInput): ScopeDecisio
   }
 
   // Declared scope: only in-scope changes stage, BUT created files always ship (requirement b).
-  const inScope = trackedDirty.filter((p) => declared.some((d) => p === d || p.startsWith(d + '/')));
+  const inScope = trackedDirty.filter((p) => matchesDeclaredScope(p, declared));
   const stage = Array.from(new Set([...inScope, ...createdNow]));
   const allDirty = new Set([...trackedDirty, ...listUntrackedPaths(cwd)]);
   const outOfScope = Array.from(allDirty).filter((p) => !stage.includes(p));

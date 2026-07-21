@@ -205,6 +205,64 @@ describe('leaf-commit-scope', () => {
     expect(decision.stage).toEqual([]);
   });
 
+  it('glob-declared touchpoint: a hash-named tracked file matching the pattern is in-scope, not an incident', async () => {
+    const resultsDir = join(repo, 'scripts', 'blueprint-lab', 'results');
+    mkdirSync(resultsDir, { recursive: true });
+    writeFileSync(join(resultsDir, 'a1b2c3.emit.md'), 'v1');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-m', 'init');
+
+    const untrackedAtStart = listUntrackedPaths(repo);
+    writeFileSync(join(resultsDir, 'a1b2c3.emit.md'), 'v2'); // tracked-dirty edit, exact name unknowable up front
+
+    const decision = computeCommitScope(repo, {
+      declaredFiles: ['scripts/blueprint-lab/results/*.emit.md'],
+      untrackedAtStart,
+    });
+
+    expect(decision.incident).toBe(false);
+    expect(decision.stage).toContain('scripts/blueprint-lab/results/a1b2c3.emit.md');
+    expect(decision.outOfScope).toEqual([]);
+  });
+
+  it('glob-declared touchpoint: a non-matching undeclared tracked file STILL incidents', async () => {
+    const resultsDir = join(repo, 'scripts', 'blueprint-lab', 'results');
+    mkdirSync(resultsDir, { recursive: true });
+    writeFileSync(join(repo, 'other.ts'), 'export function bar() {}');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-m', 'init');
+
+    const untrackedAtStart = listUntrackedPaths(repo);
+    writeFileSync(join(repo, 'other.ts'), 'export function bar() { return 1; }'); // doesn't match the glob
+
+    const decision = computeCommitScope(repo, {
+      declaredFiles: ['scripts/blueprint-lab/results/*.emit.md'],
+      untrackedAtStart,
+    });
+
+    expect(decision.incident).toBe(true);
+    expect(decision.stage).toEqual([]);
+  });
+
+  it('exact declared paths still work unchanged alongside a glob entry', async () => {
+    const srcDir = join(repo, 'src');
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, 'sim.py'), 'def foo(): pass');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-m', 'init');
+
+    const untrackedAtStart = listUntrackedPaths(repo);
+    writeFileSync(join(srcDir, 'sim.py'), 'def foo(): return 42');
+
+    const decision = computeCommitScope(repo, {
+      declaredFiles: ['src/sim.py', 'scripts/blueprint-lab/results/*.emit.md'],
+      untrackedAtStart,
+    });
+
+    expect(decision.incident).toBe(false);
+    expect(decision.stage).toEqual(['src/sim.py']);
+  });
+
   it('Trailer on commit message', async () => {
     const srcDir = join(repo, 'src');
     mkdirSync(srcDir, { recursive: true });

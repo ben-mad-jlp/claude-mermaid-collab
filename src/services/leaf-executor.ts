@@ -849,6 +849,9 @@ export function buildNodePrompt(
         'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
         'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
         'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+        'A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a',
+        'generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit',
+        'instead of an exact path.',
         '',
         'YOU decide whether this leaf is decomposable — a file count cannot see coupling, you can.',
         '`splitDecision.split: false` ⇒ the leaf runs WHOLE in one worker, even at 12 files. Choose',
@@ -962,6 +965,9 @@ export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, f
     'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
     'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
     'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+    'A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a',
+    'generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit',
+    'instead of an exact path.',
     '',
     'Emit `splitDecision.split: false` unless your slice genuinely decomposes further — you are',
     'already a split child.',
@@ -1008,6 +1014,7 @@ export function buildCriteriaRepairPrompt(
     "3. A location outside your diff: a citation to a file:line you do not modify.",
     '',
     "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass or an absence true.",
+    "A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit instead of an exact path.",
     "Then read the relevant code, and produce your corrected blueprint and WRITE it to `" +
       bp +
       "`.",
@@ -1051,6 +1058,8 @@ export function buildBlueprintRepairPrompt(
     `The prior blueprint's diff contract is UNDERSPECIFIED for this leaf's declared leafKind: it has zero "${missingField}" requirements, and the §4 strictness matrix requires at least one for this leafKind.`,
     '',
     `Add at least one "${missingField}" requirement object to the contract's requirements[] array, citing a real file/symbol/test/metric that this leaf's diff actually delivers — never a placeholder.`,
+    '',
+    "A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit instead of an exact path.",
     '',
     'Then read the relevant code, and produce your corrected blueprint and WRITE it to `' +
       bp +

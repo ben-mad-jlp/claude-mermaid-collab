@@ -108,10 +108,10 @@ describe('runLeafGate', () => {
     expect(r.declared).toBe(true);
   });
 
-  it('typecheck exits 1 ⇒ fail, command + output carried', async () => {
+  it('typecheck exits 1, error is IN the change-set ⇒ fail, command + output carried', async () => {
     const cfg: LeafGateConfig = { typecheck: 'tsc' };
     const { spawn } = stubSpawn({ tsc: { ran: true, code: 1, output: 'x.ts(1,1): error TS1234' } });
-    const r = await runLeafGate('/wt', cfg, [], spawn);
+    const r = await runLeafGate('/wt', cfg, ['x.ts'], spawn);
     expect(r.status).toBe('fail');
     expect(r.command).toBe('tsc');
     expect(r.output).toContain('TS1234');
@@ -190,6 +190,68 @@ describe('runLeafGate', () => {
     const r = await runLeafGate('/repo', cfg, ['backend/y.test.ts'], spawn);
     expect(r.status).toBe('pass');
     expect(calls.length).toBe(0); // backend spec is silently skipped, no error
+  });
+});
+
+describe('runLeafGate — foreign whole-tree typecheck errors (stale-base incident)', () => {
+  it('error entirely INSIDE the change-set ⇒ fail (unchanged behaviour)', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const { spawn } = stubSpawn({
+      tsc: { ran: true, code: 1, output: 'src/services/leaf-gate.ts(10,3): error TS2304: Cannot find name X.' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/services/leaf-gate.ts'], spawn);
+    expect(r.status).toBe('fail');
+    expect(r.command).toBe('tsc');
+  });
+
+  it('error entirely OUTSIDE the change-set ⇒ error/incident with a foreign-typecheck-errors reason, never fail', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const foreignFile = 'src/services/__tests__/session-summary-loop.test.ts';
+    const { spawn } = stubSpawn({
+      tsc: { ran: true, code: 1, output: `${foreignFile}(12,5): error TS2304: Cannot find name Y.` },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/services/some-leaf-file.ts'], spawn);
+    expect(r.status).toBe('error');
+    expect(r.reasons.some((reason) => reason.includes('foreign-typecheck-errors'))).toBe(true);
+    expect(r.reasons.some((reason) => reason.includes(foreignFile))).toBe(true);
+  });
+
+  it('the `--pretty` colon-format diagnostic is parsed too', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const foreignFile = 'src/services/unrelated.ts';
+    const { spawn } = stubSpawn({
+      tsc: { ran: true, code: 1, output: `${foreignFile}:12:5 - error TS2304: Cannot find name Y.` },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/services/some-leaf-file.ts'], spawn);
+    expect(r.status).toBe('error');
+    expect(r.reasons.some((reason) => reason.includes('foreign-typecheck-errors'))).toBe(true);
+  });
+
+  it('MIXED in-set + out-of-set errors ⇒ fail — the in-set error dominates', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const output = [
+      'src/services/leaf-gate.ts(10,3): error TS2304: Cannot find name X.',
+      'src/services/__tests__/session-summary-loop.test.ts(12,5): error TS2304: Cannot find name Y.',
+    ].join('\n');
+    const { spawn } = stubSpawn({ tsc: { ran: true, code: 1, output } });
+    const r = await runLeafGate('/wt', cfg, ['src/services/leaf-gate.ts'], spawn);
+    expect(r.status).toBe('fail');
+  });
+
+  it('UNPARSEABLE typecheck output (no file paths extractable) ⇒ fail-closed, unchanged behaviour', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const { spawn } = stubSpawn({ tsc: { ran: true, code: 1, output: 'Build failed for unknown reasons.' } });
+    const r = await runLeafGate('/wt', cfg, ['src/services/some-leaf-file.ts'], spawn);
+    expect(r.status).toBe('fail');
+  });
+
+  it('changeSet null (unreadable) ⇒ fail-closed even with a parseable foreign-looking error', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const { spawn } = stubSpawn({
+      tsc: { ran: true, code: 1, output: 'src/services/__tests__/session-summary-loop.test.ts(12,5): error TS2304' },
+    });
+    const r = await runLeafGate('/wt', cfg, null, spawn);
+    expect(r.status).toBe('fail');
   });
 });
 
