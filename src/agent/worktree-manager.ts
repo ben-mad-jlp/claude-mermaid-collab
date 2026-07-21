@@ -2176,7 +2176,12 @@ export class WorktreeManager {
     return auth.code === 0;
   }
 
-  private async detectBaseBranch(): Promise<string> {
+  /** Detect the repo's trunk branch: the current HEAD's symbolic ref name, falling back to
+   *  the raw commit sha on a detached/bare HEAD. Public so callers outside this class (e.g.
+   *  leaf-executor's makeLeafExecutorDeps) can resolve a real default instead of hardcoding
+   *  'master' — a non-master-trunk project must not silently diff/merge against a ref that
+   *  doesn't exist. */
+  async detectBaseBranch(): Promise<string> {
     const sym = await this.runGit(
       this.opts.projectRoot,
       ['symbolic-ref', '--short', 'HEAD'],

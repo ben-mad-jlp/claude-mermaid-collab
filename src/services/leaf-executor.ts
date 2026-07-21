@@ -307,6 +307,12 @@ export interface LeafExecutorDeps {
   epicId: string;
   /** The epic's accumulation branch (worktrees are cut fresh off its tip). */
   epicBranch: string;
+  /** The repo's TRUNK branch (what the epic branch was cut off, and what the review
+   *  pipeline diffs the union change-set against). Detected at deps-construction via
+   *  the worktree manager's git-HEAD probe (see `detectBaseBranch` in worktree-manager.ts)
+   *  so a non-master-trunk project doesn't silently diff against a nonexistent 'master'.
+   *  Default `'master'` (legacy behaviour) when a caller doesn't thread it. */
+  baseBranch?: string;
   /** Epic tip SHA at run start — recorded into the durable resume row so a later
    *  re-claim can detect a moved base (slice 2). Best-effort; may be null. */
   epicBaseSha?: string | null;
@@ -579,6 +585,20 @@ export interface LeafRunResult {
 
 export const ATTEMPT_CAP = 2;
 export const NODE_BUDGET = 20;
+/** Max number of times a single leaf run may self-raise its own node budget via a
+ *  declined auto-split proposal (see `proposeThenAct`/raisedNodeBudget). Without a cap, a
+ *  leaf that keeps proposing (and declining) a split across attempts lifts its own runaway
+ *  ceiling every time it declines — an unbounded escape hatch out of the very budget meant
+ *  to bound it. After the cap, a declined split no longer raises the budget; the leaf runs
+ *  linear at whatever ceiling it already has, and the existing budget-exhaustion path
+ *  (checkBudget/parkBlocked('node-budget-exhausted')) takes over as normal. */
+export const MAX_BUDGET_RAISES = 2;
+
+/** Whether a declined-split budget raise should still apply, given how many raises this
+ *  run has already taken (see MAX_BUDGET_RAISES). Pure; exported for test. */
+export function shouldRaiseBudget(raisesSoFar: number): boolean {
+  return raisesSoFar < MAX_BUDGET_RAISES;
+}
 /** P6 surgical reuse: max in-place re-implement passes per attempt on a missing-logic
  *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt.
  *  FM2 (daemon-builder-trust-diagnostic): raised 1→3. The in-place loop already KEEPS
@@ -726,7 +746,11 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
 export const IMPLEMENT_TIMEOUT_MS = 1_800_000;
 
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel; timeoutMs?: number }> = {
-  blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
+  // Demoted opus→sonnet (2026-07-21): blueprint was the #1 cost center ($368/wk, more than
+  // implement) with no measured reliability gain over sonnet at 'high' effort. A project that
+  // wants opus back can set a per-(project,kind) override (resolveNodeModel in node-provider.ts).
+  // Effort stays 'high' — reasoning depth, not model tier, is what blueprint needs most.
+  blueprint: { model: 'sonnet', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS },
   review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // P5 waves:
@@ -749,6 +773,14 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
 };
 
+/** In-place start-failure escalation target (see the `escalatedKinds` mechanism in runLeaf):
+ *  a node that starts failing on its pinned model retries ONCE on something STRONGER. This
+ *  used to just read NODE_PROFILE.blueprint.model, which worked while blueprint was pinned to
+ *  opus — but blueprint was demoted to sonnet (cost), which would have silently made the
+ *  escalation a no-op for every kind already pinned at sonnet (implement, driveexec, ...).
+ *  Kept as an explicit constant so a future blueprint-tier change can't neuter escalation again. */
+export const ESCALATION_MODEL = 'opus';
+
 /** SR-7: a split child inherits its parent's plan slice, so its blueprint node RECONCILES
  *  instead of re-deriving. Cheap model, low effort. It is NOT skipped: the parent plan
  *  encodes cross-file contracts + test strategy that later siblings can invalidate, and
@@ -761,6 +793,44 @@ const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
   const e = process.env.MERMAID_NODE_EFFORT;
   return e && (['low', 'medium', 'high', 'xhigh', 'max'] as string[]).includes(e) ? (e as EffortLevel) : undefined;
 })();
+
+/** The FINISH-with-trailing-json-fence instruction + the size-manifest schema itself,
+ *  shared VERBATIM by every blueprint-authoring prompt (buildNodePrompt's 'blueprint' case,
+ *  buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt, buildBlueprintRepairPrompt) so the
+ *  schema can never drift between them. */
+const MANIFEST_JSON_SCHEMA_LINES: readonly string[] = [
+  'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable',
+  'size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file',
+  'and parse as:',
+  '```json',
+  '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
+  '  "nonEnumerableFanout": <bool>,',
+  '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
+  '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+  '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+  '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
+  '```',
+];
+
+/** The touchpoint-glob escape-hatch rule (a hash-named/generator-emitted file MAY be declared
+ *  as a glob instead of an exact path) — shared by every prompt that documents the manifest
+ *  schema above. */
+const MANIFEST_GLOB_RULE_LINE =
+  'A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a generator '
+  + 'emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit instead of '
+  + 'an exact path.';
+
+/** The estimatedFiles/estimatedTasks/nonEnumerableFanout field glossary + the glob rule,
+ *  appended right after MANIFEST_JSON_SCHEMA_LINES in the two FULL blueprint-authoring
+ *  prompts (buildNodePrompt's 'blueprint' case and buildBlueprintRefreshPrompt). The two
+ *  repair prompts state the glob rule earlier (as part of restating the offending criterion)
+ *  and skip this trailing glossary. */
+const MANIFEST_SCHEMA_NOTES_LINES: readonly string[] = [
+  'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
+  'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
+  'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+  MANIFEST_GLOB_RULE_LINE,
+];
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 function blueprintPath(leaf: Todo): string {
@@ -835,23 +905,8 @@ export function buildNodePrompt(
         'definitions the diff adds (e.g. "defines enum Space with members A, B at line N"), never a',
         'build-result criterion.',
         '',
-        'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the',
-        'machine-readable size manifest — the prose blueprint goes above it). It MUST be',
-        'the LAST json fence in the file and parse as:',
-        '```json',
-        '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
-        '  "nonEnumerableFanout": <bool>,',
-        '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-        '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
-        '  "splitDecision": { "split": <bool>, "reason": "<why>",',
-        '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
-        '```',
-        'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
-        'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
-        'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
-        'A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a',
-        'generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit',
-        'instead of an exact path.',
+        ...MANIFEST_JSON_SCHEMA_LINES,
+        ...MANIFEST_SCHEMA_NOTES_LINES,
         '',
         'YOU decide whether this leaf is decomposable — a file count cannot see coupling, you can.',
         '`splitDecision.split: false` ⇒ the leaf runs WHOLE in one worker, even at 12 files. Choose',
@@ -951,23 +1006,8 @@ export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, f
     `Produce your reconciliation and WRITE it to \`${bp}\`.`,
     'The blueprint must cite the real files/symbols to touch and the exact change shape.',
     '',
-    'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable',
-    'size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file',
-    'and parse as:',
-    '```json',
-    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
-    '  "nonEnumerableFanout": <bool>,',
-    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
-    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
-    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
-    '```',
-    'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
-    'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
-    'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
-    'A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a',
-    'generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit',
-    'instead of an exact path.',
+    ...MANIFEST_JSON_SCHEMA_LINES,
+    ...MANIFEST_SCHEMA_NOTES_LINES,
     '',
     'Emit `splitDecision.split: false` unless your slice genuinely decomposes further — you are',
     'already a split child.',
@@ -1014,21 +1054,13 @@ export function buildCriteriaRepairPrompt(
     "3. A location outside your diff: a citation to a file:line you do not modify.",
     '',
     "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass or an absence true.",
-    "A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit instead of an exact path.",
+    MANIFEST_GLOB_RULE_LINE,
     "Then read the relevant code, and produce your corrected blueprint and WRITE it to `" +
       bp +
       "`.",
     "The blueprint must cite the real files/symbols to touch and the exact change shape.",
     '',
-    "FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file and parse as:",
-    '```json',
-    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
-    '  "nonEnumerableFanout": <bool>,',
-    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
-    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
-    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
-    '```',
+    ...MANIFEST_JSON_SCHEMA_LINES,
     '',
     `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.`,
   ].join('\n');
@@ -1059,22 +1091,14 @@ export function buildBlueprintRepairPrompt(
     '',
     `Add at least one "${missingField}" requirement object to the contract's requirements[] array, citing a real file/symbol/test/metric that this leaf's diff actually delivers — never a placeholder.`,
     '',
-    "A touchpoint whose exact name is unknowable in advance (e.g. a hash-named file a generator emits) MAY be declared as a GLOB pattern (`*`/`**`) in filesToCreate/filesToEdit instead of an exact path.",
+    MANIFEST_GLOB_RULE_LINE,
     '',
     'Then read the relevant code, and produce your corrected blueprint and WRITE it to `' +
       bp +
       '`.',
     "The blueprint must cite the real files/symbols to touch and the exact change shape.",
     '',
-    "FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file and parse as:",
-    '```json',
-    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
-    '  "nonEnumerableFanout": <bool>,',
-    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
-    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
-    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
-    '```',
+    ...MANIFEST_JSON_SCHEMA_LINES,
     '',
     'ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.',
   ].join('\n');
@@ -1754,13 +1778,20 @@ export async function runLeaf(
   // so the in-place retry runs stronger — coherent everywhere nodeModel is used (spec
   // build, ledger recordedModel, setInflight).
   const escalatedKinds = new Set<LeafNodeKind>();
+  // The in-place start-failure escalation target: a per-project 'blueprint' override still wins
+  // (so a project that repins blueprint to opus escalates to that), but the default is the
+  // explicit ESCALATION_MODEL — NOT NODE_PROFILE.blueprint.model, which is sonnet and would
+  // make the escalation a no-op for kinds already pinned at sonnet.
+  const resolveEscalationModel = (): string => {
+    const bpTools = NODE_PROFILE['blueprint'].allowedTools;
+    return resolveNodeModel(project, 'blueprint', resolveNodeProvider(project, 'blueprint', bpTools), ESCALATION_MODEL);
+  };
   const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools): string => {
     if (kind === 'review' && leaf.tier === 'small') {
       return NODE_PROFILE.implement.model; // 'sonnet' — demote off opus for the small tier
     }
     if (escalatedKinds.has(kind)) {
-      const bpTools = NODE_PROFILE['blueprint'].allowedTools;
-      return resolveNodeModel(project, 'blueprint', resolveNodeProvider(project, 'blueprint', bpTools), NODE_PROFILE['blueprint'].model);
+      return resolveEscalationModel();
     }
     const provider = resolveNodeProvider(project, kind, allowedTools);
     return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
@@ -1776,6 +1807,8 @@ export async function runLeaf(
   // A test-supplied nodeBudget is honored verbatim (so budget-ceiling tests stay
   // deterministic). `let` so the waves branch can lift it once the manifest is known.
   let budget = deps.nodeBudget ?? NODE_BUDGET;
+  /** Count of self-raises already applied this run (see MAX_BUDGET_RAISES). */
+  let budgetRaises = 0;
   /** TRUE while still within the master node budget. */
   const checkBudget = (): boolean => state.nodesSpent <= budget;
 
@@ -2206,9 +2239,12 @@ export async function runLeaf(
     pathTaken = 'review';
     const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
     const cwd = wt.path;
-    // The union change-set base: the epic branch was cut off master, so master..HEAD is the
-    // epic's accumulated work. The node is told to fall back if the ref doesn't resolve.
-    const baseRef = 'master';
+    // The union change-set base: the epic branch was cut off the repo's trunk, so
+    // <baseRef>..HEAD is the epic's accumulated work. deps.baseBranch is detected at
+    // deps-construction (falls back to 'master' only when a caller doesn't thread it —
+    // e.g. legacy test fixtures); a non-master-trunk project no longer silently diffs
+    // against a nonexistent 'master'. The node is told to fall back if the ref doesn't resolve.
+    const baseRef = deps.baseBranch ?? 'master';
     // The review node needs file_to_bucket (file gap todos) on top of the read-only set;
     // NO Write (the executor commits the report — a node Write resolves to the project root).
     const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_to_bucket`;
@@ -2722,7 +2758,14 @@ export async function runLeaf(
       try {
         deps.resolveProposal?.(proposal.escalationId, 'resolved', answer === 'timeout' ? 'ai' : 'human');
       } catch { /* best-effort */ }
-      budget = Math.max(budget, raisedNodeBudget(deps.nodeBudget ?? NODE_BUDGET));
+      // MAX_BUDGET_RAISES: a declined split raises the ceiling, but only up to the cap — past
+      // it, the leaf runs at whatever budget it already has and the normal budget-exhaustion
+      // path (checkBudget) takes over, rather than the leaf raising its own runaway ceiling
+      // without bound across repeated declines.
+      if (shouldRaiseBudget(budgetRaises)) {
+        budget = Math.max(budget, raisedNodeBudget(deps.nodeBudget ?? NODE_BUDGET));
+        budgetRaises += 1;
+      }
       return 'linear';
     };
 
@@ -2813,10 +2856,10 @@ export async function runLeaf(
     if (impl.startFailure) {
       // Reactive escalation: a start-failure (timeout + zero tokens) on the pinned
       // implement model is usually the refactor overrunning the per-node ceiling, not a
-      // real start failure. Retry ONCE in-place on the blueprint model (a higher tier);
+      // real start failure. Retry ONCE in-place on the escalation model (a higher tier);
       // otherwise the daemon re-claims and re-runs the SAME model → identical failure → churn.
       const baseImpl = nodeModel('implement');
-      const bpModel = nodeModel('blueprint');
+      const bpModel = resolveEscalationModel();
       if (!escalatedKinds.has('implement') && baseImpl !== bpModel && checkBudget()) {
         console.warn(`[leaf-executor] implement start-failure on ${baseImpl} → escalating in-place retry to ${bpModel}`);
         escalatedKinds.add('implement'); // nodeModel('implement') now returns bpModel
@@ -3422,9 +3465,14 @@ export async function makeLeafExecutorDeps(
   // re-claim cannot apply its outcome to the new owner. undefined ⇒ legacy status-only.
   const runClaimToken = leaf.claim?.token ?? leaf.claimToken ?? undefined;
   const epicId = resolveEpicId(leaf, project);
+  // The repo's trunk branch, detected once per deps construction (git symbolic-ref HEAD,
+  // falling back to the current commit on a detached/bare HEAD) — replaces the hardcoded
+  // 'master' fallback so a non-master-trunk project doesn't silently diff/merge against a
+  // ref that doesn't exist.
+  const baseBranch = await wm.detectBaseBranch();
   // Materialise the epic accumulation branch so the off-tip base exists.
   const epic = await wm.ensureEpic(epicId, targetProject);
-  const epicBranch = epic?.branch ?? 'master';
+  const epicBranch = epic?.branch ?? baseBranch;
   // BUILD-BASE CONSISTENCY (38d87ab3): forward-integrate trunk INTO the epic branch
   // BEFORE the lane forks its build worktree off the epic tip. Claim-time reachability
   // (71cebee3) admits a foundation reachable from the epic tip OR trunk, but the lane
@@ -3435,7 +3483,7 @@ export async function makeLeafExecutorDeps(
   // tip (no worse than before). Best-effort — never let it block the run.
   if (epic) {
     try {
-      const fi = await wm.forwardIntegrateEpic(epicId, 'master');
+      const fi = await wm.forwardIntegrateEpic(epicId, baseBranch);
       if (fi.conflict) {
         try {
           createEscalation({
@@ -3444,10 +3492,10 @@ export async function makeLeafExecutorDeps(
             todoId: leaf.id,
             kind: 'assumption-invalidated',
             questionText:
-              `Forward-integration conflict: could not merge master into epic branch ${epicBranch} before building ` +
+              `Forward-integration conflict: could not merge ${baseBranch} into epic branch ${epicBranch} before building ` +
               `"${leaf.title ?? leaf.id}" (conflicts: ${(fi.conflictedPaths ?? []).join(', ') || 'unknown'}). ` +
               `The epic branch is behind trunk and auto-merge failed — the leaf will build on the current (stale) ` +
-              `epic tip. Resolve by merging master into ${epicBranch} by hand, then re-run.`,
+              `epic tip. Resolve by merging ${baseBranch} into ${epicBranch} by hand, then re-run.`,
           });
         } catch { /* best-effort: never let escalation failure block the build */ }
       }
@@ -3494,6 +3542,7 @@ export async function makeLeafExecutorDeps(
     wm,
     epicId,
     epicBranch,
+    baseBranch,
     epicBaseSha,
     resumePlan,
     startNodesSpent: effectiveStart,

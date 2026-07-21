@@ -23,7 +23,10 @@ import {
   VERIFY_EXEC_TIMEOUT_MS,
   FILE_THRESHOLD,
   NODE_BUDGET,
+  MAX_BUDGET_RAISES,
+  shouldRaiseBudget,
   NODE_PROFILE,
+  ESCALATION_MODEL,
   IMPLEMENT_TIMEOUT_MS,
   makeCitationExists,
   escalateImplementModel,
@@ -186,8 +189,10 @@ function makeDeps(opts: {
     invoker: {
       async invoke(spec: NodeSpec): Promise<NodeResult> {
         spies.invokeSpecs.push(spec);
-        // The review node is the opus read-only one (no Write/Edit in allowedTools).
-        const isReview = spec.allowedTools === 'Read Grep Glob Bash';
+        // The review node is the opus read-only one (no Write/Edit in allowedTools). The
+        // review-PIPELINE node (leafExecutionMode 'review') appends mcp__mermaid__file_to_bucket
+        // to the same base tool set, so match on the prefix rather than exact equality.
+        const isReview = (spec.allowedTools ?? '').startsWith('Read Grep Glob Bash');
         // The blueprint node is the one allowed to Write (implement uses Edit).
         const isBlueprint = (spec.allowedTools ?? '').includes('Write');
         if (isBlueprint && bpFailsLeft > 0) {
@@ -383,7 +388,7 @@ describe('buildNodePrompt per-node specs', () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
     await runLeaf('proj', makeLeaf(), deps);
     const [bp, impl, rev] = spies.invokeSpecs;
-    expect(bp.model).toBe('opus');
+    expect(bp.model).toBe(NODE_PROFILE.blueprint.model); // sonnet (demoted 2026-07-21)
     expect(bp.allowedTools).toContain('Write');
     expect(impl.model).toBe('sonnet');
     expect(impl.allowedTools).toContain('Edit');
@@ -411,6 +416,28 @@ describe('buildNodePrompt per-node specs', () => {
     expect(bp).toContain('BUILD SUCCEEDED');
     // no absence / non-goal criteria (existing guidance, asserted for completeness)
     expect(bp).toMatch(/NEVER write an absence or non-goal as an acceptance criterion/);
+  });
+});
+
+describe('review pipeline baseRef (no hardcoded master fallback)', () => {
+  // reviewer-type leaves run runReviewPipeline, which diffs the epic's union change-set
+  // against a trunk ref. Previously that ref was the hardcoded literal 'master'; it now
+  // comes from deps.baseBranch (detected via WorktreeManager.detectBaseBranch in
+  // makeLeafExecutorDeps), falling back to 'master' only when a caller doesn't thread it.
+  it('uses the legacy "master" default when deps.baseBranch is not supplied', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const res = await runLeaf('proj', makeLeaf({ type: 'reviewer' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.invokeSpecs[0].prompt).toContain('git diff master...HEAD');
+  });
+
+  it('uses deps.baseBranch as the diff ref when a non-master trunk is threaded', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    (deps as LeafExecutorDeps).baseBranch = 'main';
+    const res = await runLeaf('proj', makeLeaf({ type: 'reviewer' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.invokeSpecs[0].prompt).toContain('git diff main...HEAD');
+    expect(spies.invokeSpecs[0].prompt).not.toContain('git diff master...HEAD');
   });
 });
 
@@ -1501,6 +1528,24 @@ describe('runLeaf SR-3 split proposal (propose → wait → act)', () => {
   });
 });
 
+describe('shouldRaiseBudget (MAX_BUDGET_RAISES cap on self-raising via declined splits)', () => {
+  // A leaf that keeps declining a proposed split (linear/timeout) raises its own node
+  // budget each time (proposeThenAct) — uncapped, this is an unbounded escape hatch out of
+  // the very budget meant to bound a runaway leaf. shouldRaiseBudget gates that raise.
+  it('allows raises below the cap', () => {
+    for (let i = 0; i < MAX_BUDGET_RAISES; i++) {
+      expect(shouldRaiseBudget(i)).toBe(true);
+    }
+  });
+  it('refuses a raise once the cap is reached', () => {
+    expect(shouldRaiseBudget(MAX_BUDGET_RAISES)).toBe(false);
+  });
+  it('stays refused arbitrarily far past the cap (never re-arms)', () => {
+    expect(shouldRaiseBudget(MAX_BUDGET_RAISES + 1)).toBe(false);
+    expect(shouldRaiseBudget(MAX_BUDGET_RAISES + 100)).toBe(false);
+  });
+});
+
 describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {
   const smallManifest = {
     schemaVersion: 1,
@@ -2564,9 +2609,9 @@ describe('implement start-failure → reactive in-place model escalation', () =>
 
     // Exactly ONE in-place retry: two implement invocations, no more.
     expect(implModels.length).toBe(2);
-    // First ran on the pinned (cheap) implement model; the retry ran on the blueprint model.
+    // First ran on the pinned (cheap) implement model; the retry ran on the escalation model.
     expect(implModels[0]).toBe(NODE_PROFILE.implement.model); // sonnet (pinned)
-    expect(implModels[1]).toBe(NODE_PROFILE.blueprint.model); // opus (escalated)
+    expect(implModels[1]).toBe(ESCALATION_MODEL); // opus (escalated)
     expect(implModels[1]).not.toBe(implModels[0]);
 
     // The retry also start-failed → the leaf parks as node-could-not-start.
@@ -2594,7 +2639,7 @@ describe('implement start-failure → reactive in-place model escalation', () =>
     const res = await runLeaf('proj', makeLeaf(), deps);
 
     expect(implModels[0]).toBe(NODE_PROFILE.implement.model); // sonnet
-    expect(implModels[1]).toBe(NODE_PROFILE.blueprint.model); // escalated to opus
+    expect(implModels[1]).toBe(ESCALATION_MODEL); // escalated to opus
     expect(res.outcome).toBe('accepted');
     expect(spies.escalations.filter((e) => e.kind === 'blocker').length).toBe(0);
   });
@@ -2699,7 +2744,7 @@ describe('SR-7 inherited blueprint refresh', () => {
     expect(bpSpec.prompt).toContain('This does X and Y');
   });
 
-  it('fallback to opus blueprint when slice does not cover all files', async () => {
+  it('fallback to full blueprint when slice does not cover all files', async () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
     const child = makeLeaf({
       inheritedBlueprintFrom: 'parent-id',
@@ -2709,14 +2754,14 @@ describe('SR-7 inherited blueprint refresh', () => {
     deps.restoreBlueprint = () => 'src/a.ts\n\n```json\n{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["a.ts"],"tasks":[{"id":"t1","files":["a.ts"],"description":"x"}]}\n```';
     const res = await runLeaf('/p', child, deps);
     expect(res.outcome).toBe('accepted');
-    // Blueprint spec should use opus (full blueprint), not sonnet (refresh).
+    // Blueprint spec should use the full-blueprint model (sonnet), not the refresh's 'low' effort.
     const bpSpec = spies.invokeSpecs[0];
-    expect(bpSpec.model).toBe('opus');
+    expect(bpSpec.model).toBe(NODE_PROFILE.blueprint.model);
     expect(bpSpec.prompt).not.toContain('RECONCILE');
     expect(bpSpec.prompt).not.toContain('INHERITED');
   });
 
-  it('no-split regression: unsplit leaf uses opus blueprint', async () => {
+  it('no-split regression: unsplit leaf uses the full-blueprint model', async () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
     const leaf = makeLeaf({
       inheritedBlueprintFrom: null,  // not a split child
@@ -2725,7 +2770,7 @@ describe('SR-7 inherited blueprint refresh', () => {
     const res = await runLeaf('/p', leaf, deps);
     expect(res.outcome).toBe('accepted');
     const bpSpec = spies.invokeSpecs[0];
-    expect(bpSpec.model).toBe('opus');
+    expect(bpSpec.model).toBe(NODE_PROFILE.blueprint.model);
     expect(bpSpec.prompt).not.toContain('RECONCILE');
   });
 
