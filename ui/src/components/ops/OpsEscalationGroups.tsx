@@ -11,20 +11,71 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
   escalations,
   serverScope,
 }) => {
-  const { resetTodo, overrideAcceptTodo, resolveBudgetCap } = useSupervisorStore();
+  const { resetTodo, overrideAcceptTodo, resolveBudgetCap, decideEscalation } = useSupervisorStore();
 
   const landReady = escalations.filter((e) => e.kind === 'epic-ready-to-land');
   const poisonOrReserve = escalations.filter(
     (e) => e.kind === 'poison-loop-cap' || e.kind === 'reserve-leaf'
   );
   const tokenBurn = escalations.filter((e) => e.kind === 'token-burn');
+  const serveCap = escalations.filter((e) => e.kind === 'criterion-serve-cap');
+  const danglingDeps = escalations.filter((e) => e.kind === 'dangling-deps');
   const other = escalations.filter(
     (e) =>
       e.kind !== 'epic-ready-to-land' &&
       e.kind !== 'poison-loop-cap' &&
       e.kind !== 'reserve-leaf' &&
-      e.kind !== 'token-burn'
+      e.kind !== 'token-burn' &&
+      e.kind !== 'criterion-serve-cap' &&
+      e.kind !== 'dangling-deps'
   );
+
+  const renderDecisionOrResetCard = (e: Escalation) => {
+    const hasOptions = !!e.options && e.options.length > 0;
+    return (
+      <div key={e.id} className="p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+        <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}</p>
+        {hasOptions ? (
+          <div className="space-y-1.5">
+            {e.options!.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => decideEscalation(serverScope, e.id, opt.id)}
+                className="w-full px-2 py-1 text-xs font-medium rounded bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/60"
+              >
+                {opt.label}{e.recommended === opt.id ? ' ★ recommended' : ''}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={() =>
+                resetTodo(serverScope, e.project, e.todoId!, 'ready', {
+                  escalationId: e.id,
+                })
+              }
+              disabled={!e.todoId}
+              className="flex-1 px-2 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Reset to ready
+            </button>
+            <button
+              onClick={() =>
+                overrideAcceptTodo(serverScope, e.project, e.todoId!, 'operator', {
+                  escalationId: e.id,
+                })
+              }
+              disabled={!e.todoId}
+              className="flex-1 px-2 py-1 text-xs font-medium rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Override accept
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderGroup = (title: string, items: Escalation[], content: React.ReactNode) => {
     if (items.length === 0) return null;
@@ -115,15 +166,39 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
       )}
 
       {renderGroup(
-        'Other Escalations',
-        other,
-        <BridgeEscalationInbox
-          bare
-          escalations={other}
-          serverScope={serverScope}
-          variant="escalation"
-        />
+        'Criterion Serve Cap',
+        serveCap,
+        <div className="space-y-2">{serveCap.map(renderDecisionOrResetCard)}</div>
       )}
+
+      {renderGroup(
+        'Dangling Dependencies',
+        danglingDeps,
+        <div className="space-y-2">{danglingDeps.map(renderDecisionOrResetCard)}</div>
+      )}
+
+      {(() => {
+        const otherByProject = other.reduce<Record<string, Escalation[]>>((acc, e) => {
+          (acc[e.project] ??= []).push(e);
+          return acc;
+        }, {});
+        return renderGroup(
+          'Other Escalations',
+          other,
+          <div className="space-y-3">
+            {Object.entries(otherByProject).map(([project, items]) => (
+              <BridgeEscalationInbox
+                key={project}
+                bare
+                escalations={items}
+                serverScope={serverScope}
+                variant="escalation"
+                project={project}
+              />
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 };

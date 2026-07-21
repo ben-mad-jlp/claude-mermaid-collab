@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { selectOpenEscalations } from '@/lib/statusSelectors';
 import { OpsEscalationGroups } from './OpsEscalationGroups';
 import { OpsProjectPanel } from './OpsProjectPanel';
 import { OpsSessionCards } from './OpsSessionCards';
@@ -10,8 +11,9 @@ interface OpsScreenProps {
 }
 
 export const OpsScreen: React.FC<OpsScreenProps> = ({ serverScope }) => {
-  const { openEscalations, watchedProjects, unlandedEpicsByProject } = useSupervisorStore();
+  const { openEscalations: rawOpenEscalations, watchedProjects, unlandedEpicsByProject, todosByProject, landEpic, resetTodo } = useSupervisorStore();
   const watchedSessionCount = useSubscriptionStore((s) => s.order.length);
+  const openEscalations = selectOpenEscalations(rawOpenEscalations, { kind: 'fleet' });
 
   return (
     <div className="space-y-4 p-4">
@@ -53,16 +55,42 @@ export const OpsScreen: React.FC<OpsScreenProps> = ({ serverScope }) => {
             <div className="px-4 py-3">
               <div className="space-y-2">
                 {Object.entries(unlandedEpicsByProject).map(([project, epics]) =>
-                  epics.map((epic) => (
-                    <div
-                      key={`${project}-${epic.epicId8}`}
-                      className="text-xs p-2 rounded bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
-                    >
-                      <span className="font-mono">{epic.branch}</span> (
-                      <span className="text-gray-500">{epic.epicId8}</span>, ahead{' '}
-                      <span className="font-semibold">{epic.ahead}</span>)
-                    </div>
-                  ))
+                  epics.map((epic) => {
+                    const landEsc = openEscalations.find(
+                      (e) => e.project === project && e.kind === 'epic-ready-to-land' && e.status === 'open' && e.todoId?.startsWith(epic.epicId8)
+                    );
+                    const epicTodo = todosByProject[project]?.find((t) => t.id.startsWith(epic.epicId8));
+                    return (
+                      <div
+                        key={`${project}-${epic.epicId8}`}
+                        className="p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="text-xs text-gray-600 dark:text-gray-300">
+                            <span className="font-mono">{epic.branch}</span> (
+                            <span className="text-gray-500">{epic.epicId8}</span>, ahead{' '}
+                            <span className="font-semibold">{epic.ahead}</span>)
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => landEsc && landEpic(serverScope, project, landEsc.id)}
+                            disabled={!landEsc}
+                            className="flex-1 px-2 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Land
+                          </button>
+                          <button
+                            onClick={() => epicTodo && resetTodo(serverScope, project, epicTodo.id, 'ready')}
+                            disabled={!epicTodo}
+                            className="flex-1 px-2 py-1 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Reset to ready
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
