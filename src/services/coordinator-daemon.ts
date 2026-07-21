@@ -1,5 +1,6 @@
 import type { Todo } from './todo-store';
 import { resolveCompletion } from '../agent/completion-resolver';
+import { DEFAULT_LEASE_MS } from './harness-caps';
 
 /** The Coordinator daemon: a non-LLM, per-project loop that claims ready todos and
  *  spawns workers for them, and reclaims expired leases. All I/O is injected (DI) so
@@ -16,11 +17,10 @@ export function byClaimPriority(a: Todo, b: Todo): number {
   const rank = (t: Todo) => (t.priority == null ? Number.POSITIVE_INFINITY : t.priority);
   return (rank(a) - rank(b)) || ((a.order ?? 0) - (b.order ?? 0));
 }
-/** Claim lease before a worker's todo is reclaimable. 40 min by default — big
- *  multi-component todos (e.g. a UI command-center build) exceed a short lease
- *  and get falsely reclaimed mid-work. Override with MERMAID_CLAIM_LEASE_MIN. */
-export const DEFAULT_LEASE_MS =
-  (Number(process.env.MERMAID_CLAIM_LEASE_MIN) || 40) * 60 * 1000;
+// DEFAULT_LEASE_MS moved to harness-caps.ts (the harness's single worker-liveness
+// threshold surface); imported above and re-exported here so existing importers
+// (tests) keep working unchanged.
+export { DEFAULT_LEASE_MS };
 
 export interface CoordinatorDeps {
   listReadyTodos: (project: string) => Todo[];

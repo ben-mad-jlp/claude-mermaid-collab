@@ -1,5 +1,6 @@
 import type { Todo } from './todo-store';
 import { isClaimable } from './claimability';
+import { DEFAULT_ORPHAN_GRACE_MS, DEFAULT_PULSE_STALE_MS } from './harness-caps';
 
 export interface CoordinatorTickPlan {
   toClaim: string[];   // ready todo ids whose deps are all done — claimable now
@@ -11,14 +12,10 @@ export interface CoordinatorTickPlan {
  * current time, decide what to claim and what to release. No DB, no side effects —
  * the daemon acts on this via todo-store.claimTodo / releaseExpiredClaims.
  */
-/** How long a LEAF may sit in_progress with no live claim before the orphan
- *  reaper reclaims it. Distinct from the 40-min claim lease: the lease only fires
- *  when claimedAt+claimLeaseMs are set, but an orphan's defining trait is that they
- *  are NULL (e.g. wiped by a daemon restart). 15 min by default — long enough to
- *  clear a spawn/handoff gap, short enough that a stuck leaf doesn't sit for hours
- *  (the 19b097a1 ~9h gap). Override with MERMAID_ORPHAN_GRACE_MIN. */
-export const DEFAULT_ORPHAN_GRACE_MS =
-  (Number(process.env.MERMAID_ORPHAN_GRACE_MIN) || 15) * 60 * 1000;
+// DEFAULT_ORPHAN_GRACE_MS moved to harness-caps.ts (the harness's single
+// worker-liveness threshold surface); imported above and re-exported here so
+// existing importers (coordinator-live.ts) keep working unchanged.
+export { DEFAULT_ORPHAN_GRACE_MS };
 
 export interface OrphanReapCandidate {
   id: string;
@@ -87,11 +84,10 @@ export function planPriorEpochReap(todos: Todo[], liveEpoch: string): string[] {
   return out;
 }
 
-/** How long since a lane's last DURABLE session_status pulse (updatedAt) before
- *  that pulse counts as stale. Paired with a not-alive confirmation for the
- *  two-fact reclaim below; ~8s collapses the orphan-detection latency from the
- *  15-min/​~9h grace to seconds. Override with MERMAID_PULSE_STALE_MS. */
-export const DEFAULT_PULSE_STALE_MS = Number(process.env.MERMAID_PULSE_STALE_MS) || 8_000;
+// DEFAULT_PULSE_STALE_MS moved to harness-caps.ts (the harness's single
+// worker-liveness threshold surface); imported above and re-exported here so
+// existing importers (coordinator-live.ts) keep working unchanged.
+export { DEFAULT_PULSE_STALE_MS };
 
 /**
  * Pure two-fact pulse-staleness reclaim (Phase 1 of design-session-daemon-comms,

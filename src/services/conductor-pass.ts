@@ -18,6 +18,7 @@ import {
   CRITERION_SERVE_CAP,
   promoteQueuedMissions,
 } from './mission-store.js';
+import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { syncMissionSubscription } from './mission-subscription.js';
 import { getOrchestratorLevel } from './orchestrator-config.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
@@ -40,10 +41,10 @@ export interface ConductorActionRow {
  *  time — the debounce below skips creating a second while one is still open. */
 export const CRITERION_SERVE_CAP_KIND = 'criterion-serve-cap';
 
-/** How many times a FAILED conductor serve (node/planner failure) retries the SAME mission state
- *  across ticks before the pass stops respinning an expensive node on it. Bounds the retry so a
- *  transient failure self-heals but a persistently-unservable state does not thrash forever. */
-export const CONDUCTOR_SERVE_RETRY_CAP = 3;
+// CONDUCTOR_SERVE_RETRY_CAP moved to harness-caps.ts (the harness's single loop-breaker
+// cap surface); imported above and re-exported here so existing importers (tests) keep
+// working unchanged.
+export { CONDUCTOR_SERVE_RETRY_CAP };
 
 /** Debounce marker embedded in the escalation questionText so listOpenEscalations can be
  *  matched back to an exact (mission, criterion) even though the card carries only todoId

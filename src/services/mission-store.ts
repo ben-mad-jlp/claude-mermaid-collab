@@ -23,6 +23,7 @@ import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
+import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
  *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
@@ -814,7 +815,8 @@ export function clearRecheck(project: string, criterionId: string): void {
 
 // ── Reopen churn management ─────────────────────────────────────────────────
 
-const REOPEN_CARD_THRESHOLD = 5;
+// REOPEN_CARD_THRESHOLD moved to harness-caps.ts (the harness's single loop-breaker
+// cap surface); imported above.
 
 function raiseReopenChurnCard(
   project: string, session: string, c: MissionCriterion,
@@ -907,12 +909,10 @@ export type CriterionAction =
   | 'discover'  // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
   | 'escalate'; // capped: CRITERION_SERVE_CAP+ serving epics filed and still unmet — stop re-filing, escalate to a human ONCE
 
-/** After this many serving epics have been filed for ONE criterion and it is STILL
- *  unmet (a fresh 'discover'), stop re-filing and escalate to a human once. A criterion
- *  whose satisfaction structurally needs a HUMAN action the headless daemon cannot do
- *  (a live measurement, a deploy, a rescope) otherwise makes the conductor file a new
- *  serving epic every tick — the overnight thrash this cap kills. */
-export const CRITERION_SERVE_CAP = 3;
+// CRITERION_SERVE_CAP moved to harness-caps.ts (the harness's single loop-breaker cap
+// surface); imported above and re-exported here so existing importers (conductor-pass.ts,
+// tests) keep working unchanged.
+export { CRITERION_SERVE_CAP };
 
 export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction {
   // verify BEFORE met: a met-but-unverified criterion still owes the independent gate a

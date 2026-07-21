@@ -4,6 +4,7 @@ import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTo
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { findBlockedSplits, type BlockedSplit } from './claimability';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
+import { MAX_REDISPATCH, STRANDED_REOPEN_CAP, STUCK_AUTOLAND_THRESHOLD } from './harness-caps';
 import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
@@ -327,15 +328,8 @@ function respawnBackoffMs(retryCount: number): number {
   if (retryCount <= 0) return 0;
   return Math.min(5_000 * 2 ** (retryCount - 1), 5 * 60_000); // 5s,10s,20s,40s… cap 5m
 }
-// HARD RE-DISPATCH CAP (loop breaker). A todo re-dispatched this many times without
-// reaching done/accepted is looping — each dispatch re-runs (and re-pays) a full
-// blueprint. Past the cap the daemon PARKS it held + escalates instead of paying
-// another blueprint. The counter is retryCount, which launchWorker bumps on EVERY
-// dispatch (releaseExpiredClaims only bumps on lease expiry, so the clean-release
-// escalation path was previously invisible to the cap — the observed opus-blueprint
-// burn). reset_todo clears retryCount, so a human/conductor can grant a fresh attempt
-// once the root cause is fixed. Override with MERMAID_MAX_REDISPATCH (default 3).
-const MAX_REDISPATCH = Math.max(1, Number(process.env.MERMAID_MAX_REDISPATCH) || 3);
+// MAX_REDISPATCH (HARD RE-DISPATCH CAP loop breaker) moved to harness-caps.ts (the
+// harness's single loop-breaker cap surface); imported above.
 const MAX_COLD_STARTS = Math.max(1, Number(process.env.MERMAID_MAX_COLD_STARTS) || 2);
 // PER-PROJECT cold-start counter (keyed by the lane's project). The cap applies
 // per project so one busy project can't starve another project's cold-starts
@@ -778,7 +772,10 @@ async function reopenStrandedAccept(
 // for the same leaf, stop re-surfacing and PARK it held + escalate, exactly like
 // the lease-retry-exhaust path, so a human integrates it once instead of the
 // daemon rebuilding it endlessly.
-export const STRANDED_REOPEN_CAP = Number(process.env.MERMAID_STRANDED_REOPEN_CAP) || 3;
+// STRANDED_REOPEN_CAP moved to harness-caps.ts (the harness's single loop-breaker cap
+// surface); imported above and re-exported here so existing importers (tests) keep
+// working unchanged.
+export { STRANDED_REOPEN_CAP };
 
 /** How many times THIS leaf has already been reversed as not-on-integration. */
 export function countStrandedReversals(project: string, todoId: string): number {
@@ -1686,8 +1683,9 @@ const MISSION_AUTOLAND_ARMED = true;
  *  reason-change can resolve it). Module scope so it survives across reconcile ticks. */
 const stuckAutoLandCounters = new Map<string, { reason: string; count: number; escalationId?: string }>();
 
-/** Threshold of consecutive identical red reasons before the operator card surfaces. */
-const STUCK_AUTOLAND_THRESHOLD = 3;
+// STUCK_AUTOLAND_THRESHOLD (threshold of consecutive identical red reasons before the
+// operator card surfaces) moved to harness-caps.ts (the harness's single loop-breaker
+// cap surface); imported above.
 
 /** An epic is a "mission epic" when it has an owning mission that is active and non-terminal.
  *  Mirrors land-authority Rules 3-4 (findOwningMission + active/non-terminal), minus the
