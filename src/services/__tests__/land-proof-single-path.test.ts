@@ -362,14 +362,20 @@ describe('land-proof-single-path — topology verification', () => {
     expect(landedByTrailer(DAEMON)).toBe('Landed-By: daemon:auto');
   });
 
-  it('test 6a — one trunk merge primitive (landEpicToMaster in coordinator-live only)', () => {
-    // Read coordinator-live.ts and verify landEpicToMaster call sites
-    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
-    const content = readFileSync(coordinatorPath, 'utf8');
-    const landEpicToMasterMatches = content.match(/wm\.landEpicToMaster\(/g);
+  it('test 6a — one trunk merge primitive (landEpicToMaster in coordinator-live/coordinator-land only)', () => {
+    // landEpic (and its wm.landEpicToMaster call) MOVED to coordinator-land.ts — the
+    // landing subsystem was extracted out of coordinator-live.ts (MOVE ONLY). The OI-1
+    // integration-land call site stayed behind in coordinator-live.ts.
+    const coordinatorLivePath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    const coordinatorLandPath = join(import.meta.dir, '../../services/coordinator-land.ts');
+    const liveContent = readFileSync(coordinatorLivePath, 'utf8');
+    const landContent = readFileSync(coordinatorLandPath, 'utf8');
+    const liveMatches = liveContent.match(/wm\.landEpicToMaster\(/g);
+    const landMatches = landContent.match(/wm\.landEpicToMaster\(/g);
 
-    // Should appear exactly 2 times: OI-1 integration land + trunk land inside landEpic
-    expect(landEpicToMasterMatches?.length).toBe(2);
+    // Should appear exactly 2 times total: OI-1 integration land (coordinator-live.ts)
+    // + trunk land inside landEpic (coordinator-land.ts)
+    expect((liveMatches?.length ?? 0) + (landMatches?.length ?? 0)).toBe(2);
 
     // Verify no other file in src/ has landEpicToMaster (excluding tests and worktree-manager def)
     const srcDir = join(import.meta.dir, '../../');
@@ -381,13 +387,14 @@ describe('land-proof-single-path — topology verification', () => {
       } catch {
         return false;
       }
-    });
+    }).sort();
 
-    expect(filesWithMerge).toEqual([coordinatorPath]);
+    expect(filesWithMerge).toEqual([coordinatorLandPath, coordinatorLivePath].sort());
   });
 
   it('test 6b — proof precedes merge inside landEpic', () => {
-    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    // landEpic MOVED to coordinator-land.ts (landing-subsystem extraction).
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-land.ts');
     const content = readFileSync(coordinatorPath, 'utf8');
 
     // Find the landEpic function body
@@ -422,8 +429,11 @@ describe('land-proof-single-path — topology verification', () => {
       }
     }).sort();
 
+    // landEpic's definition (and surfaceEpicLand's call into it) MOVED to
+    // coordinator-land.ts — coordinator-live.ts now only re-exports the symbol
+    // (`landEpic,` with no call-paren), so it drops off this allowlist.
     const expected = [
-      join(srcDir, 'services/coordinator-live.ts'),
+      join(srcDir, 'services/coordinator-land.ts'),
       join(srcDir, 'routes/supervisor-routes.ts'),
       join(srcDir, 'mcp/setup.ts'),
     ].sort();
@@ -434,7 +444,8 @@ describe('land-proof-single-path — topology verification', () => {
   it('test 6d — each entrypoint is on the proof', () => {
     const supervisorPath = join(import.meta.dir, '../../routes/supervisor-routes.ts');
     const mcpPath = join(import.meta.dir, '../../mcp/setup.ts');
-    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    // autoLandReadiness MOVED to coordinator-land.ts (landing-subsystem extraction).
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-land.ts');
 
     const supervisorContent = readFileSync(supervisorPath, 'utf8');
     const mcpContent = readFileSync(mcpPath, 'utf8');
@@ -444,12 +455,13 @@ describe('land-proof-single-path — topology verification', () => {
     expect(supervisorContent).toContain('landAuthority(');
     // mcp/setup calls checkOwnership
     expect(mcpContent).toContain('checkOwnership(');
-    // coordinator-live calls autoLandReadiness
+    // coordinator-land calls autoLandReadiness
     expect(coordinatorContent).toContain('autoLandReadiness(');
   });
 
   it('test 6e — autoLandReadiness is a pure delegation to landReadiness', () => {
-    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    // autoLandReadiness MOVED to coordinator-land.ts (landing-subsystem extraction).
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-land.ts');
     const content = readFileSync(coordinatorPath, 'utf8');
 
     // Find autoLandReadiness function

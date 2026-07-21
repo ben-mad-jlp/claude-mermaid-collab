@@ -5,7 +5,8 @@
  * The acceptance clause: *the pattern `parentId === epicId && t.status !== 'dropped'`
  * (with no further land-kind filter — land leaves are never minted, so buildChildren
  * is just "all non-dropped children") appears exactly once across src/services
- * (excluding __tests__), and only in coordinator-live.ts*. This guard prevents a
+ * (excluding __tests__), and only in coordinator-live.ts or coordinator-land.ts (the
+ * landing subsystem MOVED there — see epicGatingChildren)*. This guard prevents a
  * fourth hand-copied filter from being added without detection.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
@@ -14,7 +15,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 describe('gating-child-single-source — source-guard for hand-copied filters', () => {
-  it('finds the gating-child filter exactly once and only in coordinator-live.ts', () => {
+  it('finds the gating-child filter exactly once and only in coordinator-live.ts or coordinator-land.ts', () => {
     // The pattern: parentId === <word> && t.status !== 'dropped', anchored on the
     // trailing comma so it doesn't also match land-authority.ts's checkLandDeps
     // sibling filter, which chains a further `&& !isLandTodo(t)` onto the same prefix.
@@ -54,9 +55,10 @@ describe('gating-child-single-source — source-guard for hand-copied filters', 
     // Assert: exactly one match total
     expect(totalMatches).toBe(1);
 
-    // Assert: match is only in coordinator-live.ts
+    // Assert: match is only in coordinator-live.ts or coordinator-land.ts (the landing
+    // subsystem, incl. epicGatingChildren, was extracted there — MOVE ONLY, same guard).
     expect(matches).toHaveLength(1);
-    expect(matches[0].file).toContain('coordinator-live.ts');
+    expect(matches[0].file).toMatch(/coordinator-(live|land)\.ts$/);
     expect(matches[0].count).toBe(1);
   });
 });

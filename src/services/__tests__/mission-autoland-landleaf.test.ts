@@ -163,7 +163,8 @@ describe('missionLandLeafPromotion — land leaf promotion decision', () => {
 
 describe('autoLandArmedMissionEpics — continue-guard shape', () => {
   it('the armed continue-guard does not require decision.landLeafId', () => {
-    const src = readFileSync(new URL('../coordinator-live.ts', import.meta.url), 'utf8');
+    // autoLandArmedMissionEpics MOVED to coordinator-land.ts (landing-subsystem extraction).
+    const src = readFileSync(new URL('../coordinator-land.ts', import.meta.url), 'utf8');
     const guardLine = src.split('\n').find((l) => l.includes('if (!decision.promote'));
     expect(guardLine).toContain('if (!decision.promote) continue;');
     expect(guardLine).not.toContain('landLeafId');
