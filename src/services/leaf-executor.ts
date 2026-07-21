@@ -352,7 +352,7 @@ export interface LeafExecutorDeps {
     leafId: string,
     mergeSha: string,
     reason: string,
-  ) => Promise<{ reverted: boolean; revertSha?: string; error?: string }>;
+  ) => Promise<{ reverted: boolean; revertSha?: string; error?: string; verified?: boolean }>;
   /** Raise an escalation card (blocker). */
   escalate: (input: {
     project: string;
@@ -524,6 +524,15 @@ export interface LeafExecutorDeps {
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
   ensureBaseGreen?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
+  /** Floor-path base-freshness pre-check (real incident: a stale/off-by-one base spent
+   *  blueprint+implement+review before being rejected at the gate for tsc errors in files it
+   *  never touched — thrash discovered late). Cheap deterministic git probe: is the epic
+   *  branch's (or trunk's, when no epic) CURRENT tip still an ancestor of the lane worktree's
+   *  HEAD, run inside `cwd`? true ⇒ fresh; false ⇒ the tip moved past this worktree's fork
+   *  point — STALE, park before spending any node; null ⇒ the probe could not determine it
+   *  (non-git / git error) — fail-open (never park a healthy leaf on a broken probe). Unwired
+   *  ⇒ undefined ⇒ skipped (pre-existing behaviour). */
+  worktreeBaseFresh?: (cwd: string) => Promise<boolean | null>;
   /** Persist the just-written blueprint as a durable collab document and link it to
    *  the leaf todo (per ATTEMPT, so failed attempts survive). Best-effort: a throw
    *  must NEVER break the run. Returns the created doc id (telemetry only). Optional
@@ -1596,6 +1605,17 @@ export function planResume(
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
 }
 
+/** Pure classifier for the {@link LeafExecutorDeps.worktreeBaseFresh} probe's raw git
+ *  verdict. `isAncestor` mirrors `git merge-base --is-ancestor <tip> HEAD`'s three-way
+ *  result: true (still an ancestor ⇒ fresh), false (tip has moved past the fork point ⇒
+ *  STALE), or null (indeterminate — non-git project, git error, or the dep unwired).
+ *  Total + git-free so it is unit-testable without a real repo. FAIL-OPEN: only an
+ *  explicit `false` classifies as stale — a broken/indeterminate probe must never park a
+ *  healthy leaf. */
+export function classifyWorktreeBaseFreshness(isAncestor: boolean | null): { fresh: boolean } {
+  return { fresh: isAncestor !== false };
+}
+
 /** Start-failure circuit-breaker (bug a8935a16): a node that keeps failing to START gets at
  *  most this many retries before the leaf is durably HELD instead of released for re-claim.
  *  1 ⇒ one retry, then park on the SECOND consecutive start-failure. Without this, a start
@@ -1725,23 +1745,32 @@ export async function runLeaf(
   let optimisticallyLanded = false;
   let optimisticMergeSha: string | undefined;
 
-  // PROSE-GATE RETRY: a DURABLE per-leaf offense counter for the three prose gates
+  // PROSE-GATE RETRY: DURABLE per-leaf offense counters for the three prose gates
   // (review-unparseable, G3-vacuous, command-evidence). Declared OUTSIDE the attempt
   // loop (below) so 'repeat-within-leaf' is real across attempts — never reset.
-  // First offense → record an audit note and RETRY (feed synthesized findings back to
-  // implement); second-or-later offense → park. A red MECHANICAL gate still parks
-  // unconditionally (that path never calls proseOffense). See prose-gate-retry.ts.
-  let proseGateOffenses = 0;
-  const proseOffense = async (reason: string): Promise<{ park: boolean; findings: string }> => {
-    proseGateOffenses += 1;
-    const park = proseGateDisposition({ offenseCountSoFar: proseGateOffenses }).action === 'park';
+  // PER-KIND counting (fix): a single run-wide counter previously parked on the SECOND
+  // offense even when it was a DIFFERENT gate on a legitimately different cycle (e.g.
+  // review-vacuous then command-evidence). Now: first offense of EACH kind → record an
+  // audit note and RETRY; second-or-later offense of the SAME kind → park; an overall
+  // ceiling (MAX_TOTAL_PROSE_RETRIES) still bounds how many distinct-kind retries a leaf
+  // can chain. A red MECHANICAL gate still parks unconditionally (that path never calls
+  // proseOffense). See prose-gate-retry.ts.
+  const proseGateOffensesByKind = new Map<string, number>();
+  let proseGateOffensesTotal = 0;
+  const proseOffense = async (kind: string, reason: string): Promise<{ park: boolean; findings: string }> => {
+    proseGateOffensesTotal += 1;
+    const offenseCountForKind = (proseGateOffensesByKind.get(kind) ?? 0) + 1;
+    proseGateOffensesByKind.set(kind, offenseCountForKind);
+    const park = proseGateDisposition({ offenseCountForKind, totalOffenseCountSoFar: proseGateOffensesTotal }).action === 'park';
     // Record the incident as a ledger node on EVERY offense (retry and park) so the
     // graph shows it — retryCount alone previously hid first-offense prose incidents.
+    // The kind + occurrence number make the audit trail legible across gate kinds.
+    const detail = `[${kind} #${offenseCountForKind}] ${reason}`;
     try {
       deps.recordNode({
         project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
         nodeKind: 'grounding-audit', nodesSpent: 0, verdict: 'fail',
-        outcomeDetail: reason, outputText: reason,
+        outcomeDetail: detail, outputText: detail,
       });
     } catch { /* telemetry — never break the run */ }
     // bumpRetry ONLY on the park (unchanged from the original per-site behavior).
@@ -1990,26 +2019,54 @@ export async function runLeaf(
       const mergeSha = optimisticMergeSha;
       optimisticallyLanded = false;
       let revertSha: string | undefined;
+      // VERIFIED revert: a throw OR an unverified/failed revert must NEVER be swallowed —
+      // that is exactly how rejected code was left stranded on the epic branch with only a
+      // friction row to show for it. `revertOk` requires BOTH `reverted===true` AND the
+      // helper's own content verification (see WorktreeManager.revertEpicMerge/diff check).
+      let revertOk = false;
+      let revertFailDetail: string | undefined;
       try {
         const rev = await deps.revertEpicMerge?.(sessionKey, epicId, leaf.id, mergeSha, reason);
         revertSha = rev?.revertSha;
-      } catch { /* best-effort revert — still park + record the card below */ }
+        revertOk = rev?.reverted === true && rev?.verified === true;
+        if (rev && !revertOk) revertFailDetail = rev.reverted ? 'revert ran but verification found the merge still present' : (rev.error ?? 'git revert failed');
+      } catch (e) {
+        revertFailDetail = e instanceof Error ? e.message : String(e);
+      }
       try {
         deps.recordNode({
           project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
-          nodeKind: 'optimistic-land-reverted', nodesSpent: 0, verdict: 'fail',
-          outcomeDetail: JSON.stringify({ mergeSha, revertSha, reason, tier: leaf.tier ?? 'full' }),
-          outputText: `optimistic-land-reverted: reverted ${mergeSha}${revertSha ? ` via ${revertSha}` : ''} — ${reason}`,
+          nodeKind: revertOk ? 'optimistic-land-reverted' : 'optimistic-land-revert-failed',
+          nodesSpent: 0, verdict: 'fail',
+          outcomeDetail: JSON.stringify({ mergeSha, revertSha, reason, tier: leaf.tier ?? 'full', ...(revertFailDetail ? { revertFailDetail } : {}) }),
+          outputText: revertOk
+            ? `optimistic-land-reverted: reverted ${mergeSha}${revertSha ? ` via ${revertSha}` : ''} — ${reason}`
+            : `optimistic-land-revert-failed: could not revert ${mergeSha} on ${epicBranch} — ${revertFailDetail ?? 'unknown'} — ${reason}`,
         });
       } catch { /* telemetry — never break the park */ }
       try {
         await recordFriction(project, {
           todoId: leaf.id, session: sessionKey, layer: 'orchestration',
-          retryReason: 'optimistic-land-reverted',
-          detail: `Optimistically-landed leaf "${leaf.title ?? leaf.id}" (tier=${leaf.tier ?? 'full'}) reverted: post-land review/gate FAIL. Reverted merge ${mergeSha}${revertSha ? ` via ${revertSha}` : ''}. Finding: ${reason}`,
+          retryReason: revertOk ? 'optimistic-land-reverted' : 'optimistic-merge-revert-failed',
+          detail: revertOk
+            ? `Optimistically-landed leaf "${leaf.title ?? leaf.id}" (tier=${leaf.tier ?? 'full'}) reverted: post-land review/gate FAIL. Reverted merge ${mergeSha}${revertSha ? ` via ${revertSha}` : ''}. Finding: ${reason}`
+            : `Optimistically-landed leaf "${leaf.title ?? leaf.id}" (tier=${leaf.tier ?? 'full'}) FAILED TO REVERT merge ${mergeSha} on epic branch ${epicBranch} — ${revertFailDetail ?? 'unknown'}. Rejected code may still be on the epic branch. Finding: ${reason}`,
         });
       } catch { /* friction store best-effort — never break the park */ }
-      reason = `optimistic-land-reverted: ${reason}`;
+      if (!revertOk) {
+        // NEVER swallow: raise a hard blocker naming the epic branch and the unreverted
+        // mergeSha so a human/conductor can hand-verify/hand-revert immediately.
+        deps.escalate({
+          project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
+          questionText:
+            `OPTIMISTIC-MERGE REVERT FAILED for "${leaf.title ?? leaf.id}" — merge ${mergeSha} on epic branch ` +
+            `${epicBranch} may still be present (rejected code not confirmed removed). ${revertFailDetail ?? ''} ` +
+            `Manual verification/revert required before this epic can safely land.`,
+        });
+        reason = `optimistic-merge-revert-failed: ${reason}`;
+      } else {
+        reason = `optimistic-land-reverted: ${reason}`;
+      }
     }
     recordOutcome('blocked', verdict, { reason });
     // Land the reject intent DURABLY before the slow gate so a mid-gate process
@@ -2510,6 +2567,27 @@ export async function runLeaf(
 
     const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
     const cwd = wt.path;
+
+    // BASE-FRESHNESS PRE-CHECK: a cheap deterministic git probe BEFORE this attempt's
+    // first node spends anything. Real incident: a stale/off-by-one base spent
+    // blueprint+implement+review and was only THEN rejected at the gate for tsc errors in
+    // files the leaf never touched — the drift was discovered too late (resume decisions /
+    // the mechanical gate), after burning the whole node budget. `deps.wm.ensure(fresh:
+    // true)` always forks off the LIVE epicBranch tip, so this should hold trivially; it
+    // exists as a hard backstop against any future weakening of that guarantee (or a race
+    // between the fork and this check). A probe THROW is treated exactly like a `null`
+    // result (fail-open) — a broken probe must never park a healthy leaf.
+    let baseIsAncestor: boolean | null = null;
+    try {
+      baseIsAncestor = (await deps.worktreeBaseFresh?.(cwd)) ?? null;
+    } catch { /* probe error — fail-open, proceed */ }
+    if (!classifyWorktreeBaseFreshness(baseIsAncestor).fresh) {
+      // Reuse the SAME park mechanism (and the SAME 'epic-base-moved' reason tag) planResume
+      // already uses for this class of drift — zero nodes spent, escalated exactly like the
+      // G2 red-base case above, so a human/conductor reset_todo re-dispatches onto a fresh
+      // worktree (always fresh — see the ensure() call above).
+      return parkBlocked('epic-base-moved');
+    }
 
     // RESUME: REATTACH-BLUEPRINT (slice 2). On the FIRST attempt of a resumed run
     // whose blueprint already completed (against an UNCHANGED epic base — guarded in
@@ -3053,7 +3131,7 @@ export async function runLeaf(
         // detector below, so it runs to node-budget exhaustion). Park, and RECORD it —
         // retryCount stayed 0 before, so the graph showed no incident at all.
         if (llm === 'error') {
-          const d = await proseOffense('review-vacuous');
+          const d = await proseOffense('review-unparseable', 'review-vacuous');
           if (d.park) return parkBlocked('review-vacuous');
           proseRetryFindings = d.findings; // first offense → retry with synthesized findings
         }
@@ -3090,7 +3168,7 @@ export async function runLeaf(
             // [N/A]; auto-exempting them would false-pass a real negative check ("no regression").
             const deferToEvidence = uncitedCriteriaAreAllCommandResults(grounding.criteria, cs ?? []);
             if (!deferToEvidence && !shadow) {
-              const d = await proseOffense(`review-vacuous: ${grounding.reasons.join('; ')}`);
+              const d = await proseOffense('review-vacuous', `review-vacuous: ${grounding.reasons.join('; ')}`);
               if (d.park) return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
               proseRetryFindings = d.findings; // first offense → retry
             }
@@ -3105,7 +3183,7 @@ export async function runLeaf(
               worktreeRoot: cwd,
             });
             if (evidence.reject) {
-              const d = await proseOffense(`command-evidence: ${evidence.reasons.join('; ')}`);
+              const d = await proseOffense('command-evidence', `command-evidence: ${evidence.reasons.join('; ')}`);
               if (d.park) return parkBlocked(`command-evidence: ${evidence.reasons.join('; ')}`);
               proseRetryFindings = d.findings; // first offense → retry
             } else {
@@ -3772,6 +3850,10 @@ export async function makeLeafExecutorDeps(
       }
       return { ...r, fresh: true };
     },
+    // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
+    // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
+    // WorktreeManager so the git plumbing lives in one place.
+    worktreeBaseFresh: (cwd) => wm.worktreeBaseFresh(cwd, epicBranch),
     // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
     // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
     // session under the TRACKING `project`, then points the leaf todo's

@@ -1,15 +1,25 @@
 import { describe, expect, test } from 'bun:test';
 import { proseGateDisposition, synthProseFindings } from '../prose-gate-retry';
 
-describe('proseGateDisposition', () => {
-  test('first offense retries', () => {
-    expect(proseGateDisposition({ offenseCountSoFar: 1 }).action).toBe('retry');
+describe('proseGateDisposition (per-gate-kind counting)', () => {
+  test('first offense of a kind retries', () => {
+    expect(proseGateDisposition({ offenseCountForKind: 1, totalOffenseCountSoFar: 1 }).action).toBe('retry');
   });
-  test('second offense parks', () => {
-    expect(proseGateDisposition({ offenseCountSoFar: 2 }).action).toBe('park');
+  test('second offense of the SAME kind parks', () => {
+    expect(proseGateDisposition({ offenseCountForKind: 2, totalOffenseCountSoFar: 2 }).action).toBe('park');
   });
-  test('third offense parks', () => {
-    expect(proseGateDisposition({ offenseCountSoFar: 3 }).action).toBe('park');
+  test('third offense of the same kind parks', () => {
+    expect(proseGateDisposition({ offenseCountForKind: 3, totalOffenseCountSoFar: 3 }).action).toBe('park');
+  });
+  test('two DIFFERENT kinds each retry once (2 total, neither kind repeats)', () => {
+    expect(proseGateDisposition({ offenseCountForKind: 1, totalOffenseCountSoFar: 1 }).action).toBe('retry');
+    expect(proseGateDisposition({ offenseCountForKind: 1, totalOffenseCountSoFar: 2 }).action).toBe('retry');
+  });
+  test('a THIRD distinct kind parks once the overall ceiling (2 total retries) is exceeded', () => {
+    expect(proseGateDisposition({ offenseCountForKind: 1, totalOffenseCountSoFar: 3 }).action).toBe('park');
+  });
+  test('overall ceiling parks even for a brand-new kind at total=3+ regardless of per-kind count', () => {
+    expect(proseGateDisposition({ offenseCountForKind: 1, totalOffenseCountSoFar: 4 }).action).toBe('park');
   });
 });
 

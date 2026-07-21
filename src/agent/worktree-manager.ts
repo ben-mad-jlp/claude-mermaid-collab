@@ -102,6 +102,13 @@ export interface RevertMergeResult {
   /** Failure detail (reverted === false) — e.g. the revert hit a conflict and was aborted,
    *  leaving the epic branch untouched. */
   error?: string;
+  /** CONTENT-verified (reverted === true only): a `git revert` ADDS a commit — it never
+   *  rewrites history — so the merge commit stays a permanent ancestor of the epic tip;
+   *  ancestry alone is not proof the code was undone. `verified` instead diffs the
+   *  post-revert tip against the merge's own pre-merge mainline parent (`mergeSha^1`):
+   *  empty ⇒ true (the merge's net effect is fully gone). false ⇒ a real diff remains, or
+   *  the verification itself hit a git error — never silently trust an unverified revert. */
+  verified?: boolean;
 }
 
 export interface CommitMergeOpts {
@@ -1651,12 +1658,23 @@ export class WorktreeManager {
         stdout: '',
         stderr: '',
       }));
-      return { reverted: false, error: res.stderr.trim() || `git revert exited ${res.code}` };
+      return { reverted: false, error: res.stderr.trim() || `git revert exited ${res.code}`, verified: false };
     }
     let revertSha: string | undefined;
     const shaRes = await this.runGit(epic.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
     if (shaRes.code === 0) revertSha = shaRes.stdout.trim() || undefined;
-    return { reverted: true, revertSha };
+    // VERIFY: ancestry of `mergeSha` is NOT proof — `git revert` only ADDS a commit, so the
+    // merge stays reachable forever. Diff the post-revert tip against the merge's own
+    // pre-merge mainline parent (`mergeSha^1`, the epic tip immediately BEFORE this merge);
+    // an empty diff proves the merge's net content change is fully undone. Any git error
+    // here is NOT verified — fail closed (the caller escalates rather than trusting it).
+    const diffRes = await this.runGit(
+      epic.path,
+      ['diff', '--quiet', `${mergeSha}^1`, 'HEAD'],
+      timeoutMs,
+    ).catch(() => ({ code: 2, stdout: '', stderr: '' }));
+    const verified = diffRes.code === 0;
+    return { reverted: true, revertSha, verified };
   }
 
   // ---------------------------------------------------------------------------
@@ -1676,6 +1694,29 @@ export class WorktreeManager {
       QUICK_TIMEOUT_MS,
     ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
     return res.code === 0 && res.stdout.trim().length > 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // worktreeBaseFresh — leaf floor-path base-freshness pre-check. Is `tipRef` (the epic
+  // branch name, or trunk when the leaf has no epic) still an ancestor of the lane
+  // worktree's HEAD? Both worktrees share one `.git`, so `tipRef` resolves from any linked
+  // worktree without a checkout. True ⇒ fresh (this worktree's fork point has not been
+  // superseded); false ⇒ STALE (the tip moved past what this worktree forked from) — the
+  // caller must park before spending any node; null ⇒ indeterminate (non-git project or a
+  // git error) — the caller's fail-open trigger. Read-only; never throws.
+  // ---------------------------------------------------------------------------
+  async worktreeBaseFresh(worktreePath: string, tipRef: string): Promise<boolean | null> {
+    if (!(await this.isGitRepo())) return null;
+    const res = await this.runGit(
+      worktreePath,
+      ['merge-base', '--is-ancestor', tipRef, 'HEAD'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 2, stdout: '', stderr: '' }));
+    // exit 0 → tipRef is an ancestor of HEAD (fresh); exit 1 → not an ancestor (stale);
+    // other → git error (indeterminate, fail-safe).
+    if (res.code === 0) return true;
+    if (res.code === 1) return false;
+    return null;
   }
 
   // ---------------------------------------------------------------------------

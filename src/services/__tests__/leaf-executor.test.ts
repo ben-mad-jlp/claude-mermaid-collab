@@ -36,6 +36,7 @@ import {
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
+  classifyWorktreeBaseFreshness,
   isNodeStartFailure,
   resolveInheritedSlice,
   type LeafExecutorDeps,
@@ -630,6 +631,43 @@ describe('runLeaf state machine', () => {
     expect(implementSpecs.length).toBe(2); // initial + the retry fix that produced the cited PASS
   });
 
+  it('prose gate (FIX: per-gate-kind counting): an unparseable offense then a DIFFERENT vacuous offense both RETRY (2 total, neither kind repeats) — the old single counter would have parked on the 2nd', async () => {
+    const { deps, spies } = makeDeps({
+      // cycle 1: unparseable (kind=review-unparseable) → retry.
+      // cycle 2: parseable but uncited PASS (kind=review-vacuous, a DIFFERENT kind, first
+      //          occurrence) → still retry under per-kind counting (would have PARKED under
+      //          the old single run-wide counter — this is the fix).
+      // cycle 3: properly-cited PASS → accepts.
+      reviewVerdicts: ['(no verdict)', 'VERDICT: PASS', '- [MET] x — src/a.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    // two distinct-kind offenses recorded, neither bumped (both were retries, not parks).
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(2);
+    expect(spies.bumpRetryCalls).toEqual([]);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(3); // initial + 2 retry fixes
+  });
+
+  it('prose gate (FIX: overall ceiling): a 3rd distinct-kind offense parks once MAX_TOTAL_PROSE_RETRIES is exceeded, even though neither kind repeated', async () => {
+    const { deps, spies } = makeDeps({
+      // cycle 1: unparseable → retry (kind #1, total 1).
+      // cycle 2: uncited PASS (review-vacuous) → retry (kind #2, total 2).
+      // cycle 3: unparseable again — but this is now `review-unparseable`'s SECOND
+      //          occurrence (same kind as cycle 1) → parks either way (kind-repeat AND
+      //          ceiling both fire); asserts the ceiling holds regardless.
+      reviewVerdicts: ['(no verdict)', 'VERDICT: PASS', '(no verdict)'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('review-vacuous');
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(3);
+    expect(spies.bumpRetryCalls.length).toBe(1); // bumped exactly once, on the terminal park
+  });
+
   it('G3: a terse but CITED PASS accepts (no token floor, no tool-call floor)', async () => {
     const { deps, spies } = makeDeps({
       reviewVerdicts: ['- [MET] x — src/a.ts:1\n\nVERDICT: PASS'],
@@ -849,6 +887,65 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(res.outcome).toBe('accepted');
     expect(res.nodesSpent).toBe(3);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  describe('base-freshness pre-check (worktreeBaseFresh) — FIX', () => {
+    it('fresh (probe true) ⇒ proceeds unaffected, accepted', async () => {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+      let calledWithCwd: string | undefined;
+      deps.worktreeBaseFresh = async (cwd) => { calledWithCwd = cwd; return true; };
+      const res = await runLeaf('proj', makeLeaf(), deps);
+      expect(res.outcome).toBe('accepted');
+      expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+      expect(calledWithCwd).toBeTruthy();
+    });
+
+    it('stale (probe false) ⇒ NO node spawned, parks epic-base-moved, zero nodesSpent', async () => {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+      deps.worktreeBaseFresh = async () => false;
+      const res = await runLeaf('proj', makeLeaf(), deps);
+      expect(res.outcome).toBe('blocked');
+      expect(res.reason).toBe('epic-base-moved');
+      expect(res.nodesSpent).toBe(0);
+      expect(spies.invokeSpecs.length).toBe(0); // NOT ONE node (blueprint/implement/review) spawned
+      expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
+      expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
+    });
+
+    it('probe THROWS ⇒ fail-open, proceeds exactly as if unwired', async () => {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+      deps.worktreeBaseFresh = async () => { throw new Error('git exploded'); };
+      const res = await runLeaf('proj', makeLeaf(), deps);
+      expect(res.outcome).toBe('accepted');
+      expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    });
+
+    it('probe returns null (indeterminate) ⇒ fail-open, proceeds', async () => {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+      deps.worktreeBaseFresh = async () => null;
+      const res = await runLeaf('proj', makeLeaf(), deps);
+      expect(res.outcome).toBe('accepted');
+      expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    });
+
+    it('unwired (undefined) ⇒ pre-existing behaviour, proceeds', async () => {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no worktreeBaseFresh set
+      const res = await runLeaf('proj', makeLeaf(), deps);
+      expect(res.outcome).toBe('accepted');
+      expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    });
+  });
+
+  describe('classifyWorktreeBaseFreshness (pure classifier)', () => {
+    it('true ⇒ fresh', () => {
+      expect(classifyWorktreeBaseFreshness(true)).toEqual({ fresh: true });
+    });
+    it('false ⇒ stale', () => {
+      expect(classifyWorktreeBaseFreshness(false)).toEqual({ fresh: false });
+    });
+    it('null (indeterminate) ⇒ fail-open ⇒ fresh', () => {
+      expect(classifyWorktreeBaseFreshness(null)).toEqual({ fresh: true });
+    });
   });
 
   it('unwired runGate emits a gate-abstain ledger row and warns', async () => {
@@ -3003,7 +3100,7 @@ describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
     deps.revertEpicMerge = async (_s, _e, leafId, mergeSha, reason) => {
       reverts.push({ leafId, mergeSha, reason });
       order.push('revert');
-      return { reverted: true, revertSha: 'RSHA' };
+      return { reverted: true, revertSha: 'RSHA', verified: true };
     };
     return { order, reverts };
   }
@@ -3084,6 +3181,52 @@ describe('crit 6 — optimistic landing (small / test-pinned tiers)', () => {
     expect(res.outcome).toBe('accepted');
     expect(order.filter((o) => o === 'merge')).toHaveLength(1); // exactly one merge
     expect(reverts).toHaveLength(0); // no revert on a pass
+  });
+
+  it('part 2c (FIX): revertEpicMerge succeeds AND verifies → no escalation, reason still tags optimistic-land-reverted', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — real fault', 'VERDICT: FAIL — real fault'],
+      runGate: greenGate,
+    });
+    instrument(deps); // default mock returns { reverted: true, verified: true }
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^optimistic-land-reverted:/);
+    expect(spies.escalations.some((e) => /REVERT FAILED/.test(e.questionText))).toBe(false);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-revert-failed')).toBeUndefined();
+  });
+
+  it('part 2d (FIX): revertEpicMerge THROWS → hard escalation naming the epic branch + mergeSha, never swallowed', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — real fault', 'VERDICT: FAIL — real fault'],
+      runGate: greenGate,
+    });
+    instrument(deps);
+    deps.revertEpicMerge = async () => { throw new Error('git revert exploded'); };
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^optimistic-merge-revert-failed:/);
+    const revertEsc = spies.escalations.find((e) => /REVERT FAILED/.test(e.questionText));
+    expect(revertEsc).toBeTruthy();
+    expect(revertEsc!.questionText).toContain(EPIC_BRANCH);
+    expect(revertEsc!.questionText).toContain('MSHA');
+    const card = spies.nodeRows.find((r) => r.nodeKind === 'optimistic-land-revert-failed');
+    expect(card).toBeTruthy();
+  });
+
+  it('part 2e (FIX): revertEpicMerge reports reverted:true but verification says the merge is STILL present → hard escalation, never silently accepted', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — real fault', 'VERDICT: FAIL — real fault'],
+      runGate: greenGate,
+    });
+    instrument(deps);
+    deps.revertEpicMerge = async () => ({ reverted: true, revertSha: 'RSHA', verified: false });
+    const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^optimistic-merge-revert-failed:/);
+    const revertEsc = spies.escalations.find((e) => /REVERT FAILED/.test(e.questionText));
+    expect(revertEsc).toBeTruthy();
+    expect(revertEsc!.questionText).toContain('MSHA');
   });
 
   it('part 3a: an optimistically-landed small-tier PASS records the SAME accept bookkeeping (finalOutcome accepted + one complete:accepted) as a full-tier PASS', async () => {

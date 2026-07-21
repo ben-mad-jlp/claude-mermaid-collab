@@ -172,11 +172,35 @@ describe('WorktreeManager — scoped commit (G12)', () => {
     const rev = await mgr.revertEpicMerge(INBOX_EPIC_ID, m2.mergeSha!);
     expect(rev.reverted).toBe(true);
     expect(rev.revertSha).toBeTruthy();
+    // CONTENT-verified: the diff against the merge's pre-merge mainline parent is empty.
+    expect(rev.verified).toBe(true);
 
     // b.ts is back to base; a.ts (leaf 1) is untouched.
     expect((await runGit(repo, ['show', `${EPIC_BRANCH}:src/b.ts`])).stdout).toContain('b = 0');
     expect((await runGit(repo, ['show', `${EPIC_BRANCH}:src/a.ts`])).stdout).toContain('a = 1');
     // The revert is an auditable commit on the epic branch.
     expect((await runGit(repo, ['log', '--format=%s', EPIC_BRANCH])).stdout).toMatch(/Revert/);
+  });
+
+  // FIX (base-freshness pre-check): worktreeBaseFresh probes whether a ref's tip is still
+  // an ancestor of a lane worktree's HEAD.
+  it('worktreeBaseFresh: true when the tip is an ancestor of HEAD, false once the tip advances past the fork point', async () => {
+    await fs.writeFile(path.join(repo, 'root.txt'), 'root\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'root']);
+
+    const s1 = 'fresh-sess-1';
+    const wt = await mgr.ensure(s1, { baseBranch: 'main', fresh: true });
+
+    // At fork time, 'main' is an ancestor of the lane worktree's HEAD (they're identical).
+    expect(await mgr.worktreeBaseFresh(wt.path, 'main')).toBe(true);
+
+    // Advance 'main' with a NEW commit the lane worktree never forked from.
+    await fs.writeFile(path.join(repo, 'root.txt'), 'root v2\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'main moved on']);
+
+    // The lane worktree's HEAD no longer contains 'main's new tip — STALE.
+    expect(await mgr.worktreeBaseFresh(wt.path, 'main')).toBe(false);
   });
 });
