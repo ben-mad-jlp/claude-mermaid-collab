@@ -54,10 +54,6 @@ function makeDeps(overrides: Partial<WorkerLivenessDeps> = {}): WorkerLivenessDe
     isRunLive: () => false,
     isLeafInflightLive: () => false,
     inProcessLaneAlive: async () => false,
-    isTmuxAlive: async () => false,
-    tmuxBaseName: (_project, session) => `tmux-${session}`,
-    laneConfirmedDead: async () => true,
-    procSnapshot: async () => null,
     lanePulseAt: () => null,
     markIdle: () => {},
     recordSupervisorAudit: (entry) => { _audits.push(entry); },
@@ -109,7 +105,6 @@ describe('reapDeadWorkers — rule ordering / dedup', () => {
     const deps = makeDeps({
       listTodos: (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]),
       lanePulseAt: () => Date.now() - 60_000, // stale
-      laneConfirmedDead: async () => true,
       reclaimOrphan: async (_project, id) => { reclaimCalls++; return id === 'dual-eligible' ? 'ready' : null; },
     });
     const res = await reapDeadWorkers('proj', deps);
@@ -162,7 +157,6 @@ describe('reapDeadWorkers — shield chain short-circuits each rule', () => {
     const deps = makeDeps({
       listTodos: (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]),
       lanePulseAt: () => Date.now() - 60_000,
-      laneConfirmedDead: async () => true,
       isLeafInflightLive: (id) => id === 'shielded-d',
       reclaimOrphan: async () => { reclaimOrphanCalls++; return 'ready'; },
     });
@@ -254,7 +248,6 @@ describe('reapDeadWorkers — audit source strings are unchanged', () => {
       listTodos: (_p, opts) =>
         (opts?.status === 'in_progress' ? [deadClaim, priorEpoch, pulse, grace] : [deadClaim, priorEpoch, pulse, grace]),
       lanePulseAt: (_project, session) => (session === 'lane-pulse' ? Date.now() - 60_000 : null),
-      laneConfirmedDead: async () => true,
     });
     await reapDeadWorkers('proj', deps);
     const sources = deps._audits
