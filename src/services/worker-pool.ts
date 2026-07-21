@@ -189,10 +189,6 @@ export interface PoolSlot {
   status: SlotStatus;
   /** The todo id the slot is currently working, when busy. */
   currentTodoId?: string;
-  /** The full tmux base name backing this slot while busy. Recorded at markBusy
-   *  so a slot can be reaped on its OWN worker's death, independent of any todo's
-   *  status (a dropped/completed-out-of-band todo must still free its slot). */
-  tmux?: string;
 }
 
 /** regKey (`<project> <sessionName>`) → slot. Module-level; no DB (intentional).
@@ -297,14 +293,12 @@ export function parsePoolSessionName(
 // restart) was removed with the tmux worker lane — headless leaves run in-process and
 // can't survive a restart to be reconciled.
 
-/** Mark a session busy on a todo. Pass `tmux` (the slot's tmux base name) so the
- *  slot can be reaped on its worker's death independent of todo status. */
-export function markBusy(project: string, sessionName: string, todoId: string, tmux?: string): PoolSlot | undefined {
+/** Mark a session busy on a todo. */
+export function markBusy(project: string, sessionName: string, todoId: string): PoolSlot | undefined {
   const s = registry.get(regKey(project, sessionName));
   if (!s) return undefined;
   s.status = 'busy';
   s.currentTodoId = todoId;
-  if (tmux !== undefined) s.tmux = tmux;
   return s;
 }
 
@@ -314,7 +308,6 @@ export function markIdle(project: string, sessionName: string): PoolSlot | undef
   if (!s) return undefined;
   s.status = 'idle';
   delete s.currentTodoId;
-  delete s.tmux;
   return s;
 }
 
@@ -329,35 +322,6 @@ export function removeSlot(project: string, sessionName: string): boolean {
   const removed = registry.delete(regKey(project, sessionName));
   if (removed) reportPoolSlotCount(registry.size);
   return removed;
-}
-
-/** Free every busy slot whose backing tmux session is dead. Decouples slot
- *  release from todo status: a slot orphaned by a dropped/abandoned todo (its
- *  worker gone) is reclaimed here so the pool doesn't wedge "busy" on a vanished
- *  session. `isAlive` is injected (tmux liveness check) to keep this pure. A busy
- *  slot with no recorded tmux is left alone (legacy/in-flight — the todo-level
- *  reaper still backstops it). Returns the freed session names. */
-export async function reapDeadSlots(isAlive: (tmux: string) => boolean | Promise<boolean>): Promise<string[]> {
-  const freed: string[] = [];
-  // Snapshot busy slots first so we can await liveness without iterating the
-  // registry while it may mutate. The predicate is async (944408c2: tmux liveness
-  // is an async subprocess call now, never a blocking spawnSync on the sidecar).
-  const busy = [...registry.entries()].filter(([, s]) => s.status === 'busy' && s.tmux);
-  for (const [key, s] of busy) {
-    if (!(await isAlive(s.tmux!))) {
-      // Re-read in case it changed while awaiting. Key by the slot's stored
-      // project so we re-read the same partitioned entry.
-      const cur = registry.get(key);
-      if (cur && cur.status === 'busy') {
-        cur.status = 'idle';
-        delete cur.currentTodoId;
-        delete cur.tmux;
-        // Report the logical session name (what callers route by).
-        freed.push(poolSessionName(cur.type, cur.provider, cur.slot));
-      }
-    }
-  }
-  return freed;
 }
 
 /** Snapshot of the registry as an array of slots (shallow copies). Each entry

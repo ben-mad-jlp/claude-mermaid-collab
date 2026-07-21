@@ -9,10 +9,7 @@ import { DEFAULT_LEASE_MS } from './harness-caps';
  *
  *  Dead-worker detection (`reapDeadWorkers`) is a SINGLE ordered rule engine — see
  *  src/services/worker-liveness.ts — not a bag of independent reapers. It is the
- *  one surface to change when a liveness rule needs adjusting; `releaseExpiredClaims`
- *  (lease bookkeeping, todo-store) and `reapDeadPoolSlots` (pool-slot resource
- *  reconciliation, worker-pool) are deliberately separate concerns and stay here
- *  unmerged. */
+ *  one surface to change when a liveness rule needs adjusting. */
 
 export const COORDINATOR_ID = 'coordinator';
 
@@ -73,11 +70,6 @@ export interface CoordinatorDeps {
    *  Returns the union of reclaimed-to-ready + retry-exhausted (parked blocked)
    *  ids across every rule. Optional. */
   reapDeadWorkers?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
-  /** Free pool SLOTS whose backing worker tmux is gone, independent of any todo's
-   *  status. reapDeadWorkers only visits in_progress todos, so a slot orphaned by a
-   *  dropped/abandoned todo would otherwise stay wedged 'busy' forever (889e3e26).
-   *  Returns the freed session names. Optional. */
-  reapDeadPoolSlots?: (project: string) => Promise<string[]>;
   /** Detect ALIVE-but-idle (stalled) workers — a worker sitting at its prompt
    *  awaiting input without filing an escalation — and surface them as escalations
    *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
@@ -165,10 +157,6 @@ export async function runTick(
       released.push(...dead.reclaimed);
       exhausted.push(...dead.exhausted);
     } catch (err) { recordTickError('reapDeadWorkers', err); }
-  }
-  // Free pool slots orphaned by dropped/abandoned todos (their worker tmux gone).
-  if (deps.reapDeadPoolSlots) {
-    try { await deps.reapDeadPoolSlots(project); } catch (err) { recordTickError('reapDeadPoolSlots', err); }
   }
   for (const id of exhausted) {
     try { await deps.escalateExhausted?.(project, id); } catch (err) { recordTickError(`escalateExhausted:${id}`, err); }
