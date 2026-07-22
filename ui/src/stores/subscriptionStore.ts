@@ -75,7 +75,13 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
     const VALID = new Set(['active', 'waiting', 'permission', 'unknown']);
     for (const [k, v] of Object.entries(raw)) {
       const age = typeof v.lastUpdate === 'number' ? now - v.lastUpdate : Infinity;
-      const lastKnown = VALID.has(v.status) && age <= GONE_MS ? v.status : 'unknown';
+      // DEAD entries don't hydrate. An entry silent past GONE_MS would render as a
+      // gray 'unknown' card with no live source — accumulated across restarts these
+      // flooded the Watching list with every session ever seen (observed: 66 dead
+      // cards). Drop them at boot; a session that's actually alive re-appears
+      // within seconds via the WatchAggregator's ensureSubscribed on its first event.
+      if (age > GONE_MS) continue;
+      const lastKnown = VALID.has(v.status) ? v.status : 'unknown';
       const coerced = lastKnown === 'active' ? 'waiting' : lastKnown;
       out[k] = {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',
@@ -96,13 +102,24 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
   }
 }
 
-export const useSubscriptionStore = create<SubscriptionState>((set) => ({
-  subscriptions: hydrateSubscriptions(),
+// Hydrate once, then write the PRUNED result straight back so localStorage stops
+// accumulating dead entries across restarts (the flood compounds otherwise).
+const bootSubscriptions = hydrateSubscriptions();
+const bootOrder: string[] = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]') as string[];
+    return raw.filter((k) => k in bootSubscriptions);
+  } catch { return []; }
+})();
+try {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(bootSubscriptions));
+  localStorage.setItem(ORDER_KEY, JSON.stringify(bootOrder));
+} catch { /* quota/SSR — persistence is best-effort */ }
 
-  order: (() => {
-    try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); }
-    catch { return []; }
-  })(),
+export const useSubscriptionStore = create<SubscriptionState>((set) => ({
+  subscriptions: bootSubscriptions,
+
+  order: bootOrder,
 
   subscribe: (serverId, project, session, opts) => {
     const key = compositeKey(serverId, project, session);
