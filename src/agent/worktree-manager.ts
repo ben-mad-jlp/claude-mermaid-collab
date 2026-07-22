@@ -8,6 +8,7 @@ import {
   type ScopeInput,
 } from '../services/leaf-commit-scope';
 import { restorePostLandTree } from '../services/tree-integrity';
+import { withMainCheckoutInvariant, type GitRunner } from '../services/main-checkout-invariant';
 
 export interface WorktreeManagerOpts {
   projectRoot: string; // absolute path to the project (git) root
@@ -253,6 +254,8 @@ export class WorktreeManager {
   // instance-level serial queue serialises all worktree mutations for the repo.
   private worktreeLock: Promise<unknown> = Promise.resolve();
 
+  private readonly mainCheckoutGit: GitRunner = (cwd, args) => this.runGit(cwd, args, QUICK_TIMEOUT_MS);
+
   constructor(private readonly opts: WorktreeManagerOpts) {
     this.spawnFn =
       opts.spawn ?? ((cmd: string[], so: any) => (globalThis as any).Bun.spawn(cmd, so));
@@ -278,9 +281,13 @@ export class WorktreeManager {
     const pending = this.pendingEnsures.get(sessionId);
     if (pending) return pending;
     // Serialise the worktree add/remove/prune behind the per-project lock (6bc2dc36).
-    const p = this.withWorktreeLock(() => this._ensureInner(sessionId, opts)).finally(() =>
-      this.pendingEnsures.delete(sessionId),
-    );
+    const p = this.withWorktreeLock(() =>
+      withMainCheckoutInvariant(
+        this.opts.projectRoot,
+        this.mainCheckoutGit,
+        () => this._ensureInner(sessionId, opts),
+      ),
+    ).finally(() => this.pendingEnsures.delete(sessionId));
     this.pendingEnsures.set(sessionId, p);
     return p;
   }
@@ -1301,7 +1308,13 @@ export class WorktreeManager {
     // Serialise behind the per-project worktree lock (6bc2dc36). Internal callers that
     // already hold the lock (forwardIntegrateEpic, commitAndMergeToEpic) call
     // `_ensureEpicInner` directly to avoid self-deadlock.
-    return this.withWorktreeLock(() => this._ensureEpicInner(epicId, _project, baseRef));
+    return this.withWorktreeLock(() =>
+      withMainCheckoutInvariant(
+        this.opts.projectRoot,
+        this.mainCheckoutGit,
+        () => this._ensureEpicInner(epicId, _project, baseRef),
+      ),
+    );
   }
 
   private async _ensureEpicInner(
@@ -1418,7 +1431,13 @@ export class WorktreeManager {
     // Serialise behind the per-project worktree lock (6bc2dc36) — two leaves on the same
     // epic merging trunk into the SHARED epic worktree concurrently was the original
     // corruption trigger.
-    return this.withWorktreeLock(() => this._forwardIntegrateEpicInner(epicId, baseRef, opts));
+    return this.withWorktreeLock(() =>
+      withMainCheckoutInvariant(
+        this.opts.projectRoot,
+        this.mainCheckoutGit,
+        () => this._forwardIntegrateEpicInner(epicId, baseRef, opts),
+      ),
+    );
   }
 
   private async _forwardIntegrateEpicInner(
@@ -1978,7 +1997,13 @@ export class WorktreeManager {
     // Serialise behind the per-project worktree lock (6bc2dc36) — the land's throwaway
     // worktree add/remove + the global `worktree prune` in its finally must not race a
     // concurrent leaf's worktree ops. (No re-entrancy: this method calls runGit directly.)
-    return this.withWorktreeLock(() => this._landEpicToMasterInner(epicId, opts));
+    return this.withWorktreeLock(() =>
+      withMainCheckoutInvariant(
+        this.opts.projectRoot,
+        this.mainCheckoutGit,
+        () => this._landEpicToMasterInner(epicId, opts),
+      ),
+    );
   }
 
   private async _landEpicToMasterInner(epicId: string, opts?: LandOpts): Promise<LandResult> {
@@ -2169,7 +2194,13 @@ export class WorktreeManager {
   // conflict (the branch must survive for the human to rebase + re-land).
   // ---------------------------------------------------------------------------
   async removeEpic(epicId: string, _project?: string): Promise<void> {
-    return this.withWorktreeLock(() => this._removeEpicInner(epicId));
+    return this.withWorktreeLock(() =>
+      withMainCheckoutInvariant(
+        this.opts.projectRoot,
+        this.mainCheckoutGit,
+        () => this._removeEpicInner(epicId),
+      ),
+    );
   }
 
   private async _removeEpicInner(epicId: string): Promise<void> {
@@ -2213,7 +2244,13 @@ export class WorktreeManager {
     epicId: string,
     opts: { keepBranch: boolean },
   ): Promise<{ removed: boolean; wtPath: string }> {
-    return this.withWorktreeLock(() => this._removeEpicWorktreeInner(epicId, opts));
+    return this.withWorktreeLock(() =>
+      withMainCheckoutInvariant(
+        this.opts.projectRoot,
+        this.mainCheckoutGit,
+        () => this._removeEpicWorktreeInner(epicId, opts),
+      ),
+    );
   }
 
   private async _removeEpicWorktreeInner(
