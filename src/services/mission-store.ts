@@ -17,7 +17,7 @@
 import Database from 'bun:sqlite';
 import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { listTodos, resolveShortId, isHollowLand, type Todo } from './todo-store.ts';
+import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
@@ -379,6 +379,20 @@ export function setMissionApproved(project: string, todoId: string): MissionRow 
     setMissionActive(project, id, true);
   }
   return getMission(project, id)!;
+}
+
+/** One-shot idempotent backfill: reconcile mission approval state between mission.db
+ *  and todos.db. Iterates approved missions (those without awaitingApprovalSince set)
+ *  and stamps their [mission]-kind todo nodes with approvedAt/approvedBy if not already set.
+ *  Returns the count of stamped rows so callers can log progress. */
+export function backfillMissionNodeApproval(project: string, approvedBy = 'backfill'): number {
+  const missions = listMissions(project, { withFacts: false, includeArchived: true });
+  let stamped = 0;
+  for (const m of missions) {
+    if (m.mission.awaitingApprovalSince != null) continue; // still unapproved — skip
+    if (stampMissionNodeApprovedIfNull(project, m.node.id, approvedBy)) stamped++;
+  }
+  return stamped;
 }
 
 /** Human-set abandonment stamp. A mission-requirements concept: mark a mission
