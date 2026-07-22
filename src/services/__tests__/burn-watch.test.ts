@@ -17,7 +17,7 @@ const row = (source: string, calls: number): BurnRow => ({
 });
 
 /** Build deps with a canned gauge + a recording createEscalation spy. */
-function deps(rows: BurnRow[], opts: { existingOpen?: boolean } = {}): { d: BurnWatchDeps; created: any[] } {
+function deps(rows: BurnRow[], opts: { existingOpen?: boolean; getAcceptedLeafCount?: (o: { project: string; sinceMs: number }) => number } = {}): { d: BurnWatchDeps; created: any[] } {
   const created: any[] = [];
   const d: BurnWatchDeps = {
     now: () => 5_000_000,
@@ -28,6 +28,9 @@ function deps(rows: BurnRow[], opts: { existingOpen?: boolean } = {}): { d: Burn
       return { escalation: { id: 'e1', ...input }, isNew: !opts.existingOpen };
     }) as any,
   };
+  if (opts.getAcceptedLeafCount) {
+    d.getAcceptedLeafCount = opts.getAcceptedLeafCount;
+  }
   return { d, created };
 }
 
@@ -42,6 +45,20 @@ describe('runBurnWatchPass', () => {
     expect(created[0].kind).toBe(TOKEN_BURN_KIND);
     expect(created[0].operatorGated).toBe(true);
     expect(created[0].questionText).toContain('[burn:conductor]');
+  });
+
+  it('suppresses overhead-source alarms when work landed in the same window', async () => {
+    const { d, created } = deps([row('conductor', 30)], { getAcceptedLeafCount: () => 1 }); // ceiling 8, but offset by 1 accepted leaf
+    const r = await runBurnWatchPass(P, d);
+    expect(r.flagged).toEqual([]); // conductor not flagged due to offset
+    expect(created).toHaveLength(0);
+  });
+
+  it('does not suppress overhead alarms when no work was accepted in the window', async () => {
+    const { d, created } = deps([row('conductor', 30)], { getAcceptedLeafCount: () => 0 }); // ceiling 8, no offset
+    const r = await runBurnWatchPass(P, d);
+    expect(r.flagged).toEqual(['conductor']); // conductor still flagged
+    expect(created).toHaveLength(1);
   });
 
   it('EXEMPTS build sources even when they burn heavily (expected work)', async () => {
