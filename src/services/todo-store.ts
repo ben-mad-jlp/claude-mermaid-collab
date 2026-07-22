@@ -677,6 +677,16 @@ export function openDb(project: string): Database {
       SELECT 1 FROM todos l WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
     )
   `);
+  // One-shot backfill (W3b): done epics that landed WITHOUT a [LAND] leaf (direct
+  // master commits, incremental lands, pre-stamping accept-time paths) never got
+  // landedAt, so unlanded-epic counters report them as stranded forever. A rolled-up
+  // 'done' epic predating per-land stamping is terminal history, not pending work —
+  // stamp landedAt from its own completion time. WHERE landedAt IS NULL keeps re-runs
+  // zero-row; epics landing today are stamped at land time and never reach this.
+  db.exec(`
+    UPDATE todos SET landedAt = COALESCE(completedAt, updatedAt)
+    WHERE kind = 'epic' AND status = 'done' AND landedAt IS NULL
+  `);
   // One-shot backfill (W4 cutover): create_epic no longer mints a [LAND] leaf and
   // checkLandDeps/missionLandLeafPromotion no longer require one — drop (never
   // hard-delete) any still-open land-leaf row under a still-open epic. A `done`
