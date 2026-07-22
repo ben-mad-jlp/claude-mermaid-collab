@@ -14,7 +14,7 @@
  *
  * Usage: bun run scripts/test-backend.ts [--concurrency=N] [pathFilter]
  */
-import { readdirSync, readFileSync } from 'fs';
+import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -23,6 +23,8 @@ const SRC = path.join(ROOT, 'src');
 const args = process.argv.slice(2);
 const concurrency = Number(args.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? '6');
 const filter = args.find((a) => !a.startsWith('--')) ?? '';
+const baselinePath = args.find((a) => a.startsWith('--baseline='))?.split('=')[1];
+const writeBaselinePath = args.find((a) => a.startsWith('--write-baseline='))?.split('=')[1];
 
 function findBunTestFiles(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -79,6 +81,41 @@ async function worker(): Promise<void> {
 await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, () => worker()));
 
 console.log(`\n${files.length - failed.length}/${files.length} files passed.`);
+
+if (writeBaselinePath) {
+  const failingFiles = failed.map((f) => f.file);
+  writeFileSync(writeBaselinePath, JSON.stringify({ generatedAt: new Date().toISOString(), failing: failingFiles }, null, 2));
+  process.exit(0);
+}
+
+if (baselinePath) {
+  const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
+  const baselineFailingSet = new Set(baseline.failing);
+  const currentFailedSet = new Set(failed.map((f) => f.file));
+
+  const netNew = failed.filter((f) => !baselineFailingSet.has(f.file));
+  const netFixed = baseline.failing.filter((f: string) => !currentFailedSet.has(f));
+
+  if (netNew.length > 0) {
+    console.log(`\n${netNew.length} new file(s) FAILED:\n`);
+    for (const f of netNew) {
+      console.log(`──────── ${f.file} ────────`);
+      console.log(f.output.split('\n').slice(-12).join('\n'));
+      console.log('');
+    }
+  }
+
+  if (netFixed.length > 0) {
+    console.log(`\n${netFixed.length} file(s) FIXED:\n`);
+    for (const f of netFixed) {
+      console.log(`  ✓ ${f}`);
+    }
+    console.log('');
+  }
+
+  process.exit(netNew.length ? 1 : 0);
+}
+
 if (failed.length) {
   console.log(`\n${failed.length} file(s) FAILED:\n`);
   for (const f of failed) {

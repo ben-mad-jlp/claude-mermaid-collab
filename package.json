@@ -25,6 +25,7 @@
     "server:status": "bun run bin/mermaid-collab.ts status",
     "test": "cd ui && bun run test",
     "test:backend": "bun run scripts/test-backend.ts",
+    "test:backend:floor": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json",
     "lint:vocab": "bun run scripts/vocab-lint.ts",
     "live:conductor-pin-evidence": "bun run scripts/live-conductor-pin-evidence.ts",
     "postinstall": "cd ui && bun install",
