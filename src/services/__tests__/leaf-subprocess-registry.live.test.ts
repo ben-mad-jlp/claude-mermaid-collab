@@ -19,28 +19,38 @@ async function aliveCount(pids: number[]): Promise<number> {
 describe('leaf-subprocess-registry (live process-group kill)', () => {
   it('killLeafSubtree kills the detached parent AND its forked child', async () => {
     // Parent forks a backgrounded child then sleeps — two pids in one group.
-    const proc = Bun.spawn(['bash', '-c', 'sleep 30 & sleep 30'], {
-      detached: true,
-      stdout: 'ignore',
-      stderr: 'ignore',
-    } as Parameters<typeof Bun.spawn>[1]);
-    const parent = proc.pid!;
-    await Bun.sleep(250); // let the child fork
+    const oldEnv = process.env.MERMAID_TEST_ALLOW_DETACHED;
+    try {
+      process.env.MERMAID_TEST_ALLOW_DETACHED = '1';
+      const proc = Bun.spawn(['bash', '-c', 'sleep 30 & sleep 30'], {
+        detached: true,
+        stdout: 'ignore',
+        stderr: 'ignore',
+      } as Parameters<typeof Bun.spawn>[1]);
+      const parent = proc.pid!;
+      await Bun.sleep(250); // let the child fork
 
-    const childList = (
-      await new Response(Bun.spawn(['pgrep', '-P', String(parent)], { stdout: 'pipe' }).stdout).text()
-    )
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map(Number);
-    const tree = [parent, ...childList];
-    expect(await aliveCount(tree)).toBeGreaterThanOrEqual(2); // parent + ≥1 child alive
+      const childList = (
+        await new Response(Bun.spawn(['pgrep', '-P', String(parent)], { stdout: 'pipe' }).stdout).text()
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map(Number);
+      const tree = [parent, ...childList];
+      expect(await aliveCount(tree)).toBeGreaterThanOrEqual(2); // parent + ≥1 child alive
 
-    registerLeafProc('LIVE', parent, '/p');
-    expect(killLeafSubtree('LIVE')).toBe(true);
-    await Bun.sleep(400); // SIGTERM propagates to the group
+      registerLeafProc('LIVE', parent, '/p');
+      expect(killLeafSubtree('LIVE')).toBe(true);
+      await Bun.sleep(400); // SIGTERM propagates to the group
 
-    expect(await aliveCount(tree)).toBe(0); // whole subtree gone
+      expect(await aliveCount(tree)).toBe(0); // whole subtree gone
+    } finally {
+      if (oldEnv !== undefined) {
+        process.env.MERMAID_TEST_ALLOW_DETACHED = oldEnv;
+      } else {
+        delete process.env.MERMAID_TEST_ALLOW_DETACHED;
+      }
+    }
   }, 10_000);
 });
