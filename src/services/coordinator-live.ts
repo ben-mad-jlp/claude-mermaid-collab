@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, bumpRetryCountIfOwned } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, bumpRetryCountIfOwned, decrementRetryCountIfOwned } from './todo-store';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { findBlockedSplits, type BlockedSplit } from './claimability';
 import { DEFAULT_ORPHAN_GRACE_MS, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
@@ -1790,6 +1790,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               // loop re-dispatches it once the breaker closes.
               tripBreaker(res.paused?.capReset);
               enqueuePausedLeaf(project, todo.id, res.paused!);
+              // CAP-NEUTRAL PAUSE (crit-8): this dispatch's bumpRetryCountIfOwned above made
+              // retryCount a per-dispatch counter, but a TRANSIENT pause (rate cap, auth
+              // logout, stdin-delivery death — anything node-invoker classifies rateLimited)
+              // is an infra hold, not a failed attempt. Without a refund, a sustained CLI
+              // logout burns MAX_REDISPATCH slots in pause/resume cycles and parkRedispatchCap
+              // parks the leaf. Refund the bump so a paused dispatch never counts toward the
+              // cap. Ownership-safe: threaded with THIS dispatch's launch token (mirrors the
+              // epic-base-moved refund), so if another run already re-claimed the todo we
+              // refund nothing rather than clobber its counter. Must run BEFORE releaseClaim
+              // (a released row is no longer in_progress → the guarded decrement would no-op).
+              try { await decrementRetryCountIfOwned(project, todo.id, launchToken ?? undefined); } catch { /* counter is telemetry — never break the pause */ }
               // A live-process pause leaves no terminal node-finally to clear the leaf's
               // live in-flight row, and reapStaleInflight() only deletes OTHER-epoch
               // (dead-process) rows — so the row would linger and inflate daemon_status'
