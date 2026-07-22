@@ -9,7 +9,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject, ServeIntegrityError } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
 import { listCriteria, listCriteriaWithActions, _resetMissionDbCache } from '../../../services/mission-store';
-import { getTodo, listTodos, deriveTodoViews, _closeProject as closeTodos } from '../../../services/todo-store';
+import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
 
 let project: string;
@@ -134,6 +134,71 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
     const todos = listTodos(project, { includeCompleted: true });
     const epics = todos.filter((t) => t.kind === 'epic' && t.parentId === missionId);
     expect(epics.length).toBe(1);
+  });
+
+  test('second planMissionCriterion throws ServeIntegrityError naming the live serving epic', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    let invokeCount = 0;
+
+    // First call: plan an epic to serve the criterion.
+    const r1 = await planMissionCriterion(
+      project,
+      { session: 's1', missionId, criterionIds: [criterionId] },
+      { invoke: mockInvoke() },
+    );
+    const epicTitle = getTodo(project, r1.epicId)!.title;
+
+    // Second call: try to plan the same criterion again — should throw ServeIntegrityError.
+    try {
+      await planMissionCriterion(
+        project,
+        { session: 's1', missionId, criterionIds: [criterionId] },
+        {
+          invoke: async () => { invokeCount++; return {} as any; },
+        },
+      );
+      throw new Error('Expected ServeIntegrityError to be thrown');
+    } catch (e) {
+      if (!(e instanceof ServeIntegrityError)) throw e;
+      expect(e.criterionId).toBe(criterionId);
+      expect(e.servingEpicId).toBe(r1.epicId);
+      expect(e.servingEpicTitle).toBe(epicTitle);
+      expect(e.servingEpicState).toBe('open');
+      expect(e.message).toContain(r1.epicId.slice(0, 8));
+    }
+
+    // Invoke should not have been called.
+    expect(invokeCount).toBe(0);
+  });
+
+  test('dropping serving epic re-derives discover and permits re-planning', async () => {
+    const { missionId, criterionId } = await approvedMission();
+
+    // First call: plan an epic to serve the criterion.
+    const r1 = await planMissionCriterion(
+      project,
+      { session: 's1', missionId, criterionIds: [criterionId] },
+      { invoke: mockInvoke() },
+    );
+
+    // Drop the serving epic.
+    await updateTodo(project, r1.epicId, { status: 'dropped' });
+
+    // Criterion should re-derive 'discover'.
+    expect(listCriteriaWithActions(project, missionId).find(c => c.id === criterionId)!.action).toBe('discover');
+
+    // Plan again for the same criterion with a fresh invoke — should succeed and return a new epic id.
+    const r2 = await planMissionCriterion(
+      project,
+      { session: 's1', missionId, criterionIds: [criterionId] },
+      { invoke: mockInvoke() },
+    );
+    expect(r2.epicId).not.toBe(r1.epicId);
+
+    // Two epics should exist under the mission serving that criterion (lifetime count).
+    const todos = listTodos(project, { includeCompleted: true });
+    const epics = todos.filter((t) => t.kind === 'epic' && t.parentId === missionId);
+    expect(epics.length).toBe(2);
   });
 });
 
