@@ -12,7 +12,8 @@ const dir = mkdtempSync(join(tmpdir(), 'conductor-target-routes-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleSupervisorRoutes } from '../supervisor-routes';
-import { addWatchedProject, _closeDb as supervisorCloseDb } from '../../services/supervisor-store';
+import { addWatchedProject, _closeDb as supervisorCloseDb, setConductorTargetMission, setConductorEnabled } from '../../services/supervisor-store';
+import { runConductorPass } from '../../services/conductor-pass';
 
 const PROJECT = '/tmp/conductor-target-routes-proj';
 
@@ -85,5 +86,17 @@ describe('conductor targetMissionId round-trip', () => {
   it('GET includes lastPass, null before any runConductorPass tick', async () => {
     const get = await call('GET', `/api/supervisor/conductor?project=${encodeURIComponent(PROJECT)}`);
     expect((await get!.json() as any).lastPass).toBeNull();
+  });
+
+  it('GET returns the refreshed lastPass object after a beat', async () => {
+    setConductorEnabled(PROJECT, false);
+    setConductorTargetMission(PROJECT, null);
+    await runConductorPass(PROJECT);
+    const get = await call('GET', `/api/supervisor/conductor?project=${encodeURIComponent(PROJECT)}`);
+    const body = (await get!.json()) as any;
+    expect(body.lastPass).not.toBeNull();
+    expect(body.lastPass.reason).toBe('conductor-disabled');
+    expect(body.lastPass.missionId).toBeNull();
+    expect(typeof body.lastPass.tickAt).toBe('number');
   });
 });
