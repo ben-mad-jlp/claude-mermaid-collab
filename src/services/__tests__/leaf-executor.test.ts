@@ -165,6 +165,8 @@ function makeDeps(opts: {
   coverage?: boolean | null;
   // crit 4: mock the contested-card decision. Absent ⇒ seams unwired (no card).
   contestedDecision?: 'accept' | 'reject' | 'timeout';
+  // L4 CITABILITY: mock citationLineExistsAtBase stub. Absent ⇒ unwired.
+  citationLineExistsAtBase?: LeafExecutorDeps['citationLineExistsAtBase'];
   // crit 8: mock readBlueprint return values by call index. Absent ⇒ unwired.
   readBlueprintReturns?: (string | undefined)[];
   // Blueprint usage overrides by call index (e.g., [{ outputTokens: 25000 }, { outputTokens: 15000 }]).
@@ -288,6 +290,7 @@ function makeDeps(opts: {
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
     gateShadowMode: () => opts.gateShadowMode ?? false,
+    citationLineExistsAtBase: opts.citationLineExistsAtBase,
     testsFlipBaseToBranch: opts.coverage !== undefined
       ? async ({ testFiles, baseSha }) => { spies.coverageCalls.push({ testFiles, baseSha }); return opts.coverage ?? null; }
       : undefined,
@@ -3888,5 +3891,106 @@ describe('rebase-continue dispatch (hot-trunk starvation)', () => {
     // Blueprint still runs (no reattach).
     const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
     expect(blueprintCalls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// L4 CITABILITY gate: testOnly + citationLineExistsAtBase
+// ---------------------------------------------------------------------------
+describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('test-only manifest, citation resolves at base → no park, exactly 1 blueprint call', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion cites src/existing.ts:5\n\nVERDICT: PASS'],
+      runGate: greenGate,
+      // filesToEdit is a test file (isTestFilePath returns true)
+      readBlueprintReturns: [
+        `# Blueprint
+
+## Acceptance Criteria
+
+- [ ] Add implementation that cites src/existing.ts:5
+
+\`\`\`json
+{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/existing.test.ts"],"tasks":[{"id":"task-1","files":["src/existing.test.ts"]}]}
+\`\`\``,
+      ],
+      // Mock citationLineExistsAtBase to return true for src/existing.ts:5
+      citationLineExistsAtBase: ({ path, line }) => path === 'src/existing.ts' && line === 5,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Exactly ONE blueprint call (no repair round-trip)
+    const blueprintSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(blueprintSpecs.length).toBe(1);
+  });
+
+  it('test-only manifest, citation does NOT resolve at base → parks with blueprint-uncitable-criterion', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion cites src/existing.ts:5\n\nVERDICT: PASS'],
+      runGate: greenGate,
+      // Supply the blueprint twice: once for initial read, once for repair round-trip
+      readBlueprintReturns: [
+        `# Blueprint
+
+## Acceptance Criteria
+
+- [ ] Add implementation referencing src/existing.ts:5 for validation
+
+\`\`\`json
+{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/existing.test.ts"],"tasks":[{"id":"task-1","files":["src/existing.test.ts"]}]}
+\`\`\``,
+        `# Blueprint (repaired)
+
+## Acceptance Criteria
+
+- [ ] Add implementation referencing src/existing.ts:5 for validation
+
+\`\`\`json
+{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/existing.test.ts"],"tasks":[{"id":"task-1","files":["src/existing.test.ts"]}]}
+\`\`\``,
+      ],
+      // Mock citationLineExistsAtBase to return false (citation NOT at base)
+      citationLineExistsAtBase: () => false,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('blueprint-uncitable-criterion');
+  });
+
+  it('non-test-only manifest → strict scope preserved even when citationLineExistsAtBase is true', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion cites src/existing.ts:5\n\nVERDICT: PASS'],
+      runGate: greenGate,
+      readBlueprintReturns: [
+        `# Blueprint
+
+## Acceptance Criteria
+
+- [ ] Add implementation using the logic from src/existing.ts:5
+
+\`\`\`json
+{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/other.ts"],"tasks":[{"id":"task-1","files":["src/other.ts"]}]}
+\`\`\``,
+        `# Blueprint (repaired)
+
+## Acceptance Criteria
+
+- [ ] Add implementation using the logic from src/existing.ts:5
+
+\`\`\`json
+{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/other.ts"],"tasks":[{"id":"task-1","files":["src/other.ts"]}]}
+\`\`\``,
+      ],
+      // Mock citationLineExistsAtBase to return true (line exists at base)
+      citationLineExistsAtBase: () => true,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // Even though citationLineExistsAtBase is true, testOnly is false (src/other.ts is not a test file)
+    // so the acquittal never fires — the citation is still out-of-diff and must gate.
+    expect(res.reason).toContain('blueprint-uncitable-criterion');
   });
 });
