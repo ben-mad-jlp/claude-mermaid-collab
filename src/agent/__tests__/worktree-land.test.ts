@@ -185,6 +185,60 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     expect((await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim()).toBe(before);
   });
 
+  it('closes the real-dirty gap: snapshots dirty work, resets --hard, tree syncs (write-tree == HEAD^{tree})', async () => {
+    await epicWith('feature.txt', 'epic-output\n');
+
+    // Capture pre-land state: file is not on disk yet.
+    expect(await exists(path.join(repo, 'feature.txt'))).toBe(false);
+    const preLandSha = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout.trim();
+
+    // Leave real tracked uncommitted work in repo: modify base.txt and stage it.
+    await fs.writeFile(path.join(repo, 'base.txt'), 'base-modified\n');
+    await runGit(repo, ['add', 'base.txt']);
+
+    // Verify pre-condition: repo is dirty (has staged work).
+    const statusBefore = await runGit(repo, ['status', '--porcelain']);
+    expect(statusBefore.stdout).toContain('M  base.txt');
+
+    // Land the epic over the dirty work.
+    const res = await mgr.landEpicToMaster(EPIC);
+    expect(res.landed).toBe(true);
+    expect(res.treeSynced).toBe('reset-after-snapshot');
+
+    // Invariant: write-tree === HEAD^{tree} (tree is synced after snapshot-then-reset).
+    const writeTree = (await runGit(repo, ['write-tree'])).stdout.trim();
+    const headTree = (await runGit(repo, ['rev-parse', 'HEAD^{tree}'])).stdout.trim();
+    expect(writeTree).toBe(headTree);
+
+    // Invariant: the epic's file is now on disk (the land worked).
+    expect(await fs.readFile(path.join(repo, 'feature.txt'), 'utf8')).toBe('epic-output\n');
+
+    // Invariant: snapshot ref exists and is verifiable.
+    const masterSha = res.masterSha!;
+    // Find the snapshot ref (it has a dynamic timestamp).
+    const refListRes = await runGit(repo, ['for-each-ref', '--format=%(refname)', 'refs/snapshots/']);
+    expect(refListRes.code).toBe(0);
+    expect(refListRes.stdout).toMatch(/^refs\/snapshots\/pre-restore-\d+$/m);
+    const snapshotRef = refListRes.stdout.trim().split('\n')[0]; // Take the first (should be only one in this test).
+
+    // Verify the snapshot ref exists and points to a commit.
+    const verifySnapshot = await runGit(repo, ['rev-parse', '--verify', snapshotRef]);
+    expect(verifySnapshot.code).toBe(0);
+    const snapshotSha = verifySnapshot.stdout.trim();
+
+    // Invariant: snapshot's tree contains the pre-land dirty content (base.txt modified).
+    const snapshotTree = (await runGit(repo, ['rev-parse', `${snapshotSha}^{tree}`])).stdout.trim();
+    const snapshotBaseContent = (await runGit(repo, ['show', `${snapshotSha}:base.txt`])).stdout;
+    expect(snapshotBaseContent).toBe('base-modified\n');
+
+    // Invariant: HEAD is still the land commit (never reset past it).
+    const currentHead = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout.trim();
+    expect(currentHead).toBe(masterSha);
+
+    // Throwaway land worktree was torn down.
+    expect(await exists(path.join(persistDir, 'worktrees', '__land-master__'))).toBe(false);
+  });
+
   it('removeEpic deletes the epic branch + worktree (idempotent)', async () => {
     const epic = await epicWith('x.txt', 'x\n');
     await mgr.landEpicToMaster(EPIC);
