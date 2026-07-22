@@ -23,6 +23,7 @@
 import { join, isAbsolute } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -530,6 +531,13 @@ export interface LeafExecutorDeps {
     testFiles: string[];
     baseSha?: string | null;
   }) => Promise<boolean | null>;
+  /** L4 CITABILITY gate: check if a line exists at the base SHA via `git show`. Synchronous
+   *  because criteria-citability.ts:126 calls it in a plain .some() never awaited. Memoized
+   *  per-run via a Map living in the makeLeafExecutorDeps closure, so it never leaks across
+   *  leaves and needs no invalidation. Mirrors makeCitationExists pattern (leaf-executor.ts:69-84)
+   *  but resolves at baseSha via git show instead of reading the worktree at HEAD. Unwired ⇒
+   *  undefined ⇒ returns false ⇒ base-existence acquittal never fires. */
+  citationLineExistsAtBase?: (input: { cwd: string; baseSha?: string | null; path: string; line: number }) => boolean;
   /** G2 once-per-epic base gate. Resolves the CACHED verdict for this epic, computing it on
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
@@ -2968,7 +2976,10 @@ export async function runLeaf(
     const declaredForCriteria = manifest
       ? [...new Set([...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)])]
       : [];
-    let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria);
+    const criteriaTestOnly = declaredForCriteria.length > 0 && declaredForCriteria.every(isTestFilePath);
+    const citationExistsAtBase = (p: string, l: number) =>
+      deps.citationLineExistsAtBase?.({ cwd, baseSha: deps.epicBaseSha, path: p, line: l }) ?? false;
+    let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria, { testOnly: criteriaTestOnly, citationExistsAtBase });
     if (!smallTier) {
       try {
         await deps.recordGateEval?.(project, {
@@ -3017,7 +3028,8 @@ export async function runLeaf(
           const redeclaredForCriteria = reManifest
             ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
             : [];
-          citability = validateCriteriaCitability(reBody, redeclaredForCriteria);
+          const redeclaredTestOnly = redeclaredForCriteria.length > 0 && redeclaredForCriteria.every(isTestFilePath);
+          citability = validateCriteriaCitability(reBody, redeclaredForCriteria, { testOnly: redeclaredTestOnly, citationExistsAtBase });
           try {
             await deps.recordGateEval?.(project, {
               gate: 'citability',
@@ -3824,6 +3836,9 @@ export async function makeLeafExecutorDeps(
   // abstention is a property of the LEAF, not of the pass. Latch it so the ledger carries one
   // 'gate-abstain' row per leaf run — matching warnGateAbstention's own once-per-epic dedupe.
   let recordedGateAbstain = false;
+  // L4 CITABILITY gate: memoize base line counts (path → line count, -1 = missing/unreadable).
+  // Lives in the per-run closure so it never leaks across leaves and needs no invalidation.
+  const baseLineCounts = new Map<string, number>();
   return {
     invoker: ClaudeNodeInvoker,
     grokInvoker: GrokNodeInvoker,
@@ -4002,6 +4017,20 @@ export async function makeLeafExecutorDeps(
           try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
         }
       }
+    },
+    citationLineExistsAtBase: ({ cwd, baseSha, path, line }) => {
+      if (!baseSha) return false;
+      let n = baseLineCounts.get(path);
+      if (n === undefined) {
+        try {
+          const r = spawnSync('git', ['show', `${baseSha}:${path}`], { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+          n = r.status === 0 ? (r.stdout ?? '').split('\n').length : -1;
+        } catch {
+          n = -1;
+        }
+        baseLineCounts.set(path, n);
+      }
+      return n >= 0 && line >= 1 && line <= n;
     },
     // G2 mechanical gate at leaf HEAD. Scoped to this leaf's own change-set (against the
     // epic branch base) so the per-file test command only runs specs this leaf touched.
