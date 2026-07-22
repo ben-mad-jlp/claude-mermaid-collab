@@ -495,3 +495,52 @@ test('classifyCriterion: artifact acquit does NOT rescue vague suite claims or a
   const codeCite = classifyCriterion('src/services/foo.ts:42 gains a new branch', ['src/services/bar.ts']);
   expect(codeCite.citable).toBe(false);
 });
+
+test('classifyCriterion: test-only citation resolves at base → citable', () => {
+  const v = classifyCriterion('Existing helper covered — src/services/foo.ts:12', ['src/services/foo.test.ts'], {
+    testOnly: true,
+    citationExistsAtBase: () => true,
+  });
+  expect(v.citable).toBe(true);
+});
+
+test('classifyCriterion: test-only citation does NOT resolve at base → uncitable', () => {
+  const v = classifyCriterion('Existing helper covered — src/services/foo.ts:12', ['src/services/foo.test.ts'], {
+    testOnly: true,
+    citationExistsAtBase: () => false,
+  });
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('out-of-diff-location');
+  expect(v.reason).toContain('src/services/foo.ts:12');
+  expect(v.reason).toContain('does not exist at base');
+});
+
+test('classifyCriterion: same citation without testOnly still convicts', () => {
+  // Test with opts omitted (default)
+  const v1 = classifyCriterion('Existing helper covered — src/services/foo.ts:12', ['src/services/foo.test.ts']);
+  expect(v1.citable).toBe(false);
+  expect(v1.kind).toBe('out-of-diff-location');
+
+  // Test with citationExistsAtBase alone (without testOnly: true)
+  const v2 = classifyCriterion('Existing helper covered — src/services/foo.ts:12', ['src/services/foo.test.ts'], {
+    citationExistsAtBase: () => true,
+  });
+  expect(v2.citable).toBe(false);
+  expect(v2.kind).toBe('out-of-diff-location');
+});
+
+test('classifyCriterion: opts-absent vs empty opts parity', () => {
+  const text = 'Hook returns the cached value — useAgentStatus.ts:70';
+  const declaredFiles = ['src/services/criteria-citability.ts'];
+
+  // Call with no opts argument
+  const v1 = classifyCriterion(text, declaredFiles);
+
+  // Call with empty opts object
+  const v2 = classifyCriterion(text, declaredFiles, {});
+
+  // Both should have identical verdicts
+  expect(v1.citable).toBe(v2.citable);
+  expect(v1.kind).toBe(v2.kind);
+  expect(v1.reason).toBe(v2.reason);
+});
