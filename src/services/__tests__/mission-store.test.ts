@@ -11,7 +11,7 @@ import {
   addCriterion, listCriteria, listCriteriaWithActions, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
-  CRITERION_SERVE_CAP,
+  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import Database from 'bun:sqlite';
@@ -651,6 +651,33 @@ describe('per-criterion discovery', () => {
     expect(after.hasBuildingLeaf).toBe(false);
     // The epic itself is unarchived, so it's still open — only the archived leaf is invisible.
     expect(after.hasOpenEpic).toBe(true);
+  });
+
+  test('childless serving epic: live within grace window, discover past it', async () => {
+    const m = await makeMissionNode();
+    upsertMission(project, m);
+    const crit = addCriterion(project, m, 'test criterion');
+
+    // Create a serving epic with no leaf children.
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[EPIC] childless serving epic',
+      parentId: m,
+      kind: 'epic',
+      servesCriterionIds: [crit.id],
+    });
+    const t0 = Date.parse(epic.createdAt);
+
+    // Within the grace window: servingEpicLive is true, action is 'building'.
+    const within = collectMissionStatusFacts(project, getMission(project, m)!, t0 + 1000);
+    expect(within.criteria.find(c => c.id === crit.id)?.servingEpicLive).toBe(true);
+    expect(deriveCriterionAction(within.criteria.find(c => c.id === crit.id)!)).toBe('building');
+
+    // Past the grace window: servingEpicLive is false, action is 'discover'.
+    const past = collectMissionStatusFacts(project, getMission(project, m)!, t0 + CHILDLESS_SERVE_GRACE_MS + 1000);
+    expect(past.criteria.find(c => c.id === crit.id)?.servingEpicLive).toBe(false);
+    expect(deriveCriterionAction(past.criteria.find(c => c.id === crit.id)!)).toBe('discover');
   });
 
   test('met-but-unverified landed criterion still owes verify (verification-as-event)', () => {
