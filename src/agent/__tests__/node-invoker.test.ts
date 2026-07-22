@@ -21,6 +21,10 @@ import {
   resolveClaudeBin,
   _resetClaudeBinCache,
   invokeNode,
+  classifyTransientFault,
+  transientRetryAfterMs,
+  AUTH_TRANSIENT_RE,
+  STDIN_DELIVERY_RE,
   assertSubscriptionAuth,
   _resetAuthCache,
   mcpConfigFor,
@@ -119,6 +123,174 @@ describe('invokeNode spawn retry (transient ENOENT)', () => {
       (Bun as any).spawn = originalSpawn;
       (Bun as any).spawnSync = originalSpawnSync;
     }
+  });
+});
+
+describe('classifyTransientFault (crits 8+9 — auth-refresh + stdin-delivery)', () => {
+  it('auth: /login prompt in result text on a FAILED run → auth', () => {
+    expect(
+      classifyTransientFault({ exitCode: 1, isError: true, text: 'Not logged in · Please run /login', stderr: '' }),
+    ).toBe('auth');
+  });
+  it('auth: /login prompt on stderr with nonzero exit → auth', () => {
+    expect(
+      classifyTransientFault({ exitCode: 1, isError: false, text: undefined, stderr: 'Please run /login' }),
+    ).toBe('auth');
+  });
+  it('NEVER on a successful run that merely mentions the phrase', () => {
+    expect(
+      classifyTransientFault({ exitCode: 0, isError: false, text: 'The message "Not logged in · Please run /login" appears when…', stderr: '' }),
+    ).toBeNull();
+  });
+  it('NEVER when a structured 429 is present (the real rate-limit path owns it)', () => {
+    expect(
+      classifyTransientFault({ exitCode: 1, isError: true, apiErrorStatus: 429, text: 'Not logged in · Please run /login', stderr: '' }),
+    ).toBeNull();
+  });
+  it('stdin: "Input must be provided…" stderr on a failed run → stdin', () => {
+    expect(
+      classifyTransientFault({
+        exitCode: 1, isError: false, text: undefined,
+        stderr: 'Error: Input must be provided either through stdin or as a prompt argument when using --print',
+      }),
+    ).toBe('stdin');
+  });
+  it('stdin: "no stdin data received in 3s" warning → stdin', () => {
+    expect(
+      classifyTransientFault({ exitCode: 1, isError: false, text: undefined, stderr: 'Warning: no stdin data received in 3s of waiting' }),
+    ).toBe('stdin');
+  });
+  it('plain failure (no signature) → null', () => {
+    expect(
+      classifyTransientFault({ exitCode: 1, isError: true, text: 'something broke', stderr: 'boom' }),
+    ).toBeNull();
+  });
+  it('regex sanity: signatures match; ordinary output does not', () => {
+    expect(AUTH_TRANSIENT_RE.test('Not logged in · Please run /login')).toBe(true);
+    expect(AUTH_TRANSIENT_RE.test('all good, committed')).toBe(false);
+    expect(STDIN_DELIVERY_RE.test('Warning: no stdin data received in 3s')).toBe(true);
+    expect(STDIN_DELIVERY_RE.test('reading stdin as usual')).toBe(false);
+  });
+  it('transientRetryAfterMs jitters within [5000, 15000]', () => {
+    expect(transientRetryAfterMs(() => 0)).toBe(5000);
+    expect(transientRetryAfterMs(() => 0.9999)).toBeLessThanOrEqual(15000);
+    for (let i = 0; i < 50; i++) {
+      const v = transientRetryAfterMs();
+      expect(v).toBeGreaterThanOrEqual(5000);
+      expect(v).toBeLessThanOrEqual(15000);
+    }
+  });
+});
+
+describe('invokeNode transient-fault classification (crits 8+9, mocked spawn)', () => {
+  let originalSpawn: typeof Bun.spawn;
+  let originalSpawnSync: typeof Bun.spawnSync;
+  const testCwd = '/tmp/node-invoker-test-transient';
+
+  const mockAuthOk = () => {
+    (Bun as any).spawnSync = mock(() => ({
+      stdout: Buffer.from(JSON.stringify({
+        loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'pro',
+      })),
+      stderr: null,
+      exitCode: 0,
+    }));
+  };
+
+  const makeProc = (stdoutStr: string, stderrStr: string, exitCode: number) => {
+    const stdout = new ReadableStream<Uint8Array>({
+      start(c) { if (stdoutStr) c.enqueue(new TextEncoder().encode(stdoutStr)); c.close(); },
+    });
+    const stderr = new ReadableStream<Uint8Array>({
+      start(c) { if (stderrStr) c.enqueue(new TextEncoder().encode(stderrStr)); c.close(); },
+    });
+    return { pid: 99998, stdout, stderr, exited: Promise.resolve(exitCode), kill: () => {} } as any;
+  };
+
+  beforeEach(() => {
+    originalSpawn = Bun.spawn;
+    originalSpawnSync = Bun.spawnSync;
+    _resetAuthCache();
+    mkdirSync(testCwd, { recursive: true });
+    mockAuthOk();
+  });
+
+  afterEach(() => {
+    (Bun as any).spawn = originalSpawn;
+    (Bun as any).spawnSync = originalSpawnSync;
+    _resetAuthCache();
+    try { rmSync(testCwd, { recursive: true, force: true }); } catch { /* ok */ }
+  });
+
+  const spec: NodeSpec = { prompt: 'test prompt', cwd: testCwd, skipAutoLedger: true };
+
+  it('crit-8: failed run with "Not logged in · Please run /login" result → transient pause, retryAfterMs in [5000,15000]', async () => {
+    const out = JSON.stringify({ result: 'Not logged in · Please run /login', is_error: true });
+    (Bun as any).spawn = mock(() => makeProc(out, '', 1));
+    const res = await invokeNode(spec);
+    expect(res.ok).toBe(false);
+    expect(res.rateLimited).toBe(true);
+    expect(res.unreachable).toBe(true);
+    expect(res.faultKind).toBe('auth');
+    expect(res.retryAfterMs).toBeGreaterThanOrEqual(5000);
+    expect(res.retryAfterMs).toBeLessThanOrEqual(15000);
+    // capReset carries the same short delay so the headless-breaker reopens fast.
+    expect(res.capReset).toBeGreaterThan(Date.now() + 4000);
+  });
+
+  it('crit-8 narrowness: SUCCESSFUL run whose text mentions the phrase → NOT transient', async () => {
+    const out = JSON.stringify({ result: 'Docs: the CLI prints "Not logged in · Please run /login" when…', is_error: false });
+    (Bun as any).spawn = mock(() => makeProc(out, '', 0));
+    const res = await invokeNode(spec);
+    expect(res.ok).toBe(true);
+    expect(res.rateLimited).toBe(false);
+    expect(res.faultKind).toBeUndefined();
+    expect(res.retryAfterMs).toBeUndefined();
+  });
+
+  it('crit-9: stdin-delivery stderr on a failed run → ONE in-process respawn retry, then transient pause', async () => {
+    let calls = 0;
+    (Bun as any).spawn = mock(() => {
+      calls++;
+      return makeProc('', 'Error: Input must be provided either through stdin or as a prompt argument when using --print', 1);
+    });
+    const res = await invokeNode(spec);
+    expect(calls).toBe(2); // first spawn + exactly one in-process retry
+    expect(res.ok).toBe(false);
+    expect(res.rateLimited).toBe(true);
+    expect(res.unreachable).toBe(true);
+    expect(res.faultKind).toBe('stdin');
+    expect(res.retryAfterMs).toBeGreaterThanOrEqual(5000);
+    expect(res.retryAfterMs).toBeLessThanOrEqual(15000);
+  });
+
+  it('crit-9: stdin fault then a HEALTHY retry → the retry result wins (ok, no pause)', async () => {
+    let calls = 0;
+    (Bun as any).spawn = mock(() => {
+      calls++;
+      if (calls === 1) return makeProc('', 'Warning: no stdin data received in 3s of waiting', 1);
+      return makeProc(JSON.stringify({ result: 'done', is_error: false }), '', 0);
+    });
+    const res = await invokeNode(spec);
+    expect(calls).toBe(2);
+    expect(res.ok).toBe(true);
+    expect(res.rateLimited).toBe(false);
+    expect(res.faultKind).toBeUndefined();
+  });
+
+  it('no regression: a plain failure (no auth/stdin signature) stays a normal failure', async () => {
+    let calls = 0;
+    (Bun as any).spawn = mock(() => {
+      calls++;
+      return makeProc(JSON.stringify({ result: 'tests failed', is_error: true }), 'exit status 1', 1);
+    });
+    const res = await invokeNode(spec);
+    expect(calls).toBe(1); // no respawn retry for a plain failure
+    expect(res.ok).toBe(false);
+    expect(res.rateLimited).toBe(false);
+    expect(res.unreachable).toBe(false);
+    expect(res.faultKind).toBeUndefined();
+    expect(res.retryAfterMs).toBeUndefined();
   });
 });
 

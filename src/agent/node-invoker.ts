@@ -180,6 +180,14 @@ export interface NodeResult {
    *  v1: always `undefined` (stub) — see `parseCapReset` + §5 of the P3 blueprint.
    *  The daemon falls back to pure exponential backoff when this is absent. */
   capReset?: number;
+  /** Short jittered pause hint (ms) for an auth-refresh / stdin-delivery transient fault
+   *  (crits 8+9). Also folded into `capReset` (now + retryAfterMs) so the existing
+   *  headless-breaker reopens on this exact short delay without any executor change. */
+  retryAfterMs?: number;
+  /** Which crit-8/9 transient fault was detected, when `rateLimited`/`unreachable` were
+   *  set by the auth/stdin classifier rather than a real cap or network outage.
+   *  'stdin' additionally drives the single in-process respawn retry in invokeNodeInner. */
+  faultKind?: 'auth' | 'stdin';
   /** The auth mode in effect for this node (from the memoized pre-flight guard). */
   authMode: AuthMode;
   /** Best-effort parsed final assistant text from the json result (result.result). */
@@ -247,6 +255,50 @@ export const RATE_LIMIT_RE = /rate.?limit|429|too many requests|usage limit|over
  *  (DNS/TCP/TLS failure) is NOT a leaf failure — the work was never tested. We treat
  *  it like a rate-limit: PAUSE + backoff, no attempt burned (the internet-down case). */
 export const CONN_ERR_RE = /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|getaddrinfo|fetch failed|network error|connection error|connection (?:closed|reset|refused)|unable to connect|socket hang ?up|tls|certificate/i;
+
+/** Auth-refresh transience (mission crit-8). A CLI auth token-refresh can momentarily
+ *  invalidate the shared credential, killing CONCURRENT nodes with an `is_error` result
+ *  whose text is "Not logged in · Please run /login" (zero tokens). That is NOT a leaf
+ *  failure — the work was never tested — so it must pause (like `unreachable`), not burn
+ *  an attempt. NARROW positive-evidence signature, matched only on FAILED runs. */
+export const AUTH_TRANSIENT_RE = /not logged in|please run \/login/i;
+
+/** Stdin prompt-delivery race (mission crit-9). The claude CLI enforces a ~3s stdin
+ *  deadline; under load the child sees no stdin bytes in time and dies with one (or both)
+ *  of these stderr messages, zero tokens, ~7s. The prompt WAS provided (Bun buffers it on
+ *  spawn) — the delivery raced the deadline, so this is infra, not a node failure. */
+export const STDIN_DELIVERY_RE = /no stdin data received in \d+\s*s|Input must be provided either through stdin or as a prompt argument/i;
+
+/** Jittered short pause for an auth/stdin transient fault: uniform in [5000, 15000) ms.
+ *  Jitter de-synchronizes the herd of concurrent nodes that all died on the SAME
+ *  token-refresh instant. `rand` injectable for tests. */
+export function transientRetryAfterMs(rand: () => number = Math.random): number {
+  return Math.round(5000 + rand() * 10000);
+}
+
+/**
+ * Pure classifier for the crit-8/crit-9 transient faults (exported for unit tests).
+ * Returns 'auth' | 'stdin' | null. Positive-evidence NARROW:
+ *  - only on FAILED runs (nonzero exit OR parsed is_error) — a SUCCESS whose output
+ *    merely mentions "please run /login" is never reclassified;
+ *  - never when there is a structured 429 (the real rate-limit path owns that);
+ *  - 'stdin' keys on the CLI's stdin-deadline stderr signatures;
+ *  - 'auth' keys on the /login prompt in the result text or stderr.
+ */
+export function classifyTransientFault(input: {
+  exitCode: number;
+  isError: boolean;
+  apiErrorStatus?: number;
+  text?: string;
+  stderr: string;
+}): 'auth' | 'stdin' | null {
+  const failed = input.exitCode !== 0 || input.isError;
+  if (!failed) return null;
+  if (input.apiErrorStatus === 429) return null; // genuine cap — the 429 path owns it
+  if (STDIN_DELIVERY_RE.test(input.stderr)) return 'stdin';
+  if (AUTH_TRANSIENT_RE.test(input.text ?? '') || AUTH_TRANSIENT_RE.test(input.stderr)) return 'auth';
+  return null;
+}
 
 /** After SIGTERM, wait this long for a graceful exit before escalating to SIGKILL.
  *  A process stuck in a network syscall ignores SIGTERM, so the hard kill is required. */
@@ -565,6 +617,17 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
 }
 
 async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
+  const first = await invokeNodeAttempt(spec);
+  if (first.faultKind !== 'stdin') return first;
+  // crit-9: the child missed its 3s stdin deadline (prompt-delivery race under load).
+  // Retry the spawn ONCE in-process — stdin/argv are cheap to rebuild — mirroring the
+  // ENOENT/posix_spawn respawn retry. If the retry dies the same way, its result is
+  // already classified as the same transient pause (rateLimited+unreachable+retryAfterMs)
+  // so the executor pauses without burning an attempt.
+  return invokeNodeAttempt(spec);
+}
+
+async function invokeNodeAttempt(spec: NodeSpec): Promise<NodeResult> {
   // WALL-CLOCK start (Date.now), NOT performance.now: the monotonic clock PAUSES while
   // the process is suspended (macOS App Nap / sleep), so a node that the OS napped for
   // 16 min then the wall-clock timeout killed reported durationMs≈47s — wildly under the
@@ -802,10 +865,26 @@ async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
     !parsed.isError &&
     CONN_ERR_RE.test(stderr);
 
-  // `transient` drives the executor's pause path (rate-limit OR connectivity); both
-  // pause + back off rather than burning an attempt. capReset only applies to a real
-  // session cap; an outage has none → undefined → the daemon falls back to backoff.
-  const transient = rateLimited || unreachable;
+  // crit-8/9: auth-refresh ("Not logged in · Please run /login") and stdin-delivery
+  // faults on a FAILED run are infra transients, not leaf failures. Classified only
+  // when the real rate-limit / outage paths didn't already claim the run.
+  const fault = !rateLimited && !unreachable
+    ? classifyTransientFault({
+        exitCode,
+        isError: parsed.isError,
+        apiErrorStatus: parsed.apiErrorStatus,
+        text: parsed.text,
+        stderr,
+      })
+    : null;
+  const retryAfterMs = fault ? transientRetryAfterMs() : undefined;
+
+  // `transient` drives the executor's pause path (rate-limit OR connectivity OR an
+  // auth/stdin fault); all pause + back off rather than burning an attempt. capReset
+  // only applies to a real session cap; an outage has none → undefined → the daemon
+  // falls back to backoff; an auth/stdin fault maps its short jitter into capReset so
+  // the breaker reopens in seconds, not the full exponential backoff.
+  const transient = rateLimited || unreachable || fault !== null;
   const ok = exitCode === 0 && !transient && !parsed.isError;
 
   return {
@@ -817,11 +896,19 @@ async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
     // Report `transient` (rate-limit OR connectivity outage) as rateLimited so the
     // executor's existing pause path handles both without touching every call site.
     rateLimited: transient,
-    // `unreachable` distinguishes a network outage from a true cap for logging/labels.
-    unreachable,
+    // `unreachable` distinguishes a network outage from a true cap for logging/labels;
+    // the auth/stdin faults ride the same flag (same pause semantics, no attempt burn).
+    unreachable: unreachable || fault !== null,
     // Parse the subscription session-limit reset time so the breaker reopens exactly
-    // when the cap lifts; an outage has no reset → undefined → daemon backoff.
-    capReset: rateLimited ? parseCapReset(stdout, stderr) : undefined,
+    // when the cap lifts; an outage has no reset → undefined → daemon backoff; an
+    // auth/stdin fault reopens on its short jitter.
+    capReset: rateLimited
+      ? parseCapReset(stdout, stderr)
+      : retryAfterMs !== undefined
+        ? Date.now() + retryAfterMs
+        : undefined,
+    retryAfterMs,
+    faultKind: fault ?? undefined,
     authMode,
     text: parsed.text,
     // A zero-output death (no result object, non-zero exit) is undiagnosable from
