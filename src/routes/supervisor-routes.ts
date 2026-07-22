@@ -8,6 +8,7 @@ import {
   listOpenEscalations,
   listEscalations,
   resolveEscalation,
+  acknowledgeEscalation,
   getEscalation,
   recordEscalationDecision,
   getSupervisorIdentity,
@@ -592,6 +593,28 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         type: 'escalation_created',
         project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
         id, routedTo: esc?.routedTo ?? 'human', escalation: getEscalation(id),
+      });
+      return Response.json({ ok: true });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/escalations/acknowledge — mark an escalation as acknowledged
+  // (a human has seen it, don't re-raise it) without marking it resolved. Blocks re-raise
+  // via the dedup query while keeping resolvedAt/resolvedBy NULL so it's not counted as
+  // "handled". Returns the updated escalation for broadcast.
+  if (url.pathname === '/api/supervisor/escalations/acknowledge' && req.method === 'POST') {
+    try {
+      const { id } = (await req.json()) as { id?: string };
+      if (!id) return jsonError('id is required', 400);
+      const esc = getEscalation(id);
+      const updated = acknowledgeEscalation(id);
+      if (!updated) return jsonError(`escalation not found: ${id}`, 404);
+      getWebSocketHandler()?.broadcast({
+        type: 'escalation_created',
+        project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
+        id, routedTo: updated.routedTo, escalation: updated,
       });
       return Response.json({ ok: true });
     } catch (err) {
