@@ -125,5 +125,4 @@ export const MULTISELECT_EXCLUDED_SECTIONS = new Set([
   'pins',
   'recent',
   'implementing',
-  'todos',
 ]);

@@ -17,7 +17,6 @@ import {
 } from './artifactTreeSelectors';
 import ArtifactTreeNode from './ArtifactTreeNode';
 import SidebarNodeContextMenu from './SidebarNodeContextMenu';
-import TodosTreeSection from './TodosTreeSection';
 import { orderVisibleNodes, type VisibleTreeNode } from './orderVisibleNodes';
 import { ImplementingSection } from './sections/ImplementingSection';
 import { DocumentsSection } from './sections/DocumentsSection';
@@ -1196,10 +1195,8 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
           runBatch={runBatch}
           toTabDescriptor={toTabDescriptor}
         />
-        <TodosTreeSection
-          collapsed={collapsedSections.has('todos')}
-          onToggle={() => toggleSection('todos')}
-        />
+        {/* Todos are no longer listed as artifact items — the work graph in the
+            Bridge is the todo surface. */}
         {/* Spec Sheets are no longer listed as artifact items — the project
             Spec Sheet is a first-class workspace pane (toggle in the header). */}
         <EmbedsSection

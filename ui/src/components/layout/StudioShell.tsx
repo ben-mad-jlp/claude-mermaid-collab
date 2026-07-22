@@ -22,7 +22,6 @@ import { diveLayoutId } from '@/components/stream/DiveTransition';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
-import TodosTreeSection from '@/components/layout/sidebar-tree/TodosTreeSection';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
 import { ContextChip } from '@/components/layout/studio/ContextChip';
 import { InlineEscalationDock } from '@/components/layout/studio/InlineEscalationDock';
@@ -135,9 +134,9 @@ export const StudioShell: React.FC<StudioShellProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* Scrollable spine: session todos → this session's artifacts → servers. */}
+      {/* Scrollable spine: this session's artifacts → servers. Todos live in the
+          Bridge work graph, not the sidebar. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-        <TodosTreeSection />
         <ArtifactTree studio />
         <ServersTreeSection />
       </div>

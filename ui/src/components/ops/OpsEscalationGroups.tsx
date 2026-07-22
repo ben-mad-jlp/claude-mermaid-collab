@@ -178,7 +178,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
       {renderGroup(
         GROUP_TITLES.danglingDeps,
         danglingDeps,
-        <div className="space-y-2">{danglingDeps.map(renderDecisionOrResetCard)}</div>
+        <div className="space-y-2">{danglingDeps.map((e) => renderDecisionOrResetCard(e))}</div>
       )}
 
       {(() => {
