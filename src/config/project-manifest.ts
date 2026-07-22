@@ -153,6 +153,11 @@ export interface ProjectManifest {
      *  substitution (unlike `tests`). For a project sub-tree with its own
      *  tsconfig.json (e.g. ui/) that the whole-repo `typecheck` does not cover. */
     typechecks?: Array<{ match: string; command: string; cwd?: string }>;
+    /** Change-set-triggered full-suite lanes: the FULL command runs once, in `cwd`,
+     *  whenever ANY change-set path matches `match` — no {file}/{files} substitution
+     *  and NO change-set narrowing of a failure (unlike `tests`), so it also catches
+     *  regressions in files inside the matched subtree that this leaf never touched. */
+    suites?: Array<{ match: string; command: string; cwd?: string }>;
     /** Full-suite command run ONLY at the epic base, once per epic. */
     baseTest?: string;
   };
