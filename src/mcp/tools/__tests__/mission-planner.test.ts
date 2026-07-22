@@ -10,7 +10,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject, ServeIntegrityError } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, _resetMissionDbCache } from '../../../services/mission-store';
-import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos } from '../../../services/todo-store';
+import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos, type Todo } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
 
 let project: string;
@@ -170,6 +170,114 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
 
     // Invoke should not have been called.
     expect(invokeCount).toBe(0);
+  });
+
+  // Deferred gate: lets a test hold the planner-node invocation open (in-flight) and settle it
+  // at a chosen moment — the trick for exercising the inFlightServes reservation mid-call.
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+  const NODE_OK = { ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(EPIC_SPEC) + '\n```' } as any;
+
+  test('client abandons the await mid-call: the detached serve still completes and is visible on a fresh read', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const gate = deferred<any>();
+    let invoked = 0;
+    let serveErr: unknown;
+
+    // The "client" fires the call and walks away from the await (simulating an MCP-boundary
+    // timeout). The promise is deliberately NOT awaited — only the store is consulted below.
+    planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, {
+      invoke: async () => { invoked++; return gate.promise; },
+    }).catch((e) => { serveErr = e; });
+
+    // The planner node finishes AFTER the client abandoned the call.
+    gate.resolve(NODE_OK);
+
+    // Fresh store reads until the serve lands (or times out).
+    const deadline = Date.now() + 2_000;
+    let epic: Todo | undefined;
+    while (Date.now() < deadline && !serveErr) {
+      epic = listTodos(project, { includeCompleted: true }).find(
+        (t) => t.kind === 'epic' && t.parentId === missionId && t.status !== 'dropped'
+          && (t.servesCriterionIds ?? []).includes(criterionId),
+      );
+      if (epic?.approvedAt) break; // status:'ready' = approve; it stamps approvedAt (status stays derived)
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(serveErr).toBeUndefined();
+    expect(epic).toBeDefined();
+    expect(epic!.approvedAt).toBeTruthy(); // approved for the daemon despite the client never awaiting
+    const leaves = listTodos(project, { includeCompleted: true })
+      .filter((t) => t.kind === 'leaf' && t.parentId === epic!.id);
+    const titles = leaves.map((l) => l.title);
+    for (const planned of EPIC_SPEC.leaves) expect(titles).toContain(planned.title);
+    expect(invoked).toBe(1);
+  });
+
+  test('concurrent second call for the same criterion piggybacks on the in-flight serve (no double-create)', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const gate = deferred<any>();
+    let invoked1 = 0;
+    let invoked2 = 0;
+
+    // Call 1: gated in-flight on the deferred planner node.
+    const p1 = planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, {
+      invoke: async () => { invoked1++; return gate.promise; },
+    });
+    // Call 2 arrives for the SAME criterion while call 1 is still unresolved.
+    const p2 = planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, {
+      invoke: async () => { invoked2++; return NODE_OK; },
+    });
+
+    // While call 1 is still in-flight, NOTHING has been created — call 2 did not double-create.
+    const midFlight = listTodos(project, { includeCompleted: true })
+      .filter((t) => t.kind === 'epic' && t.parentId === missionId);
+    expect(midFlight).toHaveLength(0);
+
+    gate.resolve(NODE_OK);
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    // Both calls resolved to the SAME serve; the second never spawned its own planner node.
+    expect(r2.epicId).toBe(r1.epicId);
+    expect(invoked1).toBe(1);
+    expect(invoked2).toBe(0);
+
+    // Exactly ONE epic exists for the criterion afterward.
+    const epics = listTodos(project, { includeCompleted: true })
+      .filter((t) => t.kind === 'epic' && t.parentId === missionId);
+    expect(epics).toHaveLength(1);
+    expect(epics[0].id).toBe(r1.epicId);
+  });
+
+  test('mid-call instantiation failure while the client abandoned leaves NOTHING live (epic dropped atomically)', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    // Leaf 2 references "$5" (out of range), so addLeavesToEpic throws AFTER the epic and the
+    // first leaf already exist — exercising the atomic drop-on-failure arm.
+    const badSpec = { title: 'partial epic', leaves: [{ title: 'ok leaf' }, { title: 'bad leaf', dependsOn: ['$5'] }] };
+    const gate = deferred<any>();
+
+    const p = planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, {
+      invoke: async () => gate.promise,
+    });
+    p.catch(() => {}); // the client walked away — settlement is only observed via the store + a fresh call
+
+    gate.resolve({ ok: true, rateLimited: false, text: JSON.stringify(badSpec) } as any);
+    await expect(p).rejects.toThrow(/out of range/i);
+
+    // Nothing LIVE for the criterion: the partially-instantiated epic was dropped, not left half-made.
+    const live = listTodos(project, { includeCompleted: true })
+      .filter((t) => t.kind === 'epic' && t.parentId === missionId && t.status !== 'dropped');
+    expect(live).toHaveLength(0);
+
+    // And the reservation cleared: a genuinely-new serve for the same criterion now proceeds.
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke() });
+    expect(r.leafIds).toHaveLength(2);
+    expect(getTodo(project, r.epicId)?.status).not.toBe('dropped');
   });
 
   test('dropping serving epic re-derives discover and permits re-planning', async () => {
