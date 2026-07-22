@@ -2573,23 +2573,31 @@ export function holdLeafIfOwned(project: string, id: string, reason: string, cla
   });
 }
 
-/** An epic the sweep left in_progress because every child is `done` but at least
- *  one is not explicitly `accepted` (policy (b): never silently close ungated
- *  work — surface it as a flag instead). */
+/** An epic flagged by the sweep for one of three reasons: unaccepted children,
+ *  landed epic with stuck leftovers, or motionless (no child updates in 7 days). */
 export interface EpicRollupFlag {
   epicId: string;
-  /** Count of non-dropped children. */
+  reason: 'unaccepted' | 'landed-needs-review' | 'motionless';
+  /** Count of non-dropped children at flag time. */
   children: number;
-  /** How many of those children are `done` but not `acceptanceStatus==='accepted'`. */
-  unaccepted: number;
+  /** reason==='unaccepted': done children not `acceptanceStatus==='accepted'`. */
+  unaccepted?: number;
+  /** reason==='landed-needs-review': leftover children stuck `in_progress`. */
+  inProgress?: number;
+  /** reason==='landed-needs-review': leftover children `done` but unaccepted. */
+  doneUnaccepted?: number;
+  /** reason==='motionless': ms since the most-recently-updated live child moved. */
+  idleForMs?: number;
 }
 
 export interface EpicSweepResult {
   /** Epic ids the sweep rolled up to `done` this pass (all children done+accepted). */
   rolledUp: string[];
-  /** Epics whose children all settled `done` but some are not accepted — left
-   *  in_progress, surfaced for a human/gate to resolve (one entry per epic). */
+  /** Epics flagged for reasons requiring human/gate intervention. */
   flagged: EpicRollupFlag[];
+  /** epicId -> ids of moot leftover children dropped by the landed-settlement path
+   *  this pass, so a caller can see what was closed out under a landed epic. */
+  settledChildIds: Record<string, string[]>;
 }
 
 /**
@@ -2753,12 +2761,15 @@ export async function collapseSplit(project: string, leafId: string): Promise<Co
   return { leafId, droppedChildIds, alreadyCollapsed: droppedChildIds.length === 0 };
 }
 
-export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
+export function sweepEpicRollups(project: string, opts: { now?: number; motionlessAfterMs?: number } = {}): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
+    const now = opts.now ?? Date.now();
+    const motionlessAfterMs = opts.motionlessAfterMs ?? MOTIONLESS_EPIC_AFTER_MS;
     const rolledUp: string[] = [];
     const flagged: EpicRollupFlag[] = [];
+    const settledChildIds: Record<string, string[]> = {};
     const flaggedSeen = new Set<string>();
 
     // Bound: each pass may close child epics that then unblock parent epics, so
@@ -2797,32 +2808,98 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
         if (isMission(epic)) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
-        if (!children.every((c) => c.status === 'done')) continue; // a child still open
 
-        const unaccepted = children.filter((c) => c.acceptanceStatus !== 'accepted');
-        if (unaccepted.length === 0) {
-          // All children done + accepted → roll the epic up (mirrors the event path).
-          const ts = nowIso();
-          db.prepare(
-            `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
-              ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
-          ).run(ts, ts, epic.id);
-          rolledUp.push(epic.id);
-          closedThisPass++;
-        } else if (!flaggedSeen.has(epic.id)) {
-          // Policy (b): done-but-unaccepted children → flag, never auto-close.
-          flagged.push({ epicId: epic.id, children: children.length, unaccepted: unaccepted.length });
-          flaggedSeen.add(epic.id);
+        const allDone = children.every((c) => c.status === 'done');
+
+        if (!allDone) {
+          // Some children still open — check for landed-settlement or motionless conditions.
+          if (epic.landedAt != null) {
+            // Landed-settlement path: check for stuck leftovers.
+            const leftover = children.filter((c) => c.status !== 'done');
+            const doneUnaccepted = children.filter((c) => c.status === 'done' && c.acceptanceStatus !== 'accepted');
+            const hasInProgress = leftover.some((c) => c.status === 'in_progress');
+
+            if (hasInProgress || doneUnaccepted.length > 0) {
+              // Flag for human review — don't mutate rows.
+              if (!flaggedSeen.has(epic.id)) {
+                flagged.push({
+                  epicId: epic.id,
+                  reason: 'landed-needs-review',
+                  children: children.length,
+                  inProgress: leftover.filter((c) => c.status === 'in_progress').length,
+                  doneUnaccepted: doneUnaccepted.length,
+                });
+                flaggedSeen.add(epic.id);
+              }
+            } else {
+              // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
+              const ts = nowIso();
+              for (const leftoverChild of leftover) {
+                db.prepare(
+                  `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+                ).run(ts, leftoverChild.id);
+              }
+              settledChildIds[epic.id] = leftover.map((c) => c.id);
+
+              // Close the epic with the standard done+accepted update.
+              db.prepare(
+                `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
+                  ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+              ).run(ts, ts, epic.id);
+              rolledUp.push(epic.id);
+              closedThisPass++;
+            }
+          } else {
+            // Motionless check: non-landed epic with no recent child updates.
+            if (!flaggedSeen.has(epic.id)) {
+              const newest = Math.max(...children.map((c) => Date.parse(c.updatedAt)));
+              if (now - newest >= motionlessAfterMs) {
+                flagged.push({
+                  epicId: epic.id,
+                  reason: 'motionless',
+                  children: children.length,
+                  idleForMs: now - newest,
+                });
+                flaggedSeen.add(epic.id);
+              }
+            }
+          }
+        } else {
+          // All children done — check acceptance status.
+          const unaccepted = children.filter((c) => c.acceptanceStatus !== 'accepted');
+          if (unaccepted.length === 0) {
+            // All children done + accepted → roll the epic up (mirrors the event path).
+            const ts = nowIso();
+            db.prepare(
+              `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
+                ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+            ).run(ts, ts, epic.id);
+            rolledUp.push(epic.id);
+            closedThisPass++;
+          } else if (!flaggedSeen.has(epic.id)) {
+            // Policy (b): done-but-unaccepted children → flag, never auto-close.
+            flagged.push({
+              epicId: epic.id,
+              reason: 'unaccepted',
+              children: children.length,
+              unaccepted: unaccepted.length,
+            });
+            flaggedSeen.add(epic.id);
+          }
         }
       }
       if (closedThisPass === 0) break;
     }
 
-    return { rolledUp, flagged };
+    return { rolledUp, flagged, settledChildIds };
   });
 }
 
 export const BUCKET_CHILD_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Non-landed epic whose live children haven't moved (no updatedAt change) in this long
+ *  is flagged motionless-abandoned by the sweep. */
+export const MOTIONLESS_EPIC_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** Idempotent: archive (status→'dropped') bucket CHILDREN that are `done` and whose
  *  updatedAt is older than the cutoff. Only 'done' rows are selected, so re-running is a no-op. */

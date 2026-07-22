@@ -1,6 +1,6 @@
 // Runs via `bun test` (uses node:fs tmp dirs) — excluded from vitest.
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -140,5 +140,28 @@ describe('loadManifestSource', () => {
     expect(loadManifestSource(project).state).toBe('absent');
     writeManifest({ version: 1 });
     expect(loadManifestSource(project).state).toBe('ok');
+  });
+
+  it('on-disk edit is visible on next read without _clearManifestCache; unchanged mtime stays cached', () => {
+    expect(loadManifestSource(project).state).toBe('absent');
+
+    const manifestPath = join(project, '.collab', 'project.json');
+    mkdirSync(join(project, '.collab'), { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify({ version: 1, gate: { typecheck: 'a' } }), 'utf8');
+    const first = loadManifestSource(project);
+    expect(first.state).toBe('ok');
+    expect(first.manifest?.gate?.typecheck).toBe('a');
+
+    const second = loadManifestSource(project);
+    expect(second).toBe(first); // unchanged mtime -> cached reference, no re-parse
+
+    writeFileSync(manifestPath, JSON.stringify({ version: 1, gate: { typecheck: 'b' } }), 'utf8');
+    const bumped = new Date(statSync(manifestPath).mtimeMs + 1000);
+    utimesSync(manifestPath, bumped, bumped); // force a distinct, later mtime regardless of fs clock granularity
+
+    const third = loadManifestSource(project);
+    expect(third.state).toBe('ok');
+    expect(third.manifest?.gate?.typecheck).toBe('b');
+    expect(third).not.toBe(first);
   });
 });
