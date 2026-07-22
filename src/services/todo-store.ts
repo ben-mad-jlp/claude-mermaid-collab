@@ -1627,6 +1627,10 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
+    if (approvedAt != null) {
+      const terminalAncestorId = hasTerminalEpicAncestor(project, resolvedParentId);
+      if (terminalAncestorId) throw new TerminalParentApproveError(id, terminalAncestorId);
+    }
     // ONE live land leaf per epic — a duplicate wedges the epic (see DuplicateLandLeafError).
     if (kindOfInput(input) === 'land' && input.parentId) {
       const existingLand = db.query(
@@ -1748,7 +1752,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // The guard reads the EFFECTIVE servesCriterionId (post-patch), so a combined
     // "set edge + approve" call in one update passes (line coupling constraint).
     const newlyApproved = approvedAt != null && existing.approvedAt == null;
-    if (newlyApproved) {
+    if (approvedAt != null) {
       const effectiveParentId = patch.parentId !== undefined ? patch.parentId : existing.parentId;
       const terminalAncestorId = hasTerminalEpicAncestor(project, effectiveParentId);
       if (terminalAncestorId) throw new TerminalParentApproveError(id, terminalAncestorId);

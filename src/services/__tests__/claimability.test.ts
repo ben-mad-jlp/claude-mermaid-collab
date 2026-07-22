@@ -542,3 +542,63 @@ describe('parent-held gate', () => {
     // returns rather than hangs
   });
 });
+
+describe('parent-dropped gate', () => {
+  const approved = { approvedAt: APPROVED };
+
+  it('case 1: leaf under dropped epic → parent-dropped, not claimable', () => {
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED, status: 'dropped' });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved });
+    expect(claimReason(leaf, map(epic, leaf))).toBe('parent-dropped');
+    expect(isClaimable(leaf, map(epic, leaf))).toBe(false);
+  });
+
+  it('case 2: leaf under done epic → parent-dropped, not claimable', () => {
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED, status: 'done' });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved });
+    expect(claimReason(leaf, map(epic, leaf))).toBe('parent-dropped');
+    expect(isClaimable(leaf, map(epic, leaf))).toBe(false);
+  });
+
+  it('case 3: grandchild under dropped epic (chain walked) → parent-dropped', () => {
+    const topEpic = mk({ id: 'TOP', title: 'Top', kind: 'epic', parentId: null, approvedAt: APPROVED, status: 'dropped' });
+    const midLeaf = mk({ id: 'MID', parentId: 'TOP', ...approved });
+    const grandchild = mk({ id: 'GC', parentId: 'MID', ...approved });
+    expect(claimReason(grandchild, map(topEpic, midLeaf, grandchild))).toBe('parent-dropped');
+  });
+
+  it('case 4: mission ancestor does NOT gate — leaf under epic under dropped mission is claimable', () => {
+    const mission = mk({ id: 'M', title: 'Mission', kind: 'mission', parentId: null, status: 'dropped' });
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: 'M', approvedAt: APPROVED });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved });
+    expect(claimReason(leaf, map(mission, epic, leaf))).toBe('claimable');
+  });
+
+  it('hasTerminalEpicAncestor: true for dropped epic parent', () => {
+    const { hasTerminalEpicAncestor } = require('../claimability');
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED, status: 'dropped' });
+    const leaf = mk({ id: 'L', parentId: 'EP' });
+    expect(hasTerminalEpicAncestor(leaf, map(epic, leaf))).toBe(true);
+  });
+
+  it('hasTerminalEpicAncestor: true for done epic parent', () => {
+    const { hasTerminalEpicAncestor } = require('../claimability');
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED, status: 'done' });
+    const leaf = mk({ id: 'L', parentId: 'EP' });
+    expect(hasTerminalEpicAncestor(leaf, map(epic, leaf))).toBe(true);
+  });
+
+  it('hasTerminalEpicAncestor: false for live epic parent', () => {
+    const { hasTerminalEpicAncestor } = require('../claimability');
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED, status: 'planned' });
+    const leaf = mk({ id: 'L', parentId: 'EP' });
+    expect(hasTerminalEpicAncestor(leaf, map(epic, leaf))).toBe(false);
+  });
+
+  it('hasTerminalEpicAncestor: false for dropped mission parent', () => {
+    const { hasTerminalEpicAncestor } = require('../claimability');
+    const mission = mk({ id: 'M', title: 'Mission', kind: 'mission', parentId: null, status: 'dropped' });
+    const leaf = mk({ id: 'L', parentId: 'M' });
+    expect(hasTerminalEpicAncestor(leaf, map(mission, leaf))).toBe(false);
+  });
+});
