@@ -23,6 +23,15 @@ export interface GateTestLane {
   mode: 'per-file' | 'batch';
 }
 
+/** One resolved typecheck lane: a path scope and a full command (no substitution). */
+export interface GateTypecheckLane {
+  /** Compiled from the manifest's `match` RegExp source. Tested against ROOT-relative paths. */
+  match: RegExp;
+  command: string;
+  /** Worktree-relative cwd the command runs in. */
+  cwd?: string;
+}
+
 /** Project-declared mechanical gate. Every command is a shell string run via `sh -c`.
  *  NOTHING here is defaulted to a command — an undeclared gate runs no command. */
 export interface LeafGateConfig {
@@ -35,6 +44,8 @@ export interface LeafGateConfig {
   testCwd?: string;
   /** Multi-lane test configuration: each lane matches a path pattern and has its own command/cwd. */
   tests?: GateTestLane[];
+  /** Change-set-scoped project typecheck lanes: each lane runs its FULL command when a change-set path matches. */
+  typechecks?: GateTypecheckLane[];
   /** OPTIONAL full-suite command run ONLY at the epic base (once per epic), never per leaf.
    *  Absent ⇒ the base check is `typecheck` alone. */
   baseTest?: string;
@@ -133,6 +144,58 @@ function normalizeLanes(
   return { lanes, error: null };
 }
 
+/** Normalize and validate the `gate.typechecks` array. Returns { lanes, error } where
+ *  exactly one is present. Throws are NOT allowed — errors are returned as strings. */
+function normalizeTypecheckLanes(
+  raw: unknown,
+): { lanes: GateTypecheckLane[] | null; error: string | null } {
+  if (raw === undefined || raw === null) return { lanes: null, error: null };
+
+  if (!Array.isArray(raw)) {
+    return { lanes: null, error: 'gate.typechecks must be a non-empty array' };
+  }
+
+  if (raw.length === 0) {
+    return { lanes: null, error: 'gate.typechecks must be a non-empty array' };
+  }
+
+  const lanes: GateTypecheckLane[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const lane = raw[i];
+    if (!lane || typeof lane !== 'object' || Array.isArray(lane)) {
+      return { lanes: null, error: `gate.typechecks[${i}] must declare a non-empty match and command` };
+    }
+
+    const { match, command, cwd } = lane as Record<string, unknown>;
+
+    if (typeof match !== 'string' || !match.trim()) {
+      return { lanes: null, error: `gate.typechecks[${i}] must declare a non-empty match and command` };
+    }
+
+    if (typeof command !== 'string' || !command.trim()) {
+      return { lanes: null, error: `gate.typechecks[${i}] must declare a non-empty match and command` };
+    }
+
+    // Validate regexp.
+    let compiledMatch: RegExp;
+    try {
+      compiledMatch = new RegExp(match);
+    } catch {
+      return { lanes: null, error: `gate.typechecks[${i}].match is not a valid regexp: ${match}` };
+    }
+
+    const cwdTrimmed = (cwd as string | undefined)?.trim() || undefined;
+
+    lanes.push({
+      match: compiledMatch,
+      command: command.trim(),
+      cwd: cwdTrimmed,
+    });
+  }
+
+  return { lanes, error: null };
+}
+
 /** Build a single legacy lane from the old-shape `test`/`testCwd` config. */
 function legacyLane(test: string, testCwd: string | undefined): GateTestLane {
   const prefix = testCwd ? escapeRe(testCwd.replace(/\/+$/, '')) : '';
@@ -148,7 +211,7 @@ function legacyLane(test: string, testCwd: string | undefined): GateTestLane {
 }
 
 /** Returns the project's declared gate, normalised (trim; drop empty strings; `null`
- *  when neither `typecheck` nor `test` nor `baseTest` nor `tests` survives). */
+ *  when neither `typecheck` nor `test` nor `baseTest` nor `tests` nor `typechecks` survives). */
 export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | null {
   const g = m?.gate;
   if (!g) return null;
@@ -163,10 +226,14 @@ export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | nul
   // by resolveGateDeclaration.
   if (laneError) return null;
 
-  // Neither single-test nor multi-lane form survives.
-  if (!typecheck && !test && !baseTest && !lanes) return null;
+  // Parse and validate typechecks lanes (will return null error if any).
+  const { lanes: typecheckLanes, error: typecheckLaneError } = normalizeTypecheckLanes(g.typechecks);
+  if (typecheckLaneError) return null;
 
-  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined };
+  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck survives.
+  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes) return null;
+
+  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined, typechecks: typecheckLanes || undefined };
 }
 
 /** Why the mechanical layer will or will not run. Three outcomes, not two: an ABSENT gate is
@@ -208,12 +275,18 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
     return { kind: 'misconfigured', manifestPath: src.path, reason: laneError };
   }
 
+  // Check typecheck lane validity.
+  const { error: typecheckLaneError } = normalizeTypecheckLanes(gate.typechecks);
+  if (typecheckLaneError) {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: typecheckLaneError };
+  }
+
   const cfg = resolveLeafGate(manifest);
   if (!cfg) {
     return {
       kind: 'misconfigured',
       manifestPath: src.path,
-      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests all empty)',
+      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests/typechecks all empty)',
     };
   }
   return { kind: 'declared', cfg, manifestPath: src.path };
@@ -299,10 +372,12 @@ export async function runLeafGate(
     }
   }
 
+  const normalizedChangeSet = changeSet !== null ? changeSet.map(normPathLocal) : null;
+
   // Test section: either multi-lane or legacy single-test form.
   const lanes = resolveLanes(cfg);
   if (lanes) {
-    if (changeSet === null) {
+    if (normalizedChangeSet === null) {
       return {
         status: 'error',
         output: '',
@@ -312,7 +387,7 @@ export async function runLeafGate(
     }
 
     // Normalize paths to root-relative (no leading ./, no quotes).
-    const allSpecs = changeSet.map(normPathLocal).filter((p) => SPEC_FILE_RE.test(p));
+    const allSpecs = normalizedChangeSet.filter((p) => SPEC_FILE_RE.test(p));
 
     // Route each spec to the first matching lane, or track unmatched.
     const { byLane, unmatched } = routeSpecsToLanes(allSpecs, lanes);
@@ -369,6 +444,39 @@ export async function runLeafGate(
         reasons: [`${failures.length} failing spec file(s)`, ...extractFailingTests(output).slice(0, 20)],
         declared: true,
       };
+    }
+  }
+
+  if (cfg.typechecks && cfg.typechecks.length > 0) {
+    if (normalizedChangeSet === null) {
+      return { status: 'error', output: '', reasons: ['gate: change-set unreadable'], declared: true };
+    }
+    for (const lane of cfg.typechecks) {
+      const matching = normalizedChangeSet.filter((p) => lane.match.test(p));
+      if (matching.length === 0) continue;
+
+      const laneCwd = lane.cwd ? join(cwd, lane.cwd) : cwd;
+      const r = await spawn(laneCwd, lane.command);
+      if (!r.ran) {
+        return { status: 'error', command: lane.command, output: r.output,
+          reasons: [`gate could not run: ${lane.command}`], declared: true };
+      }
+      if (r.code !== 0) {
+        // tsc run from laneCwd reports paths relative to laneCwd, not repo root — strip the
+        // lane's cwd prefix the same way routeSpecsToLanes does (leaf-gate.ts:464-467) before
+        // attributing, or every in-scope failure misreads as foreign.
+        const relChangeSet = lane.cwd
+          ? matching.map((p) => p.slice(lane.cwd!.replace(/\/+$/, '').length + 1))
+          : matching;
+        const foreignFiles = foreignOnlyTypecheckFiles(r.output, relChangeSet);
+        if (foreignFiles) {
+          return { status: 'error', command: lane.command, output: r.output,
+            reasons: [`foreign-typecheck-errors: typecheck failed only in file(s) outside this leaf's change-set: ${foreignFiles.join(', ')}`, lastLines(r.output, 20)],
+            declared: true };
+        }
+        return { status: 'fail', command: lane.command, output: r.output,
+          reasons: [`typecheck failed: ${lane.command}`, lastLines(r.output, 20)], declared: true };
+      }
     }
   }
 
