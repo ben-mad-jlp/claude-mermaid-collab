@@ -1247,12 +1247,15 @@ const App: React.FC = () => {
     [selectedItem, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet]
   );
 
-  // Auto-save hook - pass selectedItem?.id to reset when switching items
+  // Auto-save hook - pass selectedItem?.id to reset when switching items, and the
+  // store item's content as the LIVE baseline so async content hydration after a
+  // click never reads as an unsaved edit (the phantom save-on-view bug).
   const { isSaving, hasUnsavedChanges } = useAutoSave(
     localContent,
     handleSave,
     2000,
-    selectedItem?.id // Reset auto-save state when item changes
+    selectedItem?.id, // Reset auto-save state when item changes
+    selectedItem?.content ?? null
   );
 
   // Apply theme to document

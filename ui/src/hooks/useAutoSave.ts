@@ -59,7 +59,13 @@ export function useAutoSave(
   content: string,
   onSave: (content: string) => Promise<void>,
   delay: number = DEFAULT_DELAY,
-  key?: string | null
+  key?: string | null,
+  /** The persisted source-of-truth content (e.g. the store item's content). When
+   *  provided it is the change baseline INSTEAD of the mount-time snapshot —
+   *  closing the hydration race where the snapshot was taken while the item's
+   *  full content was still loading, making the loaded content look like an
+   *  edit and phantom-saving every artifact merely opened. */
+  baseline?: string | null
 ): UseAutoSaveReturn {
   // State for tracking save status
   const [isSaving, setIsSaving] = useState(false);
@@ -121,6 +127,13 @@ export function useAutoSave(
       }
     }
   }, []);
+
+  // Keep the ref-based baseline in sync with the live persisted content when the
+  // caller provides one — hydration updating the store then updates the baseline,
+  // so freshly loaded content never reads as an unsaved edit.
+  useEffect(() => {
+    if (baseline != null) originalContentRef.current = baseline;
+  }, [baseline]);
 
   // Watch for content changes and trigger debounced save
   useEffect(() => {
