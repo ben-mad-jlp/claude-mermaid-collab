@@ -15,7 +15,7 @@ beforeEach(() => {
 
 // Imports AFTER the env is set so any db opens against our temp dir.
 import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMissionAndConstitution, parseForgeSpec } from '../mission-forge';
-import { getMission, listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
+import { getMission, getMissionRollup, listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
 import { listDecisionRecords, _closeProject as closeDecisions } from '../../../services/decision-record-store';
 import { getTodo, _closeProject as closeTodos } from '../../../services/todo-store';
 import { composeInjectedContext } from '../../../services/prompt-injection';
@@ -31,6 +31,20 @@ const base = () => ({
   session: 's1',
   title: 'The reviewer never over-rejects correct code',
   criteria: ['a correct null-guard leaf is accepted', 'a real defect leaf is rejected'],
+});
+
+const SPEC = {
+  title: 'The reviewer never over-rejects correct code',
+  description: 'Harden the daemon review gate.',
+  criteria: ['a correct null-guard leaf is accepted', 'a real defect leaf is rejected'],
+  constraints: [{ rule: 'the mechanical gate stays PRE-land', rationale: 'placebo-hole guarantee' }],
+  rejectedAlternatives: [{ title: 'arbiter LLM', rationale: 'Grok killed it', alternatives: ['second LLM judge'] }],
+  digest: '# Orientation\n- src/services/leaf-executor.ts — the review node',
+};
+
+const mockDeps = (spec: unknown = SPEC) => ({
+  readDoc: async () => 'PROBLEM: the reviewer over-rejects. Design: harden the gate.',
+  invoke: async () => ({ ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(spec) + '\n```' } as any),
 });
 
 describe('forgeMission — atomic mission + constitution', () => {
@@ -148,19 +162,6 @@ describe('get_mission handler resolves a short id for ALL sub-queries (not just 
 });
 
 describe('forgeMissionFromDoc — server forge node → unapproved mission', () => {
-  const SPEC = {
-    title: 'The reviewer never over-rejects correct code',
-    description: 'Harden the daemon review gate.',
-    criteria: ['a correct null-guard leaf is accepted', 'a real defect leaf is rejected'],
-    constraints: [{ rule: 'the mechanical gate stays PRE-land', rationale: 'placebo-hole guarantee' }],
-    rejectedAlternatives: [{ title: 'arbiter LLM', rationale: 'Grok killed it', alternatives: ['second LLM judge'] }],
-    digest: '# Orientation\n- src/services/leaf-executor.ts — the review node',
-  };
-  const mockDeps = (spec: unknown = SPEC) => ({
-    readDoc: async () => 'PROBLEM: the reviewer over-rejects. Design: harden the gate.',
-    invoke: async () => ({ ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(spec) + '\n```' } as any),
-  });
-
   test('forges an UNAPPROVED mission: status unapproved, inactive, constraints PROPOSED, handoff=docId', async () => {
     const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
     const mission = getMission(project, r.missionId);
@@ -222,5 +223,33 @@ describe('parseForgeSpec', () => {
   test('throws when title or criteria are missing', () => {
     expect(() => parseForgeSpec('{"criteria":["c"]}')).toThrow(/title/i);
     expect(() => parseForgeSpec('{"title":"T","criteria":[]}')).toThrow(/criteria/i);
+  });
+});
+
+describe('unapproved status regression — approved flag gates both active and rollup path', () => {
+  test('forgeMission with approved: false → status unapproved on both getMission and getMissionRollup', async () => {
+    const r = await forgeMission(project, { ...base(), approved: false });
+    const mission = getMission(project, r.missionId);
+    const rollup = getMissionRollup(project, r.missionId);
+    expect(mission?.status).toBe('unapproved');
+    expect(mission?.active).toBe(false);
+    expect(rollup.status).toBe('unapproved');
+  });
+
+  test('forgeMissionFromDoc → status unapproved on both getMission and getMissionRollup', async () => {
+    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, mockDeps());
+    const mission = getMission(project, r.missionId);
+    const rollup = getMissionRollup(project, r.missionId);
+    expect(mission?.status).toBe('unapproved');
+    expect(mission?.active).toBe(false);
+    expect(rollup.status).toBe('unapproved');
+  });
+
+  test('forgeMission with approved defaulting to true → status NOT unapproved on both paths', async () => {
+    const r = await forgeMission(project, { ...base() });
+    const mission = getMission(project, r.missionId);
+    const rollup = getMissionRollup(project, r.missionId);
+    expect(mission?.status).not.toBe('unapproved');
+    expect(rollup.status).not.toBe('unapproved');
   });
 });
