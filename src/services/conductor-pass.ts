@@ -117,7 +117,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'pass-ran' | 'pass-error';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   missionId?: string;
@@ -128,13 +128,23 @@ export interface ConductorPassResult {
  *  approved+active mission with a NEW actionable state (a discover/verify gap the conductor hasn't
  *  already served at this exact fingerprint). */
 export async function runConductorPass(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
-  const result = await runConductorPassInner(project, deps);
-  setConductorLastPass(project, {
-    missionId: result.missionId ?? null,
-    reason: result.reason,
-    tickAt: Date.now(),
-  });
-  return result;
+  try {
+    const result = await runConductorPassInner(project, deps);
+    setConductorLastPass(project, {
+      missionId: result.missionId ?? null,
+      reason: result.reason,
+      tickAt: Date.now(),
+    });
+    return result;
+  } catch (err) {
+    // Error stamp: records that the pass failed (rethrow so callers keep seeing the failure).
+    setConductorLastPass(project, {
+      missionId: null,
+      reason: 'pass-error',
+      tickAt: Date.now(),
+    });
+    throw err;
+  }
 }
 
 async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
@@ -281,6 +291,10 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
   const model = resolveNodeModel(project, 'conductor', provider, ORCHESTRATION_NODE_PROFILE.conductor.model);
   const effort: EffortLevel = resolveOrchestrationEffort(project, 'conductor');
+
+  // Interim heartbeat: refreshes liveness while the node is mid-flight; the terminal stamp
+  // in runConductorPass records the pass's actual outcome.
+  setConductorLastPass(project, { missionId, reason: 'pass-ran', tickAt: Date.now() });
 
   const res = await (deps.invoke ?? invokeNode)({
     prompt: buildConductorPrompt(project, missionId, target.summary.node.title ?? missionId, session),

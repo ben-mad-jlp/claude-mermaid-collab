@@ -513,7 +513,8 @@ export function setConductorTargetMission(project: string, missionId: string | n
 
 export type ConductorPassReason =
   | 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable'
-  | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed';
+  | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed'
+  | 'pass-ran' | 'pass-error';
 
 export interface ConductorLastPass {
   missionId: string | null;
