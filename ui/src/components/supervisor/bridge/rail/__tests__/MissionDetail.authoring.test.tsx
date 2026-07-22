@@ -13,6 +13,7 @@ const actions = {
   addMissionCriterion: vi.fn(async () => missions),
   updateMissionCriterion: vi.fn(async () => missions),
   removeMissionCriterion: vi.fn(async () => missions),
+  fetchConductorTarget: vi.fn(() => Promise.resolve(null)),
 };
 
 let missions: any[] = [];
