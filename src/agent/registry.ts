@@ -2,18 +2,21 @@
  * WorkerAgent registry (PAW P1) — ProviderId → WorkerAgent.
  *
  * The coordinator resolves the worker provider through this registry instead of
- * hard-importing the Claude adapter, so a second provider can be added later
- * WITHOUT editing the launch/stall/fleet code paths. Today it registers ONLY
- * `claude`, and the kill-switch keeps it that way:
+ * hard-importing an adapter, so a second provider can be added later WITHOUT
+ * editing the launch/stall/fleet code paths. Today it registers ONLY `claude`,
+ * and the kill-switch keeps it that way:
  *
  *   WORKER_AGENT_REGISTRY=claude-only   (the default & the safe floor)
+ *
+ * `claude` resolves to AnthropicOwnHarness, the in-process (no tmux) worker —
+ * the interactive tmux-backed ClaudeCodeAgent adapter was removed with the
+ * tmux/terminal stack (Phase 4).
  *
  * The env var is read once at module load. Any value other than an explicit
  * future opt-in collapses the registry to claude-only — i.e. claude is the floor
  * the kill-switch can never remove. There is intentionally no public mutator;
  * adding a provider means registering it here behind its own flag.
  */
-import { ClaudeCodeAgent } from './adapters/claude-code';
 import { GrokOwnHarness, AnthropicOwnHarness } from './adapters/grok-own';
 import { runConformance, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES } from './__tests__/conformance';
 import type { ProviderId, WorkerAgent } from './worker-agent';
@@ -32,7 +35,7 @@ function claudeOnly(): boolean {
  *  nothing else exists, so the map is claude-only regardless. */
 function buildRegistry(): Map<ProviderId, WorkerAgent> {
   const reg = new Map<ProviderId, WorkerAgent>();
-  reg.set('claude', ClaudeCodeAgent);
+  reg.set('claude', AnthropicOwnHarness);
   // Future providers would be registered here, gated on !claudeOnly(). The
   // kill-switch (claude-only) guarantees claude is the only entry today.
   void claudeOnly;

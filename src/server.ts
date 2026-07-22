@@ -48,12 +48,6 @@ import { sessionRegistry, SessionRegistryCorruptError } from './services/session
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
 import { handleMCPRequest, getActiveSessionCount } from './mcp/http-handler';
-import {
-  handleTerminalOpen,
-  handleTerminalMessage,
-  handleTerminalClose,
-  handleTerminalError,
-} from './routes/websocket';
 import { BindingSweeper } from './services/binding-sweeper.ts';
 import { BindingReconciler } from './services/binding-reconciler.ts';
 import { startBonjourAdvertiser, stopBonjourAdvertiser } from './services/bonjour-advertiser.ts';
@@ -188,16 +182,6 @@ if (MERMAID_AUTO_START_COORDINATOR) {
   } catch (err) {
     console.error(`mermaid-collab: orchestrator start failed — ${err instanceof Error ? err.message : String(err)}`);
   }
-}
-
-// Periodic reaper for orphaned/very old `mc-*` tmux sessions (deterministic
-// daemon). Kills only old sessions with no live claude + no TUI, so live work
-// (steward, planners, workers, consoles) is never touched. Best-effort.
-try {
-  const { startTmuxReaper } = await import('./services/tmux-reaper.js');
-  startTmuxReaper();
-} catch (err) {
-  console.warn(`mermaid-collab: tmux reaper start skipped — ${err instanceof Error ? err.message : String(err)}`);
 }
 
 // Initialize shared services (stateless, no storage)
@@ -455,7 +439,6 @@ const server = Bun.serve<WsData>({
     // split, the Vite proxy stripped before forwarding (and the Electron shell
     // strips via its main-process bridge). With no proxy in front of us we must
     // strip it ourselves so downstream routing matches:
-    //   /_per-server/<serverId>/terminal/<ptyId>  → /terminal/<ptyId>   (terminal-ws.ts)
     //   /srv/<serverId>/api/...                    → /api/...            (api.ts)
     // serverId may be empty or `local`; mirror Vite's `[^/]*` exactly.
     url.pathname = url.pathname
@@ -484,24 +467,6 @@ const server = Bun.serve<WsData>({
     if (url.pathname === '/ws') {
       const upgraded = server.upgrade(req, {
         data: { type: 'collab', subscriptions: new Set<string>() },
-      });
-
-      if (upgraded) return undefined;
-      return new Response('WebSocket upgrade failed', { status: 500 });
-    }
-
-    // WebSocket upgrade for terminal (PTY-based)
-    // Supports: /terminal/:sessionId
-    if (url.pathname.startsWith('/terminal/')) {
-      // Extract session ID from path: /terminal/:sessionId
-      const sessionId = url.pathname.slice('/terminal/'.length).split('/')[0] || null;
-
-      if (!sessionId) {
-        return new Response('Missing session ID in path', { status: 400 });
-      }
-
-      const upgraded = server.upgrade(req, {
-        data: { type: 'terminal', sessionId, subscriptions: new Set<string>() },
       });
 
       if (upgraded) return undefined;
@@ -636,57 +601,30 @@ const server = Bun.serve<WsData>({
 
   websocket: {
     open(ws) {
-      const data = ws.data as { type: string; sessionId?: string };
-
-      if (data.type === 'terminal') {
-        // Terminal WebSocket connection - PTY-based handler extracts sessionId from ws.data
-        handleTerminalOpen(ws as any);
-      } else {
-        // Collab WebSocket connection
-        wsHandler.handleConnection(ws);
-        ws.send(JSON.stringify({
-          type: 'connected',
-          diagramCount: wsHandler.getConnectionCount(),
-        }));
-        // Re-hydrate Zen session summaries: the loop change-gates broadcasts and
-        // summaries aren't persisted client-side, so a fresh/reconnected client would
-        // show "No summary yet" for every idle session until its pane next changes.
-        // Send the server's last-known summaries (incl. interpreter paragraphs) once.
-        try {
-          for (const msg of snapshotSummaryMessages()) ws.send(JSON.stringify(msg));
-        } catch { /* best-effort hydrate — never break the connection */ }
-      }
+      // Collab WebSocket connection
+      wsHandler.handleConnection(ws);
+      ws.send(JSON.stringify({
+        type: 'connected',
+        diagramCount: wsHandler.getConnectionCount(),
+      }));
+      // Re-hydrate Zen session summaries: the loop change-gates broadcasts and
+      // summaries aren't persisted client-side, so a fresh/reconnected client would
+      // show "No summary yet" for every idle session until its pane next changes.
+      // Send the server's last-known summaries (incl. interpreter paragraphs) once.
+      try {
+        for (const msg of snapshotSummaryMessages()) ws.send(JSON.stringify(msg));
+      } catch { /* best-effort hydrate — never break the connection */ }
     },
 
     message(ws, message) {
-      const data = ws.data as { type: string };
-
-      if (data.type === 'terminal') {
-        handleTerminalMessage(ws as any, message);
-      } else {
-        wsHandler.handleMessage(ws, message.toString());
-      }
+      wsHandler.handleMessage(ws, message.toString());
     },
 
     close(ws) {
-      const data = ws.data as { type: string };
-
-      if (data.type === 'terminal') {
-        try {
-          handleTerminalClose(ws as any);
-        } catch (error) {
-          // Surface unexpected close-time errors through the terminal error path
-          handleTerminalError(ws as any, error instanceof Error ? error : new Error(String(error)));
-        }
-      } else {
-        wsHandler.handleDisconnection(ws);
-      }
+      wsHandler.handleDisconnection(ws);
     },
   },
 });
-
-// Initialize PTY manager and register shutdown handlers
-import { ptyManager } from './terminal/index';
 
 if (typeof server.port !== 'number' || server.port === 0) {
   console.error(`mermaid-collab: Bun.serve returned an invalid port: ${server.port}`);
@@ -780,7 +718,6 @@ process.on('SIGINT', () => {
   try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
-    ptyManager.killAll();
     process.exit(0);
   });
 });
@@ -801,7 +738,6 @@ process.on('SIGTERM', () => {
   try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
-    ptyManager.killAll();
     process.exit(0);
   });
 });
@@ -843,6 +779,5 @@ console.log(`mermaid-collab listening on :${actualPort}, advertised as ${session
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${actualPort}/ws`);
-console.log(`🔌 Terminal: ws://${config.HOST}:${actualPort}/terminal/:sessionId`);
 console.log(`🤖 MCP HTTP: http://${config.HOST}:${actualPort}/mcp`);
 

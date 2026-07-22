@@ -1,13 +1,12 @@
 /**
- * Windows ↔ WSL path translation for the `drive-wsl-tmux` backend (sidecar runs
- * natively on Windows and shells out to `wsl.exe`). Only the args that carry a
- * Windows path cross the boundary — chiefly `new-session -c <cwd>` — so the
- * transform rewrites any token that looks like a Windows absolute path and leaves
- * everything else (tmux verbs, flags, format strings) untouched.
+ * Windows → WSL path translation. Used by the sidecar-launch command builder to
+ * translate the (Windows-side) env vars that carry a filesystem path — chiefly
+ * the repo path — into their `/mnt/c/…` WSL equivalent before they cross into
+ * `wsl.exe`.
  *
- * NOTE: when the sidecar runs INSIDE WSL (the preferred topology, decision
- * 588c6df1), there is no boundary and `TmuxSessionMux` is used directly — this
- * module is only for the Windows-native fallback.
+ * (Formerly lived in `session-mux/wsl-path.ts`, shared with the tmux-backed
+ * `WslTmuxSessionMux`; that backend was removed with the tmux/terminal stack —
+ * Phase 4 — so this pure helper moved here, its one remaining consumer.)
  */
 
 /** Matches a Windows absolute path: a drive letter + `:` + `\` or `/`. */

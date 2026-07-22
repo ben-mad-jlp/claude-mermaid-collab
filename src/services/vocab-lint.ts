@@ -62,13 +62,10 @@ export const LEGACY_ALLOWLIST: readonly string[] = [
   // Pre-migration pool/worker internals (Vocab 2 retires lane/pool-session here).
   'src/services/worker-pool.ts',
   'src/services/coordinator-live.ts',
-  'src/services/lane-session-register.ts',
-  'src/services/claude-launch.ts',
   'src/services/supervisor-store.ts',
   'src/services/friction-store.ts',
   'src/mcp/tools/friction.ts',
   'src/config.ts',
-  'src/services/__tests__/lane-session-register.test.ts',
   'src/services/__tests__/worker-pool.test.ts',
   'src/services/__tests__/coordinator-live.test.ts',
   'src/agent/__tests__/worktree-integration.test.ts',

@@ -48,8 +48,6 @@ import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
 import * as supervisorStore from '../services/supervisor-store.js';
-import { sendTmuxKeys } from '../services/tmux-send.js';
-import { launchAndBind } from '../services/claude-launch.js';
 import { recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { listSessionRuntimes } from '../services/session-runtime.js';
@@ -582,7 +580,7 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'recommend_session_cleanup',
-        description: 'Recommend stale collab sessions + orphan tmuxes for cleanup (read-only). Returns sessions idle longer than `days` (default 30) — excluding any that are live-bound to a running Claude PID or hold in-progress work — plus tmux sessions with no attached client whose last activity is older than the window. Each item carries an age + reason. Clean up a recommended session with archive_session (it copies artifacts to docs/designs/ then optionally deletes), and a tmux with the /api/maintenance/kill-tmux route. This NEVER deletes anything itself.',
+        description: 'Recommend stale collab sessions for cleanup (read-only). Returns sessions idle longer than `days` (default 30) — excluding any that are live-bound to a running Claude PID or hold in-progress work. Each item carries an age + reason. Clean up a recommended session with archive_session (it copies artifacts to docs/designs/ then optionally deletes). This NEVER deletes anything itself.',
         inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'Staleness window in days (default 30).' } } },
       },
       {
@@ -931,7 +929,6 @@ export async function setupMCPServer(): Promise<Server> {
         description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
         inputSchema: assignSessionTodoSchema,
       },
-      { name: 'spawn_planner', description: "Steward verb: spawn a per-project Planner session — registers + watches + supervises the project and launches a Claude running the /planner skill. By default the session is launched with Claude Code Remote Control so it's drivable from the Claude app (requires the launched session be logged into claude.ai). Use this to stand up a planner the human can drive remotely for a project.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path (registered if not already)' }, session: { type: 'string', description: 'Session name (default "planner")' }, remoteControl: { type: 'boolean', description: 'Launch with --remote-control so it appears in the Claude app (default true)' } }, required: ['project'] } },
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
       { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: { supervisorEpoch: { type: 'number', description: 'Ownership epoch; a superseded supervisor is rejected.' } } } },
@@ -1786,37 +1783,6 @@ export async function setupMCPServer(): Promise<Server> {
             return JSON.stringify({ ...deriveTodoViews(project, [result])[0], previousAssigneeSession: result.previousAssigneeSession ?? undefined }, null, 2);
           }
 
-          case 'spawn_planner': {
-            const { project, session = 'planner', remoteControl = true } = args as { project: string; session?: string; remoteControl?: boolean };
-            if (!project) throw new Error('Missing required: project');
-            // Register + watch + supervise so the planner is visible to the
-            // supervisor reconcile and shows in the Bridge tree.
-            try { await handleRegisterProject({ path: project }); } catch { /* may already be registered */ }
-            supervisorStore.addWatchedProject(project);
-            supervisorStore.addSupervised(project, session, 'spawn');
-            // PRE-CREATE the session so the launched `/collab <session>` RESUMES an
-            // existing session instead of hitting the "create it?" prompt that would
-            // strand the launch (the /planner skill gets sent before the prompt is
-            // answered). Belt-and-suspenders vs the collab-skill auto-create fix,
-            // which only reaches launched sessions after a plugin version bump.
-            // Idempotent: a no-op if the doc already exists.
-            try {
-              const existing = await listDocuments(project, session);
-              if (!/vibeinstructions/i.test(existing)) {
-                await createDocument(project, session, 'vibe.vibeinstructions',
-                  `# Vibe: ${session}\n\n## Goal\n[Planner — define the roadmap for this project]\n\n## Context\n[No context recorded]\n\n## Pair Mode\nDisabled\n\n## Agent Mode\nEnabled`);
-              }
-            } catch { /* best-effort: launch still proceeds */ }
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
-            const launch = await launchAndBind({
-              project,
-              session,
-              invokeSkill: '/planner',
-              allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
-              remoteControl,
-            });
-            return JSON.stringify({ session, remoteControl, launch }, null, 2);
-          }
           case 'supervisor_list_supervised': {
             return JSON.stringify(supervisorStore.listSupervised(), null, 2);
           }
@@ -1831,8 +1797,8 @@ export async function setupMCPServer(): Promise<Server> {
               result = await peerFetch(serverId, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text } });
               sent = !!(result?.tmux ?? result?.success);
             } else {
-              result = await sendTmuxKeys(project, session, text);
-              sent = !!result?.sent;
+              result = { sent: false, reason: 'local tmux delivery removed' };
+              sent = false;
             }
             // Surface the nudge in the UI: a toast lets the user SEE that the
             // supervisor actually pushed a session to continue (and whether it
@@ -2450,8 +2416,8 @@ export async function setupMCPServer(): Promise<Server> {
               result = await peerFetch(serverId!, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text: '/clear' } });
               sent = !!(result?.tmux ?? result?.success);
             } else {
-              result = await sendTmuxKeys(project, session, '/clear');
-              sent = !!result?.sent;
+              result = { sent: false, reason: 'local tmux delivery removed' };
+              sent = false;
             }
             if (sent && !isPeer) { clearCheckpointReady(project, session); resetWatchdogDebounce(project, session); }
             getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });

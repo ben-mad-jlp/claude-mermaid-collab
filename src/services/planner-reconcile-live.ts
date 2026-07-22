@@ -1,20 +1,20 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { launchAndBind } from './claude-launch';
 import type { ReconcileDeps, ReconcileInputs, PlanNode } from './planner-reconcile';
 
 /**
  * Live wiring for the reconciliation harness (the injected `llmMerge`). The
- * semantic merge runs as a SPAWNED tmux Claude session (subscription auth — NO
- * API key), exactly like a worker:
+ * semantic merge runs as a SPAWNED session, exactly like a worker:
  *
  *   llmMerge → write inputs to .collab/reconcile/<id>.json → spawn a session
  *   bound to the `reconcile` skill with the id → session reads the file, does
  *   the merge, calls submit_reconcile_result(id, …) → that resolves the pending
  *   promise here → llmMerge returns the merged graph.
  *
- * The spawn is injectable (`opts.launch`) so the request/reply plumbing is
- * unit-testable without real tmux. Mirrors coordinator-live ↔ coordinator-daemon.
+ * The spawn has no live default (tmux-backed launch was removed) — a caller
+ * MUST inject `opts.launch`. The file-write + pending-promise read-model below
+ * stays so `submit_reconcile_result` can still resolve an in-flight merge
+ * however the session was actually started.
  */
 
 export interface ReconcileOutput {
@@ -41,15 +41,17 @@ export function isReconcilePending(id: string): boolean { return pending.has(id)
 const DEFAULT_TOOLS = 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid';
 
 export interface MakeReconcileDepsOpts {
-  /** Override the spawn (tests inject a fake that drives resolveReconcile). */
-  launch?: (args: { project: string; session: string; allowedTools: string; invokeSkill: string }) => Promise<{ started: boolean; reason?: string }>;
+  /** The spawn mechanism (no live default — tmux-backed launch was removed).
+   *  Tests inject a fake that drives resolveReconcile; a real caller must
+   *  supply its own headless spawn. */
+  launch: (args: { project: string; session: string; allowedTools: string; invokeSkill: string }) => Promise<{ started: boolean; reason?: string }>;
   /** Max wait for the session to report back (default 10 min). */
   timeoutMs?: number;
 }
 
 /** Build live ReconcileDeps for a project: llmMerge spawns a reconcile session. */
-export function makeReconcileDeps(project: string, opts: MakeReconcileDepsOpts = {}): ReconcileDeps {
-  const launch = opts.launch ?? ((a) => launchAndBind(a));
+export function makeReconcileDeps(project: string, opts: MakeReconcileDepsOpts): ReconcileDeps {
+  const launch = opts.launch;
   const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
   return {
     llmMerge: async (inputs: ReconcileInputs): Promise<ReconcileOutput> => {

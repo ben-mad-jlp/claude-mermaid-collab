@@ -1,24 +1,5 @@
 import { describe, it, expect, afterEach, mock } from 'bun:test';
 
-// Mock the launch layer (owned by another module) so launchWorker's pool-routing
-// path runs without a real tmux/claude. Must be registered before importing
-// coordinator-live so its static `ensureSession`/`runTodoInSession` imports
-// resolve to the mocks. POOL-4 splits spawn (ensureSession) from run (runTodoInSession).
-let launchStarted = true;
-const ensureSessionCalls: string[] = []; // session names ensureSession was called with
-const ensureSessionOpts: Array<{ project: string; session: string; contextPrompt?: string }> = [];
-const runTodoCalls: Array<{ session: string; invokeSkill: string }> = [];
-mock.module('../claude-launch', () => ({
-  ensureSession: async (opts: { project: string; session: string; contextPrompt?: string }) => {
-    ensureSessionCalls.push(opts.session);
-    ensureSessionOpts.push({ project: opts.project, session: opts.session, contextPrompt: opts.contextPrompt });
-    return launchStarted ? { ready: true, tmux: `tmux-${opts.session}` } : { ready: false, reason: 'mock-blocked' };
-  },
-  runTodoInSession: async (opts: { session: string; invokeSkill: string }) => {
-    runTodoCalls.push({ session: opts.session, invokeSkill: opts.invokeSkill });
-    return { sent: true };
-  },
-}));
 // updateTodo writes to the todo-store DB; stub it so the spawn test doesn't
 // depend on a seeded todo row.
 let completeSessionName = '';
@@ -52,7 +33,7 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async (_project: string, id: string) => { reclaimOrphanCalls.push(id); return reclaimOrphanResult; },
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, buildChildrenIndex, displayTitle, strandedEpicCandidates } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, buildChildrenIndex, displayTitle, strandedEpicCandidates } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised, listSupervisorAudit } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -537,40 +518,7 @@ describe('detectPermissionPrompt (DOGFOOD #6 follow-up)', () => {
   });
 });
 
-describe('PID-based liveness (63a59bd6 — dead Claude in a live tmux)', () => {
-  type Snap = Map<number, { children: number[]; comm: string }>;
-  const snap = (rows: Array<[number, number, string]>): Snap => {
-    const m: Snap = new Map();
-    for (const [pid, , comm] of rows) m.set(pid, { children: [], comm });
-    for (const [pid, ppid] of rows) {
-      if (!m.has(ppid)) m.set(ppid, { children: [], comm: '' });
-      m.get(ppid)!.children.push(pid);
-    }
-    return m;
-  };
-
-  it('finds claude as a descendant of the pane shell (live worker)', () => {
-    // pane shell (100) → claude (101). claude is alive.
-    const s = snap([[100, 1, '-zsh'], [101, 100, 'claude']]);
-    expect(claudeAliveInSubtree(100, s)).toBe(true);
-  });
-
-  it('finds claude under an intermediate wrapper process', () => {
-    const s = snap([[100, 1, '-zsh'], [101, 100, 'node'], [102, 101, 'claude']]);
-    expect(claudeAliveInSubtree(100, s)).toBe(true);
-  });
-
-  it('returns false for a bare shell with no claude descendant (the dead worker)', () => {
-    // pane shell (100) with only a pager child — claude exited.
-    const s = snap([[100, 1, '-zsh'], [103, 100, 'less']]);
-    expect(claudeAliveInSubtree(100, s)).toBe(false);
-  });
-
-  it('does not escape the subtree (sibling claude under a different root)', () => {
-    const s = snap([[100, 1, '-zsh'], [200, 1, '-zsh'], [201, 200, 'claude']]);
-    expect(claudeAliveInSubtree(100, s)).toBe(false);
-  });
-
+describe('pane-scrape detectors (interactive session summaries)', () => {
   it('isClaudeTuiPresent: live Claude chrome vs a bare shell prompt', () => {
     expect(isClaudeTuiPresent('🧠 0% ctx | ← for agents')).toBe(true);
     expect(isClaudeTuiPresent('✻ Zesting… (26s · ↓ 1.1k tokens)')).toBe(true);

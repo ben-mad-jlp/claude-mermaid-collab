@@ -1,18 +1,14 @@
 /**
  * Fleet status read-model — "what is each worker doing, on which slot, for how
  * long, and is it healthy?" A single join over the in-progress todos + their
- * claim metadata + live worker liveness (tmux + Claude-PID + pane), so a human
- * (or the Bridge UI / an MCP tool) can SEE the pipeline instead of guessing why
- * it feels slow.
+ * claim metadata + live worker liveness (headless leaf_inflight / grok harness —
+ * no tmux, Phase 4), so a human (or the Bridge UI / an MCP tool) can SEE the
+ * pipeline instead of guessing why it feels slow.
  *
  * Read-only + side-effect-free: it never mutates claims, kills sessions, or
- * escalates — that's the coordinator's job. This only OBSERVES. It reuses the
- * same liveness primitives the watchdog uses (claudeAliveInSubtree /
- * isClaudeTuiPresent / detectPermissionPrompt) so the state it reports matches
- * what the coordinator acts on.
+ * escalates — that's the coordinator's job. This only OBSERVES.
  */
 import { listTodos } from './todo-store';
-import { mux, argvLs, argvPsUidComm } from './session-mux/index.ts';
 import { getGrokHarnessForInspection } from '../agent/registry';
 import { listLeafInflight } from './worker-ledger';
 import { getStatus } from './session-status-store';
@@ -125,7 +121,7 @@ type ProcSnapshot = {
  *  headroom read costs no extra spawn (uid column added to the one ps call). */
 function procSnapshot(): ProcSnapshot | null {
   try {
-    const out = Bun.spawnSync(mux.cmd(argvPsUidComm()), { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
     if (!out.trim()) return null;
     const myUid = typeof process.getuid === 'function' ? process.getuid() : null;
     let liveProcsForUid = myUid != null ? 0 : null;
@@ -166,18 +162,10 @@ function perUidProcCap(): number | null {
   }
 }
 
-/** Count live `mc-*` tmux sessions (the fleet's worker panes). null if tmux can't be queried. */
+/** Live `mc-*` tmux sessions (the fleet's worker panes) — always 0 now that the
+ *  tmux/terminal stack has been removed (Phase 4); no worker lane ever holds one. */
 function mcTmuxSessionCount(): number | null {
-  try {
-    const p = Bun.spawnSync(mux.cmd(argvLs('#{session_name}')), { stdout: 'pipe', stderr: 'ignore' });
-    // No tmux server running ⇒ no sessions. tmux exits non-zero with "no server"
-    // on stderr; treat a clean "nothing" as zero, an actual spawn failure as null.
-    if (p.exitCode !== 0) return 0;
-    const names = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
-    return names.filter((n) => n.startsWith('mc-')).length;
-  } catch {
-    return null;
-  }
+  return 0;
 }
 
 /** Snapshot the live fleet for a project: every in-progress todo with its worker,

@@ -3,9 +3,9 @@
  *   diff todos vs the last snapshot → match active subscriptions → enqueue notifications
  *   → nudge each idle subscriber that has pending items (min-interval throttled).
  *
- * Deps are injectable so the orchestration is unit-testable without the real todo-store /
- * tmux. The pure diff/match is `session-notification-router`; the delivery is
- * `claude-launch.nudgeSession` (idle-gated send-keys).
+ * Deps are injectable so the orchestration is unit-testable without the real todo-store.
+ * The pure diff/match is `session-notification-router`; delivery is a no-op stub
+ * (interactive nudge-send was removed with the tmux/terminal stack).
  */
 
 import type { Todo } from './todo-store';

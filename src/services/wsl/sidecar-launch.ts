@@ -17,7 +17,7 @@
  * caller passes ONLY the vars the sidecar needs; path-valued ones (listed in
  * `pathKeys`) are translated Windows→WSL (`C:\… → /mnt/c/…`).
  */
-import { winToWslPath } from '../session-mux/wsl-path.ts';
+import { winToWslPath } from './wsl-path.ts';
 
 /** POSIX single-quote a value for safe inclusion in the bash prologue. */
 function shq(s: string): string {

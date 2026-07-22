@@ -22,7 +22,6 @@ import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './
  *  out of in_progress, so they self-dedup; the escalation store dedups too. */
 const budgetSoftWarned = new Set<string>();
 import { tmuxBaseName } from './tmux-naming';
-import { mux, argvKillSession, argvListPanesPanePid, argvPsComm } from './session-mux/index.ts';
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -68,27 +67,52 @@ import {
   removeSlot,
   DEFAULT_SLOTS_PER_TYPE,
 } from './worker-pool';
-// PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
-// registry (claude-only today). The pane detectors below are RE-EXPORTED from the
-// Claude adapter — they were MOVED there (regexes byte-for-byte unchanged), and
-// coordinator-live keeps re-exporting them so existing importers (fleet-status,
-// tmux-reaper) and tests resolve them from here exactly as before.
-import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
 import { recordFriction } from './friction-store';
-import {
-  agentAliveInSubtree,
-  CLAUDE_COMM_MATCHER,
-  isClaudeTuiPresent,
-  detectPermissionPrompt,
-  extractRequestedTool,
-} from '../agent/adapters/claude-code';
 
-// Re-exports (back-compat): the canonical definitions now live in the Claude
-// adapter; these keep `import { … } from './coordinator-live'` resolving unchanged.
-// (isActivelyWorking / extractStallContext are consumed via the registry agent
-// below — workerAgent.isActivelyWorking / .extractStallContext — not re-exported.)
-export { isClaudeTuiPresent, detectPermissionPrompt, extractRequestedTool };
+// ---------------------------------------------------------------------------
+// Pure pane-scrape detectors — the in-app terminal UI + interactive-launch tmux
+// stack was removed (Phase 4); these detectors are kept here ONLY because
+// session-summary-loop.ts (interactive-session summaries) still consumes them.
+// Pure string → boolean/struct, no tmux/ps. Byte-identical to the retired Claude
+// adapter's copies.
+// ---------------------------------------------------------------------------
+
+/** Cheap corroboration: does the pane render any Claude TUI chrome (status bar,
+ *  spinner, interrupt hint)? */
+export function isClaudeTuiPresent(pane: string): boolean {
+  return /ctx\s*\||for agents|esc to interrupt|\(\d+(?:m\s*\d+)?s\s*·/.test(pane);
+}
+
+/** A Claude Code PERMISSION PROMPT is a distinct class of idle-at-prompt from a
+ *  self-filed escalation/decision. Returns the requested tool name when extractable. */
+export function detectPermissionPrompt(pane: string): { isPermission: boolean; tool: string | null } {
+  const hasQuestion = /Do you want to proceed\?/i.test(pane);
+  const hasDontAsk = /Yes,?\s*(?:and\s*)?don'?t ask again/i.test(pane);
+  const hasYesNoMenu =
+    /(?:^|\n)\s*❯?\s*1\.\s*Yes\b/i.test(pane) && /(?:^|\n)\s*❯?\s*(?:2|3)\.\s*(?:Yes|No)\b/i.test(pane);
+  const isPermission = hasQuestion && (hasDontAsk || hasYesNoMenu);
+  if (!isPermission) return { isPermission: false, tool: null };
+  return { isPermission: true, tool: extractRequestedTool(pane) };
+}
+
+/** Best-effort: pull the tool the permission prompt is gating out of the pane. */
+export function extractRequestedTool(pane: string): string | null {
+  const mcp = pane.match(/mcp__[a-zA-Z0-9_-]+__[a-zA-Z0-9_-]+/);
+  if (mcp) return mcp[0];
+  const lines = pane.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const l of lines) {
+    const m = l.match(/^([A-Za-z][\w-]*)\s*\(/);
+    if (m && !/^(?:if|for|while|switch|function|return)$/i.test(m[1])) return m[1];
+  }
+  return null;
+}
+
+/** A Claude TUI pane is ACTIVELY WORKING when it shows a spinner with an elapsed
+ *  timer or the interrupt hint. */
+export function isActivelyWorking(pane: string): boolean {
+  return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
+}
 
 // Re-exports (back-compat): the landing subsystem (epic gating-children, the land
 // mutex/proof, auto-land arming sweeps, convergent land-leaf stamping, the
@@ -123,9 +147,6 @@ export {
   strandedEpicCandidates,
   sweepStrandedEpics,
 } from './coordinator-land';
-
-/** The single claude WorkerAgent (registry floor). Resolved once — stateless. */
-const workerAgent = resolveWorkerAgent('claude');
 
 /** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
  *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
@@ -206,76 +227,12 @@ async function inProcessLaneAlive(session: string): Promise<boolean> {
   }
 }
 
-/** Kill a tmux session by base name. Best-effort (no-op if absent). Used by the
- *  worker-isolation lifecycle to tear down a warm session whose worktree cwd was
- *  removed on merge-back (drop keep-warm, decision c4a8bf40). */
-async function killTmuxSession(tmux: string): Promise<void> {
-  try {
-    await execAsync(mux.cmd(argvKillSession(tmux)));
-  } catch {
-    /* best-effort */
-  }
-}
-
-// --- 63a59bd6: PID-based liveness (dead Claude in a live tmux) -------------------
-// A worker can sit with its tmux session ALIVE but its Claude process EXITED — the
-// pane is a bare shell. This falls through the existing dead-claim watchdog only fires
-// on a DEAD tmux (this one's alive), and the stall classifier only matches an idle
-// Claude TUI (a shell matches neither).
-// Result observed live: dead worker, slot held, UI red, human never notified. We
-// close it by walking the pane's process subtree and asking "is a `claude` process
-// still running?" — definitive, unlike pane scraping.
-
-/** One `ps` snapshot → pid → { ppid-children, comm }. Built once per detect pass
- *  so the subtree walk costs a single subprocess regardless of worker count.
- *  Returns null if ps is unavailable (→ callers treat liveness as unknown). */
-export async function procSnapshot(): Promise<Map<number, { children: number[]; comm: string }> | null> {
-  try {
-    const out = (await execAsync(argvPsComm(), { capture: true })).stdout;
-    if (!out.trim()) return null;
-    const byPid = new Map<number, { children: number[]; comm: string }>();
-    const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
-    for (const line of out.split('\n')) {
-      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
-      if (!m) continue;
-      const pid = Number(m[1]);
-      const ppid = Number(m[2]);
-      const comm = m[3];
-      rows.push({ pid, ppid, comm });
-      const ex = byPid.get(pid);
-      if (ex) ex.comm = comm;
-      else byPid.set(pid, { children: [], comm });
-    }
-    for (const r of rows) {
-      let parent = byPid.get(r.ppid);
-      if (!parent) { parent = { children: [], comm: '' }; byPid.set(r.ppid, parent); }
-      parent.children.push(r.pid);
-    }
-    return byPid;
-  } catch {
-    return null;
-  }
-}
-
-/** The shell PID running in a tmux session's (first) pane, or null. */
-export async function tmuxPanePid(tmux: string): Promise<number | null> {
-  try {
-    const out = (await execAsync(mux.cmd(argvListPanesPanePid(tmux)), { capture: true })).stdout;
-    const first = out.split('\n').map((l) => l.trim()).filter(Boolean)[0];
-    const n = Number(first);
-    return Number.isInteger(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Pure BFS: is a `claude` process anywhere in `rootPid`'s subtree, per the
- *  snapshot's child index? Exported for unit testing (no tmux/ps required). The
- *  generalized agentAliveInSubtree(root, snap, matcher) lives in the Claude
- *  adapter; this back-compat wrapper pins the `claude` matcher so existing callers
- *  (claudeProcessPresent, fleet-status, tmux-reaper) and tests are unchanged. */
-export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { children: number[]; comm: string }>): boolean {
-  return agentAliveInSubtree(rootPid, snap, CLAUDE_COMM_MATCHER);
+/** Tear down a worker-isolation warm session by base name. The tmux-backed warm
+ *  session this used to kill no longer exists (workers run in-process, §6.7) —
+ *  kept as a no-op call target so the 5 best-effort teardown call sites below
+ *  don't need individual edits. */
+async function killTmuxSession(_tmux: string): Promise<void> {
+  /* no-op: tmux/terminal stack removed (Phase 4) */
 }
 
 // --- P3 (fe153cdd): restart-reconcile the worker-pool registry ------------------

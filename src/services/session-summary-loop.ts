@@ -37,12 +37,9 @@ import { homedir } from 'os';
 import { listSupervised } from './supervisor-store.js';
 import { getStatuses } from './session-status-store.js';
 import { tmuxBaseName } from './tmux-naming.js';
-import { mux } from './session-mux/index.js';
-import { argvCapturePane } from './session-mux/tmux-argv.js';
 import { getWebSocketHandler, hasWebSocketHandler } from './ws-handler-manager.js';
 import type { WSMessage } from '../websocket/handler.js';
-import { isActivelyWorking, detectPermissionPrompt } from '../agent/adapters/claude-code.js';
-import { diagnoseClaimSuppression } from './coordinator-live.js';
+import { isActivelyWorking, detectPermissionPrompt, diagnoseClaimSuppression } from './coordinator-live.js';
 import { systemStatus } from './system-status.js';
 import { invokeNode } from '../agent/node-invoker.js';
 import { NODE_PROFILE } from './leaf-executor.js';
@@ -492,23 +489,14 @@ export interface SummaryTickDeps {
 }
 
 // ---------------------------------------------------------------------------
-// Local capture helper (mirrors coordinator-live.ts:354 — kept decoupled)
+// Local capture helper
 // ---------------------------------------------------------------------------
 
-async function capturePaneLocal(tmuxName: string): Promise<string> {
-  try {
-    const proc = Bun.spawn(mux.cmd(argvCapturePane(tmuxName, 100)), {
-      stdout: 'pipe',
-      stderr: 'ignore',
-    });
-    const [stdout] = await Promise.all([
-      proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(''),
-      proc.exited,
-    ]);
-    return stdout;
-  } catch {
-    return '';
-  }
+/** No pane to capture — the tmux/terminal stack was removed (Phase 4). Kept as
+ *  the default `deps.capture` so the tick's shape (and its interpret-gate,
+ *  already OFF by default) is unchanged; it just never sees pane text now. */
+async function capturePaneLocal(_tmuxName: string): Promise<string> {
+  return '';
 }
 
 // ---------------------------------------------------------------------------

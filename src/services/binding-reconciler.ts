@@ -1,37 +1,30 @@
 /**
  * BindingReconciler — derives Claude-session bindings from durable facts on a
- * clock + at boot, so a session (human OR worker) stays reachable for the whole
- * life of its tmux pane with no manual re-binding.
+ * clock + at boot, so a session stays reachable for its whole life with no
+ * manual re-binding.
  *
  * WHY THIS EXISTS (design-session-binding, sibling of decision 9cd01858
  * reconciliation-first comms). A binding used to be a fact PUSHED once — the
- * `/collab` skill ran `echo $PPID` → `register_claude_session`, the daemon ran
- * `registerLaneClaudeSession` at spawn. Both are one-shot, and the in-memory
- * pid→session map is WIPED on every server restart (deploy). The binding FILE
- * survives on disk, but nothing rehydrated the map on boot — so after a deploy a
- * session read as unregistered (dark dot, no notifications) until someone re-ran
- * `/collab`. That "sessions get lost after a while" is the verified #1 cause.
+ * `/collab` skill ran `echo $PPID` → `register_claude_session`. That's one-shot,
+ * and the in-memory pid→session map is WIPED on every server restart (deploy).
+ * The binding FILE survives on disk, but nothing rehydrated the map on boot —
+ * so after a deploy a session read as unregistered (dark dot, no notifications)
+ * until someone re-ran `/collab`. That "sessions get lost after a while" is the
+ * verified #1 cause.
  *
  * The fix: stop trusting the one-shot push. Continuously OBSERVE the binding from
- * the most durable things present:
- *   Pass A — rehydrate from existing /tmp binding files. Covers BOTH the human
- *            session and workers, and is exactly what relights everything after a
- *            deploy (files survive; we re-assert the in-memory map + re-watch).
- *   Pass B — derive fresh from the supervised registry ∩ live tmux, via the
- *            production `registerLaneClaudeSession` resolver. Catches workers
- *            whose binding file was pruned (7-day sweep / /tmp wipe) but whose
- *            tmux pane is still alive.
+ * the most durable thing present — rehydrate from existing /tmp binding files
+ * (re-assert the in-memory map + re-watch). Idempotent and purely ADDITIVE — it
+ * runs alongside the existing register path and never removes state (dead-pane
+ * GC stays the BindingSweeper's job).
  *
- * Both passes are idempotent and purely ADDITIVE — they run alongside the
- * existing register paths and never remove state (dead-pane GC stays the
- * BindingSweeper's job). PPID is obsolete here: identity is the tmux pane +
- * the claudeSessionId the hook already wrote; the server resolves the PID itself.
+ * (A second pass used to derive fresh worker-lane bindings from the supervised
+ * registry ∩ live tmux, via `registerLaneClaudeSession`. Worker lanes run
+ * in-process now — no tmux pane to derive from — so that pass was removed with
+ * the tmux/terminal stack, Phase 4.)
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { tmuxBaseName } from './tmux-naming.js';
-import { listSupervised } from './supervisor-store.js';
-import { registerLaneClaudeSession, resolveLaneClaudeSession } from './lane-session-register.js';
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const BINDING_PREFIX = '.mermaid-collab-binding-';
@@ -52,14 +45,8 @@ interface BindingFile {
   claudePid?: string | number;
 }
 
-interface SupervisedRow {
-  project: string;
-  session: string;
-  launchProject?: string | null;
-}
-
-/** Injectable seams so tickOnce is unit-testable with no tmux / /tmp / process
- *  tree / HTTP server. Defaults wire the real implementations. */
+/** Injectable seams so tickOnce is unit-testable with no /tmp / process tree /
+ *  HTTP server. Defaults wire the real implementations. */
 export interface BindingReconcilerDeps {
   /** Read + parse the /tmp binding files (project, session, claudeSessionId, claudePid). */
   readBindingFiles: () => BindingFile[];
@@ -69,16 +56,6 @@ export interface BindingReconcilerDeps {
   registerPid: (pid: number, session: string) => void;
   /** POST /api/claude-session/register → server re-watches + rebroadcasts. */
   postRegister: (project: string, session: string, claudeSessionId: string) => Promise<boolean>;
-  /** Durable list of daemon-known (project, session) lanes. */
-  listSupervised: () => SupervisedRow[];
-  /** Derive the lane's tmux session name from (project, session). */
-  tmuxName: (project: string, session: string) => string;
-  /** Does this tmux session currently exist? */
-  hasTmuxSession: (tmux: string) => boolean;
-  /** Resolve the live Claude session running in a tmux pane (pid + UUID), or null. */
-  resolveLane: (tmux: string) => { pid: number; claudeSessionId: string } | null;
-  /** Resolve + (re)write a lane's binding from its tmux pane (broadcasts registered). */
-  registerLane: (opts: { project: string; session: string; tmux: string }) => Promise<{ registered: boolean; reason?: string }>;
   /** Structured progress line (optional). */
   log?: (msg: string) => void;
 }
@@ -148,31 +125,16 @@ async function defaultPostRegister(project: string, session: string, claudeSessi
   }
 }
 
-function defaultHasTmuxSession(tmux: string): boolean {
-  try {
-    return Bun.spawnSync(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-
 const realDeps: BindingReconcilerDeps = {
   readBindingFiles: defaultReadBindingFiles,
   pidAlive: defaultPidAlive,
   registerPid: defaultRegisterPid,
   postRegister: defaultPostRegister,
-  listSupervised: () => listSupervised() as SupervisedRow[],
-  tmuxName: tmuxBaseName,
-  hasTmuxSession: defaultHasTmuxSession,
-  resolveLane: (tmux) => resolveLaneClaudeSession(tmux),
-  registerLane: (opts) => registerLaneClaudeSession(opts),
 };
 
 export interface ReconcileResult {
-  /** Bindings re-asserted from a live binding file (pass A). */
+  /** Bindings re-asserted from a live binding file. */
   rehydrated: number;
-  /** Lanes (re)derived fresh from tmux (pass B). */
-  derived: number;
   /** Binding files skipped because their PID is dead (left for the sweeper). */
   deadSkipped: number;
 }
@@ -186,18 +148,14 @@ export async function tickOnce(
   deps: BindingReconcilerDeps = realDeps,
   announced: Set<string> = new Set<string>(),
 ): Promise<ReconcileResult> {
-  const result: ReconcileResult = { rehydrated: 0, derived: 0, deadSkipped: 0 };
+  const result: ReconcileResult = { rehydrated: 0, deadSkipped: 0 };
 
-  // Track which (project|session) we've already re-asserted this pass so the two
-  // passes don't double-post for the same lane.
-  const seen = new Set<string>();
   // claudeSessionIds seen ALIVE this pass, used to GC `announced` so a dead or
   // relaunched session re-announces cleanly.
   const liveSessionIds = new Set<string>();
-  const key = (p: string, s: string) => `${p} ${s}`;
 
-  // PASS A — rehydrate from durable binding files (covers human + workers,
-  // relights everything after a deploy that wiped the in-memory map).
+  // Rehydrate from durable binding files -- relights everything after a deploy
+  // that wiped the in-memory map.
   for (const b of deps.readBindingFiles()) {
     const pid = b.claudePid == null ? NaN : Number(b.claudePid);
     if (!Number.isInteger(pid) || pid <= 0 || !deps.pidAlive(pid)) {
@@ -208,7 +166,6 @@ export async function tickOnce(
     // Always re-assert the in-memory routing map (cheap, idempotent; the thing a
     // deploy wiped). This does NOT broadcast.
     deps.registerPid(pid, b.session);
-    seen.add(key(b.project, b.session));
     // Broadcast `claude_session_registered` ONLY the first time we see this
     // session this process-life. Re-broadcasting pins the UI status to 'active'
     // every tick (useWatchEvents.ts), stomping real waiting/idle status.
@@ -220,36 +177,14 @@ export async function tickOnce(
     }
   }
 
-  // PASS B — derive fresh from the supervised registry ∩ live tmux, for lanes
-  // whose binding file was pruned but whose pane is still alive.
-  for (const row of deps.listSupervised()) {
-    if (seen.has(key(row.project, row.session))) continue;
-    const tmux = deps.tmuxName(row.launchProject ?? row.project, row.session);
-    if (!deps.hasTmuxSession(tmux)) continue;
-    const resolved = deps.resolveLane(tmux);
-    if (!resolved) continue;
-    liveSessionIds.add(resolved.claudeSessionId);
-    seen.add(key(row.project, row.session));
-    // Already announced this session this process-life → binding file + map +
-    // watcher are in place; nothing to re-assert, nothing to broadcast.
-    if (announced.has(resolved.claudeSessionId)) continue;
-    const res = await deps.registerLane({ project: row.project, session: row.session, tmux });
-    if (res.registered) {
-      announced.add(resolved.claudeSessionId);
-      result.derived += 1;
-    }
-  }
-
   // GC: drop announced entries whose session is no longer live, so a relaunch (or
   // a /clear that mints a new UUID) re-announces cleanly next time it appears.
   for (const id of [...announced]) {
     if (!liveSessionIds.has(id)) announced.delete(id);
   }
 
-  if (deps.log && (result.rehydrated || result.derived)) {
-    deps.log(
-      `[binding-reconciler] rehydrated=${result.rehydrated} derived=${result.derived} deadSkipped=${result.deadSkipped}`,
-    );
+  if (deps.log && result.rehydrated) {
+    deps.log(`[binding-reconciler] rehydrated=${result.rehydrated} deadSkipped=${result.deadSkipped}`);
   }
   return result;
 }
