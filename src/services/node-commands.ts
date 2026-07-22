@@ -233,13 +233,21 @@ export function parseResultAssertion(text: string): ResultAssertion | null {
 }
 
 /**
+ * Check if a claim matches a command text.
+ * Matching: normalise whitespace, then check if one string contains the other.
+ */
+function commandTextMatches(claim: string, cmdText: string): boolean {
+  const normClaim = normalizeCommand(claim);
+  const normCmd = normalizeCommand(cmdText);
+  return normCmd.includes(normClaim) || normClaim.includes(normCmd);
+}
+
+/**
  * Check if a claim matches a recorded command.
  * Matching: normalise whitespace, then check if one string contains the other.
  */
 function claimMatches(claim: string, recorded: RecordedCommand): boolean {
-  const normClaim = normalizeCommand(claim);
-  const normCmd = normalizeCommand(recorded.cmd);
-  return normCmd.includes(normClaim) || normClaim.includes(normCmd);
+  return commandTextMatches(claim, recorded.cmd);
 }
 
 /**
@@ -256,6 +264,133 @@ const VERIFICATION_INVOCATION =
  *  the single recorded exitCode unattributable to an individual claim's clause. */
 export function isCompoundCommand(cmd: string): boolean {
   return /(?:;|&&|\|\|)/.test(cmd);
+}
+
+export interface CommandClause {
+  text: string;
+  operator: '&&' | '||' | ';' | null;
+}
+
+/**
+ * Split a command into clauses, tracking the operator that precedes each.
+ * Respects single and double quotes; does not split on operators inside quotes.
+ * Pipe (|) is NOT a clause separator (pipelines are one clause).
+ * Returns clauses with operator=null for the first, or the preceding operator for others.
+ */
+export function splitCommandClauses(cmd: string): CommandClause[] {
+  const clauses: CommandClause[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let nextOperator: '&&' | '||' | ';' | null = null;
+
+  for (let i = 0; i < cmd.length; i++) {
+    const char = cmd[i];
+    const next = cmd[i + 1];
+
+    // Track quote state
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      current += char;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      current += char;
+      continue;
+    }
+
+    // If inside quotes, just accumulate
+    if (inSingleQuote || inDoubleQuote) {
+      current += char;
+      continue;
+    }
+
+    // Check for 2-char operators: && or ||
+    if ((char === '&' && next === '&') || (char === '|' && next === '|')) {
+      const operator = char === '&' ? ('&&' as const) : ('||' as const);
+      const text = current.trim();
+      if (text) {
+        clauses.push({ text, operator: nextOperator });
+        nextOperator = operator;
+      }
+      current = '';
+      i++; // skip the second char
+      continue;
+    }
+
+    // Check for single-char `;`
+    if (char === ';') {
+      const text = current.trim();
+      if (text) {
+        clauses.push({ text, operator: nextOperator });
+        nextOperator = ';';
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  // Add the last clause if any
+  const text = current.trim();
+  if (text) {
+    clauses.push({ text, operator: nextOperator });
+  }
+
+  // Ensure first clause has null operator
+  if (clauses.length > 0) {
+    clauses[0].operator = null;
+  }
+
+  return clauses;
+}
+
+/**
+ * Returns the exit code attributable to a specific clause, or null for UNKNOWN.
+ * - If overallExit === null → null (nothing is known).
+ * - If all clauses are joined by &&, and overallExit === 0 → 0 for any clause
+ *   (an && chain completing with 0 means all clauses succeeded).
+ * - If targetIndex is the final clause → overallExit (final clause always carries the command's exit).
+ * - Else → null (non-final clause in a ; or || chain, or non-final && with non-zero overall).
+ */
+export function attributeClauseExit(
+  clauses: CommandClause[],
+  targetIndex: number,
+  overallExit: number | null,
+): number | null {
+  if (overallExit === null) return null;
+
+  const isPureAndChain = clauses.every((c, i) => i === 0 || c.operator === '&&');
+
+  if (isPureAndChain && overallExit === 0) {
+    return 0;
+  }
+
+  if (targetIndex === clauses.length - 1) {
+    return overallExit;
+  }
+
+  return null;
+}
+
+/**
+ * Extract the scope (trailing path/target arguments) from a command.
+ * Strips quoted substrings, tokenizes on whitespace, drops command name and flags (leading -).
+ * E.g., "grep -rn 'X' src/routes/" → "src/routes/"
+ */
+export function extractCommandScope(cmd: string): string {
+  // Strip quoted substrings
+  const unquoted = cmd.replace(/'[^']*'|"[^"]*"/g, ' ');
+
+  // Tokenize on whitespace
+  const tokens = unquoted.split(/\s+/).filter((t) => t.length > 0);
+
+  // Drop the first token (command name) and any token starting with `-` (flags)
+  const scopeTokens = tokens.slice(1).filter((t) => !t.startsWith('-'));
+
+  return scopeTokens.join(' ');
 }
 
 export function escapeIsFatal(cmd: string): boolean {
@@ -308,29 +443,53 @@ export function evaluateCommandEvidence(opts: {
   for (const claim of claims) {
     const ra = parseResultAssertion(claim);
     if (ra) {
-      const rec = commands.find((cmd) => claimMatches(ra.command, cmd));
-      if (!rec) {
+      // Search for a matching clause in any recorded command
+      let matchedRec: RecordedCommand | undefined;
+      let matchedClauses: CommandClause[] | undefined;
+      let matchedIndex: number = -1;
+
+      for (const rec of commands) {
+        const clauses = splitCommandClauses(rec.cmd);
+        for (let i = 0; i < clauses.length; i++) {
+          if (commandTextMatches(ra.command, clauses[i].text)) {
+            matchedRec = rec;
+            matchedClauses = clauses;
+            matchedIndex = i;
+            break;
+          }
+        }
+        if (matchedRec) break;
+      }
+
+      if (!matchedRec) {
         unbackedClaims.push(claim);
         reasons.push(`claim unbacked: no recorded command matched "${ra.command}"`);
-      } else if (ra.assertsAbsence && rec.exitCode === 0) {
-        // Command RAN but MATCHED (exit 0) — the asserted absence is FALSE… for a
-        // SINGLE command. A COMPOUND recorded command (`;`, `&&`, `||` chains — how
-        // reviewers naturally batch greps with echo markers) has ONE exit code for
-        // many clauses, so exit 0 cannot be attributed to any one claim's clause:
-        // that misattribution reject-parked review-green removal leaves twice
-        // (friction 996315e2). Until per-clause splitting exists, a compound's
-        // "contradiction" demotes to UNBACKED (warn-tier) — fail-open only for the
-        // aggregation ambiguity, never for a single-command contradiction.
-        if (isCompoundCommand(rec.cmd)) {
+      } else if (ra.assertsAbsence) {
+        // Check scope match
+        const claimScope = extractCommandScope(ra.command);
+        const cmdScope = extractCommandScope(matchedClauses![matchedIndex].text);
+
+        if (claimScope !== cmdScope) {
           unbackedClaims.push(claim);
           reasons.push(
-            `claim unbacked (compound-command ambiguity): "${claim}" asserts absence; recorded compound "${rec.cmd}" exits 0 but its exit cannot be attributed to this claim's clause`,
+            `claim unbacked (scope mismatch): "${claim}" targets "${claimScope}" but matched clause targets "${cmdScope}"`,
           );
         } else {
-          contradictedClaims.push(claim);
-          reasons.push(
-            `claim contradicted: "${claim}" asserts absence but recorded "${rec.cmd}" exits 0 (matches found)`,
-          );
+          // Scopes agree — check exit code attribution
+          const attributedExit = attributeClauseExit(matchedClauses!, matchedIndex, matchedRec.exitCode);
+
+          if (attributedExit === 0) {
+            contradictedClaims.push(claim);
+            reasons.push(
+              `claim contradicted: "${claim}" asserts absence but recorded "${matchedClauses![matchedIndex].text}" exits 0 (matches found)`,
+            );
+          } else if (attributedExit === null) {
+            unbackedClaims.push(claim);
+            reasons.push(
+              `claim unbacked (compound exit unattributable): "${claim}" asserts absence but the matching clause's exit code cannot be attributed in its compound command`,
+            );
+          }
+          // else: attributedExit is a known non-zero → absence BACKED → nothing to record
         }
       }
       // else: recorded command exited non-zero → absence BACKED → nothing to record.
