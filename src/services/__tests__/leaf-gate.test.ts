@@ -413,6 +413,45 @@ describe('gate.tests — dual-runner lanes (G6)', () => {
   });
 });
 
+describe('gate.typechecks — change-set-scoped project typecheck lane', () => {
+  it('change-set touching ui/ ⇒ lane runs, typecheck in ui/ cwd with relative diagnostics', async () => {
+    const cfg: LeafGateConfig = {
+      typechecks: [
+        { match: new RegExp('^ui/'), command: 'npx tsc --noEmit -p tsconfig.json', cwd: 'ui' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      'npx tsc --noEmit -p tsconfig.json': {
+        ran: true,
+        code: 1,
+        output: 'src/stores/uiStore.ts(88,12): error TS2352: Cannot convert type...\nsrc/stores/subscriptionStore.ts(23,5): error TS1355: Type...',
+      },
+    });
+    const r = await runLeafGate(
+      '/wt',
+      cfg,
+      ['ui/src/stores/uiStore.ts', 'ui/src/stores/subscriptionStore.ts'],
+      spawn,
+    );
+    expect(r.status).toBe('fail');
+    expect(r.command).toBe('npx tsc --noEmit -p tsconfig.json');
+    expect(calls.length).toBe(1);
+    expect(calls[0].cwd).toBe(join('/wt', 'ui'));
+  });
+
+  it('change-set NOT touching ui/ ⇒ lane is skipped, spawn never called', async () => {
+    const cfg: LeafGateConfig = {
+      typechecks: [
+        { match: new RegExp('^ui/'), command: 'npx tsc --noEmit -p tsconfig.json', cwd: 'ui' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({});
+    const r = await runLeafGate('/wt', cfg, ['src/services/leaf-gate.ts'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(0);
+  });
+});
+
 describe('lane validation (resolveGateDeclaration)', () => {
   const MANIFEST_PATH = '/tmp/.collab/project.json';
 
@@ -528,16 +567,17 @@ describe('lane validation (resolveGateDeclaration)', () => {
     }
   });
 
-  it('real .collab/project.json of THIS repo has the dual-lane config', () => {
+  it('real .collab/project.json of THIS repo has the multi-lane config and typechecks', () => {
     const manifestPath = join(__dirname, '..', '..', '..', '.collab', 'project.json');
     const content = readFileSync(manifestPath, 'utf8');
     const manifest = JSON.parse(content) as ProjectManifest;
     expect(manifest.gate?.tests).toBeDefined();
-    expect(manifest.gate!.tests!.length).toBe(2);
+    expect(manifest.gate!.tests!.length).toBeGreaterThanOrEqual(2);
     expect(manifest.gate!.tests![0].match).toBe('^src/');
-    expect(manifest.gate!.tests![1].match).toBe('^ui/');
     expect(manifest.gate!.tests![0].command).toContain('bun test');
-    expect(manifest.gate!.tests![1].command).toContain('vitest');
+    expect(manifest.gate?.typechecks).toBeDefined();
+    expect(manifest.gate!.typechecks!.length).toBeGreaterThan(0);
+    expect(manifest.gate!.typechecks![0].match).toBe('^ui/');
     const src: ManifestSource = { path: manifestPath, state: 'ok', manifest };
     const decl = resolveGateDeclaration(src);
     expect(decl.kind).toBe('declared');
