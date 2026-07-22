@@ -6,9 +6,9 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'mission-planner-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject } from '../mission-planner';
+import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject, ServeIntegrityError } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
-import { listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
+import { listCriteria, listCriteriaWithActions, _resetMissionDbCache } from '../../../services/mission-store';
 import { getTodo, listTodos, deriveTodoViews, _closeProject as closeTodos } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
 
@@ -106,6 +106,34 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
       planMissionCriterion(project, { session: 's1', missionId, criterionIds: ['nope'] }, { invoke: async () => { invoked++; return {} as any; } }),
     ).rejects.toThrow(/none of the criterionIds match/i);
     expect(invoked).toBe(0);
+  });
+
+  test('non-discover action refuses with ServeIntegrityError, no epic created', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    let invoked = 0;
+
+    // Create and plan an epic to serve the criterion — this creates a serving epic
+    const r1 = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke() });
+    expect(r1.leafIds.length).toBeGreaterThan(0);
+
+    // Now try to plan the same criterion again while it's being served (action should be 'building')
+    await expect(
+      planMissionCriterion(
+        project,
+        { session: 's1', missionId, criterionIds: [criterionId] },
+        {
+          invoke: async () => { invoked++; return {} as any; },
+        },
+      ),
+    ).rejects.toThrow(/serve-integrity|already being served/i);
+
+    // No second epic should have been created (invoke never called)
+    expect(invoked).toBe(0);
+
+    // Mission should have exactly one epic (from the first plan)
+    const todos = listTodos(project, { includeCompleted: true });
+    const epics = todos.filter((t) => t.kind === 'epic' && t.parentId === missionId);
+    expect(epics.length).toBe(1);
   });
 });
 

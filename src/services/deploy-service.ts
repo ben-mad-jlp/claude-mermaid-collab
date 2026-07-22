@@ -41,13 +41,16 @@ function recordDeployRefusal(project: string, reason: DeploySafetyRefusal): void
 
 /**
  * Directory the deploy script + this service share for logs and the outcome
- * status file. Defaults to `~/.mermaid-collab/deploy-logs`; `MERMAID_DEPLOY_LOG_DIR`
- * overrides it (the deploy script honors the same env) so tests can point both
- * halves at a tmp dir. Keep this the SINGLE source of the path — the shell script
- * derives the identical default independently.
+ * status file. Defaults to `~/.mermaid-collab/deploy-logs` or, when `MERMAID_SUPERVISOR_DIR`
+ * is set, `$MERMAID_SUPERVISOR_DIR/deploy-logs`; `MERMAID_DEPLOY_LOG_DIR` overrides both
+ * (the deploy script honors the same env) so tests can point both halves at a tmp dir.
+ * Keep this the SINGLE source of the path — the shell script derives the identical default independently.
  */
 export function deployLogDir(): string {
-  return process.env.MERMAID_DEPLOY_LOG_DIR || join(homedir(), '.mermaid-collab', 'deploy-logs');
+  return (
+    process.env.MERMAID_DEPLOY_LOG_DIR ||
+    join(process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab'), 'deploy-logs')
+  );
 }
 
 /** Absolute path of the machine-readable deploy-outcome file the script writes. */
@@ -256,7 +259,7 @@ export function deploySafetyGate(
 
 export function requestSelfDeploy(
   project: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; spawn?: typeof spawn } = {},
 ): DeployRequestResult {
   const gate = selfDeployEligibility(project);
   if (!gate.eligible) {
@@ -299,7 +302,8 @@ export function requestSelfDeploy(
       /* best-effort — a missing status file just reads as null downstream */
     }
     const out = openSync(logPath, 'a');
-    const child = spawn('bash', scriptArgs, {
+    const doSpawn = opts.spawn ?? spawn;
+    const child = doSpawn('bash', scriptArgs, {
       cwd: project,
       // Detach into its own process group/session so the deploy outlives a
       // sidecar restart (hot-swap kills the child; full-relaunch pkills the tree).
