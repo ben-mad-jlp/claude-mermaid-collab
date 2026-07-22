@@ -66,6 +66,16 @@ export const REOPEN_CARD_THRESHOLD = 5;
  *  Origin: src/services/coordinator-live.ts (surfaceStuckAutoLand / stuckAutoLandCounters). */
 export const STUCK_AUTOLAND_THRESHOLD = 3;
 
+/** Closes the create_epic → add_leaves window where a freshly-filed serving epic has
+ *  zero leaf children yet and would otherwise derive servingEpicLive = false →
+ *  criterion action 'discover' → a duplicate serving epic filed by the conductor before
+ *  the first epic's leaves land. Epics within this grace window after createdAt count as
+ *  live even with no child leaves or ledger motion yet. Override with
+ *  MERMAID_CHILDLESS_SERVE_GRACE_MIN.
+ *  Origin: src/services/mission-store.ts (collectMissionStatusFacts). */
+export const CHILDLESS_SERVE_GRACE_MS =
+  (Number(process.env.MERMAID_CHILDLESS_SERVE_GRACE_MIN) || 5) * 60 * 1000;
+
 // ── Worker-liveness thresholds ───────────────────────────────────────────────────
 
 /** How long since a lane's last DURABLE session_status pulse (updatedAt) before that
