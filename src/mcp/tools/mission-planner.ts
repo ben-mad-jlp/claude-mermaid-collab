@@ -183,6 +183,40 @@ function findServingEpic(
   return undefined;
 }
 
+/** In-flight reservation state: dedupe concurrent/retried serves for the same criterion.
+ *  The key is project|missionId|criterionId; the value is the Promise awaiting the epic
+ *  creation. When a client retries after a perceived timeout, it finds the key still reserved
+ *  and piggybacks on the original promise. */
+const inFlightServes = new Map<string, Promise<PlanCriterionResult>>();
+function reservationKey(project: string, missionId: string, criterionId: string): string {
+  return `${project}|${missionId}|${criterionId}`;
+}
+
+/** Serve-integrity guard: refuse if any requested criterion is already being served
+ *  (not in 'discover' state). Prevents duplicate serving epics on stale mission snapshots. */
+function assertServeIntegrity(
+  project: string,
+  missionId: string,
+  criterionIds: string[],
+  resolveActions: typeof listCriteriaWithActions,
+): void {
+  const actions = resolveActions(project, missionId);
+  const byId = new Map(actions.map((a) => [a.id, a]));
+  for (const criterionId of criterionIds) {
+    const action = byId.get(criterionId);
+    if (action && action.action !== 'discover') {
+      const serving = findServingEpic(project, criterionId, action.servingEpicState);
+      throw new ServeIntegrityError(
+        criterionId,
+        action.action,
+        serving?.id,
+        serving?.title,
+        action.servingEpicState,
+      );
+    }
+  }
+}
+
 /** Plan ONE epic (serving the given criteria) via a specialist planner NODE, and instantiate it
  *  PROMOTED-TO-READY under the mission so the build daemon can pick it up. */
 export async function planMissionCriterion(
@@ -196,80 +230,103 @@ export async function planMissionCriterion(
   const criteria = (deps.resolveCriteria ?? defaultResolveCriteria)(project, input.missionId, input.criterionIds);
   if (criteria.length === 0) throw new Error('plan_mission_criterion: none of the criterionIds match this mission');
 
-  // Serve-integrity guard: refuse if any requested criterion is already being served (not in 'discover' state).
-  // This prevents the conductor from filing duplicate serving epics on stale mission snapshots.
-  const actions = (deps.resolveActions ?? listCriteriaWithActions)(project, input.missionId);
-  const byId = new Map(actions.map((a) => [a.id, a]));
-  for (const criterionId of input.criterionIds) {
-    const action = byId.get(criterionId);
-    if (action && action.action !== 'discover') {
-      const serving = findServingEpic(project, criterionId, action.servingEpicState);
-      throw new ServeIntegrityError(
-        criterionId,
-        action.action,
-        serving?.id,
-        serving?.title,
-        action.servingEpicState,
-      );
-    }
+  // First serve-integrity guard: refuse if any requested criterion is already being served.
+  const resolveActions = deps.resolveActions ?? listCriteriaWithActions;
+  assertServeIntegrity(project, input.missionId, input.criterionIds, resolveActions);
+
+  // In-flight reservation: dedupe concurrent/retried serves for the same criteria.
+  // Compute reservation keys; if any are already in-flight, return the existing promise.
+  const keys = input.criterionIds.map((id) => reservationKey(project, input.missionId, id));
+  for (const key of keys) {
+    const existing = inFlightServes.get(key);
+    if (existing) return existing;
   }
 
-  const provider = resolveNodeProvider(project, 'planner', ORCHESTRATION_NODE_PROFILE.planner.allowedTools);
-  const model = input.model ?? resolveNodeModel(project, 'planner', provider, ORCHESTRATION_NODE_PROFILE.planner.model);
-  const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'planner');
+  // Wrap the remaining body in a promise, store it under all keys, and clear on completion.
+  const promise = (async () => {
+    const provider = resolveNodeProvider(project, 'planner', ORCHESTRATION_NODE_PROFILE.planner.allowedTools);
+    const model = input.model ?? resolveNodeModel(project, 'planner', provider, ORCHESTRATION_NODE_PROFILE.planner.model);
+    const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'planner');
 
-  // Invoke the planner with ONE repair retry: a truncated/malformed final-reply JSON must not
-  // fail the whole serve (that failure is what wedges the conductor — see conductor-pass.ts). On a
-  // parse failure, re-ask ONCE for compact, escaped, prose-free JSON with terser leaf descriptions.
-  const basePrompt = buildPlannerPrompt(project, input.missionId, criteria);
-  const REPAIR_SUFFIX =
-    '\n\nIMPORTANT: your FINAL reply must be ONLY the single JSON object — compact, on as few lines ' +
-    'as possible, every string properly escaped (no literal newline inside a string, no unescaped ' +
-    'quote or brace-breaking content), no prose before or after, no markdown fence. Keep every leaf ' +
-    'description to ONE short line. A previous attempt was rejected as unparseable or truncated.';
-  const invoke = deps.invoke ?? invokeNode;
-  let spec: EpicSpec | undefined;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 2 && !spec; attempt++) {
-    const res = await invoke({
-      prompt: attempt === 0 ? basePrompt : basePrompt + REPAIR_SUFFIX,
-      model,
-      effort,
-      allowedTools: ORCHESTRATION_NODE_PROFILE.planner.allowedTools,
-      mcpConfig: mcpConfigFor(config.PORT),
-      strictMcpConfig: true,
-      cwd: project,
-      project,
-      permissionMode: 'bypassPermissions',
-      transcriptLabel: 'planner',
+    // Invoke the planner with ONE repair retry: a truncated/malformed final-reply JSON must not
+    // fail the whole serve (that failure is what wedges the conductor — see conductor-pass.ts). On a
+    // parse failure, re-ask ONCE for compact, escaped, prose-free JSON with terser leaf descriptions.
+    const basePrompt = buildPlannerPrompt(project, input.missionId, criteria);
+    const REPAIR_SUFFIX =
+      '\n\nIMPORTANT: your FINAL reply must be ONLY the single JSON object — compact, on as few lines ' +
+      'as possible, every string properly escaped (no literal newline inside a string, no unescaped ' +
+      'quote or brace-breaking content), no prose before or after, no markdown fence. Keep every leaf ' +
+      'description to ONE short line. A previous attempt was rejected as unparseable or truncated.';
+    const invoke = deps.invoke ?? invokeNode;
+    let spec: EpicSpec | undefined;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 2 && !spec; attempt++) {
+      const res = await invoke({
+        prompt: attempt === 0 ? basePrompt : basePrompt + REPAIR_SUFFIX,
+        model,
+        effort,
+        allowedTools: ORCHESTRATION_NODE_PROFILE.planner.allowedTools,
+        mcpConfig: mcpConfigFor(config.PORT),
+        strictMcpConfig: true,
+        cwd: project,
+        project,
+        permissionMode: 'bypassPermissions',
+        transcriptLabel: 'planner',
+      });
+      if (!res.ok || !res.text || !res.text.trim()) {
+        lastErr = new Error(`the planner node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
+        continue;
+      }
+      try { spec = parseEpicSpec(res.text); } catch (e) { lastErr = e; }
+    }
+    if (!spec) {
+      throw new Error(`plan_mission_criterion: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+    }
+
+    // Second serve-integrity check before instantiation: a criterion may have been served by
+    // another concurrent request during the (potentially long) planner node invocation.
+    // Use a FRESH resolveActions read, not the stale actions from before the node invoke.
+    assertServeIntegrity(project, input.missionId, input.criterionIds, resolveActions);
+
+    // Instantiate: one epic homed to the mission, serving the criteria, with its leaves promoted to
+    // READY (claimable by the daemon). Approve the epic (status:'ready' stamps approvedAt; the
+    // servesCriterionIds edge satisfies the mission-homed approval guard).
+    // Wrap in try/catch to ensure atomic-or-nothing: on any failure during instantiation,
+    // drop the epic to clean up any partially-created leaves (cascading deletion).
+    const { epic } = await createEpicWithLandLeaf(project, input.session, {
+      title: spec.title,
+      description: spec.description,
+      home: input.missionId,
+      homeProvided: true,
+      servesCriterionIds: input.criterionIds,
     });
-    if (!res.ok || !res.text || !res.text.trim()) {
-      lastErr = new Error(`the planner node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
-      continue;
+    try {
+      const { createdIds } = await addLeavesToEpic(
+        project,
+        input.session,
+        epic.id,
+        spec.leaves.map((l) => ({ title: l.title, description: l.description, files: l.files, dependsOn: l.dependsOn, status: 'ready' as const })),
+      );
+      await updateTodo(project, epic.id, { status: 'ready' }); // approve the epic for the daemon
+      return { epicId: epic.id, epic, leafIds: createdIds, spec, modelUsed: model, effortUsed: effort };
+    } catch (err) {
+      // On any failure during instantiation, drop the epic. Dropping cascades to every
+      // non-terminal descendant, cleaning up any partially-created leaves automatically.
+      await updateTodo(project, epic.id, { status: 'dropped' });
+      throw err;
     }
-    try { spec = parseEpicSpec(res.text); } catch (e) { lastErr = e; }
-  }
-  if (!spec) {
-    throw new Error(`plan_mission_criterion: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
-  }
-
-  // Instantiate: one epic homed to the mission, serving the criteria, with its leaves promoted to
-  // READY (claimable by the daemon). Approve the epic (status:'ready' stamps approvedAt; the
-  // servesCriterionIds edge satisfies the mission-homed approval guard).
-  const { epic } = await createEpicWithLandLeaf(project, input.session, {
-    title: spec.title,
-    description: spec.description,
-    home: input.missionId,
-    homeProvided: true,
-    servesCriterionIds: input.criterionIds,
+  })().finally(() => {
+    // Clear reservation keys once the promise settles, allowing a later genuinely-new
+    // serve for the same criteria to proceed.
+    for (const key of keys) {
+      inFlightServes.delete(key);
+    }
   });
-  const { createdIds } = await addLeavesToEpic(
-    project,
-    input.session,
-    epic.id,
-    spec.leaves.map((l) => ({ title: l.title, description: l.description, files: l.files, dependsOn: l.dependsOn, status: 'ready' as const })),
-  );
-  await updateTodo(project, epic.id, { status: 'ready' }); // approve the epic for the daemon
 
-  return { epicId: epic.id, epic, leafIds: createdIds, spec, modelUsed: model, effortUsed: effort };
+  // Store the promise under all keys before returning.
+  for (const key of keys) {
+    inFlightServes.set(key, promise);
+  }
+
+  return promise;
 }
