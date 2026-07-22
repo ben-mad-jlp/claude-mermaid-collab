@@ -48,9 +48,16 @@ describe('requestSelfDeploy — refuse-while-building guard', () => {
 
   onDarwin('force bypasses the guard (eligibility still gates spawn)', () => {
     setLeafInflight({ leafId: 'leaf-1', project: repo, nodeKind: 'blueprint' });
-    // force skips the guard; the stub script exists so the detached spawn starts.
-    const res = requestSelfDeploy(repo, { force: true });
+    let spawnArgs: unknown[] | null = null;
+    const fakeSpawn = ((...args: unknown[]) => {
+      spawnArgs = args;
+      return { pid: 4242, unref: () => {} } as unknown as ReturnType<typeof import('node:child_process').spawn>;
+    }) as typeof import('node:child_process').spawn;
+    const res = requestSelfDeploy(repo, { force: true, spawn: fakeSpawn });
     expect(res.reason).not.toBe('leaves-in-flight');
+    expect(spawnArgs).not.toBeNull();
+    expect(spawnArgs![0]).toBe('bash');
+    expect((spawnArgs![2] as { detached?: boolean }).detached).toBe(true);
   });
 });
 
