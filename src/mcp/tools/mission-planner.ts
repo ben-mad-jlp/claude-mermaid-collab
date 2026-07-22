@@ -14,7 +14,7 @@ import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../../
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { config } from '../../config.js';
 import type { EffortLevel } from '../../agent/contracts.js';
-import { listCriteria, listCriteriaWithActions, type CriterionAction } from '../../services/mission-store.js';
+import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, type CriterionAction } from '../../services/mission-store.js';
 import { listTodos, updateTodo, type Todo } from '../../services/todo-store.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
@@ -183,6 +183,30 @@ function findServingEpic(
   return undefined;
 }
 
+/** Find a recent non-dropped serving epic created within CHILDLESS_SERVE_GRACE_MS of now.
+ *  Returns the newest-createdAt match or undefined. */
+function findRecentServingEpic(
+  project: string,
+  criterionId: string,
+  now: number,
+): { id: string; title: string; status: Todo['status'] } | undefined {
+  const allTodos = listTodos(project, { includeCompleted: true });
+  let newest: { id: string; title: string; status: Todo['status']; createdAt: number } | undefined;
+  for (const todo of allTodos) {
+    if (!isEpic(todo) || todo.status === 'dropped') continue;
+    const serves = todo.servesCriterionId === criterionId || (todo.servesCriterionIds ?? []).includes(criterionId);
+    if (!serves) continue;
+    const createdMs = Date.parse(todo.createdAt);
+    if (!Number.isFinite(createdMs)) continue;
+    if (now - createdMs < CHILDLESS_SERVE_GRACE_MS) {
+      if (!newest || createdMs > newest.createdAt) {
+        newest = { id: todo.id, title: todo.title, status: todo.status, createdAt: createdMs };
+      }
+    }
+  }
+  return newest ? { id: newest.id, title: newest.title, status: newest.status } : undefined;
+}
+
 /** In-flight reservation state: dedupe concurrent/retried serves for the same criterion.
  *  The key is project|missionId|criterionId; the value is the Promise awaiting the epic
  *  creation. When a client retries after a perceived timeout, it finds the key still reserved
@@ -193,13 +217,15 @@ function reservationKey(project: string, missionId: string, criterionId: string)
 }
 
 /** Serve-integrity guard: refuse if any requested criterion is already being served
- *  (not in 'discover' state). Prevents duplicate serving epics on stale mission snapshots. */
+ *  (not in 'discover' state) or was recently created. Prevents duplicate serving epics on
+ *  stale mission snapshots. */
 function assertServeIntegrity(
   project: string,
   missionId: string,
   criterionIds: string[],
   resolveActions: typeof listCriteriaWithActions,
 ): void {
+  const now = Date.now();
   const actions = resolveActions(project, missionId);
   const byId = new Map(actions.map((a) => [a.id, a]));
   for (const criterionId of criterionIds) {
@@ -212,6 +238,16 @@ function assertServeIntegrity(
         serving?.id,
         serving?.title,
         action.servingEpicState,
+      );
+    }
+    const recent = findRecentServingEpic(project, criterionId, now);
+    if (recent) {
+      throw new ServeIntegrityError(
+        criterionId,
+        action?.action ?? 'discover',
+        recent.id,
+        recent.title,
+        recent.status === 'done' ? 'landed' : 'open',
       );
     }
   }
