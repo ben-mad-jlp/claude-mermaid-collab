@@ -162,6 +162,24 @@ export interface ForwardIntegrateResult {
   conflictedPaths?: string[];
 }
 
+/** Result of re-integrating an epic's moved base INTO a lane worktree (rebase-continue).
+ *  Resumes a lane branch whose implement phase completed against an old base, and merges
+ *  the moved base into it to reconcile against the latest epic tip. */
+export interface ReintegrateBaseResult {
+  /** The base was already integrated into the lane (nothing to do) OR the base merged cleanly in. */
+  integrated: boolean;
+  /** The base was actually merged (a new --no-ff merge commit was created on the lane branch). */
+  advanced: boolean;
+  /** The merge hit a conflict — the lane branch is UNTOUCHED (aborted). Caller escalates. */
+  conflict: boolean;
+  /** Skipped without merging: not-a-git-repo, missing branch, lane worktree missing/dirty, or base missing. */
+  skippedReason?: string;
+  /** Files left in conflict (conflict === true) — for the escalation message. */
+  conflictedPaths?: string[];
+  /** The resumed lane worktree (set only when result is returned, including skipped cases). */
+  wt?: SessionWorktree;
+}
+
 /** Result of landing an epic's accumulation branch onto master (FBPE P4). */
 export interface LandResult {
   /** The epic branch merged into master and the master ref was advanced. */
@@ -1468,6 +1486,94 @@ export class WorktreeManager {
       return { integrated: false, advanced: false, conflict: true, conflictedPaths };
     }
     return { integrated: true, advanced: true, conflict: false };
+  }
+
+  /** Re-integrate a moved epic base INTO a resumed lane worktree (rebase-continue).
+   *  Called when a lane's implement phase already completed against an old base,
+   *  and the epic base has since moved. Resumes the lane branch (no fresh fork) and
+   *  merges the current base into it to reconcile the work. */
+  async reintegrateLaneBase(
+    sessionId: string,
+    baseBranch: string,
+    opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
+  ): Promise<ReintegrateBaseResult> {
+    return this.withWorktreeLock(() => this._reintegrateLaneBaseInner(sessionId, baseBranch, opts));
+  }
+
+  private async _reintegrateLaneBaseInner(
+    sessionId: string,
+    baseBranch: string,
+    opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
+  ): Promise<ReintegrateBaseResult> {
+    if (!(await this.isGitRepo())) return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git' };
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    const onProgress = opts?.onProgress;
+
+    // Resume the cached lane worktree (never fork fresh here — that's the caller's fallback job).
+    const cached = await this.readRecord(sessionId);
+    if (!cached || !(await this.pathExists(cached.path))) {
+      return { integrated: false, advanced: false, conflict: false, skippedReason: 'no-existing-worktree' };
+    }
+
+    // Resume it without forcing a fresh fork.
+    const wt = await this._ensureInner(sessionId, { baseBranch, fresh: false });
+    if ('kind' in wt && wt.kind === 'non_git') {
+      return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git', wt };
+    }
+
+    // Resolve the current base SHA at the project root.
+    const baseShaRes = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (baseShaRes.code !== 0 || !baseShaRes.stdout.trim()) {
+      return { integrated: false, advanced: false, conflict: false, skippedReason: `base-missing:${baseBranch}`, wt };
+    }
+    const baseSha = baseShaRes.stdout.trim();
+
+    // Dirty-tree guard: never merge into a dirty lane worktree.
+    const dirtyRes = await this.runGit(wt.path, ['status', '--porcelain'], QUICK_TIMEOUT_MS, onProgress)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (dirtyRes.code !== 0) {
+      return { integrated: false, advanced: false, conflict: false, skippedReason: 'lane-status-failed', wt };
+    }
+    if (dirtyRes.stdout.trim() !== '') {
+      return { integrated: false, advanced: false, conflict: false, skippedReason: 'lane-worktree-dirty', wt };
+    }
+
+    // Already integrated? base is an ancestor of the lane tip → no-op.
+    const ancestor = await this.runGit(
+      wt.path,
+      ['merge-base', '--is-ancestor', baseSha, 'HEAD'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (ancestor.code === 0) {
+      return { integrated: true, advanced: false, conflict: false, wt };
+    }
+
+    // Merge the base into the lane branch (--no-ff preserves provenance).
+    const mergeMessage =
+      `collab: reintegrate-base ${baseBranch} into lane\n\n` +
+      `Collab-Reintegrate-Base: ${baseBranch}`;
+    const mergeRes = await this.runGit(
+      wt.path,
+      ['merge', '--no-ff', '-m', mergeMessage, baseSha],
+      timeoutMs,
+      onProgress,
+    );
+    if (mergeRes.code !== 0) {
+      const conflictedRes = await this.runGit(
+        wt.path,
+        ['diff', '--name-only', '--diff-filter=U'],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      const conflictedPaths = conflictedRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+      // Abort → lane branch untouched. Caller falls through to the fresh-fork fallback.
+      await this.runGit(wt.path, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({ code: 0, stdout: '', stderr: '' }));
+      return { integrated: false, advanced: false, conflict: true, conflictedPaths, wt };
+    }
+    return { integrated: true, advanced: true, conflict: false, wt };
   }
 
   /** SHA at the tip of the epic accumulation branch — the base a leaf's blueprint is
