@@ -23,7 +23,8 @@ import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
-import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD } from './harness-caps.ts';
+import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
+export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
  *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
@@ -1027,7 +1028,7 @@ export function liveRunsOf<T extends { epicId: string | null }>(
   return runs.filter((r) => r.epicId != null && liveEpicIds.has(r.epicId));
 }
 
-export function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
+export function collectMissionStatusFacts(project: string, m: MissionRow, now: number = Date.now()): MissionStatusFacts {
   // listTodos defaults to archivedAt IS NULL (hot-only) — archived todos never leak into
   // allTodos/epics/runs below, so an archived leaf is invisible to the facts scan.
   const allTodos = listTodos(project, { includeCompleted: true });
@@ -1112,7 +1113,9 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
           e.status !== 'done' && (
             runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
             allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
-              (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'))
+              (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress')) ||
+            (!allTodos.some((t) => t.parentId === e.id && !isEpic(t)) && Number.isFinite(Date.parse(e.createdAt)) &&
+              now - Date.parse(e.createdAt) < CHILDLESS_SERVE_GRACE_MS)
           ));
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick
       // accrues its true thrash history (the serve-cap escalation trigger).
