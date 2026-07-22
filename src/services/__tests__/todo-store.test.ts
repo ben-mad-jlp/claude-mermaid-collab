@@ -8,6 +8,7 @@ import {
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, TerminalParentApproveError, resolveShortId, promoteBucketItemToEpic,
+  stampEpicLandedAt, isHollowLand,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -842,6 +843,66 @@ describe('completeTodo epic roll-up', () => {
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).not.toBe('done');
     expect(getTodo(project, epic.id)!.acceptanceStatus).not.toBe('accepted');
+  });
+});
+
+describe('stampEpicLandedAt hollow-land exclusion (9e50cf83)', () => {
+  test('Site 1: hollow branch — both children non-accepted, hollowLandedAt stamped', async () => {
+    const iso = new Date().toISOString();
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'hollow epic', kind: 'epic', status: 'planned' });
+    const child1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child1', parentId: epic.id, status: 'ready' });
+    const child2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child2', parentId: epic.id, status: 'ready' });
+
+    // Mark children terminal via updateTodo (bypassing completeTodo's roll-up).
+    await updateTodo(project, child1.id, { status: 'done', acceptanceStatus: 'rejected', completed: true });
+    await updateTodo(project, child2.id, { status: 'dropped' });
+    await updateTodo(project, epic.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+
+    stampEpicLandedAt(project, epic.id, iso);
+    const landed = getTodo(project, epic.id)!;
+    expect(landed.hollowLandedAt).toBe(iso);
+    expect(landed.landedAt).toBe(iso);
+  });
+
+  test('Site 1: non-hollow branch — one accepted child, hollowLandedAt null', async () => {
+    const iso = new Date().toISOString();
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'non-hollow epic', kind: 'epic', status: 'planned' });
+    const acceptedChild = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'accepted', parentId: epic.id, status: 'ready' });
+    const rejectedChild = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected', parentId: epic.id, status: 'ready' });
+
+    // Mark children terminal via updateTodo (bypassing completeTodo's roll-up).
+    await updateTodo(project, acceptedChild.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+    await updateTodo(project, rejectedChild.id, { status: 'done', acceptanceStatus: 'rejected', completed: true });
+    await updateTodo(project, epic.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+
+    stampEpicLandedAt(project, epic.id, iso);
+    const landed = getTodo(project, epic.id)!;
+    expect(landed.hollowLandedAt).toBeNull();
+    expect(landed.landedAt).toBe(iso);
+  });
+
+  test('Site 2 (roll-up): hollow branch — child pending, hollowLandedAt stamped via roll-up', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'hollow rollup epic', kind: 'epic', status: 'planned' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child', parentId: epic.id, status: 'ready' });
+
+    const { rolledUp } = await completeTodo(project, child.id, 'pending');
+    expect(rolledUp).toContain(epic.id);
+
+    const rolled = getTodo(project, epic.id)!;
+    expect(rolled.status).toBe('done');
+    expect(rolled.hollowLandedAt).not.toBeNull();
+  });
+
+  test('Site 2 (roll-up): non-hollow branch — child accepted, hollowLandedAt null via roll-up', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'non-hollow rollup epic', kind: 'epic', status: 'planned' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child', parentId: epic.id, status: 'ready' });
+
+    const { rolledUp } = await completeTodo(project, child.id, 'accepted');
+    expect(rolledUp).toContain(epic.id);
+
+    const rolled = getTodo(project, epic.id)!;
+    expect(rolled.status).toBe('done');
+    expect(rolled.hollowLandedAt).toBeNull();
   });
 });
 
