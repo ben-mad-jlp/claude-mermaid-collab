@@ -44,7 +44,7 @@ import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
@@ -430,7 +430,7 @@ export interface LeafExecutorDeps {
   persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
   /** G8: persist the durable blueprint base SHA so a reusable blueprint survives when
    *  the run checkpoint is cleared by a terminal outcome. Best-effort; unwired in tests. */
-  persistBlueprintBase?: (e: { project: string; leafId: string; epicBaseSha?: string | null; specJson?: string | null; specRev?: number | null }) => void;
+  persistBlueprintBase?: (e: { project: string; leafId: string; epicBaseSha?: string | null; specJson?: string | null; specRev?: number | null; specSig?: string | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
   /** FM1 Phase-B hardening: durably stamp the REJECT intent (acceptanceStatus='rejected')
@@ -1199,6 +1199,50 @@ export function buildBlueprintRepairPrompt(
   ].join('\n');
 }
 
+/** Build the bounded re-emit prompt for a blueprint node whose output (token count) exceeded
+ *  BLUEPRINT_OUTPUT_TOKEN_CAP. Asks the node to trim prose (restating, preamble, duplication)
+ *  while preserving every criterion, file, and task. Mirrors buildBlueprintRepairPrompt's
+ *  quote-the-offense / re-emit-the-whole-thing pattern. */
+export function buildBlueprintSummarizePrompt(
+  leaf: Todo,
+  oversizedBlueprintText: string,
+  capTokens: number,
+  observedTokens: number,
+): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const bp = blueprintPath(leaf);
+
+  return [
+    'You are the BLUEPRINT node. Make REAL, compiling code edits. Do NOT write implementation code.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    '',
+    `The blueprint you wrote is oversized: ${observedTokens} output tokens exceeds the BLUEPRINT_OUTPUT_TOKEN_CAP of ${capTokens} tokens.`,
+    '',
+    'RE-EMIT the same blueprint faithfully, cutting restating/preamble/duplication, WITHOUT dropping any acceptance criterion, file, or task the original named.',
+    '',
+    'The blueprint text to trim is enclosed below:',
+    '',
+    `=== BLUEPRINT START ===`,
+    oversizedBlueprintText,
+    `=== BLUEPRINT END ===`,
+    '',
+    MANIFEST_GLOB_RULE_LINE,
+    '',
+    'Then produce your trimmed blueprint and WRITE it to `' +
+      bp +
+      '`.',
+    "The blueprint must cite the real files/symbols to touch and the exact change shape.",
+    '',
+    ...MANIFEST_JSON_SCHEMA_LINES,
+    '',
+    ...BLUEPRINT_CONCISENESS_RULES_LINES,
+    '',
+    'ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.',
+  ].join('\n');
+}
+
 /** Build the inline prompt for a VERIFY-pipeline node (epic f5c7fc46). Three kinds:
  *  - driveplan: LLM authors an AssemblyBuildPlan (plan ONLY — no build, no code).
  *  - driveexec: constrained to the single deterministic gate verb — invokes it with the
@@ -1650,6 +1694,9 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
  * - epic base moved + implement done→ rebase-continue (the durable blueprint is stale,
  *                                     but implement completed — rebase the worktree
  *                                     instead of re-running blueprint)
+ * - epic base moved + spec unchanged→ reattach-blueprint (spec signature matches,
+ *                                     so the blueprint is still valid despite the
+ *                                     base move; avoid re-authoring the blueprint)
  * - epic base missing/moved        → fresh (the blueprint was authored against the
  *                                     old tip; resuming against a changed world is
  *                                     Grok's #1 risk — never do it, unless implement
@@ -1670,6 +1717,10 @@ export function planResume(
   /** True when the durable resume signal shows implement already ran to completion
    *  (derived by the CALLER from resume.phase — this function just consumes the boolean). */
   hasCompletedImplement = false,
+  /** True when the leaf's title/description/inheritedFiles have NOT changed despite an
+   *  epic-base move. When true and hasCompletedImplement is false, return reattach-blueprint
+   *  instead of fresh to avoid re-authoring the blueprint. */
+  specUnchanged = false,
 ): ResumePlan {
   if (!resume) {
     // D1: a terminal outcome cleared the run checkpoint, but a durably-recorded
@@ -1680,6 +1731,8 @@ export function planResume(
         return { mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' };
       if (hasCompletedImplement)
         return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
+      if (specUnchanged)
+        return { mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' };
       return { mode: 'fresh', reason: 'epic-base-moved' };
     }
     // D3: null currentEpicSha is silently fatal — we can't verify the world state.
@@ -1699,6 +1752,8 @@ export function planResume(
   if (base !== currentEpicSha) {
     if (hasCompletedImplement)
       return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
+    if (specUnchanged)
+      return { mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' };
     return { mode: 'fresh', reason: 'epic-base-moved' };
   }
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
@@ -2846,6 +2901,7 @@ export async function runLeaf(
         epicBaseSha: deps.epicBaseSha,
         specJson: seededContract ? JSON.stringify(seededContract) : null,
         specRev: seededContract ? 0 : null,
+        specSig: leafSpecSignature(leaf),
       });
     }
 
@@ -3711,7 +3767,8 @@ export async function makeLeafExecutorDeps(
   const hasBlueprintOutput = !!getLatestSuccessfulNodeOutput(leaf.id, 'blueprint')?.trim();
   const bpRow = getLeafBlueprint(leaf.id);
   const hasCompletedImplement = !!existingResume?.phase && existingResume.phase !== 'blueprint' && existingResume.phase !== 'implement';
-  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null, hasCompletedImplement);
+  const specUnchanged = !!bpRow?.specSig && bpRow.specSig === leafSpecSignature(leaf);
+  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null, hasCompletedImplement, specUnchanged);
   const anomaly = resumePlan.mode === 'fresh' && hasBlueprintOutput
     && (resumePlan.reason === 'no-resume-state' || resumePlan.reason === 'no-epic-base' || resumePlan.reason === 'killed-before-blueprint');
   recordLeafResumeDecision({ leafId: leaf.id, project, mode: resumePlan.mode, reason: resumePlan.reason,
