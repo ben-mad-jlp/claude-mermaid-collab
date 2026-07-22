@@ -1352,6 +1352,14 @@ export function resolveShortId(project: string, prefix: string): string | null {
   return rows[0].id;
 }
 
+function resolveFullId(project: string, id: string): string {
+  const db = openDb(project);
+  if (db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) return id;
+  const resolved = resolveShortId(project, id);
+  if (resolved === null) throw new Error(`todo not found: ${id}`);
+  return resolved;
+}
+
 export function getTodo(project: string, id: string): Todo | null {
   const db = openDb(project);
   const row = db.query('SELECT * FROM todos WHERE id = ?').get(id) as TodoRow | null;
@@ -1609,6 +1617,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
   return withLock(project, () => {
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
+    const fullId = resolveFullId(project, id);
 
     // De-conflate S3 — WRITE-SIDE TRANSLATION SEAM. A caller setting `status` to a
     // now-DERIVED value (ready/blocked/in_progress) is expressing a DECISION, not a
@@ -1758,7 +1767,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const nowTerminal = status === 'done' || status === 'dropped';
 
     db.transaction(() => {
-      db.prepare(
+      const res = db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
           dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
@@ -1768,8 +1777,9 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
         next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier,
         approvedAt, approvedBy, heldAt, heldReason,
-        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
+        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), fullId
       );
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
 
       // CASCADE-DROP: dropping a container (mission or epic) abandons its still-open work —
       // drop every non-terminal transitive descendant so the lane goes fully terminal instead
@@ -1796,7 +1806,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
            UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
              heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
            WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-        ).run(id, nowIso());
+        ).run(fullId, nowIso());
       }
     })();
 
@@ -1832,6 +1842,7 @@ export function reassignOwnerSession(
     assertProjectLocal(project);
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
+    const fullId = resolveFullId(project, id);
     const s = session.trim();
     if (!s) throw new Error('session is empty');
     const alsoAssignee = opts.alsoAssignee !== false; // default true
@@ -1839,8 +1850,13 @@ export function reassignOwnerSession(
       ? 'UPDATE todos SET ownerSession=?, assigneeSession=?, updatedAt=? WHERE id=?'
       : 'UPDATE todos SET ownerSession=?, updatedAt=? WHERE id=?';
     const db = openDb(project);
-    if (alsoAssignee) db.prepare(sql).run(s, s, nowIso(), id);
-    else db.prepare(sql).run(s, nowIso(), id);
+    if (alsoAssignee) {
+      const res = db.prepare(sql).run(s, s, nowIso(), fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+    } else {
+      const res = db.prepare(sql).run(s, nowIso(), fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+    }
     return getTodo(project, id)!;
   });
 }
@@ -1887,6 +1903,7 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
+    const fullId = resolveFullId(project, id);
     const token = crypto.randomUUID();
     const now = nowIso();
     // CAS claim (S3): the atomic guard is NARROWED to the new decision model and is
@@ -1904,8 +1921,8 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
        WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped')
          AND (acceptanceStatus IS NOT 'accepted')
          AND approvedAt IS NOT NULL AND heldAt IS NULL`
-    ).run(claimedBy, token, now, leaseMs, claimJson, now, id);
-    return res.changes === 1 ? getTodo(project, id) : null;
+    ).run(claimedBy, token, now, leaseMs, claimJson, now, fullId);
+    return res.changes === 1 ? getTodo(project, fullId) : null;
   });
 }
 
@@ -2068,6 +2085,7 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
+    const fullId = resolveFullId(project, id);
     // cleanup-605d6fc0: store 'planned' (non-derived) + clear any hold, never the
     // derived 'ready' enum. Behavior-neutral: the row re-derives claimable from its
     // (still-set) approvedAt + cleared claim. The WHERE still keys on the stored
@@ -2075,7 +2093,7 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
     const res = db.prepare(
       `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
        updatedAt=? WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
-    ).run(nowIso(), id);
+    ).run(nowIso(), fullId);
     // NO capacity kick here (S3 soak finding): releaseClaim's callers are all NO-PROGRESS
     // releases — the launch-reject path for a claimable-but-not-headless-leaf (epic/gate) and
     // the respawn-backoff deferral — so kicking re-ticks → re-claims the same unlaunchable row
@@ -2342,6 +2360,7 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     const db = openDb(project);
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
+    const fullId = resolveFullId(project, id);
     // E2 ownership-CAS (opt-in via requireInProgress; only the fire-and-track
     // worker continuation passes it). A leaf run launched against a claim can finish
     // minutes later — by then the todo may have been DROPPED, HELD, re-claimed, or
@@ -2387,18 +2406,20 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // claimReason checks DEP rejection but not a row's OWN acceptanceStatus, and
       // the old unblock-pass skip was deleted in S4. Tracked separately as a
       // claimability-predicate gap (rejected ⇒ not-claimable).
-      db.prepare(
+      const res = db.prepare(
         `UPDATE todos SET status='planned', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
           ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
-      ).run(accept, ts, id);
+      ).run(accept, ts, fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
     } else {
-      db.prepare(
+      const res = db.prepare(
         // 54362542/c544b9cb: clear a stale manual hold on terminal-accept — a done todo
         // must not carry heldAt/heldReason (it rendered a misleading 'held' chip on a
         // completed todo). Same write that clears the claim.
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
           ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
-      ).run(ts, actor, accept, ts, id);
+      ).run(ts, actor, accept, ts, fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
     }
     // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
     // materialized — it is derived by claimability.isClaimable every tick, so there is nothing
@@ -2807,6 +2828,7 @@ export function resetTodo(
     assertProjectLocal(project);
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
+    const fullId = resolveFullId(project, id);
     const db = openDb(project);
     // Optionally REROUTE while unsticking: a cross-project todo created without a
     // targetProject (so the worker spawned with cwd=tracking repo and the gate ran
@@ -2827,20 +2849,22 @@ export function resetTodo(
         approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
         completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
     );
-    if (targetProject !== undefined) stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), id);
-    else stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), id);
+    let res;
+    if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
+    else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
+    if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
     // Re-promoting a blocked/rejected todo SUPERSEDES any escalation it raised (rejected
     // / parked / blocker / blueprint-failed) — the work is being re-attempted, so those
     // are stale. Auto-resolve them (matching by todoId + the lane session) so the project
     // doesn't keep reading 'paused on escalation' (stale red) while the daemon rebuilds it.
     // Mirrors completeTodo's accept-time resolveEscalationsForTodo; best-effort, never
     // blocks the unstick.
-    try { resolveEscalationsForTodo(project, id, existing.sessionName ? [existing.sessionName] : []); }
+    try { resolveEscalationsForTodo(project, fullId, existing.sessionName ? [existing.sessionName] : []); }
     catch { /* best-effort — escalation cleanup must never break the reset */ }
     // EVENT-DRIVEN (S3): a steward reset back to `ready` clears the hold and approves
     // → the 'unheld' input edge. Kick now instead of waiting an interval (direct SQL
     // above bypasses the updateTodo kick).
-    if (status === 'ready') fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
+    if (status === 'ready') fireOrchestratorKick(`unheld:${fullId.slice(0, 8)}`);
     return getTodo(project, id)!;
   });
 }
