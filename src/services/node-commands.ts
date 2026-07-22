@@ -251,6 +251,13 @@ function claimMatches(claim: string, recorded: RecordedCommand): boolean {
  */
 const VERIFICATION_INVOCATION =
   /(?:^|[\s;&|`(])(?:tsc|vitest|jest|mocha|eslint|playwright|cypress)\b|(?:^|[\s;&|`(])(?:npm|npx|bun|pnpm|yarn|make|cargo|go)\s+(?:run|test|build|ci|install|exec)\b/i;
+/** True when a recorded command chains multiple clauses (`;`, `&&`, `||`, pipes are
+ *  fine — a pipe is one pipeline with one meaningful exit). Only chain operators make
+ *  the single recorded exitCode unattributable to an individual claim's clause. */
+export function isCompoundCommand(cmd: string): boolean {
+  return /(?:;|&&|\|\|)/.test(cmd);
+}
+
 export function escapeIsFatal(cmd: string): boolean {
   return VERIFICATION_INVOCATION.test(cmd);
 }
@@ -306,11 +313,25 @@ export function evaluateCommandEvidence(opts: {
         unbackedClaims.push(claim);
         reasons.push(`claim unbacked: no recorded command matched "${ra.command}"`);
       } else if (ra.assertsAbsence && rec.exitCode === 0) {
-        // Command RAN but MATCHED (exit 0) — the asserted absence is FALSE.
-        contradictedClaims.push(claim);
-        reasons.push(
-          `claim contradicted: "${claim}" asserts absence but recorded "${rec.cmd}" exits 0 (matches found)`,
-        );
+        // Command RAN but MATCHED (exit 0) — the asserted absence is FALSE… for a
+        // SINGLE command. A COMPOUND recorded command (`;`, `&&`, `||` chains — how
+        // reviewers naturally batch greps with echo markers) has ONE exit code for
+        // many clauses, so exit 0 cannot be attributed to any one claim's clause:
+        // that misattribution reject-parked review-green removal leaves twice
+        // (friction 996315e2). Until per-clause splitting exists, a compound's
+        // "contradiction" demotes to UNBACKED (warn-tier) — fail-open only for the
+        // aggregation ambiguity, never for a single-command contradiction.
+        if (isCompoundCommand(rec.cmd)) {
+          unbackedClaims.push(claim);
+          reasons.push(
+            `claim unbacked (compound-command ambiguity): "${claim}" asserts absence; recorded compound "${rec.cmd}" exits 0 but its exit cannot be attributed to this claim's clause`,
+          );
+        } else {
+          contradictedClaims.push(claim);
+          reasons.push(
+            `claim contradicted: "${claim}" asserts absence but recorded "${rec.cmd}" exits 0 (matches found)`,
+          );
+        }
       }
       // else: recorded command exited non-zero → absence BACKED → nothing to record.
       continue;

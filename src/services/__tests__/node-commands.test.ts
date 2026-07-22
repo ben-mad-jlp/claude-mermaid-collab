@@ -498,3 +498,35 @@ describe('node-commands', () => {
     });
   });
 });
+
+describe('compound-command contradiction demotes to unbacked (friction 996315e2)', () => {
+  const { evaluateCommandEvidence, isCompoundCommand } = require('../node-commands');
+
+  it('isCompoundCommand classifies chains but not pipes', () => {
+    expect(isCompoundCommand("grep -rn 'a' src/ && echo ok")).toBe(true);
+    expect(isCompoundCommand("grep a; grep b")).toBe(true);
+    expect(isCompoundCommand("grep a || true")).toBe(true);
+    expect(isCompoundCommand("grep -rn 'a' src/ | head -3")).toBe(false);
+    expect(isCompoundCommand("grep -rn 'a' src/")).toBe(false);
+  });
+
+  it('a zero-exit COMPOUND against an absence claim is unbacked (warn), not contradicted', () => {
+    const res = evaluateCommandEvidence({
+      claims: ["`grep -rn 'launchAndBind' src/routes/` returns no matches"],
+      commands: [{ cmd: "echo \"--g1--\" && grep -rn 'launchAndBind' src/routes/ && echo \"--g2--\" && grep -rn 'other' src/", exitCode: 0, cwd: '/wt' }],
+      worktreeRoot: '/wt',
+    });
+    expect(res.contradictedClaims).toHaveLength(0);
+    expect(res.unbackedClaims).toHaveLength(1);
+  });
+
+  it('a zero-exit SINGLE command against an absence claim still contradicts (reject)', () => {
+    const res = evaluateCommandEvidence({
+      claims: ["`grep -rn 'launchAndBind' src/routes/` returns no matches"],
+      commands: [{ cmd: "grep -rn 'launchAndBind' src/routes/", exitCode: 0, cwd: '/wt' }],
+      worktreeRoot: '/wt',
+    });
+    expect(res.contradictedClaims).toHaveLength(1);
+    expect(res.reject).toBe(true);
+  });
+});
