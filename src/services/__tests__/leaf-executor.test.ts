@@ -167,6 +167,9 @@ function makeDeps(opts: {
   contestedDecision?: 'accept' | 'reject' | 'timeout';
   // crit 8: mock readBlueprint return values by call index. Absent ⇒ unwired.
   readBlueprintReturns?: (string | undefined)[];
+  // Blueprint usage overrides by call index (e.g., [{ outputTokens: 25000 }, { outputTokens: 15000 }]).
+  // Absent ⇒ no usage field on blueprint results.
+  blueprintUsageOverrides?: Partial<{ inputTokens: number; outputTokens: number }>[];
   // Resume plan for rebase-continue testing. Absent ⇒ defaults to undefined (fresh-mode).
   resumePlan?: LeafExecutorDeps['resumePlan'];
   // Reintegrate-base hook for rebase-continue testing. Absent ⇒ unwired.
@@ -195,6 +198,7 @@ function makeDeps(opts: {
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
+  let bpCallIdx = 0;
   let readBlueprintIdx = 0;
   const deps: LeafExecutorDeps = {
     invoker: {
@@ -209,6 +213,13 @@ function makeDeps(opts: {
         if (isBlueprint && bpFailsLeft > 0) {
           bpFailsLeft -= 1;
           return failResult();
+        }
+        if (isBlueprint) {
+          const result = okResult('done');
+          const usage = opts.blueprintUsageOverrides?.[bpCallIdx];
+          bpCallIdx += 1;
+          if (usage) result.usage = { inputTokens: 0, outputTokens: 0, ...usage };
+          return result;
         }
         if (isReview) {
           const v = opts.reviewVerdicts?.[reviewIdx] ?? 'VERDICT: FAIL — none';
@@ -3095,6 +3106,88 @@ describe('replay-corpus recording (G3 + citability)', () => {
 
     // Verify the run was accepted (not parked with review-vacuous)
     expect(res.reason ?? '').not.toContain('review-vacuous');
+  });
+
+  it('blueprint-budget gate: oversized blueprint triggers re-emit gate eval', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
+      // First blueprint call outputs 25,000 tokens (exceeds BLUEPRINT_OUTPUT_TOKEN_CAP=20,000)
+      // Second blueprint call (re-emit) outputs 15,000 tokens (below cap)
+      blueprintUsageOverrides: [
+        { outputTokens: 25000 },
+        { outputTokens: 15000 },
+      ],
+      readBlueprintReturns: [
+        // First call (original): readBlueprint returns undefined, so falls back to bp.text
+        undefined,
+        // Second call (re-emit): returns the trimmed manifest
+        `# Blueprint\n\n- [MET] criterion 1 — src/a.ts:1\n- [ ] task 1 — src/a.ts\n\n\`\`\`json\n{"filesToCreate":[],"filesToEdit":["src/a.ts"],"tasks":[{"id":"t1","files":["src/a.ts"]}]}\n\`\`\``,
+      ],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Assert blueprint-budget gate eval was recorded with fail verdict
+    const budgetEval = spies.gateEvals.find((e) => e.gate === 'blueprint-budget');
+    expect(budgetEval).toBeDefined();
+    expect(budgetEval?.verdict).toBe('fail');
+    expect(budgetEval?.reasons).toContain('outputTokens=25000');
+    expect(budgetEval?.reasons).toContain('cap=20000');
+
+    // Assert exactly 2 blueprint-node calls: original + re-emit
+    const blueprintSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(blueprintSpecs.length).toBe(2);
+  });
+
+  it('blueprint-budget gate: oversized re-emit smaller and valid manifest → adopted', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
+      blueprintUsageOverrides: [
+        { outputTokens: 25000 },
+        { outputTokens: 15000 }, // re-emit smaller
+      ],
+      readBlueprintReturns: [
+        undefined, // original: fallback to bp.text
+        // re-emit: valid manifest with tokens reduced
+        `# Trimmed Blueprint\n\n- [MET] criterion 1 — src/a.ts:1\n- [ ] task 1 — src/a.ts\n\n\`\`\`json\n{"filesToCreate":[],"filesToEdit":["src/a.ts"],"tasks":[{"id":"t1","files":["src/a.ts"]}]}\n\`\`\``,
+      ],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // The implement and review should proceed normally (blueprint was successfully trimmed)
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    const reviewSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+    expect(implementSpecs.length).toBe(1);
+    expect(reviewSpecs.length).toBe(1);
+  });
+
+  it('blueprint-budget gate: oversized re-emit failed or not-smaller → original kept', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
+      blueprintUsageOverrides: [
+        { outputTokens: 25000 },
+        { outputTokens: 24000 }, // re-emit NOT smaller enough to adopt
+      ],
+      readBlueprintReturns: [
+        undefined, // original
+        // re-emit returns text but tokens still too high
+        `# Failed Trim\n\n- [MET] criterion 1 — src/a.ts:1\n- [ ] task 1 — src/a.ts\n\n\`\`\`json\n{"filesToCreate":[],"filesToEdit":["src/a.ts"],"tasks":[{"id":"t1","files":["src/a.ts"]}]}\n\`\`\``,
+      ],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Gate eval still recorded
+    const budgetEval = spies.gateEvals.find((e) => e.gate === 'blueprint-budget');
+    expect(budgetEval).toBeDefined();
+
+    // Exactly one re-emit attempt (no retry loop)
+    const blueprintSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(blueprintSpecs.length).toBe(2); // original + one re-emit attempt
+
+    // Run still succeeds because we kept the original blueprint
+    expect(res.outcome).toBe('accepted');
   });
 });
 

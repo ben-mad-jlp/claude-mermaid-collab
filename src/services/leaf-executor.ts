@@ -57,6 +57,7 @@ import { parseDiffContract, validateContractForKind } from './diff-contract';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
+import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
@@ -2838,6 +2839,39 @@ export async function runLeaf(
     if (!bp.ok) {
       if (isLastAttempt) return parkBlocked('blueprint-node-failed');
       continue; // fresh attempt — never implement against a missing blueprint
+    }
+
+    // --- BLUEPRINT-BUDGET GATE --- (bounded re-emit on over-cap output tokens)
+    // Only runs on genuine blueprint node runs (not synthetic reattach/in-run-carry paths,
+    // which have durationMs === 0 and must never be charged a violation).
+    if (!reattach && !inRunCarry && !smallTier) {
+      const observedTokens = bp.usage?.outputTokens ?? 0;
+      if (observedTokens > BLUEPRINT_OUTPUT_TOKEN_CAP) {
+        const oversizedText = bp.text ?? bp.stdout ?? '';
+        try {
+          await deps.recordGateEval?.(project, {
+            gate: 'blueprint-budget', leafId: leaf.id, inputText: oversizedText, changeSet: [],
+            verdict: 'fail', reasons: `outputTokens=${observedTokens} > cap=${BLUEPRINT_OUTPUT_TOKEN_CAP}`,
+          });
+        } catch { /* telemetry-only */ }
+
+        const summarizeSpec = { ...buildSpec('blueprint', cwd),
+          prompt: buildBlueprintSummarizePrompt(leaf, oversizedText, BLUEPRINT_OUTPUT_TOKEN_CAP, observedTokens) };
+        const reemit = await runNode('blueprint', summarizeSpec);
+        if (reemit.startFailure) return parkNodeStartFailure('blueprint', reemit);
+        if (reemit.rateLimited) return pausedResult('blueprint', reemit);
+        if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+
+        if (reemit.ok) {
+          const reemitTokens = reemit.usage?.outputTokens ?? Number.POSITIVE_INFINITY;
+          const reemitText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
+          const reemitBody = (reemitText && reemitText.trim() ? reemitText : reemit.text) ?? '';
+          const reemitManifest = parseSizeManifest(reemitText, reemit.text);
+          if (reemitManifest && reemitTokens < observedTokens) {
+            bp = { ...reemit, text: reemitBody };
+          }
+        }
+      }
     }
 
     // --- P5 SIZE GATE ---
