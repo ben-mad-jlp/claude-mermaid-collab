@@ -32,6 +32,15 @@ export interface GateTypecheckLane {
   cwd?: string;
 }
 
+/** One resolved suite lane: a path scope and a full command (no substitution). */
+export interface GateSuiteLane {
+  /** Compiled from the manifest's `match` RegExp source. Tested against ROOT-relative paths. */
+  match: RegExp;
+  command: string;
+  /** Worktree-relative cwd the command runs in. */
+  cwd?: string;
+}
+
 /** Project-declared mechanical gate. Every command is a shell string run via `sh -c`.
  *  NOTHING here is defaulted to a command — an undeclared gate runs no command. */
 export interface LeafGateConfig {
@@ -46,6 +55,8 @@ export interface LeafGateConfig {
   tests?: GateTestLane[];
   /** Change-set-scoped project typecheck lanes: each lane runs its FULL command when a change-set path matches. */
   typechecks?: GateTypecheckLane[];
+  /** Change-set-triggered full-suite lanes: each lane runs its FULL command when a change-set path matches, with NO change-set narrowing of failures (catches regressions in untouched files in the matched subtree). */
+  suites?: GateSuiteLane[];
   /** OPTIONAL full-suite command run ONLY at the epic base (once per epic), never per leaf.
    *  Absent ⇒ the base check is `typecheck` alone. */
   baseTest?: string;
@@ -196,6 +207,58 @@ function normalizeTypecheckLanes(
   return { lanes, error: null };
 }
 
+/** Normalize and validate the `gate.suites` array. Returns { lanes, error } where
+ *  exactly one is present. Throws are NOT allowed — errors are returned as strings. */
+function normalizeSuiteLanes(
+  raw: unknown,
+): { lanes: GateSuiteLane[] | null; error: string | null } {
+  if (raw === undefined || raw === null) return { lanes: null, error: null };
+
+  if (!Array.isArray(raw)) {
+    return { lanes: null, error: 'gate.suites must be a non-empty array' };
+  }
+
+  if (raw.length === 0) {
+    return { lanes: null, error: 'gate.suites must be a non-empty array' };
+  }
+
+  const lanes: GateSuiteLane[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const lane = raw[i];
+    if (!lane || typeof lane !== 'object' || Array.isArray(lane)) {
+      return { lanes: null, error: `gate.suites[${i}] must declare a non-empty match and command` };
+    }
+
+    const { match, command, cwd } = lane as Record<string, unknown>;
+
+    if (typeof match !== 'string' || !match.trim()) {
+      return { lanes: null, error: `gate.suites[${i}] must declare a non-empty match and command` };
+    }
+
+    if (typeof command !== 'string' || !command.trim()) {
+      return { lanes: null, error: `gate.suites[${i}] must declare a non-empty match and command` };
+    }
+
+    // Validate regexp.
+    let compiledMatch: RegExp;
+    try {
+      compiledMatch = new RegExp(match);
+    } catch {
+      return { lanes: null, error: `gate.suites[${i}].match is not a valid regexp: ${match}` };
+    }
+
+    const cwdTrimmed = (cwd as string | undefined)?.trim() || undefined;
+
+    lanes.push({
+      match: compiledMatch,
+      command: command.trim(),
+      cwd: cwdTrimmed,
+    });
+  }
+
+  return { lanes, error: null };
+}
+
 /** Build a single legacy lane from the old-shape `test`/`testCwd` config. */
 function legacyLane(test: string, testCwd: string | undefined): GateTestLane {
   const prefix = testCwd ? escapeRe(testCwd.replace(/\/+$/, '')) : '';
@@ -230,10 +293,14 @@ export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | nul
   const { lanes: typecheckLanes, error: typecheckLaneError } = normalizeTypecheckLanes(g.typechecks);
   if (typecheckLaneError) return null;
 
-  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck survives.
-  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes) return null;
+  // Parse and validate suite lanes (will return null error if any).
+  const { lanes: suiteLanes, error: suiteLaneError } = normalizeSuiteLanes(g.suites);
+  if (suiteLaneError) return null;
 
-  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined, typechecks: typecheckLanes || undefined };
+  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck nor suite lanes survives.
+  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes && !suiteLanes) return null;
+
+  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined, typechecks: typecheckLanes || undefined, suites: suiteLanes || undefined };
 }
 
 /** Why the mechanical layer will or will not run. Three outcomes, not two: an ABSENT gate is
@@ -281,12 +348,18 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
     return { kind: 'misconfigured', manifestPath: src.path, reason: typecheckLaneError };
   }
 
+  // Check suite lane validity.
+  const { error: suiteLaneError } = normalizeSuiteLanes(gate.suites);
+  if (suiteLaneError) {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: suiteLaneError };
+  }
+
   const cfg = resolveLeafGate(manifest);
   if (!cfg) {
     return {
       kind: 'misconfigured',
       manifestPath: src.path,
-      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests/typechecks all empty)',
+      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests/typechecks/suites all empty)',
     };
   }
   return { kind: 'declared', cfg, manifestPath: src.path };
@@ -476,6 +549,31 @@ export async function runLeafGate(
         }
         return { status: 'fail', command: lane.command, output: r.output,
           reasons: [`typecheck failed: ${lane.command}`, lastLines(r.output, 20)], declared: true };
+      }
+    }
+  }
+
+  if (cfg.suites && cfg.suites.length > 0) {
+    if (normalizedChangeSet === null) {
+      return { status: 'error', output: '', reasons: ['gate: change-set unreadable'], declared: true };
+    }
+    for (const lane of cfg.suites) {
+      const matching = normalizedChangeSet.filter((p) => lane.match.test(p));
+      if (matching.length === 0) continue;
+
+      const laneCwd = lane.cwd ? join(cwd, lane.cwd) : cwd;
+      const r = await spawn(laneCwd, lane.command);
+      if (!r.ran) {
+        return { status: 'error', command: lane.command, output: r.output,
+          reasons: [`gate could not run: ${lane.command}`], declared: true };
+      }
+      if (r.code !== 0) {
+        const failing = extractFailingTests(r.output);
+        return { status: 'fail', command: lane.command, output: r.output,
+          reasons: failing.length > 0
+            ? [`suite failed: ${lane.command}`, ...failing.slice(0, 20)]
+            : [`suite failed: ${lane.command}`, lastLines(r.output, 20)],
+          declared: true };
       }
     }
   }

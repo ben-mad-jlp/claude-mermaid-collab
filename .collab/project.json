@@ -12,6 +12,9 @@
     ],
     "typechecks": [
       { "match": "^ui/", "command": "npx tsc --noEmit -p tsconfig.json", "cwd": "ui" }
+    ],
+    "suites": [
+      { "match": "^ui/", "command": "bunx vitest --run", "cwd": "ui" }
     ]
   }
 }
