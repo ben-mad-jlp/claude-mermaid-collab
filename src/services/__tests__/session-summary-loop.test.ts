@@ -7,6 +7,7 @@ import {
   getSessionSummary,
   listSessionSummaries,
   snapshotSummaryMessages,
+  SUMMARY_SNAPSHOT_MAX_AGE_MS,
   pushSessionSummary,
   refreshSummaryNow,
   getSelfSummaryNudgeConfig,
@@ -115,5 +116,17 @@ describe('getSelfSummaryNudgeConfig / setSelfSummaryNudgeConfig', () => {
 
     setSelfSummaryNudgeConfig({ intervalMs: 0 });
     expect(getSelfSummaryNudgeConfig().intervalMs).toBe(120_000); // ignored
+  });
+});
+
+describe('snapshotSummaryMessages staleness filter (66-ghost flood regression)', () => {
+  it('excludes entries older than SUMMARY_SNAPSHOT_MAX_AGE_MS from the connect replay', () => {
+    pushSessionSummary(P, 'live-1', { paragraph: 'fresh work', status: 'working' });
+    pushSessionSummary(P, 'dead-1', { paragraph: 'ancient work', status: 'idle' });
+    const now = Date.now();
+    // Fresh window → both replay.
+    expect(snapshotSummaryMessages(now)).toHaveLength(2);
+    // Advance past the window → nothing replays (dead sessions stay dead).
+    expect(snapshotSummaryMessages(now + SUMMARY_SNAPSHOT_MAX_AGE_MS + 1)).toHaveLength(0);
   });
 });

@@ -96,9 +96,17 @@ function loadCacheOnce(): void {
   if (!persistEnabled) return;
   try {
     const arr = JSON.parse(readFileSync(PERSIST_PATH, 'utf8')) as SessionSummaryEntry[];
+    // Retention: entries for sessions silent past 7 days never resurface (the
+    // snapshot filter already hides them from clients) — drop them at load so
+    // the cache file stops growing with every session ever summarized.
+    const cutoff = Date.now() - 7 * 24 * 60 * 60_000;
+    let dropped = 0;
     for (const e of arr) {
-      if (e?.project && e?.session) cache.set(`${e.project}::${e.session}`, { ...e, summaryInFlight: false });
+      if (!e?.project || !e?.session) continue;
+      if ((e.updatedAt ?? 0) < cutoff) { dropped++; continue; }
+      cache.set(`${e.project}::${e.session}`, { ...e, summaryInFlight: false });
     }
+    if (dropped > 0) scheduleSave();
   } catch {
     /* no file yet / unreadable → start empty */
   }
@@ -186,14 +194,24 @@ export function listSessionSummaries(): SessionSummaryEntry[] {
   return [...cache.values()];
 }
 
+/** Only summaries updated inside this window are replayed to a connecting client.
+ *  The disk cache holds every session ever summarized; replaying ancient entries
+ *  made the UI auto-watch all of them on every connect (the 66-ghost Watching
+ *  flood — each replayed message triggers ensureSubscribed client-side). */
+export const SUMMARY_SNAPSHOT_MAX_AGE_MS = 30 * 60_000;
+
 /** Re-hydration snapshot: the current cache as ready-to-send `session_summary_updated`
  *  messages, byte-identical to the live broadcast. Summaries are NOT persisted
  *  client-side — so a freshly (re)connected client would otherwise show "No summary
  *  yet" for every session. Sent once to each new WS client on connect so it starts
- *  from the server's last-known state instead of empty. */
-export function snapshotSummaryMessages(): Array<Record<string, unknown>> {
+ *  from the server's last-known state instead of empty. Dead sessions' summaries
+ *  (older than SUMMARY_SNAPSHOT_MAX_AGE_MS) are NOT replayed — a live session
+ *  re-appears via its own next push. */
+export function snapshotSummaryMessages(now: number = Date.now()): Array<Record<string, unknown>> {
   loadCacheOnce(); // a client may connect before the first push — hydrate from disk
-  return listSessionSummaries().map((e) => ({
+  return listSessionSummaries()
+    .filter((e) => now - (e.updatedAt ?? 0) <= SUMMARY_SNAPSHOT_MAX_AGE_MS)
+    .map((e) => ({
     type: 'session_summary_updated',
     project: e.project,
     session: e.session,

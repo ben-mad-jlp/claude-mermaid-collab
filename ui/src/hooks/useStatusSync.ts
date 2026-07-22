@@ -3,7 +3,7 @@ import { getWebSocketClient } from '@/lib/websocket';
 import { useSupervisorStore, type Escalation, type ProgressState, type ZenStructured } from '@/stores/supervisorStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
 import { useFreshnessStore } from '@/stores/freshnessStore';
-import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useSubscriptionStore, GONE_MS } from '@/stores/subscriptionStore';
 
 /**
  * useStatusSync — the single owner of status refresh
@@ -102,7 +102,13 @@ export function useStatusSync(serverIds: string[]) {
           };
           if (typeof m.project !== 'string' || typeof m.session !== 'string') break;
           if (typeof m.progressState !== 'string') break;
-          useSubscriptionStore.getState().ensureSubscribed(`local:${m.project}:${m.session}`, { serverId: 'local', project: m.project, session: m.session });
+          // Auto-watch only on a FRESH summary — connect-time replays include the
+          // server's historical cache, and blindly ensureSubscribed'ing each one
+          // resurrected every dead session as a Watching card (the 66-ghost flood).
+          const updatedAt = typeof m.updatedAt === 'number' ? m.updatedAt : 0;
+          if (Date.now() - updatedAt <= GONE_MS) {
+            useSubscriptionStore.getState().ensureSubscribed(`local:${m.project}:${m.session}`, { serverId: 'local', project: m.project, session: m.session });
+          }
           useSupervisorStore.getState().ingestSessionSummary({
             project: m.project,
             session: m.session,
