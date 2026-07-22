@@ -61,9 +61,11 @@ re-plan / reset_todo / escalation_resolve). Step in only when it is structurally
 blind: debounced with no `discover` gap while work sits parked, a decision card
 awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
 
-- **Full ids for every write.** Short-id writes to todo verbs can silently no-op
-  while echoing the unchanged row as success. After ANY write, verify the change
-  landed (re-read status/updatedAt) before acting on it.
+- **Full ids for every write, verify-after-write.** Todo-store verbs now resolve
+  short ids and throw on zero-row writes, but OTHER stores still lie: an
+  escalation_resolve with an 8-hex id returns success while resolving nothing
+  (observed 2026-07-22). Use full ids everywhere; after any write that matters,
+  re-read and confirm the change landed before acting on it.
 - **Duplicate serves** (same criterion, overlapping epics/leaves): keep whichever
   copy has the most progress; DROP the idle copy. Drops are safe — the serve-cap
   counts lifetime including dropped, so a drop never re-opens the serve window.
@@ -99,14 +101,19 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
 
 ## Safety rituals (each one paid for in incidents)
 
-- **Land-clobber check:** landing can roll the main checkout's tree+index back to
-  pre-land while HEAD advances. Before EVERY commit in the tracking repo, read
-  `git status` and treat STAGED entries you didn't stage as poison — a scoped
-  `git add` still commits the whole index. Remedy: `git stash push -u` (snapshot),
-  confirm tree==HEAD, then work. Pipe git diffs with `--no-color` when applying.
-- **Never run the full backend suite while the app is live** until the hermetic-
-  tests fix has landed — non-hermetic tests have killed the running app. Per-file
-  `bun test <file>` only.
+- **Trust nothing about the main checkout's git state.** The daemon's land and
+  forward-integrate paths drive the MAIN checkout: branches get switched under
+  you and uncommitted working-tree edits can be silently clobbered by a restore.
+  Before every commit read `git status` + `git branch --show-current`; treat
+  staged entries you didn't stage as poison (a scoped `git add` still commits the
+  whole index) and a non-master branch as someone else's state. Never leave
+  valuable work uncommitted in the tracking repo while epics are landing. Remedy:
+  `git stash push -u`, confirm branch + tree==HEAD, then work. Pipe git diffs
+  with `--no-color` when applying. (land_epic's own tree/index restore is fixed +
+  invariant-swept, but forward-integrate still hijacks the checkout.)
+- **Prefer per-file `bun test <file>` while the app is live.** The hermetic
+  tripwire now fails any test that writes real state or spawns detached, but a
+  full-suite run is still the slow way to answer a scoped question.
 - **Deploy rhythm:** src fixes are INERT until deployed. Deploy window = zero
   leaves inflight. After deploy verify: health 200 + served-owner + bundle hash,
   then re-check orchestrator level, conductor enable/pin, inflight caps, and
