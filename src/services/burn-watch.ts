@@ -17,6 +17,7 @@
 
 import { getBurnBySource, detectBurnLeaks, type BurnThresholds, type BurnRow, type BurnLeak } from './spend-ledger.ts';
 import { createEscalation, type Escalation } from './supervisor-store.ts';
+import { countAcceptedLeavesSince } from './todo-store.ts';
 
 /** Alarm cadence — throttle the pass off the every-tick beat (same shape as friction-watch). */
 export const BURN_WATCH_INTERVAL_MS = 300_000; // 5 min
@@ -31,6 +32,11 @@ export const BURN_WATCH_SESSION = '__burn_watch__';
 export const BURN_EXEMPT_SOURCES = new Set<string>([
   'leaf', 'node', 'implement', 'review', 'blueprint', 'verify',
   'driveplan', 'driveexec', 'research', 'grok-node',
+]);
+
+/** Daemon-overhead sources (keys of DEFAULT_BURN_THRESHOLDS.maxCallsPerWindow) that can be offset when work lands. */
+export const BURN_OVERHEAD_SOURCES = new Set<string>([
+  'conductor', 'summary', 'triage', 'forge', 'planner', 'digest',
 ]);
 
 /** Stable per-source marker embedded in the card text so the dedup + a later grep can match it. */
@@ -59,6 +65,7 @@ export interface BurnWatchDeps {
   createEsc?: typeof createEscalation;
   listOpen?: () => Escalation[];
   thresholds?: BurnThresholds;
+  getAcceptedLeafCount?: (o: { project: string; sinceMs: number }) => number;
 }
 
 /** Human-readable card text for a leak. The CEILING (stable) is included so createEscalation's
@@ -92,9 +99,22 @@ export async function runBurnWatchPass(
     return { flagged: [] }; // gauge read failed — never break the tick
   }
 
+  const acceptedLeafCount = (() => {
+    const fn = deps.getAcceptedLeafCount ?? countAcceptedLeavesSince;
+    try {
+      return fn({ project, sinceMs: now - BURN_WINDOW_MS });
+    } catch {
+      return 0;
+    }
+  })();
+
+  const productiveSources = acceptedLeafCount > 0
+    ? new Set([...BURN_EXEMPT_SOURCES, ...BURN_OVERHEAD_SOURCES])
+    : BURN_EXEMPT_SOURCES;
+
   const leaks = detectBurnLeaks(rows, {
     thresholds: deps.thresholds,
-    productiveSources: BURN_EXEMPT_SOURCES,
+    productiveSources,
   });
   if (leaks.length === 0) return { flagged: [] };
 
