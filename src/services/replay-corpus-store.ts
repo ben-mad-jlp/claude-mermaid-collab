@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path';
  * and reconstruct why a leaf was accepted or parked.
  */
 
-export type ReplayGate = 'g3' | 'citability';
+export type ReplayGate = 'g3' | 'citability' | 'blueprint-budget';
 
 export interface GateEval {
   id: string;
