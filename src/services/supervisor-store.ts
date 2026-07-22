@@ -839,19 +839,23 @@ export function createEscalation(input: {
  * confirm/dismiss clears it (null). Stored as JSON in suggestedActionJson.
  */
 export function setEscalationSuggestion(id: string, suggestion: SuggestedAction | null): void {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
-  d.prepare('UPDATE escalation SET suggestedActionJson = ? WHERE id = ?').run(
+  const info = d.prepare('UPDATE escalation SET suggestedActionJson = ? WHERE id = ?').run(
     suggestion ? JSON.stringify(suggestion) : null,
-    id,
+    fullId,
   );
+  if (info.changes === 0) throw new Error(`escalation suggestion set matched no row: ${id}`);
 }
 
 /** Triage lifecycle (fd934fb7): flip the in-flight flag while a Grok triage consult
  *  runs for this escalation. The caller broadcasts the updated escalation so the
  *  card shows / clears the "Grok is triaging…" spinner live. */
 export function setEscalationTriageInFlight(id: string, inFlight: boolean): void {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
-  d.prepare('UPDATE escalation SET triageInFlight = ? WHERE id = ?').run(inFlight ? 1 : 0, id);
+  const info = d.prepare('UPDATE escalation SET triageInFlight = ? WHERE id = ?').run(inFlight ? 1 : 0, fullId);
+  if (info.changes === 0) throw new Error(`escalation triage-in-flight set matched no row: ${id}`);
 }
 
 export function listEscalations(status?: string): Escalation[] {
@@ -875,16 +879,37 @@ export function getEscalation(id: string): Escalation | null {
   return row ? mapEscalationRow(row) : null;
 }
 
+export function resolveEscalationShortId(prefix: string): string | null {
+  const d = openDb();
+  const escaped = prefix.replace(/[%_\\]/g, '\\$&');
+  const rows = d.query("SELECT id FROM escalation WHERE id LIKE ? ESCAPE '\\'").all(`${escaped}%`) as { id: string }[];
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw new Error(`ambiguous escalation short id "${prefix}": matches ${rows.length} escalations (${rows.map(r => r.id).join(', ')})`);
+  }
+  return rows[0].id;
+}
+
+function resolveFullEscalationId(id: string): string {
+  const d = openDb();
+  if (d.query('SELECT 1 FROM escalation WHERE id = ?').get(id)) return id;
+  const resolved = resolveEscalationShortId(id);
+  if (resolved === null) throw new Error(`escalation not found: ${id}`);
+  return resolved;
+}
+
 export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human'): void {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
   // Stamp who resolved it (fd934fb7) so the UI can show an AI-resolved outcome
   // briefly instead of letting it silently vanish. Also clear any in-flight flag.
-  d.prepare('UPDATE escalation SET status = ?, resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
+  const info = d.prepare('UPDATE escalation SET status = ?, resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
     status,
     Date.now(),
     resolvedBy ?? null,
-    id
+    fullId
   );
+  if (info.changes === 0) throw new Error(`escalation resolve matched no row: ${id}`);
 }
 
 /**
@@ -898,12 +923,13 @@ export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' 
  * Returns the updated escalation (mapped) for broadcast, or null if id is unknown.
  */
 export function acknowledgeEscalation(id: string, acknowledgedBy?: 'ai' | 'human'): Escalation | null {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
   const info = d
     .prepare('UPDATE escalation SET status = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?')
-    .run('acknowledged', acknowledgedBy ?? null, id);
-  if (info.changes === 0) return null;
-  return getEscalation(id);
+    .run('acknowledged', acknowledgedBy ?? null, fullId);
+  if (info.changes === 0) throw new Error(`escalation acknowledge matched no row: ${id}`);
+  return getEscalation(fullId);
 }
 
 /**
@@ -917,12 +943,15 @@ export function acknowledgeEscalation(id: string, acknowledgedBy?: 'ai' | 'human
  * id is unknown or the row was already open (nothing to undo).
  */
 export function reopenEscalation(id: string): Escalation | null {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
   const info = d
     .prepare("UPDATE escalation SET status = 'open', resolvedAt = NULL, resolvedBy = NULL WHERE id = ? AND status != 'open'")
-    .run(id);
+    .run(fullId);
+  // Zero-row here means "already open" (nothing to undo), not a missing row — the
+  // resolution step above already proved the row exists at all.
   if (info.changes === 0) return null;
-  return getEscalation(id);
+  return getEscalation(fullId);
 }
 
 /**
@@ -931,12 +960,15 @@ export function reopenEscalation(id: string): Escalation | null {
  * Records the proof string that was cited (for the loud audit panel) when given.
  */
 export function setEscalationRoute(id: string, routedTo: string, proof?: string | null): void {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
+  let info;
   if (proof !== undefined) {
-    d.prepare('UPDATE escalation SET routedTo = ?, proof = ? WHERE id = ?').run(routedTo, proof, id);
+    info = d.prepare('UPDATE escalation SET routedTo = ?, proof = ? WHERE id = ?').run(routedTo, proof, fullId);
   } else {
-    d.prepare('UPDATE escalation SET routedTo = ? WHERE id = ?').run(routedTo, id);
+    info = d.prepare('UPDATE escalation SET routedTo = ? WHERE id = ?').run(routedTo, fullId);
   }
+  if (info.changes === 0) throw new Error(`escalation route set matched no row: ${id}`);
 }
 
 /**
@@ -948,13 +980,16 @@ export function setEscalationRoute(id: string, routedTo: string, proof?: string 
  * returns the updated escalation (mapped) for broadcast, or null if id is unknown.
  */
 export function setEscalationOperatorGated(id: string, operatorGated: boolean): Escalation | null {
+  const fullId = resolveFullEscalationId(id);
   const d = openDb();
+  let info;
   if (operatorGated) {
-    d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human' WHERE id = ?").run(id);
+    info = d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human' WHERE id = ?").run(fullId);
   } else {
-    d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(id);
+    info = d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(fullId);
   }
-  return getEscalation(id);
+  if (info.changes === 0) throw new Error(`escalation operator-gate set matched no row: ${id}`);
+  return getEscalation(fullId);
 }
 
 // --- Escalation decisions (poll-await relay; ED2) ---
@@ -986,9 +1021,12 @@ export function recordEscalationDecision(input: {
 /** Cache a generated briefing markdown on an escalation (+ provenance). Idempotent
  *  overwrite — a refresh replaces the prior briefing. No-op if the escalation is gone. */
 export function setEscalationBriefing(id: string, md: string, model: string, at: number = Date.now()): void {
-  openDb().prepare(
+  const fullId = resolveFullEscalationId(id);
+  const d = openDb();
+  const info = d.prepare(
     'UPDATE escalation SET briefingMd = ?, briefingModel = ?, briefingAt = ? WHERE id = ?',
-  ).run(md, model, at, id);
+  ).run(md, model, at, fullId);
+  if (info.changes === 0) throw new Error(`escalation briefing set matched no row: ${id}`);
 }
 
 export function getEscalationDecision(escalationId: string): EscalationDecision | null {
