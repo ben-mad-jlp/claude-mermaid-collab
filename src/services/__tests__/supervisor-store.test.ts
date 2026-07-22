@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'bun:sqlite';
 
 // Isolate the global supervisor.db BEFORE the store module opens it.
 const dir = mkdtempSync(join(tmpdir(), 'sup-store-ack-'));
@@ -11,6 +12,8 @@ import {
   createEscalation,
   acknowledgeEscalation,
   resolveEscalation,
+  getEscalation,
+  resolveEscalationShortId,
   _closeDb,
 } from '../supervisor-store';
 import { TOKEN_BURN_KIND } from '../burn-watch';
@@ -87,5 +90,74 @@ describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
     expect(isNew2).toBe(false); // Re-raise is blocked.
     expect(esc2.id).toBe(esc1.id); // Same row is returned.
     expect(esc2.status).toBe('acknowledged'); // Status is still acknowledged.
+  });
+});
+
+describe('resolveEscalation / acknowledgeEscalation — short-id parity contract', () => {
+  it('short-id resolve path: 8-char prefix routes to resolveFullEscalationId fallback and updates status', () => {
+    const triple = { project: '/test', session: 'sess-4', kind: TOKEN_BURN_KIND, questionText: 'query timeout' };
+    const { escalation: esc1 } = createEscalation(triple);
+
+    const shortId = esc1.id.slice(0, 8);
+    resolveEscalation(shortId, 'resolved', 'human');
+
+    const resolved = getEscalation(esc1.id);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.status).toBe('resolved');
+    expect(resolved!.resolvedAt).not.toBeNull();
+  });
+
+  it('unknown id throws with not found message', () => {
+    expect(() => {
+      resolveEscalation('deadbeef', 'resolved', 'human');
+    }).toThrow(/not found/);
+  });
+
+  it('full-id path: exact match short-circuits and updates status', () => {
+    const triple = { project: '/test', session: 'sess-5', kind: TOKEN_BURN_KIND, questionText: 'rate limit exceeded' };
+    const { escalation: esc1 } = createEscalation(triple);
+
+    resolveEscalation(esc1.id, 'resolved', 'human');
+
+    const resolved = getEscalation(esc1.id);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.status).toBe('resolved');
+  });
+
+  it('ambiguous short-id throws when multiple rows share an 8-hex prefix', () => {
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+
+    const id1 = 'aaaaaaaa-0000-0000-0000-000000000001';
+    const id2 = 'aaaaaaaa-0000-0000-0000-000000000002';
+    const now = Date.now();
+
+    directDb.prepare(
+      'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt) VALUES (?,?,?,?,?,?,?)'
+    ).run(id1, '/test', 'test-ambig-1', 'test', 'test question', 'open', now);
+    directDb.prepare(
+      'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt) VALUES (?,?,?,?,?,?,?)'
+    ).run(id2, '/test', 'test-ambig-2', 'test', 'test question', 'open', now);
+
+    directDb.close();
+
+    expect(() => {
+      resolveEscalationShortId('aaaaaaaa');
+    }).toThrow(/ambiguous/);
+  });
+
+  it('acknowledge via short id: status becomes acknowledged, resolvedAt stays null', () => {
+    const triple = { project: '/test', session: 'sess-6', kind: TOKEN_BURN_KIND, questionText: 'connection refused' };
+    const { escalation: esc1 } = createEscalation(triple);
+
+    const shortId = esc1.id.slice(0, 8);
+    const acknowledged = acknowledgeEscalation(shortId, 'human');
+
+    expect(acknowledged).not.toBeNull();
+    expect(acknowledged!.status).toBe('acknowledged');
+    expect(acknowledged!.resolvedAt).toBeNull();
+
+    const fetched = getEscalation(esc1.id);
+    expect(fetched!.status).toBe('acknowledged');
   });
 });
