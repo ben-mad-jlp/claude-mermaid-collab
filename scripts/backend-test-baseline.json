@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-07-22T22:12:30.064Z",
+  "failing": [
+    "src/agent/__tests__/node-invoker.test.ts",
+    "src/agent/__tests__/worktree-concurrency-lock.test.ts",
+    "src/routes/__tests__/orchestrator-routes.test.ts",
+    "src/routes/__tests__/supervisor-approve-push.test.ts",
+    "src/services/__tests__/archival-sweep.test.ts",
+    "src/services/__tests__/epic-landed-at-equivalence.test.ts",
+    "src/services/__tests__/gate-runner-land-parity.test.ts",
+    "src/services/__tests__/landed-epic-sweep-same-pass-activation.test.ts",
+    "src/services/__tests__/landed-epic-sweep.test.ts",
+    "src/services/__tests__/sweep-measurement.test.ts"
+  ]
+}
