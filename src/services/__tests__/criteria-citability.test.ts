@@ -298,6 +298,39 @@ test('classifyCriterion: invocation token patterns trigger command-result', () =
   }
 });
 
+test('classifyCriterion: recognizes → 0 arrow notation as absence result (Rule 1.5)', () => {
+  const v = classifyCriterion(
+    'MECHANICAL zero-match: `grep -c ZenMode ui/src/App.tsx` → 0',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: recognizes returns 0 phrasing as absence result (Rule 1.5)', () => {
+  const v = classifyCriterion(
+    'MECHANICAL zero-match: `grep -c ZenMode ui/src/App.tsx` returns 0',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: recognizes returns no matches phrasing as absence result (Rule 1.5)', () => {
+  const v = classifyCriterion(
+    'MECHANICAL zero-match: `grep -c ZenMode ui/src/App.tsx` returns no matches',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: bare-prose absence stays convicted even with read-only verbs', () => {
+  const v = classifyCriterion('ZenMode no longer appears in the codebase', []);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
 test('classifyCriterion: result predicate patterns trigger command-result', () => {
   const patterns = [
     'Suite passes',

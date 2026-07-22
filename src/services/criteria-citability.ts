@@ -11,6 +11,7 @@
  */
 
 import { extractCitations, citationResolves } from './review-citations';
+import { ABSENCE_RESULT } from './node-commands';
 
 export type UncitableKind = 'command-result' | 'absence' | 'out-of-diff-location';
 
@@ -225,12 +226,10 @@ function namesVerificationCommand(text: string): boolean {
 
   // (ii) an asserted checkable RESULT token
   const hasResult =
-    /\breturns\s+0\b/i.test(text) ||
+    ABSENCE_RESULT.test(text) ||
     /-c\b[^.]*\b0\b/.test(text) ||
-    /\bno\s+matches\b/i.test(text) ||
     /\b0\s+occurrences\b/i.test(text) ||
-    /\bcount\s+is\s+0\b/i.test(text) ||
-    /\bexits?\s+non-?zero\b/i.test(text);
+    /\bcount\s+is\s+0\b/i.test(text);
   return hasResult;
 }
 
