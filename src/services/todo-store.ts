@@ -2329,6 +2329,17 @@ export function archiveTodosByIds(project: string, ids: string[], archivedAtMs: 
   return result.changes;
 }
 
+/** Count todos with acceptanceStatus='accepted' and completedAt after the given time.
+ *  Used to offset burn-watch alarms when real work landed in the same window. */
+export function countAcceptedLeavesSince(o: { project: string; sinceMs: number }): number {
+  const db = openDb(o.project);
+  const sinceIso = new Date(o.sinceMs).toISOString();
+  const row = db.query(
+    `SELECT COUNT(*) AS n FROM todos WHERE acceptanceStatus = 'accepted' AND completedAt >= ?`
+  ).get(sinceIso) as { n: number };
+  return row.n;
+}
+
 /** Clear archivedAt on one todo (restore from history), returning the restored row.
  *  No-op-safe: restoring an already-hot todo just returns it unchanged (COALESCE-free —
  *  the UPDATE always runs but is a no-op when archivedAt is already NULL). Resolves
