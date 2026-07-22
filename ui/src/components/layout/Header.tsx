@@ -15,7 +15,6 @@ import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
 import { SettingsPanel, type SettingsTab } from '@/components/settings/SettingsPanel';
-import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore, type PaneKey } from '@/stores/uiStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
@@ -73,7 +72,6 @@ export const Header: React.FC<HeaderProps> = ({
   const zoomOut = useUIStore((s) => s.zoomOut);
 
   // Reactive pane-visibility for highlighting the toggle buttons.
-  const terminalOpen = useTerminalStore((s) => s.open);
   const browserVisible = useBrowserStore((s) => s.visible);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
@@ -177,19 +175,6 @@ export const Header: React.FC<HeaderProps> = ({
         </svg>
       ),
     },
-    terminal: {
-      testid: 'toggle-terminal',
-      title: 'Terminal',
-      aria: 'Toggle terminal',
-      active: terminalOpen,
-      onClick: () => useTerminalStore.getState().toggle(),
-      icon: (
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="4 17 10 11 4 5" />
-          <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-      ),
-    },
   };
 
   // Shared style for a pane-toggle button; highlighted (accent) when its pane
@@ -267,9 +252,9 @@ export const Header: React.FC<HeaderProps> = ({
             Collab
           </h1>
           {/* Pane toggles — left, just right of the Collab label. All panes
-              (Bridge / Plan / Studio / Spec / Browser / Terminal) dock
-              side-by-side in one reorderable row; drag a toggle onto another to
-              reorder the panes below. */}
+              (Bridge / Plan / Studio / Spec / Browser) dock side-by-side in
+              one reorderable row; drag a toggle onto another to reorder the
+              panes below. */}
           <div className="flex items-center gap-1.5">
             {paneOrder.map((key) => {
               const t = paneToggles[key];

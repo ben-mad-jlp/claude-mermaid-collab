@@ -57,10 +57,8 @@ import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
-import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { useBrowserStore } from '@/stores/browserStore';
-import { useTerminalStore } from '@/stores/terminalStore';
 import { SpecWorkspace } from '@/components/supervisor/SpecWorkspace';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import { MobileLayout } from '@/components/layout/MobileLayout';
@@ -167,15 +165,14 @@ const App: React.FC = () => {
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
-  // Workspace panes (the new model): Bridge / Plan / Studio / Spec / Browser /
-  // Terminal dock side-by-side in one reorderable row and each toggles
-  // independently. Studio = the artifact viewer (viewerVisible); Browser/Terminal
-  // carry their own visibility flags (browserStore.visible / terminalStore.open).
+  // Workspace panes (the new model): Bridge / Plan / Studio / Spec / Browser
+  // dock side-by-side in one reorderable row and each toggles independently.
+  // Studio = the artifact viewer (viewerVisible); Browser carries its own
+  // visibility flag (browserStore.visible).
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
   const browserVisible = useBrowserStore((s) => s.visible);
-  const terminalOpen = useTerminalStore((s) => s.open);
   const paneOrder = useUIStore((s) => s.paneOrder);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
@@ -1848,11 +1845,11 @@ const App: React.FC = () => {
             {/* Fixed-width left rail — always the fleet Sidebar (the project tree). */}
             <Sidebar className="h-full" />
 
-            {/* Workspace panes — Bridge / Plan / Studio / Spec / Browser /
-                Terminal dock SIDE-BY-SIDE in ONE reorderable row; any
-                combination can be open (toggled from the header icons, dragged
-                to reorder). Studio = the artifact viewer; Spec = the project
-                Spec Sheet. Resizable via the drag handles between panes. */}
+            {/* Workspace panes — Bridge / Plan / Studio / Spec / Browser dock
+                SIDE-BY-SIDE in ONE reorderable row; any combination can be open
+                (toggled from the header icons, dragged to reorder). Studio =
+                the artifact viewer; Spec = the project Spec Sheet. Resizable
+                via the drag handles between panes. */}
             {(() => {
               const open = paneOrder.filter((p) =>
                 p === 'bridge'
@@ -1861,9 +1858,7 @@ const App: React.FC = () => {
                     ? specOpen
                     : p === 'browser'
                       ? browserVisible
-                      : p === 'terminal'
-                        ? terminalOpen
-                        : viewerVisible && !!currentSession,
+                      : viewerVisible && !!currentSession,
               );
               if (open.length === 0) {
                 return (
@@ -1885,7 +1880,6 @@ const App: React.FC = () => {
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
                         {p === 'spec' && <SpecWorkspace />}
                         {p === 'browser' && <BrowserPanel embedded />}
-                        {p === 'terminal' && <TerminalDrawer embedded />}
                       </Panel>
                     </React.Fragment>
                   ))}

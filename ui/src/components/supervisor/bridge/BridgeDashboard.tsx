@@ -38,7 +38,6 @@ import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
-import { useTerminalStore } from '@/stores/terminalStore';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
 import { UsagePanel } from './UsagePanel';
@@ -167,13 +166,11 @@ export const BridgeDashboard: React.FC = () => {
     setStatusRefreshNonce((n) => n + 1);
   }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadAudit, loadRequirements, loadCoverage]);
 
-  // EXPLICIT refresh (the ↺ button) — data resync PLUS a terminal reattach, since a
-  // common reason to hit refresh is a blanked console. Kept separate from the
-  // automatic resyncBridge effect so the terminal isn't remounted on every
-  // dependency-driven resync (only on a deliberate click).
+  // EXPLICIT refresh (the ↺ button) — kept separate from the automatic
+  // resyncBridge effect so a deliberate click is distinguishable from
+  // dependency-driven resyncs.
   const onManualRefresh = useCallback(() => {
     resyncBridge();
-    useTerminalStore.getState().reattachConsole();
   }, [resyncBridge]);
 
   useEffect(() => {
