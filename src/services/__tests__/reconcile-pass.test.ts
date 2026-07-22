@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'bun:sqlite';
 
 // -----------------------------------------------------------------------
 // Isolation: point the global supervisor.db at a temp dir BEFORE the store
@@ -31,9 +32,9 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
   _closeDb,
 } from '../supervisor-store';
-import { createTodo, updateTodo, getTodo, sweepEpicRollups } from '../todo-store';
+import { createTodo, updateTodo, getTodo, sweepEpicRollups, stampEpicLandedAt, MOTIONLESS_EPIC_AFTER_MS } from '../todo-store';
 import { BP0_STRANDED_SUMMARY_KIND } from '../coordinator-live';
-import { DANGLING_DEPS_KIND } from '../reconcile-pass';
+import { DANGLING_DEPS_KIND, EPIC_SWEEP_TRIAGE_KIND } from '../reconcile-pass';
 
 // -----------------------------------------------------------------------
 // Per-project todo DB isolation: use a temp directory as the "project path"
@@ -333,6 +334,103 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
     expect(getTodo(project, epicId)?.status).toBe('planned');
     const audits = listSupervisorAudit({ project, kind: 'reconcile' });
     expect(audits.some((a) => (a.detail ?? '').includes('epic-all-done-but-unaccepted') && (a.detail ?? '').includes(epicId))).toBe(true);
+  });
+});
+
+/** Helper: force a todo into in_progress status via raw SQL (bypassing the updateTodo
+ *  validation that rejects manual in_progress). Then _closeProject so the next store call re-opens fresh. */
+function forceInProgressInTest(proj: string, id: string) {
+  const db = new Database(join(proj, '.collab', 'todos.db'));
+  db.exec(`UPDATE todos SET status='in_progress' WHERE id='${id}'`);
+  db.close();
+  // Force the todo-store to re-open the DB on the next call
+  getTodo(proj, 'dummy-not-found');
+}
+
+/** Helper: backdate a todo's updatedAt timestamp via raw SQL to a specific ISO string. */
+function backdateUpdatedAtInTest(proj: string, id: string, isoTimestamp: string) {
+  const db = new Database(join(proj, '.collab', 'todos.db'));
+  db.exec(`UPDATE todos SET updatedAt='${isoTimestamp}' WHERE id='${id}'`);
+  db.close();
+  getTodo(proj, 'dummy-not-found');
+}
+
+describe('runReconcilePass — motionless / landed-needs-review triage escalations', () => {
+  it('landed-needs-review reaches createEscalation when epic has in_progress child', async () => {
+    const project = freshProject();
+    // Build a landed epic with one done+accepted child and one in_progress child
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] landed needs review',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const doneChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'done child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, doneChild.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const inProgressChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'in_progress child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    // Force child into in_progress state
+    forceInProgressInTest(project, inProgressChild.id);
+
+    // Stamp the epic as landed
+    const now = new Date().toISOString();
+    stampEpicLandedAt(project, epic.id, now);
+
+    // Run the reconcile pass
+    await runReconcilePass(project);
+
+    // Assert that an escalation with the right kind and todoId was created
+    const open = listOpenEscalations().filter((e) => e.project === project);
+    const triage = open.find((e) => e.kind === EPIC_SWEEP_TRIAGE_KIND && e.todoId === epic.id);
+    expect(triage).toBeDefined();
+    expect(triage?.questionText ?? '').toContain('landed');
+  });
+
+  it('motionless reaches createEscalation when non-landed epic has idle children', async () => {
+    const project = freshProject();
+    // Build a non-landed epic with one child whose updatedAt is past the motionless threshold
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] motionless idle',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const child = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'idle child',
+      parentId: epic.id,
+      status: 'planned',
+    });
+
+    // Backdate the child's updatedAt to be past the MOTIONLESS_EPIC_AFTER_MS threshold
+    const now = new Date();
+    const oldTime = new Date(now.getTime() - MOTIONLESS_EPIC_AFTER_MS - 60_000); // 1 minute past threshold
+    const oldTimestamp = oldTime.toISOString();
+    backdateUpdatedAtInTest(project, child.id, oldTimestamp);
+
+    // Run the reconcile pass (no opts, so it uses the real MOTIONLESS_EPIC_AFTER_MS)
+    await runReconcilePass(project);
+
+    // Assert that an escalation with the right kind and todoId was created
+    const open = listOpenEscalations().filter((e) => e.project === project);
+    const triage = open.find((e) => e.kind === EPIC_SWEEP_TRIAGE_KIND && e.todoId === epic.id);
+    expect(triage).toBeDefined();
+    expect(triage?.questionText ?? '').toContain('idle');
   });
 });
 
