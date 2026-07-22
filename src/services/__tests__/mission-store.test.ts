@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, completeTodo, sweepEpicRollups, getTodo, updateTodo, _closeProject,
+  createTodo, completeTodo, sweepEpicRollups, getTodo, updateTodo, _closeProject, stampEpicLandedAt,
 } from '../todo-store';
 import {
   upsertMission, getMission, deleteMission,
@@ -618,6 +618,45 @@ describe('per-criterion discovery', () => {
       expect(cf.servedEpicCount).toBe(CRITERION_SERVE_CAP);
       expect(cf.servingEpicState).toBe('none'); // all dropped → no live/landed serving epic
       expect(deriveCriterionAction(cf)).toBe('escalate');
+    } finally {
+      _closeProject(proj);
+      _resetMissionDbCache(proj);
+      if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('collectMissionStatusFacts.servedEpicCount excludes hollow-landed epics from the serve-cap count', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mission-hollow-servecap-'));
+    const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+    const proj = join(dir, 'p');
+    try {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] HC', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'test criterion');
+
+      const iso = new Date().toISOString();
+
+      // File CRITERION_SERVE_CAP hollow epics serving c1 (zero children each, vacuously hollow).
+      for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+        const e = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: `[EPIC] hollow serve ${i}`, kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+        await updateTodo(proj, e.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+        stampEpicLandedAt(proj, e.id, iso);
+      }
+
+      // File one non-hollow epic: has one accepted child, then marked done + stamped.
+      const nonHollow = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] non-hollow serve', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+      const child = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: 'accepted child', parentId: nonHollow.id, status: 'ready' });
+      // Mark child done via updateTodo (bypassing completeTodo's roll-up).
+      await updateTodo(proj, child.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+      await updateTodo(proj, nonHollow.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+      stampEpicLandedAt(proj, nonHollow.id, iso);
+
+      const facts = collectMissionStatusFacts(proj, getMission(proj, m.id)!);
+      const cf = facts.criteria.find(c => c.id === c1.id)!;
+      expect(cf.servedEpicCount).toBe(1);
+      expect(cf.servingEpicState).toBe('landed');
     } finally {
       _closeProject(proj);
       _resetMissionDbCache(proj);
