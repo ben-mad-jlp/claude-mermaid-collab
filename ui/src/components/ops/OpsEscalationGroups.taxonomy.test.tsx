@@ -10,6 +10,7 @@ const mockState = {
   resetTodo: vi.fn(),
   overrideAcceptTodo: vi.fn(),
   resolveBudgetCap: vi.fn(),
+  acknowledgeEscalationCard: vi.fn(),
   decideEscalation: vi.fn(),
   resolveEscalation: vi.fn(),
   promoteTodo: vi.fn(),
@@ -104,15 +105,15 @@ describe('OpsEscalationGroups taxonomy coverage', () => {
     });
   });
 
-  // Criterion: token-burn calls resolveBudgetCap on Acknowledge click
-  it('token-burn: calls resolveBudgetCap on Acknowledge click', () => {
+  // Criterion: token-burn calls acknowledgeEscalationCard on Acknowledge click
+  it('token-burn: calls acknowledgeEscalationCard on Acknowledge click', () => {
     const esc = mkEscalation({ kind: 'token-burn' });
     render(<OpsEscalationGroups escalations={[esc]} serverScope="test-scope" />);
 
     const ackBtn = screen.getByRole('button', { name: /Acknowledge/i });
     fireEvent.click(ackBtn);
 
-    expect(mockState.resolveBudgetCap).toHaveBeenCalledWith('test-scope', 'esc-test-id');
+    expect(mockState.acknowledgeEscalationCard).toHaveBeenCalledWith('test-scope', 'esc-test-id');
   });
 
   // Criterion: criterion-serve-cap calls decideEscalation on option click
