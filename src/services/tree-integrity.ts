@@ -67,6 +67,100 @@ export function divergentTrackedFiles(repoRoot: string): DivergenceReport {
   return { resolved: true, files };
 }
 
+/** Get the currently-checked-out branch name. Returns null on failure or detached HEAD. */
+export function currentHeadBranch(repoRoot: string): string | null {
+  const result = git(repoRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  if (result.code !== 0) {
+    return null;
+  }
+  return result.out || null;
+}
+
+export interface PostLandGuardResult {
+  /** The checkout is on the baseRef (if baseRef was provided). */
+  onBaseRef: boolean;
+  /** Number of tracked files with uncommitted changes. */
+  trackedDirtyCount: number;
+  /** Tree mismatch detected (index tree !== HEAD^{tree}). */
+  mismatch: boolean;
+  /** Tree was restored to landSha via reset --hard. */
+  restored: boolean;
+  /** Restoration was skipped (unsafe to reset due to dirty work or off-base-ref branch). */
+  skippedUnsafe: boolean;
+  /** Snapshot commit ref if created (only set when restored === true). */
+  snapshotRef: string | null;
+  /** Tree status before restoration attempt. */
+  before: TreeStatus;
+  /** Tree status after restoration (or noop state if skipped). */
+  after: TreeStatus;
+  /** Tracked files that diverged between worktree/index and HEAD. */
+  divergentFiles: string[];
+}
+
+/** Single decision point for post-land tree restoration. Guards against unsafe resets
+ *  by checking (1) whether there is tracked-dirty work, and (2) whether HEAD is on the
+ *  base ref. Only resets when both are safe (no tracked dirty AND on baseRef).
+ *  Otherwise marks the outcome as skippedUnsafe and returns without modifying the tree. */
+export function guardPostLandTree(
+  repoRoot: string,
+  opts: {
+    masterSha?: string;
+    baseRef?: string;
+    trackedDirty: string[];
+  },
+): PostLandGuardResult {
+  const onBaseRef = !!opts.baseRef && currentHeadBranch(repoRoot) === opts.baseRef;
+  const before = treeStatus(repoRoot);
+  const mismatch = before.resolved && !before.match;
+  const divergentFiles = divergentTrackedFiles(repoRoot).files;
+
+  // No masterSha or no mismatch — nothing to restore.
+  if (!opts.masterSha || !mismatch) {
+    return {
+      onBaseRef,
+      trackedDirtyCount: opts.trackedDirty.length,
+      mismatch,
+      restored: false,
+      skippedUnsafe: false,
+      snapshotRef: null,
+      before,
+      after: before,
+      divergentFiles,
+    };
+  }
+
+  // Mismatch exists. Check if safe to restore.
+  const hasDirtyWork = opts.trackedDirty.length > 0;
+  if (hasDirtyWork || !onBaseRef) {
+    // Unsafe: either tracked dirty work present or not on base ref. Skip restoration.
+    return {
+      onBaseRef,
+      trackedDirtyCount: opts.trackedDirty.length,
+      mismatch,
+      restored: false,
+      skippedUnsafe: true,
+      snapshotRef: null,
+      before,
+      after: before,
+      divergentFiles,
+    };
+  }
+
+  // Safe: no tracked dirty, on base ref, and mismatch exists. Restore now.
+  const rep = restorePostLandTree(repoRoot, opts.masterSha);
+  return {
+    onBaseRef,
+    trackedDirtyCount: opts.trackedDirty.length,
+    mismatch,
+    restored: rep.restored && rep.after.match,
+    skippedUnsafe: false,
+    snapshotRef: rep.snapshotRef,
+    before: rep.before,
+    after: rep.after,
+    divergentFiles,
+  };
+}
+
 /**
  * The post-land repair. ONLY call when the tree was known-clean before the land
  * (otherwise `reset --hard` destroys real uncommitted work).

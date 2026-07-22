@@ -185,12 +185,11 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     expect((await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim()).toBe(before);
   });
 
-  it('closes the real-dirty gap: snapshots dirty work, resets --hard, tree syncs (write-tree == HEAD^{tree})', async () => {
+  it('skips post-land tree sync when real dirty work is present: leaves checkout untouched', async () => {
     await epicWith('feature.txt', 'epic-output\n');
 
     // Capture pre-land state: file is not on disk yet.
     expect(await exists(path.join(repo, 'feature.txt'))).toBe(false);
-    const preLandSha = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout.trim();
 
     // Leave real tracked uncommitted work in repo: modify base.txt and stage it.
     await fs.writeFile(path.join(repo, 'base.txt'), 'base-modified\n');
@@ -200,40 +199,38 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     const statusBefore = await runGit(repo, ['status', '--porcelain']);
     expect(statusBefore.stdout).toContain('M  base.txt');
 
-    // Land the epic over the dirty work.
-    const res = await mgr.landEpicToMaster(EPIC);
+    // Capture the base.txt content before land (dirty-state marker).
+    const baseContentBefore = await fs.readFile(path.join(repo, 'base.txt'), 'utf8');
+    expect(baseContentBefore).toBe('base-modified\n');
+
+    // Land the epic over the dirty work with progress monitoring.
+    const progress: Array<{ channel: string; msg: string }> = [];
+    const res = await mgr.landEpicToMaster(EPIC, {
+      onProgress: (channel, msg) => progress.push({ channel, msg }),
+    });
     expect(res.landed).toBe(true);
-    expect(res.treeSynced).toBe('reset-after-snapshot');
+    expect(res.treeSynced).toBe('skipped-dirty');
 
-    // Invariant: write-tree === HEAD^{tree} (tree is synced after snapshot-then-reset).
-    const writeTree = (await runGit(repo, ['write-tree'])).stdout.trim();
-    const headTree = (await runGit(repo, ['rev-parse', 'HEAD^{tree}'])).stdout.trim();
-    expect(writeTree).toBe(headTree);
-
-    // Invariant: the epic's file is now on disk (the land worked).
-    expect(await fs.readFile(path.join(repo, 'feature.txt'), 'utf8')).toBe('epic-output\n');
-
-    // Invariant: snapshot ref exists and is verifiable.
+    // Invariant: master advanced to the land commit.
     const masterSha = res.masterSha!;
-    // Find the snapshot ref (it has a dynamic timestamp).
-    const refListRes = await runGit(repo, ['for-each-ref', '--format=%(refname)', 'refs/snapshots/']);
-    expect(refListRes.code).toBe(0);
-    expect(refListRes.stdout).toMatch(/^refs\/snapshots\/pre-restore-\d+$/m);
-    const snapshotRef = refListRes.stdout.trim().split('\n')[0]; // Take the first (should be only one in this test).
+    const currentMaster = (await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim();
+    expect(currentMaster).toBe(masterSha);
 
-    // Verify the snapshot ref exists and points to a commit.
-    const verifySnapshot = await runGit(repo, ['rev-parse', '--verify', snapshotRef]);
-    expect(verifySnapshot.code).toBe(0);
-    const snapshotSha = verifySnapshot.stdout.trim();
+    // Invariant: the pre-land dirty content (base.txt modified) is UNCHANGED on disk.
+    // The main checkout was left untouched (not synced) so it still has the stale tree.
+    const baseContentAfter = await fs.readFile(path.join(repo, 'base.txt'), 'utf8');
+    expect(baseContentAfter).toBe('base-modified\n');
 
-    // Invariant: snapshot's tree contains the pre-land dirty content (base.txt modified).
-    const snapshotTree = (await runGit(repo, ['rev-parse', `${snapshotSha}^{tree}`])).stdout.trim();
-    const snapshotBaseContent = (await runGit(repo, ['show', `${snapshotSha}:base.txt`])).stdout;
-    expect(snapshotBaseContent).toBe('base-modified\n');
+    // Note: the epic's file is NOT on disk because the tree sync was skipped.
+    // The checkout remains stale (write-tree !== HEAD^{tree}), preserving uncommitted work.
+    // This is the safety guarantee: never reset when dirty work is present.
 
-    // Invariant: HEAD is still the land commit (never reset past it).
-    const currentHead = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout.trim();
-    expect(currentHead).toBe(masterSha);
+    // Invariant: onProgress received a message naming the dirty path and indicating skip.
+    const stderrMessages = progress.filter((p) => p.channel === 'stderr');
+    expect(stderrMessages.length).toBeGreaterThan(0);
+    const skipMsg = stderrMessages.find((m) => m.msg.includes('base.txt'));
+    expect(skipMsg).toBeTruthy();
+    expect(skipMsg?.msg).toContain('skipped');
 
     // Throwaway land worktree was torn down.
     expect(await exists(path.join(persistDir, 'worktrees', '__land-master__'))).toBe(false);
