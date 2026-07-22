@@ -29,7 +29,7 @@
  * A malformed/absent manifest NEVER breaks the global defaults — it just yields
  * null and the hard-coded profiles stand.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { RuntimeMode } from '../agent/contracts';
 import type { Capability } from './agent-profiles';
@@ -159,7 +159,7 @@ export interface ProjectManifest {
 }
 
 const MANIFEST_REL = join('.collab', 'project.json');
-const cache = new Map<string, ProjectManifest | null>();
+const cache = new Map<string, { manifest: ProjectManifest | null; mtimeMs: number | null }>();
 
 /** Where the manifest was looked for, and what was found there. `'malformed'` means the
  *  file EXISTS but is not a JSON object — a config error, never a silent default. */
@@ -170,7 +170,16 @@ export interface ManifestSource {
   manifest: ProjectManifest | null; // non-null iff state === 'ok'
 }
 
-const sourceCache = new Map<string, ManifestSource>();
+const sourceCache = new Map<string, { src: ManifestSource; mtimeMs: number | null }>();
+
+/** Get the mtime of a file in milliseconds, or null if the file doesn't exist or can't be stat'd. */
+function readMtimeMs(path: string): number | null {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
 
 /** Load + classify `<project>/.collab/project.json`, distinguishing an ABSENT manifest
  *  (no file, or no `gate`-relevant content) from a MALFORMED one (file exists but is not
@@ -178,11 +187,14 @@ const sourceCache = new Map<string, ManifestSource>();
  *  but must never be conflated by a caller that needs to tell "no gate declared" apart from
  *  "gate declaration is broken". */
 export function loadManifestSource(project: string): ManifestSource {
-  const cached = sourceCache.get(project);
-  if (cached !== undefined) return cached;
   const path = join(project, MANIFEST_REL);
+  const mtimeMs = readMtimeMs(path);
+  const cached = sourceCache.get(project);
+  if (cached !== undefined && cached.mtimeMs === mtimeMs) {
+    return cached.src;
+  }
   let src: ManifestSource;
-  if (!existsSync(path)) {
+  if (mtimeMs === null) {
     src = { path, state: 'absent', manifest: null };
   } else {
     try {
@@ -196,17 +208,21 @@ export function loadManifestSource(project: string): ManifestSource {
       src = { path, state: 'malformed', manifest: null };
     }
   }
-  sourceCache.set(project, src);
+  sourceCache.set(project, { src, mtimeMs });
   return src;
 }
 
 /** Load + cache `<project>/.collab/project.json`. Returns null when the file is
  *  absent or unparseable — a bad manifest must never take down the defaults. */
 export function loadProjectManifest(project: string): ProjectManifest | null {
+  const path = join(project, MANIFEST_REL);
+  const mtimeMs = readMtimeMs(path);
   const cached = cache.get(project);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && cached.mtimeMs === mtimeMs) {
+    return cached.manifest;
+  }
   const manifest = loadManifestSource(project).manifest;
-  cache.set(project, manifest);
+  cache.set(project, { manifest, mtimeMs });
   return manifest;
 }
 
@@ -263,7 +279,7 @@ export function addManifestPack(project: string, packId: string): string[] {
   const path = join(project, MANIFEST_REL);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(manifest, null, 2), 'utf8');
-  cache.set(project, manifest);
+  cache.set(project, { manifest, mtimeMs: readMtimeMs(path) });
   sourceCache.delete(project); // force a fresh loadManifestSource read on next call
   return packs;
 }

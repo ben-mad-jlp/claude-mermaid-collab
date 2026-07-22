@@ -548,6 +548,7 @@ export const MissionDetail: React.FC<{
   const [confirmHardDelete, setConfirmHardDelete] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
+  const [confirmPin, setConfirmPin] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
@@ -635,7 +636,7 @@ export const MissionDetail: React.FC<{
             <span className="text-3xs text-success-600 dark:text-success-400 px-1" title="This is the active mission for its session.">● active</span>
           )}
           <MiniButton
-            onClick={doPinToggle}
+            onClick={() => setConfirmPin(true)}
             disabled={busy}
             tone={isPinned ? 'primary' : 'default'}
             title={isPinned ? 'Unpin — the conductor picks its own target mission again' : 'Pin — make the conductor drive exactly this mission'}
@@ -643,7 +644,9 @@ export const MissionDetail: React.FC<{
           >
             {isPinned ? 'Unpin' : 'Pin'}
           </MiniButton>
-          <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} tone="danger" title="Drop this mission (soft-abandon — kept as a record, removed from the active view)" testid="mission-drop-btn">
+          {/* Drop is a SOFT abandon (record kept, re-activatable) — default tone;
+              red is reserved for the irreversible Delete. */}
+          <MiniButton onClick={() => setConfirmDelete(true)} disabled={busy} title="Drop this mission (soft-abandon — kept as a record, removed from the active view)" testid="mission-drop-btn">
             Drop
           </MiniButton>
           <MiniButton onClick={() => setEditing(true)} disabled={busy} title="Edit goal / description / procedure / cap" testid="mission-edit-btn">
@@ -710,6 +713,17 @@ export const MissionDetail: React.FC<{
           <EpicList epics={view.epics} />
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmPin}
+        title={isPinned ? 'Unpin the conductor?' : 'Pin the conductor to this mission?'}
+        message={isPinned
+          ? <>The conductor goes back to picking its own target mission. Any mission it selects may start building immediately.</>
+          : <>The conductor will drive <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong> exclusively — serving epics, verifying criteria, and landing work autonomously.</>}
+        confirmLabel={isPinned ? 'Unpin' : 'Pin'}
+        onCancel={() => setConfirmPin(false)}
+        onConfirm={() => { setConfirmPin(false); doPinToggle(); }}
+      />
 
       <ConfirmDialog
         isOpen={confirmDelete}
@@ -802,6 +816,7 @@ export const MissionCard: React.FC<{
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
+  const [confirmPin, setConfirmPin] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
@@ -975,7 +990,7 @@ export const MissionCard: React.FC<{
           <span className="text-3xs text-success-600 dark:text-success-400 px-1" title="This is the active mission for its session.">● active</span>
         )}
         <MiniButton
-          onClick={doPinToggle}
+          onClick={() => setConfirmPin(true)}
           disabled={busy}
           tone={isPinned ? 'primary' : 'default'}
           title={isPinned ? 'Unpin — the conductor picks its own target mission again' : 'Pin — make the conductor drive exactly this mission'}
@@ -1016,6 +1031,18 @@ export const MissionCard: React.FC<{
         onCancel={() => setConfirmActivate(false)}
         onConfirm={() => { setConfirmActivate(false); void run(() => activateMission(serverId, project, view.missionId!)); }}
       />
+
+      <ConfirmDialog
+        isOpen={confirmPin}
+        title={isPinned ? 'Unpin the conductor?' : 'Pin the conductor to this mission?'}
+        message={isPinned
+          ? <>The conductor goes back to picking its own target mission. Any mission it selects may start building immediately.</>
+          : <>The conductor will drive <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong> exclusively — serving epics, verifying criteria, and landing work autonomously.</>}
+        confirmLabel={isPinned ? 'Unpin' : 'Pin'}
+        onCancel={() => setConfirmPin(false)}
+        onConfirm={() => { setConfirmPin(false); doPinToggle(); }}
+      />
+
     </div>
   );
 };
