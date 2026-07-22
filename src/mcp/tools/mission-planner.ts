@@ -14,10 +14,31 @@ import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../../
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { config } from '../../config.js';
 import type { EffortLevel } from '../../agent/contracts.js';
-import { listCriteria } from '../../services/mission-store.js';
-import { updateTodo, type Todo } from '../../services/todo-store.js';
+import { listCriteria, listCriteriaWithActions, type CriterionAction } from '../../services/mission-store.js';
+import { listTodos, updateTodo, type Todo } from '../../services/todo-store.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
+import { isEpic } from '../../services/todo-kind.js';
+
+export class ServeIntegrityError extends Error {
+  readonly code = 'serve-integrity';
+  constructor(
+    readonly criterionId: string,
+    readonly derivedAction: CriterionAction,
+    readonly servingEpicId: string | undefined,
+    readonly servingEpicTitle: string | undefined,
+    readonly servingEpicState: 'landed' | 'open' | 'none',
+  ) {
+    const epicInfo = servingEpicId && servingEpicTitle
+      ? `epic ${servingEpicId.slice(0, 8)} ("${servingEpicTitle}")`
+      : 'a serving epic';
+    super(
+      `plan_mission_criterion refused: criterion ${criterionId.slice(0, 8)} is already being served by ${epicInfo} — ` +
+      `derived action is '${derivedAction}' (servingEpicState: ${servingEpicState}), not 'discover'.`,
+    );
+    this.name = 'ServeIntegrityError';
+  }
+}
 
 export interface PlannedLeaf {
   title: string;
@@ -126,6 +147,7 @@ export interface PlanCriterionInput {
 export interface PlanCriterionDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
   resolveCriteria?: (project: string, missionId: string, criterionIds: string[]) => { id: string; text: string }[];
+  resolveActions?: typeof listCriteriaWithActions;
 }
 export interface PlanCriterionResult {
   epicId: string;
@@ -141,6 +163,26 @@ function defaultResolveCriteria(project: string, missionId: string, criterionIds
   return listCriteria(project, missionId).filter((c) => want.has(c.id)).map((c) => ({ id: c.id, text: c.text }));
 }
 
+/** Find the live serving epic for a criterion, if any. Filters todos by
+ *  servesCriterionId/servesCriterionIds match and epic status, returning the id + title
+ *  or undefined if no serving epic exists. */
+function findServingEpic(
+  project: string,
+  criterionId: string,
+  servingEpicState: 'landed' | 'open' | 'none',
+): { id: string; title: string } | undefined {
+  if (servingEpicState === 'none') return undefined;
+  const allTodos = listTodos(project, { includeCompleted: true });
+  for (const todo of allTodos) {
+    if (!isEpic(todo) || todo.status === 'dropped') continue;
+    const serves = todo.servesCriterionId === criterionId || (todo.servesCriterionIds ?? []).includes(criterionId);
+    if (!serves) continue;
+    if (servingEpicState === 'landed' && todo.status === 'done') return { id: todo.id, title: todo.title };
+    if (servingEpicState === 'open' && todo.status !== 'done') return { id: todo.id, title: todo.title };
+  }
+  return undefined;
+}
+
 /** Plan ONE epic (serving the given criteria) via a specialist planner NODE, and instantiate it
  *  PROMOTED-TO-READY under the mission so the build daemon can pick it up. */
 export async function planMissionCriterion(
@@ -153,6 +195,24 @@ export async function planMissionCriterion(
   }
   const criteria = (deps.resolveCriteria ?? defaultResolveCriteria)(project, input.missionId, input.criterionIds);
   if (criteria.length === 0) throw new Error('plan_mission_criterion: none of the criterionIds match this mission');
+
+  // Serve-integrity guard: refuse if any requested criterion is already being served (not in 'discover' state).
+  // This prevents the conductor from filing duplicate serving epics on stale mission snapshots.
+  const actions = (deps.resolveActions ?? listCriteriaWithActions)(project, input.missionId);
+  const byId = new Map(actions.map((a) => [a.id, a]));
+  for (const criterionId of input.criterionIds) {
+    const action = byId.get(criterionId);
+    if (action && action.action !== 'discover') {
+      const serving = findServingEpic(project, criterionId, action.servingEpicState);
+      throw new ServeIntegrityError(
+        criterionId,
+        action.action,
+        serving?.id,
+        serving?.title,
+        action.servingEpicState,
+      );
+    }
+  }
 
   const provider = resolveNodeProvider(project, 'planner', ORCHESTRATION_NODE_PROFILE.planner.allowedTools);
   const model = input.model ?? resolveNodeModel(project, 'planner', provider, ORCHESTRATION_NODE_PROFILE.planner.model);
