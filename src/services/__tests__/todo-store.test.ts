@@ -1918,3 +1918,44 @@ describe('tier schema', () => {
     });
   });
 });
+
+describe('short-id write resolution', () => {
+  test('updateTodo short-id drop persists', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'short-id-drop' });
+    const shortId = t.id.slice(0, 8);
+    await updateTodo(project, shortId, { status: 'dropped' });
+    const fetched = getTodo(project, t.id);
+    expect(fetched!.status).toBe('dropped');
+  });
+
+  test('updateTodo short-id hold persists', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'short-id-hold', status: 'ready' });
+    const shortId = t.id.slice(0, 8);
+    await updateTodo(project, shortId, { status: 'blocked' });
+    const fetched = getTodo(project, t.id);
+    expect(fetched!.heldAt).not.toBeNull();
+    expect(fetched!.heldReason).toBe('manual');
+  });
+
+  test('resetTodo short-id drop persists', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'short-id-reset' });
+    const shortId = t.id.slice(0, 8);
+    await resetTodo(project, shortId, 'dropped');
+    const fetched = getTodo(project, t.id);
+    expect(fetched!.status).toBe('dropped');
+  });
+
+  test('missing-row short id throws for all three write verbs, no phantom success', async () => {
+    const nonMatchingId = 'deadbeef';
+    await expect(updateTodo(project, nonMatchingId, { status: 'dropped' })).rejects.toThrow('todo not found');
+    await expect(resetTodo(project, nonMatchingId, 'dropped')).rejects.toThrow('todo not found');
+    await expect(completeTodo(project, nonMatchingId, 'accepted')).rejects.toThrow('todo not found');
+  });
+
+  test('full id still works unchanged (edge sanity)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'full-id-works' });
+    await updateTodo(project, t.id, { status: 'dropped' });
+    const fetched = getTodo(project, t.id);
+    expect(fetched!.status).toBe('dropped');
+  });
+});
