@@ -20,6 +20,8 @@ describe('leaf-subprocess-registry (live process-group kill)', () => {
   it('killLeafSubtree kills the detached parent AND its forked child', async () => {
     // Parent forks a backgrounded child then sleeps — two pids in one group.
     const oldEnv = process.env.MERMAID_TEST_ALLOW_DETACHED;
+    let parent: number | undefined;
+    let tree: number[] = [];
     try {
       process.env.MERMAID_TEST_ALLOW_DETACHED = '1';
       const proc = Bun.spawn(['bash', '-c', 'sleep 30 & sleep 30'], {
@@ -27,7 +29,7 @@ describe('leaf-subprocess-registry (live process-group kill)', () => {
         stdout: 'ignore',
         stderr: 'ignore',
       } as Parameters<typeof Bun.spawn>[1]);
-      const parent = proc.pid!;
+      parent = proc.pid!;
       await Bun.sleep(250); // let the child fork
 
       const childList = (
@@ -37,7 +39,7 @@ describe('leaf-subprocess-registry (live process-group kill)', () => {
         .split('\n')
         .filter(Boolean)
         .map(Number);
-      const tree = [parent, ...childList];
+      tree = [parent, ...childList];
       expect(await aliveCount(tree)).toBeGreaterThanOrEqual(2); // parent + ≥1 child alive
 
       registerLeafProc('LIVE', parent, '/p');
@@ -46,6 +48,25 @@ describe('leaf-subprocess-registry (live process-group kill)', () => {
 
       expect(await aliveCount(tree)).toBe(0); // whole subtree gone
     } finally {
+      // Best-effort group-kill to ensure no survivor processes are left on the machine
+      if (parent !== undefined) {
+        try {
+          process.kill(-parent, 'SIGKILL');
+        } catch {
+          // group already gone or never became a leader
+        }
+      }
+
+      // Defense-in-depth: individually SIGKILL each captured pid
+      for (const p of tree) {
+        try {
+          process.kill(p, 'SIGKILL');
+        } catch {
+          // already dead
+        }
+      }
+
+      // Restore the env var
       if (oldEnv !== undefined) {
         process.env.MERMAID_TEST_ALLOW_DETACHED = oldEnv;
       } else {
