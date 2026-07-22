@@ -259,6 +259,7 @@ export interface CreateTodoInput {
    *  children under the `bugfix` bucket. Caller-settable (unlike bucketType). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
   tier?: LeafTier;
+  approvedBy?: string | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -1593,7 +1594,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     // for a derived status (ready/blocked/in_progress) is a decision, not a stored
     // status: translate to approvedAt/heldAt and persist the non-derived status.
     const requested = input.status ?? 'todo';
-    const tr = translateStatusWrite(requested, 'planned'); // no prior status on create
+    const tr = translateStatusWrite(requested, 'planned', input.approvedBy); // no prior status on create
     const status = tr.storedStatus;
     const approvedAt = tr.approvedAt !== undefined ? tr.approvedAt : null;
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;

@@ -410,6 +410,7 @@ export async function addSessionTodo(
      *  epic/mission/land callers MUST say so. */
     kind?: TodoKind;
     tier?: LeafTier;
+    approvedBy?: string | null;
   },
 ): Promise<Todo> {
   const { title: _extrasTitle, files, type, inbox, kind: kindArg, ...extrasRest } = extras ?? {};

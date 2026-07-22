@@ -104,7 +104,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
     case 'approve_mission': {
       const { project, todoId, approvedBy } = args as { project: string; todoId: string; approvedBy?: string };
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
-      const result = approveMissionAndConstitution(project, todoId, approvedBy ?? 'human');
+      const result = await approveMissionAndConstitution(project, todoId, approvedBy ?? 'human');
       const t = getTodo(project, todoId);
       if (t) getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: t.ownerSession, ownerSession: t.ownerSession, assigneeSession: t.assigneeSession ?? undefined });
       return JSON.stringify({ ...result, rollup: getMissionRollup(project, todoId), constitutionHealth: missionConstitutionHealth(project, todoId) }, null, 2);

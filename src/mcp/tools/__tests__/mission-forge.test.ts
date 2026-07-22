@@ -17,8 +17,9 @@ beforeEach(() => {
 import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMissionAndConstitution, parseForgeSpec } from '../mission-forge';
 import { getMission, getMissionRollup, listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
 import { listDecisionRecords, _closeProject as closeDecisions } from '../../../services/decision-record-store';
-import { getTodo, _closeProject as closeTodos } from '../../../services/todo-store';
+import { getTodo, _closeProject as closeTodos, listTodos } from '../../../services/todo-store';
 import { composeInjectedContext } from '../../../services/prompt-injection';
+import { claimReason } from '../../../services/claimability';
 
 afterEach(() => {
   _resetMissionDbCache(project);
@@ -184,13 +185,39 @@ describe('forgeMissionFromDoc — server forge node → unapproved mission', () 
 
   test('approve_mission ratifies it: status leaves unapproved, active, constraints go active + inject', async () => {
     const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
-    const { mission, approvedConstraints } = approveMissionAndConstitution(project, r.missionId, 'ben');
+    const { mission, approvedConstraints } = await approveMissionAndConstitution(project, r.missionId, 'ben');
     expect(mission.status).not.toBe('unapproved');
     expect(mission.active).toBe(true);
     expect(approvedConstraints).toHaveLength(1);
     expect(missionConstitutionHealth(project, r.missionId).flag).toBe('ok');
     // NOW the constraint reaches a build node.
     expect(composeInjectedContext({ kind: 'blueprint', project, epicId: null, flags: { digest: false, retryContext: false, activeConstraints: true } })).toContain('the mechanical gate stays PRE-land');
+  });
+
+  test('forgeMission with approved:true stamps approvedBy so claimReason flips to claimable', async () => {
+    const r = await forgeMission(project, { ...base(), approved: true });
+    const node = getTodo(project, r.missionId);
+    const allTodos = listTodos(project, { session: 's1', includeCompleted: true });
+    const byId = new Map(allTodos.map((t) => [t.id, t]));
+    expect(claimReason(node!, byId)).toBe('claimable');
+    expect(node?.approvedBy).toBe('s1'); // stamped during create
+  });
+
+  test('forgeMission with approved:false leaves node unapproved; approve_mission stamps approvedBy', async () => {
+    const r = await forgeMission(project, { ...base(), approved: false });
+    const nodeBefore = getTodo(project, r.missionId);
+    const allTodosBefore = listTodos(project, { session: 's1', includeCompleted: true });
+    const byIdBefore = new Map(allTodosBefore.map((t) => [t.id, t]));
+    expect(claimReason(nodeBefore!, byIdBefore)).toBe('unapproved');
+    expect(nodeBefore?.approvedBy).toBeNull();
+
+    // Approve the mission
+    await approveMissionAndConstitution(project, r.missionId, 'ben');
+    const nodeAfter = getTodo(project, r.missionId);
+    const allTodosAfter = listTodos(project, { session: 's1', includeCompleted: true });
+    const byIdAfter = new Map(allTodosAfter.map((t) => [t.id, t]));
+    expect(claimReason(nodeAfter!, byIdAfter)).toBe('claimable');
+    expect(nodeAfter?.approvedBy).toBe('ben');
   });
 
   test('the node model/effort default to forge (opus/high) and are returned', async () => {
