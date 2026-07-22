@@ -65,4 +65,27 @@ describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
     expect(esc2.id).not.toBe(esc1.id); // Different row is minted.
     expect(esc2.status).toBe('open'); // New escalation is open.
   });
+
+  it('acknowledgeEscalation(id, acknowledgedBy) stamps resolvedBy with resolvedAt null', () => {
+    const triple = { project: '/test', session: 'sess-3', kind: TOKEN_BURN_KIND, questionText: 'serve limit reached' };
+
+    // Create the escalation.
+    const { escalation: esc1, isNew: isNew1 } = createEscalation(triple);
+    expect(isNew1).toBe(true);
+    expect(esc1.status).toBe('open');
+
+    // Acknowledge it with 'human' as the acknowledgedBy.
+    const acknowledged = acknowledgeEscalation(esc1.id, 'human');
+    expect(acknowledged).not.toBeNull();
+    expect(acknowledged!.status).toBe('acknowledged');
+    expect(acknowledged!.resolvedBy).toBe('human'); // Stamped with acknowledgedBy.
+    expect(acknowledged!.resolvedAt).toBeNull(); // NOT marked as resolved.
+
+    // Try to create the escalation again with the SAME (project, session, questionText).
+    // The dedup query includes 'acknowledged', so it should return the existing row.
+    const { escalation: esc2, isNew: isNew2 } = createEscalation(triple);
+    expect(isNew2).toBe(false); // Re-raise is blocked.
+    expect(esc2.id).toBe(esc1.id); // Same row is returned.
+    expect(esc2.status).toBe('acknowledged'); // Status is still acknowledged.
+  });
 });

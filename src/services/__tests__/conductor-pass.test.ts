@@ -9,7 +9,7 @@ const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
+import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
@@ -439,6 +439,20 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     );
     expect(open.length).toBe(1);
     expect(invokeCalls).toBe(0);
+
+    // Third pass after acknowledging: acknowledged cards are also de-duped; no re-raise.
+    const cardId = open[0].id;
+    acknowledgeEscalation(cardId);
+
+    const r3 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r3.escalationsRaised).toBe(0); // No duplicate is filed for acknowledged card.
+
+    // Exactly one escalation matches the criterion marker (now in acknowledged state).
+    const allMatching = listEscalations().filter(
+      (e) => e.kind === CRITERION_SERVE_CAP_KIND && e.todoId === forged.missionId && e.questionText.includes(serveCapMarker(crit.id)),
+    );
+    expect(allMatching.length).toBe(1);
+    expect(allMatching[0].status).toBe('acknowledged');
   });
 });
 
