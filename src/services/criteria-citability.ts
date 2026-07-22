@@ -15,6 +15,11 @@ import { ABSENCE_RESULT } from './node-commands';
 
 export type UncitableKind = 'command-result' | 'absence' | 'out-of-diff-location';
 
+export interface CriteriaCitabilityOpts {
+  testOnly?: boolean;
+  citationExistsAtBase?: (path: string, line: number) => boolean;
+}
+
 export interface CriterionVerdict {
   text: string;
   citable: boolean;
@@ -96,6 +101,7 @@ function acquitOnResolvingCitation(text: string, declaredFiles: readonly string[
 function convictOnOutOfDiffLocation(
   text: string,
   declaredFiles: readonly string[],
+  opts?: CriteriaCitabilityOpts,
 ): { uncitable: boolean; reason?: string } {
   if (declaredFiles.length === 0) {
     // No manifest — abstain on ignorance, never convict
@@ -115,12 +121,19 @@ function convictOnOutOfDiffLocation(
     return { uncitable: false };
   }
 
+  // When testOnly and citationExistsAtBase are both set, check if any citation resolves at base
+  if (opts?.testOnly && opts.citationExistsAtBase) {
+    if (citations.some((c) => opts.citationExistsAtBase!(c.path, c.line))) {
+      return { uncitable: false };
+    }
+  }
+
   // Citations found, none resolve, and we have a manifest
   const raw = citations[0]!.raw;
   const line = citations[0]!.line;
   return {
     uncitable: true,
-    reason: `criterion cites "${raw}:${line}", which is not in the leaf's declared change-set`,
+    reason: `criterion cites "${raw}:${line}", which is not in the leaf's declared change-set${opts?.testOnly ? ' and does not exist at base' : ''}`,
   };
 }
 
@@ -254,6 +267,7 @@ export function assertsCitableArtifact(text: string): boolean {
 export function classifyCriterion(
   text: string,
   declaredFiles: readonly string[],
+  opts?: CriteriaCitabilityOpts,
 ): CriterionVerdict {
   // Rule 0: ACQUIT on a resolving citation
   if (acquitOnResolvingCitation(text, declaredFiles)) {
@@ -269,7 +283,7 @@ export function classifyCriterion(
   }
 
   // Rule 1: CONVICT on out-of-diff-location
-  const rule1 = convictOnOutOfDiffLocation(text, declaredFiles);
+  const rule1 = convictOnOutOfDiffLocation(text, declaredFiles, opts);
   if (rule1.uncitable) {
     return { text, citable: false, kind: 'out-of-diff-location', reason: rule1.reason };
   }
@@ -300,6 +314,7 @@ export function classifyCriterion(
 export function validateCriteriaCitability(
   blueprintMd: string,
   declaredFiles: readonly string[],
+  opts?: CriteriaCitabilityOpts,
 ): CriteriaCitability {
   const criteria = parseBlueprintCriteria(blueprintMd);
 
@@ -308,7 +323,7 @@ export function validateCriteriaCitability(
     return { status: 'abstain', verdicts: [], offenders: [], reasons: [] };
   }
 
-  const verdicts = criteria.map((c) => classifyCriterion(c, declaredFiles));
+  const verdicts = criteria.map((c) => classifyCriterion(c, declaredFiles, opts));
   const offenders = verdicts.filter((v) => !v.citable);
 
   if (offenders.length === 0) {
