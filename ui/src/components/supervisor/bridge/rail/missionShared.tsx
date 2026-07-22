@@ -627,7 +627,7 @@ export const MissionDetail: React.FC<{
               Approve
             </MiniButton>
           )}
-          {!view.active && (
+          {!view.active && view.status !== 'unapproved' && (
             <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
               Activate
             </MiniButton>
@@ -799,7 +799,7 @@ export function missionView(m: MissionSummary): MissionView {
   const criteria = m.criteria ?? [];
   const epics = m.epics ?? [];
   const owner = m.ownerSession ?? m.assigneeSession ?? null;
-  const active = m.mission?.active !== false;
+  const active = status !== 'unapproved' && m.mission?.active !== false;
   const missionId = m.node?.id;
 
   return { phase, status, iteration, maxIterations, converged, stopped, stopReason, procedure, cap, mech, criteria, epics, owner, active, missionId };
@@ -820,6 +820,7 @@ export const MissionCard: React.FC<{
   const [busy, setBusy] = useState(false);
 
   const activateMission = useSupervisorStore((s) => s.activateMission);
+  const approveMission = useSupervisorStore((s) => s.approveMission);
   const updateMission = useSupervisorStore((s) => s.updateMission);
   const deleteMission = useSupervisorStore((s) => s.deleteMission);
   const addMissionCriterion = useSupervisorStore((s) => s.addMissionCriterion);
@@ -850,6 +851,11 @@ export const MissionCard: React.FC<{
     void run(() => activateMission(serverId, project, view.missionId!));
   };
 
+  const doApprove = () => {
+    if (!view.missionId) return;
+    void run(() => approveMission(serverId, project, view.missionId!));
+  };
+
   const doPinToggle = () => {
     if (!view.missionId) return;
     void setConductorTarget(serverId, project, isPinned ? null : view.missionId!).then(setPinnedTarget);
@@ -871,7 +877,7 @@ export const MissionCard: React.FC<{
           className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-snug line-clamp-2 flex items-center gap-1"
           title={m.node?.title}
         >
-          {!view.active && (
+          {!view.active && view.status !== 'unapproved' && (
             <span className="shrink-0 text-3xs font-normal not-italic text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-gray-600 rounded px-1" title="Paused">
               paused
             </span>
@@ -981,7 +987,12 @@ export const MissionCard: React.FC<{
 
       {/* Authoring action row */}
       <div className="flex items-center gap-1 pt-1 border-t border-gray-100 dark:border-gray-700/60">
-        {!view.active && (
+        {view.status === 'unapproved' && (
+          <MiniButton onClick={doApprove} disabled={busy} tone="primary" title="Approve this mission — activates it and ratifies its proposed constraints" testid="mission-approve-btn">
+            Approve
+          </MiniButton>
+        )}
+        {!view.active && view.status !== 'unapproved' && (
           <MiniButton onClick={doActivate} disabled={busy} tone="primary" title="Make this the active mission (pauses the session's other missions)" testid="mission-activate-btn">
             Activate
           </MiniButton>
