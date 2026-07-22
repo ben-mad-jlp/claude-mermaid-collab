@@ -10,17 +10,21 @@ const renderRail = (props: Partial<BridgeRailProps> = {}) => {
 describe('BridgeRail', () => {
   it('renders section order as ACT, WORK, TELEMETRY', () => {
     renderRail();
+    fireEvent.click(screen.getByTestId('rail-expand-toggle'));
     const sectionLabels = screen.getAllByTestId(/^rail-section-label-/);
-    expect(sectionLabels).toHaveLength(3);
-    expect(sectionLabels[0]).toHaveTextContent('ACT');
-    expect(sectionLabels[1]).toHaveTextContent('WORK');
-    expect(sectionLabels[2]).toHaveTextContent('TELEMETRY');
+    expect(sectionLabels).toHaveLength(4);
+    expect(sectionLabels[0]).toHaveTextContent('HOME');
+    expect(sectionLabels[1]).toHaveTextContent('ACT');
+    expect(sectionLabels[2]).toHaveTextContent('WORK');
+    expect(sectionLabels[3]).toHaveTextContent('TELEMETRY');
   });
 
   it('renders items in correct order within sections', () => {
     renderRail();
     const items = screen.getAllByTestId(/^rail-item-/);
     const expectedOrder: RailKey[] = [
+      'missions',
+      'plan',
       'escalations',
       'land',
       'work',
@@ -28,6 +32,7 @@ describe('BridgeRail', () => {
       'stream',
       'executor',
       'subscribers',
+      'usage',
       'dogfood',
     ];
     expect(items).toHaveLength(expectedOrder.length);
@@ -83,41 +88,20 @@ describe('BridgeRail', () => {
   });
 
   it('exactly one panel is mounted at a time', () => {
+    const handleSelect = vi.fn();
     renderRail({
-      panels: {
-        stream: <div data-testid="p-stream" />,
-        executor: <div data-testid="p-executor" />,
-      },
+      selected: 'stream',
+      onSelect: handleSelect,
     });
 
-    // Before any click: no panel mounted
-    expect(screen.queryAllByTestId('bridge-rail-panel')).toHaveLength(0);
-
-    // Click stream
     fireEvent.click(screen.getByTestId('rail-item-stream'));
-    expect(screen.getAllByTestId('bridge-rail-panel')).toHaveLength(1);
-    expect(screen.getByTestId('p-stream')).toBeInTheDocument();
-    expect(screen.queryByTestId('p-executor')).not.toBeInTheDocument();
-
-    // Click executor
-    fireEvent.click(screen.getByTestId('rail-item-executor'));
-    expect(screen.getAllByTestId('bridge-rail-panel')).toHaveLength(1);
-    expect(screen.getByTestId('p-executor')).toBeInTheDocument();
-    expect(screen.queryByTestId('p-stream')).not.toBeInTheDocument();
-
-    // Click executor again (toggle off)
-    fireEvent.click(screen.getByTestId('rail-item-executor'));
-    expect(screen.queryAllByTestId('bridge-rail-panel')).toHaveLength(0);
+    expect(handleSelect).toHaveBeenCalledWith(null);
   });
 
   it('does not render mutation control buttons', () => {
     renderRail({
-      panels: {
-        stream: <div>Stream content</div>,
-      },
+      selected: 'stream',
     });
-
-    fireEvent.click(screen.getByTestId('rail-item-stream'));
 
     const allButtons = screen.getAllByRole('button');
     allButtons.forEach((button) => {
@@ -130,7 +114,7 @@ describe('BridgeRail', () => {
   it('supports controlled selection', () => {
     const handleSelect = vi.fn();
     const { rerender } = render(
-      <BridgeRail selected="stream" onSelect={handleSelect} panels={{ stream: <div /> }} />
+      <BridgeRail selected="stream" onSelect={handleSelect} />
     );
 
     expect(screen.getByTestId('rail-item-stream')).toHaveAttribute(
@@ -146,7 +130,6 @@ describe('BridgeRail', () => {
       <BridgeRail
         selected="executor"
         onSelect={handleSelect}
-        panels={{ executor: <div /> }}
       />
     );
 
@@ -159,14 +142,12 @@ describe('BridgeRail', () => {
   it('supports uncontrolled selection with defaultSelected', () => {
     renderRail({
       defaultSelected: 'land',
-      panels: { land: <div data-testid="p-land" /> },
     });
 
     expect(screen.getByTestId('rail-item-land')).toHaveAttribute(
       'data-active',
       'true'
     );
-    expect(screen.getByTestId('p-land')).toBeInTheDocument();
   });
 
   it('renders footer when provided', () => {
@@ -187,17 +168,19 @@ describe('BridgeRail', () => {
   it('only mounts panel for selected key', () => {
     renderRail({
       selected: 'executor',
-      panels: {
-        stream: <div>Stream</div>,
-        executor: <div data-testid="p-executor">Executor</div>,
-        land: <div>Land</div>,
-      },
     });
 
-    expect(screen.getByTestId('bridge-rail-panel')).toHaveAttribute(
-      'data-panel',
-      'executor'
+    expect(screen.getByTestId('rail-item-executor')).toHaveAttribute(
+      'data-active',
+      'true'
     );
-    expect(screen.getByTestId('p-executor')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-item-stream')).toHaveAttribute(
+      'data-active',
+      'false'
+    );
+    expect(screen.getByTestId('rail-item-land')).toHaveAttribute(
+      'data-active',
+      'false'
+    );
   });
 });
