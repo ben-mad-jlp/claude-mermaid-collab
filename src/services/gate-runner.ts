@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import type { Todo } from './todo-store';
 import type { ProjectManifest } from '../config/project-manifest';
 import type { GateVerdict } from './coordinator-daemon';
-import { resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
+import { resolveLeafGate, resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
 
 /** Resolution tiers, most-specific-LAST in number but resolved core-first. A
  *  core plugin (collab-shipped, domain-free) is considered before a domain plugin
@@ -562,13 +562,16 @@ export const impactedSuiteGatePlugin: GatePlugin = {
   appliesTo: (obj) => {
     // Apply to any leaf when test lanes are declared (reuse leaf-gate's helpers).
     // This applies to BACKEND leaves primarily (the manifestCommandGatePlugin is for all).
-    const gateConfig = obj.manifest?.gate;
-    if (!gateConfig) return false;
-    const lanes = resolveLanes(gateConfig as any);
+    // MUST go through resolveLeafGate: it validates AND compiles lane `match` strings
+    // into RegExps — the raw manifest's string matches have no .test() and crash
+    // routeSpecsToLanes ("l.match.test is not a function", rejecting correct work).
+    const cfg = resolveLeafGate((obj.manifest as any) ?? null);
+    if (!cfg) return false;
+    const lanes = resolveLanes(cfg);
     return lanes !== null;
   },
   run: async (ctx): Promise<GateVerdict | null> => {
-    const cfg = ctx.manifest?.gate;
+    const cfg = resolveLeafGate((ctx.manifest as any) ?? null);
     if (!cfg) return null;
 
     // 1. tsc first (shared helper). A tsc failure rejects before we bother with tests.
@@ -582,7 +585,7 @@ export const impactedSuiteGatePlugin: GatePlugin = {
     }
 
     // 3. Resolve test lanes.
-    const lanes = resolveLanes(cfg as any);
+    const lanes = resolveLanes(cfg);
     if (!lanes || lanes.length === 0) return null;
 
     // 4. Select impacted specs: own specs + specs consuming changed modules.

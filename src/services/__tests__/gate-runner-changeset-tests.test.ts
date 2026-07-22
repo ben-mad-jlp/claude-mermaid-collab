@@ -177,3 +177,48 @@ describe('changeSetTestGatePlugin', () => {
     expect(resolveGatePlugin(nonUi, 'backend')?.id).toBe('manifest-command');
   });
 });
+
+describe('impactedSuiteGatePlugin — raw manifest lanes are compiled, never used verbatim', () => {
+  // Regression (mission 96c60653, leaf ac0e1909): the plugin fed resolveLanes the RAW
+  // manifest gate block, whose lane `match` fields are strings — routeSpecsToLanes then
+  // crashed on l.match.test(spec) ("l.match.test is not a function") and the thrown
+  // error fail-closed REJECTED a review-green leaf. The plugin must route through
+  // resolveLeafGate so lane matches are validated + compiled to RegExps.
+  const RAW_MANIFEST = {
+    gate: {
+      typecheck: 'true',
+      tests: [
+        { match: '^src/', command: 'bun test {file}' },
+        { match: '^ui/', command: 'bunx vitest --run {files}', cwd: 'ui' },
+      ],
+    },
+  };
+
+  it('appliesTo accepts a raw string-match manifest without throwing', async () => {
+    const { impactedSuiteGatePlugin } = await import('../gate-runner');
+    const ctx = makeCtx({ manifest: RAW_MANIFEST as any });
+    expect(() => impactedSuiteGatePlugin.appliesTo(ctx, 'backend')).not.toThrow();
+    expect(impactedSuiteGatePlugin.appliesTo(ctx, 'backend')).toBe(true);
+  });
+
+  it('run routes a spec through compiled lanes instead of crashing on string match', async () => {
+    const { impactedSuiteGatePlugin } = await import('../gate-runner');
+    const ctx = makeCtx({
+      manifest: RAW_MANIFEST as any,
+      // exec serves: typecheck (code 0), change-set listing, spec runs.
+      exec: async (cmd: string[]) => {
+        const joined = cmd.join(' ');
+        if (joined.includes('diff') || joined.includes('status')) {
+          return { code: 0, stdout: 'src/services/__tests__/foo.test.ts\n', stderr: '' };
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    const verdict = await impactedSuiteGatePlugin.run(ctx);
+    // The exact verdict shape depends on the change-set plumbing; the regression bar
+    // is only: no "l.match.test is not a function" crash surfacing as a reject.
+    if (verdict && !verdict.passed) {
+      expect(verdict.reasons.join(' ')).not.toContain('is not a function');
+    }
+  });
+});

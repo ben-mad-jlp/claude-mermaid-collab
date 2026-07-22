@@ -2,9 +2,9 @@
  * SessionCard — the shared status card used by both the "Watching"
  * (SubscriptionsPanel) and "Supervisor" (SupervisorPanel) sidebar sections.
  *
- * The card and its click side-effects (create terminal, focus browser tab)
- * are identical across both panels so a supervised card behaves exactly like
- * a watched one. Variant-specific affordances are
+ * The card and its click side-effects (create terminal, focus browser tab,
+ * open the terminal store) are identical across both panels so a supervised
+ * card behaves exactly like a watched one. Variant-specific affordances are
  * opt-in via props:
  *   - Watching: pass `onUnsubscribe` + the drag handlers + `draggable`.
  *   - Supervisor: pass `locked` / `escalated` to show the inline indicators.
@@ -14,6 +14,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBrowserStore } from '@/stores/browserStore';
+import { useTerminalStore } from '@/stores/terminalStore';
 import { ServerIcon } from '@/components/ServerIcon';
 
 const CLAUDE_PIX_BASE = '/claudepix';
@@ -157,9 +158,9 @@ export interface SessionCardData {
 
 /**
  * Fire the click side-effects for a card: create a terminal on the row's
- * server (if it supports tmux) and focus its browser tab. Per-server IPC
- * keeps the "active server" unchanged when clicking an off-active row.
- * Shared so Watching and Supervisor behave identically.
+ * server (if it supports tmux), focus its browser tab, and open the terminal
+ * store. Per-server IPC keeps the "active server" unchanged when clicking an
+ * off-active row. Shared so Watching and Supervisor behave identically.
  */
 export async function activateSessionCard(sub: SessionCardData, serverLabel?: string): Promise<void> {
   const mc = (window as any).mc;
@@ -194,6 +195,10 @@ export async function activateSessionCard(sub: SessionCardData, serverLabel?: st
     }).catch(() => {});
   }
   useBrowserStore.getState().activateSession(sub.session);
+  void useTerminalStore.getState().openFor(sub.project, sub.session, {
+    serverId: sub.serverId,
+    serverLabel,
+  });
 }
 
 export const SessionCard: React.FC<{
