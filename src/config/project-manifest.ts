@@ -148,6 +148,11 @@ export interface ProjectManifest {
        *  from the spec paths before substitution. Omitted ⇒ worktree root. */
       cwd?: string;
     }>;
+    /** Change-set-scoped project typecheck lanes: the FULL command runs once, in
+     *  `cwd`, whenever ANY change-set path matches `match` — no {file}/{files}
+     *  substitution (unlike `tests`). For a project sub-tree with its own
+     *  tsconfig.json (e.g. ui/) that the whole-repo `typecheck` does not cover. */
+    typechecks?: Array<{ match: string; command: string; cwd?: string }>;
     /** Full-suite command run ONLY at the epic base, once per epic. */
     baseTest?: string;
   };

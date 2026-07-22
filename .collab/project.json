@@ -9,6 +9,9 @@
       { "match": "^src/", "command": "bun test {file}" },
       { "match": "^scripts/", "command": "bun test {file}" },
       { "match": "^ui/", "command": "bunx vitest --run {files}", "cwd": "ui" }
+    ],
+    "typechecks": [
+      { "match": "^ui/", "command": "npx tsc --noEmit -p tsconfig.json", "cwd": "ui" }
     ]
   }
 }
