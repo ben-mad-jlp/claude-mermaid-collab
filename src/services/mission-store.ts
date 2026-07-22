@@ -17,7 +17,7 @@
 import Database from 'bun:sqlite';
 import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { listTodos, resolveShortId } from './todo-store.ts';
+import { listTodos, resolveShortId, isHollowLand, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
@@ -1118,9 +1118,14 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
               now - Date.parse(e.createdAt) < CHILDLESS_SERVE_GRACE_MS)
           ));
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick
-      // accrues its true thrash history (the serve-cap escalation trigger).
+      // accrues its true thrash history (the serve-cap escalation trigger). EXCEPT hollow-
+      // landed done epics, which don't burn the cap (LS-1).
+      const isHollowDone = (e: Todo) => e.status === 'done' && (
+        e.hollowLandedAt != null ||
+        isHollowLand(e, allTodos.filter((t) => t.parentId === e.id && !isEpic(t)))
+      );
       const servedEpicCount = allEpicsEver.filter(
-        (e) => e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id),
+        (e) => (e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id)) && !isHollowDone(e),
       ).length;
       return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive, servedEpicCount };
     }),
