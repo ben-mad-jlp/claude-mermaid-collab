@@ -307,6 +307,22 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
   it('epic base moved → fresh (never resume against a changed world)', () => {
     expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA)).toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
   });
+  it('epic base moved + implement completed (resume row) → rebase-continue', () => {
+    expect(planResume({ merged: false, phase: 'review', epicBaseSha: 'old' }, SHA, false, null, true))
+      .toEqual({ mode: 'rebase-continue', reason: 'epic-base-moved-rebase' });
+  });
+  it('epic base moved + implement NOT completed (resume row) → fresh (guard preserved)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA, false, null, false))
+      .toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+  });
+  it('epic base moved + implement completed (no-resume-row) → rebase-continue', () => {
+    expect(planResume(null, SHA, true, 'old', true))
+      .toEqual({ mode: 'rebase-continue', reason: 'epic-base-moved-rebase' });
+  });
+  it('base unchanged + implement completed → still reattach-blueprint (hasCompletedImplement never overrides)', () => {
+    expect(planResume({ merged: false, phase: 'review', epicBaseSha: SHA }, SHA, false, null, true))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
   it('blueprint done + base unchanged → reattach-blueprint', () => {
     expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA)).toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
     expect(planResume({ merged: false, phase: 'review', epicBaseSha: SHA }, SHA).mode).toBe('reattach-blueprint');

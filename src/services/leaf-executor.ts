@@ -1618,7 +1618,7 @@ function warnGateUnwired(project: string, epicId: string): void {
  * @param deps    Injected seam. Use {@link makeLeafExecutorDeps} for the real wiring.
  */
 /** How to (re)dispatch a leaf that may have durable resume state. */
-export type ResumeMode = 'fresh' | 'skip-to-gate' | 'reattach-blueprint';
+export type ResumeMode = 'fresh' | 'skip-to-gate' | 'reattach-blueprint' | 'rebase-continue';
 export interface ResumePlan { mode: ResumeMode; reason: string }
 
 /**
@@ -1638,9 +1638,13 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
  *                                     (EXCEPT: when hasBlueprintOutput=true, a
  *                                     completed blueprint was durably recorded;
  *                                     treat as reattach-blueprint instead)
+ * - epic base moved + implement done→ rebase-continue (the durable blueprint is stale,
+ *                                     but implement completed — rebase the worktree
+ *                                     instead of re-running blueprint)
  * - epic base missing/moved        → fresh (the blueprint was authored against the
  *                                     old tip; resuming against a changed world is
- *                                     Grok's #1 risk — never do it)
+ *                                     Grok's #1 risk — never do it, unless implement
+ *                                     already completed and a rebase is possible)
  * - blueprint done + base unchanged→ reattach-blueprint (reuse the DURABLE blueprint
  *                                     plan in a FRESH worktree, re-run implement→
  *                                     review; saves the ~4.5min blueprint without
@@ -1654,6 +1658,9 @@ export function planResume(
    *  Used when the run checkpoint was cleared by a terminal outcome but the blueprint
    *  itself is still valid. */
   blueprintBaseSha: string | null = null,
+  /** True when the durable resume signal shows implement already ran to completion
+   *  (derived by the CALLER from resume.phase — this function just consumes the boolean). */
+  hasCompletedImplement = false,
 ): ResumePlan {
   if (!resume) {
     // D1: a terminal outcome cleared the run checkpoint, but a durably-recorded
@@ -1662,6 +1669,8 @@ export function planResume(
     if (hasBlueprintOutput && blueprintBaseSha && currentEpicSha) {
       if (blueprintBaseSha === currentEpicSha)
         return { mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' };
+      if (hasCompletedImplement)
+        return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
       return { mode: 'fresh', reason: 'epic-base-moved' };
     }
     // D3: null currentEpicSha is silently fatal — we can't verify the world state.
@@ -1678,7 +1687,11 @@ export function planResume(
   // Fall back to the durable blueprint base when the row lost its sha (COALESCE gap).
   const base = resume.epicBaseSha ?? blueprintBaseSha;
   if (!base || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
-  if (base !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
+  if (base !== currentEpicSha) {
+    if (hasCompletedImplement)
+      return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
+    return { mode: 'fresh', reason: 'epic-base-moved' };
+  }
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
 }
 
@@ -3680,7 +3693,8 @@ export async function makeLeafExecutorDeps(
   // blueprint-phase pause is REUSABLE, not fresh — avoid re-running the blueprint node.
   const hasBlueprintOutput = !!getLatestSuccessfulNodeOutput(leaf.id, 'blueprint')?.trim();
   const bpRow = getLeafBlueprint(leaf.id);
-  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null);
+  const hasCompletedImplement = !!existingResume?.phase && existingResume.phase !== 'blueprint' && existingResume.phase !== 'implement';
+  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null, hasCompletedImplement);
   const anomaly = resumePlan.mode === 'fresh' && hasBlueprintOutput
     && (resumePlan.reason === 'no-resume-state' || resumePlan.reason === 'no-epic-base' || resumePlan.reason === 'killed-before-blueprint');
   recordLeafResumeDecision({ leafId: leaf.id, project, mode: resumePlan.mode, reason: resumePlan.reason,
