@@ -137,6 +137,22 @@ try {
   console.error(`mermaid-collab: kind migration failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
+// Idempotent backfill: reconcile mission-node approval state (mission.db vs todos.db).
+// Runs only for successfully-migrated projects (those with a live todos.db). Fault-isolated
+// per project so one bad mission.db never blocks the rest.
+try {
+  const { backfillMissionNodeApproval } = await import('./services/mission-store.js');
+  const { migrateAllRegisteredProjects } = await import('./services/todo-store.js');
+  const results = await migrateAllRegisteredProjects();
+  for (const r of results) {
+    if (!r.ok) continue;
+    try { backfillMissionNodeApproval(r.project); }
+    catch (err) { console.warn(`   ↳ mission approval backfill failed for ${r.project}: ${err instanceof Error ? err.message : String(err)}`); }
+  }
+} catch (err) {
+  console.error(`mermaid-collab: mission approval backfill failed — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write
