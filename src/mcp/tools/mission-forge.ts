@@ -27,6 +27,7 @@ import {
   upsertMission,
   addCriterion,
   setMissionApproved,
+  stampMissionNodeApproved,
   enqueueMission,
   sessionHasActiveMission,
   getMission,
@@ -44,7 +45,7 @@ import {
   type DecisionRecord,
 } from '../../services/decision-record-store.js';
 import { stripLabel } from '../../services/todo-kind.js';
-import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
+import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
@@ -122,7 +123,6 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     kind: 'mission',
     assigneeSession: session,
     description: input.description,
-    ...(approved ? { status: 'ready' as const, approvedBy: session } : {}),
   });
   const missionId = node.id;
   upsertMission(project, missionId, {
@@ -130,6 +130,7 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     handoffDocId: input.handoffDocId ?? null,
     awaitingApprovalSince: approved ? null : Date.now(), // unapproved mission → status 'unapproved'
   });
+  if (approved) stampMissionNodeApproved(project, missionId, session);
   const activate = (input.activate ?? true) && approved; // an unapproved mission is never the active driven one
   // One-active-per-session: never steal focus unless explicitly told to activate.
   if (!activate || sessionHasActiveMission(project, session, missionId)) {
@@ -245,8 +246,7 @@ export interface ApproveMissionResult {
  *  awaitingApprovalSince (→ leaves 'unapproved', becomes active/driveable) and flip its PROPOSED
  *  linked constraint records to active so they inject into the builders (payload C). Idempotent. */
 export async function approveMissionAndConstitution(project: string, missionId: string, approvedBy: string): Promise<ApproveMissionResult> {
-  const mission = setMissionApproved(project, missionId);
-  await updateTodo(project, missionId, { status: 'ready', approvedBy });
+  const mission = setMissionApproved(project, missionId, approvedBy);
   const approvedConstraints: DecisionRecord[] = [];
   try {
     const proposed = listDecisionRecords(project, { kind: 'constraint', status: 'proposed' })

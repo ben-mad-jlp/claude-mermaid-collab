@@ -359,17 +359,22 @@ export function upsertMission(
   return getMission(project, todoId)!;
 }
 
+export function stampMissionNodeApproved(project: string, todoId: string, approvedBy: string): boolean {
+  return stampMissionNodeApprovedIfNull(project, todoId, approvedBy);
+}
+
 /** Approve a forged mission: clear awaitingApprovalSince (→ status leaves 'unapproved'), then either
  *  activate it for its session (no rival active mission) or enqueue it behind the session's
  *  already-active mission — a rival's active flag is never clobbered. Idempotent. The CALLER
  *  ratifies the constitution separately (approve the mission's proposed constraint records). */
-export function setMissionApproved(project: string, todoId: string): MissionRow {
+export function setMissionApproved(project: string, todoId: string, approvedBy?: string | null): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const id = m.todoId; // canonical — a short id must behave identically from here on
   openDb(project)
     .prepare('UPDATE mission SET awaitingApprovalSince = NULL, updatedAt = ? WHERE todoId = ?')
     .run(nowMs(), id);
+  if (approvedBy) stampMissionNodeApproved(project, id, approvedBy);
   const all = listMissions(project);
   const self = all.find((x) => x.node.id === id);
   const session = self?.ownerSession ?? self?.assigneeSession ?? null;
