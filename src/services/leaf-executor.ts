@@ -31,7 +31,7 @@ import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './spli
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
-import type { WorktreeManager } from '../agent/worktree-manager';
+import type { WorktreeManager, ReintegrateBaseResult } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { config } from '../config';
@@ -353,6 +353,11 @@ export interface LeafExecutorDeps {
     mergeSha: string,
     reason: string,
   ) => Promise<{ reverted: boolean; revertSha?: string; error?: string; verified?: boolean }>;
+  /** Rebase-continue seam: resume a lane worktree and reintegrate a moved epic base into it.
+   *  Called on the first attempt of a rebase-continue run when the implement phase already
+   *  completed against an old base. Best-effort (`?.`): unwired ⇒ falls through to fresh-fork
+   *  fallback (existing behaviour). */
+  reintegrateBase?: (sessionId: string, baseBranch: string) => Promise<ReintegrateBaseResult>;
   /** Raise an escalation card (blocker). */
   escalate: (input: {
     project: string;
@@ -1818,8 +1823,10 @@ export async function runLeaf(
     try { deps.clearInflight?.(leaf.id); } catch { /* best-effort */ }
     // Keep the worktree for RESUMABLE outcomes (pending = gate-deferred, paused =
     // rate-limited) — those re-dispatch and reuse/rebuild from it. Reap on every
-    // TERMINAL outcome (accepted/blocked/rejected/split).
-    if (r.outcome !== 'pending' && r.outcome !== 'paused') {
+    // TERMINAL outcome (accepted/blocked/rejected/split), EXCEPT an epic-base-moved
+    // park after a successful reintegration (flag keepWorktreeOnBaseMovedPark).
+    if (r.outcome !== 'pending' && r.outcome !== 'paused' &&
+        !(r.outcome === 'blocked' && r.reason === 'epic-base-moved' && keepWorktreeOnBaseMovedPark)) {
       try { await deps.wm.remove(sessionKey); } catch { /* best-effort reap */ }
       // A dead worktree must never leave a leaf_resume row pointing at it — a hard kill
       // or a throw (aborted/blocked/rejected) never reaches the daemon's own
@@ -1839,6 +1846,9 @@ export async function runLeaf(
   let pathTaken: 'floor' | 'waves' | 'review' | null = null;
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
+  // REBASE-CONTINUE: when a successful reintegration is adopted, flag it so a
+  // subsequent base-moved park does NOT reap the lane worktree (it's closer to done).
+  let keepWorktreeOnBaseMovedPark = false;
 
   // crit 6 OPTIMISTIC LANDING (small/test-pinned tiers only): the leaf merges to the epic
   // branch immediately after a GREEN mechanical gate — BEFORE review — then review runs
@@ -2675,8 +2685,33 @@ export async function runLeaf(
     state.attempt += 1; // 1-based count for telemetry/escalation
     const isLastAttempt = state.attempt >= ATTEMPT_CAP;
 
-    const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
-    const cwd = wt.path;
+    // REBASE-CONTINUE (hot-trunk starvation): On the FIRST attempt of a resumed run
+    // whose implement phase already completed, try to resume the EXISTING lane worktree
+    // and reintegrate the moved base into it rather than forking fresh. This avoids
+    // redispatching logic and lets a completed implement+review cycle run immediately.
+    const rebaseContinuing = state.attempt === 1 && deps.resumePlan?.mode === 'rebase-continue';
+    let reint: ReintegrateBaseResult | undefined;
+    let wt: any;
+    let cwd: string;
+
+    if (rebaseContinuing) {
+      reint = await deps.reintegrateBase?.(sessionKey, epicBranch);
+      if (reint?.integrated === true && !reint.conflict && reint.wt) {
+        // Successful reintegration — use the resumed worktree. Keep it alive even
+        // if a base-moved park follows (set flag so finishWith skips the reap).
+        wt = reint.wt;
+        cwd = wt.path;
+        keepWorktreeOnBaseMovedPark = true;
+      } else {
+        // Rebase failed/skipped — fall back to the fresh-fork path.
+        wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+        cwd = wt.path;
+      }
+    } else {
+      // Normal path — fork a fresh worktree off the current epic tip.
+      wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+      cwd = wt.path;
+    }
 
     // BASE-FRESHNESS PRE-CHECK: a cheap deterministic git probe BEFORE this attempt's
     // first node spends anything. Real incident: a stale/off-by-one base spent
@@ -2710,7 +2745,8 @@ export async function runLeaf(
     // prior attempt of THIS run (attempt > 1, in-run carry) — both write the plan to the
     // fresh worktree and skip the blueprint node (no node spent).
     const smallTier = leaf.tier === 'small';
-    const reattach = state.attempt === 1 && deps.resumePlan?.mode === 'reattach-blueprint';
+    const reattach = state.attempt === 1
+      && (deps.resumePlan?.mode === 'reattach-blueprint' || (rebaseContinuing && reint?.integrated));
     const inRunCarry = state.attempt > 1 && carriedBlueprint != null && carriedBlueprint.trim().length > 0;
     const restored = reattach ? (deps.restoreBlueprint?.(leaf.id) ?? null) : (inRunCarry ? carriedBlueprint : null);
     if ((reattach || inRunCarry) && restored && restored.trim()) {
@@ -3755,6 +3791,7 @@ export async function makeLeafExecutorDeps(
     // branch (sessionKey/todoId/reason are for the executor's audit card, not the git op).
     revertEpicMerge: (_sessionKey, eId, _leafId, mergeSha, _reason) =>
       wm.revertEpicMerge(eId, mergeSha),
+    reintegrateBase: (sessionId, base) => wm.reintegrateLaneBase(sessionId, base),
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,

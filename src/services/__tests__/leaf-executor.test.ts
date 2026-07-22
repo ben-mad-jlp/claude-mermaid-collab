@@ -168,6 +168,12 @@ function makeDeps(opts: {
   contestedDecision?: 'accept' | 'reject' | 'timeout';
   // crit 8: mock readBlueprint return values by call index. Absent ⇒ unwired.
   readBlueprintReturns?: (string | undefined)[];
+  // Resume plan for rebase-continue testing. Absent ⇒ defaults to undefined (fresh-mode).
+  resumePlan?: LeafExecutorDeps['resumePlan'];
+  // Reintegrate-base hook for rebase-continue testing. Absent ⇒ unwired.
+  reintegrateBase?: LeafExecutorDeps['reintegrateBase'];
+  // Blueprint restore hook for rebase-continue testing. Absent ⇒ unwired.
+  restoreBlueprint?: (leafId: string) => string | null;
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -289,6 +295,9 @@ function makeDeps(opts: {
           return result;
         }
       : undefined,
+    resumePlan: opts.resumePlan,
+    reintegrateBase: opts.reintegrateBase,
+    restoreBlueprint: opts.restoreBlueprint,
   };
   return { deps, spies };
 }
@@ -3749,5 +3758,71 @@ describe('crit 8 — bounded blueprint contract repair', () => {
     // Small tier synthesizes blueprint (no node spent).
     const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
     expect(blueprintCalls).toBe(0);
+  });
+});
+
+describe('rebase-continue dispatch (hot-trunk starvation)', () => {
+  const greenGate: LeafExecutorDeps['runGate'] = async () => ({ status: 'pass', output: '', reasons: [], declared: true });
+
+  it('skips ensure(fresh:true) + blueprint on successful reintegration', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: greenGate,
+      // Rebase-continue plan: attempt 1 will try to reintegrate instead of forking fresh.
+      resumePlan: { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' },
+      // Mock a successful reintegration (integrated=true, no conflict).
+      reintegrateBase: async () => ({
+        integrated: true,
+        advanced: true,
+        conflict: false,
+        wt: { path: '/tmp/wt/resumed', branch: 'b', baseBranch: 'epic', isGit: true } as any,
+      }),
+      // Restore blueprint from prior dispatch (so it's reused instead of running the node).
+      restoreBlueprint: () => 'blueprint text',
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // ASSERTION (a): ensure(fresh:true) is NEVER called on attempt 1 (the rebase-continue shortcut took it).
+    expect(spies.ensureCalls.length).toBe(0);
+
+    // ASSERTION (a): refundRetry is NOT called (no epic-base-moved park, so no retry refund).
+    expect(spies.refundRetryCalls.length).toBe(0);
+
+    // ASSERTION (b): blueprint node is skipped (no 'Write' in allowedTools of any invokeSpec).
+    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    expect(blueprintCalls).toBe(0);
+
+    // Implement and review nodes STILL run against the resumed worktree.
+    const implementCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit')).length;
+    const reviewCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash')).length;
+    expect(implementCalls).toBe(1); // single implement pass
+    expect(reviewCalls).toBe(1); // single review pass
+  });
+
+  it('falls back to ensure(fresh:true) when reintegration fails', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: greenGate,
+      resumePlan: { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' },
+      // Reintegration fails with a conflict.
+      reintegrateBase: async () => ({
+        integrated: false,
+        advanced: false,
+        conflict: true,
+        conflictedPaths: ['file.ts'],
+        wt: { path: '/tmp/wt/conflict', branch: 'b', baseBranch: 'epic', isGit: true } as any,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // Fallback path: ensure(fresh:true) IS called exactly once (attempt 1 fallback).
+    expect(spies.ensureCalls.length).toBe(1);
+    expect(spies.ensureCalls[0].opts.fresh).toBe(true);
+
+    // Blueprint still runs (no reattach).
+    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    expect(blueprintCalls).toBe(1);
   });
 });
