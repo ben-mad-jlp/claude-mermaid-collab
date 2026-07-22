@@ -96,6 +96,39 @@ class Mutex {
   }
 }
 
+/** An artifactless session (no file in any of its workspace subdirs) older than this
+ *  is treated as daemon debris and self-cleans out of the registry. Real workspaces
+ *  (≥1 artifact file) never expire. */
+export const ARTIFACTLESS_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/** Harness bookkeeping written by register() itself — never counts as an artifact. */
+const SESSION_BOOKKEEPING_FILES = new Set(['collab-state.json']);
+
+/** Does this session dir contain ANY user artifact file (bounded walk, early exit)?
+ *  The shape register() creates — empty typed subdirs + collab-state.json — counts
+ *  as artifactless; dotfiles and bookkeeping are ignored. */
+export function sessionDirHasArtifacts(sessionPath: string, depthLimit = 4): boolean {
+  const walk = (dir: string, depth: number): boolean => {
+    if (depth > depthLimit) return false;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isFile()) {
+        if (depth === 0 && SESSION_BOOKKEEPING_FILES.has(e.name)) continue;
+        return true;
+      }
+      if (e.isDirectory() && walk(join(dir, e.name), depth + 1)) return true;
+    }
+    return false;
+  };
+  return walk(sessionPath, 0);
+}
+
 export class SessionRegistry {
   private registryPath: string;
   // Serializes all load→mutate→save sequences within a single process.
@@ -398,7 +431,21 @@ export class SessionRegistry {
         const oldSessionPath = join(session.project, '.collab', session.session);
 
         if (fs.existsSync(newSessionPath) || fs.existsSync(todosSessionPath) || fs.existsSync(oldSessionPath)) {
-          validSessions.push(session);
+          // ARTIFACTLESS EXPIRY: daemon-spawned sessions (leaf lanes, pool workers)
+          // register + mkdir their session dirs but never create an artifact. They
+          // aren't real workspaces — after ARTIFACTLESS_SESSION_MAX_AGE_MS of
+          // inactivity they self-clean instead of cluttering the add-to-watch
+          // picker forever. A session with ANY artifact file is kept indefinitely.
+          const age = (opts.now ?? Date.now)() - Date.parse(session.lastAccess || '');
+          if (
+            (Number.isNaN(age) || age > ARTIFACTLESS_SESSION_MAX_AGE_MS) &&
+            fs.existsSync(newSessionPath) &&
+            !sessionDirHasArtifacts(newSessionPath)
+          ) {
+            staleSessions.push(session);
+          } else {
+            validSessions.push(session);
+          }
         } else {
           staleSessions.push(session);
         }
@@ -585,6 +632,10 @@ export class SessionRegistry {
         const key = `${project} ${session}`;
         if (presentKeys.has(key)) continue;
         const sessionPath = join(sessionsDir, session);
+        // Backfill exists to recover LOST rows for real workspaces. An artifactless
+        // dir is daemon debris (or an already-deleted lane) — resurrecting it made
+        // deletion impossible (DELETE removed the row, this scan re-added it).
+        if (!sessionDirHasArtifacts(sessionPath)) continue;
         let lastAccess: string;
         try {
           lastAccess = fs.statSync(sessionPath).mtime.toISOString();
