@@ -2526,6 +2526,22 @@ export function bumpRetryCountIfOwned(project: string, id: string, claimToken?: 
   });
 }
 
+/** Decrement a todo's retryCount by one (floor at 0), refunding a dispatch-time bump that
+ *  resulted in zero real work (e.g. epic-base-moved park). Ownership-gated exactly like
+ *  {@link bumpRetryCountIfOwned}: only the run that still owns the in_progress row may
+ *  decrement. Returns whether the decrement landed. Never throws on a missing row. */
+export function decrementRetryCountIfOwned(project: string, id: string, claimToken?: string): Promise<boolean> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const existing = getTodo(project, id);
+    if (!existing || existing.status !== 'in_progress') return false;
+    if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
+    db.prepare(`UPDATE todos SET retryCount=MAX(0, retryCount-1), updatedAt=? WHERE id=?`).run(nowIso(), id);
+    return true;
+  });
+}
+
 /** Durably PARK an owned leaf: clear its claim and stamp heldAt/heldReason so it is NOT
  *  re-claimed (a held row derives to 'blocked'). Ownership-gated exactly like
  *  {@link bumpRetryCountIfOwned}. Used to circuit-break the start-failure retry amplifier

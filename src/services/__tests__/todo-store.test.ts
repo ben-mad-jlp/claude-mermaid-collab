@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, listTodosChunked, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
+  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, resolveShortId,
 } from '../todo-store';
@@ -413,6 +413,68 @@ describe('todo-store new fields and functions', () => {
     expect(after.heldAt).not.toBeNull();
     expect(after.heldReason).toBe('retry-exhausted');
     expect(after.retryCount).toBe(attempts);
+  });
+
+  describe('decrementRetryCountIfOwned', () => {
+    test('bump then decrement while still claimed with matching token → net back to pre-bump value', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const claim = await claimTodo(project, t.id, 'agent-1', 60000);
+      const claimToken = claim?.claim?.token;
+      const before = getTodo(project, t.id)!;
+      expect(before.retryCount).toBe(0);
+
+      // Bump it.
+      const bumped = await bumpRetryCountIfOwned(project, t.id, claimToken);
+      expect(bumped).toBe(true);
+      const afterBump = getTodo(project, t.id)!;
+      expect(afterBump.retryCount).toBe(1);
+
+      // Decrement it back.
+      const refunded = await decrementRetryCountIfOwned(project, t.id, claimToken);
+      expect(refunded).toBe(true);
+      const afterDecrement = getTodo(project, t.id)!;
+      expect(afterDecrement.retryCount).toBe(0);
+    });
+
+    test('retryCount already 0, in_progress and owned → decrement returns true, stays floored at 0', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const claim = await claimTodo(project, t.id, 'agent-1', 60000);
+      const claimToken = claim?.claim?.token;
+      const before = getTodo(project, t.id)!;
+      expect(before.retryCount).toBe(0);
+
+      // Decrement from 0.
+      const refunded = await decrementRetryCountIfOwned(project, t.id, claimToken);
+      expect(refunded).toBe(true);
+      const after = getTodo(project, t.id)!;
+      expect(after.retryCount).toBe(0); // floor: never negative
+    });
+
+    test('wrong/missing claimToken on in_progress+claimed todo → returns false, retryCount unchanged', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const claim = await claimTodo(project, t.id, 'agent-1', 60000);
+      await bumpRetryCountIfOwned(project, t.id, claim?.claim?.token);
+      const before = getTodo(project, t.id)!;
+      expect(before.retryCount).toBe(1);
+
+      // Decrement with wrong token.
+      const refunded = await decrementRetryCountIfOwned(project, t.id, 'wrong-token');
+      expect(refunded).toBe(false);
+      const after = getTodo(project, t.id)!;
+      expect(after.retryCount).toBe(1); // unchanged
+    });
+
+    test('todo not in_progress (e.g. planned) → returns false, retryCount unchanged', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const before = getTodo(project, t.id)!;
+      expect(before.status).toBe('planned'); // derived from stored 'ready' + no hold
+
+      // Try to decrement a non-in_progress todo.
+      const refunded = await decrementRetryCountIfOwned(project, t.id);
+      expect(refunded).toBe(false);
+      const after = getTodo(project, t.id)!;
+      expect(after.retryCount).toBe(0); // unchanged
+    });
   });
 
   test('reclaimClaim: force-reclaims a live claim to ready regardless of lease; null for non-claims', async () => {

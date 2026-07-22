@@ -441,6 +441,10 @@ export interface LeafExecutorDeps {
   /** Bump the leaf's retryCount so an INFRA incident (vacuous review) is visible on the
    *  graph. Ownership-gated; best-effort — never breaks the run. */
   bumpRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
+  /** Refund the dispatch-time retryCount bump when zero real work happened (epic-base-moved
+   *  park infra incident). Undoes {@link bumpRetry}. Ownership-gated; best-effort —
+   *  never breaks the run. */
+  refundRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
   /** Release a claimed leaf (infra park seam). Best-effort; unwired in tests. */
   releaseClaim?: (project: string, todoId: string) => Promise<boolean | void>;
   /** Durably PARK (hold) a leaf so it is NOT re-claimed — the start-failure circuit-breaker
@@ -2110,6 +2114,10 @@ export async function runLeaf(
     reason: string,
     verdict: 'pass' | 'fail' | null = null,
   ): Promise<LeafRunResult> => {
+    // Refund the dispatch-time retryCount bump for infra parks that did zero work.
+    if (reason === 'epic-base-moved') {
+      try { await deps.refundRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+    }
     // crit 6 AUTO-REVERT: if this leaf optimistically landed (small/test-pinned merged
     // BEFORE review), any terminal park — a real post-land review FAIL, a mechanical-gate
     // regression on a revised pass, an exhausted prose-retry, an infra incident — must undo
@@ -3782,6 +3790,12 @@ export async function makeLeafExecutorDeps(
       try {
         const { bumpRetryCountIfOwned } = await import('./todo-store');
         return await bumpRetryCountIfOwned(p, leafId, runClaimToken);
+      } catch { return false; }
+    },
+    refundRetry: async (p, leafId) => {
+      try {
+        const { decrementRetryCountIfOwned } = await import('./todo-store');
+        return await decrementRetryCountIfOwned(p, leafId, runClaimToken);
       } catch { return false; }
     },
     holdLeaf: async (p, leafId, reason) => {

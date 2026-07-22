@@ -130,6 +130,7 @@ interface Spies {
   removeCalls: string[];
   markRejectingCalls: string[];
   bumpRetryCalls: Array<{ project: string; leafId: string }>;
+  refundRetryCalls: Array<{ project: string; leafId: string }>;
   releaseClaimCalls: Array<{ project: string; leafId: string }>;
   holdLeafCalls: Array<{ project: string; leafId: string; reason: string }>;
   /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
@@ -177,6 +178,7 @@ function makeDeps(opts: {
     removeCalls: [],
     markRejectingCalls: [],
     bumpRetryCalls: [],
+    refundRetryCalls: [],
     releaseClaimCalls: [],
     holdLeafCalls: [],
     seq: [],
@@ -240,6 +242,10 @@ function makeDeps(opts: {
     },
     async bumpRetry(p, leafId) {
       spies.bumpRetryCalls.push({ project: p, leafId });
+      return true;
+    },
+    async refundRetry(p, leafId) {
+      spies.refundRetryCalls.push({ project: p, leafId });
       return true;
     },
     async releaseClaim(p, leafId) {
@@ -740,6 +746,7 @@ describe('runLeaf state machine', () => {
     expect(res.reason).toBe('review-vacuous');
     expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(3);
     expect(spies.bumpRetryCalls.length).toBe(1); // bumped exactly once, on the terminal park
+    expect(spies.refundRetryCalls).toEqual([]); // refund only on epic-base-moved, not other parks
   });
 
   it('G3: a terse but CITED PASS accepts (no token floor, no tool-call floor)', async () => {
@@ -974,16 +981,18 @@ describe('runLeaf G2 mechanical gate', () => {
       expect(calledWithCwd).toBeTruthy();
     });
 
-    it('stale (probe false) ⇒ NO node spawned, parks epic-base-moved, zero nodesSpent', async () => {
+    it('stale (probe false) ⇒ NO node spawned, parks epic-base-moved, zero nodesSpent, refunds retry', async () => {
       const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
       deps.worktreeBaseFresh = async () => false;
-      const res = await runLeaf('proj', makeLeaf(), deps);
+      const leaf = makeLeaf();
+      const res = await runLeaf('proj', leaf, deps);
       expect(res.outcome).toBe('blocked');
       expect(res.reason).toBe('epic-base-moved');
       expect(res.nodesSpent).toBe(0);
       expect(spies.invokeSpecs.length).toBe(0); // NOT ONE node (blueprint/implement/review) spawned
       expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
       expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
+      expect(spies.refundRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
     });
 
     it('probe THROWS ⇒ fail-open, proceeds exactly as if unwired', async () => {
@@ -1948,6 +1957,7 @@ function makeVerifyDeps(opts: {
     removeCalls: [] as Spies['removeCalls'],
     markRejectingCalls: [] as Spies['markRejectingCalls'],
     bumpRetryCalls: [] as Spies['bumpRetryCalls'],
+    refundRetryCalls: [] as Spies['refundRetryCalls'],
     releaseClaimCalls: [] as Spies['releaseClaimCalls'],
     holdLeafCalls: [] as Spies['holdLeafCalls'],
     seq: [] as Spies['seq'],
