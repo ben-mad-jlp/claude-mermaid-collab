@@ -50,6 +50,23 @@ export function treeStatus(repoRoot: string): TreeStatus {
   };
 }
 
+export interface DivergenceReport {
+  /** false when git failed / not a repo — callers must treat this as "cannot assert". */
+  resolved: boolean;
+  files: string[];
+}
+
+/** Named, forensic superset of treeStatus's boolean `match`: which tracked files diverge
+ *  between the worktree/index and HEAD. Pure read (`git diff --name-only HEAD`). Never throws. */
+export function divergentTrackedFiles(repoRoot: string): DivergenceReport {
+  const result = git(repoRoot, ['diff', '--name-only', 'HEAD']);
+  if (result.code !== 0) {
+    return { resolved: false, files: [] };
+  }
+  const files = result.out.split('\n').map((s) => s.trim()).filter(Boolean);
+  return { resolved: true, files };
+}
+
 /**
  * The post-land repair. ONLY call when the tree was known-clean before the land
  * (otherwise `reset --hard` destroys real uncommitted work).
