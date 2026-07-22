@@ -44,38 +44,41 @@ vi.mock('@/stores/supervisorStore', () => {
     removeProject: vi.fn(),
     resolveEscalation: vi.fn(),
   };
-  return { useSupervisorStore: (sel?: (s: any) => any) => (sel ? sel(state) : state) };
+  const useSupervisorStore = (sel?: (s: any) => any) => (sel ? sel(state) : state);
+  useSupervisorStore.getState = () => state;
+  return { useSupervisorStore };
 });
 
-vi.mock('@/stores/subscriptionStore', () => ({
+vi.mock('@/stores/subscriptionStore', () => {
   // Live subscriptions so both sessions resolve to a colored (non-gray) status —
   // the per-project list hides gray (unknown) worker lanes, so a statusless
   // session would be filtered out and the render assertion below would see 0 cards.
-  useSubscriptionStore: (sel: (s: any) => any) =>
-    sel({
-      subscriptions: {
-        'local|/proj|sess-a': { serverId: 'local', project: '/proj', session: 'sess-a', status: 'waiting', lastUpdate: Date.now() },
-        'local|/proj|sess-b': { serverId: 'local', project: '/proj', session: 'sess-b', status: 'active', lastUpdate: Date.now() },
-      },
-    }),
-}));
+  // A stable object (like the real memoized store) so effects keyed on it don't
+  // re-fire every render.
+  const state = {
+    subscriptions: {
+      'local|/proj|sess-a': { serverId: 'local', project: '/proj', session: 'sess-a', status: 'waiting', lastUpdate: Date.now() },
+      'local|/proj|sess-b': { serverId: 'local', project: '/proj', session: 'sess-b', status: 'active', lastUpdate: Date.now() },
+    },
+  };
+  return { useSubscriptionStore: (sel: (s: any) => any) => sel(state) };
+});
 
-vi.mock('@/stores/sessionStore', () => ({
-  useSessionStore: (sel: (s: any) => any) =>
-    sel({ currentSession: null, sessions: [], setCurrentSession: vi.fn() }),
-}));
+vi.mock('@/stores/sessionStore', () => {
+  const state = { currentSession: null, sessions: [], setCurrentSession: vi.fn() };
+  return { useSessionStore: (sel: (s: any) => any) => sel(state) };
+});
 
-vi.mock('@/stores/terminalStore', () => ({
-  useTerminalStore: { getState: () => ({ openFor: vi.fn() }) },
-}));
-
-vi.mock('@/contexts/ServerContext', () => ({
-  useServers: () => ({
+vi.mock('@/contexts/ServerContext', () => {
+  // Stable array reference (the real ServerContext memoizes its value) so the
+  // effect keyed on `servers` doesn't re-fire every render.
+  const value = {
     servers: [
       { id: 'srv-uuid-123', label: 'Local', host: 'localhost', port: 9002, status: 'online', source: 'local', icon: 'Rocket' },
     ],
-  }),
-}));
+  };
+  return { useServers: () => value };
+});
 
 import { SupervisorPanel, combineCardStatus, projectHeaderBg } from '../SupervisorPanel';
 

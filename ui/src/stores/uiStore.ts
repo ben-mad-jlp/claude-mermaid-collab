@@ -12,14 +12,15 @@ export type SupervisorRole = 'supervisor' | 'planner' | 'coordinator';
 export type UIMode = 'studio' | 'bridge' | 'plan';
 
 // Workspace panes that dock side-by-side in one reorderable row. Bridge/Plan/
-// Studio/Spec are PanelGroup panes; Browser/Terminal fold into the same row so
-// every header toggle can be dragged to reorder. `studio` = the artifact viewer
-// (viewerVisible), `spec` = the project Spec Sheet, `browser`/`terminal` carry
-// their own visibility flags (browserStore.visible / terminalStore.open).
+// Studio/Spec are PanelGroup panes; Browser folds into the same row so every
+// header toggle can be dragged to reorder. `studio` = the artifact viewer
+// (viewerVisible), `spec` = the project Spec Sheet, `browser` carries its own
+// visibility flag (browserStore.visible).
 // 'plan' is no longer a standalone pane — the Plan lives inside the Bridge.
 // 'ops' is no longer a pane — full-window OpsScreen is routed via zenMode toggle.
-export type PaneKey = 'bridge' | 'studio' | 'spec' | 'browser' | 'terminal';
-export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'studio', 'spec', 'browser', 'terminal'];
+// 'terminal' is no longer a pane — the in-app terminal drawer was retired.
+export type PaneKey = 'bridge' | 'studio' | 'spec' | 'browser';
+export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'studio', 'spec', 'browser'];
 
 export interface UIState {
   // Theme state
@@ -365,7 +366,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 14,
+      version: 15,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -464,6 +465,16 @@ export const useUIStore = create<UIState>()(
           return {
             ...rest,
             paneOrder: prev.filter((p) => p !== 'ops'),
+          } as UIState;
+        }
+        if (version < 15) {
+          // In-app terminal drawer retired — strip 'terminal' from the
+          // persisted pane order so existing users don't get a dead pane.
+          const old = persistedState as Record<string, unknown>;
+          const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as string[]) : [];
+          return {
+            ...old,
+            paneOrder: prev.filter((p) => p !== 'terminal'),
           } as UIState;
         }
         return persistedState as UIState;

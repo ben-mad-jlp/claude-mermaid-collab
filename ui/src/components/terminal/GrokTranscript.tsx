@@ -9,10 +9,8 @@ import { useTerminalPalette } from './terminalTheme';
  * captured agentic steps as a scrolling, auto-following log — the model text, then
  * each tool call as `▸ tool(args)` and its trimmed result.
  *
- * DORMANT: this is only ever mounted by TerminalDrawer when the active lane's
- * provider resolves to 'grok-build'. For a Claude lane the drawer renders the
- * tmux <TerminalConsole> instead and this component never mounts — so the Claude
- * path is byte-identical.
+ * Mounted by LaneCallout when the active lane's provider resolves to
+ * 'grok-build'.
  */
 
 export type GrokTranscriptEntry = {

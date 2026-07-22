@@ -135,7 +135,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
           serverId: opts.serverId,
           project: opts.project,
           session: opts.session,
-          status: (opts.status ?? 'unknown') as const,
+          status: opts.status ?? 'unknown',
           lastUpdate: opts.lastUpdate ?? Date.now(),
         },
       };
