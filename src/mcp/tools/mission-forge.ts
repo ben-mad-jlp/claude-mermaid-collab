@@ -44,7 +44,7 @@ import {
   type DecisionRecord,
 } from '../../services/decision-record-store.js';
 import { stripLabel } from '../../services/todo-kind.js';
-import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
+import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
@@ -116,13 +116,14 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   assertMissionCreationAllowed(project);
 
   // 1. Mission node + row + criteria (same core as create_mission).
+  const approved = input.approved ?? true;
   const node = await addSessionTodo(project, session, missionTitle, undefined, {
     kind: 'mission',
     assigneeSession: session,
     description: input.description,
+    ...(approved ? { status: 'ready' as const, approvedBy: session } : {}),
   });
   const missionId = node.id;
-  const approved = input.approved ?? true;
   upsertMission(project, missionId, {
     budgetUsd: input.budgetUsd ?? null,
     handoffDocId: input.handoffDocId ?? null,
@@ -241,8 +242,9 @@ export interface ApproveMissionResult {
 /** Approve a forged (unapproved) mission AND ratify its constitution: clear the mission's
  *  awaitingApprovalSince (→ leaves 'unapproved', becomes active/driveable) and flip its PROPOSED
  *  linked constraint records to active so they inject into the builders (payload C). Idempotent. */
-export function approveMissionAndConstitution(project: string, missionId: string, approvedBy: string): ApproveMissionResult {
+export async function approveMissionAndConstitution(project: string, missionId: string, approvedBy: string): Promise<ApproveMissionResult> {
   const mission = setMissionApproved(project, missionId);
+  await updateTodo(project, missionId, { status: 'ready', approvedBy });
   const approvedConstraints: DecisionRecord[] = [];
   try {
     const proposed = listDecisionRecords(project, { kind: 'constraint', status: 'proposed' })
