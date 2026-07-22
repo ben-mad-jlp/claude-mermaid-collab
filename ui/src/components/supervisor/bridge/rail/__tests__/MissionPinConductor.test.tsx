@@ -57,6 +57,8 @@ describe('mission pin-conductor control', () => {
     );
     await waitFor(() => expect(screen.getByTestId('mission-pin-conductor-btn').textContent).toBe('Pin'));
     fireEvent.click(screen.getByTestId('mission-pin-conductor-btn'));
+    // Pin is gated behind a confirmation modal now — confirm it.
+    fireEvent.click(screen.getAllByText('Pin').at(-1)!);
     await waitFor(() => expect(actions.setConductorTarget).toHaveBeenCalledWith('local', '/proj', 'm1'));
   });
 
@@ -67,6 +69,8 @@ describe('mission pin-conductor control', () => {
     );
     await waitFor(() => expect(screen.getByTestId('mission-pin-conductor-btn').textContent).toBe('Unpin'));
     fireEvent.click(screen.getByTestId('mission-pin-conductor-btn'));
+    // Unpin is gated behind a confirmation modal now — confirm it.
+    fireEvent.click(screen.getAllByText('Unpin').at(-1)!);
     await waitFor(() => expect(actions.setConductorTarget).toHaveBeenCalledWith('local', '/proj', null));
   });
 
@@ -74,6 +78,8 @@ describe('mission pin-conductor control', () => {
     render(<MissionCard m={missions[0]} serverId="local" project="/proj" onChanged={() => {}} />);
     await waitFor(() => expect(screen.getByTestId('mission-pin-conductor-btn').textContent).toBe('Pin'));
     fireEvent.click(screen.getByTestId('mission-pin-conductor-btn'));
+    // Pin is gated behind a confirmation modal now — confirm it.
+    fireEvent.click(screen.getAllByText('Pin').at(-1)!);
     await waitFor(() => expect(actions.setConductorTarget).toHaveBeenCalledWith('local', '/proj', 'm1'));
   });
 
@@ -82,6 +88,8 @@ describe('mission pin-conductor control', () => {
     render(<MissionCard m={missions[0]} serverId="local" project="/proj" onChanged={() => {}} />);
     await waitFor(() => expect(screen.getByTestId('mission-pin-conductor-btn').textContent).toBe('Unpin'));
     fireEvent.click(screen.getByTestId('mission-pin-conductor-btn'));
+    // Unpin is gated behind a confirmation modal now — confirm it.
+    fireEvent.click(screen.getAllByText('Unpin').at(-1)!);
     await waitFor(() => expect(actions.setConductorTarget).toHaveBeenCalledWith('local', '/proj', null));
   });
 });
