@@ -76,6 +76,14 @@ export const STUCK_AUTOLAND_THRESHOLD = 3;
 export const CHILDLESS_SERVE_GRACE_MS =
   (Number(process.env.MERMAID_CHILDLESS_SERVE_GRACE_MIN) || 5) * 60 * 1000;
 
+/** ENFORCED ceiling on blueprint output tokens. Observed from 37 blueprints in live runs:
+ *  average 17,175 / max 61,655 output tokens. A blueprint node whose output (token count)
+ *  exceeds this ceiling triggers exactly one bounded re-emit via buildBlueprintSummarizePrompt,
+ *  not a silent pass-through. The re-emit asks the node to trim the prose while preserving
+ *  every criterion, file, and task. Override with MERMAID_BLUEPRINT_OUTPUT_CAP. */
+export const BLUEPRINT_OUTPUT_TOKEN_CAP =
+  Math.max(1000, Number(process.env.MERMAID_BLUEPRINT_OUTPUT_CAP) || 20000);
+
 // ── Worker-liveness thresholds ───────────────────────────────────────────────────
 
 /** How long since a lane's last DURABLE session_status pulse (updatedAt) before that

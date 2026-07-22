@@ -1199,6 +1199,50 @@ export function buildBlueprintRepairPrompt(
   ].join('\n');
 }
 
+/** Build the bounded re-emit prompt for a blueprint node whose output (token count) exceeded
+ *  BLUEPRINT_OUTPUT_TOKEN_CAP. Asks the node to trim prose (restating, preamble, duplication)
+ *  while preserving every criterion, file, and task. Mirrors buildBlueprintRepairPrompt's
+ *  quote-the-offense / re-emit-the-whole-thing pattern. */
+export function buildBlueprintSummarizePrompt(
+  leaf: Todo,
+  oversizedBlueprintText: string,
+  capTokens: number,
+  observedTokens: number,
+): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const bp = blueprintPath(leaf);
+
+  return [
+    'You are the BLUEPRINT node. Make REAL, compiling code edits. Do NOT write implementation code.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    '',
+    `The blueprint you wrote is oversized: ${observedTokens} output tokens exceeds the BLUEPRINT_OUTPUT_TOKEN_CAP of ${capTokens} tokens.`,
+    '',
+    'RE-EMIT the same blueprint faithfully, cutting restating/preamble/duplication, WITHOUT dropping any acceptance criterion, file, or task the original named.',
+    '',
+    'The blueprint text to trim is enclosed below:',
+    '',
+    `=== BLUEPRINT START ===`,
+    oversizedBlueprintText,
+    `=== BLUEPRINT END ===`,
+    '',
+    MANIFEST_GLOB_RULE_LINE,
+    '',
+    'Then produce your trimmed blueprint and WRITE it to `' +
+      bp +
+      '`.',
+    "The blueprint must cite the real files/symbols to touch and the exact change shape.",
+    '',
+    ...MANIFEST_JSON_SCHEMA_LINES,
+    '',
+    ...BLUEPRINT_CONCISENESS_RULES_LINES,
+    '',
+    'ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.',
+  ].join('\n');
+}
+
 /** Build the inline prompt for a VERIFY-pipeline node (epic f5c7fc46). Three kinds:
  *  - driveplan: LLM authors an AssemblyBuildPlan (plan ONLY — no build, no code).
  *  - driveexec: constrained to the single deterministic gate verb — invokes it with the
