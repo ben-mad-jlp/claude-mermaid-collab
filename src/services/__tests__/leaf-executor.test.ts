@@ -388,6 +388,26 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
     expect(planResume(null, SHA, true, SHA))
       .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' });
   });
+  // spec-unchanged cases: epic base moved but leaf spec is the same.
+  it('no resume row + base moved + specUnchanged=true (D1 path) → reattach-blueprint', () => {
+    expect(planResume(null, SHA, true, 'old', false, true))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' });
+  });
+  it('resume row + base moved + specUnchanged=true → reattach-blueprint', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA, false, null, false, true))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' });
+  });
+  it('base moved + specUnchanged=false → fresh (spec changed, not reusable)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA, false, null, false, false))
+      .toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+    expect(planResume(null, SHA, true, 'old', false, false))
+      .toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+  });
+  it('specUnchanged=true but hasCompletedImplement=true → still rebase-continue (priority preserved)', () => {
+    // hasCompletedImplement returns rebase-continue before checking specUnchanged.
+    expect(planResume({ merged: false, phase: 'review', epicBaseSha: 'old' }, SHA, false, null, true, true))
+      .toEqual({ mode: 'rebase-continue', reason: 'epic-base-moved-rebase' });
+  });
 });
 
 describe('parseVerdict (fail-closed)', () => {

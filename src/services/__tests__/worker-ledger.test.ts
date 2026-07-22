@@ -298,6 +298,20 @@ describe('epic_base_gate cache key (baseSha validation)', () => {
     expect(getLeafBlueprint('leaf-1')?.epicBaseSha).toBe('sha');
   });
 
+  test('recordLeafBlueprint → getLeafBlueprint specSig round-trip', () => {
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', specSig: 'sig-abc123' }, 1000);
+    const r = getLeafBlueprint('leaf-1');
+    expect(r?.specSig).toBe('sig-abc123');
+  });
+
+  test('clearLeafResume does NOT delete the specSig on leaf_blueprint row', () => {
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'sha', specSig: 'sig-123' }, 1000);
+    recordLeafResume({ leafId: 'leaf-1', project: '/p', nodesSpent: 5 }, 1000);
+    clearLeafResume('leaf-1');
+    // leaf_blueprint.specSig survives the run-checkpoint clear
+    expect(getLeafBlueprint('leaf-1')?.specSig).toBe('sig-123');
+  });
+
   // G8 resume decision audit trail (leaf_resume_decision table).
   test('recordLeafResumeDecision appends, getLeafResumeDecisions returns ASC by decidedAt', () => {
     recordLeafResumeDecision({
