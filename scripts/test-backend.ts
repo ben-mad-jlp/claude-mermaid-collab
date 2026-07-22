@@ -56,7 +56,7 @@ let done = 0;
 
 async function runOne(file: string): Promise<void> {
   const rel = path.relative(ROOT, file);
-  const proc = Bun.spawn(['bun', 'test', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn(['bun', 'test', '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
   const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   const code = await proc.exited;
   done++;
