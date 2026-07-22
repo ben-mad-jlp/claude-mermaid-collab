@@ -327,7 +327,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   updateDiagram: (id: string, updates: Partial<Diagram>) => {
     const { diagrams } = get();
-    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
+    // Auto-stamp recency ONLY for content edits. Metadata updates (pin, deprecate)
+    // and content HYDRATION (which passes the server's lastModified explicitly) must
+    // not bump an artifact to the top of the list / Recently Updated.
+    const stamped = 'lastModified' in updates
+      ? updates
+      : 'content' in updates
+        ? { ...updates, lastModified: Date.now() }
+        : updates;
     set({
       diagrams: diagrams.map((d) => (d.id === id ? { ...d, ...stamped } : d)),
     });
@@ -373,7 +380,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   updateDocument: (id: string, updates: Partial<Document>) => {
     const { documents } = get();
-    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
+    // Auto-stamp recency ONLY for content edits. Metadata updates (pin, deprecate)
+    // and content HYDRATION (which passes the server's lastModified explicitly) must
+    // not bump an artifact to the top of the list / Recently Updated.
+    const stamped = 'lastModified' in updates
+      ? updates
+      : 'content' in updates
+        ? { ...updates, lastModified: Date.now() }
+        : updates;
     set({
       documents: documents.map((d) => (d.id === id ? { ...d, ...stamped } : d)),
     });
@@ -416,7 +430,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   updateDesign: (id: string, updates: Partial<Design>) => {
     const { designs } = get();
-    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
+    // Auto-stamp recency ONLY for content edits. Metadata updates (pin, deprecate)
+    // and content HYDRATION (which passes the server's lastModified explicitly) must
+    // not bump an artifact to the top of the list / Recently Updated.
+    const stamped = 'lastModified' in updates
+      ? updates
+      : 'content' in updates
+        ? { ...updates, lastModified: Date.now() }
+        : updates;
     set({
       designs: designs.map((w) => (w.id === id ? { ...w, ...stamped } : w)),
     });
@@ -457,7 +478,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   updateSpreadsheet: (id: string, updates: Partial<Spreadsheet>) => {
     const { spreadsheets } = get();
-    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
+    // Auto-stamp recency ONLY for content edits. Metadata updates (pin, deprecate)
+    // and content HYDRATION (which passes the server's lastModified explicitly) must
+    // not bump an artifact to the top of the list / Recently Updated.
+    const stamped = 'lastModified' in updates
+      ? updates
+      : 'content' in updates
+        ? { ...updates, lastModified: Date.now() }
+        : updates;
     set({
       spreadsheets: spreadsheets.map((s) => (s.id === id ? { ...s, ...stamped } : s)),
     });
@@ -498,7 +526,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   updateSnippet: (id: string, updates: Partial<Snippet>) => {
     const { snippets } = get();
-    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
+    // Auto-stamp recency ONLY for content edits. Metadata updates (pin, deprecate)
+    // and content HYDRATION (which passes the server's lastModified explicitly) must
+    // not bump an artifact to the top of the list / Recently Updated.
+    const stamped = 'lastModified' in updates
+      ? updates
+      : 'content' in updates
+        ? { ...updates, lastModified: Date.now() }
+        : updates;
     set({
       snippets: snippets.map((s) => (s.id === id ? { ...s, ...stamped } : s)),
     });

@@ -219,8 +219,10 @@ export function useDataLoader(): UseDataLoaderReturn {
       try {
         const diagram = await api.getDiagram(serverId, project, session, id);
         if (diagram) {
-          // Update the diagram in the store with its content
-          updateDiagram(id, { content: diagram.content });
+          // Hydrate content WITHOUT bumping lastModified — the store verbs auto-stamp
+          // Date.now() when it's omitted, which made merely VIEWING an artifact jump
+          // it to the top of the list / Recently Updated. Carry the server's stamp.
+          updateDiagram(id, { content: diagram.content, lastModified: diagram.lastModified ?? 0 });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load diagram content';
@@ -242,8 +244,8 @@ export function useDataLoader(): UseDataLoaderReturn {
       try {
         const document = await api.getDocument(serverId, project, session, id);
         if (document) {
-          // Update the document in the store with its content
-          updateDocument(id, { content: document.content });
+          // Hydration, not an edit — carry the server's lastModified (see diagram note).
+          updateDocument(id, { content: document.content, lastModified: document.lastModified ?? 0 });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load document content';
@@ -265,8 +267,8 @@ export function useDataLoader(): UseDataLoaderReturn {
       try {
         const design = await api.getDesign(serverId, project, session, id);
         if (design) {
-          // Update the design in the store with its content
-          updateDesign(id, { content: design.content });
+          // Hydration, not an edit — carry the server's lastModified (see diagram note).
+          updateDesign(id, { content: design.content, lastModified: design.lastModified ?? 0 });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load design content';
@@ -286,7 +288,8 @@ export function useDataLoader(): UseDataLoaderReturn {
       try {
         const spreadsheet = await api.getSpreadsheet(serverId, project, session, id);
         if (spreadsheet) {
-          updateSpreadsheet(id, { content: spreadsheet.content });
+          // Hydration, not an edit — carry the server's lastModified (see diagram note).
+          updateSpreadsheet(id, { content: spreadsheet.content, lastModified: spreadsheet.lastModified ?? 0 });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load spreadsheet content';

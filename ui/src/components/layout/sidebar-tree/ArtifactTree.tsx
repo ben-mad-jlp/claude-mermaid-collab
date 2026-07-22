@@ -606,7 +606,10 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         currentSession.name,
         id,
       );
-      if (diagram) updateDiagram(id, { content: diagram.content });
+      // Hydration, not an edit — carry the server's lastModified so viewing an
+      // artifact never bumps it to the top of the list / Recently Updated (the
+      // store verbs auto-stamp Date.now() when lastModified is omitted).
+      if (diagram) updateDiagram(id, { content: diagram.content, lastModified: diagram.lastModified ?? 0 });
       // Don't removeDiagram on 404 — the tree entry stays visible and the
       // tab can still render from the store's existing metadata.
     } catch (err) {
@@ -623,7 +626,8 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         currentSession.name,
         id,
       );
-      if (doc) updateDocument(id, { content: doc.content });
+      // Hydration, not an edit — see loadDiagramContent.
+      if (doc) updateDocument(id, { content: doc.content, lastModified: doc.lastModified ?? 0 });
       // Don't removeDocument on 404 — same rationale as loadDiagramContent.
     } catch (err) {
       console.error('[ArtifactTree] getDocument failed', err);
