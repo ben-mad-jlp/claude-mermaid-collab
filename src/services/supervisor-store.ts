@@ -777,7 +777,7 @@ export function createEscalation(input: {
   // already, so trackingProjectRoot is an identity no-op for them.
   const project = trackingProjectRoot(input.project);
   const existing = d
-    .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status = 'open'")
+    .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status IN ('open','acknowledged')")
     .get(project, input.session, input.questionText) as EscalationRow | null;
   if (existing) return { escalation: mapEscalationRow(existing), isNew: false };
 
@@ -885,6 +885,24 @@ export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' 
     resolvedBy ?? null,
     id
   );
+}
+
+/**
+ * Acknowledge an escalation without marking it resolved: transition status='open'
+ * to status='acknowledged' and clear triageInFlight. The card exits the human's
+ * "open" floor (intentionally excluded from listOpenEscalations) but blocks re-raise
+ * via the dedup query in createEscalation (acknowledged rows are still deduplicated).
+ * This is the middle state for "a human has seen this, don't re-raise it" without
+ * also marking it "handled" (resolvedAt/resolvedBy stay NULL). Returns the updated
+ * escalation (mapped) for broadcast, or null if id is unknown.
+ */
+export function acknowledgeEscalation(id: string): Escalation | null {
+  const d = openDb();
+  const info = d
+    .prepare('UPDATE escalation SET status = ?, triageInFlight = 0 WHERE id = ?')
+    .run('acknowledged', id);
+  if (info.changes === 0) return null;
+  return getEscalation(id);
 }
 
 /**
