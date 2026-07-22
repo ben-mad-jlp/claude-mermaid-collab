@@ -123,6 +123,12 @@ export interface Todo {
    *  convergeObservedMerge in coordinator-live.ts). null for leaves and unlanded epics.
    *  NOT YET a read authority — readers still consult the land-leaf child (76d5e62d). */
   landedAt?: string | null;
+  /** Hollow-land stamp (LS-1): ISO stamp of when this EPIC landed with ZERO accepted
+   *  criterion-serving leaves. Excludes such epics from the serve-cap in mission-store so
+   *  real thrash escalates but hollow lands don't burn the cap. null for leaves and
+   *  non-hollow epics. Set alongside landedAt at both land sites (stampEpicLandedAt,
+   *  completeTodo epic roll-up). */
+  hollowLandedAt?: string | null;
   retryCount: number;
   /** Opaque actor handle (e.g. 'local:<hostname>') recorded as the completer
    *  when a HUMAN todo is marked done — attribution, not auth (B1). Null for
@@ -487,6 +493,7 @@ interface TodoRow {
   heldAt: string | null;
   heldReason: string | null;
   landedAt: string | null;
+  hollowLandedAt: string | null;
   retryCount: number;
   completedBy: string | null;
   objectRef: string | null;
@@ -639,6 +646,9 @@ export function openDb(project: string): Database {
   // Land-property redesign (W3): dual-write target for landedAt, set by the same two
   // sites that stamp an epic's [LAND] leaf done. Additive, nullable; backfilled below.
   addColumnIfMissing(db, 'todos', 'landedAt', 'landedAt TEXT');
+  // Hollow-land stamp (LS-1): ISO stamp when an epic landed with zero accepted
+  // criterion-serving leaves. Additive, nullable; no backfill needed (re-derivable live).
+  addColumnIfMissing(db, 'todos', 'hollowLandedAt', 'hollowLandedAt TEXT');
   // B5 capped poison-loop leaf re-serve (mission aad41fd5). A poisoned leaf (≥2
   // same-blueprint rejections) is re-cut to a FRESH todo id up to CAP=2 times, then
   // escalated. These columns track the lineage + observability of that re-serve:
@@ -1337,6 +1347,7 @@ function rowToTodo(row: TodoRow): Todo {
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     promotedTo: row.promotedTo ?? null,
     landedAt: row.landedAt ?? null,
+    hollowLandedAt: row.hollowLandedAt ?? null,
     reserveCount: row.reserveCount ?? 0,
     supersedes: row.supersedes ?? null,
     reservedByActor: row.reservedByActor ?? null,
@@ -1348,13 +1359,29 @@ function rowToTodo(row: TodoRow): Todo {
 /** Land-property redesign (W3) dual-write: stamp the EPIC's landedAt at the same moment
  *  its [LAND] leaf is marked done. Idempotent (COALESCE — first stamp wins, mirrors the
  *  completedAt COALESCE pattern at todo-store.ts:2179/2211). Best-effort: swallows errors
- *  so a landedAt write failure never blocks the leaf-done stamp that calls it. */
+ *  so a landedAt write failure never blocks the leaf-done stamp that calls it. Also stamps
+ *  hollowLandedAt if the epic has zero accepted criterion-serving leaves. */
 export function stampEpicLandedAt(project: string, epicId: string, whenIso: string): void {
   try {
     const db = openDb(project);
+    const epic = getTodo(project, epicId);
+    if (!epic) return;
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const children = allTodos.filter((t) => t.parentId === epicId && !isEpic(t));
+    const hollow = isHollowLand(epic, children);
     db.prepare(`UPDATE todos SET landedAt = COALESCE(landedAt, ?) WHERE id = ? AND kind = 'epic'`)
       .run(whenIso, epicId);
+    if (hollow) {
+      db.prepare(`UPDATE todos SET hollowLandedAt = COALESCE(hollowLandedAt, ?) WHERE id = ?`)
+        .run(whenIso, epicId);
+    }
   } catch { /* best-effort — never block the land-leaf stamp */ }
+}
+
+/** Pure predicate: an epic is hollow if it has NO accepted criterion-serving leaves.
+ *  Vacuously hollow when leafChildren is empty (consistent with "none acceptanceStatus='accepted'"). */
+export function isHollowLand(epic: Pick<Todo, 'kind'>, leafChildren: Pick<Todo, 'acceptanceStatus'>[]): boolean {
+  return isEpic(epic) && !leafChildren.some((t) => t.acceptanceStatus === 'accepted');
 }
 
 /** Resolve a short (leading-8-hex prefix) todo id to its unique full id via `LIKE`
@@ -2499,7 +2526,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // must never auto-close when its iteration's epics all complete — the mission
       // outlives them.
       if (isMission(parent)) break;
-      const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
+      const allChildren = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId);
+      const children = allChildren.filter((t) => t.status !== 'dropped');
       if (children.length === 0) break;
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
       if (!allChildrenDone) break;
@@ -2507,6 +2535,11 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
           ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
       ).run(ts, 'accepted', nowIso(), parentId);
+      const leafChildren = allChildren.filter((t) => !isEpic(t));
+      if (isEpic(parent) && isHollowLand(parent, leafChildren)) {
+        db.prepare(`UPDATE todos SET hollowLandedAt = COALESCE(hollowLandedAt, ?) WHERE id = ?`)
+          .run(ts, parentId);
+      }
       rolledUp.push(parentId);
       parentId = parent.parentId;
     }
