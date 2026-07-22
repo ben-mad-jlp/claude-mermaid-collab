@@ -893,14 +893,15 @@ export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' 
  * "open" floor (intentionally excluded from listOpenEscalations) but blocks re-raise
  * via the dedup query in createEscalation (acknowledged rows are still deduplicated).
  * This is the middle state for "a human has seen this, don't re-raise it" without
- * also marking it "handled" (resolvedAt/resolvedBy stay NULL). Returns the updated
- * escalation (mapped) for broadcast, or null if id is unknown.
+ * also marking it "handled" (resolvedAt stays NULL). When acknowledgedBy is supplied
+ * ('ai' | 'human'), stamps the escalation's resolvedBy column for provenance tracking.
+ * Returns the updated escalation (mapped) for broadcast, or null if id is unknown.
  */
-export function acknowledgeEscalation(id: string): Escalation | null {
+export function acknowledgeEscalation(id: string, acknowledgedBy?: 'ai' | 'human'): Escalation | null {
   const d = openDb();
   const info = d
-    .prepare('UPDATE escalation SET status = ?, triageInFlight = 0 WHERE id = ?')
-    .run('acknowledged', id);
+    .prepare('UPDATE escalation SET status = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?')
+    .run('acknowledged', acknowledgedBy ?? null, id);
   if (info.changes === 0) return null;
   return getEscalation(id);
 }
