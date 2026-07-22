@@ -211,7 +211,7 @@ function normalizeCommand(cmd: string): string {
 }
 
 /** Absence phrasing: "returns 0", "→ 0", "0 matches", "no matches", "exits non-zero". */
-const ABSENCE_RESULT =
+export const ABSENCE_RESULT =
   /(?:returns?\s+0|→\s*0|produces?\s+0|0\s+match(?:es)?|no\s+match(?:es)?|exits?\s+non-?zero)/i;
 
 /** Detect a grep/rg count command paired with an absence assertion inside one line of
