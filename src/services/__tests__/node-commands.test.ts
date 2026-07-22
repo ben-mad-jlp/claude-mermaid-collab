@@ -14,8 +14,12 @@ import {
   parseVerificationClaims,
   parseResultAssertion,
   evaluateCommandEvidence,
+  splitCommandClauses,
+  attributeClauseExit,
+  extractCommandScope,
   type RecordedCommand,
   type ResultAssertion,
+  type CommandClause,
 } from '../node-commands';
 import { validateReviewGrounding } from '../review-citations';
 import { uncitedCriteriaAreAllCommandResults } from '../criteria-citability';
@@ -497,9 +501,174 @@ describe('node-commands', () => {
       expect(uncitedCriteriaAreAllCommandResults(criteria, [])).toBe(true);
     });
   });
-});
 
-describe('compound-command contradiction demotes to unbacked (friction 996315e2)', () => {
+  describe('splitCommandClauses', () => {
+    it('splits an && chain into three clauses with proper operators', () => {
+      const clauses = splitCommandClauses("echo hello && grep -rn 'foo' src/ && echo done");
+      expect(clauses).toHaveLength(3);
+      expect(clauses[0].text).toBe("echo hello");
+      expect(clauses[0].operator).toBe(null);
+      expect(clauses[1].text).toBe("grep -rn 'foo' src/");
+      expect(clauses[1].operator).toBe('&&');
+      expect(clauses[2].text).toBe("echo done");
+      expect(clauses[2].operator).toBe('&&');
+    });
+
+    it('splits a ; chain', () => {
+      const clauses = splitCommandClauses("grep -rn 'a' src/ ; echo done");
+      expect(clauses).toHaveLength(2);
+      expect(clauses[0].text).toBe("grep -rn 'a' src/");
+      expect(clauses[0].operator).toBe(null);
+      expect(clauses[1].text).toBe("echo done");
+      expect(clauses[1].operator).toBe(';');
+    });
+
+    it('splits a || chain', () => {
+      const clauses = splitCommandClauses("grep -rn 'notfound' src/ || echo 'not found'");
+      expect(clauses).toHaveLength(2);
+      expect(clauses[0].text).toBe("grep -rn 'notfound' src/");
+      expect(clauses[0].operator).toBe(null);
+      expect(clauses[1].text).toContain("echo");
+      expect(clauses[1].operator).toBe('||');
+    });
+
+    it('does NOT split on pipe (|) — pipeline is one clause', () => {
+      const clauses = splitCommandClauses("grep -rn 'a' src/ | head -3");
+      expect(clauses).toHaveLength(1);
+      expect(clauses[0].text).toBe("grep -rn 'a' src/ | head -3");
+      expect(clauses[0].operator).toBe(null);
+    });
+
+    it('does NOT split on operators inside single quotes', () => {
+      const clauses = splitCommandClauses("grep -rn ';' src/");
+      expect(clauses).toHaveLength(1);
+      expect(clauses[0].text).toBe("grep -rn ';' src/");
+    });
+
+    it('does NOT split on operators inside double quotes', () => {
+      const clauses = splitCommandClauses('grep -rn "&&" src/');
+      expect(clauses).toHaveLength(1);
+      expect(clauses[0].text).toBe('grep -rn "&&" src/');
+    });
+
+    it('handles a single non-compound command', () => {
+      const clauses = splitCommandClauses("grep -rn 'foo' src/");
+      expect(clauses).toHaveLength(1);
+      expect(clauses[0].text).toBe("grep -rn 'foo' src/");
+      expect(clauses[0].operator).toBe(null);
+    });
+  });
+
+  describe('attributeClauseExit', () => {
+    it('returns 0 for any clause in a pure && chain when overall exit is 0', () => {
+      const clauses: CommandClause[] = [
+        { text: 'a', operator: null },
+        { text: 'b', operator: '&&' },
+        { text: 'c', operator: '&&' },
+      ];
+      expect(attributeClauseExit(clauses, 0, 0)).toBe(0);
+      expect(attributeClauseExit(clauses, 1, 0)).toBe(0);
+      expect(attributeClauseExit(clauses, 2, 0)).toBe(0);
+    });
+
+    it('returns the final clause exit code (even in && chain with non-zero overall)', () => {
+      const clauses: CommandClause[] = [
+        { text: 'a', operator: null },
+        { text: 'b', operator: '&&' },
+      ];
+      expect(attributeClauseExit(clauses, 1, 1)).toBe(1);
+    });
+
+    it('returns the overall exit for final clause in a ; chain', () => {
+      const clauses: CommandClause[] = [
+        { text: 'a', operator: null },
+        { text: 'b', operator: ';' },
+      ];
+      expect(attributeClauseExit(clauses, 1, 5)).toBe(5);
+    });
+
+    it('returns null for a non-final clause in a ; chain', () => {
+      const clauses: CommandClause[] = [
+        { text: 'a', operator: null },
+        { text: 'b', operator: ';' },
+      ];
+      expect(attributeClauseExit(clauses, 0, 0)).toBe(null);
+    });
+
+    it('returns null for a non-final clause in || chain', () => {
+      const clauses: CommandClause[] = [
+        { text: 'a', operator: null },
+        { text: 'b', operator: '||' },
+      ];
+      expect(attributeClauseExit(clauses, 0, 0)).toBe(null);
+    });
+
+    it('returns null when overallExit is null', () => {
+      const clauses: CommandClause[] = [{ text: 'a', operator: null }];
+      expect(attributeClauseExit(clauses, 0, null)).toBe(null);
+    });
+  });
+
+  describe('extractCommandScope', () => {
+    it('extracts trailing path argument from grep command', () => {
+      const scope = extractCommandScope("grep -rn 'foo' src/routes/");
+      expect(scope).toBe('src/routes/');
+    });
+
+    it('drops command name and flags', () => {
+      const scope = extractCommandScope("grep -rn -i 'pattern' src/ lib/");
+      expect(scope).toBe('src/ lib/');
+    });
+
+    it('returns empty string when no scope arguments exist', () => {
+      const scope = extractCommandScope("echo hello");
+      expect(scope).toBe('hello');
+    });
+
+    it('strips quoted substrings when extracting scope', () => {
+      const scope = extractCommandScope("grep -rn 'search term' src/");
+      expect(scope).toBe('src/');
+    });
+
+    it('handles double-quoted patterns', () => {
+      const scope = extractCommandScope('grep -rn "pattern" src/lib/');
+      expect(scope).toBe('src/lib/');
+    });
+  });
+
+  describe('scope mismatch through evaluateCommandEvidence', () => {
+    it('unbacked when claim scope differs from matched clause scope', () => {
+      const commands: RecordedCommand[] = [
+        {
+          cmd: "grep -rn 'launchAndBind' src/",
+          cwd: '/wt',
+          exitCode: 0,
+        },
+      ];
+      const claim = "`grep -rn 'launchAndBind' src/routes/` returns no matches";
+      const result = evaluateCommandEvidence({ commands, claims: [claim], worktreeRoot: '/wt' });
+      expect(result.unbackedClaims).toHaveLength(1);
+      expect(result.contradictedClaims).toHaveLength(0);
+      expect(result.reasons.some((r: string) => r.includes('scope mismatch'))).toBe(true);
+    });
+
+    it('contradicted when scopes match and clause exit is 0', () => {
+      const commands: RecordedCommand[] = [
+        {
+          cmd: "grep -rn 'launchAndBind' src/routes/",
+          cwd: '/wt',
+          exitCode: 0,
+        },
+      ];
+      const claim = "`grep -rn 'launchAndBind' src/routes/` returns no matches";
+      const result = evaluateCommandEvidence({ commands, claims: [claim], worktreeRoot: '/wt' });
+      expect(result.contradictedClaims).toHaveLength(1);
+      expect(result.unbackedClaims).toHaveLength(0);
+      expect(result.reject).toBe(true);
+    });
+  });
+
+  describe('compound-command contradiction demotes to unbacked (friction 996315e2)', () => {
   const { evaluateCommandEvidence, isCompoundCommand } = require('../node-commands');
 
   it('isCompoundCommand classifies chains but not pipes', () => {
@@ -510,14 +679,26 @@ describe('compound-command contradiction demotes to unbacked (friction 996315e2)
     expect(isCompoundCommand("grep -rn 'a' src/")).toBe(false);
   });
 
-  it('a zero-exit COMPOUND against an absence claim is unbacked (warn), not contradicted', () => {
+  it('a pure && chain with zero exit now correctly contradicts', () => {
     const res = evaluateCommandEvidence({
       claims: ["`grep -rn 'launchAndBind' src/routes/` returns no matches"],
       commands: [{ cmd: "echo \"--g1--\" && grep -rn 'launchAndBind' src/routes/ && echo \"--g2--\" && grep -rn 'other' src/", exitCode: 0, cwd: '/wt' }],
       worktreeRoot: '/wt',
     });
-    expect(res.contradictedClaims).toHaveLength(0);
+    expect(res.contradictedClaims).toHaveLength(1);
+    expect(res.unbackedClaims).toHaveLength(0);
+    expect(res.reject).toBe(true);
+  });
+
+  it('a non-final ; -joined clause with zero exit is unbacked (compound unattributable)', () => {
+    const res = evaluateCommandEvidence({
+      claims: ["`grep -rn 'launchAndBind' src/routes/` returns no matches"],
+      commands: [{ cmd: "grep -rn 'launchAndBind' src/routes/ ; echo done", exitCode: 0, cwd: '/wt' }],
+      worktreeRoot: '/wt',
+    });
     expect(res.unbackedClaims).toHaveLength(1);
+    expect(res.contradictedClaims).toHaveLength(0);
+    expect(res.reasons.some((r: string) => r.includes('compound exit unattributable'))).toBe(true);
   });
 
   it('a zero-exit SINGLE command against an absence claim still contradicts (reject)', () => {
@@ -528,5 +709,6 @@ describe('compound-command contradiction demotes to unbacked (friction 996315e2)
     });
     expect(res.contradictedClaims).toHaveLength(1);
     expect(res.reject).toBe(true);
+  });
   });
 });
