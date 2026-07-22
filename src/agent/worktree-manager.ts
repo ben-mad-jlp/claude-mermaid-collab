@@ -2254,6 +2254,11 @@ export class WorktreeManager {
     if (!(await this.isGitRepo())) return false;
     const sourceBranch = this.epicBranchName(epicId);
     const targetBranch = `collab/dropped/${this.epicId8(epicId)}`;
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(() => ({
+      code: 0,
+      stdout: '',
+      stderr: '',
+    }));
     const res = await this.runGit(
       this.opts.projectRoot,
       ['branch', '-m', sourceBranch, targetBranch],
