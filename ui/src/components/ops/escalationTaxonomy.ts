@@ -11,7 +11,8 @@ export type EscalationResolver =
   | 'bridge-escalation'
   | 'reset-override'
   | 'token-burn-ack'
-  | 'decision-or-reset';
+  | 'decision-or-reset'
+  | 'decision-or-reset-ack';
 
 export interface EscalationTaxonomyEntry {
   kind: string;
@@ -33,7 +34,7 @@ export const ESCALATION_TAXONOMY: EscalationTaxonomyEntry[] = [
   { kind: 'poison-loop-cap', groupTitle: GROUP_TITLES.poisonOrReserve, resolver: 'reset-override' },
   { kind: 'reserve-leaf', groupTitle: GROUP_TITLES.poisonOrReserve, resolver: 'reset-override' },
   { kind: 'token-burn', groupTitle: GROUP_TITLES.tokenBurn, resolver: 'token-burn-ack' },
-  { kind: 'criterion-serve-cap', groupTitle: GROUP_TITLES.serveCap, resolver: 'decision-or-reset' },
+  { kind: 'criterion-serve-cap', groupTitle: GROUP_TITLES.serveCap, resolver: 'decision-or-reset-ack' },
   { kind: 'dangling-deps', groupTitle: GROUP_TITLES.danglingDeps, resolver: 'decision-or-reset' },
   { kind: 'blocker', groupTitle: GROUP_TITLES.other, resolver: 'bridge-escalation' },
 ];

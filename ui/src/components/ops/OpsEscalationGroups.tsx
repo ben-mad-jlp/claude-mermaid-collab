@@ -12,7 +12,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
   escalations,
   serverScope,
 }) => {
-  const { resetTodo, overrideAcceptTodo, resolveBudgetCap, decideEscalation } = useSupervisorStore();
+  const { resetTodo, overrideAcceptTodo, resolveBudgetCap, acknowledgeEscalationCard, decideEscalation } = useSupervisorStore();
 
   const grouped = escalations.reduce<Record<string, Escalation[]>>((acc, e) => {
     const { groupTitle } = taxonomyEntryForKind(e.kind);
@@ -26,7 +26,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
   const danglingDeps = grouped[GROUP_TITLES.danglingDeps] ?? [];
   const other = grouped[GROUP_TITLES.other] ?? [];
 
-  const renderDecisionOrResetCard = (e: Escalation) => {
+  const renderDecisionOrResetCard = (e: Escalation, opts?: { showAcknowledge?: boolean }) => {
     const hasOptions = !!e.options && e.options.length > 0;
     return (
       <div key={e.id} className="p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
@@ -67,6 +67,14 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
             >
               Override accept
             </button>
+            {opts?.showAcknowledge && (
+              <button
+                onClick={() => acknowledgeEscalationCard(serverScope, e.id)}
+                className="flex-1 px-2 py-1 text-xs font-medium rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60"
+              >
+                Acknowledge
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -151,7 +159,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
             >
               <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}</p>
               <button
-                onClick={() => resolveBudgetCap(serverScope, e.id)}
+                onClick={() => acknowledgeEscalationCard(serverScope, e.id)}
                 className="w-full px-2 py-1 text-xs font-medium rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60"
               >
                 Acknowledge
@@ -164,7 +172,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
       {renderGroup(
         GROUP_TITLES.serveCap,
         serveCap,
-        <div className="space-y-2">{serveCap.map(renderDecisionOrResetCard)}</div>
+        <div className="space-y-2">{serveCap.map((e) => renderDecisionOrResetCard(e, { showAcknowledge: true }))}</div>
       )}
 
       {renderGroup(
