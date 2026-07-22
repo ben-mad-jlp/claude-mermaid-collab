@@ -26,7 +26,7 @@ import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
 import { recordEpicLand } from './epic-land-record-store.js';
-import { treeStatus, restorePostLandTree } from './tree-integrity';
+import { treeStatus, restorePostLandTree, divergentTrackedFiles } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
 // bp1FilterStrandedFoundations) ALSO consumes epicAutoLandAuthority — see the "shared with
@@ -933,6 +933,7 @@ export async function landEpic(
       if (trackedDirty.length === 0 && land.masterSha) {
         const st = treeStatus(targetProject);
         if (st.resolved && !st.match) {
+          const div = divergentTrackedFiles(targetProject);
           const rep = restorePostLandTree(targetProject, land.masterSha);
           treeRestored = rep.restored;
           createEscalation({
@@ -943,14 +944,16 @@ export async function landEpic(
               `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
               `${land.masterSha}, the checkout's index tree (${rep.before.workTree}) did not match ` +
               `HEAD^{tree} (${rep.before.headTree}). Corrupted index snapshotted at ` +
-              `${rep.snapshotRef ?? '(snapshot FAILED)'}. Restore ${rep.restored ? 'succeeded' : 'FAILED'}.`,
+              `${rep.snapshotRef ?? '(snapshot FAILED)'}. Restore ${rep.restored ? 'succeeded' : 'FAILED'}.`
+              + (div.resolved && div.files.length > 0 ? ` Divergent tracked files: ${div.files.join(', ')}.` : ''),
           });
           recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
             escalationId, epicId, epicBranch, land: 'tree-corrupt',
             landSha: land.masterSha, workTree: rep.before.workTree, headTree: rep.before.headTree,
             snapshotRef: rep.snapshotRef, restored: rep.restored,
+            ...(div.resolved && div.files.length > 0 ? { divergentFiles: div.files } : {}),
           }) });
-          await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: epicId, detail: `landSha=${land.masterSha} snapshot=${rep.snapshotRef}` }).catch(() => {});
+          await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: epicId, detail: `landSha=${land.masterSha} snapshot=${rep.snapshotRef}` + (div.resolved && div.files.length > 0 ? ` divergentFiles=${div.files.join(',')}` : '') }).catch(() => {});
           if (!rep.restored || !rep.after.match) {
             return { ok: false, landed: true, reason: 'post-land-tree-corrupt', epicId, epicBranch, masterSha: land.masterSha, treeRestored: false };
           }
