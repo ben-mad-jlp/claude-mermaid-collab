@@ -78,6 +78,17 @@ describe('resolveLeafGate', () => {
     const g = resolveLeafGate({ version: 1, gate: { typecheck: '  npx tsc --noEmit  ' } } as ProjectManifest);
     expect(g).toEqual({ typecheck: 'npx tsc --noEmit', test: undefined, testCwd: undefined, baseTest: undefined });
   });
+
+  it('suites-only config (no typecheck/test/baseTest) survives', () => {
+    const g = resolveLeafGate({
+      version: 1,
+      gate: { suites: [{ match: '^ui/', command: 'bunx vitest --run', cwd: 'ui' }] },
+    } as ProjectManifest);
+    expect(g).not.toBeNull();
+    expect(g?.suites).toBeDefined();
+    expect(g?.suites!.length).toBe(1);
+    expect(g?.suites![0].command).toBe('bunx vitest --run');
+  });
 });
 
 /** Builds a scripted GateSpawn: keyed by exact command string, records every call. */
@@ -452,6 +463,46 @@ describe('gate.typechecks — change-set-scoped project typecheck lane', () => {
   });
 });
 
+describe('gate.suites — change-set-triggered full-suite lane', () => {
+  it('RED — failing suite with extractFailingTests reasons', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^ui/'), command: 'bunx vitest --run', cwd: 'ui' }],
+    };
+    const { spawn, calls } = stubSpawn({
+      'bunx vitest --run': { ran: true, code: 1, output: '× renders the button 12ms\n× handles click 3ms' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['ui/src/Button.test.tsx'], spawn);
+    expect(r.status).toBe('fail');
+    expect(r.command).toBe('bunx vitest --run');
+    expect(r.reasons).toContain('renders the button');
+    expect(r.reasons).toContain('handles click');
+    expect(calls.length).toBe(1);
+    expect(calls[0].cwd).toBe(join('/wt', 'ui'));
+  });
+
+  it('GREEN — passing suite', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^ui/'), command: 'bunx vitest --run', cwd: 'ui' }],
+    };
+    const { spawn, calls } = stubSpawn({
+      'bunx vitest --run': { ran: true, code: 0 },
+    });
+    const r = await runLeafGate('/wt', cfg, ['ui/src/Button.test.tsx'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(1);
+  });
+
+  it('NO-MATCH — change-set outside lane match never spawns', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^ui/'), command: 'bunx vitest --run', cwd: 'ui' }],
+    };
+    const { spawn, calls } = stubSpawn({});
+    const r = await runLeafGate('/wt', cfg, ['src/services/leaf-gate.ts'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(0);
+  });
+});
+
 describe('lane validation (resolveGateDeclaration)', () => {
   const MANIFEST_PATH = '/tmp/.collab/project.json';
 
@@ -581,6 +632,37 @@ describe('lane validation (resolveGateDeclaration)', () => {
     const src: ManifestSource = { path: manifestPath, state: 'ok', manifest };
     const decl = resolveGateDeclaration(src);
     expect(decl.kind).toBe('declared');
+  });
+
+  it('valid suites config (match + command) ⇒ declared with compiled lane', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: {
+        version: 1,
+        gate: { suites: [{ match: '^ui/', command: 'bunx vitest --run', cwd: 'ui' }] },
+      },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('declared');
+    if (decl.kind === 'declared') {
+      expect(decl.cfg.suites).toBeDefined();
+      expect(decl.cfg.suites!.length).toBe(1);
+      expect(decl.cfg.suites![0].command).toBe('bunx vitest --run');
+    }
+  });
+
+  it('malformed suites config (missing command) ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { suites: [{ match: '^ui/' } as any] } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('match and command');
+    }
   });
 });
 
