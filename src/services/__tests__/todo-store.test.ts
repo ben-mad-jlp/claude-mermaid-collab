@@ -1615,6 +1615,22 @@ describe('container drop → cascade-drop undone descendants', () => {
       // Attempt to re-approve: should fail because epic is terminal
       await expect(updateTodo(project, leaf.id, { status: 'ready' })).rejects.toThrow(TerminalParentApproveError);
     });
+
+    test('createTodo with status:ready under a dropped epic refuses (add_leaves repro)', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      await updateTodo(project, epic.id, { status: 'dropped' });
+
+      await expect(createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'ready' }))
+        .rejects.toThrow(TerminalParentApproveError);
+    });
+
+    test('createTodo with status:ready under a done epic refuses', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      await updateTodo(project, epic.id, { completed: true });
+
+      await expect(createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'ready' }))
+        .rejects.toThrow(TerminalParentApproveError);
+    });
   });
 
   describe('SR-7 inherited blueprint fields', () => {
