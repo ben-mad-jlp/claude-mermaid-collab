@@ -49,6 +49,14 @@ const ORDER_KEY = 'session-subscriptions-order';
 /** Past this age a persisted/last-heard status is too old to trust as live. */
 export const GONE_MS = 15 * 60_000;
 
+/** Boot-hydration retention: entries silent past THIS are dropped at startup.
+ *  Deliberately much longer than GONE_MS — GONE_MS is about trusting a STATUS,
+ *  this is about keeping the card at all. A quiet-but-live session (user stepped
+ *  away, daemon idle) must survive an app restart; a genuinely dead one ages out
+ *  within two days because nothing refreshes its lastUpdate anymore (the
+ *  connect-replay resurrection paths are fixed). */
+export const HYDRATE_RETENTION_MS = 48 * 60 * 60_000;
+
 const compositeKey = (serverId: string, project: string, session: string) => `${serverId}:${project}:${session}`;
 
 /**
@@ -75,13 +83,14 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
     const VALID = new Set(['active', 'waiting', 'permission', 'unknown']);
     for (const [k, v] of Object.entries(raw)) {
       const age = typeof v.lastUpdate === 'number' ? now - v.lastUpdate : Infinity;
-      // DEAD entries don't hydrate. An entry silent past GONE_MS would render as a
-      // gray 'unknown' card with no live source — accumulated across restarts these
-      // flooded the Watching list with every session ever seen (observed: 66 dead
-      // cards). Drop them at boot; a session that's actually alive re-appears
-      // within seconds via the WatchAggregator's ensureSubscribed on its first event.
-      if (age > GONE_MS) continue;
-      const lastKnown = VALID.has(v.status) ? v.status : 'unknown';
+      // DEAD entries don't hydrate. An entry silent past the retention window
+      // accumulated across restarts into a Watching list of every session ever
+      // seen (observed: 66 dead cards). Quiet-but-LIVE sessions survive (48h
+      // retention); their status still degrades to stale/unknown via GONE_MS below.
+      if (age > HYDRATE_RETENTION_MS) continue;
+      // Status TRUST stays on the short window: a card older than GONE_MS keeps
+      // its place in the list but reads gray 'unknown' until a live event lands.
+      const lastKnown = VALID.has(v.status) && age <= GONE_MS ? v.status : 'unknown';
       const coerced = lastKnown === 'active' ? 'waiting' : lastKnown;
       out[k] = {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',

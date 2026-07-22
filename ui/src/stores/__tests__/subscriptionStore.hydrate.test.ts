@@ -30,10 +30,10 @@ describe('subscriptionStore boot hydration (dead-entry prune)', () => {
     localStorage.clear();
   });
 
-  it('drops entries silent past GONE_MS and keeps fresh ones', async () => {
+  it('drops entries silent past the retention window and keeps fresh ones', async () => {
     const now = Date.now();
     localStorage.setItem(KEY, JSON.stringify({
-      'srv:p:ghost': { serverId: 'srv', project: 'p', session: 'ghost', status: 'waiting', lastUpdate: now - 60 * 60_000 },
+      'srv:p:ghost': { serverId: 'srv', project: 'p', session: 'ghost', status: 'waiting', lastUpdate: now - 72 * 60 * 60_000 },
       'srv:p:live': { serverId: 'srv', project: 'p', session: 'live', status: 'active', lastUpdate: now - 1000 },
     }));
     localStorage.setItem(ORDER, JSON.stringify(['srv:p:ghost', 'srv:p:live']));
@@ -57,11 +57,22 @@ describe('subscriptionStore boot hydration (dead-entry prune)', () => {
   it('writes the pruned map back so the flood cannot compound across restarts', async () => {
     const now = Date.now();
     localStorage.setItem(KEY, JSON.stringify({
-      'srv:p:ghost': { serverId: 'srv', project: 'p', session: 'ghost', status: 'unknown', lastUpdate: now - 24 * 60 * 60_000 },
+      'srv:p:ghost': { serverId: 'srv', project: 'p', session: 'ghost', status: 'unknown', lastUpdate: now - 72 * 60 * 60_000 },
     }));
     localStorage.setItem(ORDER, JSON.stringify(['srv:p:ghost']));
     await importFresh();
     expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({});
     expect(JSON.parse(localStorage.getItem(ORDER)!)).toEqual([]);
+  });
+
+  it('a quiet-but-live session inside retention survives with status degraded to unknown', async () => {
+    const now = Date.now();
+    localStorage.setItem(KEY, JSON.stringify({
+      'srv:p:quiet': { serverId: 'srv', project: 'p', session: 'quiet', status: 'waiting', lastUpdate: now - 60 * 60_000 },
+    }));
+    const { useSubscriptionStore } = await importFresh();
+    const st = useSubscriptionStore.getState();
+    expect(Object.keys(st.subscriptions)).toEqual(['srv:p:quiet']);
+    expect(st.subscriptions['srv:p:quiet'].status).toBe('unknown'); // past GONE_MS: keep the card, not the status
   });
 });
