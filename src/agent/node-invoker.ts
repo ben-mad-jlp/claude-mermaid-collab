@@ -824,7 +824,13 @@ async function invokeNodeInner(spec: NodeSpec): Promise<NodeResult> {
     capReset: rateLimited ? parseCapReset(stdout, stderr) : undefined,
     authMode,
     text: parsed.text,
-    parseError: parsed.parseError ?? (parsed.isError ? (stderr || 'result is_error=true') : undefined),
+    // A zero-output death (no result object, non-zero exit) is undiagnosable from
+    // stdout alone — the CLI's actual error went to stderr. Carry a stderr tail in
+    // parseError so the ledger/escalation records the real cause, not just the shape.
+    parseError:
+      parsed.parseError != null && exitCode !== 0 && stderr.trim().length > 0
+        ? `${parsed.parseError} — stderr tail: ${stderr.trim().slice(-500)}`
+        : (parsed.parseError ?? (parsed.isError ? (stderr || 'result is_error=true') : undefined)),
     hasResultJson: parsed.hasResultJson,
     commands,
   };
