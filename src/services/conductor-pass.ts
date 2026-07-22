@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, setConductorLastPass, createEscalation, type Escalation } from './supervisor-store.js';
+import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, listEscalations, setConductorLastPass, createEscalation, type Escalation } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -206,7 +206,10 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   let escalationsRaised = 0;
   if (escalated.length > 0) {
     const createEsc = deps.createEscalation ?? createEscalation;
-    const listOpen = deps.listOpenEscalations ?? listOpenEscalations;
+    const listOpen = deps.listOpenEscalations ?? (() => {
+      const all = listEscalations();
+      return all.filter((e) => e.status === 'open' || e.status === 'acknowledged');
+    });
     // Fail-open: an escalation-store hiccup must NEVER break the pass.
     let open: Escalation[] = [];
     try { open = listOpen(); } catch { open = []; }
@@ -214,7 +217,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       try {
         const marker = serveCapMarker(c.id);
         const already = open.some((e) =>
-          e.status === 'open' && e.kind === CRITERION_SERVE_CAP_KIND &&
+          (e.status === 'open' || e.status === 'acknowledged') && e.kind === CRITERION_SERVE_CAP_KIND &&
           e.project === project && e.todoId === missionId && e.questionText.includes(marker));
         if (already) continue;
         createEsc({
@@ -241,15 +244,6 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // 'building' (unlanded) — the conductor must run to LAND it, not wait. (land_epic's ownership gate
   // ensures the node only lands THIS mission's epics.)
   const landCards = (() => { try { return (deps.listOpenEscalations ?? listOpenEscalations)().filter((e) => e.project === project && e.kind === 'epic-ready-to-land').length; } catch { return 0; } })();
-  // No servable gap and no land card to drive: nothing for the node to do. A capped
-  // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
-  // above and must NOT spend a node re-filing for it (the thrash this cap kills). Report
-  // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
-  // building-wait (daemon working) no-op.
-  if (!hasGap && landCards === 0) {
-    if (escalated.length > 0) return { ran: false, reason: 'criteria-escalated', missionId, escalationsRaised };
-    if (status === 'building') return { ran: false, reason: 'building-wait', missionId };
-  }
 
   // The SUCCESS-debounce key includes the open land-card count: a new epic-ready-to-land card is
   // genuinely new work (the conductor must wake to land it), so it must reopen a previously-served
@@ -273,6 +267,16 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const failPrefix = `${serveFp}|fail:`;
   const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
   if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return { ran: false, reason: 'debounced', missionId };
+
+  // No servable gap and no land card to drive: nothing for the node to do. A capped
+  // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
+  // above and must NOT spend a node re-filing for it (the thrash this cap kills). Report
+  // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
+  // building-wait (daemon working) no-op.
+  if (!hasGap && landCards === 0) {
+    if (escalated.length > 0) return { ran: false, reason: 'criteria-escalated', missionId, escalationsRaised };
+    if (status === 'building') return { ran: false, reason: 'building-wait', missionId };
+  }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
   const model = resolveNodeModel(project, 'conductor', provider, ORCHESTRATION_NODE_PROFILE.conductor.model);
@@ -304,14 +308,21 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // an empty serve like a node failure: stamp the bounded fail-counter so the mission RETRIES and
   // self-heals across ticks (up to CONDUCTOR_SERVE_RETRY_CAP, then the serve-cap escalation fires).
   const discoverIdsBefore = actions.filter((a) => a.action === 'discover').map((a) => a.id);
+  const updatedCriteriaWithActions = listCriteriaWithActions(project, missionId);
   const servedAGap =
     discoverIdsBefore.length === 0 ||
-    listCriteriaWithActions(project, missionId).some(
+    updatedCriteriaWithActions.some(
       (c) => discoverIdsBefore.includes(c.id) && c.servingEpicState !== 'none',
     );
   const productive = res.ok && servedAGap;
   if (productive) {
-    stampConductorRun(project, missionId, fp);
+    // Stamp the fingerprint using the UPDATED state after the node ran, so the next pass
+    // recognizes this state as already-attempted and debounces without re-invoking.
+    const updatedStatus = getMission(project, missionId)?.status ?? status;
+    const updatedActions = updatedCriteriaWithActions.map((a) => ({ action: a.action, id: a.id }));
+    const updatedServeFp = conductorFingerprint(updatedStatus, updatedActions);
+    const updatedFp = updatedServeFp + `|land:${landCards}`;
+    stampConductorRun(project, missionId, updatedFp);
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
