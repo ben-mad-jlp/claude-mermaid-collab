@@ -7,6 +7,7 @@ import {
   stageAndCommitScoped,
   type ScopeInput,
 } from '../services/leaf-commit-scope';
+import { restorePostLandTree } from '../services/tree-integrity';
 
 export interface WorktreeManagerOpts {
   projectRoot: string; // absolute path to the project (git) root
@@ -177,9 +178,10 @@ export interface LandResult {
   landedPaths?: string[];
   /** P0 0949289b Part 2 — how the main checkout was synced to the land commit after the ref
    *  advance (it is on the base ref, so its working tree would otherwise be stranded pre-land):
-   *  'reset-hard' = synced clean; 'dirty-skipped' = real tracked work present, left for the guard;
-   *  'reset-failed' = the sync reset errored; 'not-checked-out' = base ref not checked out here. */
-  treeSynced?: 'reset-hard' | 'dirty-skipped' | 'reset-failed' | 'not-checked-out';
+   *  'reset-hard' = synced clean; 'reset-after-snapshot' = real tracked work was snapshotted
+   *  (committed under refs/snapshots/pre-restore-*) then reset --hard;
+   *  'reset-failed' = the sync reset or snapshot errored; 'not-checked-out' = base ref not checked out here. */
+  treeSynced?: 'reset-hard' | 'reset-after-snapshot' | 'reset-failed' | 'not-checked-out';
 }
 
 /** Result of checking whether an epic's accumulation branch has drifted behind trunk.
@@ -2007,8 +2009,8 @@ export class WorktreeManager {
       // commit (reset --hard preserves untracked docs/designs). Ephemeral SQLite WAL sidecars
       // (*.db-shm/*.db-wal) are excluded — they are test cruft, never real work, and previously
       // (bug 36393ef2) kept the checkout perpetually "dirty" so the old guard never ran. If real
-      // tracked work IS present (a rare allowDirty land over uncommitted edits) we skip the reset
-      // and leave it for the caller's post-land guard to escalate.
+      // tracked work IS present (a rare allowDirty land over uncommitted edits) we snapshot it
+      // (committed under refs/snapshots/pre-restore-*) then reset --hard (close the gap).
       let treeSynced: LandResult['treeSynced'] = 'not-checked-out';
       const headRef = await this.runGit(this.opts.projectRoot, ['symbolic-ref', '--quiet', 'HEAD'], QUICK_TIMEOUT_MS);
       if (headRef.code === 0 && headRef.stdout.trim() === `refs/heads/${baseRef}`) {
@@ -2024,7 +2026,11 @@ export class WorktreeManager {
           const sync = await this.runGit(this.opts.projectRoot, ['reset', '--hard', masterSha], QUICK_TIMEOUT_MS);
           treeSynced = sync.code === 0 ? 'reset-hard' : 'reset-failed';
         } else {
-          treeSynced = 'dirty-skipped';
+          const rep = restorePostLandTree(this.opts.projectRoot, masterSha, (this.opts.now ?? Date.now)());
+          if (rep.snapshotRef) {
+            onProgress?.('stdout', `land: snapshotted real dirty work to ${rep.snapshotRef}, reset --hard to ${masterSha}\n`);
+          }
+          treeSynced = rep.restored && rep.after.match ? 'reset-after-snapshot' : 'reset-failed';
         }
       }
 
