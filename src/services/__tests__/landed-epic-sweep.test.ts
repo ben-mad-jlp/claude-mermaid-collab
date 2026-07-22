@@ -83,8 +83,9 @@ describe('reconcileLandedEpics', () => {
 });
 
 describe('gcEpicBranches', () => {
-  test('ahead===0 branch is deleted and its tip SHA is logged to the recovery file', async () => {
+  test('ahead===0 branch of a TERMINAL epic is deleted and its tip SHA is logged to the recovery file', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] gc me', kind: 'epic', status: 'planned' });
+    await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
 
     const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
@@ -107,8 +108,54 @@ describe('gcEpicBranches', () => {
     expect(log).toContain('abc123');
   });
 
+  test('LIVE epic (non-terminal) with ahead===0 branch is SKIPPED, never deleted', async () => {
+    // Regression (2026-07-22): a brand-new epic branch forked from master is ahead===0
+    // until its first accepted merge; GC deleted such branches out from under in-flight
+    // leaves (c72e635c twice, 48a3cc6e with two leaves running, 234f0021 four times),
+    // failing their worktree adds with "invalid reference" and burning re-dispatch attempts.
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] building', kind: 'epic', status: 'planned' });
+    const branch = epicBranchName(epic.id);
+
+    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'live99',
+      deleteBranch: (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toEqual([]);
+    expect(result.flagged).toEqual([]);
+    expect(result.skipped).toBeGreaterThanOrEqual(1);
+    expect(deleteCalls).toEqual([]);
+  });
+
+  test('optimistically-landed epic (landedAt set, still building) is SKIPPED, never deleted', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] optimistic', kind: 'epic', status: 'planned' });
+    stampEpicLandedAt(project, epic.id, new Date().toISOString());
+    const branch = epicBranchName(epic.id);
+
+    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: () => 'opt42',
+      deleteBranch: (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: () => [],
+      aheadCount: () => 0,
+    };
+
+    const result = gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteCalls).toEqual([]);
+  });
+
   test('ahead>0 branch is flagged and left intact', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] keep me', kind: 'epic', status: 'planned' });
+    await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
 
     const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 1, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
@@ -152,6 +199,7 @@ describe('gcEpicBranches', () => {
 
   test('a live epic\'s branch surfacing in BOTH passes is processed exactly once (no double delete)', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] once', kind: 'epic', status: 'planned' });
+    await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
     const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
     const deleteCalls: string[] = [];
@@ -170,6 +218,7 @@ describe('gcEpicBranches', () => {
 
   test('a fully-on-master branch held by a worktree is pruned BEFORE deletion', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] worktree-held', kind: 'epic', status: 'planned' });
+    await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
     const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
     const order: string[] = [];

@@ -194,6 +194,15 @@ export function gcEpicBranches(
   for (const e of report.epics) {
     handled.add(e.branch);
     if (!e.exists) { skipped++; continue; }
+    // LIVE-EPIC GUARD: a non-terminal epic's branch is NEVER GC'd, no matter how
+    // "fully-on-master" it looks. A brand-new epic branch forked from master is
+    // ahead===0 by definition until its first accepted merge, and an optimistically
+    // landed epic (landedAt set, children still building) returns to ahead===0
+    // between merges — deleting either yanks the base out from under in-flight
+    // leaves (worktree add fails "invalid reference", burning attempts toward the
+    // re-dispatch cap; observed 2026-07-22: c72e635c deleted twice mid-build,
+    // 48a3cc6e with two leaves in flight, 234f0021 four times).
+    if (e.status !== 'done' && e.status !== 'dropped') { skipped++; continue; }
     if ((e.ahead ?? 0) > 0) { flagged.push(e.epicId); continue; }
     const tip = runner.revParse(e.branch);
     if (tip == null) { skipped++; continue; }
