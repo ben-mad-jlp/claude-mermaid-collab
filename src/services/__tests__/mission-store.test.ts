@@ -9,7 +9,7 @@ import {
 import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, listCriteriaWithActions, setCriterionMet, removeCriterion,
-  getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
+  getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
   CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS,
 } from '../mission-store';
@@ -953,5 +953,33 @@ describe('listMissions withFacts:false — cheap rollup is flagged, never mistak
     if (cheap.mission.status !== full.mission.status) {
       expect(cheap.rollup.factsOmitted).toBe(true);
     }
+  });
+});
+
+describe('backfillMissionNodeApproval — idempotent stamp of mission-node approval state', () => {
+  test('backfillMissionNodeApproval stamps approved missions and is idempotent', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+
+    // Mission starts unapproved
+    let todo = getTodo(project, id)!;
+    expect(todo.approvedAt).toBeNull();
+    expect(todo.approvedBy).toBeNull();
+
+    // Approve the mission
+    setMissionApproved(project, id);
+
+    // First backfill call should stamp the todo node
+    let stamped = backfillMissionNodeApproval(project);
+    expect(stamped).toBe(1);
+
+    // Verify the todo node now has approvedAt/approvedBy
+    todo = getTodo(project, id)!;
+    expect(todo.approvedAt).not.toBeNull();
+    expect(todo.approvedBy).toBe('backfill');
+
+    // Second backfill call should be idempotent (no rows updated)
+    stamped = backfillMissionNodeApproval(project);
+    expect(stamped).toBe(0);
   });
 });

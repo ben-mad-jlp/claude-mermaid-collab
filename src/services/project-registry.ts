@@ -156,6 +156,17 @@ export class ProjectRegistry {
       console.warn(`Failed to migrate todos.db kind column for ${path}:`, err);
     }
 
+    // Backfill mission-node approval state: reconcile diverged approval between mission.db
+    // and todos.db. Same dynamic-import pattern (mission-store imports todo-store which
+    // imports this file, so a static import would cycle). Never fatal: registration succeeds
+    // even if the backfill fails.
+    try {
+      const { backfillMissionNodeApproval } = await import('./mission-store.js');
+      backfillMissionNodeApproval(path);
+    } catch (err) {
+      console.warn(`Failed to backfill mission node approval for ${path}:`, err);
+    }
+
     // Check if project already exists
     const existingIndex = registry.projects.findIndex(p => p.path === path);
 

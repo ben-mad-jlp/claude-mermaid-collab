@@ -1378,6 +1378,24 @@ export function stampEpicLandedAt(project: string, epicId: string, whenIso: stri
   } catch { /* best-effort — never block the land-leaf stamp */ }
 }
 
+/** Idempotent stamp of approvedAt/approvedBy on a mission-kind todo row — used by the
+ *  mission-node approval backfill to reconcile diverged approval state between the
+ *  mission.db and todos.db. Sets approvedAt = updatedAt (when the row was last touched)
+ *  and approvedBy to the caller-supplied handle. Fires an orchestrator kick only if
+ *  a row was actually updated (idempotency guard via kind='mission' AND approvedAt IS NULL).
+ *  Returns true if stamped, false if already approved or not found. */
+export function stampMissionNodeApprovedIfNull(project: string, todoId: string, approvedBy: string): boolean {
+  const db = openDb(project);
+  const res = db.prepare(
+    `UPDATE todos SET approvedAt = updatedAt, approvedBy = ? WHERE id = ? AND kind = 'mission' AND approvedAt IS NULL`
+  ).run(approvedBy, todoId);
+  if (res.changes > 0) {
+    fireOrchestratorKick(`approved:${todoId.slice(0, 8)}`);
+    return true;
+  }
+  return false;
+}
+
 /** Pure predicate: an epic is hollow if it has NO accepted criterion-serving leaves.
  *  Vacuously hollow when leafChildren is empty (consistent with "none acceptanceStatus='accepted'"). */
 export function isHollowLand(epic: Pick<Todo, 'kind'>, leafChildren: Pick<Todo, 'acceptanceStatus'>[]): boolean {
