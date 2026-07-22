@@ -82,6 +82,20 @@ export const StatusPill: React.FC<{ status: MissionStatus }> = ({ status }) => (
   </span>
 );
 
+export function isRatifiedStatus(status: MissionStatus): boolean {
+  return status !== 'unapproved';
+}
+
+export const RatifiedBadge: React.FC = () => (
+  <span
+    data-testid="mission-ratified-badge"
+    className="shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300"
+    title="Approved — ratified and cleared to drive."
+  >
+    Approved
+  </span>
+);
+
 /** Board-ish status → dot colour for an epic row. */
 export function epicDotClass(status: string): string {
   const s = (status || '').toLowerCase();
@@ -606,7 +620,10 @@ export const MissionDetail: React.FC<{
           >
             {stripKindPrefix(m.node?.title ?? 'Mission')}
           </span>
-          <StatusPill status={view.status} />
+          <div className="flex items-center gap-1">
+            <StatusPill status={view.status} />
+            {isRatifiedStatus(view.status) && <RatifiedBadge />}
+          </div>
         </div>
 
         {/* Session/owner line */}
@@ -884,7 +901,10 @@ export const MissionCard: React.FC<{
           )}
           {stripKindPrefix(m.node?.title ?? 'Mission')}
         </span>
-        <StatusPill status={view.status} />
+        <div className="flex items-center gap-1">
+          <StatusPill status={view.status} />
+          {isRatifiedStatus(view.status) && <RatifiedBadge />}
+        </div>
       </div>
 
       {view.owner && (

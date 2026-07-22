@@ -94,6 +94,7 @@ export interface ForgeMissionResult {
   decisions: DecisionRecord[];
   digestWritten: boolean;
   rollup: MissionRollup;
+  ratificationMessage: string;
 }
 
 /** Validate + atomically instantiate a mission and its full constitution. Throws on invalid input
@@ -183,6 +184,7 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     decisions: decisionRecs,
     digestWritten,
     rollup: getMissionRollup(project, missionId),
+    ratificationMessage: approved ? `forged APPROVED (self-ratified by ${session})` : 'awaiting approval',
   };
 }
 
