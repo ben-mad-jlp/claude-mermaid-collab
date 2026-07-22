@@ -28,7 +28,6 @@ import { runFrictionTriagePass } from './friction-triage.js';
 import { runMissionIntakePass } from './mission-intake.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
-import { runSessionSummaryTick, runSelfSummaryNudgePass } from './session-summary-loop.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { registerOrchestratorKick } from './orchestrator-kick.js';
@@ -43,8 +42,6 @@ import { getBurnBySource } from './spend-ledger.js';
 // ---------------------------------------------------------------------------
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let summaryTimer: ReturnType<typeof setInterval> | null = null;
-let summaryRunning = false; // overlap guard for the independent summary loop
 let conductorTimer: ReturnType<typeof setInterval> | null = null;
 let conductorRunning = false; // overlap guard for the independent conductor loop (B0)
 let tickRunning = false;
@@ -56,32 +53,8 @@ let forceBuildNextTick = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
-const SUMMARY_INTERVAL_MS = 30_000;
 export const CONDUCTOR_INTERVAL_MS = 30_000;
 
-// Phase 5 (mission c4eb4fcc): throttle the Zen summary heartbeat's per-session work off the
-// every-30s beat. runSessionSummaryTick does a per-session pane-capture + suppression-diagnose
-// sweep (diagnoseClaimSuppression → listReadyTodos/listTodos on the 8MB DB) every beat; Zen cards
-// do not need 30s freshness (a summary is a slow-moving read-model broadcast, and the expensive
-// interpret pass is already gated on a human ACTIVELY viewing Zen). Gate the whole tick to ~2min
-// (first beat on boot always runs, so cards refresh promptly), leaving the summaryTimer's 30s
-// cadence for the cheap overlap check only. Same proven throttle shape as shouldRunReconcilePass.
-export const SUMMARY_HEARTBEAT_INTERVAL_MS = 120_000; // 2 min
-let lastSummaryHeartbeatAt: number | null = null;
-
-/** Throttle gate for the summary heartbeat. Returns true (recording `now`) when the per-session
- *  summary sweep is due; false while within SUMMARY_HEARTBEAT_INTERVAL_MS. First call always runs
- *  (boot freshness). `now` injectable for deterministic tests. */
-export function shouldRunSummaryHeartbeat(now: number = Date.now()): boolean {
-  if (lastSummaryHeartbeatAt !== null && now - lastSummaryHeartbeatAt < SUMMARY_HEARTBEAT_INTERVAL_MS) return false;
-  lastSummaryHeartbeatAt = now;
-  return true;
-}
-
-/** Test seam: clear the summary-heartbeat throttle clock. */
-export function _resetSummaryHeartbeatThrottle(): void {
-  lastSummaryHeartbeatAt = null;
-}
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
 // `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
 // tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
@@ -127,46 +100,11 @@ export function withPassTimeout<T>(p: Promise<T>, ms: number, label: string): Pr
   return Promise.race([p, deadline]).finally(() => { if (t) clearTimeout(t); }) as Promise<T>;
 }
 
-/**
- * Run one Zen session-summary heartbeat on its OWN interval — decoupled from the
- * orchestrator build tick. The summary pass used to be the first pass of the single-flight
- * orchestrator tick, which serialized it behind the (up-to-30-min) build pass: while a
- * project was building, every watched Zen card froze (no `session_summary_updated` until
- * the build finished). The summary tick is a cheap, read-only read-model broadcaster
- * (pane hash + a small sonnet call; nothing in the build/notify/triage passes reads its
- * output), so it runs independently here. Own overlap guard so a slow interpret pass can't
- * stack intervals; bounded by withPassTimeout so a wedged capture can't freeze the loop.
- */
-async function runSummaryGuarded(deps: { shouldRun?: () => boolean } = {}): Promise<void> {
-  if (summaryRunning) return; // previous heartbeat still in flight — skip this beat
-  // Phase 5: throttle the per-session sweep to SUMMARY_HEARTBEAT_INTERVAL_MS. The summaryTimer
-  // still fires every 30s but only this cheap gate check runs between due beats. Checked AFTER the
-  // overlap guard so a skipped-because-running beat doesn't consume the throttle clock.
-  const shouldRun = deps.shouldRun ?? shouldRunSummaryHeartbeat;
-  if (!shouldRun()) return;
-  summaryRunning = true;
-  try {
-    const watchedProjects = () => new Set(listWatchedProjects().map((w) => w.project));
-    await withPassTimeout(runSessionSummaryTick({ watchedProjects }), NOTIFY_PASS_TIMEOUT_MS, 'summary');
-    // Nudge QUIET sessions to self-report their Zen summary. Cheap (cache read + idle-gated
-    // tmux sends), per-session throttled, gated by runtime_config. Best-effort.
-    try {
-      await withPassTimeout(runSelfSummaryNudgePass(), NOTIFY_PASS_TIMEOUT_MS, 'self-summary-nudge');
-    } catch (nudgeErr) {
-      console.warn('[orchestrator] self-summary nudge pass failed:', nudgeErr);
-    }
-  } catch (err) {
-    console.warn('[orchestrator] session summary heartbeat failed:', err);
-  } finally {
-    summaryRunning = false;
-  }
-}
-
 /** B0 — independent CONDUCTOR heartbeat, decoupled from the serial build tick so a slow
  *  reconcile/build pass can never starve mission-driving (the ~15min conductor starvation of
  *  2026-07-18). Iterates WATCHED projects and runs the conductor pass for each; the pass self-gates
  *  on its per-project toggle + debounce, so this is a cheap no-op unless a mission is actionable.
- *  Own overlap guard (conductorRunning) — mirrors runSummaryGuarded; it does NOT read tickRunning,
+ *  Own overlap guard (conductorRunning); it does NOT read tickRunning,
  *  which is exactly why the build tick can't block it. Exported for the saturation test. */
 export async function runConductorGuarded(deps: Pick<TickDeps, 'conductor' | 'watchedProjects' | 'dirExists'> = {}): Promise<void> {
   if (conductorRunning) return; // previous conductor beat still in flight — skip this beat
@@ -652,16 +590,6 @@ export function startOrchestrator(intervalMs = 30_000): void {
   (t as { unref?: () => void }).unref?.();
   timer = t;
 
-  // Independent Zen summary heartbeat — decoupled from the build tick so a long build
-  // can't starve it (see runSummaryGuarded). Runs once immediately so cards refresh
-  // promptly on boot, then on its own interval. Idempotent with the timer===null guard.
-  if (summaryTimer === null) {
-    void runSummaryGuarded();
-    const st = setInterval(() => { void runSummaryGuarded(); }, SUMMARY_INTERVAL_MS);
-    (st as { unref?: () => void }).unref?.();
-    summaryTimer = st;
-  }
-
   // B0 — independent conductor heartbeat, decoupled from the build tick so a long reconcile/build
   // can never starve mission-driving. Own overlap guard (see runConductorGuarded). Idempotent.
   if (conductorTimer === null) {
@@ -681,10 +609,6 @@ export function stopOrchestrator(): void {
   if (timer === null) return;
   clearInterval(timer);
   timer = null;
-  if (summaryTimer !== null) {
-    clearInterval(summaryTimer);
-    summaryTimer = null;
-  }
   if (conductorTimer !== null) {
     clearInterval(conductorTimer);
     conductorTimer = null;

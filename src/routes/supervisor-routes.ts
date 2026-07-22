@@ -146,18 +146,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
-  // INTERPRET HEALTH — rolling success-rate / failure-reason / latency for the Zen
-  // summary interpreter (freshness hardening #1: measure before hardening). Read-only.
-  if (url.pathname === '/api/supervisor/summary-health' && req.method === 'GET') {
-    try {
-      const { getSummaryHealth } = await import('../services/session-summary-loop.ts');
-      const w = Number(url.searchParams.get('windowMs'));
-      return Response.json(getSummaryHealth(Number.isFinite(w) && w > 0 ? { windowMs: w } : undefined));
-    } catch {
-      return Response.json({ windowMs: 0, attempts: 0, successes: 0, successRate: 1, byReason: {}, p50Ms: 0, p95Ms: 0, inputTokens: 0, cachedInputTokens: 0, totalInputTokens: 0, outputTokens: 0, costUsd: 0, rateLimitBackoffMs: 0, recentFailures: [] });
-    }
-  }
-
   // UNLANDED EPICS — deterministic git-tree drift readout (design-epic-landing P1):
   // collab/epic/* branches with commits NOT on master = accepted work stranded
   // off-master. Derived purely from `git rev-list master..<branch>` (not from land

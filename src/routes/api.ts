@@ -47,7 +47,6 @@ import {
 import type { TodoKind } from '../services/todo-kind';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { recordUsage, getUsage } from '../services/usage-store';
-import { refreshSummaryNow } from '../services/session-summary-loop';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
 import type { ClaimSuppressionReport } from '../services/coordinator-live';
@@ -2934,18 +2933,6 @@ export async function handleAPI(
       lastUpdate: Date.now(),
     });
 
-    // When a watched session transitions into a state that needs attention
-    // (waiting / permission → a question or permission prompt just appeared), force a
-    // fresh Zen summary NOW. Otherwise the card colours red from this status while the
-    // interpreter's last summary — captured BEFORE the question — still shows, so the
-    // Zen card reads "previous work" with no question on a red card. refreshSummaryNow
-    // self-gates (no-op unless the session is watched). Fire-and-forget.
-    if ((status === 'waiting' || status === 'permission') && status !== prevStatus) {
-      void refreshSummaryNow(project, session).catch((err: any) => {
-        console.warn(`[session-notify] summary refresh failed: ${err?.message || String(err)}`);
-      });
-    }
-
     return Response.json({ success: true });
   }
 
@@ -3306,21 +3293,6 @@ export async function handleAPI(
         globalMax: maxInflightGlobal(),
         ...(body.project ? { projectMax: maxInflightPerProject(body.project) } : {}),
       });
-    }
-  }
-
-  // POST /api/zen/viewing — Zen-view presence heartbeat. The Zen UI beats this (~15s)
-  // while it is MOUNTED and the tab is VISIBLE. The session-summary loop gates its
-  // interpret pane-scrape + self-summary nudge on a fresh heartbeat, so we don't burn
-  // plan tokens summarizing when nobody is watching. GET returns the presence snapshot.
-  if (path === '/api/zen/viewing') {
-    const { markZenViewed, getZenPresence } = await import('../services/zen-presence');
-    if (req.method === 'POST') {
-      markZenViewed();
-      return Response.json({ ok: true, ...getZenPresence() });
-    }
-    if (req.method === 'GET') {
-      return Response.json(getZenPresence());
     }
   }
 
