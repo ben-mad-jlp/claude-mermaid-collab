@@ -91,6 +91,19 @@ export function hasHeldEpicAncestor(t: Todo, byId: Map<string, Todo>): boolean {
   return false;
 }
 
+/** Walks the parent chain; MISSION ancestors don't gate, matching the sibling functions.
+ *  Returns true iff some EPIC ancestor on this todo's parent chain is terminal (done/dropped). */
+export function hasTerminalEpicAncestor(t: Todo, byId: Map<string, Todo>): boolean {
+  const seen = new Set<string>();
+  let cur = t.parentId != null ? byId.get(t.parentId) : undefined;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (isEpic(cur) && (cur.status === 'dropped' || cur.status === 'done')) return true;
+    cur = cur.parentId != null ? byId.get(cur.parentId) : undefined;
+  }
+  return false;
+}
+
 export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
@@ -104,6 +117,7 @@ export type ClaimReason =
   | 'dep-dropped'     // a dep was DROPPED — permanently unsatisfiable; needs a human (re-point the edge, reset the dep, or drop this todo)
   | 'parent-unreleased' // an EPIC ancestor on the parent chain has approvedAt == null — release the epic (status='ready')
   | 'parent-held'     // an EPIC ancestor on the parent chain has heldAt != null — release the held epic
+  | 'parent-dropped'  // an EPIC ancestor on the parent chain is terminal (done/dropped) — the epic closed; re-home this todo to a live epic
   | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
@@ -282,6 +296,7 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // control ever reaches here, so releasing/un-releasing an epic never revokes a running leaf.
   if (hasUnreleasedEpicAncestor(t, byId)) return 'parent-unreleased';
   if (hasHeldEpicAncestor(t, byId)) return 'parent-held';
+  if (hasTerminalEpicAncestor(t, byId)) return 'parent-dropped';
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(resolveDepId(id, byId)))) {
     return 'deps-pending';
   }

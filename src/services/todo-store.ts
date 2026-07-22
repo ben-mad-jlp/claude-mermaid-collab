@@ -392,6 +392,17 @@ export class ContainerHasOpenChildrenError extends Error {
   }
 }
 
+export class TerminalParentApproveError extends Error {
+  readonly code = 'terminal-parent-approve';
+  constructor(todoId: string, terminalEpicId: string) {
+    super(
+      `Cannot approve todo ${todoId.slice(0, 8)}: it is parented under a terminal epic ` +
+      `${terminalEpicId.slice(0, 8)} (done/dropped). Re-home this todo to a live epic.`,
+    );
+    this.name = 'TerminalParentApproveError';
+  }
+}
+
 export type UpdateTodoPatch = Partial<{
   title: string;
   description: string | null;
@@ -1623,6 +1634,21 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
   });
 }
 
+function hasTerminalEpicAncestor(project: string, startParentId: string | null): string | null {
+  const seen = new Set<string>();
+  let curId: string | null = startParentId;
+  while (curId && !seen.has(curId)) {
+    seen.add(curId);
+    const cur = getTodo(project, curId);
+    if (!cur) break;
+    if (cur.kind === 'epic' && (cur.status === 'dropped' || cur.status === 'done')) {
+      return cur.id;
+    }
+    curId = cur.parentId;
+  }
+  return null;
+}
+
 export function updateTodo(project: string, id: string, patch: UpdateTodoPatch): Promise<Todo> {
   return withLock(project, () => {
     const existing = getTodo(project, id);
@@ -1694,6 +1720,11 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // The guard reads the EFFECTIVE servesCriterionId (post-patch), so a combined
     // "set edge + approve" call in one update passes (line coupling constraint).
     const newlyApproved = approvedAt != null && existing.approvedAt == null;
+    if (newlyApproved) {
+      const effectiveParentId = patch.parentId !== undefined ? patch.parentId : existing.parentId;
+      const terminalAncestorId = hasTerminalEpicAncestor(project, effectiveParentId);
+      if (terminalAncestorId) throw new TerminalParentApproveError(id, terminalAncestorId);
+    }
     if (newlyApproved && isEpic(existing)) {
       const effectiveEdges = patch.servesCriterionIds !== undefined
         ? (patch.servesCriterionIds ?? [])
@@ -1883,6 +1914,8 @@ export async function promoteBucketItemToEpic(
 ): Promise<{ epic: Todo; item: Todo }> {
   const item = getTodo(project, itemId);
   if (!item) throw new Error(`promoteBucketItemToEpic: todo not found: ${itemId}`);
+  const terminalAncestorId = hasTerminalEpicAncestor(project, item.parentId);
+  if (terminalAncestorId) throw new TerminalParentApproveError(itemId, terminalAncestorId);
   const epic = await createTodo(project, {
     ownerSession: item.ownerSession,
     kind: 'epic',
