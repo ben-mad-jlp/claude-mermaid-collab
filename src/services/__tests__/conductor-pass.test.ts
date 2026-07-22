@@ -478,3 +478,69 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     expect(p).toContain('escalation_list');
   });
 });
+
+describe('runConductorPass — lastPass refreshes every beat', () => {
+  test('debounced beat still refreshes lastPass', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+
+    const r1 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r1.reason).toBe('conducted');
+    const lastPass1 = getConductorLastPass(project);
+    expect(lastPass1).not.toBeNull();
+
+    const r2 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r2.reason).toBe('debounced');
+    const lastPass2 = getConductorLastPass(project);
+    expect(lastPass2).not.toBeNull();
+    expect(lastPass2!.reason).toBe('debounced');
+    expect(typeof lastPass2!.tickAt).toBe('number');
+    expect(lastPass2!.tickAt >= lastPass1!.tickAt).toBe(true);
+  });
+
+  test('mid-flight invoke observes pass-ran before the node completes', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+
+    let midFlightObserved = false;
+    const missionId = forged.missionId;
+    const flightInvoke = async () => {
+      const mid = getConductorLastPass(project);
+      if (mid && mid.reason === 'pass-ran' && mid.missionId === missionId) {
+        midFlightObserved = true;
+      }
+      await new Promise(r => setTimeout(r, 5));
+      // Mirror okInvoke's logic to serve the gap
+      for (const c of listCriteriaWithActions(project, missionId).filter((x) => x.action === 'discover')) {
+        await createTodo(project, { ownerSession: 's1', title: `[EPIC] served ${c.id}`, kind: 'epic', parentId: missionId, servesCriterionIds: [c.id] });
+      }
+      return { ok: true, rateLimited: false, text: 'served the gap' } as any;
+    };
+
+    const r = await runConductorPass(project, { invoke: flightInvoke });
+    expect(r.reason).toBe('conducted');
+    expect(midFlightObserved).toBe(true);
+  });
+
+  test('a throwing invoke leaves pass-error, not a stale prior reason, and rethrows', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const first = await forgeApprovedActive();
+    await runConductorPass(project, { invoke: okInvoke });
+    const staleLast = getConductorLastPass(project);
+    expect(staleLast!.reason).toBe('conducted');
+
+    const second = await forgeMission(project, { session: 's1', title: 'Fresh mission to error', criteria: ['error criterion'] });
+    setConductorTargetMission(project, second.missionId);
+
+    const throwInvoke = async () => { throw new Error('boom'); };
+    await expect(runConductorPass(project, { invoke: throwInvoke })).rejects.toThrow('boom');
+
+    const lastPass = getConductorLastPass(project);
+    expect(lastPass).not.toBeNull();
+    expect(lastPass!.reason).toBe('pass-error');
+    expect(lastPass!.missionId).toBeNull();
+  });
+});
