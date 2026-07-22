@@ -366,7 +366,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 15,
+      version: 16,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -476,6 +476,18 @@ export const useUIStore = create<UIState>()(
             ...old,
             paneOrder: prev.filter((p) => p !== 'terminal'),
           } as UIState;
+        }
+        if (version < 16) {
+          // Catch-all pane-order heal: parallel epics reused version numbers 14/15
+          // for different migrations, so a store persisted during an interim deploy
+          // can sit at version >= 15 while still carrying a since-removed key
+          // ('ops'/'terminal') — which crashed Header's paneToggles lookup on boot.
+          // Canonicalize against ALL_PANE_KEYS: drop unknown keys, append missing.
+          const old = persistedState as Record<string, unknown>;
+          const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as string[]) : [];
+          const known = prev.filter((p): p is PaneKey => (ALL_PANE_KEYS as string[]).includes(p));
+          const merged = [...known, ...ALL_PANE_KEYS.filter((k) => !known.includes(k))];
+          return { ...old, paneOrder: merged } as UIState;
         }
         return persistedState as UIState;
       },

@@ -258,6 +258,9 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-1.5">
             {paneOrder.map((key) => {
               const t = paneToggles[key];
+              // A persisted paneOrder can carry a since-removed key (interim-deploy
+              // migration-version collisions) — an unknown key must never crash boot.
+              if (!t) return null;
               return (
                 <button
                   key={key}
