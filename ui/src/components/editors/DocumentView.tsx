@@ -40,22 +40,37 @@ export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentC
     prevContentRef.current = document.content;
   }, [document.content, documentEditable]);
 
+  // Track whether the user has been in edit mode for THIS document. Milkdown
+  // round-trips markdown at mount and emits a NORMALIZED serialization through
+  // onChange even in read-only review mode — forwarding that to the auto-save
+  // pipeline saved a normalized copy of every document you merely VIEWED
+  // (bumping lastModified and reordering the sidebar). Only changes made while
+  // (or after) the user explicitly entered Edit mode may reach persistence.
+  const editedThisDocRef = useRef(false);
+  useEffect(() => { editedThisDocRef.current = false; }, [document?.id]);
+  useEffect(() => { if (documentEditable) editedThisDocRef.current = true; }, [documentEditable]);
+
   const handleChange = useCallback(
     (md: string) => {
+      // Live editability wins (covers switching docs while Edit mode is already on);
+      // the latch covers the flush that fires just AFTER locking back to review.
+      if (!documentEditable && !editedThisDocRef.current) return;
       onContentChange?.(md);
     },
-    [onContentChange],
+    [onContentChange, documentEditable],
   );
 
   const handlePersist = useCallback(
     (md: string) => {
+      if (!documentEditable && !editedThisDocRef.current) return;
       onContentChange?.(md);
     },
-    [onContentChange],
+    [onContentChange, documentEditable],
   );
 
   // When switching back to review mode, flush pending edits so the last
   // keystroke makes it to the persistence layer before the editor goes read-only.
+  // (The flush passes the edited-gate: entering Edit mode latched the ref.)
   useEffect(() => {
     if (!documentEditable) flushRef.current?.();
   }, [documentEditable]);
