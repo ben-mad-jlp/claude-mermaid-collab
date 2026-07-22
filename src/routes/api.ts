@@ -3135,14 +3135,14 @@ export async function handleAPI(
       const { getTodo } = await import('../services/todo-store');
       const todo = getTodo(project, leafId);
       const blueprintId = todo?.link?.blueprintId ?? null;
-      if (!blueprintId) return Response.json({ leafId, ran: false });
-      const dir = sessionRegistry.resolvePath(project, 'leaf-blueprints', 'documents');
-      const dm = new DocumentManager(dir);
-      await dm.initialize();
-      const doc = await dm.getDocument(blueprintId);
-      if (!doc) return Response.json({ leafId, blueprintId, ran: false });
+      // The worker ledger is the durable blueprint source (the old `leaf-blueprints`
+      // pseudo-session doc store was a redundant copy, since removed): the latest
+      // SUCCEEDED blueprint node's full output text carries the trailing size manifest.
+      const { getLatestSuccessfulNodeOutput } = await import('../services/worker-ledger');
+      const blueprintText = getLatestSuccessfulNodeOutput(leafId, 'blueprint');
+      if (!blueprintText) return Response.json({ leafId, blueprintId, ran: false });
       const { parseSizeManifest } = await import('../services/leaf-executor');
-      const manifest = parseSizeManifest(doc.content);
+      const manifest = parseSizeManifest(blueprintText);
       if (!manifest) return Response.json({ leafId, blueprintId, ran: false });
       return Response.json({
         leafId,

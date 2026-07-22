@@ -3639,38 +3639,11 @@ export async function runLeaf(
   }
 }
 
-/** Per-attempt blueprint document name. Mint and prefix-scan share this so they can't drift. */
+/** Per-attempt blueprint label (stamped into link.blueprintId). The TEXT itself lives in
+ *  the worker ledger — getLatestSuccessfulNodeOutput(leafId,'blueprint') is the accessor. */
 export function blueprintAttemptName(leafId: string, attempt: number): string {
   return `Leaf blueprint — ${leafId.slice(0, 8)} attempt ${attempt}`;
 }
-/** The stable prefix of every attempt name for a leaf (all attempts, any N). */
-export function blueprintAttemptPrefix(leafId: string): string {
-  return `Leaf blueprint — ${leafId.slice(0, 8)} attempt `;
-}
-
-/**
- * Mark every PRIOR attempt blueprint for `leafId` as deprecated, leaving only `liveId`.
- * Prefix-scans the documents (NOT link.blueprintId chaining) so it also catches ORPHANS —
- * attempts from interrupted runs that died before the todo link was updated, which is why
- * all attempts otherwise sit at equal visual weight. Exported for direct testing.
- */
-export async function deprecatePriorAttempts(
-  dm: import('./document-manager').DocumentManager,
-  sessionDir: string,
-  leafId: string,
-  liveId: string,
-): Promise<void> {
-  const { MetadataManager } = await import('./metadata-manager');
-  const mm = new MetadataManager(sessionDir);
-  await mm.initialize();
-  const prefix = blueprintAttemptPrefix(leafId);
-  for (const d of await dm.listDocuments()) {
-    if (d.id !== liveId && d.name.startsWith(prefix)) {
-      await mm.updateItem(d.id, { deprecated: true });
-    }
-  }
-}
-
 /**
  * Factory wiring the REAL dependencies. Resolves the epic id (walking parentId in
  * the tracking project), materialises the epic branch, and binds the production
@@ -4008,38 +3981,19 @@ export async function makeLeafExecutorDeps(
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
     // WorktreeManager so the git plumbing lives in one place.
     worktreeBaseFresh: (cwd) => wm.worktreeBaseFresh(cwd, epicBranch),
-    // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
-    // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
-    // session under the TRACKING `project`, then points the leaf todo's
-    // `link.blueprintId` at the LATEST attempt's doc (prior attempts persist as their
-    // own docs, discoverable but not the primary link). Preserves any existing taskId.
-    persistBlueprint: async ({ project: trackingProject, leaf: lf, attempt, blueprintMd }) => {
-      const { sessionRegistry } = await import('./session-registry');
-      const { DocumentManager } = await import('./document-manager');
+    // Durable per-attempt blueprint LINK (best-effort; throws are swallowed at the
+    // call site). The blueprint TEXT is already durably stored by the worker ledger
+    // at the invoke boundary (getLatestSuccessfulNodeOutput(leafId,'blueprint') is
+    // the artifact accessor the API serves from) — the old copy written into a
+    // `leaf-blueprints` pseudo-session document store was redundant AND put a
+    // non-watchable bookkeeping session in the picker forever. Only the todo's
+    // `link.blueprintId` attempt label is stamped now. Preserves any existing taskId.
+    persistBlueprint: async ({ project: trackingProject, leaf: lf, attempt }) => {
       const { updateTodo } = await import('./todo-store');
-      const BLUEPRINT_SESSION = 'leaf-blueprints';
-      await sessionRegistry.registerIfAbsent(trackingProject, BLUEPRINT_SESSION);
-      const dir = sessionRegistry.resolvePath(trackingProject, BLUEPRINT_SESSION, 'documents');
-      const dm = new DocumentManager(dir);
-      await dm.initialize();
-      const name = blueprintAttemptName(lf.id, attempt);
-      // createDocument throws if the sanitized id already exists (e.g. a resumed attempt);
-      // fall back to saving over the existing doc so re-runs are idempotent.
-      const sanitizedId = name.replace(/[^a-zA-Z0-9-_]/g, '-');
-      let id: string;
-      try {
-        id = await dm.createDocument(name, blueprintMd);
-      } catch {
-        await dm.saveDocument(sanitizedId, blueprintMd);
-        id = sanitizedId;
-      }
+      const id = blueprintAttemptName(lf.id, attempt).replace(/[^a-zA-Z0-9-_]/g, '-');
       await updateTodo(trackingProject, lf.id, {
         link: { blueprintId: id, ...(lf.link?.taskId ? { taskId: lf.link.taskId } : {}) },
       });
-      // Auto-deprecate every PRIOR attempt blueprint for this leaf so only the live
-      // one shows by default. Best-effort: superseding is cosmetic, never fail a build.
-      const sessionDir = sessionRegistry.resolvePath(trackingProject, BLUEPRINT_SESSION, '.');
-      await deprecatePriorAttempts(dm, sessionDir, lf.id, id).catch(() => {});
       return id;
     },
   };
