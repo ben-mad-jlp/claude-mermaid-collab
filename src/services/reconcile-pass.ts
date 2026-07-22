@@ -46,6 +46,12 @@ import { syncMissionSubscription } from './mission-subscription.js';
  *  escalation kind (e.g. the generic 'blocker'/'verified-done' ones step 4 handles). */
 export const DANGLING_DEPS_KIND = 'dangling-deps';
 
+/** Escalation `kind` reserved for the epic-sweep triage escalations raised by
+ *  sweepEpicRollups flags ('landed-needs-review' and 'motionless' reasons).
+ *  Exempted from the stale-close sweep to prevent the close/recreate flap that
+ *  would occur on every tick. Auto-closed by step 4 via todoId linking. */
+export const EPIC_SWEEP_TRIAGE_KIND = 'epic-sweep-triage';
+
 // ---------------------------------------------------------------------------
 // Throttle (mission c4eb4fcc, Phase 3): keep the reconcile pass OFF the every-tick
 // (~30s) cadence.
@@ -117,7 +123,9 @@ export async function runReconcilePass(project: string): Promise<void> {
       // hour — making the human-facing card effectively invisible. It clears only
       // when a human resolves it (or the underlying strands are re-integrated), so
       // exempt it from the stale sweep, same as the step-4 auto-close exclusion.
-      if (esc.kind === BP0_STRANDED_SUMMARY_KIND) continue;
+      // Epic-sweep triage cards are similarly durable and would flap on every tick
+      // without exemption — auto-closed by step 4 once their linked epic settles.
+      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND) continue;
       const age = now - esc.createdAt;
       if (age < SUPERVISOR_STALE_AFTER_MS) continue;
 
@@ -183,6 +191,34 @@ export async function runReconcilePass(project: string): Promise<void> {
         session: 'coordinator',
         detail: JSON.stringify({ source: 'reconcile-pass', epicId: f.epicId, flag: 'epic-all-done-but-unaccepted', children: f.children, unaccepted: f.unaccepted }),
       });
+
+      if (f.reason === 'landed-needs-review' || f.reason === 'motionless') {
+        const epicShortId = f.epicId.slice(0, 8);
+        const questionText =
+          f.reason === 'landed-needs-review'
+            ? `Epic "${epicShortId}" has landed but contains done-but-unaccepted children that need review before closure.`
+            : `Epic "${epicShortId}" has children that have been idle past the sweep threshold and need attention.`;
+
+        const detailLine =
+          f.reason === 'landed-needs-review'
+            ? `Total children: ${f.children}, Done but unaccepted: ${f.doneUnaccepted}`
+            : `Total children: ${f.children}, In progress: ${f.inProgress}, Idle for: ${f.idleForMs}ms`;
+
+        createEscalation({
+          project,
+          session: 'coordinator',
+          kind: EPIC_SWEEP_TRIAGE_KIND,
+          todoId: f.epicId,
+          questionText,
+          options: [
+            {
+              id: 'review',
+              label: 'Review epic',
+              detail: detailLine,
+            },
+          ],
+        });
+      }
     }
   } catch (err) {
     console.warn(
