@@ -2,13 +2,14 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'bun:sqlite';
 
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'mission-planner-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject, ServeIntegrityError } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
-import { listCriteria, listCriteriaWithActions, _resetMissionDbCache } from '../../../services/mission-store';
+import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, _resetMissionDbCache } from '../../../services/mission-store';
 import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
 
@@ -199,6 +200,35 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
     const todos = listTodos(project, { includeCompleted: true });
     const epics = todos.filter((t) => t.kind === 'epic' && t.parentId === missionId);
     expect(epics.length).toBe(2);
+  });
+
+  test('creation-recency guard refuses a duplicate serve even when the derived action reads discover', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const blockedSpec = { title: 'T', leaves: [{ title: 'L', dependsOn: ['no-such-dep-id'] }] };
+
+    const r1 = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke(blockedSpec) });
+
+    // Sanity: OLD derived-action mechanism alone reads 'discover' here (no ready/in_progress child).
+    expect(listCriteriaWithActions(project, missionId).find(c => c.id === criterionId)!.action).toBe('discover');
+
+    // Within the grace window: refused despite the 'discover' action.
+    let invoked = 0;
+    await expect(
+      planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: async () => { invoked++; return {} as any; } }),
+    ).rejects.toThrow(ServeIntegrityError);
+    expect(invoked).toBe(0);
+
+    // Backdate epic 1's createdAt past CHILDLESS_SERVE_GRACE_MS (raw SQL, same technique as
+    // src/services/__tests__/mission-store.test.ts:645-648), then re-open the project db.
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    const past = new Date(Date.now() - CHILDLESS_SERVE_GRACE_MS - 60_000).toISOString();
+    db.exec(`UPDATE todos SET createdAt = '${past}' WHERE id = '${r1.epicId}'`);
+    db.close();
+    closeTodos(project);
+
+    // Past the grace window: proceeds — a second, distinct epic is created.
+    const r2 = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke(blockedSpec) });
+    expect(r2.epicId).not.toBe(r1.epicId);
   });
 });
 
