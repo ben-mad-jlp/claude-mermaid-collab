@@ -470,6 +470,12 @@ function moveOpenToResolved(
   return { ...writeOpen(open), ...writeResolved(resolved), hydrateEpoch: state.hydrateEpoch + 1 };
 }
 
+/** Move an escalation from open to acknowledged state (stays open, not resolved). */
+function moveOpenToAcknowledged(state: SupervisorState, id: string): Partial<SupervisorState> {
+  const open = state.openEscalations.filter((e) => e.id !== id);
+  return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
+}
+
 /** Patch an escalation in place within the open slice (it stays open). */
 function updateOpenItem(
   state: SupervisorState,
@@ -640,6 +646,7 @@ interface SupervisorState {
   ) => Promise<{ ok: boolean; completed: SessionTodo | null }>;
   verifyEpic: (serverId: string, project: string, epicId: string, base?: string) => Promise<VerifyEpicSummary | null>;
   resolveBudgetCap: (serverId: string, id: string) => Promise<boolean>;
+  acknowledgeEscalationCard: (serverId: string, id: string) => Promise<boolean>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   /** Answer a Claude Code multi-select question: toggle the chosen 1-based option numbers then submit. */
   answerPaneMulti: (serverId: string, project: string, session: string, numbers: number[]) => Promise<boolean>;
@@ -1231,6 +1238,13 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const res = await invoke(serverId, '/api/supervisor/escalations/resolve-burn', 'POST', { id });
     if (!res?.ok) return false;
     set((state) => moveOpenToResolved(state, id, { status: 'resolved', resolvedAt: Date.now() }));
+    return true;
+  },
+
+  acknowledgeEscalationCard: async (serverId, id) => {
+    const res = await invoke(serverId, '/api/supervisor/escalations/acknowledge', 'POST', { id });
+    if (!res?.ok) return false;
+    set((state) => moveOpenToAcknowledged(state, id));
     return true;
   },
 
