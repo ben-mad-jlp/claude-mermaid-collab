@@ -13,6 +13,8 @@ import {
   enqueueNotification,
   pendingCount,
   drainInbox,
+  sweepStaleSubscriptions,
+  SUBSCRIPTION_TTL_MS,
   __resetForTest,
   type Subscription,
 } from '../session-subscriptions.ts';
@@ -155,5 +157,45 @@ describe('enqueue dedupe-while-pending', () => {
     const c = enqueueNotification({ project: P, session: 's9', scope: 'todo', targetId: 'T1', event: 'todo_claimed', summary: 'later', ts: 3 });
     expect(c.id).not.toBe(a.id);
     expect(pendingCount(P, 's9')).toBe(1);
+  });
+});
+
+describe('sweepStaleSubscriptions (dead-session reap)', () => {
+  const NOW = 10 * SUBSCRIPTION_TTL_MS;
+
+  it('reaps a session with no liveness signal past the TTL, notifications included', () => {
+    addSubscription(P, 'ghost', 'project', undefined, 'nudge', NOW - SUBSCRIPTION_TTL_MS - 1);
+    enqueueNotification({ project: P, session: 'ghost', scope: 'project', targetId: '', event: 'x', summary: 'y', ts: 1 });
+    expect(sweepStaleSubscriptions(SUBSCRIPTION_TTL_MS, NOW)).toBe(1);
+    expect(listSubscriptionsForSession(P, 'ghost')).toEqual([]);
+    expect(pendingCount(P, 'ghost')).toBe(0);
+  });
+
+  it('spares a session inside the TTL', () => {
+    addSubscription(P, 'fresh', 'project', undefined, 'nudge', NOW - SUBSCRIPTION_TTL_MS + 1000);
+    expect(sweepStaleSubscriptions(SUBSCRIPTION_TTL_MS, NOW)).toBe(0);
+    expect(listSubscriptionsForSession(P, 'fresh').length).toBe(1);
+  });
+
+  it("one fresh subscription shields the session's older rows (session-granular)", () => {
+    addSubscription(P, 's1', 'project', undefined, 'nudge', NOW - SUBSCRIPTION_TTL_MS * 3);
+    addSubscription(P, 's1', 'epic', 'e1', 'nudge', NOW - 1000);
+    expect(sweepStaleSubscriptions(SUBSCRIPTION_TTL_MS, NOW)).toBe(0);
+    expect(listSubscriptionsForSession(P, 's1').length).toBe(2);
+  });
+
+  it('drainInbox refreshes liveness — a pulling session is never reaped', () => {
+    addSubscription(P, 'puller', 'project', undefined, 'nudge', 0); // ancient createdAt
+    drainInbox(P, 'puller'); // stamps lastSeenAt = real now
+    expect(sweepStaleSubscriptions(SUBSCRIPTION_TTL_MS, Date.now())).toBe(0);
+    expect(listSubscriptionsForSession(P, 'puller').length).toBe(1);
+  });
+
+  it('re-subscribe after a reap restores the row (upsert refreshes lastSeenAt)', () => {
+    addSubscription(P, 'back', 'project', undefined, 'nudge', 0);
+    expect(sweepStaleSubscriptions(SUBSCRIPTION_TTL_MS, NOW)).toBe(1);
+    addSubscription(P, 'back', 'project', undefined, 'nudge', NOW);
+    expect(sweepStaleSubscriptions(SUBSCRIPTION_TTL_MS, NOW)).toBe(0);
+    expect(listSubscriptionsForSession(P, 'back').length).toBe(1);
   });
 });

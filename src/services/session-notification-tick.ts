@@ -16,6 +16,7 @@ import {
   pendingCount,
   listPending,
   expireSubscriptionsForTarget,
+  sweepStaleSubscriptions,
 } from './session-subscriptions';
 import { snapshotTodos, diffTodos, planNotifications, type SnapshotMap } from './session-notification-router';
 import { fireStamp } from './nudge-stamp';
@@ -92,6 +93,10 @@ export async function runNotificationTick(
   const load = deps.loadTodos ?? ((p) => listTodos(p, { includeCompleted: true }));
   const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
   const now = deps.now ?? Date.now;
+
+  // Reap dead-session subscriptions before matching: without this, every session that
+  // ever subscribed haunts the watching list forever (observed: 66 ghost cards).
+  try { sweepStaleSubscriptions(undefined, now()); } catch { /* hygiene — never block the tick */ }
 
   const subs = listAllSubscriptions().filter((s) => s.project === project);
   if (subs.length === 0) {

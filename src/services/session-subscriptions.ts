@@ -103,6 +103,11 @@ function openDb(): Database {
   const d = new Database(join(dir, 'subscriptions.db'));
   d.exec('PRAGMA journal_mode = WAL');
   d.exec(DDL);
+  // Liveness stamp for the stale-subscription sweep: refreshed on every subscribe and
+  // every inbox drain. Additive + backfilled from createdAt so pre-column rows age from
+  // their creation, not from zero (which would exempt the oldest ghosts).
+  try { d.exec('ALTER TABLE session_subscription ADD COLUMN lastSeenAt INTEGER'); } catch { /* exists */ }
+  d.exec('UPDATE session_subscription SET lastSeenAt = createdAt WHERE lastSeenAt IS NULL');
   db = d;
   return db;
 }
@@ -130,9 +135,9 @@ export function addSubscription(
   if (scope !== 'project' && !tid) throw new Error(`${scope} subscription requires a targetId`);
   const d = openDb();
   d.prepare(
-    `INSERT INTO session_subscription (project, session, scope, targetId, mode, createdAt) VALUES (?,?,?,?,?,?)
-     ON CONFLICT(project, session, scope, targetId) DO UPDATE SET mode=excluded.mode`,
-  ).run(project, session, scope, tid, mode, now);
+    `INSERT INTO session_subscription (project, session, scope, targetId, mode, createdAt, lastSeenAt) VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(project, session, scope, targetId) DO UPDATE SET mode=excluded.mode, lastSeenAt=excluded.lastSeenAt`,
+  ).run(project, session, scope, tid, mode, now, now);
   return { project, session, scope, targetId: tid, mode, createdAt: now };
 }
 
@@ -214,9 +219,36 @@ export function listPending(project: string, session: string, limit?: number): S
  *  FULL drain is what makes a missed nudge self-heal — any later nudge delivers everything. */
 export function drainInbox(project: string, session: string): SessionNotification[] {
   const d = openDb();
+  // A drain is positive proof the session is alive — refresh its subscriptions'
+  // liveness stamp so the stale sweep never reaps an actively-pulling session.
+  d.prepare(`UPDATE session_subscription SET lastSeenAt=? WHERE project=? AND session=?`).run(Date.now(), project, session);
   const rows = d.query(`SELECT * FROM session_notification WHERE project=? AND session=? AND seen=0 ORDER BY ts`).all(project, session) as any[];
   if (rows.length > 0) {
     d.prepare(`UPDATE session_notification SET seen=1 WHERE project=? AND session=? AND seen=0`).run(project, session);
   }
   return rows.map((r) => ({ id: r.id, project: r.project, session: r.session, scope: r.scope, targetId: r.targetId, event: r.event, summary: r.summary, payload: r.payload, ts: r.ts, seen: false }));
+}
+
+/** How long a subscription survives with NO liveness signal (no subscribe refresh, no
+ *  inbox drain) before the sweep reaps it. Dead sessions accumulate subscriptions forever
+ *  otherwise — observed 125 rows / 66 watching-cards on one machine, all ghosts. */
+export const SUBSCRIPTION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Reap subscriptions (and their queued notifications) for sessions with no liveness
+ * signal inside `ttlMs`. Session-granular: ALL of a (project,session)'s rows must be
+ * stale before any are removed — one fresh subscription proves the session alive and
+ * shields its older rows. A reaped session that comes back simply re-subscribes
+ * (addSubscription is an upsert). Returns subscription rows removed.
+ */
+export function sweepStaleSubscriptions(ttlMs: number = SUBSCRIPTION_TTL_MS, now: number = Date.now()): number {
+  const d = openDb();
+  const cutoff = now - ttlMs;
+  const dead = d.query(
+    `SELECT project, session FROM session_subscription
+     GROUP BY project, session HAVING MAX(COALESCE(lastSeenAt, createdAt)) < ?`,
+  ).all(cutoff) as Array<{ project: string; session: string }>;
+  let removed = 0;
+  for (const s of dead) removed += dropSubscriptionsForSession(s.project, s.session);
+  return removed;
 }
