@@ -80,6 +80,17 @@ export function hasUnreleasedEpicAncestor(t: Todo, byId: Map<string, Todo>): boo
   return false;
 }
 
+export function hasHeldEpicAncestor(t: Todo, byId: Map<string, Todo>): boolean {
+  const seen = new Set<string>();
+  let cur = t.parentId != null ? byId.get(t.parentId) : undefined;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (isEpic(cur) && cur.heldAt != null) return true;
+    cur = cur.parentId != null ? byId.get(cur.parentId) : undefined;
+  }
+  return false;
+}
+
 export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
@@ -92,6 +103,7 @@ export type ClaimReason =
   | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
   | 'dep-dropped'     // a dep was DROPPED — permanently unsatisfiable; needs a human (re-point the edge, reset the dep, or drop this todo)
   | 'parent-unreleased' // an EPIC ancestor on the parent chain has approvedAt == null — release the epic (status='ready')
+  | 'parent-held'     // an EPIC ancestor on the parent chain has heldAt != null — release the held epic
   | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
@@ -269,6 +281,7 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // work is protected: the `t.claim != null` check at the top returns 'in-flight' before
   // control ever reaches here, so releasing/un-releasing an epic never revokes a running leaf.
   if (hasUnreleasedEpicAncestor(t, byId)) return 'parent-unreleased';
+  if (hasHeldEpicAncestor(t, byId)) return 'parent-held';
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(resolveDepId(id, byId)))) {
     return 'deps-pending';
   }
