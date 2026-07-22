@@ -26,7 +26,7 @@ import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
 import { recordEpicLand } from './epic-land-record-store.js';
-import { treeStatus, restorePostLandTree, divergentTrackedFiles } from './tree-integrity';
+import { guardPostLandTree } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
 // bp1FilterStrandedFoundations) ALSO consumes epicAutoLandAuthority — see the "shared with
@@ -922,41 +922,76 @@ export async function landEpic(
       try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
 
       let treeRestored = false;
-      // Gate the post-land tree-integrity guard on TRACKED-dirty only. The old gate
-      // (`dirty.length === 0`) skipped the guard on EVERY allowDirty land — and every
-      // self-land is allowDirty because untracked docs/designs/ files exist — so the
-      // guard never ran and the 0949289b stale-checkout corruption went undetected
-      // (treeRestored:false while the tree was actually corrupt). Untracked files don't
-      // affect write-tree vs HEAD^{tree} and are preserved by `git reset --hard`, so they
-      // must not suppress the guard. restorePostLandTree snapshots before restoring.
       const trackedDirty = await wm.trackedDirtyPaths().catch(() => dirty);
-      if (trackedDirty.length === 0 && land.masterSha) {
-        const st = treeStatus(targetProject);
-        if (st.resolved && !st.match) {
-          const div = divergentTrackedFiles(targetProject);
-          const rep = restorePostLandTree(targetProject, land.masterSha);
-          treeRestored = rep.restored;
-          createEscalation({
-            project, session: esc.session, todoId,
-            kind: 'assumption-invalidated',
-            operatorGated: true,
-            questionText:
-              `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
-              `${land.masterSha}, the checkout's index tree (${rep.before.workTree}) did not match ` +
-              `HEAD^{tree} (${rep.before.headTree}). Corrupted index snapshotted at ` +
-              `${rep.snapshotRef ?? '(snapshot FAILED)'}. Restore ${rep.restored ? 'succeeded' : 'FAILED'}.`
-              + (div.resolved && div.files.length > 0 ? ` Divergent tracked files: ${div.files.join(', ')}.` : ''),
-          });
-          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
+      const guard = guardPostLandTree(targetProject, {
+        masterSha: land.masterSha,
+        baseRef: land.baseRef,
+        trackedDirty,
+      });
+
+      if (guard.mismatch && guard.skippedUnsafe) {
+        // Tree mismatch but unsafe to restore: either tracked-dirty work or checkout on non-base branch.
+        // Do NOT auto-restore; surface for manual reconciliation.
+        createEscalation({
+          project, session: esc.session, todoId,
+          kind: 'blocker',
+          questionText:
+            `⚠️ Post-land tree drift detected on ${targetProject} but NOT auto-restored: ` +
+            `after landing ${epicBranch} at ${land.masterSha}, the checkout's index tree ` +
+            `(${guard.before.workTree}) did not match HEAD^{tree} (${guard.before.headTree}). ` +
+            (guard.trackedDirtyCount > 0
+              ? `${guard.trackedDirtyCount} tracked path(s) have uncommitted changes. `
+              : '') +
+            (guard.trackedDirtyCount > 0 && !guard.onBaseRef
+              ? `Checkout is on branch other than ${land.baseRef ?? 'master'}. `
+              : !guard.onBaseRef
+              ? `Checkout is on branch other than ${land.baseRef ?? 'master'}, not on base ref. `
+              : '') +
+            `Commit or stash dirty work and switch to the base branch, then manually sync the checkout. ` +
+            (guard.divergentFiles.length > 0 ? `Divergent tracked files: ${guard.divergentFiles.join(', ')}.` : ''),
+        });
+        recordSupervisorAudit({
+          kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
+            escalationId, epicId, epicBranch, land: 'tree-drift-unsafe-skip',
+            landSha: land.masterSha, workTree: guard.before.workTree, headTree: guard.before.headTree,
+            onBaseRef: guard.onBaseRef, trackedDirtyCount: guard.trackedDirtyCount,
+            ...(guard.divergentFiles.length > 0 ? { divergentFiles: guard.divergentFiles } : {}),
+          })
+        });
+        await recordFriction(targetProject, {
+          layer: 'orchestration', retryReason: 'post-land-tree-drift-skipped', todoId: epicId,
+          detail: `landSha=${land.masterSha} onBaseRef=${guard.onBaseRef} trackedDirty=${guard.trackedDirtyCount}` +
+            (guard.divergentFiles.length > 0 ? ` divergentFiles=${guard.divergentFiles.join(',')}` : '')
+        }).catch(() => {});
+      } else if (guard.mismatch && !guard.skippedUnsafe) {
+        // Tree mismatch and safe to restore (no tracked dirty, on base ref).
+        treeRestored = guard.restored;
+        createEscalation({
+          project, session: esc.session, todoId,
+          kind: 'assumption-invalidated',
+          operatorGated: true,
+          questionText:
+            `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
+            `${land.masterSha}, the checkout's index tree (${guard.before.workTree}) did not match ` +
+            `HEAD^{tree} (${guard.before.headTree}). Corrupted index snapshotted at ` +
+            `${guard.snapshotRef ?? '(snapshot FAILED)'}. Restore ${guard.restored ? 'succeeded' : 'FAILED'}.`
+            + (guard.divergentFiles.length > 0 ? ` Divergent tracked files: ${guard.divergentFiles.join(', ')}.` : ''),
+        });
+        recordSupervisorAudit({
+          kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
             escalationId, epicId, epicBranch, land: 'tree-corrupt',
-            landSha: land.masterSha, workTree: rep.before.workTree, headTree: rep.before.headTree,
-            snapshotRef: rep.snapshotRef, restored: rep.restored,
-            ...(div.resolved && div.files.length > 0 ? { divergentFiles: div.files } : {}),
-          }) });
-          await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: epicId, detail: `landSha=${land.masterSha} snapshot=${rep.snapshotRef}` + (div.resolved && div.files.length > 0 ? ` divergentFiles=${div.files.join(',')}` : '') }).catch(() => {});
-          if (!rep.restored || !rep.after.match) {
-            return { ok: false, landed: true, reason: 'post-land-tree-corrupt', epicId, epicBranch, masterSha: land.masterSha, treeRestored: false };
-          }
+            landSha: land.masterSha, workTree: guard.before.workTree, headTree: guard.before.headTree,
+            snapshotRef: guard.snapshotRef, restored: guard.restored,
+            ...(guard.divergentFiles.length > 0 ? { divergentFiles: guard.divergentFiles } : {}),
+          })
+        });
+        await recordFriction(targetProject, {
+          layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: epicId,
+          detail: `landSha=${land.masterSha} snapshot=${guard.snapshotRef}` +
+            (guard.divergentFiles.length > 0 ? ` divergentFiles=${guard.divergentFiles.join(',')}` : '')
+        }).catch(() => {});
+        if (!guard.restored) {
+          return { ok: false, landed: true, reason: 'post-land-tree-corrupt', epicId, epicBranch, masterSha: land.masterSha, treeRestored: false };
         }
       }
 
