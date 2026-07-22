@@ -7,7 +7,7 @@ import {
   createTodo, listTodos, listTodosChunked, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
-  deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, resolveShortId,
+  deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, TerminalParentApproveError, resolveShortId, promoteBucketItemToEpic,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -1536,6 +1536,85 @@ describe('container drop → cascade-drop undone descendants', () => {
     const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: mid.id });
     await updateTodo(project, mid.id, { completed: true }); // mid is a plain leaf, not a container
     expect((await getTodo(project, leaf.id))!.status).not.toBe('dropped');
+  });
+
+  describe('approve/promote refusal under a terminal epic ancestor', () => {
+    test('dropped epic ancestor refuses approve via status:ready', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      await updateTodo(project, epic.id, { status: 'dropped' });
+      const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+      await expect(updateTodo(project, leaf.id, { status: 'ready' })).rejects.toThrow(TerminalParentApproveError);
+
+      const fetched = getTodo(project, leaf.id)!;
+      expect(fetched.approvedAt).toBeNull();
+    });
+
+    test('dropped epic ancestor refuses approve via direct approvedAt patch', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      await updateTodo(project, epic.id, { status: 'dropped' });
+      const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+      await expect(updateTodo(project, leaf.id, { approvedAt: new Date().toISOString() })).rejects.toThrow(TerminalParentApproveError);
+
+      const fetched = getTodo(project, leaf.id)!;
+      expect(fetched.approvedAt).toBeNull();
+    });
+
+    test('done epic ancestor refuses approve', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      await updateTodo(project, epic.id, { completed: true });
+      const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+      await expect(updateTodo(project, leaf.id, { status: 'ready' })).rejects.toThrow(TerminalParentApproveError);
+
+      const fetched = getTodo(project, leaf.id)!;
+      expect(fetched.approvedAt).toBeNull();
+    });
+
+    test('live epic ancestor allows approve', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+      const updated = await updateTodo(project, leaf.id, { status: 'ready' });
+      expect(updated.approvedAt).not.toBeNull();
+
+      const fetched = getTodo(project, leaf.id)!;
+      expect(fetched.approvedAt).not.toBeNull();
+    });
+
+    test('promoteBucketItemToEpic under a terminal epic refuses', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      await updateTodo(project, epic.id, { status: 'dropped' });
+      const item = await createTodo(project, { ownerSession: 's', title: 'bucket item', parentId: epic.id });
+
+      await expect(promoteBucketItemToEpic(project, item.id)).rejects.toThrow(TerminalParentApproveError);
+
+      const fetched = getTodo(project, item.id)!;
+      expect(fetched.status).not.toBe('done');
+      expect(fetched.promotedTo).toBeNull();
+    });
+
+    test('incident repro: cascade-dropped leaf cannot be re-approved', async () => {
+      const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
+      const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+      // Approve the leaf while epic is live
+      await updateTodo(project, leaf.id, { status: 'ready' });
+      let fetched = getTodo(project, leaf.id)!;
+      expect(fetched.approvedAt).not.toBeNull();
+
+      // Drop the epic, which cascade-drops the leaf
+      await updateTodo(project, epic.id, { status: 'dropped' });
+      fetched = getTodo(project, leaf.id)!;
+      expect(fetched.status).toBe('dropped');
+
+      // The leaf still has approvedAt set from before the drop
+      expect(fetched.approvedAt).not.toBeNull();
+
+      // Attempt to re-approve: should fail because epic is terminal
+      await expect(updateTodo(project, leaf.id, { status: 'ready' })).rejects.toThrow(TerminalParentApproveError);
+    });
   });
 
   describe('SR-7 inherited blueprint fields', () => {
