@@ -14,6 +14,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { parseDiffContract, renderContract, type DiffContract, type DiffRequirement } from './diff-contract';
 
 export interface LedgerEntry {
@@ -227,6 +228,7 @@ function openDb(): Database {
     const lbc = db.query('PRAGMA table_info(leaf_blueprint)').all() as Array<{ name: string }>;
     if (!lbc.some((c) => c.name === 'specJson')) db.exec('ALTER TABLE leaf_blueprint ADD COLUMN specJson TEXT');
     if (!lbc.some((c) => c.name === 'specRev')) db.exec('ALTER TABLE leaf_blueprint ADD COLUMN specRev INTEGER');
+    if (!lbc.some((c) => c.name === 'specSig')) db.exec('ALTER TABLE leaf_blueprint ADD COLUMN specSig TEXT');
   }
   // G8 resume decision audit trail — records the per-claim resume verdict (mode/reason),
   // anomaly detection (blueprint discarded), and inputs used in the decision.
@@ -516,31 +518,43 @@ export interface LeafBlueprintRow {
   recordedAt: number;
   specJson: string | null;
   specRev: number | null;
+  specSig: string | null;
+}
+
+/** Compute a stable signature (sha256 hash) of the leaf's specification: title, description,
+ *  and sorted inheritedFiles. Used to detect when the spec has NOT changed despite an
+ *  epic-base move, enabling reuse of the durable blueprint instead of re-authoring. */
+export function leafSpecSignature(leaf: { title: string | null; description: string | null; inheritedFiles?: string[] | null }): string {
+  const files = leaf.inheritedFiles ? [...leaf.inheritedFiles].sort() : [];
+  const material = [leaf.title ?? '', leaf.description ?? '', ...files].join('\x00');
+  return createHash('sha256').update(material).digest('hex');
 }
 
 /** Record or update the durable blueprint base SHA for a leaf. Upserts so a genuinely
  *  fresh re-blueprint against a new base overwrites the old base, never COALESCE.
- *  `specJson`/`specRev` are the exception: only overwritten when explicitly provided
- *  (undefined preserves the existing edited-contract row); this lets non-editing callers
+ *  `specJson`/`specRev`/`specSig` are the exception: only overwritten when explicitly provided
+ *  (undefined preserves the existing row); this lets non-editing callers
  *  (e.g. a re-blueprint on a new base SHA) keep passing only leafId/project/epicBaseSha
- *  without clobbering a human edit. Best-effort. */
+ *  without clobbering a human edit or prior signature. Best-effort. */
 export function recordLeafBlueprint(
-  e: { leafId: string; project: string; epicBaseSha?: string | null; specJson?: string | null; specRev?: number | null },
+  e: { leafId: string; project: string; epicBaseSha?: string | null; specJson?: string | null; specRev?: number | null; specSig?: string | null },
   now: number = Date.now(),
 ): void {
   try {
     openDb().prepare(
-      `INSERT INTO leaf_blueprint (leafId, project, epicBaseSha, recordedAt, specJson, specRev)
-       VALUES (?,?,?,?,?,?)
+      `INSERT INTO leaf_blueprint (leafId, project, epicBaseSha, recordedAt, specJson, specRev, specSig)
+       VALUES (?,?,?,?,?,?,?)
        ON CONFLICT(leafId) DO UPDATE SET
          epicBaseSha=excluded.epicBaseSha, recordedAt=excluded.recordedAt,
          specJson=CASE WHEN ? THEN excluded.specJson ELSE leaf_blueprint.specJson END,
-         specRev=CASE WHEN ? THEN excluded.specRev ELSE leaf_blueprint.specRev END`,
+         specRev=CASE WHEN ? THEN excluded.specRev ELSE leaf_blueprint.specRev END,
+         specSig=CASE WHEN ? THEN excluded.specSig ELSE leaf_blueprint.specSig END`,
     ).run(
       e.leafId, e.project, e.epicBaseSha ?? null, now,
-      e.specJson ?? null, e.specRev ?? null,
+      e.specJson ?? null, e.specRev ?? null, e.specSig ?? null,
       e.specJson !== undefined ? 1 : 0,
       e.specRev !== undefined ? 1 : 0,
+      e.specSig !== undefined ? 1 : 0,
     );
   } catch { /* best-effort */ }
 }
