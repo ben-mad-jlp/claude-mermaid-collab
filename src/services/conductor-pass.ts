@@ -329,6 +329,9 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       (c) => discoverIdsBefore.includes(c.id) && c.servingEpicState !== 'none',
     );
   const productive = res.ok && servedAGap;
+  // A transient fault (rate cap / unreachable / auth+stdin faultKind / spawn startFailure) was
+  // never a real attempt at the serve-state, so it must not consume the bounded serve-retry counter.
+  const transient = res.rateLimited === true || res.startFailure != null;
   if (productive) {
     // Stamp the fingerprint using the UPDATED state after the node ran, so the next pass
     // recognizes this state as already-attempted and debounces without re-invoking.
@@ -337,6 +340,9 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     const updatedServeFp = conductorFingerprint(updatedStatus, updatedActions);
     const updatedFp = updatedServeFp + `|land:${landCards}`;
     stampConductorRun(project, missionId, updatedFp);
+  } else if (transient) {
+    // Do NOT stampConductorRun — leave target.row.lastConductorKey unchanged so the next
+    // tick re-runs a pass on the SAME serve-state (no fail: increment, no debounce).
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
