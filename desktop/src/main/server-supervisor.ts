@@ -11,10 +11,14 @@ import {
   formatExitForensics,
   formatWatchdogKillReason,
   CrashLoopTripwire,
+  ChronicSlowProbeTripwire,
   buildCrashLoopEscalationPayload,
+  buildChronicSlowProbeWarningPayload,
   appendEscalationIntent,
   DEFAULT_CRASH_LOOP_N,
   DEFAULT_CRASH_LOOP_WINDOW_MS,
+  DEFAULT_SLOW_PROBE_N,
+  DEFAULT_SLOW_PROBE_WINDOW_MS,
 } from '../../../src/services/sidecar-forensics';
 
 /**
@@ -89,6 +93,9 @@ export interface SupervisorOpts {
   /** CrashLoopTripwire overrides. */
   crashLoopN?: number;
   crashLoopWindowMs?: number;
+  /** ChronicSlowProbeTripwire overrides. */
+  slowProbeN?: number;
+  slowProbeWindowMs?: number;
   /** Injectable clock, default Date.now. */
   clockImpl?: () => number;
   /** Prod: path to the compiled sidecar binary. When set, spawn it instead of `bun run src/server.ts`. */
@@ -350,16 +357,26 @@ export class ServerSupervisor {
   private healthWatchdog: ReturnType<typeof setInterval> | null = null;
   /** Accumulated alive-but-unresponsive time since the last healthy probe. */
   private unhealthyForMs = 0;
+  /** Consecutive (non-adjacent misses don't sum) unhealthy-probe count since the
+   *  last healthy/grace/exited reset — the actual kill-decision counter. */
+  private consecutiveUnhealthy = 0;
+  /** Re-entrancy guard: a slow probe can still be in flight when the next
+   *  setInterval tick fires; without this, overlapping ticks double-increment
+   *  consecutiveUnhealthy. */
+  private healthChecking = false;
   private respawning = false;
   private stopped = false;
   private respawnCount = 0;
   private killReason: ExitReason | null = null;
   private probeLatenciesMs: number[] = [];
   private tripwire: CrashLoopTripwire;
+  private slowProbeTripwire: ChronicSlowProbeTripwire;
   private clock: () => number;
   private forensicsFilePath: string | undefined;
   private crashLoopN: number;
   private crashLoopWindowMs: number;
+  private slowProbeN: number;
+  private slowProbeWindowMs: number;
 
   constructor(opts: SupervisorOpts) {
     this.opts = opts;
@@ -369,6 +386,9 @@ export class ServerSupervisor {
     this.crashLoopN = opts.crashLoopN ?? DEFAULT_CRASH_LOOP_N;
     this.crashLoopWindowMs = opts.crashLoopWindowMs ?? DEFAULT_CRASH_LOOP_WINDOW_MS;
     this.tripwire = new CrashLoopTripwire(this.crashLoopN, this.crashLoopWindowMs);
+    this.slowProbeN = opts.slowProbeN ?? DEFAULT_SLOW_PROBE_N;
+    this.slowProbeWindowMs = opts.slowProbeWindowMs ?? DEFAULT_SLOW_PROBE_WINDOW_MS;
+    this.slowProbeTripwire = new ChronicSlowProbeTripwire(this.slowProbeN, this.slowProbeWindowMs);
     this.forensicsFilePath = opts.forensicsFilePath ?? (opts.logFilePath ? path.join(path.dirname(opts.logFilePath), 'sidecar-exits.log') : undefined);
   }
 
@@ -495,7 +515,11 @@ export class ServerSupervisor {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    this.spawnedAt = this.clock();
+    // Captured as a local so a LATE exit of this child (after a watchdog respawn
+    // has already re-stamped this.spawnedAt for the NEW child) still computes its
+    // own true uptime, not the new child's elapsed time.
+    const childSpawnedAt = this.clock();
+    this.spawnedAt = childSpawnedAt;
 
     // Tee sidecar output to a log file (best-effort) so a failed startup is
     // diagnosable on machines with no console — and keep a tail of stderr to fold
@@ -523,7 +547,7 @@ export class ServerSupervisor {
     this.child.on('exit', (code, signal) => {
       this.stderrTail.push(`[sidecar exited code=${code} signal=${signal}]`);
       if (this.stderrTail.length > 40) this.stderrTail.shift();
-      const uptimeMs = this.clock() - this.spawnedAt;
+      const uptimeMs = this.clock() - childSpawnedAt;
       const reason = this.killReason ?? 'unexpected-exit';
       this.appendForensics(
         formatExitForensics({
@@ -595,30 +619,69 @@ export class ServerSupervisor {
    */
   async checkHealthOnce(): Promise<'idle' | 'grace' | 'healthy' | 'exited' | 'unhealthy' | 'respawned'> {
     if (this.stopped || this.respawning) return 'idle';
+    if (this.healthChecking) return 'idle';
     if (this.attached || !this.child || this.port == null) return 'idle';
-    const port = this.port;
-    // Startup grace: a fresh sidecar may still be doing heavy first-start work (e.g.
-    // the per-start session-registry backfill) and not yet answering /health. Don't
-    // count those misses — only a hang AFTER the process has had time to come up is a
-    // real wedge.
-    const graceMs = this.opts.healthWatchdogGraceMs ?? HEALTH_WATCHDOG_GRACE_MS;
-    if (this.clock() - this.spawnedAt < graceMs) { this.unhealthyForMs = 0; return 'grace'; }
+    this.healthChecking = true;
+    try {
+      const port = this.port;
+      // Startup grace: a fresh sidecar may still be doing heavy first-start work (e.g.
+      // the per-start session-registry backfill) and not yet answering /health. Don't
+      // count those misses — only a hang AFTER the process has had time to come up is a
+      // real wedge.
+      const graceMs = this.opts.healthWatchdogGraceMs ?? HEALTH_WATCHDOG_GRACE_MS;
+      if (this.clock() - this.spawnedAt < graceMs) {
+        this.unhealthyForMs = 0;
+        this.consecutiveUnhealthy = 0;
+        return 'grace';
+      }
 
-    const timeoutMs = this.opts.healthWatchdogTimeoutMs ?? HEALTH_WATCHDOG_TIMEOUT_MS;
-    const healthy = await this.probeHealth(port, timeoutMs);
-    if (healthy) { this.unhealthyForMs = 0; return 'healthy'; }
-    // Unresponsive. If the process has already EXITED, that's the exit-respawn path's
-    // job — don't double-handle it here.
-    if (this.child.exitCode != null || this.child.signalCode != null) { this.unhealthyForMs = 0; return 'exited'; }
+      const timeoutMs = this.opts.healthWatchdogTimeoutMs ?? HEALTH_WATCHDOG_TIMEOUT_MS;
+      const healthy = await this.probeHealth(port, timeoutMs);
+      if (healthy) {
+        // A slow run just recovered without ever reaching the kill threshold —
+        // intermittent chronic slowness, not a hard hang. Record it BEFORE
+        // resetting the counter below.
+        if (this.consecutiveUnhealthy > 0) {
+          const fired = this.slowProbeTripwire.recordRecovery(this.clock());
+          if (fired) {
+            const supervisorDir = process.env.MERMAID_SUPERVISOR_DIR ?? path.join(os.homedir(), '.mermaid-collab');
+            try {
+              appendEscalationIntent(
+                supervisorDir,
+                buildChronicSlowProbeWarningPayload({
+                  project: this.opts.project,
+                  session: this.opts.session,
+                  count: this.slowProbeN,
+                  windowMs: this.slowProbeWindowMs,
+                })
+              );
+            } catch { /* best-effort */ }
+          }
+        }
+        this.unhealthyForMs = 0;
+        this.consecutiveUnhealthy = 0;
+        return 'healthy';
+      }
+      // Unresponsive. If the process has already EXITED, that's the exit-respawn path's
+      // job — don't double-handle it here.
+      if (this.child.exitCode != null || this.child.signalCode != null) {
+        this.unhealthyForMs = 0;
+        this.consecutiveUnhealthy = 0;
+        return 'exited';
+      }
 
-    const pollMs = this.opts.healthWatchdogPollMs ?? HEALTH_WATCHDOG_POLL_MS;
-    this.unhealthyForMs += pollMs;
-    const thresholdMs = this.opts.healthWatchdogThresholdMs ?? HEALTH_WATCHDOG_THRESHOLD_MS;
-    if (this.unhealthyForMs >= thresholdMs) {
-      await this.respawnHung(port);
-      return 'respawned';
+      const pollMs = this.opts.healthWatchdogPollMs ?? HEALTH_WATCHDOG_POLL_MS;
+      this.unhealthyForMs += pollMs;
+      this.consecutiveUnhealthy++;
+      const thresholdMs = this.opts.healthWatchdogThresholdMs ?? HEALTH_WATCHDOG_THRESHOLD_MS;
+      if (this.consecutiveUnhealthy >= Math.ceil(thresholdMs / pollMs)) {
+        await this.respawnHung(port);
+        return 'respawned';
+      }
+      return 'unhealthy';
+    } finally {
+      this.healthChecking = false;
     }
-    return 'unhealthy';
   }
 
   /** Probe /api/health with a hard timeout. true iff a 2xx came back in time. */
@@ -644,11 +707,12 @@ export class ServerSupervisor {
     this.respawning = true;
     try {
       this.killReason = 'watchdog-unresponsive';
+      const pollMs = this.opts.healthWatchdogPollMs ?? HEALTH_WATCHDOG_POLL_MS;
       this.appendForensics(
         formatWatchdogKillReason({
           probeLatenciesMs: [...this.probeLatenciesMs],
           thresholdMs: this.opts.healthWatchdogThresholdMs ?? HEALTH_WATCHDOG_THRESHOLD_MS,
-          unhealthyForMs: this.unhealthyForMs,
+          unhealthyForMs: this.consecutiveUnhealthy * pollMs,
         })
       );
       const pid = this.child?.pid;
@@ -658,6 +722,7 @@ export class ServerSupervisor {
       }
       this.child = null;
       this.unhealthyForMs = 0;
+      this.consecutiveUnhealthy = 0;
       this.respawnCount++;
       const now = this.clock();
       const fired = this.tripwire.recordRespawn(now);
@@ -766,6 +831,7 @@ export class ServerSupervisor {
     if (this.opts.disableHealthWatchdog) return;
     const pollMs = this.opts.healthWatchdogPollMs ?? HEALTH_WATCHDOG_POLL_MS;
     this.unhealthyForMs = 0;
+    this.consecutiveUnhealthy = 0;
     this.healthWatchdog = setInterval(() => { void this.checkHealthOnce(); }, pollMs);
     this.healthWatchdog.unref?.();
   }
