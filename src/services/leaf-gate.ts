@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
-import { lastLines, extractFailingTests, SPEC_FILE_RE } from './gate-runner';
+import { lastLines, extractFailingTests, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
@@ -108,6 +108,11 @@ export interface LeafGateResult {
    *  Present on 'pass' (empty on a green base) and 'fail' results; absent on 'error'. A
    *  new, separately-consumed artifact — it does NOT affect pass/fail/error semantics. */
   baselineFailures?: LaneBaselineMap;
+  /** Leaf-gate only: lanes that ran RED at leaf HEAD but reproduced ONLY baseline
+   *  fingerprints already failing at the epic base — passed rather than failed. Present
+   *  only when at least one lane was baseline-only; does NOT affect pass/fail/error
+   *  semantics for lanes whose baseline is empty (the default). */
+  baselineOnly?: string[];
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -520,6 +525,15 @@ export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
   }
 };
 
+/** Diff a lane's RAN-red failure fingerprints against its epic-base baseline. Fail-closed:
+ *  an unparsed lane failure (`failing.length === 0`) is always treated as net-new — a lane
+ *  that reported failure but produced no attributable fingerprints must never pass silently
+ *  by "matching" an empty baseline. */
+function classifyRedLane(failing: string[], baseline: string[]): { netNew: string[] } {
+  if (failing.length === 0) return { netNew: ['(unparsed lane failure)'] };
+  return { netNew: netNewFailures(failing, baseline) };
+}
+
 /** Run the project-declared gate in a leaf worktree, at this leaf's HEAD, scoped to
  *  its own change-set for the per-file test command. Never guesses: an unreadable
  *  change-set with a declared `test` command is 'error', not 'fail'. */
@@ -528,8 +542,11 @@ export async function runLeafGate(
   cfg: LeafGateConfig | null,
   changeSet: readonly string[] | null,
   spawn: GateSpawn,
+  baselines?: LaneBaselineMap | null,
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: ['gate: none declared'], declared: false };
+
+  const baselineOnly: string[] = [];
 
   if (cfg.typecheck) {
     const r = await spawn(cwd, cfg.typecheck);
@@ -636,13 +653,19 @@ export async function runLeafGate(
 
     if (failures.length > 0) {
       const output = failures.map((f) => f.output).join('\n').slice(0, 8000);
-      return {
-        status: 'fail',
-        command: failures[0].command,
-        output,
-        reasons: [`${failures.length} failing spec file(s)`, ...extractFailingTests(output).slice(0, 20)],
-        declared: true,
-      };
+      const failing = failures.flatMap((f) => extractFailingTests(f.output));
+      const { netNew } = classifyRedLane(failing, []);
+      if (netNew.length === 0) {
+        baselineOnly.push(...failing);
+      } else {
+        return {
+          status: 'fail',
+          command: failures[0].command,
+          output,
+          reasons: [`${failures.length} failing spec file(s)`, ...netNew.slice(0, 20)],
+          declared: true,
+        };
+      }
     }
   }
 
@@ -673,8 +696,18 @@ export async function runLeafGate(
             reasons: [`foreign-typecheck-errors: typecheck failed only in file(s) outside this leaf's change-set: ${foreignFiles.join(', ')}`, lastLines(r.output, 20)],
             declared: true };
         }
+        const failing = parseTypecheckFiles(r.output);
+        if (failing === null) {
+          return { status: 'fail', command: lane.command, output: r.output,
+            reasons: [`typecheck failed: ${lane.command}`, lastLines(r.output, 20)], declared: true };
+        }
+        const { netNew } = classifyRedLane(failing, baselines?.[`typechecks:${lane.match.source}`] ?? []);
+        if (netNew.length === 0) {
+          baselineOnly.push(...failing);
+          continue;
+        }
         return { status: 'fail', command: lane.command, output: r.output,
-          reasons: [`typecheck failed: ${lane.command}`, lastLines(r.output, 20)], declared: true };
+          reasons: [`typecheck failed: ${lane.command}`, ...netNew.slice(0, 20)], declared: true };
       }
     }
   }
@@ -695,16 +728,21 @@ export async function runLeafGate(
       }
       if (r.code !== 0) {
         const failing = extractFailingTests(r.output);
+        const { netNew } = classifyRedLane(failing, baselines?.[`suites:${lane.match.source}`] ?? []);
+        if (netNew.length === 0) {
+          baselineOnly.push(...failing);
+          continue;
+        }
         return { status: 'fail', command: lane.command, output: r.output,
-          reasons: failing.length > 0
-            ? [`suite failed: ${lane.command}`, ...failing.slice(0, 20)]
-            : [`suite failed: ${lane.command}`, lastLines(r.output, 20)],
+          reasons: netNew[0] === '(unparsed lane failure)'
+            ? [`suite failed: ${lane.command}`, lastLines(r.output, 20)]
+            : [`suite failed: ${lane.command}`, ...netNew.slice(0, 20)],
           declared: true };
       }
     }
   }
 
-  return { status: 'pass', output: '', reasons: [], declared: true };
+  return { status: 'pass', output: '', reasons: [], declared: true, baselineOnly: baselineOnly.length ? baselineOnly : undefined };
 }
 
 /** The string handed to the `implement` fix node. Deliberately parallel to a review's
