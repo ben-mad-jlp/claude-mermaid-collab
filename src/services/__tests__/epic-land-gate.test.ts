@@ -638,4 +638,147 @@ describe('epic-land-gate', () => {
       expect(summary).toContain('ABSTAINED');
     });
   });
+
+  describe('regression floor', () => {
+    it('floor red → land fails', async () => {
+      const mockDeclarationWithFloor: GateDeclaration = {
+        kind: 'declared',
+        cfg: {
+          ...mockDeclaration.cfg,
+          floors: [{ match: new RegExp('^src/'), command: 'bun run test:floor' }],
+        },
+        manifestPath: '.collab/project.json',
+      };
+
+      const mockSpawn: GateSpawn = async (cwd, command) => {
+        // typecheck passes
+        if (command.includes('tsc')) {
+          return { ran: true, code: 0, output: 'OK' };
+        }
+        // floor command fails
+        if (command.includes('test:floor')) {
+          return {
+            ran: true,
+            code: 1,
+            output: '1 new file(s) FAILED:\n\n──────── src/services/foo.test.ts ────────\nsome trace\n',
+          };
+        }
+        // tests pass
+        return { ran: true, code: 0, output: 'PASS' };
+      };
+
+      const result = await runEpicLandGate({
+        project: 'test',
+        repo: '/repo',
+        epicId: 'test123',
+        epicBranch: 'collab/epic/test123',
+        epicWorktreeCwd: '/epic',
+        decl: mockDeclarationWithFloor,
+        spawn: mockSpawn,
+        git: (cwd, args) => {
+          if (args[0] === 'diff') {
+            return { code: 0, stdout: 'src/services/foo.ts\n' };
+          }
+          return createMockGit()(cwd, args);
+        },
+        fs: { exists: () => true, symlink: () => {} },
+        skipCache: true,
+      });
+
+      expect(result.status).toBe('fail');
+      expect(result.floor?.status).toBe('fail');
+      expect(result.floor?.failing).toContain('src/services/foo.test.ts');
+      expect(result.reasons[0]).toContain('REGRESSION FLOOR FAILED');
+    });
+
+    it('floor green → land proceeds', async () => {
+      const mockDeclarationWithFloor: GateDeclaration = {
+        kind: 'declared',
+        cfg: {
+          ...mockDeclaration.cfg,
+          floors: [{ match: new RegExp('^src/'), command: 'bun run test:floor' }],
+        },
+        manifestPath: '.collab/project.json',
+      };
+
+      const mockSpawn: GateSpawn = async (cwd, command) => {
+        // everything passes
+        if (command.includes('tsc') || command.includes('test:floor')) {
+          return { ran: true, code: 0, output: 'OK' };
+        }
+        return { ran: true, code: 0, output: 'PASS' };
+      };
+
+      const result = await runEpicLandGate({
+        project: 'test',
+        repo: '/repo',
+        epicId: 'test123',
+        epicBranch: 'collab/epic/test123',
+        epicWorktreeCwd: '/epic',
+        decl: mockDeclarationWithFloor,
+        spawn: mockSpawn,
+        git: (cwd, args) => {
+          if (args[0] === 'diff') {
+            return { code: 0, stdout: 'src/services/test.test.ts\n' };
+          }
+          return createMockGit()(cwd, args);
+        },
+        fs: { exists: () => true, symlink: () => {} },
+        skipCache: true,
+      });
+
+      expect(result.status).toBe('pass');
+      expect(result.floor?.status).toBe('pass');
+    });
+
+    it('floor red with an empty spec diff → still fails', async () => {
+      const mockDeclarationWithFloor: GateDeclaration = {
+        kind: 'declared',
+        cfg: {
+          ...mockDeclaration.cfg,
+          floors: [{ match: new RegExp('^src/'), command: 'bun run test:floor' }],
+        },
+        manifestPath: '.collab/project.json',
+      };
+
+      const mockSpawn: GateSpawn = async (cwd, command) => {
+        // typecheck passes
+        if (command.includes('tsc')) {
+          return { ran: true, code: 0, output: 'OK' };
+        }
+        // floor command fails
+        if (command.includes('test:floor')) {
+          return {
+            ran: true,
+            code: 1,
+            output: '1 file(s) FAILED:\n\n──────── src/services/foo.test.ts ────────\nsome trace\n',
+          };
+        }
+        return { ran: true, code: 0, output: 'PASS' };
+      };
+
+      const result = await runEpicLandGate({
+        project: 'test',
+        repo: '/repo',
+        epicId: 'test123',
+        epicBranch: 'collab/epic/test123',
+        epicWorktreeCwd: '/epic',
+        decl: mockDeclarationWithFloor,
+        spawn: mockSpawn,
+        git: (cwd, args) => {
+          if (args[0] === 'diff') {
+            // Return a non-spec file (source change, not test file)
+            return { code: 0, stdout: 'src/services/foo.ts\n' };
+          }
+          return createMockGit()(cwd, args);
+        },
+        fs: { exists: () => true, symlink: () => {} },
+        skipCache: true,
+      });
+
+      expect(result.status).toBe('fail');
+      expect(result.floor?.status).toBe('fail');
+      expect(result.units).toHaveLength(0);
+    });
+  });
 });
