@@ -80,6 +80,12 @@ export interface LeafGateConfig {
 
 export type GateSpawn = (cwd: string, command: string) => Promise<{ ran: boolean; code?: number; output: string }>;
 
+/** Per-lane baseline failure fingerprints collected at the epic base. Keyed by a stable
+ *  per-lane string (`'typecheck'`, `'baseTest'`, `` `typechecks:${match.source}` ``, etc.);
+ *  each value is the `string[]` fingerprint set (the shape `netNewFailures` diffs by
+ *  substring). Empty map ⇒ a fully-green base. */
+export type LaneBaselineMap = Record<string, string[]>;
+
 export interface LeafGateResult {
   /** 'pass' = every declared command ran and exited 0 (or none were declared).
    *  'fail'  = a command RAN and reported failure  → a FINDING (the leaf's work is bad).
@@ -98,6 +104,10 @@ export interface LeafGateResult {
   declared: boolean;
   /** For the multi-lane form: change-set spec files that matched no lane (a config gap). */
   unmatchedSpecs?: string[];
+  /** Base-gate only: per-lane baseline failure fingerprints for every RAN-but-failed lane.
+   *  Present on 'pass' (empty on a green base) and 'fail' results; absent on 'error'. A
+   *  new, separately-consumed artifact — it does NOT affect pass/fail/error semantics. */
+  baselineFailures?: LaneBaselineMap;
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -712,57 +722,88 @@ export function gateFindingsText(r: LeafGateResult): string {
   ].join('\n');
 }
 
-/** The once-per-epic base check: `typecheck` then `baseTest` (if declared), with the
- *  same ran/exit semantics as {@link runLeafGate}. Never runs the per-file `test`
- *  command — there is no change-set at a base. */
+/** The once-per-epic base check: every configured lane kind — `typecheck`, each
+ *  `typechecks[]`, each `suites[]`, each `floors[]`, then `baseTest` — run in that fixed
+ *  order with the same ran/exit semantics as {@link runLeafGate}. Never runs the per-file
+ *  `test` lanes (no change-set at a base) nor substitutes `{file}`/`{files}`.
+ *
+ *  ADDITIVE vs. the old typecheck→baseTest short-circuit: pass/fail/error verdicts are
+ *  unchanged (any RAN failure ⇒ 'fail'; any `ran:false` ⇒ 'error', never cached), but the
+ *  gate no longer stops at the first red lane — it runs ALL lanes and memoizes each
+ *  RAN-but-failed lane's normalized failure-fingerprint set into `baselineFailures`. That
+ *  map rides the 'pass' (empty on a green base) and 'fail' results; it is absent on 'error'.
+ *  Lane order keeps `typecheck` before `baseTest` so existing tests still hold. */
 export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn: GateSpawn): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: [], declared: false };
 
+  const baselineFailures: LaneBaselineMap = {};
+  let firstFailCommand: string | undefined;
+  let firstFailOutput = '';
+  let firstFailReason: string | undefined;
+
+  // Fixed lane order: typecheck → typechecks[] → suites[] → floors[] → baseTest.
+  type BaseLane = {
+    key: string;
+    command: string;
+    kind: 'typecheck' | 'tests';
+    reason: (cmd: string) => string;
+  };
+  const lanes: BaseLane[] = [];
   if (cfg.typecheck) {
-    const r = await spawn(cwd, cfg.typecheck);
-    if (!r.ran) {
-      return {
-        status: 'error',
-        command: cfg.typecheck,
-        output: r.output,
-        reasons: [`gate could not run: ${cfg.typecheck}`],
-        declared: true,
-      };
-    }
-    if (r.code !== 0) {
-      return {
-        status: 'fail',
-        command: cfg.typecheck,
-        output: r.output,
-        reasons: [`typecheck failed: ${cfg.typecheck}`, lastLines(r.output, 20)],
-        declared: true,
-      };
-    }
+    lanes.push({ key: 'typecheck', command: cfg.typecheck, kind: 'typecheck', reason: (c) => `typecheck failed: ${c}` });
   }
-
+  for (const l of cfg.typechecks ?? []) {
+    lanes.push({ key: `typechecks:${l.match.source}`, command: l.command, kind: 'typecheck', reason: (c) => `typecheck lane failed: ${c}` });
+  }
+  for (const l of cfg.suites ?? []) {
+    lanes.push({ key: `suites:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `suite lane failed: ${c}` });
+  }
+  for (const l of cfg.floors ?? []) {
+    lanes.push({ key: `floors:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `floor lane failed: ${c}` });
+  }
   if (cfg.baseTest) {
-    const r = await spawn(cwd, cfg.baseTest);
+    lanes.push({ key: 'baseTest', command: cfg.baseTest, kind: 'tests', reason: (c) => `base test failed: ${c}` });
+  }
+
+  for (const lane of lanes) {
+    const r = await spawn(cwd, lane.command);
     if (!r.ran) {
+      // A lane that COULD NOT RUN is an incident — unchanged semantics: return immediately,
+      // no blob (an error is never cached).
       return {
         status: 'error',
-        command: cfg.baseTest,
+        command: lane.command,
         output: r.output,
-        reasons: [`gate could not run: ${cfg.baseTest}`],
+        reasons: [`gate could not run: ${lane.command}`],
         declared: true,
       };
     }
     if (r.code !== 0) {
-      return {
-        status: 'fail',
-        command: cfg.baseTest,
-        output: r.output,
-        reasons: [`base test failed: ${cfg.baseTest}`, lastLines(r.output, 20)],
-        declared: true,
-      };
+      // RAN-but-failed: memoize this lane's fingerprints and CONTINUE — every red lane
+      // must be recorded, so no short-circuit.
+      baselineFailures[lane.key] = lane.kind === 'typecheck'
+        ? (parseTypecheckFiles(r.output) ?? [])
+        : extractFailingTests(r.output);
+      if (firstFailCommand === undefined) {
+        firstFailCommand = lane.command;
+        firstFailOutput = r.output;
+        firstFailReason = lane.reason(lane.command);
+      }
     }
   }
 
-  return { status: 'pass', output: '', reasons: [], declared: true };
+  if (firstFailCommand !== undefined) {
+    return {
+      status: 'fail',
+      command: firstFailCommand,
+      output: firstFailOutput,
+      reasons: [firstFailReason!, lastLines(firstFailOutput, 20)],
+      declared: true,
+      baselineFailures,
+    };
+  }
+
+  return { status: 'pass', output: '', reasons: [], declared: true, baselineFailures };
 }
 
 // --- lane primitives (exported for land-gate reuse) --------------------
@@ -818,7 +859,7 @@ function normPathLocal(p: string): string {
  *  Returns the DISTINCT file paths named by every `error TS` line, or null when NOTHING
  *  parses — the caller must fail-closed (treat as an ordinary in-scope failure) rather
  *  than guess at attribution from unrecognised output. */
-function parseTypecheckFiles(output: string): string[] | null {
+export function parseTypecheckFiles(output: string): string[] | null {
   const reParen = /^(.+?)\((\d+),(\d+)\):\s*error\s+TS\d+/;
   const reColon = /^(.+?):(\d+):(\d+)\s*-\s*error\s+TS\d+/;
   const files = new Set<string>();

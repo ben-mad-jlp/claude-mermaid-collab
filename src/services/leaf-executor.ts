@@ -4295,6 +4295,7 @@ export async function makeLeafExecutorDeps(
           output: cached.output ?? '',
           reasons: [],
           declared: true,
+          baselineFailures: cached.baselineFailures ?? undefined,
           fresh: false,
         };
       }
@@ -4313,6 +4314,7 @@ export async function makeLeafExecutorDeps(
           status: r.status,
           command: r.command ?? null,
           output: r.output || null,
+          baselineFailures: r.baselineFailures ?? null,
         });
       }
       return { ...r, fresh: true };
