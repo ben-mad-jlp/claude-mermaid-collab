@@ -153,6 +153,44 @@ try {
   console.error(`mermaid-collab: mission approval backfill failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
+// Drain pending escalation intents on boot: idempotent recovery from sidecar
+// crash-loop escalations that were recorded but not yet created as cards.
+// Fault-isolated so one corrupt intent file or malformed entry cannot abort server boot.
+try {
+  const { drainEscalationIntents } = await import('./services/sidecar-forensics.js');
+  const { createEscalation } = await import('./services/supervisor-store.js');
+  const supervisorDir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
+
+  drainEscalationIntents(supervisorDir, (intent: unknown) => {
+    // Validate the intent has all required fields as strings
+    if (
+      typeof intent === 'object' &&
+      intent !== null &&
+      typeof (intent as Record<string, unknown>).project === 'string' &&
+      typeof (intent as Record<string, unknown>).session === 'string' &&
+      typeof (intent as Record<string, unknown>).kind === 'string' &&
+      typeof (intent as Record<string, unknown>).questionText === 'string'
+    ) {
+      const { project, session, kind, questionText } = intent as {
+        project: string;
+        session: string;
+        kind: string;
+        questionText: string;
+      };
+
+      try {
+        createEscalation({ project, session, kind, questionText });
+      } catch (err) {
+        console.warn(`   ↳ escalation intent creation failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      console.warn(`   ↳ malformed escalation intent: missing or invalid fields`);
+    }
+  });
+} catch (err) {
+  console.error(`mermaid-collab: escalation intent drain failed — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write
