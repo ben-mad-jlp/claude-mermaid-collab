@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { performHandshake, serverOwner } from '../../../src/services/port-ownership';
 import { buildWslSidecarCommand } from '../../../src/services/wsl/sidecar-launch';
-import { winToWslPath } from '../../../src/services/session-mux/wsl-path';
+import { winToWslPath } from '../../../src/services/wsl/wsl-path';
 import {
   ExitReason,
   formatExitForensics,
@@ -391,7 +391,7 @@ export class ServerSupervisor {
       host: this.opts.host,
       port,
       env: { ...process.env, PORT: String(port) },
-      self: { exePath: this.opts.serverBinaryPath ?? '', version: this.opts.version ?? '', owner: serverOwner() },
+      self: { exePath: this.opts.serverBinaryPath ?? '', version: this.opts.version ?? '', owner: serverOwner(), uid: typeof process.getuid === 'function' ? process.getuid() : null },
       fetchImpl: this.fetchImpl,
       portInUseImpl: this.opts.portInUseImpl,
     });
