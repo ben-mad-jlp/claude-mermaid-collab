@@ -59,7 +59,7 @@ import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from 
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
-import { loadManifestSource } from '../config/project-manifest';
+import { loadManifestSource, type ManifestSource, type ProjectManifest } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
 
@@ -1670,6 +1670,44 @@ function warnGateUnwired(project: string, epicId: string): void {
     `[leaf-gate] runGate DEP UNWIRED for project ${project} (epic ${epicId.slice(0, 8)}): the executor ` +
     `has no mechanical gate seam. Leaves will be accepted on the reviewer's verdict ALONE.`,
   );
+}
+
+const LEGACY_GATE_KEYS = ['gateCommand', 'frontendGateCommand', 'changeSetTestCommand',
+  'changeSetTestCwd', 'frontendBaselineFailures'] as const;
+
+function findResidualLegacyGateKeys(m: ProjectManifest): string[] {
+  return LEGACY_GATE_KEYS.filter((k) => {
+    const v = (m as Record<string, unknown>)[k];
+    return typeof v === 'string' ? v.trim().length > 0 : Array.isArray(v) && v.length > 0;
+  });
+}
+
+const escalatedLegacyGateResidual = new Set<string>();
+export function escalateLegacyGateResidual(
+  project: string, targetProject: string, leaf: Pick<Todo, 'id'>, manifestSource: ManifestSource,
+): void {
+  if (escalatedLegacyGateResidual.has(targetProject)) return;
+  const manifest = manifestSource.manifest;
+  if (!manifest) return;
+  const keys = findResidualLegacyGateKeys(manifest);
+  if (keys.length === 0) return;
+  escalatedLegacyGateResidual.add(targetProject);
+  try {
+    createEscalation({
+      project,
+      session: `legacy-gate-migration::${targetProject}`,
+      kind: 'operator-gated',
+      operatorGated: true,
+      todoId: leaf.id,
+      questionText:
+        `Project ${targetProject} sets legacy gate key(s) [${keys.join(', ')}] in ` +
+        `${manifestSource.path} but no mechanical gate resolves — leaves run gateless. ` +
+        `Migrate to gate:{}: gateCommand/frontendGateCommand -> gate.suites[] ` +
+        `({match,command,cwd}); changeSetTestCommand+changeSetTestCwd -> gate.tests[] ` +
+        `({match,command,cwd}); frontendBaselineFailures has no gate:{} equivalent and ` +
+        `should be dropped once frontendGateCommand becomes a suites[] lane.`,
+    });
+  } catch { /* best-effort: never let escalation failure block the leaf */ }
 }
 
 /**
@@ -4119,6 +4157,7 @@ export async function makeLeafExecutorDeps(
       if (early) return early; // misconfigured → mech.status==='error' → parkBlocked+escalate
       if (gateDecl.kind === 'absent') {
         warnGateAbstention(project, epicId, targetProject, gateDecl);
+        escalateLegacyGateResidual(project, targetProject, leaf, manifestSource);
         if (!recordedGateAbstain) {
           recordedGateAbstain = true;
           try {
