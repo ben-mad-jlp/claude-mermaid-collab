@@ -1,5 +1,5 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -16,6 +16,7 @@ import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
 import { createTodo, updateTodo } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
+import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 
 let project: string;
 let invokeCalls: number;
@@ -156,24 +157,72 @@ describe('runConductorPass — scheduling', () => {
     expect(key.includes('|fail:')).toBe(false);
   });
 
-  test('transient (startFailure) failures also never stamp the fail counter or wedge the mission', async () => {
-    addWatchedProject(project);
-    setConductorEnabled(project, true);
-    const forged = await forgeApprovedActive();
-    let startFailCalls = 0;
-    const startFailureInvoke = async () => {
-      startFailCalls++;
-      return { ok: false, rateLimited: false, startFailure: { provider: 'x', model: 'y', detail: 'z' }, text: '' } as any;
-    };
-    const n = CONDUCTOR_SERVE_RETRY_CAP + 2;
-    for (let i = 0; i < n; i++) {
-      const r = await runConductorPass(project, { invoke: startFailureInvoke });
-      expect(r.ran).toBe(true);
-      expect(r.reason).toBe('node-failed');
-    }
-    expect(startFailCalls).toBe(n);
-    const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
-    expect(key.includes('|fail:')).toBe(false);
+  describe('transient (real producer): startFailure and timedOut never stamp the fail counter', () => {
+    const realCwd = mkdtempSync(join(tmpdir(), 'conductor-real-cwd-'));
+    let stubDir: string;
+
+    beforeEach(() => {
+      stubDir = mkdtempSync(join(tmpdir(), 'conductor-claude-stub-'));
+      _resetAuthCache();
+      _resetClaudeBinCache();
+      _primeAuthCacheForTest('subscription');
+      process.env.MERMAID_TEST_ALLOW_DETACHED = '1';
+    });
+
+    afterEach(() => {
+      delete process.env.CLAUDE_BIN;
+      delete process.env.MERMAID_TEST_ALLOW_DETACHED;
+      _resetAuthCache();
+      _resetClaudeBinCache();
+    });
+
+    test('transient (startFailure, real spawn ENOENT) failures never stamp the fail counter or wedge the mission', async () => {
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      const forged = await forgeApprovedActive();
+
+      process.env.CLAUDE_BIN = join(stubDir, 'does-not-exist');
+      const real = await invokeNode({ prompt: 'x', cwd: realCwd });
+      expect(real.startFailure != null).toBe(true);
+      expect(real.startFailure!.detail).toContain('spawn failed');
+
+      let calls = 0;
+      const invoke = async () => { calls++; return real; };
+      const n = CONDUCTOR_SERVE_RETRY_CAP + 2;
+      for (let i = 0; i < n; i++) {
+        const r = await runConductorPass(project, { invoke });
+        expect(r.ran).toBe(true);
+        expect(r.reason).toBe('node-failed');
+      }
+      expect(calls).toBe(n);
+      const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
+      expect(key.includes('|fail:')).toBe(false);
+    });
+
+    test('transient (timedOut, real start-window kill) failures never stamp the fail counter or wedge the mission', async () => {
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      const forged = await forgeApprovedActive();
+
+      const stubPath = join(stubDir, 'claude-hang');
+      writeFileSync(stubPath, '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
+      chmodSync(stubPath, 0o755);
+      process.env.CLAUDE_BIN = stubPath;
+      const real = await invokeNode({ prompt: 'x', cwd: realCwd, timeoutMs: 30_000, startWindowMs: 250 });
+      expect(real.timedOut).toBe(true);
+
+      let calls = 0;
+      const invoke = async () => { calls++; return real; };
+      const n = CONDUCTOR_SERVE_RETRY_CAP + 2;
+      for (let i = 0; i < n; i++) {
+        const r = await runConductorPass(project, { invoke });
+        expect(r.ran).toBe(true);
+        expect(r.reason).toBe('node-failed');
+      }
+      expect(calls).toBe(n);
+      const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
+      expect(key.includes('|fail:')).toBe(false);
+    });
   });
 
   test('incident 3c04657b: 3 transient rate-limited passes leave no wedge — the next live tick proceeds', async () => {
