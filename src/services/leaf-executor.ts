@@ -33,7 +33,7 @@ import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import type { WorktreeManager, ReintegrateBaseResult } from '../agent/worktree-manager';
-import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor } from '../agent/node-invoker';
+import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor, classifyWorktreeAddFault, transientRetryAfterMs } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { config } from '../config';
 import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
@@ -2339,6 +2339,16 @@ export async function runLeaf(
     };
   };
 
+  /** Synthesize a paused outcome for a `wm.ensure()` throw classified as the transient
+   *  worktree-add base-branch race (crit-11) — no live `NodeResult` exists for a throw out
+   *  of worktree creation, so fabricate one exactly like the reattach-blueprint synthetic
+   *  OK result elsewhere in this file. */
+  const pausedForWorktreeAddFault = (kind: LeafNodeKind): LeafRunResult =>
+    pausedResult(kind, {
+      ok: false, exitCode: 128, stdout: '', durationMs: 0, rateLimited: true,
+      authMode: 'subscription', text: '', capReset: Date.now() + transientRetryAfterMs(),
+    });
+
   const buildSpec = (
     kind: LeafNodeKind,
     cwd: string,
@@ -2478,7 +2488,15 @@ export async function runLeaf(
   const runReviewPipeline = async (): Promise<LeafRunResult> => {
     state.attempt = 1; // single pass (no fresh-worktree retry loop)
     pathTaken = 'review';
-    const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    let wt: Awaited<ReturnType<WorktreeManager['ensure']>>;
+    try {
+      wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    } catch (e) {
+      if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
+        return pausedForWorktreeAddFault('review');
+      }
+      throw e;
+    }
     const cwd = wt.path;
     // The union change-set base: the epic branch was cut off the repo's trunk, so
     // <baseRef>..HEAD is the epic's accumulated work. deps.baseBranch is detected at
@@ -2543,7 +2561,15 @@ export async function runLeaf(
   const runVerifyPipeline = async (): Promise<LeafRunResult> => {
     state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
     const cfg = (deps.resolveVerifyGate ?? resolveVerifyGate)(leaf); // L3: pluggable {verb, command}
-    const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    let wt: Awaited<ReturnType<WorktreeManager['ensure']>>;
+    try {
+      wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    } catch (e) {
+      if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
+        return pausedForWorktreeAddFault('driveplan');
+      }
+      throw e;
+    }
     const cwd = wt.path;
 
     // 1. PLAN — author the AssemblyBuildPlan. One in-place retry on a failed node (mirrors
@@ -2768,12 +2794,26 @@ export async function runLeaf(
         keepWorktreeOnBaseMovedPark = true;
       } else {
         // Rebase failed/skipped — fall back to the fresh-fork path.
-        wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+        try {
+          wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+        } catch (e) {
+          if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
+            return pausedForWorktreeAddFault('blueprint');
+          }
+          throw e;
+        }
         cwd = wt.path;
       }
     } else {
       // Normal path — fork a fresh worktree off the current epic tip.
-      wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+      try {
+        wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+      } catch (e) {
+        if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
+          return pausedForWorktreeAddFault('blueprint');
+        }
+        throw e;
+      }
       cwd = wt.path;
     }
 

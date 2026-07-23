@@ -49,6 +49,7 @@ import {
 import { sliceCoversFiles } from '../split-decision';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
+import { classifyWorktreeAddFault } from '../../agent/node-invoker';
 
 const EPIC_BRANCH = 'collab/epic/abcd1234';
 const EPIC_ID = 'epic-abcd1234';
@@ -1215,6 +1216,44 @@ describe('runLeaf P3 rate-cap pause', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('node-budget-exhausted');
+  });
+});
+
+describe('worktree-add invalid-reference (collab/epic base race) — transient pause', () => {
+  it('classifyWorktreeAddFault true on the worktree-manager.ts:406-408 message shape', () => {
+    expect(classifyWorktreeAddFault(
+      "git worktree add failed (code 128): fatal: invalid reference: collab/epic/8f21abc",
+    )).toBe(true);
+  });
+
+  it('classifyWorktreeAddFault false on an unrelated git-worktree-add failure', () => {
+    expect(classifyWorktreeAddFault(
+      "git worktree add failed (code 128): fatal: not a valid object name",
+    )).toBe(false);
+  });
+
+  it('wm.ensure throwing the collab/epic invalid-reference message ⇒ runLeaf resolves paused at blueprint (not blocked, no throw)', async () => {
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    deps.wm = {
+      async ensure() {
+        throw new Error("git worktree add failed (code 128): fatal: invalid reference: collab/epic/8f21abc");
+      },
+      async remove() {},
+    } as never;
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('paused');
+    expect(res.paused?.atNode).toBe('blueprint');
+  });
+
+  it('wm.ensure throwing an unrelated worktree-add error still propagates (not swallowed into a pause)', async () => {
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    deps.wm = {
+      async ensure() {
+        throw new Error("git worktree add failed (code 128): fatal: not a valid object name");
+      },
+      async remove() {},
+    } as never;
+    await expect(runLeaf('proj', makeLeaf(), deps)).rejects.toThrow('not a valid object name');
   });
 });
 
