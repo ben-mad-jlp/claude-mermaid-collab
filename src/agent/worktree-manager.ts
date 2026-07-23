@@ -7,7 +7,13 @@ import {
   stageAndCommitScoped,
   type ScopeInput,
 } from '../services/leaf-commit-scope';
-import { withMainCheckoutInvariant, type GitRunner } from '../services/main-checkout-invariant';
+import {
+  withMainCheckoutInvariant,
+  type GitRunner,
+  type MainCheckoutResidueError,
+  type MainCheckoutBranchChangedError,
+} from '../services/main-checkout-invariant';
+import { escalateMainCheckoutViolation } from '../services/main-checkout-escalation';
 
 export interface WorktreeManagerOpts {
   projectRoot: string; // absolute path to the project (git) root
@@ -17,6 +23,9 @@ export interface WorktreeManagerOpts {
   spawn?: (cmd: string[], opts: any) => any;
   /** Optional clock for deterministic tests. */
   now?: () => number;
+  /** Optional hook invoked (best-effort) when withMainCheckoutInvariant throws. Defaults to
+   *  escalateMainCheckoutViolation. Tests inject a fake here. */
+  onMainCheckoutViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
 }
 
 export const WORKTREE_TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -256,10 +265,15 @@ export class WorktreeManager {
 
   private readonly mainCheckoutGit: GitRunner = (cwd, args) => this.runGit(cwd, args, QUICK_TIMEOUT_MS);
 
+  private readonly onMainCheckoutViolation: (
+    err: MainCheckoutResidueError | MainCheckoutBranchChangedError,
+  ) => void;
+
   constructor(private readonly opts: WorktreeManagerOpts) {
     this.spawnFn =
       opts.spawn ?? ((cmd: string[], so: any) => (globalThis as any).Bun.spawn(cmd, so));
     this.now = opts.now ?? Date.now;
+    this.onMainCheckoutViolation = opts.onMainCheckoutViolation ?? escalateMainCheckoutViolation;
   }
 
   /** Serialise a worktree-mutating section behind the per-project lock. A prior section
@@ -286,6 +300,7 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._ensureInner(sessionId, opts),
+        { opName: 'ensure_session_worktree', onViolation: this.onMainCheckoutViolation },
       ),
     ).finally(() => this.pendingEnsures.delete(sessionId));
     this.pendingEnsures.set(sessionId, p);
@@ -1338,6 +1353,7 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._ensureEpicInner(epicId, _project, baseRef),
+        { opName: 'ensure_epic_worktree', onViolation: this.onMainCheckoutViolation },
       ),
     );
   }
@@ -1461,6 +1477,7 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._forwardIntegrateEpicInner(epicId, baseRef, opts),
+        { opName: 'forward_integrate', onViolation: this.onMainCheckoutViolation },
       ),
     );
   }
@@ -2027,6 +2044,7 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._landEpicToMasterInner(epicId, opts),
+        { opName: 'land_epic', onViolation: this.onMainCheckoutViolation },
       ),
     );
   }
@@ -2219,6 +2237,7 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._removeEpicInner(epicId),
+        { opName: 'epic_gc_remove', onViolation: this.onMainCheckoutViolation },
       ),
     );
   }
@@ -2269,6 +2288,7 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._removeEpicWorktreeInner(epicId, opts),
+        { opName: 'epic_gc_remove_worktree', onViolation: this.onMainCheckoutViolation },
       ),
     );
   }

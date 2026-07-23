@@ -10,45 +10,69 @@ export type GitRunner = (
   args: string[],
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-export interface MainCheckoutHead {
+export interface MainCheckoutState {
   /** git symbolic-ref --short HEAD, trimmed; null when HEAD is detached. */
   branch: string | null;
   /** git rev-parse HEAD, trimmed; '' if unresolved (non-git / no commits). */
   sha: string;
+  /** git status --porcelain --untracked-files=no, trimmed non-empty lines; [] on probe failure. */
+  residue: string[];
 }
+
+/** @deprecated use MainCheckoutState */
+export type MainCheckoutHead = MainCheckoutState;
 
 export class MainCheckoutBranchChangedError extends Error {
   name = 'MainCheckoutBranchChangedError';
 
   constructor(
     public readonly projectRoot: string,
-    public readonly before: MainCheckoutHead,
-    public readonly after: MainCheckoutHead,
+    public readonly before: MainCheckoutState,
+    public readonly after: MainCheckoutState,
+    public readonly opName: string = 'operation',
   ) {
     const branchMsg = before.branch !== after.branch
       ? `branch changed from ${before.branch ?? 'detached'} to ${after.branch ?? 'detached'}`
       : `detached HEAD changed from ${before.sha} to ${after.sha}`;
-    super(`Main checkout invariant violated at ${projectRoot}: ${branchMsg}`);
+    super(`Main checkout invariant violated by ${opName} at ${projectRoot}: ${branchMsg}`);
   }
 }
 
-/** Read the current HEAD of the main checkout (branch name and sha).
- *  On any git error, treats branch/sha as null/'' (non-git fallback tolerance,
+export class MainCheckoutResidueError extends Error {
+  name = 'MainCheckoutResidueError';
+
+  constructor(
+    public readonly projectRoot: string,
+    public readonly opName: string,
+    public readonly addedResidue: string[],
+    public readonly before: MainCheckoutState,
+    public readonly after: MainCheckoutState,
+  ) {
+    super(`Main checkout residue introduced by ${opName} at ${projectRoot}: ${addedResidue.join(', ')}`);
+  }
+}
+
+/** Read the current HEAD of the main checkout (branch name, sha, and porcelain residue).
+ *  On any git error, treats branch/sha/residue as null/''/[] (non-git fallback tolerance,
  *  mirrors isGitRepo/detectBaseBranch at worktree-manager.ts:2337-2352).
  */
 export async function readMainCheckoutHead(
   projectRoot: string,
   runGit: GitRunner,
-): Promise<MainCheckoutHead> {
-  const [branchResult, shaResult] = await Promise.all([
+): Promise<MainCheckoutState> {
+  const [branchResult, shaResult, statusResult] = await Promise.all([
     runGit(projectRoot, ['symbolic-ref', '--short', 'HEAD']),
     runGit(projectRoot, ['rev-parse', 'HEAD']),
+    runGit(projectRoot, ['status', '--porcelain', '--untracked-files=no']),
   ]);
 
   const branch = branchResult.code === 0 ? branchResult.stdout.trim() || null : null;
   const sha = shaResult.code === 0 ? shaResult.stdout.trim() : '';
+  const residue = statusResult.code === 0
+    ? statusResult.stdout.split('\n').map(s => s.trim()).filter(Boolean)
+    : [];
 
-  return { branch, sha };
+  return { branch, sha, residue };
 }
 
 /** Wrap an async operation with a main-checkout branch identity guard.
@@ -64,7 +88,12 @@ export async function withMainCheckoutInvariant<T>(
   projectRoot: string,
   runGit: GitRunner,
   fn: () => Promise<T>,
+  opts: {
+    opName?: string;
+    onViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
+  } = {},
 ): Promise<T> {
+  const opName = opts.opName ?? 'operation';
   const before = await readMainCheckoutHead(projectRoot, runGit);
 
   let result: T;
@@ -82,7 +111,17 @@ export async function withMainCheckoutInvariant<T>(
     (before.branch === null && after.branch === null && before.sha !== after.sha);
 
   if (identityChanged) {
-    throw new MainCheckoutBranchChangedError(projectRoot, before, after);
+    const err = new MainCheckoutBranchChangedError(projectRoot, before, after, opName);
+    try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
+    throw err;
+  }
+
+  const beforeSet = new Set(before.residue);
+  const addedResidue = after.residue.filter(r => !beforeSet.has(r));
+  if (addedResidue.length > 0) {
+    const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after);
+    try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
+    throw err;
   }
 
   return result;

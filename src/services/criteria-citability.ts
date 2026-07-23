@@ -279,6 +279,50 @@ export function assertsCitableArtifact(text: string): boolean {
   return /\b(contains?|shows?|reports?|records?|lists?|includes?|exists?|written|produced?|generated?|has\s+(?:a|an|the)\b|with\s+(?:a|an|the)\b|section|field|column|row|entry|line|value)\b/i.test(text);
 }
 
+const STOP_WORDS = new Set(['a', 'an', 'the', 'no', 'not', 'is', 'are', 'was', 'were', 'left', 'added']);
+
+/** Pull the clearest example token out of offending criterion text: prefer a backticked or
+ *  quoted token, else the first non-stop-word identifier-ish bareword. */
+function pickTerm(text: string): string {
+  const backticked = text.match(/`([^`]+)`/);
+  if (backticked) return backticked[1]!;
+  const quoted = text.match(/'([^']+)'|"([^"]+)"/);
+  if (quoted) return (quoted[1] ?? quoted[2])!;
+  const words = text.match(/[A-Za-z_$][\w$.\-/]*/g) ?? [];
+  const word = words.find((w) => !STOP_WORDS.has(w.toLowerCase()));
+  return word ?? '<term>';
+}
+
+/** For absence criteria: strip a leading no|not|without run, then pick the subject term. */
+function pickSubject(text: string): string {
+  const stripped = text.replace(/^\s*(?:no|not|without)\s+/i, '');
+  const term = pickTerm(stripped);
+  return term === '<term>' ? '<subject>' : term;
+}
+
+/** Pure helper: for a convicted criterion, render the compliant rewrite shape the leaf author
+ *  should use instead, with an example token drawn from the offending text. Every arm carries a
+ *  stable leading marker so tests and reviewers can anchor on it regardless of wording. */
+export function compliantShapeFor(kind: UncitableKind, offendingText: string): string {
+  switch (kind) {
+    case 'command-result': {
+      const term = pickTerm(offendingText);
+      return `Compliant shape: restate as a named zero-match check — e.g. \`grep -rn '${term}' src/\` returns no matches.`;
+    }
+    case 'absence': {
+      const subject = pickSubject(offendingText);
+      return `Compliant shape: move the negation into the size-manifest — e.g. outOfScope: ["${subject}"] — or restate as one of the three DELETION/REMOVAL citable forms.`;
+    }
+    case 'out-of-diff-location': {
+      const citations = extractCitations(offendingText);
+      const path = citations[0]?.raw ?? '<path>';
+      return `Compliant shape: declare it or re-cite — add "${path}" to filesToEdit/filesToCreate, or cite a file:line this leaf actually changes.`;
+    }
+    default:
+      return '';
+  }
+}
+
 /** Classify a single criterion: Rule 0 (acquit-first), then Rules 1–3. */
 export function classifyCriterion(
   text: string,
@@ -301,7 +345,12 @@ export function classifyCriterion(
   // Rule 1: CONVICT on out-of-diff-location
   const rule1 = convictOnOutOfDiffLocation(text, declaredFiles, opts);
   if (rule1.uncitable) {
-    return { text, citable: false, kind: 'out-of-diff-location', reason: rule1.reason };
+    return {
+      text,
+      citable: false,
+      kind: 'out-of-diff-location',
+      reason: `${rule1.reason} ${compliantShapeFor('out-of-diff-location', text)}`,
+    };
   }
 
   // Rule 1.5: ACQUIT on a named runnable read-only verification command with a checkable result.
@@ -313,13 +362,23 @@ export function classifyCriterion(
   // Rule 2: CONVICT on command-result
   const rule2 = convictOnCommandResult(text);
   if (rule2.uncitable) {
-    return { text, citable: false, kind: 'command-result', reason: rule2.reason };
+    return {
+      text,
+      citable: false,
+      kind: 'command-result',
+      reason: `${rule2.reason} ${compliantShapeFor('command-result', text)}`,
+    };
   }
 
   // Rule 3: CONVICT on absence
   const rule3 = convictOnAbsence(text);
   if (rule3.uncitable) {
-    return { text, citable: false, kind: 'absence', reason: rule3.reason };
+    return {
+      text,
+      citable: false,
+      kind: 'absence',
+      reason: `${rule3.reason} ${compliantShapeFor('absence', text)}`,
+    };
   }
 
   // Default: CITABLE (no citation required, no command asserted, no absence claimed)

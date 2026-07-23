@@ -534,7 +534,7 @@ describe('liveRunsOf — a landed epic\'s historical parks are not a live blocke
 // every open gap concurrently. Pure-function tests over deriveMissionStatus/deriveCriterionAction.
 
 const crit = (over: Partial<MissionCriterionFacts>): MissionCriterionFacts => ({
-  id: 'c', met: false, verifiedAt: null, servingEpicState: 'none', servingEpicLive: false, servedEpicCount: 0, ...over,
+  id: 'c', met: false, verifiedAt: null, servingEpicState: 'none', servingEpicLive: false, servedEpicCount: 0, rejectedParkedCount: 0, ...over,
 });
 const baseFacts = {
   abandonedAt: null, budgetUsd: null, spendUsd: 0,

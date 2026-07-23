@@ -139,8 +139,8 @@ function openDb(): Database {
   // Additive migration: epicId column for per-epic cost rollup (idempotent).
   const cols = db.query('PRAGMA table_info(worker_ledger)').all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === 'epicId')) db.exec('ALTER TABLE worker_ledger ADD COLUMN epicId TEXT');
-  // Index on epicId is created HERE (not in DDL) because the column is added by the ALTER
-  // above — a fresh DB has no epicId column when DDL runs, so an in-DDL index would throw.
+  // Index depends on the epicId column above — must run AFTER the migration, never in the
+  // base DDL (a fresh CREATE TABLE has no epicId column yet, so an early index would 500).
   db.exec('CREATE INDEX IF NOT EXISTS idx_ledger_epic_ts ON worker_ledger(epicId, ts DESC)');
   // Additive migration: node-level columns (PAW P1). Same idempotent ALTER idiom.
   const add = (name: string, decl: string) => {
@@ -914,13 +914,22 @@ export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
   return (d.query(sql).all(...(params as never[])) as LedgerRow[]).map(rowToEntry);
 }
 
+const THIN_LEDGER_COLUMNS = 'id, project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outcomeDetail, ts';
+
+/** Builds the exact SQL `queryLedgerThin` runs — exported so tests (e.g. EXPLAIN QUERY PLAN)
+ *  assert against the real query instead of a hand-copied string that can drift. */
+export function _thinLedgerSql(q: LedgerQuery = {}): string {
+  const { where, limit } = buildLedgerWhere(q);
+  return `SELECT ${THIN_LEDGER_COLUMNS} FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`;
+}
+
 /** Blob-free variant of `queryLedger` — same filter/order/limit semantics (via the
  *  shared `buildLedgerWhere` helper) but projects an explicit column list that omits
  *  `outputText`/`commands`, so hot per-epic reads stop dragging inline text blobs. */
 export function queryLedgerThin(q: LedgerQuery = {}): ThinLedgerRow[] {
   const d = openDb();
-  const { where, params, limit } = buildLedgerWhere(q);
-  const sql = `SELECT id, project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outcomeDetail, ts FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`;
+  const { params } = buildLedgerWhere(q);
+  const sql = _thinLedgerSql(q);
   return (d.query(sql).all(...(params as never[])) as ThinLedgerRow[]).map((r) => ({
     ...r,
     knownPrice: Boolean(r.knownPrice),
