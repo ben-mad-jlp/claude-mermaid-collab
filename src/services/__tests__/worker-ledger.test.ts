@@ -265,6 +265,31 @@ describe('epic_base_gate cache key (baseSha validation)', () => {
     expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
   });
 
+  test('baselineFailures blob round-trips under a matching baseSha', () => {
+    const blob = { 'suites:^ui/': ['FAIL a.test.ts', 'renders'], typecheck: ['src/x.ts'] };
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red', baselineFailures: blob });
+    const r = getEpicBaseGate('e1', 'aaa');
+    expect(r?.baselineFailures).toEqual(blob);
+  });
+
+  test('the blob is NOT reused across a base move (changed baseSha ⇒ MISS)', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red', baselineFailures: { typecheck: ['src/x.ts'] } });
+    expect(getEpicBaseGate('e1', 'aaa')?.baselineFailures).toEqual({ typecheck: ['src/x.ts'] });
+    expect(getEpicBaseGate('e1', 'bbb')).toBeNull();
+  });
+
+  test("a blob on an 'error' is still never cached", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'error', command: 'gate', output: 'OOM', baselineFailures: { typecheck: ['x.ts'] } });
+    expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
+  });
+
+  test('a row without a blob reads back baselineFailures:null (no throw)', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    const r = getEpicBaseGate('e1', 'aaa');
+    expect(r).not.toBeNull();
+    expect(r?.baselineFailures).toBeNull();
+  });
+
   // G8 durable blueprint base SHA (leaf_blueprint table).
   test('recordLeafBlueprint → getLeafBlueprint round-trip', () => {
     recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'sha-abc123' }, 1000);
