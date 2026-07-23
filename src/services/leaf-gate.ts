@@ -384,14 +384,27 @@ export function composeVerdict(mech: LeafReviewVerdict, llm: LeafReviewVerdict |
 }
 
 /** Real GateSpawn: `sh -c <command>` in `cwd`. A spawn error or a signal-killed
- *  process (null status — e.g. OOM) both read as `ran:false` (INFRA, never a finding). */
+ *  process (null status — e.g. OOM) both read as `ran:false` (INFRA, never a finding).
+ *  MUST stay a真 async spawn: a gate run (bun test / tsc / bunx vitest) takes tens of
+ *  seconds to minutes, and the old spawnSync here held the sidecar's event loop for the
+ *  full duration — once the ui-vitest lane pushed gate time past the Electron liveness
+ *  watchdog's 45s threshold, the sidecar was silently kill+respawned on every gate run
+ *  (2026-07-22 20:05-20:45 crash-loop). */
 export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
-  const { spawnSync } = await import('node:child_process');
-  const r = spawnSync(command, { cwd, shell: true, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-  if (r.error || r.status === null) {
-    return { ran: false, code: -1, output: r.error ? String(r.error.message ?? r.error) : `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  try {
+    const proc = Bun.spawn(['sh', '-c', command], { cwd, stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (proc.signalCode != null) {
+      return { ran: false, code: -1, output: `${stdout}${stderr}` };
+    }
+    return { ran: true, code, output: `${stdout}${stderr}` };
+  } catch (e) {
+    return { ran: false, code: -1, output: e instanceof Error ? (e.message ?? String(e)) : String(e) };
   }
-  return { ran: true, code: r.status, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 };
 
 /** Run the project-declared gate in a leaf worktree, at this leaf's HEAD, scoped to
