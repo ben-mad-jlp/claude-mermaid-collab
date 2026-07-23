@@ -1115,6 +1115,32 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
   });
 
+  it('a red base carrying baselineFailures HOLDS the leaf — never a leaf-level rejection', async () => {
+    // The base-differential invariant (af97cb19): in the wired path a base lane that is red
+    // reaches the leaf as a hold, never a rejection — the differential inside runLeafGate only
+    // stops the SAME red lane from additionally rejecting the leaf's own gate run. Prove the
+    // hold arm here: ensureBaseGreen returns fail WITH baselineFailures, and no node is ever
+    // spent, so there is no review/implement row carrying a reject verdict.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail',
+        command: 'bun test',
+        output: 'FAIL src/a.test.ts',
+        reasons: ['suite lane failed: bun test'],
+        declared: true,
+        fresh: true,
+        baselineFailures: { 'suites:^src\\/': ['src/a.test.ts'] },
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^epic-base-red/);
+    expect(res.nodesSpent).toBe(0);
+    expect(spies.invokeSpecs.length).toBe(0);
+    expect(spies.nodeRows.some((r) => r.verdict === 'fail')).toBe(false);
+  });
+
   it('unwired runGate/ensureBaseGreen ⇒ unchanged floor: the LLM verdict alone still decides', async () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
     const res = await runLeaf('proj', makeLeaf(), deps);
