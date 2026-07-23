@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS worker_ledger (
 CREATE INDEX IF NOT EXISTS idx_ledger_project ON worker_ledger(project);
 CREATE INDEX IF NOT EXISTS idx_ledger_todo ON worker_ledger(todoId);
 CREATE INDEX IF NOT EXISTS idx_ledger_ts ON worker_ledger(ts);
+CREATE INDEX IF NOT EXISTS idx_ledger_epic_ts ON worker_ledger(epicId, ts DESC);
 `;
 
 let db: Database | null = null;
