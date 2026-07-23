@@ -7,6 +7,9 @@ export type ExitReason = 'watchdog-unresponsive' | 'unexpected-exit' | 'hot-swap
 export const DEFAULT_CRASH_LOOP_N = 3;
 export const DEFAULT_CRASH_LOOP_WINDOW_MS = 10 * 60 * 1000;
 
+export const DEFAULT_SLOW_PROBE_N = 3;
+export const DEFAULT_SLOW_PROBE_WINDOW_MS = 10 * 60 * 1000;
+
 export function formatExitForensics(input: {
   ts: number;
   code: number | null;
@@ -57,6 +60,54 @@ export class CrashLoopTripwire {
 
     return false;
   }
+}
+
+export class ChronicSlowProbeTripwire {
+  private recoveryTimes: number[] = [];
+  private lastFiredWindowStart: number | null = null;
+  private readonly n: number;
+  private readonly windowMs: number;
+
+  constructor(n: number = DEFAULT_SLOW_PROBE_N, windowMs: number = DEFAULT_SLOW_PROBE_WINDOW_MS) {
+    this.n = n;
+    this.windowMs = windowMs;
+  }
+
+  recordRecovery(now: number): boolean {
+    this.recoveryTimes.push(now);
+    // Drop entries older than now - windowMs
+    this.recoveryTimes = this.recoveryTimes.filter(t => t > now - this.windowMs);
+
+    // Check if we have n or more recoveries in the window
+    if (this.recoveryTimes.length >= this.n) {
+      const windowStart = this.recoveryTimes[this.recoveryTimes.length - this.n];
+
+      // Fire only if this is a new window (different from lastFiredWindowStart)
+      if (this.lastFiredWindowStart !== windowStart) {
+        this.lastFiredWindowStart = windowStart;
+        return true;
+      }
+    }
+
+    return false;
+  }
+}
+
+export function buildChronicSlowProbeWarningPayload(input: {
+  project: string;
+  session: string;
+  count: number;
+  windowMs: number;
+}): { kind: 'sidecar-slow-probes'; questionText: string; project: string; session: string } {
+  const windowSecs = Math.round(input.windowMs / 1000);
+  const questionText = `Sidecar chronically slow: project=${input.project} session=${input.session} ${input.count} intermittent slow-probe recoveries in ${windowSecs}s`;
+
+  return {
+    kind: 'sidecar-slow-probes',
+    questionText,
+    project: input.project,
+    session: input.session,
+  };
 }
 
 export function buildCrashLoopEscalationPayload(input: {
