@@ -41,6 +41,17 @@ export interface GateSuiteLane {
   cwd?: string;
 }
 
+/** One resolved full-suite FLOOR lane: run once at the EPIC LAND gate (never per-leaf)
+ *  whenever any change-set path matches. The command owns its own net-new baseline
+ *  comparison — the land gate does NOT re-run a master-worktree baseline for it. */
+export interface GateFloorLane {
+  /** Compiled from the manifest's `match` RegExp source. Tested against ROOT-relative paths. */
+  match: RegExp;
+  command: string;
+  /** Worktree-relative cwd the command runs in. */
+  cwd?: string;
+}
+
 /** Project-declared mechanical gate. Every command is a shell string run via `sh -c`.
  *  NOTHING here is defaulted to a command — an undeclared gate runs no command. */
 export interface LeafGateConfig {
@@ -57,6 +68,11 @@ export interface LeafGateConfig {
   typechecks?: GateTypecheckLane[];
   /** Change-set-triggered full-suite lanes: each lane runs its FULL command when a change-set path matches, with NO change-set narrowing of failures (catches regressions in untouched files in the matched subtree). */
   suites?: GateSuiteLane[];
+  /** Land-only full-suite lanes: the FULL command runs ONCE at the EPIC LAND gate — never
+   *  per-leaf — whenever any change-set path matches `match`. The command owns its own
+   *  net-new baseline comparison; the land gate does not re-run a master-worktree baseline
+   *  for it. Parsed/validated here; not yet consumed by any gate (config plumbing only). */
+  floors?: GateFloorLane[];
   /** OPTIONAL full-suite command run ONLY at the epic base (once per epic), never per leaf.
    *  Absent ⇒ the base check is `typecheck` alone. */
   baseTest?: string;
@@ -259,6 +275,58 @@ function normalizeSuiteLanes(
   return { lanes, error: null };
 }
 
+/** Normalize and validate the `gate.floors` array. Returns { lanes, error } where
+ *  exactly one is present. Throws are NOT allowed — errors are returned as strings. */
+function normalizeFloorLanes(
+  raw: unknown,
+): { lanes: GateFloorLane[] | null; error: string | null } {
+  if (raw === undefined || raw === null) return { lanes: null, error: null };
+
+  if (!Array.isArray(raw)) {
+    return { lanes: null, error: 'gate.floors must be a non-empty array' };
+  }
+
+  if (raw.length === 0) {
+    return { lanes: null, error: 'gate.floors must be a non-empty array' };
+  }
+
+  const lanes: GateFloorLane[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const lane = raw[i];
+    if (!lane || typeof lane !== 'object' || Array.isArray(lane)) {
+      return { lanes: null, error: `gate.floors[${i}] must declare a non-empty match and command` };
+    }
+
+    const { match, command, cwd } = lane as Record<string, unknown>;
+
+    if (typeof match !== 'string' || !match.trim()) {
+      return { lanes: null, error: `gate.floors[${i}] must declare a non-empty match and command` };
+    }
+
+    if (typeof command !== 'string' || !command.trim()) {
+      return { lanes: null, error: `gate.floors[${i}] must declare a non-empty match and command` };
+    }
+
+    // Validate regexp.
+    let compiledMatch: RegExp;
+    try {
+      compiledMatch = new RegExp(match);
+    } catch {
+      return { lanes: null, error: `gate.floors[${i}].match is not a valid regexp: ${match}` };
+    }
+
+    const cwdTrimmed = (cwd as string | undefined)?.trim() || undefined;
+
+    lanes.push({
+      match: compiledMatch,
+      command: command.trim(),
+      cwd: cwdTrimmed,
+    });
+  }
+
+  return { lanes, error: null };
+}
+
 /** Build a single legacy lane from the old-shape `test`/`testCwd` config. */
 function legacyLane(test: string, testCwd: string | undefined): GateTestLane {
   const prefix = testCwd ? escapeRe(testCwd.replace(/\/+$/, '')) : '';
@@ -319,10 +387,15 @@ export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | nul
   const { lanes: suiteLanes, error: suiteLaneError } = normalizeSuiteLanes(g.suites);
   if (suiteLaneError) return null;
 
-  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck nor suite lanes survives.
-  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes && !suiteLanes) return bridgeLegacyGate(m);
+  // Parse and validate floor lanes (will return null error if any).
+  const { lanes: floorLanes, error: floorLaneError } = normalizeFloorLanes(g.floors);
+  if (floorLaneError) return null;
 
-  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined, typechecks: typecheckLanes || undefined, suites: suiteLanes || undefined };
+  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck nor suite lanes
+  // nor floor lanes survives — fall back to the legacy top-level bridge (empty gate block).
+  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes && !suiteLanes && !floorLanes) return bridgeLegacyGate(m);
+
+  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined, typechecks: typecheckLanes || undefined, suites: suiteLanes || undefined, floors: floorLanes || undefined };
 }
 
 /** Why the mechanical layer will or will not run. Three outcomes, not two: an ABSENT gate is
@@ -378,12 +451,18 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
     return { kind: 'misconfigured', manifestPath: src.path, reason: suiteLaneError };
   }
 
+  // Check floor lane validity.
+  const { error: floorLaneError } = normalizeFloorLanes(gate.floors);
+  if (floorLaneError) {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: floorLaneError };
+  }
+
   const cfg = resolveLeafGate(manifest);
   if (!cfg) {
     return {
       kind: 'misconfigured',
       manifestPath: src.path,
-      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests/typechecks/suites all empty)',
+      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests/typechecks/suites/floors all empty)',
     };
   }
   return { kind: 'declared', cfg, manifestPath: src.path };
