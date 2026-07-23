@@ -141,4 +141,42 @@ describe('instance-discovery — lock lifecycle regression tests', () => {
     };
     await writeInstance(instance2, paths);
   });
+
+  it('boot-overlap: two concurrent writeInstance calls for one sessionId settle rejection-free', async () => {
+    const sessionId = 'boot-overlap-test-session';
+    const instanceA: Instance = {
+      version: 1,
+      sessionId,
+      port: 9100,
+      project: 'test-project',
+      session: 'test-session',
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      serverVersion: '1.0.0',
+    };
+    const instanceB: Instance = {
+      ...instanceA,
+      port: 9101,
+      startedAt: new Date().toISOString(),
+    };
+
+    const results = await Promise.allSettled([
+      writeInstance(instanceA, paths),
+      writeInstance(instanceB, paths),
+    ]);
+
+    const fulfilled = results.filter(r => r.status === 'fulfilled');
+    const rejected = results.filter(r => r.status === 'rejected');
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+
+    // Flush the loser's settlement (microtask + setImmediate) before asserting stats.
+    await new Promise(resolve => setImmediate(resolve));
+    await Promise.resolve();
+
+    const finalStats = getProcessGuardStats();
+    expect(finalStats.unhandledRejections).toBe(baselineStats.unhandledRejections);
+
+    await removeInstance(sessionId, paths);
+  });
 });
