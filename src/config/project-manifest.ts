@@ -158,6 +158,11 @@ export interface ProjectManifest {
      *  and NO change-set narrowing of a failure (unlike `tests`), so it also catches
      *  regressions in files inside the matched subtree that this leaf never touched. */
     suites?: Array<{ match: string; command: string; cwd?: string }>;
+    /** Land-only full-suite lanes: the FULL command runs ONCE at the EPIC LAND gate — never
+     *  per-leaf — whenever any change-set path matches `match`. The command owns its own
+     *  net-new baseline comparison; the land gate does not re-run a master-worktree baseline
+     *  for it. Parsed/validated here; not yet consumed by any gate (config plumbing only). */
+    floors?: Array<{ match: string; command: string; cwd?: string }>;
     /** Full-suite command run ONLY at the epic base, once per epic. */
     baseTest?: string;
   };
