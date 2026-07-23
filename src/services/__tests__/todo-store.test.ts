@@ -2009,6 +2009,28 @@ describe('Parallel-burst starvation fix: 0-node kill must not charge a retry', (
     expect(after!.heldReason).toBeNull(); // not held
   });
 
+  test('reclaimNow: dispatch-bump refund on 0-node kill (crit_693bbc27_2)', async () => {
+    // Regression test: dispatch already bumped retryCount to 1, process dies pre-spawn,
+    // reclaimNow reclaims via 0-node kill path and refunds the bump back to 0
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    // Simulate dispatch-time bump: set retryCount to 1
+    await updateTodo(project, t.id, { retryCount: 1 });
+
+    // Record 0 nodes spent (process died before spawning any node)
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 0 });
+
+    const hadProgress = (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
+    const result = await reclaimNow(project, t.id, hadProgress);
+
+    expect(result).toBe('ready');
+    const after = await getTodo(project, t.id);
+    expect(after!.retryCount).toBe(0); // bump is refunded, not merely left alone
+    expect(after!.heldReason).toBeNull(); // not held
+  });
+
   test('reclaimNow: nodesSpent>=1 reclaims with retry bump (normal path)', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
     await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });

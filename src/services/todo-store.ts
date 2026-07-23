@@ -454,6 +454,7 @@ export type UpdateTodoPatch = Partial<{
   approvedBy: string | null;
   heldAt: string | null;
   heldReason: string | null;
+  retryCount: number;
   /** Escape hatch for a STALE claim: drop a claimed todo anyway (claim is cleared).
    *  Without it, dropping a live-claimed todo throws ClaimedTodoDropError. */
   force: boolean;
@@ -1863,13 +1864,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
           dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
-          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
+          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
         next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier,
         approvedAt, approvedBy, heldAt, heldReason,
-        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), fullId
+        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), patch.retryCount ?? existing.retryCount, fullId
       );
       if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
 
@@ -2133,11 +2134,14 @@ export function reclaimNow(project: string, id: string, hadProgress?: (id: strin
     if (row.acceptanceStatus === 'accepted') return null;
     const hasClaim = readClaim(row) != null;
     if (!hasClaim && row.status !== 'in_progress') return null;
-    // 0-node kill (hadProgress returns false): release without retry penalty and never park
+    // 0-node kill (hadProgress returns false): release without retry penalty and never park.
+    // crit_693bbc27_2: the dispatch path bumps retryCount before spawning (coordinator-live.ts:1745
+    // bumpRetryCountIfOwned). If the process dies pre-spawn, reclaimNow is the only site that can
+    // refund the bump, netting retryCount back to pre-dispatch. Floor at 0 to avoid negatives.
     if (hadProgress && hadProgress(id) === false) {
       db.prepare(
         `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
-         updatedAt=? WHERE id=?`
+         retryCount=MAX(0, retryCount-1), updatedAt=? WHERE id=?`
       ).run(nowIso(), id);
       return 'ready';
     }
