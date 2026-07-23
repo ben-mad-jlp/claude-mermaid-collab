@@ -4,7 +4,7 @@ import { mkdir, writeFile, rename, unlink, readdir, readFile, open, rm } from 'f
 import { Socket } from 'net';
 import { homedir } from 'os';
 import { join } from 'path';
-import { lock } from 'proper-lockfile';
+import { lock, type LockOptions } from 'proper-lockfile';
 
 /** Schema for a single live mermaid-collab server instance record on disk. */
 export interface Instance {
@@ -28,6 +28,9 @@ export interface DiscoveryPaths {
 
 /** Module-level map of held lockfile release functions, keyed by sessionId. */
 const lockReleaseMap = new Map<string, () => Promise<void>>();
+
+/** Module-level per-id mutex for serializing lock/cleanup operations on the same id. */
+const idMutex = new Map<string, Promise<void>>();
 
 /** Module-level flag indicating global signal handlers have been installed. */
 let globalHandlersInstalled = false;
@@ -91,6 +94,46 @@ export function deriveSessionId(project: string, session: string): string {
 }
 
 /**
+ * Build lock options with a safe onCompromised handler that synchronously clears
+ * the lockReleaseMap entry and calls its cleanup, never throwing or leaving
+ * rejections unhandled.
+ */
+export function buildLockOptions(id: string): LockOptions {
+  return {
+    realpath: false,
+    retries: 0,
+    onCompromised: (err: Error) => {
+      console.warn(`[instance-discovery] lock compromised for ${id}: ${err.message}`);
+      const release = lockReleaseMap.get(id);
+      lockReleaseMap.delete(id);
+      if (release) {
+        release().catch(() => {});
+      }
+    },
+  };
+}
+
+/**
+ * Serialize operations on the same id by chaining them onto a per-id tail promise.
+ * Ensures that concurrent lock() and cleanup operations for the same id cannot
+ * interleave. A throwing fn() does not stall later calls for the same id.
+ */
+export async function withPerIdLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const prior = idMutex.get(id) ?? Promise.resolve();
+  const settled = prior.catch(() => {}) as Promise<void>;
+  const current = settled.then(() => fn());
+  const settled_tail = current.then(() => {}) as Promise<void>;
+  idMutex.set(id, settled_tail);
+  try {
+    return await current;
+  } finally {
+    if (idMutex.get(id) === settled_tail) {
+      idMutex.delete(id);
+    }
+  }
+}
+
+/**
  * Steal a STALE instance lock whose owner is provably dead — the hot-swap case:
  * the supervisor SIGKILL'd the old sidecar, but proper-lockfile keeps its lock
  * "fresh" (mtime < staleness window), so an immediate respawn would hit ELOCKED
@@ -125,24 +168,26 @@ export async function writeInstance(inst: Instance, paths: DiscoveryPaths = getD
   await writeFile(paths.lockFile(inst.sessionId), '', { flag: 'a' });
 
   let release: () => Promise<void>;
-  try {
-    release = await lock(paths.lockFile(inst.sessionId), { realpath: false, retries: 0 });
-  } catch (err: unknown) {
-    if (err && typeof err === 'object' && (err as { code?: string }).code === 'ELOCKED') {
-      // The lock is held. If its owner is a DEAD predecessor (hot-swap respawn
-      // racing the SIGKILL'd old sidecar's still-fresh lock), steal it and retry
-      // once; a LIVE owner is a real duplicate and still throws.
-      if (await stealStaleInstanceLock(inst.sessionId, paths)) {
-        release = await lock(paths.lockFile(inst.sessionId), { realpath: false, retries: 0 });
+  release = await withPerIdLock(inst.sessionId, async () => {
+    try {
+      return await lock(paths.lockFile(inst.sessionId), buildLockOptions(inst.sessionId));
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && (err as { code?: string }).code === 'ELOCKED') {
+        // The lock is held. If its owner is a DEAD predecessor (hot-swap respawn
+        // racing the SIGKILL'd old sidecar's still-fresh lock), steal it and retry
+        // once; a LIVE owner is a real duplicate and still throws.
+        if (await withPerIdLock(inst.sessionId, () => stealStaleInstanceLock(inst.sessionId, paths))) {
+          return await lock(paths.lockFile(inst.sessionId), buildLockOptions(inst.sessionId));
+        } else {
+          throw new Error(
+            `Duplicate instance for sessionId ${inst.sessionId} — another mermaid-collab server is already running for this (project, session)`
+          );
+        }
       } else {
-        throw new Error(
-          `Duplicate instance for sessionId ${inst.sessionId} — another mermaid-collab server is already running for this (project, session)`
-        );
+        throw err;
       }
-    } else {
-      throw err;
     }
-  }
+  });
   lockReleaseMap.set(inst.sessionId, release);
 
   const target = paths.instanceFile(inst.sessionId);
@@ -198,7 +243,7 @@ export async function readInstances(paths: DiscoveryPaths = getDiscoveryPaths())
     // Step 2: try to acquire the lock non-blocking.
     let release: (() => Promise<void>) | undefined;
     try {
-      release = await lock(lockPath, { realpath: false, retries: 0 });
+      release = await withPerIdLock(id, () => lock(lockPath, buildLockOptions(id)));
     } catch {
       // Lock held — but the owner may have been SIGKILL'd, leaving an
       // orphan lock that proper-lockfile won't release until its staleness
@@ -209,8 +254,10 @@ export async function readInstances(paths: DiscoveryPaths = getDiscoveryPaths())
       }
       // Owner is dead but lock is orphaned — best-effort cleanup of both
       // files and skip. proper-lockfile will eventually GC its lock dir.
-      await unlink(instPath).catch(() => {});
-      await unlink(lockPath).catch(() => {});
+      await withPerIdLock(id, async () => {
+        await unlink(instPath).catch(() => {});
+        await unlink(lockPath).catch(() => {});
+      });
       continue;
     }
 
@@ -241,8 +288,10 @@ export async function readInstances(paths: DiscoveryPaths = getDiscoveryPaths())
         // Defensive: a genuinely-live server that released its lock — leave it.
         continue;
       }
-      await unlink(instPath).catch(() => {});
-      await unlink(lockPath).catch(() => {});
+      await withPerIdLock(id, async () => {
+        await unlink(instPath).catch(() => {});
+        await unlink(lockPath).catch(() => {});
+      });
     } catch (err) {
       console.warn(`[instance-discovery] failed to process ${name}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
