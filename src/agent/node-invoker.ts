@@ -450,6 +450,7 @@ function readAuthStatus(): AuthStatus | null {
       stdout: 'pipe',
       stderr: 'pipe',
       env: process.env,
+      timeout: 10_000,
     });
     const out = p.stdout?.toString() ?? '';
     if (!out.trim()) return null;
@@ -1049,6 +1050,7 @@ function readGrokAuthStatus(): GrokAuthStatus | GrokAuthFile | null {
       stdout: 'pipe',
       stderr: 'pipe',
       env: process.env,
+      timeout: 10_000,
     });
     const out = p.stdout?.toString() ?? '';
     if (out.trim() && p.exitCode === 0) {
