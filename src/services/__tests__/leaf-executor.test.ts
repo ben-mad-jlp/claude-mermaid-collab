@@ -179,6 +179,9 @@ function makeDeps(opts: {
   reintegrateBase?: LeafExecutorDeps['reintegrateBase'];
   // Blueprint restore hook for rebase-continue testing. Absent ⇒ unwired.
   restoreBlueprint?: (leafId: string) => string | null;
+  // Worktree-dirty seam. Absent ⇒ defaults to a CLEAN tree so no unit test ever probes
+  // the host filesystem via leaf-executor.ts:3341-3343.
+  worktreeDirty?: LeafExecutorDeps['worktreeDirty'];
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -312,6 +315,7 @@ function makeDeps(opts: {
     resumePlan: opts.resumePlan,
     reintegrateBase: opts.reintegrateBase,
     restoreBlueprint: opts.restoreBlueprint,
+    worktreeDirty: opts.worktreeDirty ?? (() => []),
   };
   return { deps, spies };
 }
@@ -3248,6 +3252,11 @@ describe('replay-corpus recording (G3 + citability)', () => {
       changeSet: [],
       gateShadowMode: true,
     });
+    // Implement did real (uncommitted) work — salvage path recomputes a non-empty
+    // pre-review change-set so review actually runs; opts.changeSet stays [] to drive
+    // the grounding check under test.
+    deps.worktreeDirty = () => ['src/foo.ts'];
+    deps.salvageCommit = async () => ({ sha: 'deadbeefcafe0000' });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
 
@@ -3748,6 +3757,11 @@ describe('crit 1 — falsifiability rule (review abstains on non-falsifiable dou
       runGate: greenGate,
       changeSet: [], // empty = no real change
     });
+    // Implement did real (uncommitted) work — salvage path recomputes a non-empty
+    // pre-review change-set so review actually runs; opts.changeSet stays [] to drive
+    // the empty-change-set grounding check under test.
+    deps.worktreeDirty = () => ['src/foo.ts'];
+    deps.salvageCommit = async () => ({ sha: 'deadbeefcafe0000' });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
