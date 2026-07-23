@@ -109,3 +109,21 @@ export const DEFAULT_ORPHAN_GRACE_MS =
  *  Origin: src/services/coordinator-daemon.ts. */
 export const DEFAULT_LEASE_MS =
   (Number(process.env.MERMAID_CLAIM_LEASE_MIN) || 40) * 60 * 1000;
+
+/** Landed-epic leftover grace window / stuck threshold (ms), for the
+ *  'landed-needs-review' arm of sweepEpicRollups. A non-done or done-but-unaccepted
+ *  child of an optimistically-landed epic whose updatedAt is within this window is
+ *  treated as actively building — held, not flagged. Idle PAST the window = stuck →
+ *  flag (mirrors the motionless arm's idle threshold; one boundary serves as both
+ *  the grace window and the stuck threshold).
+ *
+ *  A LIVE CLAIM always counts as active regardless of this window — and the claim
+ *  model (de-conflate S1: in_progress ≡ claim != null) means a genuinely building
+ *  child ALWAYS holds one, so the claim signal alone excludes the healthy case.
+ *  An in_progress row WITHOUT a claim is an orphan (daemon restart / reap) and is
+ *  stuck on sight. Default 0: only the claim signal excludes — behavior changes
+ *  ONLY in the pathological actively-building-flagged case, never for genuinely
+ *  stuck leftovers. Override with MERMAID_LANDED_GRACE_MIN (minutes).
+ *  Origin: src/services/todo-store.ts (sweepEpicRollups). */
+export const LANDED_LEFTOVER_GRACE_MS =
+  (Number(process.env.MERMAID_LANDED_GRACE_MIN) || 0) * 60 * 1000;

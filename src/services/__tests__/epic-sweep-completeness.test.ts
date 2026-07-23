@@ -27,6 +27,21 @@ function forceInProgress(proj: string, id: string) {
   _closeProject(proj);
 }
 
+/** Helper: force a todo into in_progress WITH a live claim via raw SQL (mimics a
+ *  genuinely running build: de-conflate S1 keeps claim + 4 legacy columns in lockstep).
+ *  Then _closeProject to flush the connection. */
+function forceInProgressClaimed(proj: string, id: string) {
+  const at = new Date().toISOString();
+  const claim = JSON.stringify({ by: 'worker-1', token: 'tok-1', at, leaseMs: 40 * 60 * 1000 });
+  const db = new Database(join(proj, '.collab', 'todos.db'));
+  db.exec(
+    `UPDATE todos SET status='in_progress', claimedBy='worker-1', claimToken='tok-1', ` +
+    `claimedAt='${at}', claimLeaseMs=${40 * 60 * 1000}, claim='${claim}' WHERE id='${id}'`,
+  );
+  db.close();
+  _closeProject(proj);
+}
+
 /** Helper: backdate a todo's updatedAt timestamp via raw SQL to a specific ISO string.
  *  Then _closeProject to flush the connection. */
 function backdateUpdatedAt(proj: string, id: string, isoTimestamp: string) {
@@ -200,6 +215,122 @@ describe('sweepEpicRollups — landed-epic settlement', () => {
     });
 
     expect(getTodo(project, epic.id)?.status).toBe('planned');
+  });
+
+  test('live-claim exclusion: does NOT flag a landed epic whose in_progress child holds a live claim', async () => {
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] landed actively building',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const doneChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'done child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, doneChild.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const buildingChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'actively building child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    forceInProgressClaimed(project, buildingChild.id);
+
+    stampEpicLandedAt(project, epic.id, new Date().toISOString());
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project);
+
+    // Healthy actively-building epic: no flag, no rollup, child untouched.
+    expect(flagged).toHaveLength(0);
+    expect(rolledUp).not.toContain(epic.id);
+    expect(getTodo(project, buildingChild.id)?.status).toBe('in_progress');
+    expect(getTodo(project, epic.id)?.status).toBe('planned');
+  });
+
+  test('grace-window exclusion: does NOT flag a recently-updated unclaimed leftover within landedGraceMs', async () => {
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] landed within grace',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const doneChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'done child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, doneChild.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const recentChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'recently touched child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    forceInProgress(project, recentChild.id); // unclaimed, updatedAt = seconds ago
+
+    stampEpicLandedAt(project, epic.id, new Date().toISOString());
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project, { landedGraceMs: 15 * 60 * 1000 });
+
+    expect(flagged).toHaveLength(0);
+    expect(rolledUp).not.toContain(epic.id);
+    expect(getTodo(project, recentChild.id)?.status).toBe('in_progress');
+  });
+
+  test('stuck past grace: DOES flag an idle unclaimed leftover even with the grace window active', async () => {
+    // Guard proof (crit-1 constraint): the genuinely-stuck case still flags —
+    // this test fails if the landed-needs-review flag is removed or over-widened.
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] landed stuck leftover',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const doneChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'done child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, doneChild.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const stuckChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'stuck child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    forceInProgress(project, stuckChild.id); // unclaimed orphan
+    const graceMs = 15 * 60 * 1000;
+    backdateUpdatedAt(project, stuckChild.id, new Date(Date.now() - graceMs - 60_000).toISOString());
+
+    stampEpicLandedAt(project, epic.id, new Date().toISOString());
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project, { landedGraceMs: graceMs });
+
+    expect(rolledUp).not.toContain(epic.id);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({
+      epicId: epic.id,
+      reason: 'landed-needs-review',
+      inProgress: 1,
+      doneUnaccepted: 0,
+    });
   });
 });
 

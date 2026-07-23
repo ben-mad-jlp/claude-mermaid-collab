@@ -397,6 +397,57 @@ describe('runReconcilePass — motionless / landed-needs-review triage escalatio
     const triage = open.find((e) => e.kind === EPIC_SWEEP_TRIAGE_KIND && e.todoId === epic.id);
     expect(triage).toBeDefined();
     expect(triage?.questionText ?? '').toContain('landed');
+    // The card is templated per ACTUAL trigger with real numbers (crit-1): an
+    // in_progress-leftover epic says so, with the count — not the generic
+    // done-but-unaccepted boilerplate.
+    expect(triage?.questionText ?? '').toContain('1 stuck in-progress leftover');
+    expect(triage?.questionText ?? '').not.toContain('done-but-unaccepted');
+  });
+
+  it('landed-needs-review card names done-but-unaccepted children with the real count', async () => {
+    const project = freshProject();
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] landed unaccepted variant',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const doneChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'done accepted child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, doneChild.id, { status: 'done', acceptanceStatus: 'accepted' });
+    // A non-done leftover so the epic is not allDone (keeps us on the landed arm).
+    await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'moot leftover child',
+      parentId: epic.id,
+      status: 'planned',
+    });
+    const unacceptedChild = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'done unaccepted child',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, unacceptedChild.id, { status: 'done', acceptanceStatus: null });
+
+    stampEpicLandedAt(project, epic.id, new Date().toISOString());
+
+    await runReconcilePass(project);
+
+    const open = listOpenEscalations().filter((e) => e.project === project);
+    const triage = open.find((e) => e.kind === EPIC_SWEEP_TRIAGE_KIND && e.todoId === epic.id);
+    expect(triage).toBeDefined();
+    expect(triage?.questionText ?? '').toContain('landed');
+    expect(triage?.questionText ?? '').toContain('1 done-but-unaccepted child');
+    expect(triage?.questionText ?? '').not.toContain('in-progress');
   });
 
   it('motionless reaches createEscalation when non-landed epic has idle children', async () => {
@@ -431,6 +482,9 @@ describe('runReconcilePass — motionless / landed-needs-review triage escalatio
     const triage = open.find((e) => e.kind === EPIC_SWEEP_TRIAGE_KIND && e.todoId === epic.id);
     expect(triage).toBeDefined();
     expect(triage?.questionText ?? '').toContain('idle');
+    // Real numbers in the card (crit-1): children count + human-readable idle duration.
+    expect(triage?.questionText ?? '').toContain('has 1 child(ren) idle for');
+    expect(triage?.questionText ?? '').toMatch(/idle for \d+h \d+m|idle for \d+m/);
   });
 });
 

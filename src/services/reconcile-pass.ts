@@ -196,11 +196,19 @@ export async function runReconcilePass(project: string): Promise<void> {
       });
     }
     for (const f of flagged) {
+      // Audit tells the truth per trigger (crit-1): the old line stamped every flag
+      // 'epic-all-done-but-unaccepted' regardless of reason.
+      const auditDetail =
+        f.reason === 'landed-needs-review'
+          ? { flag: 'epic-landed-needs-review', children: f.children, inProgress: f.inProgress ?? 0, doneUnaccepted: f.doneUnaccepted ?? 0 }
+          : f.reason === 'motionless'
+            ? { flag: 'epic-motionless', children: f.children, idleForMs: f.idleForMs ?? 0 }
+            : { flag: 'epic-all-done-but-unaccepted', children: f.children, unaccepted: f.unaccepted };
       recordSupervisorAudit({
         kind: 'reconcile',
         project,
         session: 'coordinator',
-        detail: JSON.stringify({ source: 'reconcile-pass', epicId: f.epicId, flag: 'epic-all-done-but-unaccepted', children: f.children, unaccepted: f.unaccepted }),
+        detail: JSON.stringify({ source: 'reconcile-pass', epicId: f.epicId, ...auditDetail }),
       });
 
       if (f.reason === 'landed-needs-review' || f.reason === 'motionless') {

@@ -10,6 +10,7 @@ import { join, dirname, basename } from 'node:path';
 import { hostname } from 'node:os';
 import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
+import { LANDED_LEFTOVER_GRACE_MS } from './harness-caps';
 import { topoSortSplitItems } from './split-decision';
 import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
@@ -2908,9 +2909,16 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
             const leftover = children.filter((c) => c.status !== 'done');
             const doneUnaccepted = children.filter((c) => c.status === 'done' && c.acceptanceStatus !== 'accepted');
 
+            // A child is LIVE (actively building / about to settle) iff it holds a
+            // live claim — `claim` is the orphan-aware readClaim value, and the claim
+            // model (de-conflate S1) guarantees in_progress ≡ claim != null for any
+            // genuinely running build. An in_progress row WITHOUT a claim is an orphan
+            // (daemon restart / reaped lease) — stuck on sight. The optional grace
+            // window additionally treats a recently-touched child as live (default 0:
+            // claim signal only — see LANDED_LEFTOVER_GRACE_MS in harness-caps).
             const isLive = (c: Todo) =>
-              c.claimedBy != null || c.claim != null || c.status === 'in_progress' ||
-              (now - Date.parse(c.updatedAt) < landedGraceMs);
+              c.claim != null ||
+              (landedGraceMs > 0 && now - Date.parse(c.updatedAt) < landedGraceMs);
 
             const anyLive = leftover.some(isLive) || doneUnaccepted.some(isLive);
             const stuckInProgress = leftover.filter((c) => c.status === 'in_progress' && !isLive(c));
@@ -2999,10 +3007,6 @@ export const BUCKET_CHILD_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 /** Non-landed epic whose live children haven't moved (no updatedAt change) in this long
  *  is flagged motionless-abandoned by the sweep. */
 export const MOTIONLESS_EPIC_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-/** Landed epic's non-done leftover is only "stuck" once it's neither claim-live nor
- *  recently touched past this window. */
-export const LANDED_LEFTOVER_GRACE_MS = 15 * 60 * 1000; // 15 minutes
 
 /** Idempotent: archive (status→'dropped') bucket CHILDREN that are `done` and whose
  *  updatedAt is older than the cutoff. Only 'done' rows are selected, so re-running is a no-op. */
