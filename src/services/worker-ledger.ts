@@ -94,6 +94,10 @@ interface LedgerRow extends LedgerEntry {
   ts: number;
 }
 
+/** Blob-free projection of `LedgerRow` — omits the two overflow columns
+ *  (`outputText`, `commands`) so hot per-epic reads don't drag inline text. */
+export type ThinLedgerRow = Omit<LedgerRow, 'outputText' | 'commands'>;
+
 const DDL = `
 CREATE TABLE IF NOT EXISTS worker_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -863,9 +867,9 @@ export function listLeafInflight(opts: { project?: string } = {}): InflightRow[]
   } catch { return []; }
 }
 
-/** Query raw ledger rows (newest first), filtered by project/todo/time. */
-export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
-  const d = openDb();
+/** Shared WHERE/params/limit construction for `queryLedger` and `queryLedgerThin` —
+ *  factored out so their filter/order/limit semantics can never drift apart. */
+function buildLedgerWhere(q: LedgerQuery): { where: string[]; params: unknown[]; limit: number } {
   const where: string[] = [];
   const params: unknown[] = [];
   if (q.project) { where.push('project = ?'); params.push(q.project); }
@@ -874,8 +878,29 @@ export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
   if (q.leafId) { where.push('leafId = ?'); params.push(q.leafId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
   const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
+  return { where, params, limit };
+}
+
+/** Query raw ledger rows (newest first), filtered by project/todo/time. */
+export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
+  const d = openDb();
+  const { where, params, limit } = buildLedgerWhere(q);
   const sql = `SELECT * FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`;
   return (d.query(sql).all(...(params as never[])) as LedgerRow[]).map(rowToEntry);
+}
+
+/** Blob-free variant of `queryLedger` — same filter/order/limit semantics (via the
+ *  shared `buildLedgerWhere` helper) but projects an explicit column list that omits
+ *  `outputText`/`commands`, so hot per-epic reads stop dragging inline text blobs. */
+export function queryLedgerThin(q: LedgerQuery = {}): ThinLedgerRow[] {
+  const d = openDb();
+  const { where, params, limit } = buildLedgerWhere(q);
+  const sql = `SELECT id, project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outcomeDetail, ts FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`;
+  return (d.query(sql).all(...(params as never[])) as ThinLedgerRow[]).map((r) => ({
+    ...r,
+    knownPrice: Boolean(r.knownPrice),
+    rateLimited: r.rateLimited == null ? null : Boolean(r.rateLimited),
+  }));
 }
 
 /** One source's aggregated spend over a window — the burn gauge's row shape. Uncapped SQL
