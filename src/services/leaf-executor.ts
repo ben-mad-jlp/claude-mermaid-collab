@@ -70,8 +70,17 @@ import { ScopeIncidentError } from '../agent/worktree-manager';
  *  to the unsalvaged empty-diff classification). */
 async function salvageCommitDefault(cwd: string, message: string, paths: string[]): Promise<{ sha?: string } | null> {
   const run = async (args: string[]) => {
-    const res = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
-    return { code: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+    try {
+      const proc = Bun.spawn(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe' });
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      return { code: code ?? 1, stdout: stdout ?? '', stderr: stderr ?? '' };
+    } catch {
+      return { code: 1, stdout: '', stderr: '' };
+    }
   };
   try {
     const out = await stageAndCommitScoped(run, { stage: paths, outOfScope: [], message });
