@@ -341,11 +341,33 @@ function legacyLane(test: string, testCwd: string | undefined): GateTestLane {
   };
 }
 
+/** Bridge legacy top-level manifest keys (`changeSetTestCommand`, `changeSetTestCwd`,
+ *  `gateCommand`, `frontendGateCommand`) into a `LeafGateConfig`. Returns null when
+ *  no runnable legacy keys are present. Builds `GateTestLane`/`GateSuiteLane` objects
+ *  directly without validation (no `normalizeLanes` call). */
+export function bridgeLegacyGate(m: ProjectManifest): LeafGateConfig | null {
+  const changeSetTestCommand = m.changeSetTestCommand?.trim() || undefined;
+  const changeSetTestCwd = m.changeSetTestCwd?.trim() || undefined;
+  const gateCommand = m.gateCommand?.trim() || undefined;
+  const frontendGateCommand = m.frontendGateCommand?.trim() || undefined;
+
+  const tests: GateTestLane[] | undefined = changeSetTestCommand
+    ? [{ match: /./, command: changeSetTestCommand, cwd: changeSetTestCwd, mode: 'batch' }]
+    : undefined;
+
+  const suites: GateSuiteLane[] = [];
+  if (gateCommand) suites.push({ match: /./, command: gateCommand });
+  if (frontendGateCommand) suites.push({ match: /./, command: frontendGateCommand });
+
+  if (!tests && suites.length === 0) return null;
+  return { tests, suites: suites.length > 0 ? suites : undefined };
+}
+
 /** Returns the project's declared gate, normalised (trim; drop empty strings; `null`
  *  when neither `typecheck` nor `test` nor `baseTest` nor `tests` nor `typechecks` survives). */
 export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | null {
   const g = m?.gate;
-  if (!g) return null;
+  if (!g) return m ? bridgeLegacyGate(m) : null;
   const typecheck = g.typecheck?.trim() || undefined;
   const test = g.test?.trim() || undefined;
   const testCwd = g.testCwd?.trim() || undefined;
@@ -369,8 +391,9 @@ export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | nul
   const { lanes: floorLanes, error: floorLaneError } = normalizeFloorLanes(g.floors);
   if (floorLaneError) return null;
 
-  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck nor suite lanes nor floor lanes survives.
-  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes && !suiteLanes && !floorLanes) return null;
+  // Neither single-test nor multi-lane form nor typecheck lanes nor typecheck nor suite lanes
+  // nor floor lanes survives — fall back to the legacy top-level bridge (empty gate block).
+  if (!typecheck && !test && !baseTest && !lanes && !typecheckLanes && !suiteLanes && !floorLanes) return bridgeLegacyGate(m);
 
   return { typecheck, test, testCwd, baseTest, tests: lanes || undefined, typechecks: typecheckLanes || undefined, suites: suiteLanes || undefined, floors: floorLanes || undefined };
 }
@@ -397,6 +420,8 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
   const manifest = src.manifest;
   const gate = manifest?.gate;
   if (gate === undefined) {
+    const bridged = manifest ? bridgeLegacyGate(manifest) : null;
+    if (bridged) return { kind: 'declared', cfg: bridged, manifestPath: src.path };
     return { kind: 'absent', manifestPath: src.path, reason: 'manifest declares no gate block' };
   }
   if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {

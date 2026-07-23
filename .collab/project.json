@@ -15,6 +15,9 @@
     ],
     "suites": [
       { "match": "^ui/", "command": "bunx vitest --run", "cwd": "ui" }
+    ],
+    "floors": [
+      { "match": "^(src|scripts)/", "command": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json" }
     ]
   }
 }
