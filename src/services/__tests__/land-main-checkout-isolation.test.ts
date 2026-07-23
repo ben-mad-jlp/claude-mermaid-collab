@@ -184,14 +184,21 @@ describe('land-main-checkout-isolation — guardPostLandTree + MainCheckoutInvar
 
     // Monkey-patch the manager's mainCheckoutGit to flip branch mid-operation.
     // We'll intercept a symbolic-ref call and flip the branch in the main repo.
-    let callCount = 0;
+    let symbolicRefCalls = 0;
     const originalMainCheckoutGit = mgr['mainCheckoutGit'] as any;
     (mgr as any)['mainCheckoutGit'] = async (cwd: string, args: string[]) => {
-      callCount++;
-      // On the 3rd call (roughly mid-operation), flip to a different branch.
-      if (callCount === 3 && args[0] === 'symbolic-ref' && args[1] === '--short') {
-        // Inject a branch flip in the actual repo.
-        await runGit(repo, ['checkout', '-q', '-b', 'injected-flip']);
+      // On the 2nd observed `symbolic-ref --short` call (the first probe of the
+      // post-fn() "after" snapshot), flip to a different branch.
+      if (args[0] === 'symbolic-ref' && args[1] === '--short') {
+        symbolicRefCalls++;
+        if (symbolicRefCalls === 2) {
+          // Inject a branch flip in the actual repo. Move HEAD via `symbolic-ref` rather
+          // than `checkout -b`: the latter takes the index lock, which races the
+          // concurrent `status`/`rev-parse` probes fired alongside this `symbolic-ref`
+          // call by the same readMainCheckoutHead() Promise.all batch.
+          await runGit(repo, ['branch', 'injected-flip']);
+          await runGit(repo, ['symbolic-ref', 'HEAD', 'refs/heads/injected-flip']);
+        }
       }
       // Call the original.
       return originalMainCheckoutGit.call(mgr, cwd, args);
@@ -200,14 +207,17 @@ describe('land-main-checkout-isolation — guardPostLandTree + MainCheckoutInvar
     // Attempt to land. It should throw MainCheckoutBranchChangedError.
     let threwError = false;
     let errorName = '';
+    let errorOpName = '';
     try {
       await mgr.landEpicToMaster(epicId);
     } catch (err) {
       threwError = true;
       errorName = (err as Error)?.name ?? '';
+      errorOpName = (err as any)?.opName ?? '';
     }
 
     expect(threwError).toBe(true);
     expect(errorName).toBe('MainCheckoutBranchChangedError');
+    expect(errorOpName).toBe('land_epic');
   });
 });
