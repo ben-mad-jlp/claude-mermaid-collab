@@ -35,6 +35,7 @@ export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allo
 export interface ConductorActionRow {
   action: 'met' | 'building' | 'verify' | 'discover' | 'escalate';
   id: string;
+  rejectedParked?: number;
 }
 
 /** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
@@ -56,7 +57,7 @@ export function serveCapMarker(criterionId: string): string {
 /** Debounce fingerprint: the derived mission status + the per-criterion actions. Unchanged ⇒ the
  *  conductor already saw this exact state and spent a node on it — do not spend another. */
 export function conductorFingerprint(status: string, actions: ConductorActionRow[]): string {
-  const parts = actions.map((a) => `${a.id}:${a.action}`).sort();
+  const parts = actions.map((a) => `${a.id}:${a.action}:${a.rejectedParked ?? 0}`).sort();
   return `${status}|${parts.join(',')}`;
 }
 
@@ -207,7 +208,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
-  const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id }));
+  const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
   // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
   // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Raise ONE human
   // escalation per such criterion, debounced against any already-open one. This runs BEFORE
@@ -336,7 +337,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     // Stamp the fingerprint using the UPDATED state after the node ran, so the next pass
     // recognizes this state as already-attempted and debounces without re-invoking.
     const updatedStatus = getMission(project, missionId)?.status ?? status;
-    const updatedActions = updatedCriteriaWithActions.map((a) => ({ action: a.action, id: a.id }));
+    const updatedActions = updatedCriteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
     const updatedServeFp = conductorFingerprint(updatedStatus, updatedActions);
     const updatedFp = updatedServeFp + `|land:${landCards}`;
     stampConductorRun(project, missionId, updatedFp);
