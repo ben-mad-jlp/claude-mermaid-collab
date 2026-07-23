@@ -944,6 +944,10 @@ export interface MissionCriterionFacts {
    *  of dropped serving epics. Once this hits CRITERION_SERVE_CAP the conductor stops
    *  re-filing and escalates once instead (see deriveCriterionAction). */
   servedEpicCount: number;
+  /** Count of this criterion's serving-epic leaf runs whose `finalOutcome` is 'rejected' or
+   *  'blocked'. Feeds the conductor debounce fingerprint so a leaf flipping to rejected/parked
+   *  breaks debounce even when the derived action is unchanged (still 'building'). */
+  rejectedParkedCount: number;
 }
 
 export interface MissionStatusFacts {
@@ -1146,7 +1150,12 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       const servedEpicCount = allEpicsEver.filter(
         (e) => (e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id)) && !isHollowDone(e),
       ).length;
-      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive, servedEpicCount };
+      const servingEpicIds = new Set(serving.map((e) => e.id));
+      const rejectedParkedCount = runs.filter(
+        (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
+          (r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
+      ).length;
+      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount };
     }),
   };
 }
@@ -1157,7 +1166,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
 export function listCriteriaWithActions(
   project: string,
   todoId: string,
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m);
@@ -1171,6 +1180,7 @@ export function listCriteriaWithActions(
       action: f ? deriveCriterionAction(f) : 'discover',
       servingEpicState: f?.servingEpicState ?? 'none',
       servedEpicCount: f?.servedEpicCount ?? 0,
+      rejectedParkedCount: f?.rejectedParkedCount ?? 0,
     };
   });
 }
