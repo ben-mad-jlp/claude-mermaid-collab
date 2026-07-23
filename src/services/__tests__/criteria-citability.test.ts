@@ -4,6 +4,7 @@ import {
   classifyCriterion,
   validateCriteriaCitability,
   uncitedCriteriaAreAllCommandResults,
+  compliantShapeFor,
 } from '../criteria-citability';
 
 // FLOOR-PATH FIX: an uncited command-result criterion defers to the command-evidence gate
@@ -564,4 +565,79 @@ test('classifyCriterion: citation into unrelated file matching no declared entry
   ]);
   expect(v.citable).toBe(false);
   expect(v.kind).toBe('out-of-diff-location');
+});
+
+// --- compliantShapeFor: per-arm compliant-shape template -------------------------------------
+
+test('compliantShapeFor: command-result carries the marker and a grep example drawn from the input', () => {
+  const shape = compliantShapeFor('command-result', 'the `npm test` suite passes');
+  expect(shape).toContain('restate as a named zero-match check');
+  expect(shape).toContain('grep -rn');
+  expect(shape).toContain('npm test');
+});
+
+test('compliantShapeFor: absence carries the marker and an outOfScope example drawn from the input', () => {
+  const shape = compliantShapeFor('absence', 'no changes to `ZenMode`');
+  expect(shape).toContain('move the negation into the size-manifest');
+  expect(shape).toContain('outOfScope:');
+  expect(shape).toContain('ZenMode');
+});
+
+test('compliantShapeFor: out-of-diff-location carries the marker and the offending path', () => {
+  const shape = compliantShapeFor('out-of-diff-location', 'criterion cites src/services/foo.ts:42');
+  expect(shape).toContain('declare it or re-cite');
+  expect(shape).toContain('src/services/foo.ts');
+});
+
+test('classifyCriterion: convicted command-result reason contains the compliant-shape marker and an example token', () => {
+  const v = classifyCriterion('the `npm test` suite passes', []);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('command-result');
+  expect(v.reason).toContain('restate as a named zero-match check');
+  expect(v.reason).toContain('npm test');
+});
+
+test('classifyCriterion: convicted absence reason contains the compliant-shape marker and an example token', () => {
+  const v = classifyCriterion('no changes to `ZenMode`', []);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+  expect(v.reason).toContain('move the negation into the size-manifest');
+  expect(v.reason).toContain('ZenMode');
+});
+
+test('classifyCriterion: convicted out-of-diff-location reason contains the compliant-shape marker and the offending path', () => {
+  const v = classifyCriterion('Handler covered — src/services/unrelated-nonexistent.ts:1', [
+    'src/services/new-handler.ts',
+  ]);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('out-of-diff-location');
+  expect(v.reason).toContain('declare it or re-cite');
+  expect(v.reason).toContain('src/services/unrelated-nonexistent.ts:1');
+});
+
+test('round-trip: the embedded command-result compliant shape (mechanical zero-match gate) is citable', () => {
+  const blueprintMd = [
+    '## Acceptance Criteria',
+    "1. `grep -rn 'npm test' src/` returns no matches",
+  ].join('\n');
+  const result = validateCriteriaCitability(blueprintMd, []);
+  expect(result.status).toBe('ok');
+});
+
+test('round-trip: the embedded absence compliant shape (surviving-state citation) is citable', () => {
+  const blueprintMd = [
+    '## Acceptance Criteria',
+    '1. The sole remaining reference to ZenMode is src/services/new-handler.ts:1',
+  ].join('\n');
+  const result = validateCriteriaCitability(blueprintMd, ['src/services/new-handler.ts']);
+  expect(result.status).toBe('ok');
+});
+
+test('round-trip: the embedded out-of-diff-location compliant shape (re-cited into declared files) is citable', () => {
+  const blueprintMd = [
+    '## Acceptance Criteria',
+    '1. Handler covered — src/services/new-handler.ts:1',
+  ].join('\n');
+  const result = validateCriteriaCitability(blueprintMd, ['src/services/new-handler.ts']);
+  expect(result.status).toBe('ok');
 });
