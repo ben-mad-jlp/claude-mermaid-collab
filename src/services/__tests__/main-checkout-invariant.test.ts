@@ -282,4 +282,103 @@ describe('withMainCheckoutInvariant', () => {
     const result = await withMainCheckoutInvariant('/test/repo', runner, async () => 'preexisting-ok');
     expect(result).toBe('preexisting-ok');
   });
+
+  test('residue error message contains the passed op name', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: 'D  src/foo.ts\n', stderr: '' },
+    ];
+    const runner = queuedGitRunner(responses);
+
+    let error: MainCheckoutResidueError | undefined;
+    try {
+      await withMainCheckoutInvariant('/test/repo', runner, async () => 'result', { opName: 'land_epic' });
+    } catch (err) {
+      error = err as MainCheckoutResidueError;
+    }
+
+    expect(error).toBeDefined();
+    expect(error!.message).toContain('land_epic');
+  });
+
+  test('branch-changed error message contains the passed op name', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
+      { code: 0, stdout: 'collab/epic/x\n', stderr: '' },
+      { code: 0, stdout: 'def456\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
+    ];
+    const runner = queuedGitRunner(responses);
+
+    let error: MainCheckoutBranchChangedError | undefined;
+    try {
+      await withMainCheckoutInvariant('/test/repo', runner, async () => 'result', { opName: 'forward_integrate' });
+    } catch (err) {
+      error = err as MainCheckoutBranchChangedError;
+    }
+
+    expect(error).toBeDefined();
+    expect(error!.opName).toBe('forward_integrate');
+    expect(error!.message).toContain('forward_integrate');
+  });
+
+  test('onViolation fires exactly once with the residue paths', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: 'D  src/foo.ts\n', stderr: '' },
+    ];
+    const runner = queuedGitRunner(responses);
+
+    let callCount = 0;
+    let received: MainCheckoutResidueError | undefined;
+    await expect(
+      withMainCheckoutInvariant('/test/repo', runner, async () => 'result', {
+        opName: 'land_epic',
+        onViolation: (err) => {
+          callCount++;
+          received = err as MainCheckoutResidueError;
+        },
+      }),
+    ).rejects.toBeInstanceOf(MainCheckoutResidueError);
+
+    expect(callCount).toBe(1);
+    expect(received!.addedResidue).toEqual(['D  src/foo.ts']);
+  });
+
+  test('a throwing onViolation handler still yields the original error', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
+      { code: 0, stdout: 'master\n', stderr: '' },
+      { code: 0, stdout: 'abc123\n', stderr: '' },
+      { code: 0, stdout: 'D  src/foo.ts\n', stderr: '' },
+    ];
+    const runner = queuedGitRunner(responses);
+
+    let error: unknown;
+    try {
+      await withMainCheckoutInvariant('/test/repo', runner, async () => 'result', {
+        opName: 'land_epic',
+        onViolation: () => {
+          throw new Error('handler blew up');
+        },
+      });
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBeInstanceOf(MainCheckoutResidueError);
+    expect((error as MainCheckoutResidueError).addedResidue).toEqual(['D  src/foo.ts']);
+  });
 });
