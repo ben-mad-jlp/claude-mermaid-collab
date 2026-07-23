@@ -367,6 +367,9 @@ export class WorktreeManager {
 
     await fs.mkdir(this.opts.baseDir, { recursive: true });
 
+    // Materialise missing epic base branch before worktree add (cold-start race).
+    await this.materialiseMissingEpicBase(baseBranch, branchRefExists);
+
     // 5. first try.
     let result = await this.runGit(
       this.opts.projectRoot,
@@ -395,6 +398,9 @@ export class WorktreeManager {
         wtPath = path.join(this.opts.baseDir, `${slug}-${suffix}`);
         branch = `collab/${slug}-${stamp}-${suffix}`;
       }
+
+      // Materialise missing epic base branch before retry (in case it was deleted between attempts).
+      await this.materialiseMissingEpicBase(baseBranch, branchRefExists);
 
       result = await this.runGit(
         this.opts.projectRoot,
@@ -1292,6 +1298,25 @@ export class WorktreeManager {
         ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
       ).code === 0;
     return exists ? baseRef : this.detectBaseBranch();
+  }
+
+  /** If baseBranch is an epic accumulation branch (collab/epic/<id8>) that doesn't
+   *  exist yet, create it off the resolved master (or default) branch. This handles
+   *  the cold-start race where a leaf is dispatched before the epic branch exists.
+   *  Swallows git branch failures (a concurrent sibling may create it first). */
+  private async materialiseMissingEpicBase(
+    baseBranch: string,
+    branchRefExists: (b: string) => Promise<boolean>,
+  ): Promise<void> {
+    if (!/^collab\/epic\//.test(baseBranch)) return; // not an epic branch
+    if (await branchRefExists(baseBranch)) return; // already exists
+
+    const basePointRef = await this.resolveBase('master');
+    await this.runGit(
+      this.opts.projectRoot,
+      ['branch', baseBranch, basePointRef],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
   }
 
   // ---------------------------------------------------------------------------
