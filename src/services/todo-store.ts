@@ -1,5 +1,5 @@
 import Database from 'bun:sqlite';
-import { fireOrchestratorKick } from './orchestrator-kick';
+import { fireOrchestratorKick, fireConductorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
 import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel } from './todo-kind';
 import type { KindBearing } from './todo-kind';
@@ -1377,6 +1377,7 @@ export function stampEpicLandedAt(project: string, epicId: string, whenIso: stri
       db.prepare(`UPDATE todos SET hollowLandedAt = COALESCE(hollowLandedAt, ?) WHERE id = ?`)
         .run(whenIso, epicId);
     }
+    fireConductorKick(`epic-landed:${epicId.slice(0, 8)}`);
   } catch { /* best-effort — never block the land-leaf stamp */ }
 }
 
@@ -2576,6 +2577,10 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // (not only when the still-materialized fan-out promoted something — that fan-out
     // is removed in S4, leaving this kick as the sole dependent-wake signal).
     if (accept !== 'rejected') fireOrchestratorKick(`dep-terminal:${id.slice(0, 8)}`);
+    // Conductor-relevant regardless of accept value — a rejection is precisely the event
+    // the 30s heartbeat delayed reacting to (crit_1), unlike the orchestrator's
+    // dep-terminal kick above which only cares about newly-satisfied dependents.
+    fireConductorKick(`leaf-settled:${id.slice(0, 8)}`);
     // Auto-cleanup: this todo (and any epics that rolled up to done above) just went
     // terminal — expire subscriptions targeting them so watchers don't strand dead
     // subs. A rejected completion is NOT terminal (it parks), so it keeps its subs.
@@ -2610,6 +2615,7 @@ export function markRejectingIfOwned(project: string, id: string, claimToken?: s
     // still carry it — else a re-claimed-by-another-run row would be clobbered.
     if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
     db.prepare(`UPDATE todos SET acceptanceStatus='rejected', updatedAt=? WHERE id=?`).run(nowIso(), id);
+    fireConductorKick(`leaf-rejected:${id.slice(0, 8)}`);
     return true;
   });
 }
@@ -2663,6 +2669,7 @@ export function holdLeafIfOwned(project: string, id: string, reason: string, cla
     db.prepare(
       `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason=?, updatedAt=? WHERE id=?`,
     ).run(ts, reason.slice(0, 500), ts, id);
+    fireConductorKick(`leaf-parked:${id.slice(0, 8)}`);
     return true;
   });
 }
