@@ -802,6 +802,41 @@ describe('runLeaf state machine', () => {
     expect(spies.mergeCalls).toBe(1);
   });
 
+  it('PRE-REVIEW EMPTY-DIFF SHORT-CIRCUIT: Branch 1 (base-already-satisfies)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    // Branch 1: no declared files and zero-file diff → accepted without review
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).toBe('base-already-satisfies');
+    // No review node ran: filter for review spec (starts with read-only tools)
+    const reviewSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+    expect(reviewSpecs.length).toBe(0);
+    // No retry burn: retry count unchanged and no grounding-audit recorded
+    expect(spies.bumpRetryCalls).toEqual([]);
+    expect(spies.nodeRows.filter((r) => r.nodeKind === 'grounding-audit').length).toBe(0);
+    // A base-already-satisfies ledger row exists with correct reason
+    const baseSatsRow = spies.nodeRows.find((r) => r.nodeKind === 'base-already-satisfies');
+    expect(baseSatsRow).toBeDefined();
+    expect(JSON.parse(baseSatsRow!.outcomeDetail).reason).toBe('base-already-satisfies');
+    // Blueprint + implement only (no review) = 2 nodes spent; 1 attempt
+    expect(res.nodesSpent).toBe(2);
+    expect(res.attempts).toBe(1);
+  });
+
+  it('PRE-REVIEW EMPTY-DIFF SHORT-CIRCUIT: Branch 2 (spec-demands-changes)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+    // Branch 2: files declared but zero-file diff → blocked with distinct card
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes');
+    // Distinct card raised, NOT a reviewer rejection
+    const emptyDiffCard = spies.escalations.find((e) => e.kind === 'empty-diff-declared-changes');
+    expect(emptyDiffCard).toBeDefined();
+    expect(emptyDiffCard!.questionText).toContain('NOT a reviewer rejection');
+  });
+
+
   it('G3: a citation to a file outside the change-set ⇒ first offense retries, a repeat parks naming the offending citation', async () => {
     const { deps } = makeDeps({
       reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS', '- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
