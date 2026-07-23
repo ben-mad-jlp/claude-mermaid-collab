@@ -6,6 +6,16 @@ import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:
 import { performHandshake, serverOwner } from '../../../src/services/port-ownership';
 import { buildWslSidecarCommand } from '../../../src/services/wsl/sidecar-launch';
 import { winToWslPath } from '../../../src/services/session-mux/wsl-path';
+import {
+  ExitReason,
+  formatExitForensics,
+  formatWatchdogKillReason,
+  CrashLoopTripwire,
+  buildCrashLoopEscalationPayload,
+  appendEscalationIntent,
+  DEFAULT_CRASH_LOOP_N,
+  DEFAULT_CRASH_LOOP_WINDOW_MS,
+} from '../../../src/services/sidecar-forensics';
 
 /**
  * P6: transform a native sidecar launch into one that runs inside WSL. Crosses
@@ -74,6 +84,13 @@ export interface SupervisorOpts {
   healthWatchdogTimeoutMs?: number;
   /** Disable the periodic watchdog interval (tests drive checkHealthOnce directly). */
   disableHealthWatchdog?: boolean;
+  /** Durable sibling log for exit/watchdog-kill lines. */
+  forensicsFilePath?: string;
+  /** CrashLoopTripwire overrides. */
+  crashLoopN?: number;
+  crashLoopWindowMs?: number;
+  /** Injectable clock, default Date.now. */
+  clockImpl?: () => number;
   /** Prod: path to the compiled sidecar binary. When set, spawn it instead of `bun run src/server.ts`. */
   serverBinaryPath?: string;
   /** Prod: bundled resources dir (ui/dist, public) passed to the sidecar as MERMAID_RESOURCES_PATH. */
@@ -335,11 +352,24 @@ export class ServerSupervisor {
   private unhealthyForMs = 0;
   private respawning = false;
   private stopped = false;
+  private respawnCount = 0;
+  private killReason: ExitReason | null = null;
+  private probeLatenciesMs: number[] = [];
+  private tripwire: CrashLoopTripwire;
+  private clock: () => number;
+  private forensicsFilePath: string | undefined;
+  private crashLoopN: number;
+  private crashLoopWindowMs: number;
 
   constructor(opts: SupervisorOpts) {
     this.opts = opts;
     this.spawnImpl = opts.spawnImpl ?? spawn;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.clock = opts.clockImpl ?? Date.now;
+    this.crashLoopN = opts.crashLoopN ?? DEFAULT_CRASH_LOOP_N;
+    this.crashLoopWindowMs = opts.crashLoopWindowMs ?? DEFAULT_CRASH_LOOP_WINDOW_MS;
+    this.tripwire = new CrashLoopTripwire(this.crashLoopN, this.crashLoopWindowMs);
+    this.forensicsFilePath = opts.forensicsFilePath ?? (opts.logFilePath ? path.join(path.dirname(opts.logFilePath), 'sidecar-exits.log') : undefined);
   }
 
   async start(): Promise<{ port: number; attached: boolean }> {
@@ -465,7 +495,7 @@ export class ServerSupervisor {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    this.spawnedAt = Date.now();
+    this.spawnedAt = this.clock();
 
     // Tee sidecar output to a log file (best-effort) so a failed startup is
     // diagnosable on machines with no console — and keep a tail of stderr to fold
@@ -476,6 +506,7 @@ export class ServerSupervisor {
       } catch { this.logStream = null; }
     }
     this.logStream?.write(`\n--- sidecar start ${new Date().toISOString()} (${cmd}) ---\n`);
+
     const capture = (d: Buffer) => {
       this.logStream?.write(d);
       for (const line of d.toString().split('\n')) {
@@ -492,7 +523,28 @@ export class ServerSupervisor {
     this.child.on('exit', (code, signal) => {
       this.stderrTail.push(`[sidecar exited code=${code} signal=${signal}]`);
       if (this.stderrTail.length > 40) this.stderrTail.shift();
+      const uptimeMs = this.clock() - this.spawnedAt;
+      const reason = this.killReason ?? 'unexpected-exit';
+      this.appendForensics(
+        formatExitForensics({
+          ts: this.clock(),
+          code,
+          signal,
+          uptimeMs,
+          respawnCount: this.respawnCount,
+          reason,
+        })
+      );
+      this.killReason = null;
     });
+  }
+
+  private appendForensics(line: string): void {
+    if (!this.forensicsFilePath) return;
+    try {
+      fs.mkdirSync(path.dirname(this.forensicsFilePath), { recursive: true });
+      fs.appendFileSync(this.forensicsFilePath, line + '\n');
+    } catch { /* best-effort, same as logStream teeing */ }
   }
 
   private async waitForHealth(port: number): Promise<void> {
@@ -550,7 +602,7 @@ export class ServerSupervisor {
     // count those misses — only a hang AFTER the process has had time to come up is a
     // real wedge.
     const graceMs = this.opts.healthWatchdogGraceMs ?? HEALTH_WATCHDOG_GRACE_MS;
-    if (Date.now() - this.spawnedAt < graceMs) { this.unhealthyForMs = 0; return 'grace'; }
+    if (this.clock() - this.spawnedAt < graceMs) { this.unhealthyForMs = 0; return 'grace'; }
 
     const timeoutMs = this.opts.healthWatchdogTimeoutMs ?? HEALTH_WATCHDOG_TIMEOUT_MS;
     const healthy = await this.probeHealth(port, timeoutMs);
@@ -571,10 +623,16 @@ export class ServerSupervisor {
 
   /** Probe /api/health with a hard timeout. true iff a 2xx came back in time. */
   private async probeHealth(port: number, timeoutMs: number): Promise<boolean> {
+    const start = this.clock();
     try {
       const r = await this.fetchImpl(`http://${this.opts.host}:${port}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
+      const elapsed = this.clock() - start;
+      this.probeLatenciesMs.push(elapsed);
+      if (this.probeLatenciesMs.length > 20) this.probeLatenciesMs.shift();
       return r.ok;
     } catch {
+      this.probeLatenciesMs.push(timeoutMs);
+      if (this.probeLatenciesMs.length > 20) this.probeLatenciesMs.shift();
       return false;
     }
   }
@@ -585,6 +643,14 @@ export class ServerSupervisor {
   private async respawnHung(port: number): Promise<void> {
     this.respawning = true;
     try {
+      this.killReason = 'watchdog-unresponsive';
+      this.appendForensics(
+        formatWatchdogKillReason({
+          probeLatenciesMs: [...this.probeLatenciesMs],
+          thresholdMs: this.opts.healthWatchdogThresholdMs ?? HEALTH_WATCHDOG_THRESHOLD_MS,
+          unhealthyForMs: this.unhealthyForMs,
+        })
+      );
       const pid = this.child?.pid;
       try { this.child?.kill('SIGKILL'); } catch { /* ignore */ }
       if (process.platform === 'win32' && pid != null) {
@@ -592,6 +658,25 @@ export class ServerSupervisor {
       }
       this.child = null;
       this.unhealthyForMs = 0;
+      this.respawnCount++;
+      const now = this.clock();
+      const fired = this.tripwire.recordRespawn(now);
+      if (fired) {
+        const supervisorDir = process.env.MERMAID_SUPERVISOR_DIR ?? path.join(os.homedir(), '.mermaid-collab');
+        try {
+          appendEscalationIntent(
+            supervisorDir,
+            buildCrashLoopEscalationPayload({
+              project: this.opts.project,
+              session: this.opts.session,
+              count: this.crashLoopN,
+              windowMs: this.crashLoopWindowMs,
+              respawnCount: this.respawnCount,
+              reason: 'watchdog-unresponsive',
+            })
+          );
+        } catch { /* best-effort */ }
+      }
       // A stop() that landed mid-respawn must win — don't spawn a child the
       // teardown can no longer track.
       if (this.stopped) return;
@@ -633,6 +718,7 @@ export class ServerSupervisor {
     const port = this.port;
     this.respawning = true;
     try {
+      this.killReason = 'hot-swap';
       const pid = this.child?.pid;
       try { this.child?.kill('SIGKILL'); } catch { /* already gone */ }
       if (process.platform === 'win32' && pid != null) {
@@ -697,6 +783,7 @@ export class ServerSupervisor {
     if (this.attached) return; // we didn't spawn it — don't kill it
     if (!this.child) return;
     const pid = this.child.pid;
+    this.killReason = 'shutdown';
     try {
       this.child.kill('SIGTERM');
     } catch {
