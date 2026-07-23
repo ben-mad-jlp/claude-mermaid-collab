@@ -47,6 +47,7 @@ import {
   type InheritedSlice,
 } from '../leaf-executor';
 import { sliceCoversFiles } from '../split-decision';
+import { MAX_BASE_MOVED_REFUNDS, MAX_REDISPATCH } from '../harness-caps';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
 import { classifyWorktreeAddFault } from '../../agent/node-invoker';
@@ -1145,6 +1146,50 @@ describe('runLeaf G2 mechanical gate', () => {
       expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
       expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
       expect(spies.refundRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    });
+
+    it('BOUNDED refund: once the base-moved refund bound is hit, retryCount climbs to MAX_REDISPATCH', async () => {
+      // Regression for the cap-neutrality hole: when the trunk gate stays red, EVERY
+      // re-dispatch bumps retryCount and the epic-base-moved park refunds it right back,
+      // netting to zero forever so MAX_REDISPATCH never engages. The live wiring now calls
+      // refundBaseMovedRetryIfUnderCap, which stops refunding past MAX_BASE_MOVED_REFUNDS.
+      // Here the store is stubbed with that same bounded contract to prove the executor
+      // seam honours it: refunds cease, and retryCount is then left to climb to the cap.
+      const cap = MAX_BASE_MOVED_REFUNDS;
+      const leaf = makeLeaf();
+
+      // Simulated durable store state for this leaf.
+      let retryCount = 0;
+      let baseMovedRefunds = 0;
+      const refundResults: boolean[] = [];
+
+      const dispatches = cap + MAX_REDISPATCH;
+      for (let i = 0; i < dispatches; i++) {
+        const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+        deps.worktreeBaseFresh = async () => false;
+        // Bounded refund stub == refundBaseMovedRetryIfUnderCap's contract.
+        deps.refundRetry = async (p, leafId) => {
+          spies.refundRetryCalls.push({ project: p, leafId });
+          if (baseMovedRefunds >= cap) return false; // bound hit → NO decrement
+          baseMovedRefunds++;
+          retryCount = Math.max(0, retryCount - 1);
+          return true;
+        };
+        retryCount++; // launchWorker's dispatch-time bump
+        const res = await runLeaf('proj', leaf, deps);
+        expect(res.reason).toBe('epic-base-moved');
+        // The base-moved park always invokes the refund seam — the BOUND lives in the helper.
+        expect(spies.refundRetryCalls.length).toBe(1);
+        refundResults.push(baseMovedRefunds > i ? true : false);
+      }
+
+      // Exactly `cap` refunds were granted; the rest were refused.
+      expect(baseMovedRefunds).toBe(cap);
+      expect(refundResults.filter(Boolean).length).toBe(cap);
+      // First `cap` dispatches netted to zero; every dispatch after the bound accumulated.
+      expect(retryCount).toBe(dispatches - cap);
+      // …which is exactly the condition under which parkRedispatchCap engages.
+      expect(retryCount).toBeGreaterThanOrEqual(MAX_REDISPATCH);
     });
 
     it('probe THROWS ⇒ fail-open, proceeds exactly as if unwired', async () => {
@@ -3245,7 +3290,11 @@ describe('replay-corpus recording (G3 + citability)', () => {
   it('shadow-on: a vacuous verdict records but does NOT park', async () => {
     const { deps, spies } = makeDeps({
       reviewVerdicts: ['VERDICT: PASS'], // No criteria = vacuous grounding
-      changeSet: [],
+      // A REAL change-set: since da84871d (pre-review empty-diff short-circuit) an empty
+      // change-set settles as base-already-satisfies WITHOUT spending a review node, so no
+      // G3 eval would ever be recorded. The vacuousness under test comes from the verdict
+      // citing no criteria, not from the change-set being empty.
+      changeSet: ['src/foo.ts'],
       gateShadowMode: true,
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
@@ -3748,8 +3797,13 @@ describe('crit 1 — falsifiability rule (review abstains on non-falsifiable dou
       runGate: greenGate,
       changeSet: [], // empty = no real change
     });
-    const res = await runLeaf('proj', makeLeaf(), deps);
+    // Declared scope keeps this on the no-op guard's TRUE-POSITIVE arm: since da84871d the
+    // empty diff is classified BEFORE review, so the park is now empty-diff-spec-demands-
+    // changes (no review node, hence no abstain) rather than a post-review abstain refusal.
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
     expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes');
     expect(spies.nodeRows.find((r) => r.nodeKind === 'review-abstain')).toBeUndefined();
   });
 
