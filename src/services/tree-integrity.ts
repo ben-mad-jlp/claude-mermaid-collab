@@ -19,6 +19,7 @@ function git(
     cwd,
     encoding: 'utf8',
     env: env ? { ...process.env, ...env } : process.env,
+    timeout: 10_000,
   });
   return { code: r.status ?? 1, out: (r.stdout ?? '').trim(), err: (r.stderr ?? '').trim() };
 }

@@ -119,7 +119,7 @@ export interface GcEpicBranchesResult {
 
 function runGitLocal(cwd: string, args: string[]): { code: number; stdout: string } {
   try {
-    const p = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'ignore', timeout: 10_000 });
     return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
   } catch {
     return { code: 1, stdout: '' };
