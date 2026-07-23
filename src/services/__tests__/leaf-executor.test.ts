@@ -836,6 +836,80 @@ describe('runLeaf state machine', () => {
     expect(emptyDiffCard!.questionText).toContain('NOT a reviewer rejection');
   });
 
+  it('EMPTY-DIFF SALVAGE (friction 6150b497): dirty+untracked work → auto-commit on the leaf branch, review RUNS, no park, no card, no extra attempt', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['- [MET] x — src/a.ts:1\n\nVERDICT: PASS'] });
+    // changeSet reads EMPTY before the salvage commit, non-empty after (commits vs base).
+    let csCalls = 0;
+    deps.changeSet = async () => (csCalls++ === 0 ? [] : ['src/a.ts']);
+    deps.worktreeDirty = () => ['src/a.ts', 'src/new-module.ts'];
+    const salvageCalls: Array<{ cwd: string; message: string; paths: string[] }> = [];
+    deps.salvageCommit = async (cwd, message, paths) => {
+      salvageCalls.push({ cwd, message, paths });
+      return { sha: 'deadbeefcafe0000' };
+    };
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/a.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+    // A commit was created via the scripted git seam, worker-shaped (Collab-Todo trailer).
+    expect(salvageCalls.length).toBe(1);
+    expect(salvageCalls[0]!.paths).toEqual(['src/a.ts', 'src/new-module.ts']);
+    expect(salvageCalls[0]!.message).toContain('Collab-Todo: ' + leaf.id);
+    // Review RAN (review spec invoked) — the salvage proceeded to review, not to a park.
+    const reviewSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+    expect(reviewSpecs.length).toBe(1);
+    // Implement ran exactly ONCE (never re-run) and the attempt count is unchanged.
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1);
+    expect(res.attempts).toBe(1);
+    // No empty-diff park, no empty-diff card, no retry burn.
+    expect(res.outcome).toBe('accepted');
+    expect(spies.escalations.filter((e) => e.kind === 'empty-diff-declared-changes')).toEqual([]);
+    expect(spies.bumpRetryCalls).toEqual([]);
+    // The salvage is visible in forensics: a work-present-uncommitted ledger row with the file count.
+    const row = spies.nodeRows.find((r) => r.nodeKind === 'work-present-uncommitted');
+    expect(row).toBeDefined();
+    expect(JSON.parse(row!.outcomeDetail).fileCount).toBe(2);
+  });
+
+  it('EMPTY-DIFF SALVAGE guard: a CLEAN tree + declared files still parks empty-diff-spec-demands-changes byte-identically (salvage never swallows the true-positive arm)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    deps.worktreeDirty = () => []; // genuinely clean
+    let salvageCommits = 0;
+    deps.salvageCommit = async () => { salvageCommits += 1; return { sha: 'never' }; };
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes');
+    expect(salvageCommits).toBe(0); // no salvage commit on a clean tree
+    const emptyDiffCard = spies.escalations.find((e) => e.kind === 'empty-diff-declared-changes');
+    expect(emptyDiffCard).toBeDefined();
+    expect(emptyDiffCard!.questionText).toContain('NOT a reviewer rejection');
+  });
+
+  it('EMPTY-DIFF SALVAGE guard: a CLEAN tree + no declared files still settles base-already-satisfies', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    deps.worktreeDirty = () => [];
+    let salvageCommits = 0;
+    deps.salvageCommit = async () => { salvageCommits += 1; return { sha: 'never' }; };
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).toBe('base-already-satisfies');
+    expect(salvageCommits).toBe(0);
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'base-already-satisfies')).toBeDefined();
+  });
+
+  it('EMPTY-DIFF SALVAGE: dirty paths that are ONLY .collab bookkeeping read as CLEAN (no salvage commit)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    deps.worktreeDirty = () => ['.collab/leaf-blueprints/x.md', '.collab/leak-quarantine/y.txt'];
+    let salvageCommits = 0;
+    deps.salvageCommit = async () => { salvageCommits += 1; return { sha: 'never' }; };
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(salvageCommits).toBe(0); // bookkeeping-only dirt is not salvageable work
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'work-present-uncommitted')).toBeUndefined();
+  });
+
 
   it('G3: a citation to a file outside the change-set ⇒ first offense retries, a repeat parks naming the offending citation', async () => {
     const { deps } = makeDeps({

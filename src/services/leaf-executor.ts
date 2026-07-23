@@ -60,8 +60,27 @@ import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
 import { loadManifestSource, type ManifestSource, type ProjectManifest } from '../config/project-manifest';
-import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
+import { listUntrackedPaths, parseDeclaredScope, trackedDirtyPaths, stageAndCommitScoped } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
+
+/** Friction 6150b497 default salvage-commit: stage + commit the given dirty/untracked
+ *  paths in the leaf worktree via the SAME scoped-commit helper the worker merge path
+ *  uses (`stageAndCommitScoped`), so the salvage commit lands on the leaf's branch
+ *  exactly like a worker commit. Returns the sha, or null on failure (caller falls back
+ *  to the unsalvaged empty-diff classification). */
+async function salvageCommitDefault(cwd: string, message: string, paths: string[]): Promise<{ sha?: string } | null> {
+  const run = async (args: string[]) => {
+    const res = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+    return { code: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+  };
+  try {
+    const out = await stageAndCommitScoped(run, { stage: paths, outOfScope: [], message });
+    const sha = out.commits.at(-1)?.sha;
+    return sha ? { sha } : null;
+  } catch {
+    return null;
+  }
+}
 
 /** G3 worktree-existence predicate for review citations (retained-code tolerance).
  *  Bounded to the lane worktree: rejects absolute paths and `..` segments outright, then
@@ -480,6 +499,19 @@ export interface LeafExecutorDeps {
    *  Optional `?.`: when unwired (tests / non-git) it returns null and BOTH behaviours
    *  fall back to the prior conservative path (gate fails on any error; no skip). */
   changeSet?: (sessionKey: string) => Promise<string[] | null>;
+  /** Salvage seam (friction 6150b497) — list DIRTY (tracked-modified) + UNTRACKED paths in
+   *  the leaf worktree, so the empty-diff classifier can tell "implement did real work but
+   *  never ran git commit" apart from "implement produced nothing". Default: real git via
+   *  `trackedDirtyPaths` + `listUntrackedPaths` on the worktree cwd. Optional `?.` so tests
+   *  can script the tree state. */
+  worktreeDirty?: (cwd: string) => string[];
+  /** Salvage seam (friction 6150b497) — commit ALL the given dirty/untracked paths on the
+   *  leaf's branch with a standard worker-shaped message (mirrors the mergeToEpic commit:
+   *  `feat: <title>` + `Collab-Todo:` trailer), exactly as if the implement node had
+   *  committed. Default: real git via `stageAndCommitScoped`. Returns the commit sha, or
+   *  null when nothing was committed / the commit failed (caller falls back to the
+   *  unsalvaged empty-diff classification). */
+  salvageCommit?: (cwd: string, message: string, paths: string[]) => Promise<{ sha?: string } | null>;
   /** Auto-split seam. SR-6: takes structured ITEMS (each = one child leaf, >= 1 file, with
    *  sibling `dependsOn` edges), not a flat file list. A plain `string[]` is still accepted
    *  and normalised to one edgeless item per file (legacy file-count path + old tests).
@@ -3283,7 +3315,47 @@ export async function runLeaf(
     // Files were declared but implement produced no changes: escalate as a distinct
     // incident (not a reviewer rejection — no review ran) and park.
     try { stageUntrackedIntentToAdd(cwd); } catch { /* best-effort */ }
-    const preReviewChangeSet = (await deps.changeSet?.(sessionKey)) ?? null;
+    let preReviewChangeSet = (await deps.changeSet?.(sessionKey)) ?? null;
+    if (preReviewChangeSet !== null && preReviewChangeSet.length === 0) {
+      // SALVAGE (friction 6150b497): the change-set is derived from COMMITS vs the epic
+      // base — an implement that did real work but never ran `git commit` reads as an
+      // empty diff and gets parked as "produced nothing" (observed: leaf f6dbf929 left
+      // +58 lines across 2 files plus a new untracked module, all uncommitted). Before
+      // classifying the diff empty, check the WORKING TREE: if dirty/untracked work
+      // exists (collab bookkeeping excluded), commit it ALL with the standard worker
+      // commit shape, recompute the change-set, and proceed to review exactly as if the
+      // implement had committed — never re-running implement, never parking empty-diff,
+      // never burning an extra attempt. A genuinely CLEAN tree falls through to the
+      // existing two-arm classification unchanged.
+      let salvageable: string[] = [];
+      try {
+        const raw = deps.worktreeDirty
+          ? deps.worktreeDirty(cwd)
+          : [...new Set([...trackedDirtyPaths(cwd), ...listUntrackedPaths(cwd)])];
+        salvageable = raw.filter((p) => p !== '.collab' && !p.startsWith('.collab/'));
+      } catch { /* best-effort: unreadable tree reads as clean */ }
+      if (salvageable.length > 0) {
+        const salvageMessage = `feat: ${leaf.title ?? leaf.id}\n\nCollab-Todo: ${leaf.id}`;
+        const committed = deps.salvageCommit
+          ? await deps.salvageCommit(cwd, salvageMessage, salvageable).catch(() => null)
+          : await salvageCommitDefault(cwd, salvageMessage, salvageable);
+        if (committed) {
+          console.warn(`[leaf-executor] work-present-uncommitted: salvaged ${salvageable.length} dirty/untracked file(s) into commit ${committed.sha?.slice(0, 8) ?? '?'} — proceeding to review`);
+          try {
+            deps.recordNode({
+              project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+              nodeKind: 'work-present-uncommitted', nodesSpent: 0, verdict: 'pass',
+              outcomeDetail: JSON.stringify({ reason: 'work-present-uncommitted', fileCount: salvageable.length, sha: committed.sha ?? null }),
+              outputText: `work-present-uncommitted: implement did real work (${salvageable.length} dirty/untracked file(s)) but never ran git commit — salvaged into a worker-shaped commit on the leaf branch and proceeding to review (no implement re-run, no empty-diff park).`,
+            });
+          } catch { /* telemetry — never break the run */ }
+          // Recompute from commits; fall back to the salvaged paths so a stale/unwired
+          // recompute can never re-classify freshly committed work as an empty diff.
+          const recomputed = (await deps.changeSet?.(sessionKey)) ?? null;
+          preReviewChangeSet = recomputed && recomputed.length > 0 ? recomputed : salvageable;
+        }
+      }
+    }
     if (preReviewChangeSet !== null && preReviewChangeSet.length === 0) {
       if (declaredFiles.length === 0) {
         // Branch 1: base-already-satisfies (no declared files, zero-file diff).
