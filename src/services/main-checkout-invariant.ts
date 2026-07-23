@@ -29,11 +29,12 @@ export class MainCheckoutBranchChangedError extends Error {
     public readonly projectRoot: string,
     public readonly before: MainCheckoutState,
     public readonly after: MainCheckoutState,
+    public readonly opName: string = 'operation',
   ) {
     const branchMsg = before.branch !== after.branch
       ? `branch changed from ${before.branch ?? 'detached'} to ${after.branch ?? 'detached'}`
       : `detached HEAD changed from ${before.sha} to ${after.sha}`;
-    super(`Main checkout invariant violated at ${projectRoot}: ${branchMsg}`);
+    super(`Main checkout invariant violated by ${opName} at ${projectRoot}: ${branchMsg}`);
   }
 }
 
@@ -87,8 +88,12 @@ export async function withMainCheckoutInvariant<T>(
   projectRoot: string,
   runGit: GitRunner,
   fn: () => Promise<T>,
-  opts: { opName?: string } = {},
+  opts: {
+    opName?: string;
+    onViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
+  } = {},
 ): Promise<T> {
+  const opName = opts.opName ?? 'operation';
   const before = await readMainCheckoutHead(projectRoot, runGit);
 
   let result: T;
@@ -106,13 +111,17 @@ export async function withMainCheckoutInvariant<T>(
     (before.branch === null && after.branch === null && before.sha !== after.sha);
 
   if (identityChanged) {
-    throw new MainCheckoutBranchChangedError(projectRoot, before, after);
+    const err = new MainCheckoutBranchChangedError(projectRoot, before, after, opName);
+    try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
+    throw err;
   }
 
   const beforeSet = new Set(before.residue);
   const addedResidue = after.residue.filter(r => !beforeSet.has(r));
   if (addedResidue.length > 0) {
-    throw new MainCheckoutResidueError(projectRoot, opts.opName ?? 'operation', addedResidue, before, after);
+    const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after);
+    try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
+    throw err;
   }
 
   return result;
