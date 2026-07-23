@@ -210,6 +210,15 @@ export interface NodeResult {
   commands?: Array<{ cmd: string; cwd: string; exitCode: number | null }>;
 }
 
+/** DECISION, not just the expression: a node killed on wall-clock/start-window expiry
+ *  (`timedOut: true`) is INFRA — the work never completed for an infrastructure reason,
+ *  not a structural serve failure — so it must not burn a bounded retry the same way a
+ *  genuine node failure would. Rate limits and start failures (spawn/auth halt) are the
+ *  same class of transient infra fault. */
+export function isTransientNodeFault(res: NodeResult): boolean {
+  return res.rateLimited === true || res.startFailure != null || res.timedOut === true;
+}
+
 const DEFAULT_TIMEOUT_MS = 600_000;
 /** START WINDOW (bug a8935a16 — the GENERIC startup deadline): a node must produce its
  *  FIRST stdout bytes within this window or it is killed as a fast start-failure. A healthy
@@ -659,6 +668,11 @@ async function invokeNodeAttempt(spec: NodeSpec): Promise<NodeResult> {
   // agrees with the timeout. (We never sub-ms-profile a node here; ms wall is the right unit.)
   const start = Date.now();
   const authMode = await resolveAuthMode();
+  const startFail = (detail: string) => ({
+    provider: 'claude',
+    model: spec.model ?? '',
+    detail: detail.slice(0, 300),
+  });
 
   // HALT + ALARM contract: if the active auth is not the subscription, refuse to
   // spawn — surface a loud, machine-readable error the executor will act on.
@@ -676,6 +690,7 @@ async function invokeNodeAttempt(spec: NodeSpec): Promise<NodeResult> {
       rateLimited: false,
       authMode,
       parseError: msg,
+      startFailure: startFail(msg),
     };
   }
 
@@ -726,12 +741,14 @@ async function invokeNodeAttempt(spec: NodeSpec): Promise<NodeResult> {
         return {
           ok: false, exitCode: -1, stdout: '', durationMs: Math.round(Date.now() - start),
           rateLimited: false, authMode, parseError: `spawn failed after retry: ${msg2}`,
+          startFailure: startFail(`spawn failed after retry: ${msg2}`),
         };
       }
     } else {
       return {
         ok: false, exitCode: -1, stdout: '', durationMs: Math.round(Date.now() - start),
         rateLimited: false, authMode, parseError: `spawn failed: ${msg}`,
+        startFailure: startFail(`spawn failed: ${msg}`),
       };
     }
   }
