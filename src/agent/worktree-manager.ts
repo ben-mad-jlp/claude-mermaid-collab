@@ -9,8 +9,9 @@ import {
 } from '../services/leaf-commit-scope';
 import {
   withMainCheckoutInvariant,
+  readMainCheckoutHead,
+  MainCheckoutResidueError,
   type GitRunner,
-  type MainCheckoutResidueError,
   type MainCheckoutBranchChangedError,
 } from '../services/main-checkout-invariant';
 import { escalateMainCheckoutViolation } from '../services/main-checkout-escalation';
@@ -208,6 +209,9 @@ export interface LandResult {
    *  'reset-hard' = synced clean; 'skipped-dirty' = real tracked work was present so sync was skipped;
    *  'reset-failed' = the sync reset errored; 'not-checked-out' = base ref not checked out here. */
   treeSynced?: 'reset-hard' | 'skipped-dirty' | 'reset-failed' | 'not-checked-out';
+  /** The union of worktree-dirty and index-dirty paths that caused the post-land tree sync to be
+   *  skipped (treeSynced === 'skipped-dirty'). Undefined otherwise. */
+  skippedDirtyPaths?: string[];
   /** The base ref (e.g. 'master') onto which this epic landed. Populated on success. */
   baseRef?: string;
 }
@@ -2183,7 +2187,14 @@ export class WorktreeManager {
       // commit (reset --hard preserves untracked docs/designs). Ephemeral SQLite WAL sidecars
       // (*.db-shm/*.db-wal) are excluded — they are test cruft, never real work. If real tracked
       // work IS present (rare allowDirty land), the checkout is left untouched and marked skipped-dirty.
+      // The worktree probe below is a commit↔working-tree diff and is BLIND to index-only state:
+      // a staged edit whose worktree copy matches HEAD ("MM" in `status --porcelain -uno`) does not
+      // appear in it, so the `reset --hard` would silently destroy the staged blob. Union in a
+      // second `diff --cached` probe against the pre-land commit so index-only residue counts as
+      // real work. Monotone-safe: realDirty can only GROW, so this can only turn a reset into a
+      // skip — never cause a new discard.
       let treeSynced: LandResult['treeSynced'] = 'not-checked-out';
+      let skippedDirtyPaths: string[] | undefined;
       const headRef = await this.runGit(this.opts.projectRoot, ['symbolic-ref', '--quiet', 'HEAD'], QUICK_TIMEOUT_MS);
       if (headRef.code === 0 && headRef.stdout.trim() === `refs/heads/${baseRef}`) {
         const realWork = await this.runGit(
@@ -2191,15 +2202,38 @@ export class WorktreeManager {
           ['diff', '--name-only', oldBaseSha, '--', '.', ':(exclude)*.db-shm', ':(exclude)*.db-wal'],
           QUICK_TIMEOUT_MS,
         );
-        const realDirty = realWork.code === 0
-          ? realWork.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
-          : ['<diff-failed>'];
+        const stagedWork = await this.runGit(
+          this.opts.projectRoot,
+          ['diff', '--cached', '--name-only', oldBaseSha, '--', '.', ':(exclude)*.db-shm', ':(exclude)*.db-wal'],
+          QUICK_TIMEOUT_MS,
+        );
+        const parse = (r: { code: number; stdout: string }) =>
+          r.code === 0
+            ? r.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+            : ['<diff-failed>'];
+        const realDirty = Array.from(new Set([...parse(realWork), ...parse(stagedWork)]));
         if (realDirty.length === 0) {
           const sync = await this.runGit(this.opts.projectRoot, ['reset', '--hard', masterSha], QUICK_TIMEOUT_MS);
           treeSynced = sync.code === 0 ? 'reset-hard' : 'reset-failed';
         } else {
+          // A skipped post-land sync leaves the main checkout STRANDED at the pre-land tree while
+          // the base ref has already advanced. That is an invariant failure, not a quiet return
+          // value — report it deterministically (never conditional on residue strings growing).
+          // The land itself is unaffected: `update-ref` above already advanced the base ref, and
+          // the `finally` below still tears the throwaway land worktree down.
           treeSynced = 'skipped-dirty';
+          skippedDirtyPaths = realDirty;
           onProgress?.('stderr', `land: skipped post-land tree sync; real dirty work present: ${realDirty.join(', ')}\n`);
+          const state = await readMainCheckoutHead(this.opts.projectRoot, this.mainCheckoutGit);
+          const err = new MainCheckoutResidueError(
+            this.opts.projectRoot,
+            'land_epic',
+            realDirty,
+            state,
+            state,
+          );
+          try { this.onMainCheckoutViolation?.(err); } catch { /* best-effort: never mask the throw */ }
+          throw err;
         }
       }
 
@@ -2211,7 +2245,7 @@ export class WorktreeManager {
       const landedPaths = diffRes.code === 0
         ? diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
         : [];
-      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced, baseRef };
+      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced, skippedDirtyPaths, baseRef };
     } finally {
       // Always tear down the throwaway detached land worktree.
       await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
