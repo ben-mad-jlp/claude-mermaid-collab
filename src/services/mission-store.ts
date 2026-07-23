@@ -24,6 +24,7 @@ import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
+import { fireConductorKick } from './orchestrator-kick.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -805,6 +806,7 @@ export function setCriterionVerdict(
   // its active flag so a converged mission never sits active=1 (misleads UI + first-wins selection).
   const missionId = missionIdOfCriterion(project, criterionId);
   if (missionId) deactivateIfTerminal(project, missionId);
+  fireConductorKick(`criterion-verdict:${criterionId.slice(0, 8)}`);
 }
 
 /** Edit a criterion's text (the acceptance assertion). Does not change its met/verdict. */

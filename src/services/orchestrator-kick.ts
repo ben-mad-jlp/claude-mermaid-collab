@@ -22,3 +22,21 @@ export function fireOrchestratorKick(reason: string): void {
     /* a kick must never break the mutation that triggered it */
   }
 }
+
+let conductorKickHook: ((reason: string) => void) | null = null;
+
+/** orchestrator-live registers its debounced kickConductor here at startup. */
+export function registerConductorKick(fn: (reason: string) => void): void {
+  conductorKickHook = fn;
+}
+
+/** A mutation produced a conductor-relevant event (leaf settled/parked/rejected, epic
+ *  landed, criterion verdict) — ask the conductor to run now instead of waiting on the
+ *  heartbeat. Never throws into the caller's mutation. */
+export function fireConductorKick(reason: string): void {
+  try {
+    conductorKickHook?.(reason);
+  } catch {
+    /* a kick must never break the mutation that triggered it */
+  }
+}

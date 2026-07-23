@@ -30,7 +30,7 @@ import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
-import { registerOrchestratorKick } from './orchestrator-kick.js';
+import { registerOrchestratorKick, registerConductorKick } from './orchestrator-kick.js';
 import { yieldToLoop } from './loop-yield.js';
 import { runArchivalSweep, shouldRunArchivalSweep } from './archival-sweep.js';
 import { runLandedEpicSweep, shouldRunLandedEpicSweep } from './landed-epic-sweep.js';
@@ -51,6 +51,7 @@ let rerunRequested = false;
 // Latched here so a kick arriving mid-tick still forces the coalesced rerun (see runTickGuarded).
 let forceBuildNextTick = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
+let conductorKickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
 export const CONDUCTOR_INTERVAL_MS = 30_000;
@@ -190,6 +191,24 @@ export function kickOrchestrator(_reason?: string): void {
     void runTickGuarded({ force: true });
   }, KICK_DEBOUNCE_MS);
   (kickTimer as { unref?: () => void }).unref?.();
+}
+
+/**
+ * EVENT-DRIVEN kick for the CONDUCTOR loop, independent of kickOrchestrator/kickTimer
+ * above so a conductor kick can never force-bypass the build throttle. Debounced
+ * (coalesces a burst into one run) and overlap-safe via runConductorGuarded's own
+ * conductorRunning guard. The 30s CONDUCTOR_INTERVAL_MS heartbeat remains the
+ * time-based safety net. No-op if the daemon isn't running. `run` is injectable so the
+ * debounce can be tested without driving a real conductor pass.
+ */
+export function kickConductor(_reason?: string, run: () => void = () => { void runConductorGuarded(); }): void {
+  if (conductorTimer === null) return; // daemon not started → nothing to kick
+  if (conductorKickTimer !== null) return; // already scheduled within the debounce window
+  conductorKickTimer = setTimeout(() => {
+    conductorKickTimer = null;
+    run();
+  }, KICK_DEBOUNCE_MS);
+  (conductorKickTimer as { unref?: () => void }).unref?.();
 }
 
 // ---------------------------------------------------------------------------
@@ -602,6 +621,11 @@ export function startOrchestrator(intervalMs = 30_000): void {
   // Event-driven claim path: the todo-store fires this when a todo becomes ready, so
   // we tick within KICK_DEBOUNCE_MS instead of waiting for the interval.
   registerOrchestratorKick((reason) => kickOrchestrator(reason));
+
+  // Same seam for the CONDUCTOR loop — a leaf settle/park/reject, epic land, or
+  // criterion verdict wakes the conductor within KICK_DEBOUNCE_MS instead of waiting
+  // for CONDUCTOR_INTERVAL_MS.
+  registerConductorKick((reason) => kickConductor(reason));
 }
 
 /** Stop the orchestrator interval. */
@@ -618,6 +642,10 @@ export function stopOrchestrator(): void {
   if (kickTimer !== null) {
     clearTimeout(kickTimer);
     kickTimer = null;
+  }
+  if (conductorKickTimer !== null) {
+    clearTimeout(conductorKickTimer);
+    conductorKickTimer = null;
   }
   forceBuildNextTick = false; // drop any un-serviced kick's force latch
 }
