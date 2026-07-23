@@ -66,7 +66,7 @@ export function buildCrashLoopEscalationPayload(input: {
   windowMs: number;
   respawnCount: number;
   reason: ExitReason;
-}): { kind: 'sidecar-crash-loop'; questionText: string } {
+}): { kind: 'sidecar-crash-loop'; questionText: string; project: string; session: string } {
   // Build questionText using only project, session, count, windowMs, and reason
   // Never interpolate respawnCount
   const windowSecs = Math.round(input.windowMs / 1000);
@@ -75,6 +75,8 @@ export function buildCrashLoopEscalationPayload(input: {
   return {
     kind: 'sidecar-crash-loop',
     questionText,
+    project: input.project,
+    session: input.session,
   };
 }
 
@@ -116,4 +118,25 @@ export function drainEscalationIntents(dir: string, sink: (intent: unknown) => v
       // Silently skip lines that fail to parse (corrupt tail from partial write)
     }
   }
+}
+
+export function parseEscalationIntent(intent: unknown): {
+  project: string; session: string; kind: string; questionText: string;
+} | null {
+  if (
+    typeof intent === 'object' &&
+    intent !== null &&
+    typeof (intent as Record<string, unknown>).project === 'string' &&
+    typeof (intent as Record<string, unknown>).session === 'string' &&
+    typeof (intent as Record<string, unknown>).kind === 'string' &&
+    typeof (intent as Record<string, unknown>).questionText === 'string'
+  ) {
+    return {
+      project: (intent as Record<string, unknown>).project as string,
+      session: (intent as Record<string, unknown>).session as string,
+      kind: (intent as Record<string, unknown>).kind as string,
+      questionText: (intent as Record<string, unknown>).questionText as string,
+    };
+  }
+  return null;
 }

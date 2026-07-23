@@ -157,34 +157,21 @@ try {
 // crash-loop escalations that were recorded but not yet created as cards.
 // Fault-isolated so one corrupt intent file or malformed entry cannot abort server boot.
 try {
-  const { drainEscalationIntents } = await import('./services/sidecar-forensics.js');
+  const { drainEscalationIntents, parseEscalationIntent } = await import('./services/sidecar-forensics.js');
   const { createEscalation } = await import('./services/supervisor-store.js');
   const supervisorDir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
 
   drainEscalationIntents(supervisorDir, (intent: unknown) => {
-    // Validate the intent has all required fields as strings
-    if (
-      typeof intent === 'object' &&
-      intent !== null &&
-      typeof (intent as Record<string, unknown>).project === 'string' &&
-      typeof (intent as Record<string, unknown>).session === 'string' &&
-      typeof (intent as Record<string, unknown>).kind === 'string' &&
-      typeof (intent as Record<string, unknown>).questionText === 'string'
-    ) {
-      const { project, session, kind, questionText } = intent as {
-        project: string;
-        session: string;
-        kind: string;
-        questionText: string;
-      };
-
-      try {
-        createEscalation({ project, session, kind, questionText });
-      } catch (err) {
-        console.warn(`   ↳ escalation intent creation failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    } else {
+    const parsed = parseEscalationIntent(intent);
+    if (!parsed) {
       console.warn(`   ↳ malformed escalation intent: missing or invalid fields`);
+      return;
+    }
+
+    try {
+      createEscalation(parsed);
+    } catch (err) {
+      console.warn(`   ↳ escalation intent creation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
 } catch (err) {

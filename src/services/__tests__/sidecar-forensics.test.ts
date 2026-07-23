@@ -9,9 +9,11 @@ import {
   buildCrashLoopEscalationPayload,
   appendEscalationIntent,
   drainEscalationIntents,
+  parseEscalationIntent,
   formatExitForensics,
   formatWatchdogKillReason,
 } from '../sidecar-forensics';
+import { createEscalation, listOpenEscalations, _closeDb } from '../supervisor-store';
 
 class FakeChildProcess extends EventEmitter {
   pid = 12345;
@@ -40,6 +42,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
   const originalEnv = process.env.MERMAID_SUPERVISOR_DIR;
 
   beforeEach(() => {
+    _closeDb();
     forensicsDir = mkdtempSync(join(tmpdir(), 'sidecar-forensics-'));
     supervisorDir = mkdtempSync(join(tmpdir(), 'sidecar-supervisor-'));
     process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
@@ -93,6 +96,8 @@ describe('ServerSupervisor crash loop and forensics', () => {
       forensicsFilePath: forensicsDir + '/forensics.log',
       crashLoopN: 3,
       crashLoopWindowMs: 60_000,
+      project: '/fake/project',
+      session: 'test-session',
       spawnImpl,
       fetchImpl,
       portInUseImpl,
@@ -125,6 +130,8 @@ describe('ServerSupervisor crash loop and forensics', () => {
       forensicsFilePath: forensicsDir + '/forensics.log',
       crashLoopN: 3,
       crashLoopWindowMs: 60_000,
+      project: '/fake/project',
+      session: 'test-session',
       spawnImpl,
       fetchImpl,
       portInUseImpl,
@@ -162,6 +169,8 @@ describe('ServerSupervisor crash loop and forensics', () => {
       forensicsFilePath: forensicsDir + '/forensics.log',
       crashLoopN: 3,
       crashLoopWindowMs: 60_000,
+      project: '/fake/project',
+      session: 'test-session',
       spawnImpl,
       fetchImpl,
       portInUseImpl,
@@ -215,6 +224,8 @@ describe('ServerSupervisor crash loop and forensics', () => {
       forensicsFilePath: forensicsDir + '/forensics.log',
       crashLoopN: 3,
       crashLoopWindowMs: 60_000,
+      project: '/fake/project',
+      session: 'test-session',
       spawnImpl,
       fetchImpl,
       portInUseImpl,
@@ -254,6 +265,60 @@ describe('ServerSupervisor crash loop and forensics', () => {
     const collected2: any[] = [];
     drainEscalationIntents(supervisorDir, (intent) => collected2.push(intent));
     expect(collected2.length).toBe(0);
+  });
+
+  test('end-to-end: crash loop fires escalation intent and drains to escalation card', async () => {
+    supervisor = new ServerSupervisor({
+      host: '127.0.0.1',
+      port: 9104,
+      version: '1.0.0',
+      serverBinaryPath: '/fake/server',
+      disableHealthWatchdog: true,
+      healthWatchdogGraceMs: 0,
+      healthWatchdogPollMs: 10,
+      healthWatchdogThresholdMs: 10,
+      forensicsFilePath: forensicsDir + '/forensics.log',
+      crashLoopN: 3,
+      crashLoopWindowMs: 60_000,
+      project: '/fake/project',
+      session: 'test-session',
+      spawnImpl,
+      fetchImpl,
+      portInUseImpl,
+      clockImpl,
+    } as any);
+
+    await supervisor.start();
+
+    // Trigger crash loop (3 respawns = fire)
+    await supervisor.checkHealthOnce();
+    await new Promise((resolve) => process.nextTick(resolve));
+    await supervisor.checkHealthOnce();
+    await new Promise((resolve) => process.nextTick(resolve));
+    await supervisor.checkHealthOnce();
+    await new Promise((resolve) => process.nextTick(resolve));
+
+    // Drain escalation intents through the real production path
+    const intents: any[] = [];
+    drainEscalationIntents(supervisorDir, (intent) => {
+      const parsed = parseEscalationIntent(intent);
+      if (parsed) {
+        intents.push(parsed);
+        createEscalation(parsed);
+      }
+    });
+
+    expect(intents.length).toBe(1);
+    expect(intents[0].kind).toBe('sidecar-crash-loop');
+    expect(intents[0].project).toBe('/fake/project');
+    expect(intents[0].session).toBe('test-session');
+
+    // Verify the escalation card was created
+    const escalations = listOpenEscalations();
+    expect(escalations.length).toBe(1);
+    expect(escalations[0].kind).toBe('sidecar-crash-loop');
+    expect(escalations[0].project).toBe('/fake/project');
+    expect(escalations[0].session).toBe('test-session');
   });
 });
 
