@@ -544,3 +544,24 @@ test('classifyCriterion: opts-absent vs empty opts parity', () => {
   expect(v1.kind).toBe(v2.kind);
   expect(v1.reason).toBe(v2.reason);
 });
+
+test('classifyCriterion: citation into a concrete filesToCreate entry is citable', () => {
+  const v = classifyCriterion('New handler exported — src/services/new-handler.ts:1', [
+    'src/services/new-handler.ts',
+  ]);
+  expect(v.citable).toBe(true);
+});
+
+test('classifyCriterion: citation into a GLOB-declared filesToCreate entry is citable', () => {
+  const v = classifyCriterion('Test case passes — results/case-001.json:1', ['results/*.json']);
+  expect(v.citable).toBe(true);
+});
+
+test('classifyCriterion: citation into unrelated file matching no declared entry convicts', () => {
+  const v = classifyCriterion('Test coverage reached — src/services/unrelated-nonexistent.ts:1', [
+    'results/*.json',
+    'src/services/new-handler.ts',
+  ]);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('out-of-diff-location');
+});
