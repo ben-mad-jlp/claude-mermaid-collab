@@ -23,7 +23,7 @@ import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from '.
 import { syncMissionSubscription } from './mission-subscription.js';
 import { getOrchestratorLevel } from './orchestrator-config.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
-import { invokeNode, mcpConfigFor, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
+import { invokeNode, mcpConfigFor, isTransientNodeFault, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { config } from '../config.js';
 import type { EffortLevel } from '../agent/contracts.js';
 import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
@@ -376,9 +376,11 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       (c) => discoverIdsBefore.includes(c.id) && c.servingEpicState !== 'none',
     );
   const productive = res.ok && servedAGap;
-  // A transient fault (rate cap / unreachable / auth+stdin faultKind / spawn startFailure) was
-  // never a real attempt at the serve-state, so it must not consume the bounded serve-retry counter.
-  const transient = res.rateLimited === true || res.startFailure != null;
+  // A transient fault — rate cap / connectivity-unreachable / auth+stdin faultKind (all reported
+  // as rateLimited), spawn or auth-halt startFailure, or a node timedOut (start-window or
+  // wall-clock kill) — was never a real attempt at the serve-state, so it must not consume the
+  // bounded serve-retry counter.
+  const transient = isTransientNodeFault(res);
   if (productive) {
     // Stamp the fingerprint using the UPDATED state after the node ran, so the next pass
     // recognizes this state as already-attempted and debounces without re-invoking.
