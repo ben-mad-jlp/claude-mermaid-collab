@@ -3196,6 +3196,46 @@ export async function runLeaf(
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
+    // PRE-REVIEW EMPTY-DIFF SHORT-CIRCUIT: if the implement node produced a zero-file
+    // diff against the epic base, skip the review node entirely and settle according to
+    // whether files were declared in scope. (Branch 1) Declared scope is empty and diff
+    // is empty: base already satisfies, settle as accepted without review. (Branch 2)
+    // Files were declared but implement produced no changes: escalate as a distinct
+    // incident (not a reviewer rejection — no review ran) and park.
+    try { stageUntrackedIntentToAdd(cwd); } catch { /* best-effort */ }
+    const preReviewChangeSet = (await deps.changeSet?.(sessionKey)) ?? null;
+    if (preReviewChangeSet !== null && preReviewChangeSet.length === 0) {
+      if (declaredFiles.length === 0) {
+        // Branch 1: base-already-satisfies (no declared files, zero-file diff).
+        try {
+          deps.recordNode({
+            project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+            nodeKind: 'base-already-satisfies', nodesSpent: 0, verdict: 'pass',
+            outcomeDetail: JSON.stringify({ reason: 'base-already-satisfies' }),
+            outputText: 'base-already-satisfies: implement produced a zero-file diff vs the epic base and no files were declared in scope — settling without spending a review node.',
+          });
+        } catch { /* telemetry — never break the run */ }
+        const gate = await deps.complete(project, leaf.id, 'accepted');
+        const effective = gate.effective ?? 'accepted';
+        const outcome: LeafRunResult['outcome'] = effective;
+        const reason = effective === 'pending' ? 'gate-pending'
+          : effective === 'rejected' ? 'gate-rejected'
+          : 'base-already-satisfies';
+        recordOutcome(outcome, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
+        return finishWith({ outcome, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+      } else {
+        // Branch 2: spec-demands-changes (files declared but implement produced nothing).
+        deps.escalate({
+          project, session: sessionKey, kind: 'empty-diff-declared-changes', todoId: leaf.id,
+          questionText:
+            `Leaf "${leaf.title ?? leaf.id}" implemented a ZERO-FILE diff against the epic base, but its blueprint declared file(s) to change (${declaredFiles.join(', ')}). ` +
+            `This blames the empty IMPLEMENT diff — likely a sibling leaf already landed the same change on the epic base, or implement produced no edits — NOT a reviewer rejection (no review node ran). ` +
+            `Needs a human/conductor call: accept as already-satisfied, or re-run implement.`,
+        });
+        return parkBlocked('empty-diff-spec-demands-changes');
+      }
+    }
+
     // REVIEW + P6 SURGICAL REUSE. Review the tree; on a missing-logic FAIL (a NEW
     // finding) re-run the IMPLEMENT node IN PLACE — same worktree, keeping the correct
     // work — with the findings, up to REVISE_REUSE_CAP times, then re-review. A REPEATED
