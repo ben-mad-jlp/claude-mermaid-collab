@@ -13,6 +13,7 @@ import {
   gateFindingsText,
   resolveGateDeclaration,
   gateResultForDeclaration,
+  bridgeLegacyGate,
   type GateSpawn,
   type LeafGateConfig,
   type GateTestLane,
@@ -801,5 +802,72 @@ describe('resolveGateDeclaration / gateResultForDeclaration (G4)', () => {
     const decl = resolveGateDeclaration(src);
     const r = gateResultForDeclaration(decl)!;
     expect(composeVerdict(r.status, 'pass')).toBe('error');
+  });
+});
+
+describe('bridgeLegacyGate / legacy manifest bridging', () => {
+  const MANIFEST_PATH = '/tmp/some-project/.collab/project.json';
+
+  it('build123d shape resolves: gateCommand + frontendGateCommand via legacy keys', () => {
+    const m: ProjectManifest = {
+      version: 1,
+      gateCommand: 'python3.10 -m pytest bsync-tools/tests -q',
+      frontendGateCommand: 'bunx vitest --run',
+    };
+
+    // Direct call to bridgeLegacyGate.
+    const bridged = bridgeLegacyGate(m);
+    expect(bridged).not.toBeNull();
+    expect(bridged!.suites).toBeDefined();
+    expect(bridged!.suites!.length).toBe(2);
+    expect(bridged!.suites![0].command).toBe('python3.10 -m pytest bsync-tools/tests -q');
+    expect(bridged!.suites![1].command).toBe('bunx vitest --run');
+
+    // Via resolveGateDeclaration (no gate block in manifest).
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'ok', manifest: m };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('declared');
+    if (decl.kind === 'declared') {
+      expect(decl.cfg.suites).toBeDefined();
+      expect(decl.cfg.suites!.length).toBe(2);
+      expect(decl.cfg.suites![0].command).toBe('python3.10 -m pytest bsync-tools/tests -q');
+      expect(decl.cfg.suites![1].command).toBe('bunx vitest --run');
+    }
+  });
+
+  it('gate block wins over legacy keys: declared gate takes precedence', () => {
+    const m: ProjectManifest = {
+      version: 1,
+      gate: { typecheck: 'tsc' },
+      gateCommand: 'pytest',
+    };
+
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'ok', manifest: m };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('declared');
+    if (decl.kind === 'declared') {
+      expect(decl.cfg.typecheck).toBe('tsc');
+      expect(decl.cfg.suites).toBeUndefined();
+    }
+  });
+
+  it('no runnable legacy command ⇒ absent: changeSetTestCwd + metricRefs alone yield null', () => {
+    const m: ProjectManifest = {
+      version: 1,
+      changeSetTestCwd: 'ui',
+      metricRefs: ['x'],
+    };
+
+    // Direct call: should return null (no runnable command).
+    const bridged = bridgeLegacyGate(m);
+    expect(bridged).toBeNull();
+
+    // Via resolveLeafGate: should return null.
+    expect(resolveLeafGate(m)).toBeNull();
+
+    // Via resolveGateDeclaration: should resolve to 'absent'.
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'ok', manifest: m };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('absent');
   });
 });
