@@ -138,6 +138,58 @@ describe('runConductorPass — scheduling', () => {
     expect(failCalls).toBe(CONDUCTOR_SERVE_RETRY_CAP); // no further node spawned past the cap
   });
 
+  test('transient (rateLimited) failures never stamp the fail counter or wedge the mission', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    let rateLimitCalls = 0;
+    const rateLimitedInvoke = async () => { rateLimitCalls++; return { ok: false, rateLimited: true, text: '' } as any; };
+    const n = CONDUCTOR_SERVE_RETRY_CAP + 2;
+    for (let i = 0; i < n; i++) {
+      const r = await runConductorPass(project, { invoke: rateLimitedInvoke });
+      expect(r.ran).toBe(true);
+      expect(r.reason).toBe('node-failed');
+    }
+    // Invoke ran on EVERY tick — never debounced, unlike the structural-failure cap.
+    expect(rateLimitCalls).toBe(n);
+    const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
+    expect(key.includes('|fail:')).toBe(false);
+  });
+
+  test('transient (startFailure) failures also never stamp the fail counter or wedge the mission', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    let startFailCalls = 0;
+    const startFailureInvoke = async () => {
+      startFailCalls++;
+      return { ok: false, rateLimited: false, startFailure: { provider: 'x', model: 'y', detail: 'z' }, text: '' } as any;
+    };
+    const n = CONDUCTOR_SERVE_RETRY_CAP + 2;
+    for (let i = 0; i < n; i++) {
+      const r = await runConductorPass(project, { invoke: startFailureInvoke });
+      expect(r.ran).toBe(true);
+      expect(r.reason).toBe('node-failed');
+    }
+    expect(startFailCalls).toBe(n);
+    const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
+    expect(key.includes('|fail:')).toBe(false);
+  });
+
+  test('incident 3c04657b: 3 transient rate-limited passes leave no wedge — the next live tick proceeds', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    const rateLimitedInvoke = async () => { invokeCalls++; return { ok: false, rateLimited: true, text: '' } as any; };
+    for (let i = 0; i < 3; i++) {
+      const r = await runConductorPass(project, { invoke: rateLimitedInvoke });
+      expect(r.reason).toBe('node-failed');
+    }
+    const r4 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r4.ran).toBe(true);
+    expect(r4.reason).toBe('conducted');
+  });
+
   test('a capped unservable serve-state stays capped when an unrelated land card flips (no token re-churn)', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
