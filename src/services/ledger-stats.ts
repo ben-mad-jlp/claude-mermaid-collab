@@ -23,7 +23,7 @@
  *     carrying `leafOutcome` + the deciding `verdict`. It is EXCLUDED from the
  *     node-list / attempts / budget math, and only its verdict/outcome are read.
  */
-import { queryLedger, getLeafResumeDecisions } from './worker-ledger';
+import { queryLedger, queryLedgerThin, getLeafResumeDecisions } from './worker-ledger';
 import { NODE_BUDGET } from './leaf-executor';
 
 export interface LeafNodeStat {
@@ -254,7 +254,7 @@ function percentile(sorted: number[], p: number): number {
 export function getFleetStats(
   opts: { project?: string; sinceTs?: number; epicId?: string } = {},
 ): FleetStats {
-  const rows = queryLedger({
+  const rows = queryLedgerThin({
     project: opts.project,
     epicId: opts.epicId,
     since: opts.sinceTs,
@@ -353,7 +353,7 @@ export interface LeafRunSummary {
 export function listLeafRuns(
   opts: { project?: string; epicId?: string; sinceTs?: number; limit?: number } = {},
 ): LeafRunSummary[] {
-  const rows = queryLedger({ project: opts.project, epicId: opts.epicId, since: opts.sinceTs, limit: 2000 })
+  const rows = queryLedgerThin({ project: opts.project, epicId: opts.epicId, since: opts.sinceTs, limit: 2000 })
     .filter((r) => r.leafId != null);
   const byLeaf = new Map<string, typeof rows>();
   for (const r of rows) {
