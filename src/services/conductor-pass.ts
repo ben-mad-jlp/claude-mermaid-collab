@@ -19,6 +19,7 @@ import {
   promoteQueuedMissions,
 } from './mission-store.js';
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
+import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { syncMissionSubscription } from './mission-subscription.js';
 import { getOrchestratorLevel } from './orchestrator-config.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
@@ -114,13 +115,21 @@ export interface ConductorPassDeps {
   /** Injectable for the serve-cap escalation (test spy). Defaults to the store fns. */
   createEscalation?: typeof createEscalation;
   listOpenEscalations?: typeof listOpenEscalations;
+  /** Injectable INFRA stuck-work arm (test spy). Defaults to runInfraRejectionArm. */
+  infraArm?: typeof runInfraRejectionArm;
+  /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
+  epicBaseProbe?: EpicBaseProbe;
 }
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'pass-ran' | 'pass-error';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'pass-ran' | 'pass-error';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
+  /** INFRA-rejected leaves un-parked this pass (their base re-probed green). */
+  infraResets?: number;
+  /** INFRA-rejection human cards raised this pass (probe could not prove green). */
+  infraCards?: number;
   missionId?: string;
   modelUsed?: string;
 }
@@ -250,6 +259,38 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     }
   }
 
+  // INFRA STUCK-WORK ARM. A leaf parked on `epic-base-red` (or a gate that could not run, or a
+  // mis-homed target) is INFRA-dead, not content-dead: its rejection moves rejectedParkedCount
+  // exactly ONCE, after which the fingerprint below is constant and every later pass debounces —
+  // even after a commit repairs the base. The arm re-probes that precondition deterministically and
+  // either un-parks the leaf or raises exactly one human card; either way the debounce is broken for
+  // this tick so the stuck work cannot sit invisible forever. Fail-open: an arm fault degrades to a
+  // no-op pass, never a broken conductor.
+  let arm: InfraArmResult = { candidates: [], reset: [], cardsRaised: 0 };
+  try {
+    arm = await (deps.infraArm ?? runInfraRejectionArm)(project, missionId, session, {
+      probe: deps.epicBaseProbe,
+      createEscalation: deps.createEscalation,
+      listOpenEscalations: deps.listOpenEscalations,
+    });
+  } catch {
+    arm = { candidates: [], reset: [], cardsRaised: 0 };
+  }
+  const infraActed = arm.reset.length > 0 || arm.cardsRaised > 0;
+  if (arm.reset.length > 0) {
+    // A leaf just went back to READY. Spend NOTHING on a conductor node and do NOT stamp the run:
+    // the daemon rebuilds the un-parked leaf on its own tick, and the fingerprint moves for real
+    // once that rebuild changes rejectedParkedCount.
+    return {
+      ran: true,
+      reason: 'infra-leaf-reset',
+      missionId,
+      escalationsRaised,
+      infraResets: arm.reset.length,
+      infraCards: arm.cardsRaised,
+    };
+  }
+
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
   // A build-green epic surfaces an 'epic-ready-to-land' card while its criterion still reads
   // 'building' (unlanded) — the conductor must run to LAND it, not wait. (land_epic's ownership gate
@@ -270,14 +311,16 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const fp = serveFp + `|land:${landCards}`;
   const lastKey = target.row.lastConductorKey;
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
-  if (lastKey === fp) return { ran: false, reason: 'debounced', missionId };
+  // …unless the INFRA arm just carded a stuck leaf: that is genuinely new, un-fingerprinted state
+  // (the card dedupe makes it at most once per leaf), and the node is the stuck-work authority.
+  if (lastKey === fp && !infraActed) return { ran: false, reason: 'debounced', missionId };
   // A prior FAILED pass encodes `${serveFp}|fail:N`. A node FAILURE (or empty serve) used to stamp
   // the plain fp and permanently wedge the mission; it now retries up to CONDUCTOR_SERVE_RETRY_CAP
   // times across ticks, then stops respinning an expensive node on an unservable serve-state
   // (bounded, not a permanent wedge — and NOT re-armed by landCards drift).
   const failPrefix = `${serveFp}|fail:`;
   const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
-  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return { ran: false, reason: 'debounced', missionId };
+  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP && !infraActed) return { ran: false, reason: 'debounced', missionId };
 
   // No servable gap and no land card to drive: nothing for the node to do. A capped
   // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
@@ -286,7 +329,10 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // building-wait (daemon working) no-op.
   if (!hasGap && landCards === 0) {
     if (escalated.length > 0) return { ran: false, reason: 'criteria-escalated', missionId, escalationsRaised };
-    if (status === 'building') return { ran: false, reason: 'building-wait', missionId };
+    // 'building' normally means "the daemon is on it — leave it". A just-carded INFRA leaf is the
+    // exception: the daemon is NOT on it (it is parked and un-dispatchable), and step 4 of the
+    // conductor prompt makes the node the authority for exactly that stuck work. Once per leaf.
+    if (status === 'building' && !infraActed) return { ran: false, reason: 'building-wait', missionId };
   }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
@@ -347,5 +393,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
-  return { ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised };
+  return { ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, infraResets: arm.reset.length, infraCards: arm.cardsRaised };
 }
