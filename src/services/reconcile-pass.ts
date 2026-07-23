@@ -52,6 +52,17 @@ export const DANGLING_DEPS_KIND = 'dangling-deps';
  *  would occur on every tick. Auto-closed by step 4 via todoId linking. */
 export const EPIC_SWEEP_TRIAGE_KIND = 'epic-sweep-triage';
 
+/** Format an idle duration in milliseconds to a human-readable string. */
+function formatIdleMs(ms: number): string {
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours === 0) {
+    const minutes = Math.round(ms / 60_000);
+    return `${minutes}m`;
+  }
+  const minutes = Math.round((ms % 3_600_000) / 60_000);
+  return `${hours}h ${minutes}m`;
+}
+
 // ---------------------------------------------------------------------------
 // Throttle (mission c4eb4fcc, Phase 3): keep the reconcile pass OFF the every-tick
 // (~30s) cadence.
@@ -194,15 +205,27 @@ export async function runReconcilePass(project: string): Promise<void> {
 
       if (f.reason === 'landed-needs-review' || f.reason === 'motionless') {
         const epicShortId = f.epicId.slice(0, 8);
-        const questionText =
-          f.reason === 'landed-needs-review'
-            ? `Epic "${epicShortId}" has landed but contains done-but-unaccepted children that need review before closure.`
-            : `Epic "${epicShortId}" has children that have been idle past the sweep threshold and need attention.`;
+        let questionText: string;
+        let detailLine: string;
 
-        const detailLine =
-          f.reason === 'landed-needs-review'
-            ? `Total children: ${f.children}, Done but unaccepted: ${f.doneUnaccepted}`
-            : `Total children: ${f.children}, In progress: ${f.inProgress}, Idle for: ${f.idleForMs}ms`;
+        if (f.reason === 'landed-needs-review') {
+          const inProgress = f.inProgress ?? 0;
+          const doneUnaccepted = f.doneUnaccepted ?? 0;
+          const phrases: string[] = [];
+          if (inProgress > 0) {
+            phrases.push(`${inProgress} stuck in-progress leftover(s)`);
+          }
+          if (doneUnaccepted > 0) {
+            phrases.push(`${doneUnaccepted} done-but-unaccepted child(ren)`);
+          }
+          const phrase = phrases.join(' and ');
+          questionText = `Epic "${epicShortId}" has landed but ${phrase} that need review before closure.`;
+          detailLine = `Total children: ${f.children}, In progress: ${inProgress}, Done but unaccepted: ${doneUnaccepted}`;
+        } else {
+          const idleFmt = formatIdleMs(f.idleForMs ?? 0);
+          questionText = `Epic "${epicShortId}" has ${f.children} child(ren) idle for ${idleFmt} past the sweep threshold and need attention.`;
+          detailLine = `Total children: ${f.children}, Idle for: ${idleFmt}`;
+        }
 
         createEscalation({
           project,
