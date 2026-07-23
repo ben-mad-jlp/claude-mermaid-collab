@@ -180,10 +180,16 @@ export const MERMAID_CHROME_PATH = process.env.MERMAID_CHROME_PATH ?? '';
 export const MERMAID_BROWSER_HEADLESS = process.env.MERMAID_BROWSER_HEADLESS === '1'
   || process.env.MERMAID_BROWSER_HEADLESS === 'true';
 
-/** Idle self-shutdown: exit after this many ms with zero WS connections. Default 600000 (10 min); 0 disables. */
+/** Idle self-shutdown: exit after this many ms with zero WS connections. Default 600000 (10 min); 0 disables.
+ *  DESKTOP EXCEPTION: under the Electron supervisor (MC_DESKTOP_CONTROL_URL set) the default is 0 —
+ *  the desktop sidecar is the mission-running daemon and must keep working with no UI connected.
+ *  The 10-min default exists for stray plugin-hook source servers, and it silently killed the
+ *  desktop daemon twice on 2026-07-23 (clean exits at exactly ~605s uptime, no respawn: the
+ *  supervisor treats code-0 exits as intentional). An explicit env value still wins in both modes. */
 export const MERMAID_IDLE_SHUTDOWN_MS = (() => {
-  const v = Number(process.env.MERMAID_IDLE_SHUTDOWN_MS ?? '600000');
-  return Number.isNaN(v) ? 600000 : v;
+  const fallback = process.env.MC_DESKTOP_CONTROL_URL ? '0' : '600000';
+  const v = Number(process.env.MERMAID_IDLE_SHUTDOWN_MS ?? fallback);
+  return Number.isNaN(v) ? Number(fallback) : v;
 })();
 
 /** Screencast JPEG quality (0-100) for streamed-panel mode. Default 60. */
