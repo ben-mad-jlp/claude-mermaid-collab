@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordNode, _closeLedgerDb, type LedgerEntry } from '../worker-ledger';
-import { getLeafRun, getFleetStats, latestRunRows, RUN_GAP_MS } from '../ledger-stats';
+import { getLeafRun, getFleetStats, listLeafRuns, latestRunRows, RUN_GAP_MS } from '../ledger-stats';
 import { NODE_BUDGET } from '../leaf-executor';
 
 let dir: string;
@@ -152,6 +152,54 @@ describe('getFleetStats', () => {
     node({ leafId: 'B', ts: 100, nodeKind: 'blueprint', model: 'opus', project: '/y', todoId: 'B' });
     expect(getFleetStats({ project: '/x' }).leafCount).toBe(1);
     expect(getFleetStats({}).authModeAlarm).toBe(false);
+  });
+});
+
+describe('aggregations are blob-independent', () => {
+  const blobPayload = { outputText: 'B'.repeat(40_000), commands: JSON.stringify([{ cmd: 'x' }]) };
+
+  function seed(withBlobs: boolean): void {
+    const over = withBlobs ? blobPayload : {};
+    node({ leafId: 'L1', ts: 1000, nodeKind: 'blueprint', model: 'opus', ...over });
+    node({ leafId: 'L1', ts: 2000, nodeKind: 'implement', nodesSpent: 1, costUsd: 0.01, ...over });
+    node({ leafId: 'L1', ts: 3000, nodeKind: 'review', model: 'opus', verdict: 'pass', ...over });
+    node({
+      leafId: 'L1', ts: 4000, nodeKind: 'outcome', model: '', nodesSpent: 0,
+      verdict: 'pass', leafOutcome: 'accepted', outcomeDetail: JSON.stringify({ reason: 'ok' }), ...over,
+    });
+  }
+
+  test('getFleetStats + listLeafRuns are identical with vs without blobs', () => {
+    seed(true);
+    const statsWithBlobs = getFleetStats({ project: '/p' });
+    const runsWithBlobs = listLeafRuns({ project: '/p' });
+
+    _closeLedgerDb();
+    dir = mkdtempSync(join(tmpdir(), 'ledger-stats-'));
+    process.env.MERMAID_SUPERVISOR_DIR = dir;
+
+    seed(false);
+    const statsWithoutBlobs = getFleetStats({ project: '/p' });
+    const runsWithoutBlobs = listLeafRuns({ project: '/p' });
+
+    expect(statsWithBlobs).toEqual(statsWithoutBlobs);
+    expect(runsWithBlobs).toEqual(runsWithoutBlobs);
+  });
+
+  test('tallies over blob-carrying rows are correct and no blob sentinel leaks into the aggregate', () => {
+    seed(true);
+    const stats = getFleetStats({ project: '/p' });
+    const runs = listLeafRuns({ project: '/p' });
+
+    expect(stats.leafCount).toBe(1);
+    expect(stats.nodesPerLeafAvg).toBeCloseTo(3); // 3 node rows (outcome marker excluded)
+    expect(stats.blockRate).toBeCloseTo(0); // accepted, not blocked
+
+    expect(runs[0].finalOutcome).toBe('accepted');
+    expect(runs[0].reviewVerdict).toBe('pass');
+    expect(runs[0].costUsd).toBeCloseTo(0.01); // summed node costUsd
+
+    expect(JSON.stringify(runs).includes('BBBB')).toBe(false);
   });
 });
 
