@@ -157,7 +157,7 @@ describe('changeSetTestGatePlugin', () => {
     expect(v?.reasons.some((r) => r.includes('could not run'))).toBe(true);
   });
 
-  it('resolveGatePlugin: ui + changeSetTestCommand (no frontendGate) → changeset-test; ui + frontendGate → frontend-suite; non-ui → manifest-command', () => {
+  it('resolveGatePlugin: ui + changeSetTestCommand (no frontendGate) → changeset-test; ui + frontendGate → frontend-suite; non-ui → impacted-suite', () => {
     const uiWithCst = {
       project: '/t', gateProject: '/t', todoId: 't', todo: { id: 't', type: 'ui' } as any,
       manifest: { gateCommand: 'npx tsc --noEmit', changeSetTestCommand: 'bunx vitest --run {files}' },
@@ -174,7 +174,13 @@ describe('changeSetTestGatePlugin', () => {
 
     expect(resolveGatePlugin(uiWithCst, 'ui')?.id).toBe('changeset-test');
     expect(resolveGatePlugin(uiWithFe, 'ui')?.id).toBe('frontend-suite');
-    expect(resolveGatePlugin(nonUi, 'backend')?.id).toBe('manifest-command');
+    // A legacy gateCommand-only manifest still bridges via resolveLeafGate's
+    // bridgeLegacyGate fallback (leaf-gate.ts:370), so impactedSuiteGatePlugin.appliesTo
+    // (gate-runner.ts:562-572) applies here too. It is registered at gate-runner.ts:734,
+    // BEFORE manifestCommandGatePlugin at gate-runner.ts:776 (same tier: 'project'), and
+    // resolveGatePlugin ties same-tier candidates by lower registration index
+    // (gate-runner.ts:114) — so impacted-suite wins over manifest-command.
+    expect(resolveGatePlugin(nonUi, 'backend')?.id).toBe('impacted-suite');
   });
 });
 
