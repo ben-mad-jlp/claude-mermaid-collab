@@ -300,6 +300,16 @@ export function classifyTransientFault(input: {
   return null;
 }
 
+/** Worktree-add base-branch race (mission crit-11). `WorktreeManager.ensure()` can throw
+ *  `invalid reference: collab/epic/...` when the epic base branch hasn't materialized yet
+ *  in this worktree's git view — transient, not a leaf failure, so it must pause like the
+ *  auth/stdin faults above rather than burn an attempt. */
+export const WORKTREE_EPIC_BASE_RE = /invalid reference:\s*collab\/epic\//i;
+
+export function classifyWorktreeAddFault(message: string): boolean {
+  return WORKTREE_EPIC_BASE_RE.test(message);
+}
+
 /** After SIGTERM, wait this long for a graceful exit before escalating to SIGKILL.
  *  A process stuck in a network syscall ignores SIGTERM, so the hard kill is required. */
 const KILL_GRACE_MS = 3_000;

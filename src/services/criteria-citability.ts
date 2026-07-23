@@ -89,11 +89,27 @@ export function parseBlueprintCriteria(blueprintMd: string): string[] {
   return criteria;
 }
 
+/** True if the citation path resolves into the declared change-set: either via exact/suffix
+ *  match (citationResolves), or by matching a declared entry containing `*` via Bun.Glob. */
+function resolvesIntoDeclaredChangeSet(path: string, declaredFiles: readonly string[]): boolean {
+  if (citationResolves(path, declaredFiles)) return true;
+  return declaredFiles.some((d) => {
+    if (d.includes('*')) {
+      try {
+        return new Bun.Glob(d).match(path);
+      } catch {
+        return false; // malformed glob pattern never matches — fail closed, not open
+      }
+    }
+    return false;
+  });
+}
+
 /** Rule 0 — ACQUIT on a resolving citation (reuses extractCitations from review-citations). */
 function acquitOnResolvingCitation(text: string, declaredFiles: readonly string[]): boolean {
   const citations = extractCitations(text);
   if (citations.length === 0) return false;
-  return citations.some((c) => citationResolves(c.path, declaredFiles));
+  return citations.some((c) => resolvesIntoDeclaredChangeSet(c.path, declaredFiles));
 }
 
 /** Rule 1 — CONVICT on out-of-diff-location: a citation found but doesn't resolve into
@@ -115,7 +131,7 @@ function convictOnOutOfDiffLocation(
   }
 
   // We have citations and a manifest; check if ANY resolve
-  const anyResolves = citations.some((c) => citationResolves(c.path, declaredFiles));
+  const anyResolves = citations.some((c) => resolvesIntoDeclaredChangeSet(c.path, declaredFiles));
   if (anyResolves) {
     // At least one citation resolves — acquitted by Rule 0
     return { uncitable: false };
