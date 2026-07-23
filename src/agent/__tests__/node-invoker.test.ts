@@ -21,6 +21,7 @@ import {
   resolveClaudeBin,
   _resetClaudeBinCache,
   invokeNode,
+  isTransientNodeFault,
   classifyTransientFault,
   transientRetryAfterMs,
   AUTH_TRANSIENT_RE,
@@ -600,11 +601,15 @@ describe('F4: generic startup deadline (fake-binary SessionStart hang → fast s
     // so invokeNode proceeds straight to the real node spawn of the hanging stub.
     _primeAuthCacheForTest('subscription');
     process.env.CLAUDE_BIN = stubPath;
+    // invokeNode spawns the node detached (own process group, node-invoker.ts:720); the
+    // hermetic tripwire preload blocks any detached spawn unless explicitly allowed.
+    process.env.MERMAID_TEST_ALLOW_DETACHED = '1';
   });
 
   afterEach(() => {
     (Bun as any).spawnSync = originalSpawnSync;
     delete process.env.CLAUDE_BIN;
+    delete process.env.MERMAID_TEST_ALLOW_DETACHED;
     _resetAuthCache();
     _resetClaudeBinCache();
     try { rmSync(stubDir, { recursive: true, force: true }); } catch { /* ok */ }
@@ -628,5 +633,66 @@ describe('F4: generic startup deadline (fake-binary SessionStart hang → fast s
     expect(((u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) + (u?.cacheReadTokens ?? 0))).toBe(0);
     // FAST: seconds, not the 30s cap and nowhere near 4×600s.
     expect(elapsed).toBeLessThan(10_000);
+  });
+});
+
+describe('isTransientNodeFault: real start-failure paths set startFailure', () => {
+  let stubDir: string;
+  const testCwd = '/tmp/node-invoker-transient-fault';
+
+  beforeEach(() => {
+    _resetAuthCache();
+    _resetClaudeBinCache();
+    mkdirSync(testCwd, { recursive: true });
+    stubDir = mkdtempSync(join(tmpdir(), 'claude-stub-'));
+    // invokeNode spawns the node detached (own process group, node-invoker.ts:720); the
+    // hermetic tripwire preload blocks any detached spawn unless explicitly allowed.
+    process.env.MERMAID_TEST_ALLOW_DETACHED = '1';
+  });
+
+  afterEach(() => {
+    delete process.env.CLAUDE_BIN;
+    delete process.env.MERMAID_TEST_ALLOW_DETACHED;
+    _resetAuthCache();
+    _resetClaudeBinCache();
+    try { rmSync(stubDir, { recursive: true, force: true }); } catch { /* ok */ }
+    try { rmSync(testCwd, { recursive: true, force: true }); } catch { /* ok */ }
+  });
+
+  it('missing CLAUDE_BIN → spawn ENOENT → startFailure set, isTransientNodeFault true', async () => {
+    _primeAuthCacheForTest('subscription');
+    process.env.CLAUDE_BIN = join(stubDir, 'does-not-exist');
+
+    const res = await invokeNode({ prompt: 'hello', cwd: testCwd });
+
+    expect(res.ok).toBe(false);
+    expect(res.startFailure != null).toBe(true);
+    expect(res.startFailure!.provider).toBe('claude');
+    expect(res.startFailure!.detail).toContain('spawn failed after retry');
+    expect(isTransientNodeFault(res)).toBe(true);
+  });
+
+  it('start-window timeout → timedOut true, isTransientNodeFault true', async () => {
+    _primeAuthCacheForTest('subscription');
+    const stubPath = join(stubDir, 'claude-hang');
+    writeFileSync(stubPath, '#!/bin/sh\n# emit nothing, then hang well past the (short, injected) start window\nsleep 30\n', { mode: 0o755 });
+    chmodSync(stubPath, 0o755);
+    process.env.CLAUDE_BIN = stubPath;
+
+    const res = await invokeNode({ prompt: 'hello', cwd: testCwd, timeoutMs: 30_000, startWindowMs: 250 });
+
+    expect(res.timedOut).toBe(true);
+    expect(isTransientNodeFault(res)).toBe(true);
+  });
+
+  it('auth halt (non-subscription) → startFailure set, isTransientNodeFault true', async () => {
+    _primeAuthCacheForTest('api');
+
+    const res = await invokeNode({ prompt: 'hello', cwd: testCwd });
+
+    expect(res.ok).toBe(false);
+    expect(res.authMode).toBe('api');
+    expect(res.startFailure != null).toBe(true);
+    expect(isTransientNodeFault(res)).toBe(true);
   });
 });
