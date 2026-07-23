@@ -56,6 +56,27 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
     expect(second?.dependsOn).toContain(r.leafIds[0]);
   });
 
+  test('cross-project mission: epic + leaves inherit the mission node targetProject', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const target = '/tmp/some-other-implementation-repo';
+    await updateTodo(project, missionId, { targetProject: target });
+
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke() });
+
+    const epic = getTodo(project, r.epicId);
+    expect(epic?.targetProject).toBe(target);
+    for (const leafId of r.leafIds) {
+      expect(getTodo(project, leafId)?.targetProject).toBe(target);
+    }
+  });
+
+  test('same-project mission: serves keep the default (no targetProject stamp)', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke() });
+    const epic = getTodo(project, r.epicId);
+    expect(epic?.targetProject === null || epic?.targetProject === project || epic?.targetProject === undefined).toBe(true);
+  });
+
   test('one epic can serve several criteria', async () => {
     const { missionId, criterionId, secondId } = await approvedMission();
     const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId, secondId] }, { invoke: mockInvoke() });

@@ -343,6 +343,19 @@ export async function planMissionCriterion(
         epic.id,
         spec.leaves.map((l) => ({ title: l.title, description: l.description, files: l.files, dependsOn: l.dependsOn, status: 'ready' as const })),
       );
+      // Cross-project mission: serves inherit the mission NODE's targetProject so the
+      // worker cwds + gates in the implementation repo, not the tracking repo. Without
+      // this, a collab-homed mission targeting another repo gets serves stamped with
+      // the tracking project and leaves execute against the wrong checkout (observed
+      // 2026-07-23 twice on mission 6a6dd945 before the watcher rerouted by hand).
+      const missionNode = listTodos(project, { includeCompleted: true }).find((t) => t.id === input.missionId);
+      const inheritTarget = missionNode?.targetProject;
+      if (inheritTarget && inheritTarget !== project) {
+        await updateTodo(project, epic.id, { targetProject: inheritTarget });
+        for (const leafId of createdIds) {
+          await updateTodo(project, leafId, { targetProject: inheritTarget });
+        }
+      }
       await updateTodo(project, epic.id, { status: 'ready' }); // approve the epic for the daemon
       return { epicId: epic.id, epic, leafIds: createdIds, spec, modelUsed: model, effortUsed: effort };
     } catch (err) {
