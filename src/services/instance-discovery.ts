@@ -122,7 +122,7 @@ export async function withPerIdLock<T>(id: string, fn: () => Promise<T>): Promis
   const prior = idMutex.get(id) ?? Promise.resolve();
   const settled = prior.catch(() => {}) as Promise<void>;
   const current = settled.then(() => fn());
-  const settled_tail = current.then(() => {}) as Promise<void>;
+  const settled_tail = current.then(() => {}, () => {}) as Promise<void>;
   idMutex.set(id, settled_tail);
   try {
     return await current;
@@ -131,6 +131,19 @@ export async function withPerIdLock<T>(id: string, fn: () => Promise<T>): Promis
       idMutex.delete(id);
     }
   }
+}
+
+/**
+ * True when `err` reflects an already-held proper-lockfile lock — either the
+ * coded `ELOCKED` form or a message-only variant carrying the same phrase.
+ */
+function isLockHeldError(err: unknown): boolean {
+  if (err && typeof err === 'object') {
+    if ((err as { code?: string }).code === 'ELOCKED') return true;
+    const message = (err as { message?: string }).message;
+    if (typeof message === 'string' && message.includes('already being held')) return true;
+  }
+  return false;
 }
 
 /**
@@ -143,6 +156,7 @@ export async function withPerIdLock<T>(id: string, fn: () => Promise<T>): Promis
  * caller throws the genuine duplicate error. Best-effort; never throws.
  */
 async function stealStaleInstanceLock(sessionId: string, paths: DiscoveryPaths): Promise<boolean> {
+  if (lockReleaseMap.has(sessionId)) return false; // this process already legitimately holds it
   try {
     const raw = await readFile(paths.instanceFile(sessionId), 'utf8');
     const rec = JSON.parse(raw) as Instance;
@@ -167,17 +181,21 @@ export async function writeInstance(inst: Instance, paths: DiscoveryPaths = getD
   // proper-lockfile requires the target file to exist
   await writeFile(paths.lockFile(inst.sessionId), '', { flag: 'a' });
 
-  let release: () => Promise<void>;
-  release = await withPerIdLock(inst.sessionId, async () => {
+  const release = await withPerIdLock(inst.sessionId, async () => {
     try {
-      return await lock(paths.lockFile(inst.sessionId), buildLockOptions(inst.sessionId));
+      const rel = await lock(paths.lockFile(inst.sessionId), buildLockOptions(inst.sessionId));
+      lockReleaseMap.set(inst.sessionId, rel);
+      return rel;
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && (err as { code?: string }).code === 'ELOCKED') {
+      if (isLockHeldError(err)) {
         // The lock is held. If its owner is a DEAD predecessor (hot-swap respawn
         // racing the SIGKILL'd old sidecar's still-fresh lock), steal it and retry
-        // once; a LIVE owner is a real duplicate and still throws.
-        if (await withPerIdLock(inst.sessionId, () => stealStaleInstanceLock(inst.sessionId, paths))) {
-          return await lock(paths.lockFile(inst.sessionId), buildLockOptions(inst.sessionId));
+        // once; a LIVE owner is a real duplicate and still throws. We already hold
+        // the per-id turn, so steal directly — no nested withPerIdLock (would deadlock).
+        if (await stealStaleInstanceLock(inst.sessionId, paths)) {
+          const rel = await lock(paths.lockFile(inst.sessionId), buildLockOptions(inst.sessionId));
+          lockReleaseMap.set(inst.sessionId, rel);
+          return rel;
         } else {
           throw new Error(
             `Duplicate instance for sessionId ${inst.sessionId} — another mermaid-collab server is already running for this (project, session)`
@@ -188,7 +206,6 @@ export async function writeInstance(inst: Instance, paths: DiscoveryPaths = getD
       }
     }
   });
-  lockReleaseMap.set(inst.sessionId, release);
 
   const target = paths.instanceFile(inst.sessionId);
   const tmp = target + '.tmp';

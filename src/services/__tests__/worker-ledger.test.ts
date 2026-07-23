@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
 import { parseDiffContract, renderContract, type DiffContract } from '../diff-contract';
 import Database from 'bun:sqlite';
 
@@ -133,6 +133,54 @@ describe('worker-ledger', () => {
   test('limit caps rows', () => {
     for (let i = 0; i < 5; i++) recordPhase(entry(), 1000 + i);
     expect(queryLedger({ limit: 3 }).length).toBe(3);
+  });
+});
+
+describe('queryLedgerThin — blob exclusion + index access', () => {
+  test('thin rows omit outputText/commands while preserving thin fields (raw retains blobs)', () => {
+    recordPhase(entry({
+      epicId: 'e1', outputText: 'X'.repeat(50_000), commands: JSON.stringify([{ cmd: 'ls' }]),
+      costUsd: 0.02, phase: 'implement',
+    }), 1000);
+
+    const raw = queryLedger({ epicId: 'e1' })[0];
+    const thin = queryLedgerThin({ epicId: 'e1' })[0];
+
+    expect('outputText' in raw).toBe(true);
+    expect('commands' in raw).toBe(true);
+    expect('outputText' in thin).toBe(false);
+    expect('commands' in thin).toBe(false);
+
+    expect(thin.id).toBe(raw.id);
+    expect(thin.costUsd).toBe(raw.costUsd);
+    expect(thin.phase).toBe(raw.phase);
+    expect(thin.epicId).toBe(raw.epicId);
+    expect(thin.ts).toBe(raw.ts);
+    expect(thin.knownPrice).toBe(true);
+  });
+
+  test('filtering/ordering are identical to queryLedger across a multi-epic/multi-ts seed', () => {
+    recordPhase(entry({ epicId: 'e1' }), 1000);
+    recordPhase(entry({ epicId: 'e1' }), 3000);
+    recordPhase(entry({ epicId: 'e2' }), 2000);
+
+    const thinIds = queryLedgerThin({ epicId: 'e1' }).map((r) => r.id);
+    const rawIds = queryLedger({ epicId: 'e1' }).map((r) => r.id);
+    expect(thinIds).toEqual(rawIds);
+    expect(thinIds.length).toBe(2);
+    expect(queryLedgerThin({ epicId: 'e2' }).length).toBe(1);
+  });
+
+  test('EXPLAIN QUERY PLAN uses idx_ledger_epic_ts (index SEARCH, no full-table blob scan)', () => {
+    recordPhase(entry({ epicId: 'e1' }), 1000);
+
+    const sql = _thinLedgerSql({ epicId: 'e1' });
+    const d = new Database(join(dir, 'worker-ledger.db'));
+    const plan = d.query('EXPLAIN QUERY PLAN ' + sql).all('e1') as Array<{ detail: string }>;
+    d.close();
+
+    expect(plan.some((p) => /idx_ledger_epic_ts/.test(p.detail))).toBe(true);
+    expect(plan.some((p) => /SEARCH/.test(p.detail))).toBe(true);
   });
 });
 

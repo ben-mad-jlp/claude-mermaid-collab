@@ -3,8 +3,9 @@ import {
   readMainCheckoutHead,
   withMainCheckoutInvariant,
   MainCheckoutBranchChangedError,
+  MainCheckoutResidueError,
   type GitRunner,
-  type MainCheckoutHead,
+  type MainCheckoutState,
 } from '../main-checkout-invariant';
 
 /** Queue-based mock GitRunner for canned responses. */
@@ -23,6 +24,7 @@ describe('readMainCheckoutHead', () => {
     const runner = queuedGitRunner([
       { code: 0, stdout: 'master\n', stderr: '' },
       { code: 0, stdout: 'abc123def456\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
     ]);
     const result = await readMainCheckoutHead('/test/repo', runner);
     expect(result.branch).toBe('master');
@@ -33,6 +35,7 @@ describe('readMainCheckoutHead', () => {
     const runner = queuedGitRunner([
       { code: 0, stdout: 'master\n', stderr: '' },
       { code: 1, stdout: '', stderr: 'fatal: Not a git repository' },
+      { code: 0, stdout: '', stderr: '' },
     ]);
     const result = await readMainCheckoutHead('/test/repo', runner);
     expect(result.branch).toBe('master');
@@ -43,6 +46,7 @@ describe('readMainCheckoutHead', () => {
     const runner = queuedGitRunner([
       { code: 1, stdout: '', stderr: 'fatal: Not a git repository' },
       { code: 1, stdout: '', stderr: 'fatal: Not a git repository' },
+      { code: 0, stdout: '', stderr: '' },
     ]);
     const result = await readMainCheckoutHead('/test/repo', runner);
     expect(result.branch).toBeNull();
@@ -53,6 +57,7 @@ describe('readMainCheckoutHead', () => {
     const runner = queuedGitRunner([
       { code: 1, stdout: '', stderr: 'fatal: ref HEAD is not a symbolic ref' },
       { code: 0, stdout: 'def456abc123\n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
     ]);
     const result = await readMainCheckoutHead('/test/repo', runner);
     expect(result.branch).toBeNull();
@@ -63,6 +68,7 @@ describe('readMainCheckoutHead', () => {
     const runner = queuedGitRunner([
       { code: 0, stdout: '  feature-branch  \n', stderr: '' },
       { code: 0, stdout: '  deadbeef12345678  \n', stderr: '' },
+      { code: 0, stdout: '', stderr: '' },
     ]);
     const result = await readMainCheckoutHead('/test/repo', runner);
     expect(result.branch).toBe('feature-branch');
@@ -75,8 +81,10 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 0, stdout: 'master\n', stderr: '' },     // before: symbolic-ref
       { code: 0, stdout: 'abc123\n', stderr: '' },     // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },              // before: status
       { code: 0, stdout: 'collab/epic/x\n', stderr: '' }, // after: symbolic-ref
       { code: 0, stdout: 'def456\n', stderr: '' },     // after: rev-parse
+      { code: 0, stdout: '', stderr: '' },              // after: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -100,8 +108,10 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 0, stdout: 'master\n', stderr: '' },  // before: symbolic-ref
       { code: 0, stdout: 'abc123\n', stderr: '' },  // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },           // before: status
       { code: 0, stdout: 'master\n', stderr: '' },  // after: symbolic-ref
       { code: 0, stdout: 'def456\n', stderr: '' },  // after: rev-parse (reset --hard during fn)
+      { code: 0, stdout: '', stderr: '' },           // after: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -113,8 +123,10 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 1, stdout: '', stderr: 'detached' },      // before: symbolic-ref (detached)
       { code: 0, stdout: 'abc123\n', stderr: '' },      // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },               // before: status
       { code: 1, stdout: '', stderr: 'detached' },      // after: symbolic-ref (detached)
       { code: 0, stdout: 'abc123\n', stderr: '' },      // after: rev-parse (same sha)
+      { code: 0, stdout: '', stderr: '' },               // after: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -126,8 +138,10 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 1, stdout: '', stderr: 'detached' },      // before: symbolic-ref (detached)
       { code: 0, stdout: 'abc123\n', stderr: '' },      // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },               // before: status
       { code: 1, stdout: '', stderr: 'detached' },      // after: symbolic-ref (detached)
       { code: 0, stdout: 'def456\n', stderr: '' },      // after: rev-parse (different sha)
+      { code: 0, stdout: '', stderr: '' },               // after: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -149,8 +163,10 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 0, stdout: 'master\n', stderr: '' },      // before: symbolic-ref (named branch)
       { code: 0, stdout: 'abc123\n', stderr: '' },      // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },               // before: status
       { code: 1, stdout: '', stderr: 'detached' },      // after: symbolic-ref (detached)
       { code: 0, stdout: 'abc123\n', stderr: '' },      // after: rev-parse (same sha)
+      { code: 0, stdout: '', stderr: '' },               // after: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -170,6 +186,7 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 0, stdout: 'master\n', stderr: '' },      // before: symbolic-ref
       { code: 0, stdout: 'abc123\n', stderr: '' },      // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },               // before: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -186,8 +203,10 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 0, stdout: 'master\n', stderr: '' },      // before: symbolic-ref
       { code: 0, stdout: 'abc123\n', stderr: '' },      // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },               // before: status
       { code: 0, stdout: 'master\n', stderr: '' },      // after: symbolic-ref
       { code: 0, stdout: 'abc123\n', stderr: '' },      // after: rev-parse (no change)
+      { code: 0, stdout: '', stderr: '' },               // after: status
     ];
     const runner = queuedGitRunner(responses);
 
@@ -199,12 +218,68 @@ describe('withMainCheckoutInvariant', () => {
     const responses = [
       { code: 1, stdout: '', stderr: 'not a git repo' },  // before: symbolic-ref
       { code: 1, stdout: '', stderr: 'not a git repo' },  // before: rev-parse
+      { code: 1, stdout: '', stderr: 'not a git repo' },  // before: status
       { code: 1, stdout: '', stderr: 'not a git repo' },  // after: symbolic-ref
       { code: 1, stdout: '', stderr: 'not a git repo' },  // after: rev-parse
+      { code: 1, stdout: '', stderr: 'not a git repo' },  // after: status
     ];
     const runner = queuedGitRunner(responses);
 
     const result = await withMainCheckoutInvariant('/test/repo', runner, async () => 'ok');
     expect(result).toBe('ok');
+  });
+
+  test('allows operation when tracked working tree is clean before and after', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },  // before: symbolic-ref
+      { code: 0, stdout: 'abc123\n', stderr: '' },  // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },           // before: status (clean)
+      { code: 0, stdout: 'master\n', stderr: '' },  // after: symbolic-ref
+      { code: 0, stdout: 'abc123\n', stderr: '' },  // after: rev-parse
+      { code: 0, stdout: '', stderr: '' },           // after: status (clean)
+    ];
+    const runner = queuedGitRunner(responses);
+
+    const result = await withMainCheckoutInvariant('/test/repo', runner, async () => 'clean');
+    expect(result).toBe('clean');
+  });
+
+  test('throws MainCheckoutResidueError when fn() introduces new staged residue', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },              // before: symbolic-ref
+      { code: 0, stdout: 'abc123\n', stderr: '' },              // before: rev-parse
+      { code: 0, stdout: '', stderr: '' },                       // before: status (clean)
+      { code: 0, stdout: 'master\n', stderr: '' },              // after: symbolic-ref
+      { code: 0, stdout: 'abc123\n', stderr: '' },              // after: rev-parse
+      { code: 0, stdout: 'D  src/foo.ts\n', stderr: '' },       // after: status (new staged deletion)
+    ];
+    const runner = queuedGitRunner(responses);
+
+    let error: MainCheckoutResidueError | undefined;
+    try {
+      await withMainCheckoutInvariant('/test/repo', runner, async () => 'result', { opName: 'land_epic' });
+    } catch (err) {
+      error = err as MainCheckoutResidueError;
+    }
+
+    expect(error).toBeDefined();
+    expect(error!.name).toBe('MainCheckoutResidueError');
+    expect(error!.opName).toBe('land_epic');
+    expect(error!.addedResidue).toContain('D  src/foo.ts');
+  });
+
+  test('allows operation when pre-existing residue is unchanged', async () => {
+    const responses = [
+      { code: 0, stdout: 'master\n', stderr: '' },              // before: symbolic-ref
+      { code: 0, stdout: 'abc123\n', stderr: '' },              // before: rev-parse
+      { code: 0, stdout: ' M src/x.ts\n', stderr: '' },         // before: status (pre-existing residue)
+      { code: 0, stdout: 'master\n', stderr: '' },              // after: symbolic-ref
+      { code: 0, stdout: 'abc123\n', stderr: '' },              // after: rev-parse
+      { code: 0, stdout: ' M src/x.ts\n', stderr: '' },         // after: status (same residue)
+    ];
+    const runner = queuedGitRunner(responses);
+
+    const result = await withMainCheckoutInvariant('/test/repo', runner, async () => 'preexisting-ok');
+    expect(result).toBe('preexisting-ok');
   });
 });
