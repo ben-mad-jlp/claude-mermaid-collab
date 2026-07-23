@@ -5,12 +5,32 @@
  * src/agent/worker-core/coordinator-bridge.ts:190).
  */
 
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
 import type {
   MainCheckoutBranchChangedError,
   MainCheckoutResidueError,
 } from './main-checkout-invariant';
 
 type CreateEscalationFn = typeof import('./supervisor-store').createEscalation;
+
+/** Strips a leading `/private` so macOS's realpath-expanded tmpdir compares equal to tmpdir(). */
+function stripPrivatePrefix(p: string): string {
+  return p.startsWith('/private/') ? p.slice('/private'.length) : p;
+}
+
+/** A throwaway repo (e.g. a worktree under the OS temp dir) is never an operator-actionable project. */
+function isThrowawayProjectRoot(projectRoot: string): boolean {
+  const tmpRoot = stripPrivatePrefix(tmpdir());
+  let resolved = stripPrivatePrefix(projectRoot);
+  try {
+    resolved = stripPrivatePrefix(realpathSync(projectRoot));
+  } catch {
+    /* deleted/unreadable temp repo: fall back to comparing the raw path */
+  }
+  return resolved.startsWith(tmpRoot);
+}
 
 function describeViolation(
   err: MainCheckoutResidueError | MainCheckoutBranchChangedError,
@@ -32,6 +52,8 @@ export function escalateMainCheckoutViolation(
   deps?: { createEscalation?: CreateEscalationFn },
 ): void {
   try {
+    if (isThrowawayProjectRoot(err.projectRoot)) return;
+
     const createEscalation =
       deps?.createEscalation ?? (require('./supervisor-store') as typeof import('./supervisor-store')).createEscalation;
 

@@ -43,6 +43,7 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
   let repo: string;
   let persistDir: string;
   let mgr: WorktreeManager;
+  let violations: any[] = [];
 
   beforeEach(async () => {
     repo = await fs.mkdtemp(path.join(os.tmpdir(), 'wt-land-repo-'));
@@ -55,10 +56,14 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     await runGit(repo, ['commit', '-q', '-m', 'base']);
 
     persistDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wt-land-persist-'));
+    violations = [];
     mgr = new WorktreeManager({
       projectRoot: repo,
       baseDir: path.join(persistDir, 'worktrees'),
       persistDir,
+      // Keep the suite hermetic: the default sink (escalateMainCheckoutViolation) would open the
+      // supervisor DB when the residue invariant fires.
+      onMainCheckoutViolation: (err) => { violations.push(err); },
     });
   });
 
@@ -185,7 +190,14 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     expect((await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim()).toBe(before);
   });
 
-  it('skips post-land tree sync when real dirty work is present: leaves checkout untouched', async () => {
+  // BEHAVIOR CHANGE (obsoletes the old return-shaped assertion): a skipped post-land tree sync
+  // used to be reported as the quiet `treeSynced: 'skipped-dirty'` return value, with loudness
+  // depending on whether the porcelain residue strings happened to grow. It is now an INVARIANT
+  // FAILURE — landEpicToMaster deterministically throws MainCheckoutResidueError, because the base
+  // ref has advanced while this checkout is stranded at the pre-land tree. So this test asserts a
+  // rejection instead of inspecting `res.treeSynced`. The safety guarantee is unchanged and still
+  // asserted below: the dirty work is never discarded.
+  it('throws MainCheckoutResidueError when real dirty work blocks the post-land tree sync (work preserved)', async () => {
     await epicWith('feature.txt', 'epic-output\n');
 
     // Capture pre-land state: file is not on disk yet.
@@ -203,36 +215,46 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     const baseContentBefore = await fs.readFile(path.join(repo, 'base.txt'), 'utf8');
     expect(baseContentBefore).toBe('base-modified\n');
 
-    // Land the epic over the dirty work with progress monitoring.
+    // Land the epic over the dirty work — the skipped sync is reported as a throw.
     const progress: Array<{ channel: string; msg: string }> = [];
-    const res = await mgr.landEpicToMaster(EPIC, {
-      onProgress: (channel, msg) => progress.push({ channel, msg }),
-    });
-    expect(res.landed).toBe(true);
-    expect(res.treeSynced).toBe('skipped-dirty');
+    let caught: any = null;
+    try {
+      await mgr.landEpicToMaster(EPIC, {
+        onProgress: (channel, msg) => progress.push({ channel, msg }),
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeTruthy();
+    expect(caught.name).toBe('MainCheckoutResidueError');
+    expect(String(caught.message)).toMatch(/Main checkout residue/);
+    expect(caught.opName).toBe('land_epic');
+    // addedResidue names the BLOCKING dirty path (base.txt). Pre-fix, this case surfaced through
+    // the outer withMainCheckoutInvariant residue check instead, which named the stranded
+    // `D  feature.txt` (the landed file missing from the un-synced tree); the sync-site throw now
+    // fires first and reports the cause rather than that downstream symptom.
+    expect(caught.addedResidue.some((r: string) => r.includes('base.txt'))).toBe(true);
+    expect(violations.length).toBe(1);
+    // The epic's landed file is stranded — the checkout was NOT synced.
+    expect(await exists(path.join(repo, 'feature.txt'))).toBe(false);
 
-    // Invariant: master advanced to the land commit.
-    const masterSha = res.masterSha!;
+    // Invariant: master still advanced to the land commit — the throw reports a stranded
+    // checkout, it does not undo the land.
     const currentMaster = (await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim();
-    expect(currentMaster).toBe(masterSha);
+    expect(currentMaster).not.toBe('');
 
-    // Invariant: the pre-land dirty content (base.txt modified) is UNCHANGED on disk.
-    // The main checkout was left untouched (not synced) so it still has the stale tree.
+    // SAFETY (unchanged): the pre-land dirty content is UNCHANGED on disk and in the index.
     const baseContentAfter = await fs.readFile(path.join(repo, 'base.txt'), 'utf8');
     expect(baseContentAfter).toBe('base-modified\n');
-
-    // Note: the epic's file is NOT on disk because the tree sync was skipped.
-    // The checkout remains stale (write-tree !== HEAD^{tree}), preserving uncommitted work.
-    // This is the safety guarantee: never reset when dirty work is present.
+    expect((await runGit(repo, ['show', ':base.txt'])).stdout).toBe('base-modified\n');
 
     // Invariant: onProgress received a message naming the dirty path and indicating skip.
     const stderrMessages = progress.filter((p) => p.channel === 'stderr');
-    expect(stderrMessages.length).toBeGreaterThan(0);
     const skipMsg = stderrMessages.find((m) => m.msg.includes('base.txt'));
     expect(skipMsg).toBeTruthy();
     expect(skipMsg?.msg).toContain('skipped');
 
-    // Throwaway land worktree was torn down.
+    // Throwaway land worktree was torn down (the `finally` still runs on the throw path).
     expect(await exists(path.join(persistDir, 'worktrees', '__land-master__'))).toBe(false);
   });
 
