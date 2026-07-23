@@ -517,6 +517,22 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     expect(conductorFingerprint('x', [{ id: 'a', action: 'met' }, { id: 'b', action: 'discover' }]))
       .toBe(conductorFingerprint('x', [{ id: 'b', action: 'discover' }, { id: 'a', action: 'met' }]));
   });
+  test('fingerprint changes when a criterion flips to rejected/parked even with the same action', () => {
+    const a = conductorFingerprint('building', [{ id: 'c1', action: 'building', rejectedParked: 0 }]);
+    const b = conductorFingerprint('building', [{ id: 'c1', action: 'building', rejectedParked: 1 }]);
+    expect(a).not.toBe(b);
+  });
+  test('fingerprint is stable + order-independent when rejectedParked is unchanged', () => {
+    const a = conductorFingerprint('x', [
+      { id: 'a', action: 'met', rejectedParked: 2 },
+      { id: 'b', action: 'discover', rejectedParked: 0 },
+    ]);
+    const b = conductorFingerprint('x', [
+      { id: 'b', action: 'discover', rejectedParked: 0 },
+      { id: 'a', action: 'met', rejectedParked: 2 },
+    ]);
+    expect(a).toBe(b);
+  });
   test('prompt names the mission + session, forbids hand-editing, lands as conductor', () => {
     const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
     expect(p).toContain('m1');
