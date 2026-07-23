@@ -6,6 +6,11 @@
  * - Detects detached spawns and throws (unless MERMAID_TEST_ALLOW_DETACHED=1)
  *
  * Wired as a `bun test` preload via bunfig.toml; guards every test that runs.
+ *
+ * bun:sqlite writes (e.g. supervisor-store.ts's `new Database(path)`) never go through
+ * node:fs, so the patches below cannot see or block them. Store isolation for those paths
+ * is instead achieved by defaulting MERMAID_SUPERVISOR_DIR to a per-process tmpdir (below),
+ * so every store that reads that env var opens its DB under tmpdir in tests.
  */
 
 import fs from 'node:fs';
@@ -60,6 +65,18 @@ function assertDetachedAllowed(opts: { detached?: boolean } | undefined): void {
       );
     }
   }
+}
+
+export const HERMETIC_SUPERVISOR_DIR_PREFIX = 'mermaid-hermetic-supervisor-';
+
+// Default MERMAID_SUPERVISOR_DIR to a per-process tmpdir before any store module can be
+// imported, so bun:sqlite writes (invisible to the fs patches below) land under tmpdir
+// instead of the real ~/.mermaid-collab home dir. An explicitly-set value (e.g. a suite's
+// own mkdtemp dir) is preserved verbatim.
+if (!process.env.MERMAID_SUPERVISOR_DIR) {
+  const hermeticSupervisorDir = join(TMPDIR_RESOLVED, `${HERMETIC_SUPERVISOR_DIR_PREFIX}${process.pid}`);
+  fs.mkdirSync(hermeticSupervisorDir, { recursive: true });
+  process.env.MERMAID_SUPERVISOR_DIR = hermeticSupervisorDir;
 }
 
 // Ensure idempotent patching — guard against double-wrapping on re-import
