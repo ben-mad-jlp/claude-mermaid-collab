@@ -40,6 +40,19 @@ export const CONDUCTOR_SERVE_RETRY_CAP = 3;
  *  Origin: src/services/coordinator-live.ts. */
 export const MAX_REDISPATCH = Math.max(1, Number(process.env.MERMAID_MAX_REDISPATCH) || 3);
 
+/** DURABLE PER-LEAF CEILING on epic-base-moved retry REFUNDS (loop breaker for the
+ *  cap-neutrality hole). The epic-base-moved park refunds the dispatch-time retryCount
+ *  bump because the run did zero real work. But when the trunk gate stays red, EVERY
+ *  re-dispatch bumps retryCount and the base-moved park refunds it right back — netting
+ *  to zero forever, so MAX_REDISPATCH never engages and the leaf loops indefinitely.
+ *  Past this many refunds the refund STOPS (a durable per-leaf counter, todos.
+ *  baseMovedRefunds, records them), so retryCount climbs to MAX_REDISPATCH and
+ *  parkRedispatchCap retires the leaf instead. reset_todo clears retryCount, so a
+ *  human/conductor can still grant a fresh attempt. Override with
+ *  MERMAID_MAX_BASE_MOVED_REFUNDS (default 3).
+ *  Origin: src/services/leaf-executor.ts (parkBlocked 'epic-base-moved'). */
+export const MAX_BASE_MOVED_REFUNDS = Math.max(1, Number(process.env.MERMAID_MAX_BASE_MOVED_REFUNDS) || 3);
+
 /** OI-1 loop-bound: cap stranded-accept reopens. reopenStrandedAccept re-surfaces an
  *  un-integratable leaf as `ready` so a worker re-does it. But if the LAND itself is
  *  structurally stuck (e.g. the work was salvaged to the integration branch

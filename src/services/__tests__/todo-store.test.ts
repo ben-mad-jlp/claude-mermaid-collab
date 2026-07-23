@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, listTodosChunked, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, MAX_CLAIM_RETRIES,
+  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, refundBaseMovedRetryIfUnderCap, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, TerminalParentApproveError, resolveShortId, promoteBucketItemToEpic,
   stampEpicLandedAt, isHollowLand,
@@ -475,6 +475,67 @@ describe('todo-store new fields and functions', () => {
       expect(refunded).toBe(false);
       const after = getTodo(project, t.id)!;
       expect(after.retryCount).toBe(0); // unchanged
+    });
+  });
+
+  describe('refundBaseMovedRetryIfUnderCap', () => {
+    test('refunds only the first `cap` times; past the bound retryCount is left to climb', async () => {
+      const cap = 3;
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const claim = await claimTodo(project, t.id, 'agent-1', 60_000);
+      const claimToken = claim?.claim?.token;
+
+      // Seed retryCount high enough that every refund in the loop has room to decrement,
+      // so a stopped refund is distinguishable from the floor-at-0 clamp.
+      for (let i = 0; i < 10; i++) await bumpRetryCountIfOwned(project, t.id, claimToken);
+      expect(getTodo(project, t.id)!.retryCount).toBe(10);
+
+      // The first `cap` refunds land: each decrements retryCount and bumps the counter.
+      for (let i = 0; i < cap; i++) {
+        const refunded = await refundBaseMovedRetryIfUnderCap(project, t.id, cap, claimToken);
+        expect(refunded).toBe(true);
+        const row = getTodo(project, t.id)!;
+        expect(row.retryCount).toBe(10 - (i + 1));
+        expect(row.baseMovedRefunds).toBe(i + 1);
+      }
+
+      // Bound hit: further refunds are refused WITHOUT mutating, so subsequent
+      // dispatch-time bumps accumulate toward MAX_REDISPATCH instead of netting to zero.
+      const atBound = getTodo(project, t.id)!;
+      for (let i = 0; i < 3; i++) {
+        const refunded = await refundBaseMovedRetryIfUnderCap(project, t.id, cap, claimToken);
+        expect(refunded).toBe(false);
+        const row = getTodo(project, t.id)!;
+        expect(row.retryCount).toBe(atBound.retryCount); // unchanged past the bound
+        expect(row.baseMovedRefunds).toBe(cap); // counter does not run away either
+      }
+
+      // And the leaf's retryCount really does climb once refunds stopped.
+      await bumpRetryCountIfOwned(project, t.id, claimToken);
+      const refusedAgain = await refundBaseMovedRetryIfUnderCap(project, t.id, cap, claimToken);
+      expect(refusedAgain).toBe(false);
+      expect(getTodo(project, t.id)!.retryCount).toBe(atBound.retryCount + 1);
+    });
+
+    test('wrong claimToken → returns false, neither counter moves', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const claim = await claimTodo(project, t.id, 'agent-1', 60_000);
+      await bumpRetryCountIfOwned(project, t.id, claim?.claim?.token);
+
+      const refunded = await refundBaseMovedRetryIfUnderCap(project, t.id, 3, 'wrong-token');
+      expect(refunded).toBe(false);
+      const after = getTodo(project, t.id)!;
+      expect(after.retryCount).toBe(1);
+      expect(after.baseMovedRefunds ?? 0).toBe(0);
+    });
+
+    test('todo not in_progress → returns false, neither counter moves', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+      const refunded = await refundBaseMovedRetryIfUnderCap(project, t.id, 3);
+      expect(refunded).toBe(false);
+      const after = getTodo(project, t.id)!;
+      expect(after.retryCount).toBe(0);
+      expect(after.baseMovedRefunds ?? 0).toBe(0);
     });
   });
 
