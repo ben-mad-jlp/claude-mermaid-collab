@@ -38,7 +38,6 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { DEFAULT_EVENT_POLL_MS } from '../worker-agent';
 import { getTodo } from '../../services/todo-store';
 import { getConfig, getSecret } from '../../services/config-service';
@@ -505,9 +504,17 @@ class GrokOwnHarnessImpl implements WorkerAgent {
           if (/(^|&&|;|\|)\s*cd\s+\//.test(cmd)) {
             return 'ERROR: you are already in your worktree — do not cd to absolute paths; use relative paths.';
           }
-          // cwd is threaded EXPLICITLY — never process.chdir.
-          const r = spawnSync('bash', ['-lc', cmd], { cwd, encoding: 'utf8' });
-          return `exit=${r.status}\n${((r.stdout ?? '') + (r.stderr ?? '')).slice(-1800)}`;
+          // cwd is threaded EXPLICITLY — never process.chdir. ASYNC spawn: this
+          // harness runs IN the sidecar process (§6.7 in-process lanes), so a sync
+          // bash here (tests can take minutes) starves the sidecar event loop past
+          // the Electron liveness watchdog (crit-6, mission 693bbc27).
+          const proc = Bun.spawn(['bash', '-lc', cmd], { cwd, stdout: 'pipe', stderr: 'pipe' });
+          const [stdout, stderr, code] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+          ]);
+          return `exit=${code}\n${(stdout + stderr).slice(-1800)}`;
         },
       }),
     };

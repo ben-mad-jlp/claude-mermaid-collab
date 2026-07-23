@@ -97,7 +97,7 @@ describe('epicMergeClean — isolation: dirty main does not contaminate validati
     writeFileSync(join(repo, 'contaminant.txt'), 'dirty\n');
 
     // Run the validation — only epicMergeClean is the real runner here.
-    const verdict = validateStewardProof(
+    const verdict = await validateStewardProof(
       'land_epic',
       { kind: 'epic-landable', epicId, epicBranch },
       makeCtx({ repo, epicBranch }),
@@ -144,7 +144,7 @@ describe('epicMergeClean — isolation: dirty main does not contaminate validati
     writeFileSync(join(repo, 'dirty2.txt'), 'dirty\n');
 
     const epicBranch = 'collab/epic/conflict1';
-    const verdict = validateStewardProof(
+    const verdict = await validateStewardProof(
       'land_epic',
       { kind: 'epic-landable', epicId: 'conflict1', epicBranch },
       makeCtx({ repo, epicBranch }),

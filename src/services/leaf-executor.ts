@@ -299,10 +299,10 @@ export interface LeafExecutorDeps {
   /** Grok auth assertion — pre-flighted at leaf entry when any node may run on grok, so a
    *  mixed leaf fails fast instead of stranding after the cheap grok work. Default
    *  `assertGrokAuth`. */
-  assertGrokAuth?: () => AuthMode;
+  assertGrokAuth?: () => AuthMode | Promise<AuthMode>;
   /** xAI-API auth assertion (XAI_API_KEY) — pre-flighted at leaf entry when any node routes to
    *  grok-api. Default `assertXaiApiAuth`. */
-  assertXaiApiAuth?: () => AuthMode;
+  assertXaiApiAuth?: () => AuthMode | Promise<AuthMode>;
   /** Worktree manager for the TARGET repo. */
   wm: WorktreeManager;
   /** The epic id this leaf rolls up to (per-epic accumulation branch). */
@@ -318,8 +318,10 @@ export interface LeafExecutorDeps {
   /** Epic tip SHA at run start — recorded into the durable resume row so a later
    *  re-claim can detect a moved base (slice 2). Best-effort; may be null. */
   epicBaseSha?: string | null;
-  /** Once-per-run subscription auth assertion (throws if not the subscription). */
-  assertAuth: () => AuthMode;
+  /** Once-per-run subscription auth assertion (throws if not the subscription).
+   *  May be async — the REAL assertion spawns `claude auth status` and must never
+   *  block the sidecar event loop (crit-6, mission 693bbc27). */
+  assertAuth: () => AuthMode | Promise<AuthMode>;
   /** Route a PASS/BLOCKED proposal through the EXISTING completion gate funnel.
    *  Returns the gate's authoritative effective outcome. */
   complete: (
@@ -1900,10 +1902,10 @@ export async function runLeaf(
   // required (review + MCP nodes stay claude). When ANY node may route to grok, pre-flight
   // grok auth too so a MIXED leaf fails fast rather than stranding after the cheap grok work
   // (Grok review risk #3).
-  deps.assertAuth();
+  await deps.assertAuth();
   const runKinds = leafRunKinds(leaf);
-  if (grokNeededForKinds(project, runKinds)) (deps.assertGrokAuth ?? assertGrokAuth)();
-  if (xaiApiNeededForKinds(project, runKinds)) (deps.assertXaiApiAuth ?? assertXaiApiAuth)();
+  if (grokNeededForKinds(project, runKinds)) await (deps.assertGrokAuth ?? assertGrokAuth)();
+  if (xaiApiNeededForKinds(project, runKinds)) await (deps.assertXaiApiAuth ?? assertXaiApiAuth)();
 
   const sessionKey = leafSessionKey(leaf);
   const { epicId, epicBranch } = deps;
@@ -4073,11 +4075,18 @@ export async function makeLeafExecutorDeps(
     // failure (missing tool) ⇒ ran:false (infra → block); a non-zero exit ⇒ ran:true/ok:false
     // (a finding). Output is captured (stdout+stderr) for the report.
     runCommandGate: async (cwd, command) => {
+      // ASYNC spawn (mirrors defaultGateSpawn) — a command gate can run a whole test
+      // suite, and a sync spawn here starves the sidecar event loop past the Electron
+      // liveness watchdog (crit-6, mission 693bbc27).
       try {
-        const { spawnSync } = await import('node:child_process');
-        const r = spawnSync(command, { cwd, shell: true, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-        if (r.error) return { ran: false, ok: false, output: String(r.error.message ?? r.error) };
-        return { ran: true, ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+        const proc = Bun.spawn(['sh', '-c', command], { cwd, stdout: 'pipe', stderr: 'pipe' });
+        const [stdout, stderr, code] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (proc.signalCode != null) return { ran: false, ok: false, output: `${stdout}${stderr}` };
+        return { ran: true, ok: code === 0, output: `${stdout}${stderr}` };
       } catch (e) {
         return { ran: false, ok: false, output: e instanceof Error ? e.message : String(e) };
       }
@@ -4091,16 +4100,36 @@ export async function makeLeafExecutorDeps(
     // imperfect impl only ever costs the advisory benefit, never wrongly accepts. Best-effort v1.
     testsFlipBaseToBranch: async ({ cwd, testFiles, baseSha }) => {
       if (!baseSha || !testFiles?.length) return null;
-      const cp = await import('node:child_process');
       const fs = await import('node:fs');
       const path = await import('node:path');
       const os = await import('node:os');
+      // ASYNC bounded spawn — this runs whole test files (up to minutes); the old
+      // spawnSync here held the sidecar event loop for the full run (crit-6, 693bbc27).
+      const runAsync = async (
+        argv: string[],
+        runCwd: string,
+        timeoutMs: number,
+      ): Promise<{ status: number | null; failed: boolean }> => {
+        try {
+          const proc = Bun.spawn(argv, { cwd: runCwd, stdout: 'ignore', stderr: 'ignore' });
+          const killTimer = setTimeout(() => { try { proc.kill(); } catch { /* gone */ } }, timeoutMs);
+          try {
+            const code = await proc.exited;
+            if (proc.signalCode != null) return { status: null, failed: true };
+            return { status: code, failed: false };
+          } finally {
+            clearTimeout(killTimer);
+          }
+        } catch {
+          return { status: null, failed: true };
+        }
+      };
       let tmp: string | undefined;
       try {
         tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cov-base-'));
         const wtDir = path.join(tmp, 'wt');
-        const add = cp.spawnSync('git', ['worktree', 'add', '--detach', wtDir, baseSha], { cwd, encoding: 'utf8', timeout: 60000 });
-        if (add.status !== 0) return null;
+        const add = await runAsync(['git', 'worktree', 'add', '--detach', wtDir, baseSha], cwd, 60000);
+        if (add.failed || add.status !== 0) return null;
         // node_modules symlinks so the runner resolves deps in the ephemeral base tree.
         try { fs.symlinkSync(path.join(targetProject, 'node_modules'), path.join(wtDir, 'node_modules')); } catch { /* best-effort */ }
         try { fs.symlinkSync(path.join(targetProject, 'ui', 'node_modules'), path.join(wtDir, 'ui', 'node_modules')); } catch { /* best-effort */ }
@@ -4116,13 +4145,13 @@ export async function makeLeafExecutorDeps(
         const uiTests = testFiles.filter((f) => f.startsWith('ui/'));
         let anyRan = false, anyFailed = false;
         if (backend.length) {
-          const r = cp.spawnSync('bun', ['test', ...backend], { cwd: wtDir, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024 });
-          if (r.error) return null;
+          const r = await runAsync(['bun', 'test', ...backend], wtDir, 180000);
+          if (r.failed) return null;
           anyRan = true; if (r.status !== 0) anyFailed = true;
         }
         if (uiTests.length) {
-          const r = cp.spawnSync('npx', ['vitest', 'run', ...uiTests.map((f) => f.replace(/^ui\//, ''))], { cwd: path.join(wtDir, 'ui'), encoding: 'utf8', timeout: 240000, maxBuffer: 16 * 1024 * 1024 });
-          if (r.error) return null;
+          const r = await runAsync(['npx', 'vitest', 'run', ...uiTests.map((f) => f.replace(/^ui\//, ''))], path.join(wtDir, 'ui'), 240000);
+          if (r.failed) return null;
           anyRan = true; if (r.status !== 0) anyFailed = true;
         }
         if (!anyRan) return null;
@@ -4131,7 +4160,7 @@ export async function makeLeafExecutorDeps(
         return null;
       } finally {
         if (tmp) {
-          try { cp.spawnSync('git', ['worktree', 'remove', '--force', path.join(tmp, 'wt')], { cwd, timeout: 30000 }); } catch { /* best-effort */ }
+          await runAsync(['git', 'worktree', 'remove', '--force', path.join(tmp, 'wt')], cwd, 30000); // best-effort
           try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
         }
       }

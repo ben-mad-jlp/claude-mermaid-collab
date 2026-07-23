@@ -756,7 +756,7 @@ export async function landEpic(
       const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
       const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
-      const verdict = validateStewardProof(
+      const verdict = await validateStewardProof(
         'land_epic',
         { kind: 'epic-landable', epicId, epicBranch },
         {

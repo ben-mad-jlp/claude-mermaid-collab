@@ -443,16 +443,21 @@ export function authModeFromStatus(s: AuthStatus | null): AuthMode {
   return 'unknown';
 }
 
-/** Run `claude auth status --json` and parse it. Returns null on any failure. */
-function readAuthStatus(): AuthStatus | null {
+/** Run `claude auth status --json` ASYNC and parse it. Returns null on any failure.
+ *  Bun.spawn + await exited — never spawnSync: this runs in the sidecar before
+ *  spawning nodes, and a sync spawn starves the event loop (crit-6, mission 693bbc27). */
+async function readAuthStatus(): Promise<AuthStatus | null> {
   try {
-    const p = Bun.spawnSync([resolveClaudeBin(), 'auth', 'status', '--json'], {
+    const p = Bun.spawn([resolveClaudeBin(), 'auth', 'status', '--json'], {
       stdout: 'pipe',
       stderr: 'pipe',
       env: process.env,
       timeout: 10_000,
     });
-    const out = p.stdout?.toString() ?? '';
+    const [out] = await Promise.all([
+      p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
+      p.exited,
+    ]);
     if (!out.trim()) return null;
     return JSON.parse(out) as AuthStatus;
   } catch {
@@ -474,9 +479,9 @@ let cachedAuthMode: AuthMode | null = null;
  *
  * Returns the resolved AuthMode ('subscription') on success.
  */
-export function assertSubscriptionAuth(): AuthMode {
+export async function assertSubscriptionAuth(): Promise<AuthMode> {
   if (cachedAuthMode === null) {
-    cachedAuthMode = authModeFromStatus(readAuthStatus());
+    cachedAuthMode = authModeFromStatus(await readAuthStatus());
   }
   if (cachedAuthMode !== 'subscription') {
     throw new Error(
@@ -490,9 +495,9 @@ export function assertSubscriptionAuth(): AuthMode {
 
 /** Resolve the memoized auth mode WITHOUT throwing (so a node can stamp authMode
  *  on its result and surface a HALT itself rather than crash the process). */
-function resolveAuthMode(): AuthMode {
+async function resolveAuthMode(): Promise<AuthMode> {
   if (cachedAuthMode === null) {
-    cachedAuthMode = authModeFromStatus(readAuthStatus());
+    cachedAuthMode = authModeFromStatus(await readAuthStatus());
   }
   return cachedAuthMode;
 }
@@ -500,6 +505,13 @@ function resolveAuthMode(): AuthMode {
 /** For tests: drop the memoized auth so the next call re-reads `auth status`. */
 export function _resetAuthCache(): void {
   cachedAuthMode = null;
+}
+
+/** For tests ONLY: pre-seed the memoized auth mode so invokeNode never spawns the
+ *  real `claude auth status` probe (the probe is async Bun.spawn now — tests that
+ *  mock Bun.spawn for NODE runs would otherwise feed the auth probe their node mock). */
+export function _primeAuthCacheForTest(mode: AuthMode): void {
+  cachedAuthMode = mode;
 }
 
 /** Shape of the `--output-format json` single result object (fields best-effort). */
@@ -646,7 +658,7 @@ async function invokeNodeAttempt(spec: NodeSpec): Promise<NodeResult> {
   // T14 overnight case). Wall time counts suspend, so durationMs now reflects reality and
   // agrees with the timeout. (We never sub-ms-profile a node here; ms wall is the right unit.)
   const start = Date.now();
-  const authMode = resolveAuthMode();
+  const authMode = await resolveAuthMode();
 
   // HALT + ALARM contract: if the active auth is not the subscription, refuse to
   // spawn — surface a loud, machine-readable error the executor will act on.
@@ -1044,16 +1056,21 @@ export function authModeFromGrokStatus(s: GrokAuthStatus | GrokAuthFile | Record
   return 'unknown';
 }
 
-function readGrokAuthStatus(): GrokAuthStatus | GrokAuthFile | null {
+async function readGrokAuthStatus(): Promise<GrokAuthStatus | GrokAuthFile | null> {
   try {
-    const p = Bun.spawnSync([resolveGrokBin(), 'auth', 'status', '--json'], {
+    // ASYNC spawn (never spawnSync) — this one-shot auth probe runs in the sidecar
+    // before spawning nodes (crit-6, mission 693bbc27).
+    const p = Bun.spawn([resolveGrokBin(), 'auth', 'status', '--json'], {
       stdout: 'pipe',
       stderr: 'pipe',
       env: process.env,
       timeout: 10_000,
     });
-    const out = p.stdout?.toString() ?? '';
-    if (out.trim() && p.exitCode === 0) {
+    const [out, exitCode] = await Promise.all([
+      p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
+      p.exited,
+    ]);
+    if (out.trim() && exitCode === 0) {
       return JSON.parse(out) as GrokAuthStatus;
     }
   } catch { /* fall through to auth.json */ }
@@ -1072,12 +1089,12 @@ let cachedGrokAuthMode: AuthMode | null = null;
  * Pre-flight Grok OIDC guard — memoized, FAIL-CLOSED. Separate cache from Claude.
  * Verifies `grok` is on PATH (or GROK_BIN) and credentials look valid.
  */
-export function assertGrokAuth(): AuthMode {
+export async function assertGrokAuth(): Promise<AuthMode> {
   if (cachedGrokAuthMode === null) {
     if (!Bun.which(resolveGrokBin())) {
       cachedGrokAuthMode = 'unknown';
     } else {
-      cachedGrokAuthMode = authModeFromGrokStatus(readGrokAuthStatus());
+      cachedGrokAuthMode = authModeFromGrokStatus(await readGrokAuthStatus());
     }
   }
   if (cachedGrokAuthMode !== 'grok') {
@@ -1090,12 +1107,12 @@ export function assertGrokAuth(): AuthMode {
   return cachedGrokAuthMode;
 }
 
-function resolveGrokAuthMode(): AuthMode {
+async function resolveGrokAuthMode(): Promise<AuthMode> {
   if (cachedGrokAuthMode === null) {
     if (!Bun.which(resolveGrokBin())) {
       cachedGrokAuthMode = 'unknown';
     } else {
-      cachedGrokAuthMode = authModeFromGrokStatus(readGrokAuthStatus());
+      cachedGrokAuthMode = authModeFromGrokStatus(await readGrokAuthStatus());
     }
   }
   return cachedGrokAuthMode;
@@ -1263,7 +1280,7 @@ async function invokeGrokNodeInner(spec: NodeSpec): Promise<NodeResult> {
     throw new Error(`invokeGrokNode: refused — allowedTools grants an mcp__ tool ('${spec.allowedTools}') but the grok CLI lane cannot carry an MCP config.`);
   }
   const start = Date.now();
-  const authMode = resolveGrokAuthMode();
+  const authMode = await resolveGrokAuthMode();
 
   if (authMode !== 'grok') {
     const msg =

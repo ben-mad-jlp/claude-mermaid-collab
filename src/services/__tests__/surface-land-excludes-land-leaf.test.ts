@@ -10,7 +10,7 @@ const GREEN_RUNNERS = {
 };
 
 describe('surface-land-excludes-land-leaf', () => {
-  it('POSITIVE: build-children-only child set (land leaf excluded) is green while the land leaf is pending', () => {
+  it('POSITIVE: build-children-only child set (land leaf excluded) is green while the land leaf is pending', async () => {
     const project = '/test/project';
     const epicId = 'epic-123';
     const buildChildId = 'build-456';
@@ -61,7 +61,7 @@ describe('surface-land-excludes-land-leaf', () => {
 
     // Call validateStewardProof with build-children-only epicChildIds
     const proof: StewardProof = { kind: 'epic-landable', epicId, epicBranch: `epic/${epicId}` };
-    const result = validateStewardProof('land_epic', proof, {
+    const result = await validateStewardProof('land_epic', proof, {
       project,
       dependsOn: [],
       getDep,
@@ -75,7 +75,7 @@ describe('surface-land-excludes-land-leaf', () => {
     expect(result.reason).not.toBe('epic-children-incomplete');
   });
 
-  it('NEGATIVE control: a not-done BUILD child yields epic-children-incomplete', () => {
+  it('NEGATIVE control: a not-done BUILD child yields epic-children-incomplete', async () => {
     const project = '/test/project';
     const epicId = 'epic-123';
     const buildChild1Id = 'build-456';
@@ -102,7 +102,7 @@ describe('surface-land-excludes-land-leaf', () => {
     const epicChildIds = [buildChild1Id, buildChild2Id];
 
     const proof: StewardProof = { kind: 'epic-landable', epicId, epicBranch: `epic/${epicId}` };
-    const result = validateStewardProof('land_epic', proof, {
+    const result = await validateStewardProof('land_epic', proof, {
       project,
       dependsOn: [],
       getDep,

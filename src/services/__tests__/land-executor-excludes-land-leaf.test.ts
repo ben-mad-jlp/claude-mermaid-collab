@@ -15,7 +15,7 @@ const GREEN_RUNNERS = {
 // land leaf → epic-children-incomplete → every auto-land rejected forever. The land leaf
 // is stamped done AFTER the merge (stampLandLeafOnMerge), so it must never gate the land.
 describe('land-executor-excludes-land-leaf', () => {
-  it('POSITIVE: executor child set (land leaf excluded) is green while the land leaf is pending', () => {
+  it('POSITIVE: executor child set (land leaf excluded) is green while the land leaf is pending', async () => {
     const project = '/test/project';
     const epicId = 'epic-123';
     const buildChildId = 'build-456';
@@ -37,7 +37,7 @@ describe('land-executor-excludes-land-leaf', () => {
     expect(epicChildIds).toEqual([buildChildId]); // land leaf excluded
 
     const proof: StewardProof = { kind: 'epic-landable', epicId, epicBranch: `epic/${epicId}` };
-    const result = validateStewardProof('land_epic', proof, {
+    const result = await validateStewardProof('land_epic', proof, {
       project,
       dependsOn: [],
       getDep,
@@ -51,7 +51,7 @@ describe('land-executor-excludes-land-leaf', () => {
     expect(result.reason).not.toBe('epic-children-incomplete');
   });
 
-  it('NEGATIVE control: a not-done BUILD child still yields epic-children-incomplete', () => {
+  it('NEGATIVE control: a not-done BUILD child still yields epic-children-incomplete', async () => {
     const project = '/test/project';
     const epicId = 'epic-123';
     const buildDoneId = 'build-456';
@@ -73,7 +73,7 @@ describe('land-executor-excludes-land-leaf', () => {
     expect(epicChildIds).toEqual([buildDoneId, buildPendingId]);
 
     const proof: StewardProof = { kind: 'epic-landable', epicId, epicBranch: `epic/${epicId}` };
-    const result = validateStewardProof('land_epic', proof, {
+    const result = await validateStewardProof('land_epic', proof, {
       project,
       dependsOn: [],
       getDep,

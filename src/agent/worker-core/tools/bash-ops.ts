@@ -9,7 +9,7 @@
  * is the capability layer: read-only phases only get run_bash_ro, and the worktree
  * is disposable.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 export const BASH_OUTPUT_CAP = 30_000;
 
@@ -27,16 +27,28 @@ export interface BashResult {
   output: string;
 }
 
-/** Run `cmd` in `cwd`. Returns {exit, output} (output tail-capped), or {error} when
- *  a guard rejects the command before execution. */
-export function bashOp(cwd: string, cmd: string, opts: { readOnly?: boolean } = {}): BashResult | { error: string } {
+/** Run `cmd` in `cwd` ASYNC. Returns {exit, output} (output tail-capped), or {error}
+ *  when a guard rejects the command before execution. NEVER a sync spawn: worker-core
+ *  lanes run IN the sidecar process (§6.7 in-process harnesses), and a sync bash
+ *  (tests can take minutes) starves its event loop past the Electron liveness
+ *  watchdog (crit-6, mission 693bbc27). */
+export async function bashOp(cwd: string, cmd: string, opts: { readOnly?: boolean } = {}): Promise<BashResult | { error: string }> {
   if (ABS_CD.test(cmd)) {
     return { error: 'do not cd to absolute paths — you are already in your worktree; use relative paths' };
   }
   if (opts.readOnly && MUTATING.test(cmd)) {
     return { error: `run_bash_ro: command appears to mutate state, blocked in a read-only phase: ${cmd}` };
   }
-  const r = spawnSync('bash', ['-lc', cmd], { cwd, encoding: 'utf8' });
-  const output = ((r.stdout ?? '') + (r.stderr ?? '')).slice(-BASH_OUTPUT_CAP);
-  return { exit: r.status ?? -1, output };
+  return await new Promise<BashResult>((resolvePromise) => {
+    try {
+      const child = spawn('bash', ['-lc', cmd], { cwd });
+      let out = '';
+      child.stdout?.on('data', (d: Buffer) => { out = (out + d.toString()).slice(-BASH_OUTPUT_CAP * 2); });
+      child.stderr?.on('data', (d: Buffer) => { out = (out + d.toString()).slice(-BASH_OUTPUT_CAP * 2); });
+      child.on('error', () => resolvePromise({ exit: -1, output: out.slice(-BASH_OUTPUT_CAP) }));
+      child.on('close', (code) => resolvePromise({ exit: code ?? -1, output: out.slice(-BASH_OUTPUT_CAP) }));
+    } catch {
+      resolvePromise({ exit: -1, output: '' });
+    }
+  });
 }

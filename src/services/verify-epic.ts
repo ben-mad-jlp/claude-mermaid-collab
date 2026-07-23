@@ -131,6 +131,35 @@ export function resolveSuiteCommands(project: string): Array<{ suite: string; co
 /** Hard cap on any single suite run (same as git probe timeouts elsewhere). */
 const SUITE_TIMEOUT_MS = 15_000;
 
+/** ASYNC bounded spawn (Bun.spawn + await exited + kill timer) — NEVER Bun.spawnSync:
+ *  verifyEpic runs in the sidecar (MCP verify_epic / supervisor route), and the old
+ *  sync worktree-add + suite-run sequence blocked its event loop for up to a minute
+ *  (the Electron liveness-watchdog crash-loop class, crit-6 of mission 693bbc27). */
+async function runBounded(
+  argv: string[],
+  opts: { cwd?: string; timeoutMs?: number } = {},
+): Promise<{ code: number | null; stdout: string; stderr: string; signaled: boolean }> {
+  try {
+    const proc = Bun.spawn(argv, { cwd: opts.cwd, stdout: 'pipe', stderr: 'pipe' });
+    const killTimer = setTimeout(
+      () => { try { proc.kill(); } catch { /* gone */ } },
+      opts.timeoutMs ?? SUITE_TIMEOUT_MS,
+    );
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(''),
+        proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(''),
+        proc.exited,
+      ]);
+      return { code, stdout, stderr, signaled: proc.signalCode != null };
+    } finally {
+      clearTimeout(killTimer);
+    }
+  } catch (e) {
+    return { code: null, stdout: '', stderr: e instanceof Error ? e.message : String(e), signaled: false };
+  }
+}
+
 /** Default git-backed suite runner: create scratch worktrees, run suites, parse results. */
 function makeGitSuiteRunner(project: string, epicId: string, base: string): SuiteRunner {
   return async (command: string, side: 'base' | 'branch', suite: string): Promise<SuiteRunResult> => {
@@ -139,82 +168,33 @@ function makeGitSuiteRunner(project: string, epicId: string, base: string): Suit
     const scratchDir = join(tmpdir(), `mermaid-collab-verify-${scratchId}`);
 
     try {
-      // Clean up any stale worktree first
+      // Clean up any stale worktree first (ignore failure: may not have been a worktree)
       if (existsSync(scratchDir)) {
-        const rmProc = await Bun.spawn(['git', '-C', project, 'worktree', 'remove', '--force', scratchDir], {
-          timeout: SUITE_TIMEOUT_MS,
-          stdout: 'pipe',
-          stderr: 'pipe',
-        });
-        const [, , rmExitCode] = await Promise.all([
-          new Response(rmProc.stdout).text(),
-          new Response(rmProc.stderr).text(),
-          rmProc.exited,
-        ]);
-        if (rmExitCode !== 0) {
-          // Ignore: it might not have been a worktree, continue to add
-        }
+        await runBounded(['git', '-C', project, 'worktree', 'remove', '--force', scratchDir]);
       }
 
       // Create detached worktree at the requested ref
-      const addProc = await Bun.spawn(
-        ['git', '-C', project, 'worktree', 'add', '--detach', scratchDir, branchRef],
-        { timeout: SUITE_TIMEOUT_MS, stdout: 'pipe', stderr: 'pipe' },
-      );
-      const [, addStderr, addExitCode] = await Promise.all([
-        new Response(addProc.stdout).text(),
-        new Response(addProc.stderr).text(),
-        addProc.exited,
-      ]);
-      if (addExitCode !== 0) {
-        const err = addStderr || 'git worktree add failed';
+      const addRes = await runBounded(['git', '-C', project, 'worktree', 'add', '--detach', scratchDir, branchRef]);
+      if (addRes.code !== 0) {
+        const err = addRes.stderr || 'git worktree add failed';
         return { ran: false, failing: [], error: err.trim() };
       }
 
       // Run the suite command
-      let output = '';
-      let error = '';
-      try {
-        const proc = await Bun.spawn(['sh', '-c', command], {
-          cwd: scratchDir,
-          timeout: SUITE_TIMEOUT_MS,
-          stdout: 'pipe',
-          stderr: 'pipe',
-        });
-        const [procOutput, procError] = await Promise.all([
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-          proc.exited,
-        ]);
-        output = procOutput || '';
-        error = procError || '';
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { ran: false, failing: [], error: `spawn failed: ${msg}` };
+      const proc = await runBounded(['sh', '-c', command], { cwd: scratchDir });
+      if (proc.code === null && !proc.signaled) {
+        return { ran: false, failing: [], error: `spawn failed: ${proc.stderr}` };
       }
 
       // Parse failing test names from the output
-      const failing = extractFailingTests(output + '\n' + error);
+      const failing = extractFailingTests(proc.stdout + '\n' + proc.stderr);
       return { ran: true, failing };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ran: false, failing: [], error: msg };
     } finally {
-      // ALWAYS remove the scratch worktree
-      try {
-        const cleanupProc = await Bun.spawn(['git', '-C', project, 'worktree', 'remove', '--force', scratchDir], {
-          timeout: SUITE_TIMEOUT_MS,
-          stdout: 'pipe',
-          stderr: 'pipe',
-        });
-        await Promise.all([
-          new Response(cleanupProc.stdout).text(),
-          new Response(cleanupProc.stderr).text(),
-          cleanupProc.exited,
-        ]);
-      } catch {
-        // Ignore cleanup errors
-      }
+      // ALWAYS remove the scratch worktree (best-effort)
+      await runBounded(['git', '-C', project, 'worktree', 'remove', '--force', scratchDir]);
     }
   };
 }

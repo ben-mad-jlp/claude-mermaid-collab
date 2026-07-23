@@ -2256,7 +2256,7 @@ export async function setupMCPServer(): Promise<Server> {
             // Resolve short-id prefix via getTodo (the standard short-id convention).
             const resolved = getTodo(project, epicIdArg);
             const epicId = resolved?.id ?? epicIdArg;
-            const report = getEpicLandReadiness(project, epicId);
+            const report = await getEpicLandReadiness(project, epicId);
             return JSON.stringify(report, null, 2);
           }
           case 'verify_epic': {

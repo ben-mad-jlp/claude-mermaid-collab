@@ -78,29 +78,29 @@ function probeFrom(table: Record<string, CommitProbeResult>): CommitProbe {
 }
 
 describe('isGateTodo', () => {
-  test('[GATE] prefix marks a gate todo', () => {
+  test('[GATE] prefix marks a gate todo', async () => {
     expect(isGateTodo(todo({ title: '[GATE] Decide: something' }))).toBe(true);
   });
 
-  test('[GATE:kind] prefix marks a gate todo', () => {
+  test('[GATE:kind] prefix marks a gate todo', async () => {
     expect(isGateTodo(todo({ title: '[GATE:spec-review] Approve the spec' }))).toBe(true);
   });
 
-  test('case-insensitive matching', () => {
+  test('case-insensitive matching', async () => {
     expect(isGateTodo(todo({ title: '[gate] some gate' }))).toBe(true);
   });
 
-  test('non-gate titles do not match', () => {
+  test('non-gate titles do not match', async () => {
     expect(isGateTodo(todo({ title: 'just a regular todo' }))).toBe(false);
     expect(isGateTodo(todo({ title: 'GATE: wrong syntax' }))).toBe(false);
   });
 });
 
 describe('buildLandReadiness', () => {
-  test('only [EPIC] todos serve as roots', () => {
+  test('only [EPIC] todos serve as roots', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness(
+    const report = await buildLandReadiness(
       [epic, work],
       'e1',
       probeFrom({ w1: { onEpicTip: ['abc'], anyRef: ['abc'] } }),
@@ -108,13 +108,13 @@ describe('buildLandReadiness', () => {
     expect(report.epicId).toBe('e1');
   });
 
-  test('missing epic returns empty findings', () => {
-    const report = buildLandReadiness([], 'missing-epic', probeFrom({}));
+  test('missing epic returns empty findings', async () => {
+    const report = await buildLandReadiness([], 'missing-epic', probeFrom({}));
     expect(report.findings).toHaveLength(0);
     expect(report.blocking).toBe(false);
   });
 
-  test('container with children is exempted', () => {
+  test('container with children is exempted', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const container = todo({
       id: 'c1',
@@ -129,20 +129,20 @@ describe('buildLandReadiness', () => {
       status: 'ready',
       acceptanceStatus: null,
     });
-    const report = buildLandReadiness([epic, container, child], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, container, child], 'e1', probeFrom({}));
     expect(report.exemptions).toContainEqual(expect.objectContaining({ todoId: 'c1', reason: 'container', childCount: 1 }));
     expect(report.findings).toHaveLength(0);
   });
 
-  test('container with 0 children is NOT exempted', () => {
+  test('container with 0 children is NOT exempted', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const orphanContainer = todo({ id: 'c1', title: 'orphan task', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness([epic, orphanContainer], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, orphanContainer], 'e1', probeFrom({}));
     expect(report.exemptions.some((e) => e.todoId === 'c1')).toBe(false);
     expect(report.findings).toContainEqual(expect.objectContaining({ todoId: 'c1', kind: 'missing' }));
   });
 
-  test('[GATE] nodes are exempted regardless of commit status', () => {
+  test('[GATE] nodes are exempted regardless of commit status', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const gate = todo({
       id: 'g1',
@@ -150,12 +150,12 @@ describe('buildLandReadiness', () => {
       parentId: 'e1',
       acceptanceStatus: 'accepted',
     });
-    const report = buildLandReadiness([epic, gate], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, gate], 'e1', probeFrom({}));
     expect(report.exemptions).toContainEqual(expect.objectContaining({ todoId: 'g1', reason: 'gate' }));
     expect(report.findings.some((f) => f.todoId === 'g1')).toBe(false);
   });
 
-  test('[LAND] leaf is exempted', () => {
+  test('[LAND] leaf is exempted', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const land = todo({
       id: 'l1',
@@ -163,12 +163,12 @@ describe('buildLandReadiness', () => {
       parentId: 'e1',
       acceptanceStatus: 'accepted',
     });
-    const report = buildLandReadiness([epic, land], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, land], 'e1', probeFrom({}));
     expect(report.exemptions).toContainEqual(expect.objectContaining({ todoId: 'l1', reason: 'land-leaf' }));
     expect(report.findings.some((f) => f.todoId === 'l1')).toBe(false);
   });
 
-  test('nested [EPIC] is exempted', () => {
+  test('nested [EPIC] is exempted', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] root', status: 'done' });
     const nested = todo({
       id: 'e2',
@@ -176,14 +176,14 @@ describe('buildLandReadiness', () => {
       parentId: 'e1',
       acceptanceStatus: 'accepted',
     });
-    const report = buildLandReadiness([epic, nested], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, nested], 'e1', probeFrom({}));
     expect(report.exemptions).toContainEqual(expect.objectContaining({ todoId: 'e2', reason: 'epic' }));
   });
 
-  test('code leaf with commit on epic tip is landed', () => {
+  test('code leaf with commit on epic tip is landed', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness(
+    const report = await buildLandReadiness(
       [epic, work],
       'e1',
       probeFrom({ w1: { onEpicTip: ['abc123'], anyRef: ['abc123'] } }),
@@ -193,10 +193,10 @@ describe('buildLandReadiness', () => {
     expect(report.blocking).toBe(false);
   });
 
-  test('code leaf with no commit is missing', () => {
+  test('code leaf with no commit is missing', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness([epic, work], 'e1', probeFrom({ w1: { onEpicTip: [], anyRef: [] } }));
+    const report = await buildLandReadiness([epic, work], 'e1', probeFrom({ w1: { onEpicTip: [], anyRef: [] } }));
     expect(report.findings).toHaveLength(1);
     expect(report.findings[0]).toEqual(
       expect.objectContaining({
@@ -208,10 +208,10 @@ describe('buildLandReadiness', () => {
     expect(report.blocking).toBe(true);
   });
 
-  test('code leaf with commit on stray ref is stranded', () => {
+  test('code leaf with commit on stray ref is stranded', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness(
+    const report = await buildLandReadiness(
       [epic, work],
       'e1',
       probeFrom({ w1: { onEpicTip: [], anyRef: ['deadbeef'] } }),
@@ -227,10 +227,10 @@ describe('buildLandReadiness', () => {
     expect(report.blocking).toBe(true);
   });
 
-  test('leaf with 2 commits (normal: worker + merge) is not a duplicate finding', () => {
+  test('leaf with 2 commits (normal: worker + merge) is not a duplicate finding', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness(
+    const report = await buildLandReadiness(
       [epic, work],
       'e1',
       probeFrom({ w1: { onEpicTip: ['abc', 'def'], anyRef: ['abc', 'def'] } }),
@@ -239,11 +239,11 @@ describe('buildLandReadiness', () => {
     expect(report.duplicateCommits).toHaveLength(0);
   });
 
-  test('leaf with 4 commits is a duplicate, not a finding', () => {
+  test('leaf with 4 commits is a duplicate, not a finding', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
     const shas = ['a', 'b', 'c', 'd'];
-    const report = buildLandReadiness(
+    const report = await buildLandReadiness(
       [epic, work],
       'e1',
       probeFrom({ w1: { onEpicTip: shas, anyRef: shas } }),
@@ -260,15 +260,15 @@ describe('buildLandReadiness', () => {
     expect(report.blocking).toBe(false);
   });
 
-  test('dropped descendants are skipped entirely', () => {
+  test('dropped descendants are skipped entirely', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const dropped = todo({ id: 'd1', title: 'dropped', parentId: 'e1', status: 'dropped', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness([epic, dropped], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, dropped], 'e1', probeFrom({}));
     expect(report.findings.some((f) => f.todoId === 'd1')).toBe(false);
     expect(report.exemptions.some((e) => e.todoId === 'd1')).toBe(false);
   });
 
-  test('pending/rejected leaves are not in scope', () => {
+  test('pending/rejected leaves are not in scope', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const pending = todo({
       id: 'p1',
@@ -282,11 +282,11 @@ describe('buildLandReadiness', () => {
       parentId: 'e1',
       acceptanceStatus: 'rejected',
     });
-    const report = buildLandReadiness([epic, pending, rejected], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, pending, rejected], 'e1', probeFrom({}));
     expect(report.findings).toHaveLength(0);
   });
 
-  test('cycle safety: descendant walk does not hang on a cycle', () => {
+  test('cycle safety: descendant walk does not hang on a cycle', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const a = todo({ id: 'a', title: 'task a', parentId: 'e1', acceptanceStatus: 'accepted' });
     const b = todo({ id: 'b', title: 'task b', parentId: 'a', acceptanceStatus: 'accepted' });
@@ -296,23 +296,23 @@ describe('buildLandReadiness', () => {
     c.parentId = 'c'; // c is its own parent — the walk should see it once and skip the re-visit.
     const todos = [epic, a, b, c];
     // This should not hang or crash.
-    const report = buildLandReadiness(todos, 'e1', probeFrom({ a: { onEpicTip: [], anyRef: [] } }));
+    const report = await buildLandReadiness(todos, 'e1', probeFrom({ a: { onEpicTip: [], anyRef: [] } }));
     // 'a' has child 'b', so it's a container and exempted.
     expect(report.exemptions.some((e) => e.todoId === 'a')).toBe(true);
     // The walk should complete without hanging.
     expect(report.findings.length).toBeGreaterThanOrEqual(0);
   });
 
-  test('findings are sorted by todoId', () => {
+  test('findings are sorted by todoId', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const z = todo({ id: 'z_last', title: 'z', parentId: 'e1', acceptanceStatus: 'accepted' });
     const a = todo({ id: 'a_first', title: 'a', parentId: 'e1', acceptanceStatus: 'accepted' });
     const m = todo({ id: 'm_middle', title: 'm', parentId: 'e1', acceptanceStatus: 'accepted' });
-    const report = buildLandReadiness([epic, z, a, m], 'e1', probeFrom({}));
+    const report = await buildLandReadiness([epic, z, a, m], 'e1', probeFrom({}));
     expect(report.findings.map((f) => f.todoId)).toEqual(['a_first', 'm_middle', 'z_last']);
   });
 
-  test('regression fixture: epic 45e2fb60 (2026-07-09) — 2 findings, 6 exemptions', () => {
+  test('regression fixture: epic 45e2fb60 (2026-07-09) — 2 findings, 6 exemptions', async () => {
     // Epic 45e2fb60, measured 2026-07-09: accepts/done descendants split as
     // 2 findings (missing) + 6 exemptions + others not in scope.
     const epic = todo({ id: '45e2fb60-0000', title: '[EPIC] Big Epic', status: 'done' });
@@ -410,7 +410,7 @@ describe('buildLandReadiness', () => {
       finding2,
     ];
 
-    const report = buildLandReadiness(allTodos, epic.id, probeFrom({}));
+    const report = await buildLandReadiness(allTodos, epic.id, probeFrom({}));
 
     // Exactly 2 findings (both missing).
     expect(report.findings).toHaveLength(2);
@@ -433,8 +433,8 @@ describe('buildLandReadiness', () => {
 });
 
 describe('steward-proof land_epic gate integration', () => {
-  test('validateStewardProof with empty unlandedLeaves returns ok:true', () => {
-    const result = validateStewardProof(
+  test('validateStewardProof with empty unlandedLeaves returns ok:true', async () => {
+    const result = await validateStewardProof(
       'land_epic',
       { kind: 'epic-landable', epicId: 'e1', epicBranch: 'collab/epic/e1' },
       {
@@ -453,7 +453,7 @@ describe('steward-proof land_epic gate integration', () => {
     expect(result.reason).toBe('ok');
   });
 
-  test('validateStewardProof with unlandedLeaves finding returns ok:false', () => {
+  test('validateStewardProof with unlandedLeaves finding returns ok:false', async () => {
     const finding = {
       todoId: 'w1',
       title: 'work todo',
@@ -461,7 +461,7 @@ describe('steward-proof land_epic gate integration', () => {
       strayShas: [],
       reason: 'no commit',
     };
-    const result = validateStewardProof(
+    const result = await validateStewardProof(
       'land_epic',
       { kind: 'epic-landable', epicId: 'e1', epicBranch: 'collab/epic/e1' },
       {

@@ -19,7 +19,7 @@
  * Pure/​injectable: the git/tsc/grep/fs predicates are behind `ProofRunners` so the
  * decision logic is unit-testable without a live repo; defaults shell out for real.
  */
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -75,25 +75,28 @@ export interface ProofContext {
   runners?: Partial<ProofRunners>;
 }
 
+/** All runner predicates may be sync OR async — the REAL runners are async (they spawn
+ *  git/tsc, and a sync spawn in the sidecar starves its event loop past the Electron
+ *  liveness watchdog: crit-6 of mission 693bbc27); test fakes stay plain sync. */
 export interface ProofRunners {
   /** Count of commits the cwd's HEAD is behind `baseRef` — `git rev-list --count HEAD..<baseRef>`
    *  is 0 when not behind. The worktree-cwd seam: cwd and baseRef are BOTH explicit so the
    *  same predicate works in the tracking project (HEAD..master) or any epic/master checkout. */
-  commitsBehindMaster: (cwd: string, baseRef?: string) => number;
+  commitsBehindMaster: (cwd: string, baseRef?: string) => number | Promise<number>;
   /** `tsc --noEmit` in `cwd`. The worktree-cwd seam: for epic-landable this is the epic's
    *  accumulation worktree, not the tracking project root. */
-  tscClean: (cwd: string) => boolean;
-  grepPresent: (project: string, symbol: string) => boolean;
-  fileExists: (project: string, relPath: string) => boolean;
+  tscClean: (cwd: string) => boolean | Promise<boolean>;
+  grepPresent: (project: string, symbol: string) => boolean | Promise<boolean>;
+  fileExists: (project: string, relPath: string) => boolean | Promise<boolean>;
   /** epic-landable: dry `git merge --no-commit --no-ff <epicBranch>` in an ISOLATED
    *  detached worktree off master HEAD — never in masterCwd directly. masterCwd is used
    *  only to administer the worktree (git -C masterCwd worktree add/remove). True iff
    *  the merge applies cleanly (no conflict). Never commits; master ref + main checkout
    *  are untouched. */
-  epicMergeClean: (masterCwd: string, epicBranch: string) => boolean;
+  epicMergeClean: (masterCwd: string, epicBranch: string) => boolean | Promise<boolean>;
   /** epic-landable (G9): blocking land-readiness findings — accepted CODE leaves in the
    *  epic's descendant set with no commit reachable from the epic tip. [] = all present. */
-  unlandedLeaves: (project: string, epicId: string) => any[];
+  unlandedLeaves: (project: string, epicId: string) => any[] | Promise<any[]>;
 }
 
 export interface ProofResult {
@@ -122,19 +125,20 @@ const mergeCleanCache = new Map<string, { clean: boolean; at: number }>();
 export function _resetMergeCleanCache(): void {
   mergeCleanCache.clear();
 }
-/** Pure memo wrapper (injectable clock) — unit-testable without a live repo. */
-export function memoizedMergeClean(deps: {
-  resolveKey: () => string; // '' → skip the cache entirely (couldn't resolve shas)
-  compute: () => { clean: boolean; cacheable: boolean };
+/** Pure memo wrapper (injectable clock) — unit-testable without a live repo.
+ *  resolveKey/compute may be async (the REAL runners spawn git asynchronously). */
+export async function memoizedMergeClean(deps: {
+  resolveKey: () => string | Promise<string>; // '' → skip the cache entirely (couldn't resolve shas)
+  compute: () => { clean: boolean; cacheable: boolean } | Promise<{ clean: boolean; cacheable: boolean }>;
   now?: () => number;
-}): boolean {
+}): Promise<boolean> {
   const now = deps.now ?? Date.now;
-  const key = deps.resolveKey();
+  const key = await deps.resolveKey();
   if (key) {
     const hit = mergeCleanCache.get(key);
     if (hit && now() - hit.at < MERGE_CLEAN_TTL_MS) return hit.clean;
   }
-  const { clean, cacheable } = deps.compute();
+  const { clean, cacheable } = await deps.compute();
   if (key && cacheable) mergeCleanCache.set(key, { clean, at: now() });
   return clean;
 }
@@ -152,27 +156,53 @@ const tscCleanCache = new Map<string, { pass: boolean; at: number }>();
 export function _resetTscCleanCache(): void {
   tscCleanCache.clear();
 }
-/** Pure memo wrapper (injectable clock) — unit-testable without a live repo. */
-export function memoizedTscClean(deps: {
-  resolveKey: () => string; // '' → skip the cache entirely (dirty tree or rev-parse failed)
-  compute: () => { pass: boolean; cacheable: boolean };
+/** Pure memo wrapper (injectable clock) — unit-testable without a live repo.
+ *  resolveKey/compute may be async (the REAL runners spawn git/tsc asynchronously). */
+export async function memoizedTscClean(deps: {
+  resolveKey: () => string | Promise<string>; // '' → skip the cache entirely (dirty tree or rev-parse failed)
+  compute: () => { pass: boolean; cacheable: boolean } | Promise<{ pass: boolean; cacheable: boolean }>;
   now?: () => number;
-}): boolean {
+}): Promise<boolean> {
   const now = deps.now ?? Date.now;
-  const key = deps.resolveKey();
+  const key = await deps.resolveKey();
   if (key) {
     const hit = tscCleanCache.get(key);
     if (hit && now() - hit.at < TSC_CLEAN_TTL_MS) return hit.pass;
   }
-  const { pass, cacheable } = deps.compute();
+  const { pass, cacheable } = await deps.compute();
   if (key && cacheable) tscCleanCache.set(key, { pass, at: now() });
   return pass;
 }
 
+/** Async execFile: resolves { code, stdout } — code 0 = success. NEVER a *Sync spawn:
+ *  every realRunners predicate executes in the sidecar process (land / steward-proof
+ *  paths), and a sync tsc or merge trial held its event loop for the full run. */
+function execAsync(
+  bin: string,
+  args: string[],
+  opts: { cwd?: string } = {},
+): Promise<{ code: number; stdout: string }> {
+  return new Promise((resolvePromise) => {
+    try {
+      execFile(bin, args, { cwd: opts.cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+        if (err) {
+          const code = typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1;
+          resolvePromise({ code: code || 1, stdout: stdout ?? '' });
+        } else {
+          resolvePromise({ code: 0, stdout: stdout ?? '' });
+        }
+      });
+    } catch {
+      resolvePromise({ code: 1, stdout: '' });
+    }
+  });
+}
+
 export const realRunners: ProofRunners = {
-  commitsBehindMaster(cwd, baseRef = 'master') {
-    const out = execFileSync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd, encoding: 'utf8' });
-    return parseInt(out.trim(), 10) || 0;
+  async commitsBehindMaster(cwd, baseRef = 'master') {
+    const r = await execAsync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd });
+    if (r.code !== 0) throw new Error(`git rev-list failed (exit ${r.code})`);
+    return parseInt(r.stdout.trim(), 10) || 0;
   },
   tscClean(cwd) {
     // MEMOIZED on (cwd, HEAD): a pristine tree at HEAD X fully determines tsc input, so
@@ -180,29 +210,23 @@ export const realRunners: ProofRunners = {
     // input WITHOUT moving HEAD, so it must never cache — resolveKey returns '' for
     // dirty/untracked/failed-to-resolve, which gates BOTH read and store.
     return memoizedTscClean({
-      resolveKey: () => {
-        try {
-          const dirty = execFileSync('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', stdio: 'pipe' }).trim();
-          if (dirty) return ''; // dirty/untracked → run uncached (gate BOTH read and store)
-          const head = execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: 'pipe' }).trim();
-          return head ? `${cwd}:${head}` : '';
-        } catch {
-          return ''; // no repo / rev-parse failed → run uncached (behavior unchanged)
-        }
+      resolveKey: async () => {
+        const dirtyR = await execAsync('git', ['-C', cwd, 'status', '--porcelain']);
+        if (dirtyR.code !== 0) return ''; // no repo / git failed → run uncached (behavior unchanged)
+        if (dirtyR.stdout.trim()) return ''; // dirty/untracked → run uncached (gate BOTH read and store)
+        const headR = await execAsync('git', ['-C', cwd, 'rev-parse', 'HEAD']);
+        const head = headR.code === 0 ? headR.stdout.trim() : '';
+        return head ? `${cwd}:${head}` : '';
       },
-      compute: () => {
+      compute: async () => {
         // Language-aware: tsc for TS, dotnet build for .NET, and TRUE (no compile blocker)
         // for languages with no static compile step (e.g. Python) — running tsc there is a
         // false-fail. The land still rests on the other proofs (merge-clean, children-done).
         const check = detectCompileCheck(cwd);
         if (!check) return { pass: true, cacheable: true };
         const [bin, ...args] = check.cmd.split(' ');
-        try {
-          execFileSync(bin, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
-          return { pass: true, cacheable: true };
-        } catch {
-          return { pass: false, cacheable: true };
-        }
+        const r = await execAsync(bin, args, { cwd });
+        return { pass: r.code === 0, cacheable: true };
       },
     });
   },
@@ -211,63 +235,53 @@ export const realRunners: ProofRunners = {
     // two commit trees, so identical shas always merge to the same result. The cheap
     // rev-parse keys the memo; the expensive worktree trial only runs on a real change.
     return memoizedMergeClean({
-      resolveKey: () => {
-        try {
-          const m = execFileSync('git', ['-C', masterCwd, 'rev-parse', 'master'], { encoding: 'utf8', stdio: 'pipe' }).trim();
-          const e = execFileSync('git', ['-C', masterCwd, 'rev-parse', epicBranch], { encoding: 'utf8', stdio: 'pipe' }).trim();
-          return m && e ? `${m}:${e}` : '';
-        } catch {
-          return ''; // rev-parse failed → run the trial uncached (safe-refuse semantics unchanged)
-        }
+      resolveKey: async () => {
+        const mR = await execAsync('git', ['-C', masterCwd, 'rev-parse', 'master']);
+        const eR = await execAsync('git', ['-C', masterCwd, 'rev-parse', epicBranch]);
+        const m = mR.code === 0 ? mR.stdout.trim() : '';
+        const e = eR.code === 0 ? eR.stdout.trim() : '';
+        return m && e ? `${m}:${e}` : ''; // rev-parse failed → run the trial uncached (safe-refuse semantics unchanged)
       },
-      compute: () => {
+      compute: async () => {
         // Isolated trial: create a detached worktree pinned at master HEAD and run the
         // dry merge THERE — never in the main checkout (masterCwd). Mirrors the
         // __land-master__ lifecycle (worktree-manager.landEpicToMaster). Setup failure
         // is treated as not-clean (safe-refuse) AND NOT cached (transient).
         const trial = join(tmpdir(), `collab-land-trial-${process.pid}-${process.hrtime.bigint()}`);
-        const sh = (args: string[], cwd: string) =>
-          execFileSync('git', ['-C', cwd, ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
-        const teardown = () => {
-          try { execFileSync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial], { stdio: 'pipe' }); } catch { /* gone */ }
-          try { execFileSync('git', ['-C', masterCwd, 'worktree', 'prune'], { stdio: 'pipe' }); } catch { /* best-effort */ }
+        const sh = (args: string[], cwd: string) => execAsync('git', ['-C', cwd, ...args], { cwd });
+        const teardown = async () => {
+          await execAsync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial]); // best-effort
+          await execAsync('git', ['-C', masterCwd, 'worktree', 'prune']); // best-effort
         };
-        try {
-          // Detached worktree off master HEAD (do NOT check out the `master` branch — it is
-          // live in the main tree; `git worktree add master` would fail "already checked out").
-          execFileSync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master'], { stdio: 'pipe' });
-        } catch {
-          teardown(); // path may have been partially created
+        // Detached worktree off master HEAD (do NOT check out the `master` branch — it is
+        // live in the main tree; `git worktree add master` would fail "already checked out").
+        const add = await execAsync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master']);
+        if (add.code !== 0) {
+          await teardown(); // path may have been partially created
           return { clean: false, cacheable: false }; // setup failure is TRANSIENT — never cache it
         }
         try {
-          sh(['merge', '--no-commit', '--no-ff', epicBranch], trial);
-          // Clean (or already-up-to-date). Abort to leave the trial pristine before teardown.
-          try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
-          return { clean: true, cacheable: true };
-        } catch {
-          try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
-          return { clean: false, cacheable: true }; // genuine conflict for these two shas — deterministic
+          const merge = await sh(['merge', '--no-commit', '--no-ff', epicBranch], trial);
+          // Abort either way to leave the trial pristine before teardown.
+          await sh(['merge', '--abort'], trial); // best-effort (nothing to abort on fast-forward)
+          // clean (or already-up-to-date) vs genuine conflict — deterministic for these two shas.
+          return { clean: merge.code === 0, cacheable: true };
         } finally {
-          teardown();
+          await teardown();
         }
       },
     });
   },
-  grepPresent(project, symbol) {
-    try {
-      execFileSync('git', ['grep', '-q', '--fixed-strings', symbol], { cwd: project, stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+  async grepPresent(project, symbol) {
+    const r = await execAsync('git', ['grep', '-q', '--fixed-strings', symbol], { cwd: project });
+    return r.code === 0;
   },
   fileExists(project, relPath) {
     return existsSync(join(project, relPath));
   },
-  unlandedLeaves(project: string, epicId: string) {
+  async unlandedLeaves(project: string, epicId: string) {
     try {
-      return getEpicLandReadiness(project, epicId).findings;
+      return (await getEpicLandReadiness(project, epicId)).findings;
     } catch {
       return [];
     }
@@ -285,11 +299,11 @@ function isForeign(file: string, changeSet: string[]): boolean {
  * fails server re-derivation — the handler then rejects the act and re-routes the
  * escalation to a human.
  */
-export function validateStewardProof(
+export async function validateStewardProof(
   verb: StewardVerb,
   proof: StewardProof | undefined,
   ctx: ProofContext,
-): ProofResult {
+): Promise<ProofResult> {
   if (!proof) return { ok: false, reason: 'no-proof' };
   const r: ProofRunners = { ...realRunners, ...ctx.runners };
 
@@ -305,14 +319,14 @@ export function validateStewardProof(
       }
     }
     // (2) tsc clean IN the epic's accumulation worktree (the worktree-cwd seam).
-    if (!r.tscClean(ctx.epicWorktreeCwd ?? ctx.project)) return { ok: false, reason: 'tsc-failed' };
+    if (!(await r.tscClean(ctx.epicWorktreeCwd ?? ctx.project))) return { ok: false, reason: 'tsc-failed' };
     // (3) The epic branch dry-merges cleanly into a master checkout (no commit, aborted).
-    if (!r.epicMergeClean(ctx.masterCwd ?? ctx.project, proof.epicBranch)) {
+    if (!(await r.epicMergeClean(ctx.masterCwd ?? ctx.project, proof.epicBranch))) {
       return { ok: false, reason: 'epic-merge-conflict' };
     }
     // (4) G9 — PRESENCE: every accepted CODE leaf beneath the epic has a commit reachable
     // from the epic tip. Complements the correctness gate; presence != correctness.
-    const unlanded = r.unlandedLeaves(ctx.project, proof.epicId);
+    const unlanded = await r.unlandedLeaves(ctx.project, proof.epicId);
     if (unlanded.length > 0) {
       return {
         ok: false,
@@ -326,13 +340,13 @@ export function validateStewardProof(
   if (verb === 'reset_todo') {
     switch (proof.kind) {
       case 'merged':
-        return r.commitsBehindMaster(ctx.project) === 0
+        return (await r.commitsBehindMaster(ctx.project)) === 0
           ? { ok: true, reason: 'ok' }
           : { ok: false, reason: 'merged-failed' };
       case 'tsc-clean':
-        return r.tscClean(ctx.project) ? { ok: true, reason: 'ok' } : { ok: false, reason: 'tsc-failed' };
+        return (await r.tscClean(ctx.project)) ? { ok: true, reason: 'ok' } : { ok: false, reason: 'tsc-failed' };
       case 'grep': {
-        const present = r.grepPresent(ctx.project, proof.symbol);
+        const present = await r.grepPresent(ctx.project, proof.symbol);
         return present === proof.present ? { ok: true, reason: 'ok' } : { ok: false, reason: 'grep-mismatch' };
       }
       case 'dep-done': {
@@ -355,18 +369,18 @@ export function validateStewardProof(
   // original gate rejection was spurious. No foreign-error / change-set needed.
   if (proof.kind === 'override-clean') {
     const present =
-      (proof.artifactPath ? r.fileExists(ctx.project, proof.artifactPath) : false) ||
-      (proof.artifactSymbol ? r.grepPresent(ctx.project, proof.artifactSymbol) : false);
+      (proof.artifactPath ? await r.fileExists(ctx.project, proof.artifactPath) : false) ||
+      (proof.artifactSymbol ? await r.grepPresent(ctx.project, proof.artifactSymbol) : false);
     if (!present) return { ok: false, reason: 'override-no-in-tree-artifact' };
-    return r.tscClean(ctx.project) ? { ok: true, reason: 'ok' } : { ok: false, reason: 'tsc-failed' };
+    return (await r.tscClean(ctx.project)) ? { ok: true, reason: 'ok' } : { ok: false, reason: 'tsc-failed' };
   }
 
   // override_accept_todo — DEFAULT DEFER; auto only with DUAL proof.
   if (proof.kind !== 'override') return { ok: false, reason: 'wrong-proof-for-verb' };
   // (a) in-tree artifact proof: the deliverable provably exists.
   const hasArtifact =
-    (proof.artifactPath ? r.fileExists(ctx.project, proof.artifactPath) : false) ||
-    (proof.artifactSymbol ? r.grepPresent(ctx.project, proof.artifactSymbol) : false);
+    (proof.artifactPath ? await r.fileExists(ctx.project, proof.artifactPath) : false) ||
+    (proof.artifactSymbol ? await r.grepPresent(ctx.project, proof.artifactSymbol) : false);
   if (!hasArtifact) return { ok: false, reason: 'override-no-in-tree-artifact' };
   // (b) foreign-error proof: the gate failure is OUTSIDE this todo's change-set.
   const changeSet = ctx.changeSetFiles ?? [];

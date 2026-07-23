@@ -21,7 +21,7 @@ import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, dirname } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { captureTranscript } from './node-invoker';
 import { getSecret } from '../services/config-service';
 import type { NodeInvoker, NodeResult, NodeSpec, NodeUsage, AuthMode } from './node-invoker';
@@ -94,6 +94,29 @@ function safeResolve(cwd: string, p: string): string | null {
   return abs;
 }
 
+/** Async execFile: resolves { status, stdout, stderr } — NEVER a sync spawn. This tool
+ *  loop runs IN the sidecar process (the leaf-executor invokes XaiApiNodeInvoker
+ *  in-process), so a sync grep/git here blocks the sidecar event loop for the probe's
+ *  full duration (crit-6, mission 693bbc27). */
+function runTool(
+  bin: string,
+  args: string[],
+  cwd: string,
+): Promise<{ status: number; stdout: string; stderr: string }> {
+  return new Promise((resolvePromise) => {
+    try {
+      execFile(bin, args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+        const status = err
+          ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) || 1
+          : 0;
+        resolvePromise({ status, stdout: stdout ?? '', stderr: stderr ?? '' });
+      });
+    } catch {
+      resolvePromise({ status: 1, stdout: '', stderr: 'spawn failed' });
+    }
+  });
+}
+
 /** Read-only (plus docs/review-scoped write) worktree tools for the review/blueprint loop. */
 function buildReadOnlyTools(cwd: string) {
   const cap = (s: string) => (s.length > TOOL_OUT_CAP ? `${s.slice(0, TOOL_OUT_CAP)}\n…(truncated)` : s);
@@ -114,8 +137,8 @@ function buildReadOnlyTools(cwd: string) {
       execute: async ({ pattern, path }) => {
         const sub = path ? safeResolve(cwd, path) : cwd;
         if (!sub) return 'ERROR: path escapes the worktree';
-        const r = spawnSync('grep', ['-rnI', '--max-count=200', '-e', pattern, sub], { cwd, encoding: 'utf8', timeout: 10_000 });
-        return cap((r.stdout ?? '') || '(no matches)');
+        const r = await runTool('grep', ['-rnI', '--max-count=200', '-e', pattern, sub], cwd);
+        return cap(r.stdout || '(no matches)');
       },
     }),
     list_dir: tool({
@@ -124,8 +147,8 @@ function buildReadOnlyTools(cwd: string) {
       execute: async ({ path }) => {
         const args = ['ls-files'];
         if (path) args.push('--', path);
-        const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
-        return cap((r.stdout ?? '') || '(empty)');
+        const r = await runTool('git', args, cwd);
+        return cap(r.stdout || '(empty)');
       },
     }),
     git: tool({
@@ -135,8 +158,8 @@ function buildReadOnlyTools(cwd: string) {
         if (args.length === 0 || !GIT_READONLY.has(args[0])) {
           return `ERROR: only read-only git subcommands are allowed (${[...GIT_READONLY].join(', ')})`;
         }
-        const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
-        return cap(`exit=${r.status}\n${(r.stdout ?? '') + (r.stderr ?? '')}`);
+        const r = await runTool('git', args, cwd);
+        return cap(`exit=${r.status}\n${r.stdout + r.stderr}`);
       },
     }),
     write_report: tool({

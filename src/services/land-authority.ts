@@ -72,12 +72,12 @@ export interface LandAuthorityVerdict extends LandReadinessVerdict {
 
 /** Injected probes for testing */
 export interface LandProbes {
-  presence?: (project: string, epicId: string) => LandReadinessReport;
+  presence?: (project: string, epicId: string) => LandReadinessReport | Promise<LandReadinessReport>;
   gate?: (opts: EpicLandGateOpts) => Promise<EpicLandGateResult>;
   merge?: (project: string, epicBranch: string, epicWorktreeCwd: string) => {
     tscClean: boolean;
     mergeClean: boolean;
-  };
+  } | Promise<{ tscClean: boolean; mergeClean: boolean }>;
   todos?: (project: string) => Todo[];
   /** Resolves the epic accumulation worktree cwd; tsc + merge run HERE, not the repo root. */
   worktreeCwd?: (project: string, epicId: string) => Promise<string> | string;
@@ -278,14 +278,14 @@ function sanitizeTrailerValue(value: string): string {
  * Tri-mode merge probe: tsc + merge-dry-run.
  * Delegates to the shared, memoized runners in steward-proof.
  */
-function defaultMergeProbe(
+async function defaultMergeProbe(
   project: string,
   epicBranch: string,
   epicWorktreeCwd: string,
-): { tscClean: boolean; mergeClean: boolean } {
+): Promise<{ tscClean: boolean; mergeClean: boolean }> {
   return {
-    tscClean: realRunners.tscClean(epicWorktreeCwd),
-    mergeClean: realRunners.epicMergeClean(project, epicBranch),
+    tscClean: await realRunners.tscClean(epicWorktreeCwd),
+    mergeClean: await realRunners.epicMergeClean(project, epicBranch),
   };
 }
 
@@ -330,7 +330,7 @@ export async function landReadiness(
 
   // Step 2: Check merge and tsc
   const mergeProbe = probes.merge || ((p, b, w) => defaultMergeProbe(p, b, w));
-  const mergeResult = mergeProbe(project, epicBranch, epicWorktreeCwd);
+  const mergeResult = await mergeProbe(project, epicBranch, epicWorktreeCwd);
 
   if (!mergeResult.tscClean) {
     blockers.push({
@@ -348,7 +348,7 @@ export async function landReadiness(
 
   // Step 3: Check presence (G9)
   const presenceProbe = probes.presence || ((p, e) => getEpicLandReadiness(p, e));
-  presence = presenceProbe(project, epicId);
+  presence = await presenceProbe(project, epicId);
 
   if (presence.blocking) {
     blockers.push({

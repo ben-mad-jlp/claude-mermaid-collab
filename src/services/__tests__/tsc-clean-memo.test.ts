@@ -8,64 +8,64 @@ import { memoizedTscClean, _resetTscCleanCache, TSC_CLEAN_TTL_MS } from '../stew
 describe('memoizedTscClean', () => {
   beforeEach(() => _resetTscCleanCache());
 
-  it('serves a repeated identical key from cache — compute runs ONCE', () => {
+  it('serves a repeated identical key from cache — compute runs ONCE', async () => {
     let computes = 0;
     const call = () => memoizedTscClean({
       resolveKey: () => 'cwdA:shaX',
       compute: () => { computes++; return { pass: true, cacheable: true }; },
     });
-    expect(call()).toBe(true);
-    expect(call()).toBe(true);
-    expect(call()).toBe(true);
+    expect(await call()).toBe(true);
+    expect(await call()).toBe(true);
+    expect(await call()).toBe(true);
     expect(computes).toBe(1);
   });
 
-  it('a changed sha (cwd or HEAD moved) misses the cache and recomputes', () => {
+  it('a changed sha (cwd or HEAD moved) misses the cache and recomputes', async () => {
     let computes = 0;
     const at = (key: string) => memoizedTscClean({
       resolveKey: () => key,
       compute: () => { computes++; return { pass: true, cacheable: true }; },
     });
-    at('cwdA:shaX');
-    at('cwdB:shaX'); // cwd changed
-    at('cwdB:shaY'); // HEAD advanced
+    await at('cwdA:shaX');
+    await at('cwdB:shaX'); // cwd changed
+    await at('cwdB:shaY'); // HEAD advanced
     expect(computes).toBe(3);
   });
 
-  it('caches a genuine compile failure (pass:false, cacheable:true) too', () => {
+  it('caches a genuine compile failure (pass:false, cacheable:true) too', async () => {
     let computes = 0;
     const call = () => memoizedTscClean({
       resolveKey: () => 'cwdA:shaFail',
       compute: () => { computes++; return { pass: false, cacheable: true }; },
     });
-    expect(call()).toBe(false);
-    expect(call()).toBe(false);
+    expect(await call()).toBe(false);
+    expect(await call()).toBe(false);
     expect(computes).toBe(1);
   });
 
-  it('NEVER caches a transient setup failure (cacheable:false) — recomputes every call', () => {
+  it('NEVER caches a transient setup failure (cacheable:false) — recomputes every call', async () => {
     let computes = 0;
     const call = () => memoizedTscClean({
       resolveKey: () => 'cwdA:shaLocked',
       compute: () => { computes++; return { pass: false, cacheable: false }; },
     });
-    expect(call()).toBe(false);
-    expect(call()).toBe(false);
+    expect(await call()).toBe(false);
+    expect(await call()).toBe(false);
     expect(computes).toBe(2);
   });
 
-  it('an empty key (dirty tree or rev-parse failed) skips the cache entirely', () => {
+  it('an empty key (dirty tree or rev-parse failed) skips the cache entirely', async () => {
     let computes = 0;
     const call = () => memoizedTscClean({
       resolveKey: () => '',
       compute: () => { computes++; return { pass: true, cacheable: true }; },
     });
-    call();
-    call();
+    await call();
+    await call();
     expect(computes).toBe(2);
   });
 
-  it('expires a hit older than the TTL', () => {
+  it('expires a hit older than the TTL', async () => {
     let computes = 0;
     let t = 1_000_000;
     const now = () => t;
@@ -74,12 +74,12 @@ describe('memoizedTscClean', () => {
       compute: () => { computes++; return { pass: true, cacheable: true }; },
       now,
     });
-    call();                       // stored at t=1_000_000
+    await call();                       // stored at t=1_000_000
     t += TSC_CLEAN_TTL_MS - 1;    // still fresh
-    call();
+    await call();
     expect(computes).toBe(1);
     t += 2;                       // now past the TTL
-    call();
+    await call();
     expect(computes).toBe(2);
   });
 });

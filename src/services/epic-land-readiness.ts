@@ -9,7 +9,9 @@
  * Presence ≠ correctness: this proves work LANDED, says nothing about whether it
  * is CORRECT (that is G2's mechanical gate). Complements the acceptance gate.
  *
- * The git probe is injected (default: real `git` runner via Bun.spawnSync) so the
+ * The git probe is injected (default: real ASYNC `git` runner via Bun.spawn — never
+ * spawnSync: this runs in the sidecar process, and a sync spawn starves its event
+ * loop past the Electron liveness watchdog, crit-6 of mission 693bbc27) so the
  * assembly logic — descendant walk with exemptions, missing-vs-stranded findings,
  * duplicate counts — is hermetically unit-testable without a repo.
  */
@@ -30,7 +32,7 @@ export interface CommitProbeResult {
   /** shas carrying the trailer anywhere in the repo (any ref). */
   anyRef: string[];
 }
-export type CommitProbe = (todoId: string) => CommitProbeResult;
+export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<CommitProbeResult>;
 
 export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic';
 export type FindingKind = 'missing' | 'stranded';
@@ -73,16 +75,26 @@ export interface LandReadinessReport {
 /** Hard cap on any single git probe. */
 const GIT_PROBE_TIMEOUT_MS = 15_000;
 
-/** Run git in `cwd`, returning { code, stdout }. Never throws; never hangs (timeout). */
-function runGit(cwd: string, gitArgs: string[]): { code: number; stdout: string } {
+/** Run git in `cwd` ASYNC, returning { code, stdout }. Never throws; never hangs
+ *  (timeout kill). Async spawn (Bun.spawn + await exited) — never spawnSync, which
+ *  would block the sidecar event loop for the probe's full duration. */
+async function runGit(cwd: string, gitArgs: string[]): Promise<{ code: number; stdout: string }> {
   try {
-    const p = Bun.spawnSync(['git', ...gitArgs], {
+    const p = Bun.spawn(['git', ...gitArgs], {
       cwd,
       stdout: 'pipe',
       stderr: 'ignore',
-      timeout: GIT_PROBE_TIMEOUT_MS,
     });
-    return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
+    const killTimer = setTimeout(() => { try { p.kill(); } catch { /* already gone */ } }, GIT_PROBE_TIMEOUT_MS);
+    try {
+      const [stdout, code] = await Promise.all([
+        p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
+        p.exited,
+      ]);
+      return { code: code ?? 1, stdout };
+    } finally {
+      clearTimeout(killTimer);
+    }
   } catch {
     return { code: 1, stdout: '' };
   }
@@ -93,12 +105,12 @@ function runGit(cwd: string, gitArgs: string[]): { code: number; stdout: string 
  * No DB or git access of its own — both are injected, so unit tests feed a hand-built
  * Todo[] and a fake probe.
  */
-export function buildLandReadiness(
+export async function buildLandReadiness(
   todos: Todo[],
   epicId: string,
   probe: CommitProbe,
   project: string = '',
-): LandReadinessReport {
+): Promise<LandReadinessReport> {
   const epicBranch = epicBranchName(epicId);
 
   // Children grouped by parentId, to find containers and descendants.
@@ -192,7 +204,7 @@ export function buildLandReadiness(
 
     // Otherwise it is a code leaf.
     checked++;
-    const p = probe(desc.id);
+    const p = await probe(desc.id);
 
     if (p.onEpicTip.length > 0) {
       // Landed on the epic tip. Check for duplicates.
@@ -245,9 +257,9 @@ export function buildLandReadiness(
  * Searches the epic tip first (reachability), then all refs (stray detection).
  */
 export function makeCommitProbe(project: string, epicBranch: string): CommitProbe {
-  return (todoId: string): CommitProbeResult => {
-    const grep = (ref: string[]) => {
-      const res = runGit(project, [
+  return async (todoId: string): Promise<CommitProbeResult> => {
+    const grep = async (ref: string[]) => {
+      const res = await runGit(project, [
         'log',
         '--format=%H',
         '--fixed-strings',
@@ -262,16 +274,16 @@ export function makeCommitProbe(project: string, epicBranch: string): CommitProb
     };
 
     // Reachable from the epic tip.
-    const onEpicTip = grep([`refs/heads/${epicBranch}`]);
+    const onEpicTip = await grep([`refs/heads/${epicBranch}`]);
     // Anywhere in the repo (only when tip is empty, for stray detection).
-    const anyRef = onEpicTip.length > 0 ? onEpicTip : grep(['--all']);
+    const anyRef = onEpicTip.length > 0 ? onEpicTip : await grep(['--all']);
 
     return { onEpicTip, anyRef };
   };
 }
 
 /** DB-backed wrapper: load the project's work-graph and report land readiness. */
-export function getEpicLandReadiness(project: string, epicId: string): LandReadinessReport {
+export async function getEpicLandReadiness(project: string, epicId: string): Promise<LandReadinessReport> {
   const todos = listTodos(project, { includeCompleted: true });
   const epicBranch = epicBranchName(epicId);
   return buildLandReadiness(todos, epicId, makeCommitProbe(project, epicBranch), project);

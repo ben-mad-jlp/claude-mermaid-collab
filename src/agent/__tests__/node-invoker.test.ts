@@ -27,6 +27,7 @@ import {
   STDIN_DELIVERY_RE,
   assertSubscriptionAuth,
   _resetAuthCache,
+  _primeAuthCacheForTest,
   mcpConfigFor,
   invokeGrokNode,
   type NodeSpec,
@@ -71,17 +72,9 @@ describe('invokeNode spawn retry (transient ENOENT)', () => {
   });
 
   it('retries exactly once on transient ENOENT before eventual success', async () => {
-    // Mock Bun.spawnSync for the auth status check
-    (Bun as any).spawnSync = mock(() => ({
-      stdout: Buffer.from(JSON.stringify({
-        loggedIn: true,
-        authMethod: 'claude.ai',
-        apiProvider: 'firstParty',
-        subscriptionType: 'pro',
-      })),
-      stderr: null,
-      exitCode: 0,
-    }));
+    // Pre-seed the auth cache: the auth probe is an ASYNC Bun.spawn now (crit-6), and
+    // mocking Bun.spawn below would otherwise feed the probe the node mock.
+    _primeAuthCacheForTest('subscription');
 
     // Mock Bun.spawn: throw ENOENT on first call, return working proc on retry
     (Bun as any).spawn = mock((argv: string[], opts: any) => {
@@ -187,14 +180,10 @@ describe('invokeNode transient-fault classification (crits 8+9, mocked spawn)', 
   let originalSpawnSync: typeof Bun.spawnSync;
   const testCwd = '/tmp/node-invoker-test-transient';
 
+  // Pre-seed the auth cache: the auth probe is an ASYNC Bun.spawn now (crit-6), and
+  // the per-test Bun.spawn node mocks would otherwise be consumed by the probe.
   const mockAuthOk = () => {
-    (Bun as any).spawnSync = mock(() => ({
-      stdout: Buffer.from(JSON.stringify({
-        loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'pro',
-      })),
-      stderr: null,
-      exitCode: 0,
-    }));
+    _primeAuthCacheForTest('subscription');
   };
 
   const makeProc = (stdoutStr: string, stderrStr: string, exitCode: number) => {
@@ -607,13 +596,9 @@ describe('F4: generic startup deadline (fake-binary SessionStart hang → fast s
     stubPath = join(stubDir, 'claude-hang');
     writeFileSync(stubPath, '#!/bin/sh\n# emit nothing, then hang well past the (short, injected) start window\nsleep 30\n', { mode: 0o755 });
     chmodSync(stubPath, 0o755);
-    // Auth pre-flight: mock the `claude auth status` probe to report a healthy subscription
-    // (mirrors the spawn-retry test) so invokeNode proceeds to the real node spawn.
-    (Bun as any).spawnSync = mock(() => ({
-      stdout: Buffer.from(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'pro' })),
-      stderr: null,
-      exitCode: 0,
-    }));
+    // Auth pre-flight: pre-seed the cache (the probe is an ASYNC Bun.spawn now, crit-6)
+    // so invokeNode proceeds straight to the real node spawn of the hanging stub.
+    _primeAuthCacheForTest('subscription');
     process.env.CLAUDE_BIN = stubPath;
   });
 

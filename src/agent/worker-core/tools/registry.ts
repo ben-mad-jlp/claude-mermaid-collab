@@ -58,13 +58,13 @@ const FACTORIES: Partial<Record<ToolName, Factory>> = {
     tool({
       description: 'Run a bash command in the worktree (relative paths; no absolute cd).',
       inputSchema: z.object({ cmd: z.string() }),
-      execute: async ({ cmd }) => JSON.stringify(bashOp(ctx.cwd, cmd)),
+      execute: async ({ cmd }) => JSON.stringify(await bashOp(ctx.cwd, cmd)),
     }),
   run_bash_ro: (ctx) =>
     tool({
       description: 'Run a READ-ONLY bash command in the worktree (obvious mutators are blocked).',
       inputSchema: z.object({ cmd: z.string() }),
-      execute: async ({ cmd }) => JSON.stringify(bashOp(ctx.cwd, cmd, { readOnly: true })),
+      execute: async ({ cmd }) => JSON.stringify(await bashOp(ctx.cwd, cmd, { readOnly: true })),
     }),
   grep: (ctx) =>
     tool({
