@@ -28,6 +28,7 @@ import {
   isOrchestratorRunning,
   getOrchestratorHealth,
   withPassTimeout,
+  kickConductor,
   type TickDeps,
 } from '../orchestrator-live';
 import { _closeDb } from '../orchestrator-config';
@@ -344,5 +345,41 @@ describe('startOrchestrator / stopOrchestrator', () => {
     expect(h.tickMs).toBe(45_000);
     stopOrchestrator();
     expect(getOrchestratorHealth().running).toBe(false);
+  });
+
+  // Event-driven conductor kick — independent debounce seam from kickOrchestrator's
+  // build-tick path (kickConductor never touches kickTimer/forceBuildNextTick).
+  it('kickConductor invokes the injected run once within the debounce window', async () => {
+    startOrchestrator(60_000);
+    let calls = 0;
+    kickConductor('x', () => { calls++; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls).toBe(1);
+    stopOrchestrator();
+  });
+
+  it('N rapid kickConductor calls coalesce into exactly one run', async () => {
+    startOrchestrator(60_000);
+    let calls = 0;
+    for (let i = 0; i < 5; i++) kickConductor(`x${i}`, () => { calls++; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls).toBe(1);
+    stopOrchestrator();
+  });
+
+  it('stopOrchestrator drops a scheduled kick — the injected run never fires', async () => {
+    startOrchestrator(60_000);
+    let calls = 0;
+    kickConductor('x', () => { calls++; });
+    stopOrchestrator();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls).toBe(0);
+  });
+
+  it('kickConductor is a no-op before startOrchestrator (daemon not running)', async () => {
+    let calls = 0;
+    kickConductor('x', () => { calls++; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls).toBe(0);
   });
 });
