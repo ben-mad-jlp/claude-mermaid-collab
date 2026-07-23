@@ -2850,12 +2850,13 @@ export async function collapseSplit(project: string, leafId: string): Promise<Co
   return { leafId, droppedChildIds, alreadyCollapsed: droppedChildIds.length === 0 };
 }
 
-export function sweepEpicRollups(project: string, opts: { now?: number; motionlessAfterMs?: number } = {}): Promise<EpicSweepResult> {
+export function sweepEpicRollups(project: string, opts: { now?: number; motionlessAfterMs?: number; landedGraceMs?: number } = {}): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
     const now = opts.now ?? Date.now();
     const motionlessAfterMs = opts.motionlessAfterMs ?? MOTIONLESS_EPIC_AFTER_MS;
+    const landedGraceMs = opts.landedGraceMs ?? LANDED_LEFTOVER_GRACE_MS;
     const rolledUp: string[] = [];
     const flagged: EpicRollupFlag[] = [];
     const settledChildIds: Record<string, string[]> = {};
@@ -2906,20 +2907,29 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
             // Landed-settlement path: check for stuck leftovers.
             const leftover = children.filter((c) => c.status !== 'done');
             const doneUnaccepted = children.filter((c) => c.status === 'done' && c.acceptanceStatus !== 'accepted');
-            const hasInProgress = leftover.some((c) => c.status === 'in_progress');
 
-            if (hasInProgress || doneUnaccepted.length > 0) {
+            const isLive = (c: Todo) =>
+              c.claimedBy != null || c.claim != null || c.status === 'in_progress' ||
+              (now - Date.parse(c.updatedAt) < landedGraceMs);
+
+            const anyLive = leftover.some(isLive) || doneUnaccepted.some(isLive);
+            const stuckInProgress = leftover.filter((c) => c.status === 'in_progress' && !isLive(c));
+            const stuckDoneUnaccepted = doneUnaccepted.filter((c) => !isLive(c));
+
+            if (stuckInProgress.length > 0 || stuckDoneUnaccepted.length > 0) {
               // Flag for human review — don't mutate rows.
               if (!flaggedSeen.has(epic.id)) {
                 flagged.push({
                   epicId: epic.id,
                   reason: 'landed-needs-review',
                   children: children.length,
-                  inProgress: leftover.filter((c) => c.status === 'in_progress').length,
-                  doneUnaccepted: doneUnaccepted.length,
+                  inProgress: stuckInProgress.length,
+                  doneUnaccepted: stuckDoneUnaccepted.length,
                 });
                 flaggedSeen.add(epic.id);
               }
+            } else if (anyLive) {
+              // Actively building — no flag, no drop, no epic mutation this pass.
             } else {
               // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
               const ts = nowIso();
@@ -2989,6 +2999,10 @@ export const BUCKET_CHILD_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 /** Non-landed epic whose live children haven't moved (no updatedAt change) in this long
  *  is flagged motionless-abandoned by the sweep. */
 export const MOTIONLESS_EPIC_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/** Landed epic's non-done leftover is only "stuck" once it's neither claim-live nor
+ *  recently touched past this window. */
+export const LANDED_LEFTOVER_GRACE_MS = 15 * 60 * 1000; // 15 minutes
 
 /** Idempotent: archive (status→'dropped') bucket CHILDREN that are `done` and whose
  *  updatedAt is older than the cutoff. Only 'done' rows are selected, so re-running is a no-op. */
