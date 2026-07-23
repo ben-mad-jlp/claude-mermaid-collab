@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { lastLines, extractFailingTests, SPEC_FILE_RE } from './gate-runner';
-import type { LeafGateConfig, GateTestLane, GateSpawn } from './leaf-gate';
+import type { LeafGateConfig, GateTestLane, GateSpawn, GateFloorLane } from './leaf-gate';
 import { resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
 import type { GateDeclaration } from './leaf-gate';
 import { resolveGateDeclaration } from './leaf-gate';
@@ -51,6 +51,7 @@ export interface EpicLandGateResult {
   epicTipSha: string | null;
   baseSha: string | null;
   sweep?: SourceGuardSweepResult;
+  floor?: { command: string; status: 'pass' | 'fail' | 'error'; failing: string[]; output?: string };
 }
 
 /** Spec paths whose assertions guard shared, out-of-change-set symbols. Matched against the
@@ -167,6 +168,49 @@ function foldSweepIntoResult(res: EpicLandGateResult, sweep: SourceGuardSweepRes
     if (u.output) res.reasons.push(lastLines(u.output, 20));
   }
   return res;
+}
+
+function parseFloorFailingNames(output: string): string[] {
+  const seen = new Set<string>();
+  const matches = output.matchAll(/─{4,}\s+(.+?)\s+─{4,}/g);
+  for (const m of matches) {
+    seen.add(m[1]);
+  }
+  return Array.from(seen);
+}
+
+async function runRegressionFloor(o: {
+  epicWorktreeCwd: string;
+  floors: GateFloorLane[] | undefined;
+  changedFiles: string[];
+  spawn: GateSpawn;
+}): Promise<EpicLandGateResult['floor'] | undefined> {
+  if (!o.floors || o.floors.length === 0) {
+    return undefined;
+  }
+
+  const matched = o.floors.filter((lane) => o.changedFiles.some((f) => lane.match.test(f)));
+  if (matched.length === 0) {
+    return undefined;
+  }
+
+  const results: Array<{ command: string; status: 'pass' | 'fail' | 'error'; failing: string[] }> = [];
+
+  for (const lane of matched) {
+    const cwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
+    const r = await o.spawn(cwd, lane.command);
+
+    if (!r.ran) {
+      return { command: lane.command, status: 'error', failing: [], output: r.output };
+    }
+    if (r.code !== 0) {
+      const failing = parseFloorFailingNames(r.output) || extractFailingTests(r.output);
+      return { command: lane.command, status: 'fail', failing, output: r.output };
+    }
+    results.push({ command: lane.command, status: 'pass', failing: [] });
+  }
+
+  return { command: matched.map((l) => l.command).join('; '), status: 'pass', failing: [] };
 }
 
 export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGateResult> {
@@ -291,10 +335,51 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
 
   const mergeBase = mergeBaseRes.stdout.trim();
   const diffRes = git(o.epicWorktreeCwd, ['diff', '--name-only', '--diff-filter=d', mergeBase, 'HEAD']);
-  const specFiles = diffRes.stdout
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((p) => p && SPEC_FILE_RE.test(p));
+  const changedFiles = diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+  const specFiles = changedFiles.filter((p) => SPEC_FILE_RE.test(p));
+
+  // --- regression floor ---
+  const floor = await runRegressionFloor({ epicWorktreeCwd: o.epicWorktreeCwd, floors: cfg.floors, changedFiles, spawn });
+  if (floor?.status === 'error') {
+    return {
+      status: 'error',
+      declared: true,
+      manifestPath: decl.manifestPath,
+      typecheck,
+      floor,
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: [`land gate: regression floor could not run: ${floor.command}`],
+      specFiles,
+      epicTipSha,
+      baseSha,
+    };
+  }
+  if (floor?.status === 'fail') {
+    const reasons = [
+      `REGRESSION FLOOR FAILED: ${floor.command}`,
+      ...(floor.failing.length ? floor.failing : [lastLines(floor.output ?? '', 20)]),
+    ];
+    const res: EpicLandGateResult = {
+      status: 'fail',
+      declared: true,
+      manifestPath: decl.manifestPath,
+      typecheck,
+      floor,
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons,
+      specFiles,
+      epicTipSha,
+      baseSha,
+    };
+    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+    return res;
+  }
 
   if (specFiles.length === 0) {
     const sweep = await runSourceGuardSweep({ epicWorktreeCwd: o.epicWorktreeCwd, cfg, spawn, git });
@@ -303,6 +388,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       declared: true,
       manifestPath: decl.manifestPath,
       typecheck,
+      floor,
       units: [],
       regressions: [],
       inherited: [],
@@ -327,6 +413,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       declared: true,
       manifestPath: decl.manifestPath,
       typecheck,
+      floor,
       units: [],
       regressions: [],
       inherited: [],
@@ -348,6 +435,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       declared: true,
       manifestPath: decl.manifestPath,
       typecheck,
+      floor,
       units: [],
       regressions: [],
       inherited: [],
@@ -535,6 +623,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     declared: true,
     manifestPath: decl.manifestPath,
     typecheck,
+    floor,
     units,
     regressions,
     inherited,
@@ -573,6 +662,9 @@ export function landGateTrailer(r: EpicLandGateResult): string {
     trailer += `\nLand-Gate-Command: ${r.typecheck.command}`;
   }
   trailer += `\nLand-Gate-Specs: ${r.specFiles.length}`;
+  if (r.floor) {
+    trailer += `\nLand-Gate-Floor: ${r.floor.status} (${r.floor.command})`;
+  }
   if (r.sweep && r.sweep.specFiles.length > 0) {
     trailer += `\nLand-Gate-Sweep: ${r.sweep.specFiles.length}`;
   }
@@ -587,6 +679,9 @@ export function landGateSummary(r: EpicLandGateResult): string {
     return `land gate green (${r.specFiles.length} spec file(s)${r.inherited.length > 0 ? `; ${r.inherited.length} also fail on master` : ''})`;
   }
   if (r.status === 'fail') {
+    if (r.floor?.status === 'fail' && r.regressions.length === 0) {
+      return `land gate FAILED: regression floor (${r.floor.command})`;
+    }
     return `land gate FAILED: ${r.regressions.length} regression(s) on the branch, pass on master`;
   }
   if (r.status === 'abstain') {
