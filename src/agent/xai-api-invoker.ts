@@ -114,7 +114,7 @@ function buildReadOnlyTools(cwd: string) {
       execute: async ({ pattern, path }) => {
         const sub = path ? safeResolve(cwd, path) : cwd;
         if (!sub) return 'ERROR: path escapes the worktree';
-        const r = spawnSync('grep', ['-rnI', '--max-count=200', '-e', pattern, sub], { cwd, encoding: 'utf8' });
+        const r = spawnSync('grep', ['-rnI', '--max-count=200', '-e', pattern, sub], { cwd, encoding: 'utf8', timeout: 10_000 });
         return cap((r.stdout ?? '') || '(no matches)');
       },
     }),
@@ -124,7 +124,7 @@ function buildReadOnlyTools(cwd: string) {
       execute: async ({ path }) => {
         const args = ['ls-files'];
         if (path) args.push('--', path);
-        const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+        const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
         return cap((r.stdout ?? '') || '(empty)');
       },
     }),
@@ -135,7 +135,7 @@ function buildReadOnlyTools(cwd: string) {
         if (args.length === 0 || !GIT_READONLY.has(args[0])) {
           return `ERROR: only read-only git subcommands are allowed (${[...GIT_READONLY].join(', ')})`;
         }
-        const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+        const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
         return cap(`exit=${r.status}\n${(r.stdout ?? '') + (r.stderr ?? '')}`);
       },
     }),

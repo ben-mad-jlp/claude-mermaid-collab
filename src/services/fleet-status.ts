@@ -121,7 +121,7 @@ type ProcSnapshot = {
  *  headroom read costs no extra spawn (uid column added to the one ps call). */
 function procSnapshot(): ProcSnapshot | null {
   try {
-    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore', timeout: 10_000 }).stdout?.toString() ?? '';
     if (!out.trim()) return null;
     const myUid = typeof process.getuid === 'function' ? process.getuid() : null;
     let liveProcsForUid = myUid != null ? 0 : null;
@@ -154,7 +154,7 @@ function procSnapshot(): ProcSnapshot | null {
 /** Per-uid hard process cap (`kern.maxprocperuid`, ~6000 on macOS). null if unreadable. */
 function perUidProcCap(): number | null {
   try {
-    const out = Bun.spawnSync(['sysctl', '-n', 'kern.maxprocperuid'], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString().trim() ?? '';
+    const out = Bun.spawnSync(['sysctl', '-n', 'kern.maxprocperuid'], { stdout: 'pipe', stderr: 'ignore', timeout: 10_000 }).stdout?.toString().trim() ?? '';
     const n = Number(out);
     return Number.isInteger(n) && n > 0 ? n : null;
   } catch {
