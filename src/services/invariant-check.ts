@@ -3,7 +3,7 @@ import { listTodos, listTodosChunked } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
 import { yieldToLoop } from './loop-yield.ts';
-import { buildEpicBranchStatus, makeGitProbe } from './epic-branch-status.ts';
+import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe } from './epic-branch-status.ts';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -196,7 +196,9 @@ export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): In
 /** DB-backed wrapper: load the project's full work-graph and return its violations. */
 export function checkInvariants(project: string): InvariantViolation[] {
   const todos = listTodos(project, { includeCompleted: true });
-  const branchReport = buildEpicBranchStatus(todos, makeGitProbe(project));
+  const branchReport = buildEpicBranchStatus(todos, makeGitProbe(project), 'master', project, () =>
+    listEpicBranchesIn(project),
+  );
   const aheadById = new Map(branchReport.epics.map((e) => [e.epicId, e.ahead]));
   const aheadOf: AheadLookup = (epicId) => aheadById.get(epicId);
   return [...findViolations(todos), ...findLandedAtDivergence(todos, aheadOf)];

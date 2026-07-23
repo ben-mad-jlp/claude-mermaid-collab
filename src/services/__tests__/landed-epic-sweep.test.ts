@@ -236,3 +236,61 @@ describe('gcEpicBranches', () => {
     expect(order).toEqual(['prune:' + branch, 'delete:' + branch]); // worktree pruned, THEN branch deleted
   });
 });
+
+// Crit-5 (watchdog starvation): the sweep halves accept an injected branch lister and
+// pass it into buildEpicBranchStatus, so with the prefilter active the injected probe
+// runs ONLY for epics whose branch actually exists — bounded by real branches, not the
+// epic-todo count. GC correctness (live-epic guard, fail-closed ahead>0, recovery log)
+// is untouched: branchless epics were skipped before and still are.
+describe('crit-5 prefilter plumbing (listBranches)', () => {
+  test('gcEpicBranches with listBranches: probe fires only for existing branches; many branchless epics probe-free', async () => {
+    const kept = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] has-branch', kind: 'epic', status: 'planned' });
+    await completeTodo(project, kept.id, 'accepted'); // terminal — past the live-epic guard, so ahead>0 flags
+    for (let i = 0; i < 8; i++) {
+      await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: `[EPIC] branchless ${i}`, kind: 'epic', status: 'planned' });
+    }
+    const branch = epicBranchName(kept.id);
+    const probed: string[] = [];
+    const probe: GitProbe = (b) => {
+      probed.push(b);
+      return { exists: true, ahead: 2, behind: 0, mergeable: true }; // ahead>0 → flagged, never deleted
+    };
+    const runner: BranchGcRunner = {
+      revParse: () => 'sha1',
+      deleteBranch: () => { throw new Error('must not delete an ahead>0 branch'); },
+      listEpicBranches: () => [branch],
+      aheadCount: () => 2,
+    };
+
+    const result = gcEpicBranches(project, { probe, runner, listBranches: () => [branch] });
+
+    expect(probed).toEqual([branch]); // 9 epic todos, 1 real branch → exactly 1 probe call
+    expect(result.flagged).toContain(kept.id); // fail-closed flagging intact
+    expect(result.deleted).toEqual([]);
+    expect(result.skipped).toBe(8); // branchless epics skipped, exactly as before
+  });
+
+  test('reconcileLandedEpics with listBranches: branchless epics are skipped without probing', async () => {
+    // Own seed (land leaf created while the epic is still live, avoiding the
+    // terminal-parent-approve trap that fails seedConvergedEpic on current master).
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] m2', kind: 'mission' });
+    upsertMission(project, mission.id);
+    addCriterion(project, mission.id, 'crit B');
+    for (const c of listCriteria(project, mission.id)) setCriterionMet(project, c.id, true);
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] pf', parentId: mission.id, kind: 'epic', status: 'planned' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] pf → master', parentId: epic.id, kind: 'land', status: 'todo' });
+    await completeTodo(project, epic.id, 'accepted');
+    stampEpicLandedAt(project, epic.id, new Date(0).toISOString());
+    const branch = epicBranchName(epic.id);
+    const probed: string[] = [];
+    const probe: GitProbe = (b) => {
+      probed.push(b);
+      return { exists: true, ahead: 0, behind: 0, mergeable: true };
+    };
+
+    const result = await reconcileLandedEpics(project, { probe, listBranches: () => [branch] });
+
+    expect(probed).toEqual([branch]); // mission todo + land leaf never probed; only the epic's real branch
+    expect(result.reconciled).toContain(epic.id); // same outcome as the unfiltered pass
+  });
+});

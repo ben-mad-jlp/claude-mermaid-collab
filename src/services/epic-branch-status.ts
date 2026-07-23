@@ -39,6 +39,13 @@ export interface BranchProbe {
 /** A git probe: given an epic branch + base ref, return the raw counts/flags. */
 export type GitProbe = (branch: string, baseRef: string) => BranchProbe;
 
+/**
+ * One-shot branch enumerator: all existing local `collab/epic/*` short refs, or null
+ * when enumeration itself failed (fall back to probing every epic). Injected so the
+ * prefilter is hermetically testable; the real one is `listEpicBranchesIn`.
+ */
+export type BranchLister = () => string[] | null;
+
 export interface EpicBranchStatus {
   epicId: string;
   title: string;
@@ -101,7 +108,24 @@ export function buildEpicBranchStatus(
   probe: GitProbe,
   baseRef: string = 'master',
   project: string = '',
+  listBranches?: BranchLister,
 ): EpicBranchStatusReport {
+  // PREFILTER (crit-5, watchdog starvation 2026-07-22): with a real synchronous git
+  // probe, probing EVERY epic todo (2-3 spawns each) scales with TODO COUNT (211 rows
+  // → ~500+ blocking Bun.spawnSync calls, >45s event-loop hold → the Electron liveness
+  // watchdog kills the sidecar). Enumerate existing collab/epic/* branches ONCE and
+  // only probe epics whose branch actually exists — a branchless epic already reports
+  // exists:false today; we just skip the pointless spawn. Enumeration failure (null)
+  // falls back to probing everything (never a false all-clear from a broken git).
+  let existing: Set<string> | null | undefined; // undefined = not yet enumerated
+  const branchKnownMissing = (branch: string): boolean => {
+    if (!listBranches) return false;
+    if (existing === undefined) {
+      const listed = listBranches(); // exactly one enumeration per report
+      existing = listed == null ? null : new Set(listed);
+    }
+    return existing != null && !existing.has(branch);
+  };
   // Children grouped by parentId, to find each epic's land leaf descendant.
   const childrenOf = new Map<string, Todo[]>();
   for (const t of todos) {
@@ -130,7 +154,9 @@ export function buildEpicBranchStatus(
   for (const t of todos) {
     if (!isEpic(t)) continue;
     const branch = epicBranchName(t.id);
-    const p = probe(branch, baseRef);
+    const p: BranchProbe = branchKnownMissing(branch)
+      ? { exists: false, ahead: null, behind: null, mergeable: null }
+      : probe(branch, baseRef);
     const land = landLeafOf(t);
     const landLeafDone = land ? land.status === 'done' : null;
     const stranded = p.exists && (p.ahead ?? 0) > 0;
@@ -174,6 +200,18 @@ function runGit(cwd: string, gitArgs: string[]): { code: number; stdout: string 
   } catch {
     return { code: 1, stdout: '' };
   }
+}
+
+/**
+ * Real branch enumerator for `project`: all local collab/epic/* short refs in ONE git
+ * spawn (same for-each-ref recipe as landed-epic-sweep's BranchGcRunner.listEpicBranches).
+ * Returns null when git itself failed, so callers fall back to per-epic probing rather
+ * than reporting a false "no branches exist".
+ */
+export function listEpicBranchesIn(project: string): string[] | null {
+  const r = runGit(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/collab/epic']);
+  if (r.code !== 0) return null;
+  return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
 /** A real git probe rooted at `project`: exists / ahead / behind / mergeable. */
@@ -240,5 +278,7 @@ export function getEpicBranchStatus(
     },
   );
   const todos = listTodos(project, { includeCompleted: true });
-  return buildEpicBranchStatus(todos, makeGitProbe(project), resolved, project);
+  return buildEpicBranchStatus(todos, makeGitProbe(project), resolved, project, () =>
+    listEpicBranchesIn(project),
+  );
 }

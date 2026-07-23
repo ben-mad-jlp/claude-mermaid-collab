@@ -160,3 +160,85 @@ describe('pickBaseRef — main vs master auto-detect', () => {
     expect(pickBaseRef('release/2', has('release/2', 'main'), () => null)).toBe('release/2');
   });
 })
+;
+
+// Crit-5 (2026-07-22 watchdog starvation): the branch-list PREFILTER. With a lister
+// injected, buildEpicBranchStatus enumerates existing collab/epic/* branches exactly
+// once and only probes epics whose branch is in that set — branchless epics get
+// exists:false with ZERO probe calls, so probe spawns are bounded by REAL branch
+// count, never epic-todo count (211 todos previously → ~500+ blocking git spawns).
+describe('buildEpicBranchStatus — existing-branch prefilter', () => {
+  /** N epics; the i-th epic's id is `e<i>` padded so id8s are distinct. */
+  function epics(n: number): Todo[] {
+    return Array.from({ length: n }, (_, i) =>
+      todo({ id: `ep${String(i).padStart(6, '0')}-x`, title: `[EPIC] ${i}`, status: 'todo', kind: 'epic' }),
+    );
+  }
+
+  test('probes ONLY epics whose branch exists; one enumeration; branchless epics still report exists:false', () => {
+    const all = epics(10);
+    const withBranch = [all[2], all[7]];
+    const branches = withBranch.map((t) => epicBranchName(t.id));
+
+    let enumerations = 0;
+    const probed: string[] = [];
+    const probe: GitProbe = (branch) => {
+      probed.push(branch);
+      return { exists: true, ahead: 1, behind: 0, mergeable: true };
+    };
+
+    const report = buildEpicBranchStatus(all, probe, 'master', '', () => {
+      enumerations++;
+      return branches;
+    });
+
+    expect(enumerations).toBe(1);
+    expect(probed.sort()).toEqual([...branches].sort());
+    expect(report.epics).toHaveLength(10);
+    const byId = new Map(report.epics.map((e) => [e.epicId, e]));
+    for (const t of all) {
+      const e = byId.get(t.id)!;
+      if (withBranch.includes(t)) {
+        expect(e.exists).toBe(true);
+        expect(e.ahead).toBe(1);
+      } else {
+        // identical to today's branchless report — just without the git spawn
+        expect(e.exists).toBe(false);
+        expect(e.ahead).toBeNull();
+        expect(e.behind).toBeNull();
+        expect(e.mergeable).toBeNull();
+      }
+    }
+  });
+
+  test('bounded-sync guarantee: probe invocations <= existing-branch count regardless of todo count (200 todos / 2 branches)', () => {
+    const all = epics(200);
+    const branches = [epicBranchName(all[0].id), epicBranchName(all[199].id)];
+    let probeCalls = 0;
+    const probe: GitProbe = () => {
+      probeCalls++;
+      return { exists: true, ahead: 0, behind: 0, mergeable: true };
+    };
+
+    buildEpicBranchStatus(all, probe, 'master', '', () => branches);
+
+    // The real probe runs <=4 git spawns per invocation; the sync loop-hold is therefore
+    // bounded by real branches (2 here), not the 200-row todo table.
+    expect(probeCalls).toBe(2);
+    expect(probeCalls).toBeLessThanOrEqual(branches.length);
+  });
+
+  test('enumeration failure (null) fails OPEN: every epic is probed, exactly as without a lister', () => {
+    const all = epics(5);
+    let probeCalls = 0;
+    const probe: GitProbe = () => {
+      probeCalls++;
+      return { exists: false, ahead: null, behind: null, mergeable: null };
+    };
+
+    const report = buildEpicBranchStatus(all, probe, 'master', '', () => null);
+
+    expect(probeCalls).toBe(5); // no false "no branches" from a broken git enumeration
+    expect(report.epics).toHaveLength(5);
+  });
+});

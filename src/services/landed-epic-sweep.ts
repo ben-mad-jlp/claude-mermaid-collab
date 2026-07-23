@@ -7,7 +7,7 @@
 import { listTodos, stampEpicLandedAt, completeTodo, type Todo } from './todo-store.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
-import { buildEpicBranchStatus, makeGitProbe, epicBranchName, type GitProbe } from './epic-branch-status.js';
+import { buildEpicBranchStatus, makeGitProbe, epicBranchName, type BranchLister, type GitProbe } from './epic-branch-status.js';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
@@ -41,10 +41,15 @@ export interface LandedEpicSweepResult {
 
 export async function reconcileLandedEpics(
   project: string,
-  opts: { probe?: GitProbe; baseRef?: string; now?: () => string } = {},
+  opts: { probe?: GitProbe; baseRef?: string; now?: () => string; listBranches?: BranchLister } = {},
 ): Promise<LandedEpicSweepResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const baseRef = opts.baseRef ?? 'master';
+  // Prefilter probes to branches that actually exist (crit-5). When a fake probe is
+  // injected WITHOUT an explicit lister, skip the prefilter so hermetic tests keep
+  // their exact semantics (their probe already answers exists:false for free).
+  const listBranches =
+    opts.listBranches ?? (opts.probe ? undefined : () => makeBranchGcRunner(project).listEpicBranches());
   const missions = listMissions(project).filter((m) => m.mission.status === 'converged');
   const todos = listTodos(project, { includeCompleted: true });
 
@@ -57,7 +62,7 @@ export async function reconcileLandedEpics(
     }
   }
 
-  const report = buildEpicBranchStatus(todos, probe, baseRef, project);
+  const report = buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
   const statusByEpicId = new Map(report.epics.map((e) => [e.epicId, e]));
 
   const reconciled: string[] = [];
@@ -176,15 +181,20 @@ function appendRecoveryLog(project: string, branch: string, tipSha: string, when
  */
 export function gcEpicBranches(
   project: string,
-  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string } = {},
+  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister } = {},
 ): GcEpicBranchesResult {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
   const baseRef = opts.baseRef ?? 'master';
   const now = opts.now ?? (() => new Date().toISOString());
 
+  // Same prefilter rule as reconcileLandedEpics: with the REAL probe, enumerate
+  // collab/epic/* once (via the runner, one spawn) so per-epic probing is bounded by
+  // real branch count, not todo count. Injected-probe tests keep exact old semantics.
+  const listBranches = opts.listBranches ?? (opts.probe ? undefined : () => runner.listEpicBranches());
+
   const todos = listTodos(project, { includeCompleted: true });
-  const report = buildEpicBranchStatus(todos, probe, baseRef, project);
+  const report = buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
 
   const deleted: string[] = [];
   const flagged: string[] = [];
@@ -250,6 +260,14 @@ export interface RunLandedEpicSweepResult {
  * Throttled composed pass: reconcileLandedEpics then gcEpicBranches, yielding to the
  * event loop between the two batches (same two-batch yield shape as
  * runArchivalSweep's todo/mission batches — archival-sweep.ts).
+ *
+ * Event-loop-hold bound (crit-5): buildEpicBranchStatus stays SYNCHRONOUS, but both
+ * sweep halves prefilter probes to existing collab/epic/* branches, so each held
+ * chunk is O(real branches) spawns (~6 today), not O(epic todos) (~211 → ~500+ spawns
+ * → the >45s watchdog kill of 2026-07-22). Making buildEpicBranchStatus async would
+ * ripple through its sync callers (epic_branch_status MCP tool, checkInvariants,
+ * runSweepMeasurement); bounded-sync chunks between the existing yieldToLoop
+ * boundaries is the smaller-diff fix.
  */
 export async function runLandedEpicSweep(
   project: string,

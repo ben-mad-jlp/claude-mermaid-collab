@@ -59,6 +59,10 @@ export function runSweepMeasurement(
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
   const baseRef = opts.baseRef ?? 'master';
+  // Prefilter (crit-5): with the REAL probe, enumerate collab/epic/* once per report so
+  // probing is bounded by existing branches, not epic-todo count. Injected-probe tests
+  // keep their exact old semantics (no prefilter).
+  const listBranches = opts.probe ? undefined : () => runner.listEpicBranches();
 
   // 1. mission queue promotion — fail-open
   let promoted: string[] = [];
@@ -73,7 +77,7 @@ export function runSweepMeasurement(
   let landedAtDivergence: { count: number; ids: string[] } = { count: 0, ids: [] };
   try {
     const todosBefore = listTodos(project, { includeCompleted: true });
-    const branchReportBefore = buildEpicBranchStatus(todosBefore, probe, baseRef, project);
+    const branchReportBefore = buildEpicBranchStatus(todosBefore, probe, baseRef, project, listBranches);
     const aheadById = new Map(branchReportBefore.epics.map((e) => [e.epicId, e.ahead]));
     const aheadOf: AheadLookup = (epicId) => aheadById.get(epicId);
     const violations = findLandedAtDivergence(todosBefore, aheadOf);
@@ -85,7 +89,7 @@ export function runSweepMeasurement(
   // 3. branch GC — fail-open
   let gcResult: GcEpicBranchesResult = { deleted: [], flagged: [], skipped: 0 };
   try {
-    gcResult = gcEpicBranches(project, { probe, runner, baseRef });
+    gcResult = gcEpicBranches(project, { probe, runner, baseRef, listBranches });
   } catch {
     gcResult = { deleted: [], flagged: [], skipped: 0 };
   }
@@ -95,7 +99,7 @@ export function runSweepMeasurement(
   let fullyOnMasterBranchesRemaining: string[] = [];
   try {
     const todosAfter = listTodos(project, { includeCompleted: true });
-    const branchReportAfter = buildEpicBranchStatus(todosAfter, probe, baseRef, project);
+    const branchReportAfter = buildEpicBranchStatus(todosAfter, probe, baseRef, project, listBranches);
     fullyOnMasterBranchesRemaining = branchReportAfter.epics
       .filter((e) => e.exists && (e.ahead ?? -1) === 0)
       .map((e) => epicBranchName(e.epicId));
