@@ -4278,7 +4278,8 @@ export async function makeLeafExecutorDeps(
         }
       }
       const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
-      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn);
+      const baseGate = getEpicBaseGate(epicId, epicBaseSha);
+      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null);
     },
     // G2 once-per-epic base gate, cached in the epic_base_gate ledger table keyed by
     // epicId ALONE (never the moving tip) so it runs exactly once per epic, not once
