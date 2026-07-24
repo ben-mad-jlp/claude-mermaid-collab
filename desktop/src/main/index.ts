@@ -18,6 +18,7 @@ import { crossServerCall, validateWatchEvent } from './remote-boundary';
 import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main';
 import { installLinuxAutostart } from './linux-autostart';
 import { deriveCdpPort } from '../../../src/services/project-registry';
+import { attachRendererRecovery } from './renderer-recovery';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -491,6 +492,13 @@ function createWindow(): void {
     },
   });
   if (initial.isMaximized) mainWindow.maximize();
+
+  // Recover from renderer crashes/hangs instead of taking down the whole app,
+  // which would collaterally kill the sidecar daemon mid-mission (bug 15bc2883).
+  // MAIN-PROCESS code: ships only via `npm run dist:dir` + `.app` swap, never a hot deploy.
+  attachRendererRecovery(mainWindow, {
+    forensicsFilePath: join(app.getPath('logs'), 'renderer-crashes.log'),
+  });
 
   // Persist size/position on move/resize (debounced) and on close, so the next
   // launch reopens where the user left off.
