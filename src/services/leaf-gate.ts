@@ -810,26 +810,28 @@ export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn
     command: string;
     kind: 'typecheck' | 'tests';
     reason: (cmd: string) => string;
+    cwd?: string;
   };
   const lanes: BaseLane[] = [];
   if (cfg.typecheck) {
     lanes.push({ key: 'typecheck', command: cfg.typecheck, kind: 'typecheck', reason: (c) => `typecheck failed: ${c}` });
   }
   for (const l of cfg.typechecks ?? []) {
-    lanes.push({ key: `typechecks:${l.match.source}`, command: l.command, kind: 'typecheck', reason: (c) => `typecheck lane failed: ${c}` });
+    lanes.push({ key: `typechecks:${l.match.source}`, command: l.command, kind: 'typecheck', reason: (c) => `typecheck lane failed: ${c}`, cwd: l.cwd });
   }
   for (const l of cfg.suites ?? []) {
-    lanes.push({ key: `suites:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `suite lane failed: ${c}` });
+    lanes.push({ key: `suites:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `suite lane failed: ${c}`, cwd: l.cwd });
   }
   for (const l of cfg.floors ?? []) {
-    lanes.push({ key: `floors:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `floor lane failed: ${c}` });
+    lanes.push({ key: `floors:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `floor lane failed: ${c}`, cwd: l.cwd });
   }
   if (cfg.baseTest) {
     lanes.push({ key: 'baseTest', command: cfg.baseTest, kind: 'tests', reason: (c) => `base test failed: ${c}` });
   }
 
   for (const lane of lanes) {
-    const r = await spawn(cwd, lane.command);
+    const laneCwd = lane.cwd ? join(cwd, lane.cwd) : cwd;
+    const r = await spawn(laneCwd, lane.command);
     if (!r.ran) {
       // A lane that COULD NOT RUN is an incident — unchanged semantics: return immediately,
       // no blob (an error is never cached).
