@@ -1642,6 +1642,10 @@ export async function resolveBaseGreen(io: {
     () => io.runGate(wt.path),
   );
   if (isCacheableBaseGateStatus(r.status)) {
+    // Stamp checkedAt from the SAME clock the TTL is later measured against
+    // (shouldHonourCachedBaseGate above). Letting the write default to real Date.now()
+    // while the read uses io.now() makes the TTL window depend on how long the gate
+    // took to run — the window silently shrinks by that elapsed time.
     recordEpicBaseGate({
       epicId,
       project,
@@ -1650,7 +1654,7 @@ export async function resolveBaseGreen(io: {
       command: r.command ?? null,
       output: r.output || null,
       baselineFailures: r.baselineFailures ?? null,
-    });
+    }, io.now?.());
   }
   return { ...r, fresh: true };
 }

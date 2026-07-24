@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { ServerSupervisor } from '../../../desktop/src/main/server-supervisor';
@@ -31,6 +31,31 @@ class FakeChildProcess extends EventEmitter {
     });
   }
 }
+
+// The supervisor writes forensics/escalation files from an async 'exit' handler.
+// Counting process.nextTick()s to reach that write is a race: under load (the full
+// backend suite in an epic worktree) the write lands after the tick budget and the
+// read ENOENTs. Poll for the file to reach the expected state instead.
+async function readWhen(
+  path: string,
+  ready: (content: string) => boolean,
+  timeoutMs = 5_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let content = '';
+  for (;;) {
+    content = existsSync(path) ? readFileSync(path, 'utf-8') : '';
+    if (ready(content)) return content;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `readWhen timed out after ${timeoutMs}ms waiting on ${path}; last content:\n${content}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+const nonEmptyLines = (content: string) => content.split('\n').filter((l) => l.trim());
 
 describe('ServerSupervisor crash loop and forensics', () => {
   let supervisor: ServerSupervisor;
@@ -108,11 +133,11 @@ describe('ServerSupervisor crash loop and forensics', () => {
 
     // Call checkHealthOnce once to trigger first respawn
     await supervisor.checkHealthOnce();
-    // Yield to event loop so exit event handler completes
-    await new Promise((resolve) => process.nextTick(resolve));
 
     // Read forensics file and verify it contains the exit reason and count
-    const content = readFileSync(forensicsDir + '/forensics.log', 'utf-8');
+    const content = await readWhen(forensicsDir + '/forensics.log', (c) =>
+      c.includes('sidecar-exit'),
+    );
     expect(content).toContain('reason=watchdog-unresponsive');
     expect(content).toContain('respawnCount=1');
   });
@@ -140,11 +165,12 @@ describe('ServerSupervisor crash loop and forensics', () => {
 
     await supervisor.start();
     await supervisor.checkHealthOnce();
-    // Yield to event loop so exit event handler completes
-    await new Promise((resolve) => process.nextTick(resolve));
 
-    const content = readFileSync(forensicsDir + '/forensics.log', 'utf-8');
-    const lines = content.split('\n').filter(l => l.trim());
+    const content = await readWhen(
+      forensicsDir + '/forensics.log',
+      (c) => c.includes('watchdog-kill:') && c.includes('sidecar-exit'),
+    );
+    const lines = nonEmptyLines(content);
 
     const killLineIdx = lines.findIndex(l => l.includes('watchdog-kill:'));
     const exitLineIdx = lines.findIndex(l => l.includes('sidecar-exit'));
@@ -191,8 +217,11 @@ describe('ServerSupervisor crash loop and forensics', () => {
     await new Promise((resolve) => process.nextTick(resolve));
 
     // Read pending-escalations.jsonl
-    const escalationContent = readFileSync(supervisorDir + '/pending-escalations.jsonl', 'utf-8');
-    const lines = escalationContent.split('\n').filter(l => l.trim());
+    const escalationContent = await readWhen(
+      supervisorDir + '/pending-escalations.jsonl',
+      (c) => nonEmptyLines(c).length >= 1,
+    );
+    const lines = nonEmptyLines(escalationContent);
     expect(lines.length).toBe(1);
     const intent = JSON.parse(lines[0]);
     expect(intent.kind).toBe('sidecar-crash-loop');
@@ -206,8 +235,11 @@ describe('ServerSupervisor crash loop and forensics', () => {
     await supervisor.checkHealthOnce(); // respawn #7 → fires in new window
     await new Promise((resolve) => process.nextTick(resolve));
 
-    const escalationContent2 = readFileSync(supervisorDir + '/pending-escalations.jsonl', 'utf-8');
-    const lines2 = escalationContent2.split('\n').filter(l => l.trim());
+    const escalationContent2 = await readWhen(
+      supervisorDir + '/pending-escalations.jsonl',
+      (c) => nonEmptyLines(c).length >= 2,
+    );
+    const lines2 = nonEmptyLines(escalationContent2);
     expect(lines2.length).toBe(2);
   });
 
@@ -250,6 +282,12 @@ describe('ServerSupervisor crash loop and forensics', () => {
     await new Promise((resolve) => process.nextTick(resolve));
     await supervisor.checkHealthOnce(); // fires again
     await new Promise((resolve) => process.nextTick(resolve));
+
+    // Both intents must be on disk before the (synchronous) drain reads the file.
+    await readWhen(
+      supervisorDir + '/pending-escalations.jsonl',
+      (c) => nonEmptyLines(c).length >= 2,
+    );
 
     const collected: any[] = [];
     drainEscalationIntents(supervisorDir, (intent) => collected.push(intent));
