@@ -11,7 +11,7 @@ import {
   upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
   activateMission, sessionHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
-  assertMissionCreationAllowed, listMissions, isMissionTerminal,
+  assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
 } from '../services/mission-store.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
@@ -30,7 +30,7 @@ export const MISSION_TOOL_DEFS = [
       { name: 'approve_mission', description: "APPROVE a forged (unapproved) mission: clears its 'unapproved' status so it becomes active/driveable, AND ratifies its constitution by flipping its PROPOSED linked constraint records to active (so payload C injects them into every builder). Use after reviewing a mission produced by forge_mission_from_doc. Returns the updated mission + the constraints activated.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, approvedBy: { type: 'string', description: 'Who approved (handle recorded on the constraint records).' } }, required: ['project', 'todoId'] } },
       { name: 'plan_mission_criterion', description: "DELEGATE planning to a specialist PLANNER node: decompose one-or-more acceptance criteria into ONE right-sized epic + its leaves (with deps), grounded against the real code, and instantiate it PROMOTED-TO-READY under the mission (serving those criteria) so the Orchestrator build+land daemon picks it up. The conductor decides WHICH criteria to serve; this decides HOW. Model/effort configurable per-project via node_profile_override kind 'planner' (default opus/high), overridable per call. Returns the created epic + leaf ids + the planned spec.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'The conductor/owner session creating the work.' }, missionId: { type: 'string', description: 'The mission the epic homes under.' }, criterionIds: { type: 'array', items: { type: 'string' }, description: 'The acceptance criteria this ONE epic should serve (a right-sized epic may serve several related criteria).' }, model: { type: 'string', description: 'Per-call model override (else node_profile_override[planner] → opus).' }, effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Per-call effort override (else node_profile_override[planner] → high).' } }, required: ['project', 'session', 'missionId', 'criterionIds'] } },
       { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
-      { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' } }, required: ['project', 'todoId'] } },
+      { name: 'update_mission', description: "Edit a mission's node — its title (goal), description, and/or budgetUsd (per-mission USD budget ceiling). The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' }, budgetUsd: { type: ['number', 'null'], description: 'Per-mission USD budget ceiling; null clears it to the project default. The ONLY supported mutation surface — do not UPDATE the mission row by hand.' }, actor: { type: 'string', description: 'WHO is changing the budget (required for a budgetUsd change; recorded to the autonomy audit log).' }, reason: { type: 'string', description: 'WHY the budget is changing (recorded to the autonomy audit log).' } }, required: ['project', 'todoId'] } },
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'criterionId', 'text'] } },
       { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (criteria, verdicts). todoId must be a mission node (kind='mission').", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
@@ -194,7 +194,10 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       return JSON.stringify({ active: todoId, deactivated }, null, 2);
     }
     case 'update_mission': {
-      const { project, todoId, title, description, abandonedAt } = args as { project: string; todoId: string; title?: string; description?: string; abandonedAt?: number | null };
+      const { project, todoId, title, description, abandonedAt, budgetUsd, actor, reason } = args as {
+        project: string; todoId: string; title?: string; description?: string; abandonedAt?: number | null;
+        budgetUsd?: number | null; actor?: string; reason?: string;
+      };
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
@@ -211,7 +214,11 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (abandonedAt !== undefined) {
         abandoned = setMissionAbandoned(project, todoId, abandonedAt).abandonedAt;
       }
-      return JSON.stringify({ todoId, title: updated.title, description: updated.description, abandonedAt: abandoned }, null, 2);
+      let budget = getMission(project, todoId)?.budgetUsd ?? null;
+      if (budgetUsd !== undefined) {
+        budget = setMissionBudget(project, todoId, budgetUsd, { actor: actor ?? 'mcp:update_mission', reason }).budgetUsd;
+      }
+      return JSON.stringify({ todoId, title: updated.title, description: updated.description, abandonedAt: abandoned, budgetUsd: budget }, null, 2);
     }
     case 'delete_mission': {
       const { project, todoId } = args as { project: string; todoId: string };

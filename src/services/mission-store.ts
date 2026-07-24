@@ -418,6 +418,53 @@ export function setMissionAbandoned(project: string, todoId: string, abandonedAt
   return getMission(project, id)!;
 }
 
+/** Auditable budget mutation: the ONLY supported path for raising/lowering/clearing a
+ *  mission's `budgetUsd` ceiling (formerly a raw-SQL free-for-all). Every call is attributed
+ *  (`actor`) and logged to the autonomy ring (`kind: 'budget-change'`) so a later raise is
+ *  traceable to who did it and why. A lower value that would silently flip the mission
+ *  over-budget is refused unless `opts.allowBelowSpend` is set; raising or clearing is
+ *  never blocked. `null` clears the ceiling back to the project default. */
+export function setMissionBudget(
+  project: string,
+  todoId: string,
+  budgetUsd: number | null,
+  opts: { actor: string; reason?: string; allowBelowSpend?: boolean },
+): MissionRow {
+  if (typeof opts?.actor !== 'string' || !opts.actor.trim()) {
+    throw new Error('setMissionBudget requires a non-empty actor');
+  }
+  if (budgetUsd !== null && !(typeof budgetUsd === 'number' && Number.isFinite(budgetUsd) && budgetUsd > 0)) {
+    throw new Error(`budgetUsd must be a finite number > 0 (or null to clear): ${String(budgetUsd)}`);
+  }
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
+  const row = getMissionRaw(project, id)!;
+  const previousBudgetUsd = row.budgetUsd;
+  const spendUsdAtChange = collectMissionStatusFacts(project, row).spendUsd;
+  if (
+    budgetUsd != null &&
+    previousBudgetUsd != null &&
+    budgetUsd < previousBudgetUsd &&
+    budgetUsd <= spendUsdAtChange &&
+    !opts.allowBelowSpend
+  ) {
+    throw new Error(
+      `budgetUsd ${budgetUsd} is at or below current spend ${spendUsdAtChange} — pass allowBelowSpend to force`,
+    );
+  }
+  openDb(project)
+    .prepare('UPDATE mission SET budgetUsd = ?, updatedAt = ? WHERE todoId = ?')
+    .run(budgetUsd, nowMs(), id);
+  recordAutonomousMutation({
+    kind: 'budget-change',
+    actor: opts.actor,
+    reason: opts.reason?.trim() || 'budget-set',
+    project,
+    detail: JSON.stringify({ missionId: id, previousBudgetUsd, budgetUsd, spendUsdAtChange }),
+  });
+  return getMission(project, id)!;
+}
+
 /** Stamp archivedAt on a batch of missions by their todoId (idempotent). Used by the
  *  throttled archival sweep (archival-sweep.ts) to move converged/abandoned missions
  *  out of the hot (archivedAt IS NULL) index. Returns the row count updated. */
