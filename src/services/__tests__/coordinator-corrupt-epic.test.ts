@@ -10,7 +10,7 @@ import { buildEpicBranchStatus, type BranchProbe, type GitProbe } from '../epic-
 import { createTodo, completeTodo, getTodo, listTodos } from '../todo-store';
 
 const probeWith = (facts: Record<string, BranchProbe>): GitProbe =>
-  (branch) => facts[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null };
+  async (branch) => facts[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null };
 
 describe('sweepCorruptEpics', () => {
   it('corrupt (land done + ahead>0): report flags corrupt AND sweep reopens the land leaf', async () => {
@@ -20,7 +20,7 @@ describe('sweepCorruptEpics', () => {
     await completeTodo(repo, land.id, 'accepted'); // FALSELY stamp the land leaf done
 
     const branch = `collab/epic/${epic.id.slice(0, 8)}`;
-    const report = buildEpicBranchStatus(
+    const report = await buildEpicBranchStatus(
       listTodos(repo, { includeCompleted: true }),
       probeWith({ [branch]: { exists: true, ahead: 2, behind: 0, mergeable: true } }),
     );
@@ -41,7 +41,7 @@ describe('sweepCorruptEpics', () => {
     await completeTodo(repo, land.id, 'accepted');
 
     const branch = `collab/epic/${epic.id.slice(0, 8)}`;
-    const report = buildEpicBranchStatus(
+    const report = await buildEpicBranchStatus(
       listTodos(repo, { includeCompleted: true }),
       probeWith({ [branch]: { exists: true, ahead: 0, behind: 0, mergeable: true } }),
     );

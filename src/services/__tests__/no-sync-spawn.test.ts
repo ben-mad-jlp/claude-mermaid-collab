@@ -39,14 +39,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'Test infrastructure: PATCHES cp.spawnSync/Bun.spawnSync inside the test runner ' +
       'to intercept hermeticity violations. Never loaded by the daemon.',
   },
-  'services/epic-branch-status.ts': {
-    count: 1,
-    reason:
-      'Daemon-resident git probe, bounded by design (28737b71 prefilter): probes run ' +
-      'only for todos whose collab/epic/<id8> branch actually exists — ≤~25 spawns × ' +
-      '~50ms of one-shot git plumbing, plus a 15s hard timeout per call. A parallel ' +
-      'criterion owns this file’s probe machinery; do not convert it here.',
-  },
   'services/tree-integrity.ts': {
     count: 2,
     reason:
@@ -54,13 +46,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'requestSelfDeploy’s synchronous context. Each call is one-shot git plumbing ' +
       '(rev-parse/write-tree/diff/symbolic-ref/checkout) on a local repo — worst case ' +
       '~1-2s on this repo, far under 45s, and runs only around land/deploy events.',
-  },
-  'services/landed-epic-sweep.ts': {
-    count: 1,
-    reason:
-      'Branch-GC one-shot git refs ops (rev-parse/branch -D/for-each-ref/rev-list), ' +
-      'count bounded by the local collab/epic/* branch count (~tens), each ~50ms, on a ' +
-      'periodic sweep. Worst case well under 45s.',
   },
   'services/project-digest.ts': {
     count: 1,

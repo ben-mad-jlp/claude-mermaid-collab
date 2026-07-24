@@ -44,11 +44,11 @@ function assertRunInvariants(run: SweepMeasurement, n: number) {
 }
 
 console.log(`Run 1`);
-const run1: SweepMeasurement = runSweepMeasurement(project);
+const run1: SweepMeasurement = await runSweepMeasurement(project);
 assertRunInvariants(run1, 1);
 
 console.log(`\nRun 2 (idempotence check)`);
-const run2: SweepMeasurement = runSweepMeasurement(project);
+const run2: SweepMeasurement = await runSweepMeasurement(project);
 assertRunInvariants(run2, 2);
 
 check('run 2 promoted no new missions', run2.promoted.length === 0, `promoted=[${run2.promoted.join(',')}]`);

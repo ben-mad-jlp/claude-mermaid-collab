@@ -48,6 +48,31 @@ const TriageLifecycleBadge: React.FC<{ escalation: Escalation }> = ({ escalation
   return null;
 };
 
+/**
+ * Copyable short-id chip: the escalation's leading 8 hex (the short-id convention
+ * every MCP verb + conversation uses to refer to a card). Click copies the FULL id —
+ * resolve verbs require it (short-id resolves can silently no-op on other stores).
+ */
+const CopyIdChip: React.FC<{ id: string }> = ({ id }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      data-testid="escalation-id-chip"
+      onClick={(ev) => {
+        ev.stopPropagation();
+        void navigator.clipboard?.writeText(id);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      title={copied ? 'Copied!' : `Copy full id: ${id}`}
+      className="shrink-0 px-1 py-0.5 rounded font-mono text-3xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700/60 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+    >
+      {copied ? '✓ copied' : id.slice(0, 8)}
+    </button>
+  );
+};
+
 export interface BridgeEscalationInboxProps {
   escalations: Escalation[];
   serverScope: string;
@@ -164,6 +189,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                 className="px-3 py-2.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 space-y-2"
               >
                 <div className="flex items-center gap-1.5">
+                  <CopyIdChip id={e.id} />
                   <span className="text-3xs font-medium text-gray-500 dark:text-gray-400 truncate" title={`${e.project} / ${e.session}`}>
                     {e.session}
                   </span>
@@ -321,6 +347,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
               className="px-2.5 py-1.5 rounded border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-900/15 opacity-80"
             >
               <div className="flex items-center gap-1.5">
+                <CopyIdChip id={e.id} />
                 <span className="text-2xs">✓</span>
                 <span className="text-3xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                   AI resolved
