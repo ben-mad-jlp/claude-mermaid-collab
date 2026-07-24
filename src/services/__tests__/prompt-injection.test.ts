@@ -2,10 +2,16 @@ import { describe, expect, test, beforeEach, afterEach, afterAll } from 'bun:tes
 import { readdirSync, readFileSync, statSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+const MISSION_DIGEST_SUP_DIR = mkdtempSync(join(tmpdir(), 'prompt-injection-mission-digest-sup-'));
+process.env.MERMAID_SUPERVISOR_DIR = MISSION_DIGEST_SUP_DIR;
+
 import { composeInjectedContext, _wrapBlock } from '../prompt-injection';
 import { getInjectionFlags } from '../runtime-config';
 import { createDecisionRecord, approveDecisionRecord, _closeProject } from '../decision-record-store';
-import { DIGEST_HEADER } from '../project-digest';
+import { _closeProject as _closeTodos } from '../todo-store';
+import { DIGEST_HEADER, writeProjectDigest } from '../project-digest';
+import { _resetMissionDbCache } from '../mission-store';
+import { forgeMission } from '../../mcp/tools/mission-forge';
 
 const OFF = { digest: false, retryContext: false, activeConstraints: false } as const;
 
@@ -370,6 +376,54 @@ describe('payload D — REJECTED ALTERNATIVES', () => {
       kind: 'blueprint',
       project,
       flags: { digest: false, retryContext: false, activeConstraints: false },
+    });
+    expect(out).toBe('');
+  });
+});
+
+describe('payload A — active-mission digest resolution', () => {
+  let project: string;
+  beforeEach(() => {
+    project = mkdtempSync(join(tmpdir(), 'prompt-injection-active-digest-'));
+  });
+  afterEach(() => {
+    _resetMissionDbCache(project);
+    _closeProject(project);
+    _closeTodos(project);
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  test('active mission with a digest ⇒ the mission digest reaches the block, no readDigest override', async () => {
+    await forgeMission(project, {
+      session: 's1',
+      title: 'The only active mission',
+      criteria: ['it works'],
+      digest: '# mission orientation',
+    });
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
+    });
+    expect(out).toContain('=== PROJECT DIGEST (advisory — verify against the tree) ===');
+    expect(out).toContain('mission orientation');
+  });
+
+  test('no mission ⇒ falls back to the project-global digest, no readDigest override', () => {
+    writeProjectDigest(project);
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
+    });
+    expect(out).toContain(DIGEST_HEADER);
+  });
+
+  test('neither mission digest nor project digest ⇒ empty, no readDigest override', () => {
+    const out = composeInjectedContext({
+      kind: 'blueprint',
+      project,
+      flags: { digest: true, retryContext: false, activeConstraints: false },
     });
     expect(out).toBe('');
   });

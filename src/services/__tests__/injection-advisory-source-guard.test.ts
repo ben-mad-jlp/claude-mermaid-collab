@@ -25,6 +25,7 @@ const FORBIDDEN = [
   { label: 'generateProjectDigest', needle: 'generateProjectDigest' },
   { label: 'regenerateProjectDigest', needle: 'regenerateProjectDigest' },
   { label: 'readProjectDigest', needle: 'readProjectDigest' },
+  { label: 'resolveActiveMissionDigest', needle: 'resolveActiveMissionDigest' },
   { label: 'checkConstraintCitations', needle: 'checkConstraintCitations' },
   // Markers defined in prompt-injection.ts (lines 34, 102, 110, 120)
   { label: 'advisory marker', needle: 'advisory — verify against the tree' },
