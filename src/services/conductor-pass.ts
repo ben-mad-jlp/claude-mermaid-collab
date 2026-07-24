@@ -33,11 +33,8 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
  *  (set_mission_criterion), check readiness and LAND (epic_land_readiness/land_epic). */
 export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allowedTools;
 
-export interface ConductorActionRow {
-  action: 'met' | 'building' | 'verify' | 'discover' | 'escalate';
-  id: string;
-  rejectedParked?: number;
-}
+import { conductorFingerprint } from './conductor-signature.js';
+export { conductorFingerprint, type ConductorActionRow } from './conductor-signature.js';
 
 /** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
  *  time — the debounce below skips creating a second while one is still open. */
@@ -53,13 +50,6 @@ export { CONDUCTOR_SERVE_RETRY_CAP };
  *  (=missionId) and free text. Stable + greppable. */
 export function serveCapMarker(criterionId: string): string {
   return `[serve-cap:${criterionId}]`;
-}
-
-/** Debounce fingerprint: the derived mission status + the per-criterion actions. Unchanged ⇒ the
- *  conductor already saw this exact state and spent a node on it — do not spend another. */
-export function conductorFingerprint(status: string, actions: ConductorActionRow[]): string {
-  const parts = actions.map((a) => `${a.id}:${a.action}:${a.rejectedParked ?? 0}`).sort();
-  return `${status}|${parts.join(',')}`;
 }
 
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
