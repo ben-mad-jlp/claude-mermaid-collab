@@ -45,13 +45,13 @@ import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
 import { recordFriction } from './friction-store';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
-import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
+import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
@@ -1603,6 +1603,56 @@ export function isCacheableBaseGateStatus(
   status: 'pass' | 'fail' | 'error',
 ): status is 'pass' | 'fail' {
   return status !== 'error';
+}
+
+/** Injectable core of `ensureBaseGreen`: read the epic_base_gate cache, honour it via
+ *  {@link shouldHonourCachedBaseGate} (a cached `pass` is terminal for its sha; a cached
+ *  `fail` is re-verified until the attempt/TTL bounds are exhausted), and otherwise
+ *  actually run the base gate and record the result. Extracted so the policy is
+ *  unit-testable without a live worktree/git (see `defaultEpicBaseProbe` in
+ *  conductor-infra-arm.ts for the sibling seam). */
+export async function resolveBaseGreen(io: {
+  epicId: string;
+  project: string;
+  targetProject: string;
+  epicBaseSha: string | null | undefined;
+  gateCfg: LeafGateConfig | null;
+  ensureEpicWorktree: () => Promise<{ path: string } | null>;
+  runGate: (cwd: string) => Promise<LeafGateResult>;
+  now?: () => number;
+}): Promise<(LeafGateResult & { fresh: boolean }) | null> {
+  const { epicId, project, epicBaseSha, gateCfg } = io;
+  if (!gateCfg) return null; // absent → abstain (unchanged)
+  const cached = getEpicBaseGate(epicId, epicBaseSha);
+  if (cached && shouldHonourCachedBaseGate(cached, io.now?.()) === 'honour') {
+    return {
+      status: cached.status,
+      command: cached.command ?? undefined,
+      output: cached.output ?? '',
+      reasons: [],
+      declared: true,
+      baselineFailures: cached.baselineFailures ?? undefined,
+      fresh: false,
+    };
+  }
+  const wt = await io.ensureEpicWorktree();
+  if (!wt) return null; // non-git fallback ⇒ no base gate
+  const r = await runBaseGateShared(
+    baseGateKey(io.targetProject, epicBaseSha, gateCfg),
+    () => io.runGate(wt.path),
+  );
+  if (isCacheableBaseGateStatus(r.status)) {
+    recordEpicBaseGate({
+      epicId,
+      project,
+      baseSha: epicBaseSha ?? null,
+      status: r.status,
+      command: r.command ?? null,
+      output: r.output || null,
+      baselineFailures: r.baselineFailures ?? null,
+    });
+  }
+  return { ...r, fresh: true };
 }
 
 /** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
@@ -4349,46 +4399,26 @@ export async function makeLeafExecutorDeps(
       return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null, resolveLaneBaseline);
     },
     // G2 once-per-epic base gate, cached in the epic_base_gate ledger table keyed by
-    // epicId ALONE (never the moving tip) so it runs exactly once per epic, not once
-    // per leaf. `fresh:true` only on the call that actually executed the commands.
+    // epicId ALONE (never the moving tip). A cached `pass` is terminal for its sha; a
+    // cached `fail` is re-verified (bounded by shouldHonourCachedBaseGate's attempt/TTL
+    // policy) rather than pinning the epic red forever on one contention/flake red.
+    // `fresh:true` only on a call that actually executed the commands.
     ensureBaseGreen: async () => {
       const early = gateResultForDeclaration(gateDecl);
       if (early) return { ...early, fresh: true }; // escalate once; never cache a config error as a base fact
-      if (!gateCfg) return null; // absent → abstain (unchanged)
-      const cached = getEpicBaseGate(epicId, epicBaseSha);
-      if (cached) {
-        return {
-          status: cached.status,
-          command: cached.command ?? undefined,
-          output: cached.output ?? '',
-          reasons: [],
-          declared: true,
-          baselineFailures: cached.baselineFailures ?? undefined,
-          fresh: false,
-        };
-      }
-      // ensureEpic was already called above in this same factory — idempotent, no new
-      // worktree churn. Run at the epic worktree (inside the repo ⇒ node_modules
-      // resolves upward), AFTER forwardIntegrateEpic so we gate the base a leaf will
-      // actually fork from.
-      const wt = await wm.ensureEpic(epicId, targetProject);
-      if (!wt) return null; // non-git fallback ⇒ no base gate
-      const r = await runBaseGateShared(
-        baseGateKey(targetProject, epicBaseSha, gateCfg),
-        () => runBaseGate(wt.path, gateCfg, defaultGateSpawn),
-      );
-      if (isCacheableBaseGateStatus(r.status)) {
-        recordEpicBaseGate({
-          epicId,
-          project,
-          baseSha: epicBaseSha,
-          status: r.status,
-          command: r.command ?? null,
-          output: r.output || null,
-          baselineFailures: r.baselineFailures ?? null,
-        });
-      }
-      return { ...r, fresh: true };
+      return resolveBaseGreen({
+        epicId,
+        project,
+        targetProject,
+        epicBaseSha,
+        gateCfg,
+        // ensureEpic was already called above in this same factory — idempotent, no new
+        // worktree churn. Run at the epic worktree (inside the repo ⇒ node_modules
+        // resolves upward), AFTER forwardIntegrateEpic so we gate the base a leaf will
+        // actually fork from.
+        ensureEpicWorktree: () => wm.ensureEpic(epicId, targetProject),
+        runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn),
+      });
     },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
