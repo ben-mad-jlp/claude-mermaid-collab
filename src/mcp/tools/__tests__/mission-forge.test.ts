@@ -83,11 +83,12 @@ describe('forgeMission — atomic mission + constitution', () => {
     expect(r.decisions).toHaveLength(1);
     expect(r.decisions[0].alternatives).toEqual(['route contested reviews to a second LLM judge']);
 
-    // Digest written to .collab/project-digest.md
+    // Digest written to .collab/mission-digests/<missionId>.md — NOT the project-global file
     expect(r.digestWritten).toBe(true);
-    const digestPath = join(project, '.collab', 'project-digest.md');
+    const digestPath = join(project, '.collab', 'mission-digests', `${r.missionId}.md`);
     expect(existsSync(digestPath)).toBe(true);
     expect(readFileSync(digestPath, 'utf8')).toContain('leaf-executor.ts');
+    expect(existsSync(join(project, '.collab', 'project-digest.md'))).toBe(false);
   });
 
   test('the forged constraints actually REACH a build node via composeInjectedContext (payload C)', async () => {
