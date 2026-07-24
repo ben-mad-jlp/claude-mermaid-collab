@@ -111,6 +111,17 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverSc
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Decision</span>
+          {/* Copyable short id — the handle used to refer to this card in conversation
+              and in MCP verbs (which need the FULL id, hence copy-full-on-click). */}
+          <button
+            type="button"
+            data-testid="escalation-id-chip"
+            onClick={() => void navigator.clipboard?.writeText(escalation.id)}
+            title={`Copy full id: ${escalation.id}`}
+            className="shrink-0 px-1 py-0.5 rounded font-mono text-3xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            {escalation.id.slice(0, 8)}
+          </button>
           <span className="text-xs text-gray-500 dark:text-gray-400 truncate">{escalation.session}</span>
           <button
             type="button"

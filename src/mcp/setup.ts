@@ -2137,7 +2137,7 @@ export async function setupMCPServer(): Promise<Server> {
           case 'invariant_check': {
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
-            const violations = checkInvariants(project);
+            const violations = await checkInvariants(project);
             return JSON.stringify({ violations, count: violations.length }, null, 2);
           }
           case 'gate_status': {
@@ -2247,7 +2247,7 @@ export async function setupMCPServer(): Promise<Server> {
           case 'epic_branch_status': {
             const { project, baseRef } = args as { project: string; baseRef?: string };
             if (!project) throw new Error('Missing required: project');
-            const report = getEpicBranchStatus(project, baseRef || 'master');
+            const report = await getEpicBranchStatus(project, baseRef || 'master');
             return JSON.stringify(report, null, 2);
           }
           case 'epic_land_readiness': {

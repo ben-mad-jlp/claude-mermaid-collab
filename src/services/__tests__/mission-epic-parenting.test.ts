@@ -158,7 +158,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
     expect(epicBranchName(resolveEpicId(leaf, project))).not.toBe(epicBranchName(INBOX_EPIC_ID));
   });
 
-  test('buildEpicBranchStatus excludes missions from the epic-branch report', () => {
+  test('buildEpicBranchStatus excludes missions from the epic-branch report', async () => {
     // Hand-built literal Todo objects (pure function, no DB).
     const todos: Todo[] = [
       {
@@ -298,8 +298,8 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
       },
     ];
 
-    const probe: GitProbe = () => ({ exists: true, ahead: 5, behind: 0, mergeable: true });
-    const report = buildEpicBranchStatus(todos, probe);
+    const probe: GitProbe = async () => ({ exists: true, ahead: 5, behind: 0, mergeable: true });
+    const report = await buildEpicBranchStatus(todos, probe);
 
     // The report should contain only the epic, not the mission.
     expect(report.epics.length).toBe(1);

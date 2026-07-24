@@ -62,7 +62,7 @@ export async function reconcileLandedEpics(
     }
   }
 
-  const report = buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
+  const report = await buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
   const statusByEpicId = new Map(report.epics.map((e) => [e.epicId, e]));
 
   const reconciled: string[] = [];
@@ -92,20 +92,20 @@ export async function reconcileLandedEpics(
  *  (epic-branch-status.ts:44). */
 export interface BranchGcRunner {
   /** HEAD SHA of `branch`, or null if it doesn't resolve. */
-  revParse(branch: string): string | null;
+  revParse(branch: string): Promise<string | null>;
   /** Force-delete `branch` (git branch -D). Returns true on success. */
-  deleteBranch(branch: string): boolean;
+  deleteBranch(branch: string): Promise<boolean>;
   /** All local `collab/epic/<id8>` branch names (short refs) — including ORPHANS whose epic
    *  todo no longer exists, which buildEpicBranchStatus (built from live todos) cannot see. */
-  listEpicBranches(): string[];
+  listEpicBranches(): Promise<string[]>;
   /** Commits on `branch` not on `baseRef` (git rev-list --count baseRef..branch). Returns -1 on
    *  error so the caller treats it as ahead>0 and never deletes speculatively (fail-closed). */
-  aheadCount(branch: string, baseRef: string): number;
+  aheadCount(branch: string, baseRef: string): Promise<number>;
   /** Remove the worktree holding `branch` (if any) so `git branch -D` can then delete it — a
    *  fully-on-master epic's post-land worktree is stale cruft. Uses `git worktree remove` WITHOUT
    *  --force, so a worktree with uncommitted changes (an active build) is preserved and its branch
    *  stays undeleted. Optional (older/injected runners may omit it). */
-  pruneWorktreeFor?(branch: string): void;
+  pruneWorktreeFor?(branch: string): Promise<void>;
 }
 
 export interface GcEpicBranchesResult {
@@ -117,10 +117,26 @@ export interface GcEpicBranchesResult {
   skipped: number;
 }
 
-function runGitLocal(cwd: string, args: string[]): { code: number; stdout: string } {
+/** Hard cap on any single GC git op. */
+const GC_GIT_TIMEOUT_MS = 10_000;
+
+/** Run git in `cwd` ASYNC, returning { code, stdout }. Never throws; never hangs
+ *  (timeout kill). Async spawn (Bun.spawn + await exited) — never spawnSync, which
+ *  would pin the sidecar event loop for the git call's full duration inside the
+ *  sweep loop. */
+async function runGitLocal(cwd: string, args: string[]): Promise<{ code: number; stdout: string }> {
   try {
-    const p = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'ignore', timeout: 10_000 });
-    return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
+    const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'ignore' });
+    const killTimer = setTimeout(() => { try { p.kill(); } catch { /* already gone */ } }, GC_GIT_TIMEOUT_MS);
+    try {
+      const [stdout, code] = await Promise.all([
+        p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
+        p.exited,
+      ]);
+      return { code: code ?? 1, stdout };
+    } finally {
+      clearTimeout(killTimer);
+    }
   } catch {
     return { code: 1, stdout: '' };
   }
@@ -128,31 +144,31 @@ function runGitLocal(cwd: string, args: string[]): { code: number; stdout: strin
 
 export function makeBranchGcRunner(project: string): BranchGcRunner {
   return {
-    revParse(branch: string): string | null {
-      const r = runGitLocal(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+    async revParse(branch: string): Promise<string | null> {
+      const r = await runGitLocal(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
       const sha = r.stdout.trim();
       return r.code === 0 && sha ? sha : null;
     },
-    deleteBranch(branch: string): boolean {
-      return runGitLocal(project, ['branch', '-D', branch]).code === 0;
+    async deleteBranch(branch: string): Promise<boolean> {
+      return (await runGitLocal(project, ['branch', '-D', branch])).code === 0;
     },
-    listEpicBranches(): string[] {
-      const r = runGitLocal(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/collab/epic']);
+    async listEpicBranches(): Promise<string[]> {
+      const r = await runGitLocal(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/collab/epic']);
       return r.code === 0 ? r.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : [];
     },
-    aheadCount(branch: string, baseRef: string): number {
-      const r = runGitLocal(project, ['rev-list', '--count', `${baseRef}..${branch}`]);
+    async aheadCount(branch: string, baseRef: string): Promise<number> {
+      const r = await runGitLocal(project, ['rev-list', '--count', `${baseRef}..${branch}`]);
       const n = Number(r.stdout.trim());
       return r.code === 0 && Number.isFinite(n) ? n : -1; // -1 → fail-closed (treat as ahead, never delete)
     },
-    pruneWorktreeFor(branch: string): void {
-      const r = runGitLocal(project, ['worktree', 'list', '--porcelain']);
+    async pruneWorktreeFor(branch: string): Promise<void> {
+      const r = await runGitLocal(project, ['worktree', 'list', '--porcelain']);
       if (r.code !== 0) return;
       let wtPath = '';
       for (const line of r.stdout.split('\n')) {
         if (line.startsWith('worktree ')) wtPath = line.slice('worktree '.length).trim();
         else if (line.trim() === `branch refs/heads/${branch}` && wtPath) {
-          runGitLocal(project, ['worktree', 'remove', wtPath]); // no --force → refuses if dirty (fail-safe)
+          await runGitLocal(project, ['worktree', 'remove', wtPath]); // no --force → refuses if dirty (fail-safe)
           return;
         }
       }
@@ -179,10 +195,10 @@ function appendRecoveryLog(project: string, branch: string, tipSha: string, when
  * Read-only fallback: an epic with no branch (exists:false) is skipped, not flagged
  * — there's nothing to GC or recover.
  */
-export function gcEpicBranches(
+export async function gcEpicBranches(
   project: string,
   opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister } = {},
-): GcEpicBranchesResult {
+): Promise<GcEpicBranchesResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
   const baseRef = opts.baseRef ?? 'master';
@@ -194,7 +210,7 @@ export function gcEpicBranches(
   const listBranches = opts.listBranches ?? (opts.probe ? undefined : () => runner.listEpicBranches());
 
   const todos = listTodos(project, { includeCompleted: true });
-  const report = buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
+  const report = await buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
 
   const deleted: string[] = [];
   const flagged: string[] = [];
@@ -214,10 +230,10 @@ export function gcEpicBranches(
     // 48a3cc6e with two leaves in flight, 234f0021 four times).
     if (e.status !== 'done' && e.status !== 'dropped') { skipped++; continue; }
     if ((e.ahead ?? 0) > 0) { flagged.push(e.epicId); continue; }
-    const tip = runner.revParse(e.branch);
+    const tip = await runner.revParse(e.branch);
     if (tip == null) { skipped++; continue; }
-    runner.pruneWorktreeFor?.(e.branch); // remove a stale post-land worktree so the delete can succeed
-    if (runner.deleteBranch(e.branch)) {
+    await runner.pruneWorktreeFor?.(e.branch); // remove a stale post-land worktree so the delete can succeed
+    if (await runner.deleteBranch(e.branch)) {
       appendRecoveryLog(project, e.branch, tip, now());
       deleted.push(e.branch);
     } else {
@@ -232,14 +248,14 @@ export function gcEpicBranches(
   // branch fully-on-master (ahead===0), flag ahead>0 (or a probe error, ahead<0) for review, and
   // capture every deleted tip to the recovery log. `flagged` carries the branch name for orphans
   // (they have no epic id).
-  for (const branch of runner.listEpicBranches()) {
+  for (const branch of await runner.listEpicBranches()) {
     if (handled.has(branch)) continue; // already processed via its live epic todo above
-    const ahead = runner.aheadCount(branch, baseRef);
+    const ahead = await runner.aheadCount(branch, baseRef);
     if (ahead !== 0) { flagged.push(branch); continue; } // ahead>0 or error(-1) → keep (fail-closed)
-    const tip = runner.revParse(branch);
+    const tip = await runner.revParse(branch);
     if (tip == null) { skipped++; continue; }
-    runner.pruneWorktreeFor?.(branch); // remove a stale post-land worktree so the delete can succeed
-    if (runner.deleteBranch(branch)) {
+    await runner.pruneWorktreeFor?.(branch); // remove a stale post-land worktree so the delete can succeed
+    if (await runner.deleteBranch(branch)) {
       appendRecoveryLog(project, branch, tip, now());
       deleted.push(branch);
     } else {
@@ -261,13 +277,11 @@ export interface RunLandedEpicSweepResult {
  * event loop between the two batches (same two-batch yield shape as
  * runArchivalSweep's todo/mission batches — archival-sweep.ts).
  *
- * Event-loop-hold bound (crit-5): buildEpicBranchStatus stays SYNCHRONOUS, but both
- * sweep halves prefilter probes to existing collab/epic/* branches, so each held
- * chunk is O(real branches) spawns (~6 today), not O(epic todos) (~211 → ~500+ spawns
- * → the >45s watchdog kill of 2026-07-22). Making buildEpicBranchStatus async would
- * ripple through its sync callers (epic_branch_status MCP tool, checkInvariants,
- * runSweepMeasurement); bounded-sync chunks between the existing yieldToLoop
- * boundaries is the smaller-diff fix.
+ * Event-loop-hold bound (crit-5): every git call is an ASYNC bounded spawn (never
+ * spawnSync — pins the sidecar event loop), and both sweep halves additionally
+ * prefilter probes to existing collab/epic/* branches, so each pass is O(real
+ * branches) spawns (~6 today), not O(epic todos) (~211 → ~500+ spawns → the >45s
+ * watchdog kill of 2026-07-22).
  */
 export async function runLandedEpicSweep(
   project: string,
@@ -288,7 +302,7 @@ export async function runLandedEpicSweep(
 
   const reconcile = await reconcileLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
   await doYield();
-  const gc = gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
+  const gc = await gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
 
   await doYield();
   let promoted: string[] = [];

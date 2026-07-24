@@ -194,9 +194,9 @@ export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): In
 }
 
 /** DB-backed wrapper: load the project's full work-graph and return its violations. */
-export function checkInvariants(project: string): InvariantViolation[] {
+export async function checkInvariants(project: string): Promise<InvariantViolation[]> {
   const todos = listTodos(project, { includeCompleted: true });
-  const branchReport = buildEpicBranchStatus(todos, makeGitProbe(project), 'master', project, () =>
+  const branchReport = await buildEpicBranchStatus(todos, makeGitProbe(project), 'master', project, () =>
     listEpicBranchesIn(project),
   );
   const aheadById = new Map(branchReport.epics.map((e) => [e.epicId, e.ahead]));
