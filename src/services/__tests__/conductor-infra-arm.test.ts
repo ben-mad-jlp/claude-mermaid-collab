@@ -23,7 +23,7 @@ import { _resetMissionDbCache, listCriteria, listCriteriaWithActions, getMission
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { createTodo, updateTodo, getTodo, deriveTodoViews } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
-import { recordNode, recordEpicBaseGate } from '../worker-ledger';
+import { recordNode, recordEpicBaseGate, BASE_GATE_FAIL_TTL_MS } from '../worker-ledger';
 
 let project: string;
 
@@ -200,5 +200,45 @@ describe('makeEpicBaseProbe (re-verify policy at the conductor-side cache reader
     const verdict = await probe(epicId, project);
     expect(gateCalls).toBe(0);
     expect(verdict).toBe('pass');
+  });
+
+  test('a cached fail past the TTL re-runs the gate and returns pass', async () => {
+    const epicId = 'epic-infra-probe-ttl';
+    const baseSha = 'sha-infra-probe-ttl';
+    const t0 = Date.now();
+    recordEpicBaseGate({ epicId, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'boom' }, t0);
+    recordEpicBaseGate({ epicId, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'boom' }, t0);
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => baseSha,
+      gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
+      ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+      runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      now: () => t0 + BASE_GATE_FAIL_TTL_MS + 1,
+    });
+
+    const verdict = await probe(epicId, project);
+    expect(gateCalls).toBe(1);
+    expect(verdict).toBe('pass');
+  });
+
+  test('a cached fail with the attempt budget exhausted is honoured inside the TTL', async () => {
+    const epicId = 'epic-infra-probe-honour';
+    const baseSha = 'sha-infra-probe-honour';
+    const t0 = Date.now();
+    recordEpicBaseGate({ epicId, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'boom' }, t0);
+    recordEpicBaseGate({ epicId, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'boom' }, t0);
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => baseSha,
+      gateDecl: () => { throw new Error('must not be called on an honoured cache'); },
+      ensureEpicWorktree: async () => { throw new Error('must not be called on an honoured cache'); },
+      runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      now: () => t0 + BASE_GATE_FAIL_TTL_MS - 1,
+    });
+
+    const verdict = await probe(epicId, project);
+    expect(gateCalls).toBe(0);
+    expect(verdict).toBe('fail');
   });
 });
