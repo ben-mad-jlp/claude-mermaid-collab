@@ -56,7 +56,7 @@ import {
   type InheritedSlice,
 } from '../leaf-executor';
 import { sliceCoversFiles } from '../split-decision';
-import { recordEpicBaseGate } from '../worker-ledger';
+import { recordEpicBaseGate, getEpicBaseGate, BASE_GATE_FAIL_TTL_MS } from '../worker-ledger';
 import { MAX_BASE_MOVED_REFUNDS, MAX_REDISPATCH } from '../harness-caps';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
@@ -1436,6 +1436,87 @@ describe('runLeaf G2 mechanical gate', () => {
       });
       expect(gateCalls).toBe(1);
       expect(r?.fresh).toBe(true);
+    });
+
+    it('a cached fail with the attempt budget exhausted is HONOURED inside the TTL', async () => {
+      const epicId = 'epic-resolve-fail-bounded';
+      const baseSha = 'sha-fail-bounded';
+      const t0 = Date.now();
+      let gateCalls = 0;
+      // Two same-sha fail writes exhaust the attempt budget (BASE_GATE_FAIL_REVERIFY_ATTEMPTS).
+      for (let i = 0; i < 2; i++) {
+        await resolveBaseGreen({
+          epicId,
+          project: 'p',
+          targetProject: 'p',
+          epicBaseSha: baseSha,
+          gateCfg,
+          ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+          runGate: async () => { gateCalls++; return { status: 'fail', output: 'boom', reasons: [], declared: true }; },
+          now: () => t0,
+        });
+      }
+      expect(gateCalls).toBe(2);
+      const r = await resolveBaseGreen({
+        epicId,
+        project: 'p',
+        targetProject: 'p',
+        epicBaseSha: baseSha,
+        gateCfg,
+        ensureEpicWorktree: async () => { gateCalls++; throw new Error('must not be called'); },
+        runGate: async () => { gateCalls++; return { status: 'fail', output: 'boom', reasons: [], declared: true }; },
+        now: () => t0 + BASE_GATE_FAIL_TTL_MS - 1,
+      });
+      expect(gateCalls).toBe(2);
+      expect(r?.fresh).toBe(false);
+      expect(r?.status).toBe('fail');
+    });
+
+    it('once now passes checkedAt + BASE_GATE_FAIL_TTL_MS the gate re-runs and a pass clears failAttempts', async () => {
+      const epicId = 'epic-resolve-fail-ttl';
+      const baseSha = 'sha-fail-ttl';
+      const t0 = Date.now();
+      let gateCalls = 0;
+      for (let i = 0; i < 2; i++) {
+        await resolveBaseGreen({
+          epicId,
+          project: 'p',
+          targetProject: 'p',
+          epicBaseSha: baseSha,
+          gateCfg,
+          ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+          runGate: async () => { gateCalls++; return { status: 'fail', output: 'boom', reasons: [], declared: true }; },
+          now: () => t0,
+        });
+      }
+      expect(gateCalls).toBe(2);
+      const r = await resolveBaseGreen({
+        epicId,
+        project: 'p',
+        targetProject: 'p',
+        epicBaseSha: baseSha,
+        gateCfg,
+        ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+        runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+        now: () => t0 + BASE_GATE_FAIL_TTL_MS + 1,
+      });
+      expect(gateCalls).toBe(3);
+      expect(r?.fresh).toBe(true);
+      expect(r?.status).toBe('pass');
+      expect(getEpicBaseGate(epicId, baseSha)?.failAttempts).toBe(0);
+
+      const r2 = await resolveBaseGreen({
+        epicId,
+        project: 'p',
+        targetProject: 'p',
+        epicBaseSha: baseSha,
+        gateCfg,
+        ensureEpicWorktree: async () => { throw new Error('must not be called'); },
+        runGate: async () => { throw new Error('must not be called'); },
+        now: () => t0 + BASE_GATE_FAIL_TTL_MS + 1,
+      });
+      expect(r2?.fresh).toBe(false);
+      expect(r2?.status).toBe('pass');
     });
   });
 
