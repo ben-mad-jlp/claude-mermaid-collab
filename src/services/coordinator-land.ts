@@ -14,7 +14,7 @@ import type { Todo } from './todo-store';
 import { listTodos, getTodo, completeTodo, stampEpicLandedAt } from './todo-store';
 import { isEpic } from './todo-kind.ts';
 import { STUCK_AUTOLAND_THRESHOLD } from './harness-caps';
-import { createEscalation, resolveEscalation, getEscalation, recordSupervisorAudit, getProjectDigestEnabled } from './supervisor-store';
+import { createEscalation, resolveEscalation, getEscalation, recordSupervisorAudit, getProjectDigestEnabled, conditionIdentity } from './supervisor-store';
 import { regenerateProjectDigest, type DigestLlm } from './project-digest';
 import { makeDigestLlm } from './digest-llm';
 import { type ForwardIntegrateResult } from '../agent/worktree-manager';
@@ -32,6 +32,69 @@ import { recordSelfLand, isSelfProject } from './deploy-service';
 // bp1FilterStrandedFoundations) ALSO consumes epicAutoLandAuthority — see the "shared with
 // coordinator-land" markers in coordinator-live.ts.
 import { getWorktreeManager, resolveEpicId, execAsync, epicAutoLandAuthority, isMissionEpic, MISSION_AUTOLAND_ARMED } from './coordinator-live';
+
+// --- durable condition identity for the land escalations --------------------------
+// createEscalation's keyed dedup (supervisor-store.ts) bumps an OPEN row with the same
+// `conditionKey` and suppresses a RESOLVED row whose `conditionTuple` hash is unchanged.
+// Both therefore have to be built from identity-stable tokens: the same underlying land
+// failure, re-probed, must hash identically — so no sha, path, count, or raw error text
+// may enter a tuple. `landReasonClass` is what makes that true for the free-text land
+// failure strings: it collapses them to a CLOSED set.
+
+/** The closed set of land-failure classes that may appear in a condition tuple. */
+export type LandReasonClass =
+  | 'stale-base'
+  | 'gate-regression'
+  | 'gate-error'
+  | 'tsc-red'
+  | 'merge-conflict'
+  | 'deps-open'
+  | 'presence-findings'
+  | 'not-ready'
+  | 'other';
+
+/** `landReadiness` blocker codes (land-authority.ts) → class. `gate-failed` joins
+ *  `gate-regression`: both are "the declared gate came back red", as distinct from
+ *  `gate-error` ("the gate could not be run / is misconfigured"). */
+const LAND_REASON_CLASSES: Record<string, LandReasonClass> = {
+  'tsc-failed': 'tsc-red',
+  'merge-conflict': 'merge-conflict',
+  'gate-regression': 'gate-regression',
+  'gate-failed': 'gate-regression',
+  'gate-error': 'gate-error',
+  'land-deps-unsatisfied': 'deps-open',
+  'presence-findings': 'presence-findings',
+  'not-an-epic': 'not-ready',
+  'bucket-epic': 'not-ready',
+  'no-active-mission': 'not-ready',
+  'foreign-mission': 'not-ready',
+  'land-not-ready': 'not-ready',
+};
+
+/** Collapse a free-text land failure string to a `LandReasonClass`. Handles the two
+ *  composed prefixes minted in this file — `stale-build-base:<rev.reason>` (any
+ *  revalidation failure IS the stale-base condition) and `build-proof-red:<code>` (the
+ *  wrapped `landReadiness` blocker code decides the class). Anything unrecognised is
+ *  `'other'`, never the raw text. */
+export function landReasonClass(raw: string): LandReasonClass {
+  const token = (raw ?? '').trim().toLowerCase();
+  if (token.startsWith('stale-build-base:')) return 'stale-base';
+  const code = token.startsWith('build-proof-red:')
+    ? token.slice(token.lastIndexOf(':') + 1)
+    : token;
+  return LAND_REASON_CLASSES[code] ?? 'other';
+}
+
+/** Build the `{conditionKey, conditionTuple}` pair for a land escalation. The key is the
+ *  greppable dedup handle; the tuple is what the resolved-suppression hash is taken over —
+ *  so the discriminating class must be present in BOTH (the key via `parts.join(':')`).
+ *  Every part must be an identity-stable token: an epicId8, an epic branch name, or a
+ *  `LandReasonClass` — never a sha, a path, a count, or an error message. */
+export function landCondition(kind: string, parts: string[]) {
+  const conditionKey = conditionIdentity(kind, [parts.join(':')]).key;
+  const conditionTuple = [kind, ...parts];
+  return { conditionKey, conditionTuple };
+}
 
 // --- FBPE P5: cross-repo epics --------------------------------------------------
 // An epic whose children span repos gets ONE accumulation branch PER target repo
@@ -218,12 +281,15 @@ export function surfaceDirtyLandBlocker(
     `⚠️ Auto-land of epic ${ctx.epicBranch} (${ctx.epicId.slice(0, 8)}) was blocked: `
     + `the main checkout has ${dirty.length} uncommitted path(s) — ${paths}. `
     + `Commit or stash them, then re-land. (master untouched)`;
+  const cond = landCondition('blocker', [ctx.epicId.slice(0, 8), 'dirty-tree']);
   return createEscalation({
     project,
     session,
     todoId: ctx.todoId ?? null,
     kind: 'blocker',
     questionText,
+    conditionKey: cond.conditionKey,
+    conditionTuple: cond.conditionTuple,
   });
 }
 
@@ -275,12 +341,18 @@ export function surfaceStuckAutoLand(
     `⚠️ Auto-land of epic ${ctx.epicBranch} (${ctx.epicId.slice(0, 8)}) is STUCK: `
     + `its land proof has stayed red on the same reason — ${ctx.reason}. `
     + `The daemon has retried ${STUCK_AUTOLAND_THRESHOLD}× without progress; a human should look.`;
+  // The reason CLASS (not the raw reason) discriminates: a re-probe of the same failure
+  // hashes identically (so a resolved card stays suppressed), while a genuinely different
+  // failure class mints a new card.
+  const cond = landCondition('blocker', [ctx.epicId.slice(0, 8), landReasonClass(ctx.reason)]);
   return createEscalation({
     project,
     session,
     todoId: null,
     kind: 'blocker',
     questionText,
+    conditionKey: cond.conditionKey,
+    conditionTuple: cond.conditionTuple,
   });
 }
 
@@ -386,6 +458,11 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
         const action = deriveStuckAutoLandAction(prev, { green: false, reason });
         if (action.resolvePrevious && prev?.escalationId) resolveEscalation(prev.escalationId, 'resolved', 'ai');
         if (action.surface) {
+          // With condition keys in place a resolve followed by a SAME-CLASS re-raise is
+          // suppressed by the store, so `card` is the already-resolved row and the id
+          // recorded below points at it — benign (resolveEscalation on a resolved row is a
+          // no-op) and intentional: one card, never a resolve/re-raise pair. A reason
+          // change produces a different class ⇒ a genuinely new card.
           const card = surfaceStuckAutoLand(project, 'coordinator', { epicId: epic.id, epicBranch, reason });
           if (action.next) action.next.escalationId = card.escalation.id;
         }
@@ -522,6 +599,7 @@ export async function surfaceEpicLand(
     // decision instead of guessing which repo's branch to land. Never auto-landed.
     if (ambiguous.length > 0) {
       const repos = [...byRepo.keys()];
+      const cond = landCondition('decision', [epicId.slice(0, 8), 'ambiguous-partition']);
       createEscalation({
         project,
         session,
@@ -533,6 +611,8 @@ export async function surfaceEpicLand(
           { id: 'fix', label: 'Assign targetProject manually', detail: 'Set each orphan child\'s targetProject, then re-trigger the land surface.' },
         ],
         recommended: 'fix',
+        conditionKey: cond.conditionKey,
+        conditionTuple: cond.conditionTuple,
       });
       recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, landSurface: 'ambiguous-partition', ambiguous: ambiguous.length, repos }) });
       return;
@@ -564,12 +644,22 @@ export async function surfaceEpicLand(
       // Link a child IN THIS REPO so the land click resolves the right repo
       // (landEpic keys the WorktreeManager off the linked todo's targetProject).
       const linkTodoId = epicId;
+      // The readiness class is IN the tuple on purpose: a human who resolves a RED
+      // epic-ready-to-land card must still get a NEW card once the epic turns green —
+      // same key, different tuple ⇒ the resolved-suppression correctly misses.
+      const cond = landCondition('epic-ready-to-land', [
+        epicId.slice(0, 8),
+        epicBranch,
+        proofGreen ? 'green' : landReasonClass(readiness.blockers[0]?.code ?? 'land-not-ready'),
+      ]);
       const { escalation } = createEscalation({
         project,
         session,
         todoId: linkTodoId,
         kind: 'epic-ready-to-land',
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
+        conditionKey: cond.conditionKey,
+        conditionTuple: cond.conditionTuple,
       });
       recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proofGreen, reason: readiness.blockers.map((b) => b.code).join(',') || 'ok', landGate: readiness.gate?.status ?? 'unknown', children: repoChildIds.length, behindMaster: behind, multiRepo, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
 
@@ -799,11 +889,14 @@ export async function landEpic(
               : rev.reason === 'revalidation-gate-failed'
                 ? `the re-run gate FAILED:\n${rev.output}`
                 : rev.reason;
+          const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'stale-base']);
           createEscalation({
             project,
             session: esc.session,
             todoId,
             kind: 'assumption-invalidated',
+            conditionKey: cond.conditionKey,
+            conditionTuple: cond.conditionTuple,
             questionText:
               `Land blocked — epic ${epicBranch} was built against a stale trunk base ` +
               `(${staleness.commitsAhead} trunk commit(s) ahead; ${staleness.reason}` +
@@ -830,12 +923,15 @@ export async function landEpic(
         epicWorktreeCwd: epic?.path ?? targetProject,
       });
       if (!proof.ok) {
+        const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
         createEscalation({
           project,
           session: esc.session,
           todoId,
           kind: 'assumption-invalidated',
           questionText: `Land blocked — ${proof.reason} (tip ${epicBranch.slice(0, 8)}). Master is UNTOUCHED.\n${proof.detail}`,
+          conditionKey: cond.conditionKey,
+          conditionTuple: cond.conditionTuple,
         });
         recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: proof.reason, regressions: proof.gate.regressions.map(u => u.files).flat(), inherited: proof.gate.inherited.length }) });
         await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'land-gate-failed', todoId: epicId, detail: proof.detail ?? proof.reason }).catch(() => {});
@@ -866,12 +962,15 @@ export async function landEpic(
       if (land.conflict) {
         // Master untouched. Re-surface as a human-rebase request; the ready-to-land
         // card stays open so the human can re-land after resolving.
+        const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'merge-conflict']);
         createEscalation({
           project,
           session: esc.session,
           todoId,
           kind: 'assumption-invalidated',
           questionText: `Land conflict: epic ${epicBranch} did not merge cleanly into master (master untouched). Rebase ${epicBranch} onto master, resolve conflicts, then re-land.`,
+          conditionKey: cond.conditionKey,
+          conditionTuple: cond.conditionTuple,
         });
         recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'conflict' }) });
         // DF2: silently capture the land-merge conflict as operational friction (deduped
@@ -932,9 +1031,12 @@ export async function landEpic(
       if (guard.mismatch && guard.skippedUnsafe) {
         // Tree mismatch but unsafe to restore: either tracked-dirty work or checkout on non-base branch.
         // Do NOT auto-restore; surface for manual reconciliation.
+        const cond = landCondition('blocker', [epicId.slice(0, 8), 'tree-drift-unsafe']);
         createEscalation({
           project, session: esc.session, todoId,
           kind: 'blocker',
+          conditionKey: cond.conditionKey,
+          conditionTuple: cond.conditionTuple,
           questionText:
             `⚠️ Post-land tree drift detected on ${targetProject} but NOT auto-restored: ` +
             `after landing ${epicBranch} at ${land.masterSha}, the checkout's index tree ` +
@@ -966,10 +1068,13 @@ export async function landEpic(
       } else if (guard.mismatch && !guard.skippedUnsafe) {
         // Tree mismatch and safe to restore (no tracked dirty, on base ref).
         treeRestored = guard.restored;
+        const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'tree-corrupt']);
         createEscalation({
           project, session: esc.session, todoId,
           kind: 'assumption-invalidated',
           operatorGated: true,
+          conditionKey: cond.conditionKey,
+          conditionTuple: cond.conditionTuple,
           questionText:
             `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
             `${land.masterSha}, the checkout's index tree (${guard.before.workTree}) did not match ` +
