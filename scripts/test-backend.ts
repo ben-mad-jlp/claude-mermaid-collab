@@ -18,7 +18,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SRC = path.join(ROOT, 'src');
+const TEST_ROOTS = [path.join(ROOT, 'src'), path.join(ROOT, 'desktop', 'src')];
 
 const args = process.argv.slice(2);
 const concurrency = Number(args.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? '6');
@@ -43,7 +43,7 @@ function findBunTestFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-let files = findBunTestFiles(SRC).sort();
+let files = TEST_ROOTS.flatMap((root) => findBunTestFiles(root)).sort();
 if (filter) files = files.filter((f) => f.includes(filter));
 
 if (files.length === 0) {

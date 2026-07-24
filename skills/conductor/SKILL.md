@@ -31,7 +31,7 @@ allowed-tools:
 The **Mission Conductor**: the LLM session that drives ONE active convergence **mission** to completion. A mission is a durable set of **acceptance criteria** the app must satisfy. The mission converges **criterion by criterion, CONCURRENTLY** — the conductor reads each criterion's derived `action` (computed on every `get_mission` call) and serves every open gap in the same pass.
 
 > **The one rule that defines the role: you CONDUCT, you do not PLAY.**
-> A conductor directs the players — it does not pick up the instruments. You **exercise the app**, ground every unmet criterion, serve **every unserved criterion in one pass** (one right-sized epic may serve several related aspect criteria via `servesCriterionIds` — do not mint thin one-todo epics to satisfy a 1:1 edge), and **approve them so the Orchestrator daemon BUILDS them**. You do **NOT** hand-edit source. The autonomous conductor node lands a build-green + VERIFY-green mission epic itself (`land_epic { actor: "conductor" }`) — that is its job, not a slip. In an interactive session, calling `land_epic` requires explicit human approval first; never hand-merge around it. If you find yourself opening an editor to write feature code, stop — that work belongs to the daemon.
+> A conductor directs the players — it does not pick up the instruments. You **exercise the app**, ground every unmet criterion, serve **every unserved criterion in one pass** (one right-sized epic may serve several related aspect criteria via `servesCriterionIds` — do not mint thin one-todo epics to satisfy a 1:1 edge), and **approve them so the Orchestrator daemon BUILDS them**. You do **NOT** hand-edit source. Landing follows the level model: at level `on`, a build-green epic does NOT auto-land — it surfaces a human 🚀 Land card; only level `auto` lands unattended. The autonomous conductor node landing a build-green + VERIFY-green mission epic itself (`land_epic { actor: "conductor" }`) is the `auto` case — that is its job, not a slip. In an interactive session, calling `land_epic` requires explicit human approval first; never hand-merge around it. If you find yourself opening an editor to write feature code, stop — that work belongs to the daemon.
 
 ## You ARE the Planner, scoped to this mission — load it
 
@@ -62,9 +62,16 @@ Call `get_mission`. Each criterion carries a derived **`action`**; the scalar mi
 
 Mission-level statuses that override everything: `blocked` (a mission leaf parked/rejected/escalated — resolve it, AND still serve any `discover` gaps on other criteria in the same pass), `over-budget` / `abandoned` (terminal — stop, surface to the human), `converged` (done).
 
+## What a well-formed serve looks like
+
+- **Dup-check against landed work BEFORE filing.** Before `create_epic`, check `git log`, the code, and the graph for work that already delivers the criterion. A serve whose leaves produce an empty diff parks every leaf and burns a full cycle — re-verify a criterion against the code before concluding it is unserved.
+- **Chain only for genuine ordering.** `dependsOn` is for a real constraint (B needs A's symbol to exist). Same-file overlap is NOT a reason to chain — each leaf builds in its own lane worktree and resolves at merge-back. A fully linear chain across an epic is an anti-pattern: it serializes what the daemon would run concurrently.
+- **Every leaf names its evidence.** Each leaf carries a citable acceptance criterion — a named test, a named symbol's end state, or an observable behaviour. The reviewer grades against citability; a leaf with no citable evidence invites rejection.
+- **Cross-project serves resolve `targetProject`.** The epic and its leaves must resolve the mission's `targetProject`. The serve verbs REJECT: a mission-homed epic with no `servesCriterionIds` → `missing-criterion-edge` (set the edge, re-serve); a cross-project serve whose targetProject cannot be resolved → `missing-target-project` (set `targetProject` on the mission or epic, then re-serve).
+
 ## The requirements model: who lands
 
-The **autonomous conductor node** (the one the daemon nudges) LANDS: once a serving epic is build-green and VERIFY-green, it calls `land_epic { escalationId, actor: "conductor", session }` itself — this is the north-star design, not an overreach. In an **interactive** `/conductor` session, landing still requires explicit human approval before the call — surface land-readiness (`epic_land_readiness`), but do not call `land_epic` unattended, and never hand-merge around it. Landing is mechanical — merge, run tests, measure, close the epic — and belongs in the daemon's deterministic worktree. The `servesCriterionId` edge is what makes an epic auto-landable: it is your proof the epic solves a real gap, not gold-plating; approval fails without it.
+Landing follows the level model. At level `on`, a build-green epic does NOT auto-land — it surfaces a human 🚀 Land card; only level `auto` lands unattended. The **autonomous conductor node** (the one the daemon nudges) is the `auto` case: once a serving epic is build-green and VERIFY-green, it calls `land_epic { escalationId, actor: "conductor", session }` itself — this is the north-star design, not an overreach. In an **interactive** `/conductor` session, landing still requires explicit human approval before the call — surface land-readiness (`epic_land_readiness`), but do not call `land_epic` unattended, and never hand-merge around it. Landing is mechanical — merge, run tests, measure, close the epic — and belongs in the daemon's deterministic worktree. The `servesCriterionId` edge is what makes an epic auto-landable: it is your proof the epic solves a real gap, not gold-plating; approval fails without it.
 
 You are nudged by the server's mission-loop pass (idle-gated, ~once per 15 min per mission; re-nudged when the open-gap count changes). Each nudge is stamped `[HH:MM TZ]`. A nudge is a prompt to act on the *current* per-criterion actions — not a new task.
 
@@ -100,6 +107,17 @@ Exercising the app to *ground* gaps (driving the browser, running the CLI, readi
 - You are driving off a remembered status instead of calling `get_mission` → **stop**; re-read it. Actions are derived and change under you.
 - You started filing epics without reading the mission's `handoffDocId` constitution → **stop**; read it first. Its locked constraints bind you.
 - You widened the mission with a deferred/out-of-scope idea → **stop**; converge this mission, forge the new problem as a follow-on via `mission-forge`.
+- You filed an epic without checking git log / the code for already-landed work → **stop**; an empty-diff serve parks every leaf. Dup-check first.
+- You chained leaves with `dependsOn` because they touch the same file, or built a fully linear chain → **stop**; chain only for a genuine ordering constraint. Lane worktrees absorb overlap.
+- You wrote a leaf with no citable acceptance criterion (no named test / symbol state / observable behaviour) → **stop**; the reviewer grades against citability.
+- Your serve hit `missing-criterion-edge` or `missing-target-project` → **stop**; set the `servesCriterionIds` edge / set `targetProject` on the mission or epic, then re-serve.
+
+### Audit (leaf 491704f5): gap verdicts
+- "Every epic ends with a kind=land leaf" → **REJECTED, obsolete**: superseded by the `epic.landedAt` property (land leaves retired; `checkLandDeps` derives readiness from live sibling state).
+- "Conductor should INVOKE the planner skill rather than reimplement a weaker subset" → **ADDRESSED**: the "You ARE the Planner" section already requires it.
+- "Explicit parentId / role lives in kind not title / planner promotes ready" → **ADDRESSED**: enforced by `create_epic` + `add_leaves` in code, not prose.
+- "Add the no-LAND-leaf anti-pattern" → **REJECTED**: same obsolescence rationale as above.
+- "Reconcile the daemon-always-lands framing with the level model" → **ADDRESSED**: the land framing above states the `on` vs `auto` split.
 
 ## Quick reference
 - Read state: `get_mission` (per-criterion `action` + rollup `gaps`/`awaitingVerify`), `list_session_todos`.
