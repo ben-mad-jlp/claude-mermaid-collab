@@ -14,6 +14,7 @@ import {
   CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
+import { CONDUCTOR_LEADER_STALE_TICKS } from '../harness-caps';
 import Database from 'bun:sqlite';
 
 let project: string;
@@ -424,6 +425,67 @@ describe('selectConductorMission — deterministic total order (B4, replaces fir
   test('no actionable missions → no target, no rivals', async () => {
     const { selectConductorMission } = await import('../mission-store');
     expect(selectConductorMission(project)).toEqual({ rivals: [] });
+  });
+
+  test('a leader whose lastConductorPassAt is older than the stale bound and still has a discover gap yields to the next actionable rival', async () => {
+    const { selectConductorMission } = await import('../mission-store');
+    const leader = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] leader', kind: 'mission' })).id;
+    const rival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] rival', kind: 'mission' })).id;
+    upsertMission(project, leader); addCriterion(project, leader, 'gap'); // no serving epic → discover gap
+    upsertMission(project, rival); addCriterion(project, rival, 'gap');
+
+    const now = 10_000_000;
+    const beatMs = 1_000;
+    stampConductorRun(project, leader, 'k', { at: now - (CONDUCTOR_LEADER_STALE_TICKS * beatMs + 1) });
+    stampConductorRun(project, rival, 'k', { at: now });
+
+    const selection = selectConductorMission(project, { now, beatMs });
+    expect(selection.target!.node.id).toBe(rival);
+    expect(selection.rivals).toContain(leader);
+  });
+
+  test('a fresh leader, or a stale leader with no discover/verify gap, still wins', async () => {
+    const { selectConductorMission } = await import('../mission-store');
+    const now = 10_000_000;
+    const beatMs = 1_000;
+
+    // (a) both stamped fresh → head of the existing total order (createdAt tie-break) wins.
+    const freshLeader = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] fresh-leader', kind: 'mission' })).id;
+    const freshRival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] fresh-rival', kind: 'mission' })).id;
+    upsertMission(project, freshLeader); addCriterion(project, freshLeader, 'gap');
+    upsertMission(project, freshRival); addCriterion(project, freshRival, 'gap');
+    stampConductorRun(project, freshLeader, 'k', { at: now });
+    stampConductorRun(project, freshRival, 'k', { at: now });
+    const freshSelection = selectConductorMission(project, { now, beatMs });
+    expect(freshSelection.target!.node.id).toBe(freshLeader);
+    // Remove the (a) pair from the actionable set before (b) — otherwise both scenarios'
+    // missions would compete in the same total order.
+    setMissionAbandoned(project, freshLeader, Date.now());
+    setMissionAbandoned(project, freshRival, Date.now());
+
+    // (b) leader stale by clock but every criterion is 'building' (a live serving epic, no
+    // discover/verify gap) → order unchanged, the stale leader still wins.
+    const staleLeader = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] stale-leader', kind: 'mission' })).id;
+    const staleRival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] stale-rival', kind: 'mission' })).id;
+    upsertMission(project, staleLeader);
+    const leaderCrit = addCriterion(project, staleLeader, 'gap');
+    const leaderEpic = await makeEpicChild(staleLeader, '[EPIC] build A');
+    await updateTodo(project, leaderEpic, { servesCriterionId: leaderCrit.id, status: 'ready' });
+    const leaderLeaf = await createTodo(project, { ownerSession: 's1', title: 'leaf under A', kind: 'leaf', parentId: leaderEpic });
+    await updateTodo(project, leaderLeaf.id, { status: 'ready' });
+
+    upsertMission(project, staleRival);
+    const rivalCrit = addCriterion(project, staleRival, 'gap');
+    const rivalEpic = await makeEpicChild(staleRival, '[EPIC] build B');
+    await updateTodo(project, rivalEpic, { servesCriterionId: rivalCrit.id, status: 'ready' });
+    const rivalLeaf = await createTodo(project, { ownerSession: 's1', title: 'leaf under B', kind: 'leaf', parentId: rivalEpic });
+    await updateTodo(project, rivalLeaf.id, { status: 'ready' });
+
+    stampConductorRun(project, staleLeader, 'k', { at: now - (CONDUCTOR_LEADER_STALE_TICKS * beatMs + 1) });
+    stampConductorRun(project, staleRival, 'k', { at: now });
+
+    const staleSelection = selectConductorMission(project, { now, beatMs });
+    expect(staleSelection.target!.node.id).toBe(staleLeader);
   });
 });
 
