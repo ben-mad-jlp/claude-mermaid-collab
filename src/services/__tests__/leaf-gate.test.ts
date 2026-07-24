@@ -868,6 +868,20 @@ describe('runBaseGate', () => {
     // baseTest after the erroring suite is never reached.
     expect(calls.map((c) => c.command)).toEqual(['tsc', 'suite-ui']);
   });
+
+  it('resolves a lane\'s declared cwd relative to the gate root, leaving cwd-less lanes at root', async () => {
+    const cfg: LeafGateConfig = {
+      typecheck: 'tsc',
+      suites: [{ match: /^ui\//, command: 'suite-ui', cwd: 'ui' }],
+    };
+    const { spawn, calls } = stubSpawn({
+      tsc: { ran: true, code: 0 },
+      'suite-ui': { ran: true, code: 0 },
+    });
+    const r = await runBaseGate('/wt', cfg, spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.map((c) => c.cwd)).toEqual(['/wt', '/wt/ui']);
+  });
 });
 
 describe('gateFindingsText', () => {
