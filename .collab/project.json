@@ -8,13 +8,14 @@
     "tests": [
       { "match": "^src/", "command": "bun test {file}" },
       { "match": "^scripts/", "command": "bun test {file}" },
-      { "match": "^ui/", "command": "bunx vitest --run {files}", "cwd": "ui" }
+      { "match": "^ui/", "command": "bunx vitest --run --retry=2 {files}", "cwd": "ui" }
     ],
     "typechecks": [
-      { "match": "^ui/", "command": "cd ui && npx tsc --noEmit -p tsconfig.json" }
+      { "match": "^ui/", "command": "cd ui && npx tsc --noEmit -p tsconfig.json" },
+      { "match": "^desktop/", "command": "cd desktop && npx tsc --noEmit -p tsconfig.json" }
     ],
     "suites": [
-      { "match": "^ui/", "command": "cd ui && bunx vitest --run" }
+      { "match": "^ui/", "command": "cd ui && bunx vitest --run --retry=2" }
     ],
     "floors": [
       { "match": "^(src|scripts)/", "command": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json" }

@@ -278,6 +278,49 @@ npm run test:backend      # Backend tests
 
 **Versioning** — always use `npm version patch|minor|major` (never edit version numbers manually). The version hook syncs `package.json`, `plugin.json`, `marketplace.json`, and `server.ts` automatically.
 
+## Leaf Gate Configuration
+
+The daemon's per-leaf mechanical gate is configured in the git-tracked `.collab/project.json`.
+Each lane's `match` is a regexp tested against repo-relative changed paths; a change-set file
+matching a lane runs that lane's `command` (in `cwd` when given). The full shape:
+
+```json
+{
+  "gate": {
+    "typecheck": "npx tsc --noEmit -p tsconfig.json",
+    "tests": [
+      { "match": "^src/", "command": "bun test {file}" },
+      { "match": "^scripts/", "command": "bun test {file}" },
+      { "match": "^ui/", "command": "bunx vitest --run --retry=2 {files}", "cwd": "ui" }
+    ],
+    "typechecks": [
+      { "match": "^ui/", "command": "cd ui && npx tsc --noEmit -p tsconfig.json" },
+      { "match": "^desktop/", "command": "cd desktop && npx tsc --noEmit -p tsconfig.json" }
+    ],
+    "suites": [
+      { "match": "^ui/", "command": "cd ui && bunx vitest --run --retry=2" }
+    ],
+    "floors": [
+      { "match": "^(src|scripts)/", "command": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json" }
+    ]
+  }
+}
+```
+
+- `typecheck` — the whole-repo typecheck every leaf runs.
+- `tests[]` — per-file lanes; the command must contain `{file}` or `{files}`.
+- `typechecks[]` — scoped typechecks. BOTH the `^ui/` and `^desktop/` lanes are required so a
+  type-broken renderer or main-process change cannot land silently.
+- `suites[]` — scoped whole-suite runs for a matching change-set. The ui suite uses
+  `--retry=2`: a test passing on retry is flaky-not-broken, and without it timing flakes
+  produce false epic-base-red holds across the whole project.
+- `floors[]` — land-time net-new-failure floors judged against a recorded baseline.
+
+`scripts/test-backend.ts` independently preconditions the whole backend suite on a clean
+desktop typecheck (see its precheck block near line 55), so `npm run test:backend:floor`
+fails on a desktop type break even outside the per-leaf gate — that precheck already
+exists; do not re-add it. `typecheck:desktop` already exists as a package script.
+
 ---
 
 ## License
