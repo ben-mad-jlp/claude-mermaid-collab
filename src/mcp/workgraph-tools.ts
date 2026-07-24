@@ -14,6 +14,10 @@ import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
 import { addSessionTodo } from './tools/session-todos.js';
 import { trackingProjectRoot } from '../services/project-registry.js';
+import {
+  buildMissionDoneLeafIndex, findDuplicateDoneLeaf, missionOfEpic,
+  type DoneLeafEntry, type DuplicateLeafMatch,
+} from '../services/leaf-dup-guard.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -50,9 +54,34 @@ export class MissingTargetProjectError extends Error {
   }
 }
 
-/** Returns `err.code` for either typed workgraph error, else undefined. */
+/** Thrown by addLeavesToEpic when a candidate leaf re-specifies work that is ALREADY DONE
+ *  under the same mission (an accepted leaf, or any leaf of a landed epic). The planner
+ *  prompt has carried a "DUP-CHECK BEFORE FILING" instruction for a while; a prohibition in
+ *  a prompt is not a constraint, and mission a6ab522b (2026-07-24) re-filed two verbatim
+ *  copies of landed epic d43c6386's leaves anyway — each costing a blueprint + implement
+ *  node. This is the code that refuses it. The message names the prior leaf id/title and the
+ *  epic that landed it so the conductor can accept-as-done or re-scope rather than guess. */
+export class DuplicateOfDoneLeafError extends Error {
+  readonly code = 'duplicate-of-done-leaf';
+  constructor(readonly candidateTitle: string, readonly match: DuplicateLeafMatch) {
+    super(
+      `add_leaves: refusing leaf "${candidateTitle}" — it duplicates already-done work in the same mission: ` +
+      `leaf ${match.leafId.slice(0, 8)} "${match.leafTitle}" (${match.reason}) under epic ` +
+      `${match.epicId.slice(0, 8)} "${match.epicTitle}" (title similarity ${match.similarity.toFixed(2)}). ` +
+      `Accept the criterion as already served, or re-scope this leaf to the residual work. ` +
+      `If the re-do is deliberate, re-file the leaf with allowDuplicate:true.`,
+    );
+    this.name = 'DuplicateOfDoneLeafError';
+  }
+}
+
+/** Returns `err.code` for any typed workgraph error, else undefined. */
 export function workgraphErrorCode(err: unknown): string | undefined {
-  if (err instanceof MissingServesCriterionError || err instanceof MissingTargetProjectError) {
+  if (
+    err instanceof MissingServesCriterionError
+    || err instanceof MissingTargetProjectError
+    || err instanceof DuplicateOfDoneLeafError
+  ) {
     return err.code;
   }
   return undefined;
@@ -169,6 +198,11 @@ export interface LeafInput {
   status?: TodoStatus;
   assigneeKind?: 'agent' | 'human';
   link?: TodoLink;
+  /** ESCAPE HATCH for the duplicate-of-done guard below. A deliberate re-do (a landed change
+   *  that regressed, a second pass over the same surface) is legitimate work, and the guard
+   *  is a heuristic — an author who has looked at the prior leaf and still wants this one
+   *  sets this to skip the check for THIS leaf only. */
+  allowDuplicate?: boolean;
 }
 
 /**
@@ -210,8 +244,33 @@ export async function addLeavesToEpic(
     }
   }
 
+  // ---- Duplicate-of-done guard (incident: mission a6ab522b, 2026-07-24) ----
+  // Scope is strictly the filing epic's OWN mission closure: a root/bucket-homed epic is
+  // exempt entirely, a leaf under a different mission never refuses, and only accepted (or
+  // landed-epic) prior leaves count. Built ONCE per call; FAILS OPEN — any throw while
+  // scanning yields an empty index so a store hiccup can never block legitimate filing.
+  const dupMissionId = missionOfEpic(parent, (id) => getTodo(project, id));
+  let doneLeafIndex: DoneLeafEntry[] = [];
+  if (dupMissionId) {
+    try {
+      doneLeafIndex = buildMissionDoneLeafIndex(project, dupMissionId);
+    } catch {
+      doneLeafIndex = [];
+    }
+  }
+
   const createdIds: string[] = [];
   for (const leaf of leaves) {
+    if (doneLeafIndex.length > 0 && !leaf.allowDuplicate) {
+      let match: DuplicateLeafMatch | null = null;
+      try {
+        match = findDuplicateDoneLeaf(doneLeafIndex, leaf.title);
+      } catch {
+        match = null; // FAIL OPEN — never block a filing on a guard-internal error.
+      }
+      // Thrown OUTSIDE the try so the refusal itself can never be swallowed by fail-open.
+      if (match) throw new DuplicateOfDoneLeafError(leaf.title, match);
+    }
     const resolvedDeps = (leaf.dependsOn ?? []).map((token) => {
       const m = /^\$(\d+)$/.exec(token);
       if (!m) return token; // literal existing todo id (cross-epic dep)
@@ -296,7 +355,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'add_leaves',
     description:
-      "The SOLE public leaf-creation verb — bulk-add leaf todos under an existing epic (not a bucket, not a mission). `leaves` entries may reference EARLIER entries in the same batch via dependsOn:['$0','$1',...] (0-indexed positional refs), or existing todo ids for cross-epic dependencies. Pass status:'ready' on an entry to approve it at creation (skips the planned→ready promotion step).",
+      "The SOLE public leaf-creation verb — bulk-add leaf todos under an existing epic (not a bucket, not a mission). `leaves` entries may reference EARLIER entries in the same batch via dependsOn:['$0','$1',...] (0-indexed positional refs), or existing todo ids for cross-epic dependencies. Pass status:'ready' on an entry to approve it at creation (skips the planned→ready promotion step). ENFORCED DUP-CHECK: filing a leaf whose title matches an already-DONE leaf (accepted, or under a landed epic) in the SAME mission is refused with error code `duplicate-of-done-leaf`, naming the prior leaf and its epic — accept the criterion as served or re-scope, or pass allowDuplicate:true on that entry for a deliberate re-do.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -317,6 +376,7 @@ export const WORKGRAPH_TOOL_DEFS = [
               status: { type: 'string', enum: ['planned', 'ready'] },
               assigneeKind: { type: 'string', enum: ['agent', 'human'] },
               link: { type: 'object' },
+              allowDuplicate: { type: 'boolean', description: 'Skip the duplicate-of-done check for THIS leaf — for a deliberate re-do of already-landed work.' },
             },
             required: ['title'],
           },

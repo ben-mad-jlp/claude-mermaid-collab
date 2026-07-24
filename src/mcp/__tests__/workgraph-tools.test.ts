@@ -6,9 +6,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleWorkgraphTool, WORKGRAPH_TOOL_DEFS } from '../workgraph-tools';
-import { getTodo, listTodos, _closeProject, createTodo, updateTodo, splitLeafInto } from '../../services/todo-store';
+import { getTodo, listTodos, _closeProject, createTodo, updateTodo, splitLeafInto, stampEpicLandedAt } from '../../services/todo-store';
 import { isMission } from '../../services/todo-kind';
 import { isBucketEpic } from '../../services/bucket-registry';
+import { findDuplicateDoneLeaf, normalizeTitleTokens } from '../../services/leaf-dup-guard';
 import { trackingProjectRoot } from '../../services/project-registry';
 
 let project: string;
@@ -189,6 +190,149 @@ describe('serve-time criterion-edge guard', () => {
   });
 });
 
+// ============================================================================
+// Duplicate-of-done guard. Incident: mission a6ab522b (2026-07-24) — epic
+// d43c6386 LANDED two leaves, then epic f28d63d3 (same acceptance criterion)
+// was filed with two brand-new full-tier leaves re-specifying them near-verbatim.
+// Both got blueprints; one was CLAIMED and burning tokens before a human stopped
+// it. The guard lived only in the planner PROMPT; now it is enforced in code.
+// ============================================================================
+describe('duplicate-of-done leaf guard', () => {
+  // The REAL strings from the incident (read out of .collab/todos.db).
+  const LANDED_A = 'Gate the INFRA base re-probe on a deterministic lane signature + trunk HEAD';
+  const REFILED_A = 'Make the base-red re-probe deterministic scheduling code gated on lane signature + trunk HEAD';
+  const LANDED_B = "Yield a stalled leader's turn to an actionable rival in deterministic-select";
+  const REFILED_B = LANDED_B; // the re-filed leaf b56e6f53 had an IDENTICAL title
+
+  async function mission(title: string): Promise<string> {
+    const m = await createTodo(project, { allowOrphan: true, ownerSession: S, title, kind: 'mission' });
+    return m.id;
+  }
+  async function epicUnder(missionId: string, title: string): Promise<string> {
+    const res = await call('create_epic', { title, home: missionId, servesCriterionIds: ['c1'] });
+    return res.epicId;
+  }
+  /** File one leaf under `epicId` and put it in the given done-state. */
+  async function priorLeaf(
+    epicId: string,
+    title: string,
+    state: 'accepted' | 'rejected' | 'in-flight' | 'epic-landed',
+  ): Promise<string> {
+    const { createdIds } = await call('add_leaves', { epicId, leaves: [{ title }] });
+    const id = createdIds[0];
+    if (state === 'accepted') await updateTodo(project, id, { status: 'done', acceptanceStatus: 'accepted' });
+    else if (state === 'rejected') await updateTodo(project, id, { acceptanceStatus: 'rejected' });
+    else if (state === 'epic-landed') stampEpicLandedAt(project, epicId, new Date().toISOString());
+    return id;
+  }
+
+  test('refuses a leaf whose title matches an ACCEPTED leaf under the same mission, naming the prior leaf + code', async () => {
+    const m = await mission('[MISSION] dup guard');
+    const doneEpic = await epicUnder(m, 'Landed epic');
+    const priorId = await priorLeaf(doneEpic, LANDED_B, 'accepted');
+
+    const nextEpic = await epicUnder(m, 'Re-serving epic');
+    let caught: any;
+    try {
+      await call('add_leaves', { epicId: nextEpic, leaves: [{ title: REFILED_B }] });
+    } catch (err) { caught = err; }
+
+    expect(caught).toBeTruthy();
+    expect(caught.code).toBe('duplicate-of-done-leaf');
+    expect(String(caught.message)).toContain(priorId.slice(0, 8));
+    expect(String(caught.message)).toContain(doneEpic.slice(0, 8));
+    expect(String(caught.message)).toMatch(/^\[duplicate-of-done-leaf\] /);
+    // nothing was created
+    expect(listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === nextEpic)).toEqual([]);
+  });
+
+  test('REGRESSION PIN (a6ab522b): both re-filed incident titles are refused against their landed counterparts', async () => {
+    const m = await mission('[MISSION] a6ab522b');
+    const landedEpic = await epicUnder(m, 'Deterministic wake gate + stale-leader yield');
+    await call('add_leaves', { epicId: landedEpic, leaves: [{ title: LANDED_A }, { title: LANDED_B }] });
+    stampEpicLandedAt(project, landedEpic, new Date().toISOString());
+
+    const reserve = await epicUnder(m, 'Re-serve of the same criterion');
+    await expect(call('add_leaves', { epicId: reserve, leaves: [{ title: REFILED_A }] }))
+      .rejects.toThrow(/duplicate-of-done-leaf/);
+    await expect(call('add_leaves', { epicId: reserve, leaves: [{ title: REFILED_B }] }))
+      .rejects.toThrow(/duplicate-of-done-leaf/);
+  });
+
+  test('a leaf under a LANDED epic counts as done even without acceptanceStatus', async () => {
+    const m = await mission('[MISSION] landed epic');
+    const landed = await epicUnder(m, 'Landed but unaccepted');
+    await priorLeaf(landed, LANDED_B, 'epic-landed');
+    const next = await epicUnder(m, 'Next epic');
+    let caught: any;
+    try { await call('add_leaves', { epicId: next, leaves: [{ title: LANDED_B }] }); } catch (e) { caught = e; }
+    expect(caught?.code).toBe('duplicate-of-done-leaf');
+    expect(String(caught.message)).toContain('epic-landed');
+  });
+
+  test('ALLOWS the same title when the prior leaf is REJECTED', async () => {
+    const m = await mission('[MISSION] rejected prior');
+    const e1 = await epicUnder(m, 'First epic');
+    await priorLeaf(e1, LANDED_B, 'rejected');
+    const e2 = await epicUnder(m, 'Second epic');
+    const { createdIds } = await call('add_leaves', { epicId: e2, leaves: [{ title: LANDED_B }] });
+    expect(createdIds).toHaveLength(1);
+  });
+
+  test('ALLOWS the same title when the prior leaf is still IN-FLIGHT', async () => {
+    const m = await mission('[MISSION] in-flight prior');
+    const e1 = await epicUnder(m, 'First epic');
+    await priorLeaf(e1, LANDED_B, 'in-flight');
+    const e2 = await epicUnder(m, 'Second epic');
+    const { createdIds } = await call('add_leaves', { epicId: e2, leaves: [{ title: LANDED_B }] });
+    expect(createdIds).toHaveLength(1);
+  });
+
+  test('ALLOWS an identical title when the accepted leaf belongs to a DIFFERENT mission', async () => {
+    const m1 = await mission('[MISSION] one');
+    const e1 = await epicUnder(m1, 'Epic in mission one');
+    await priorLeaf(e1, LANDED_B, 'accepted');
+    const m2 = await mission('[MISSION] two');
+    const e2 = await epicUnder(m2, 'Epic in mission two');
+    const { createdIds } = await call('add_leaves', { epicId: e2, leaves: [{ title: LANDED_B }] });
+    expect(createdIds).toHaveLength(1);
+  });
+
+  test('ALLOWS a root (non-mission-homed) epic entirely — same title, no mission closure', async () => {
+    const root = (await call('create_epic', { title: 'Root epic', home: null })).epicId;
+    const { createdIds: first } = await call('add_leaves', { epicId: root, leaves: [{ title: LANDED_B }] });
+    await updateTodo(project, first[0], { status: 'done', acceptanceStatus: 'accepted' });
+    const root2 = (await call('create_epic', { title: 'Root epic 2', home: null })).epicId;
+    const { createdIds } = await call('add_leaves', { epicId: root2, leaves: [{ title: LANDED_B }] });
+    expect(createdIds).toHaveLength(1);
+  });
+
+  test('ALLOWS a similar-but-below-threshold title (over-refusal guard)', async () => {
+    const m = await mission('[MISSION] near miss');
+    const e1 = await epicUnder(m, 'First epic');
+    await priorLeaf(e1, 'Add a retry cap to the blueprint node', 'accepted');
+    const e2 = await epicUnder(m, 'Second epic');
+    const { createdIds } = await call('add_leaves', {
+      epicId: e2,
+      leaves: [{ title: 'Add a retry cap to the review node' }],
+    });
+    expect(createdIds).toHaveLength(1);
+  });
+
+  test('allowDuplicate:true files an EXACT match anyway (deliberate re-do escape hatch)', async () => {
+    const m = await mission('[MISSION] escape hatch');
+    const e1 = await epicUnder(m, 'First epic');
+    await priorLeaf(e1, LANDED_B, 'accepted');
+    const e2 = await epicUnder(m, 'Second epic');
+    const { createdIds } = await call('add_leaves', {
+      epicId: e2,
+      leaves: [{ title: LANDED_B, allowDuplicate: true }],
+    });
+    expect(createdIds).toHaveLength(1);
+    expect(getTodo(project, createdIds[0])!.title).toBe(LANDED_B);
+  });
+});
+
 describe('cross-project target inheritance', () => {
   const OTHER = '/tmp/other-implementation-repo';
 
@@ -299,4 +443,34 @@ test('INVARIANT: scripted sequence keeps no floating todo + a non-bucket epic ga
     if (t.kind === 'epic' || isMission(t) || isBucketEpic(t)) continue;
     expect(t.parentId).not.toBeNull();
   }
+});
+
+// Over-refusal carve-out (watcher review, 2026-07-24): a corpus sweep over all 1024 historical
+// leaf titles found the fuzzy branch would refuse well-decomposed SIBLING leaves that share every
+// prose word and differ only in the symbol they target (measured 0.89 overlap). A false refusal is
+// the costliest outcome available — the planner drops the whole epic on a throw — so when both
+// titles carry a unique identifier-like token they are ruled distinct. The real incident pair
+// differs only by prose filler and must still refuse.
+describe('leaf-dup-guard: distinct-subject carve-out', () => {
+  const entry = (title: string) => ({
+    leafId: 'l'.repeat(36), leafTitle: title, epicId: 'e'.repeat(36), epicTitle: 'epic',
+    reason: 'accepted' as const, tokens: normalizeTitleTokens(title),
+  });
+
+  test('sibling leaves naming DIFFERENT symbols are not duplicates', () => {
+    const landed = entry('[grok-exp D] Add a pure isGrokProvider(p) helper to node-provider.ts');
+    expect(findDuplicateDoneLeaf([landed], '[grok-exp F] Add a pure isClaudeProvider(p) helper to node-provider.ts')).toBeNull();
+  });
+
+  test('REGRESSION PIN a6ab522b: the real incident pair differs only by prose filler and STILL refuses', () => {
+    const landed = entry('Gate the INFRA base re-probe on a deterministic lane signature + trunk HEAD');
+    const match = findDuplicateDoneLeaf([landed], 'Make the base-red re-probe deterministic scheduling code gated on lane signature + trunk HEAD');
+    expect(match).not.toBeNull();
+    expect(match!.similarity).toBeGreaterThanOrEqual(0.85);
+  });
+
+  test('an EXACT normalized-title match still refuses even when it names a symbol', () => {
+    const t = 'Add a pure isGrokProvider(p) helper to node-provider.ts';
+    expect(findDuplicateDoneLeaf([entry(t)], t)).not.toBeNull();
+  });
 });
