@@ -145,6 +145,17 @@ cp "$RES/mc-server" "$RES/mc-server.bak-$TS"
 mv "$RES/ui/dist" "$RES/ui/dist.bak-$TS"
 ditto "$SIDECAR_SRC" "$RES/mc-server"
 ditto "$UI_SRC" "$RES/ui/dist"
+# hooks/ ship via electron-builder extraResources on a full dist:dir, but a HOT-SWAP
+# deploy (this script) must copy them too or the worktree-confinement PreToolUse hook
+# resolves to a missing file and silently no-ops (MERMAID_RESOURCES_PATH/hooks/…). The
+# sidecar resolves the hook via MERMAID_RESOURCES_PATH, same as ffmpeg below.
+if [ -d "$REPO/hooks" ]; then
+  ditto "$REPO/hooks" "$RES/hooks"
+  chmod +x "$RES/hooks/"*.mjs 2>/dev/null || true
+  log "bundled hooks/ into app Resources (worktree-confinement)"
+else
+  log "WARNING: $REPO/hooks missing — worktree-confinement hook will no-op"
+fi
 # ffmpeg/ffprobe bundled next to mc-server (build:sidecar copies them into desktop/resources)
 # — the sprite video tools need them; the compiled sidecar resolves via MERMAID_RESOURCES_PATH.
 for bin in ffmpeg ffprobe; do
