@@ -47,8 +47,8 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
       const data = await apiGet(`/api/orchestrator/level?project=${encodeURIComponent(project)}`);
       if (!cancelled && typeof data.level === 'string') setDaemonOn(data.level !== 'off');
     };
-    void fetchLevel();
-    const id = setInterval(fetchLevel, 10_000);
+    void fetchLevel().catch(() => {});
+    const id = setInterval(() => { void fetchLevel().catch(() => {}); }, 10_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [project]);
 
