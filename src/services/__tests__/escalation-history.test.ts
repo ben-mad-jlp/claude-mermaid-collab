@@ -39,6 +39,10 @@ function esc(p: Partial<Escalation> & { questionText?: string }): Escalation {
     briefingMd: p.briefingMd ?? null,
     briefingModel: p.briefingModel ?? null,
     briefingAt: p.briefingAt ?? null,
+    conditionKey: p.conditionKey ?? null,
+    conditionHash: p.conditionHash ?? null,
+    lastSeenAt: p.lastSeenAt ?? null,
+    recurrenceCount: p.recurrenceCount ?? 0,
   };
 }
 

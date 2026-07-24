@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { validateUiSpec, type JsonRenderSpec } from './escalation-ui-schema';
 import { trackingProjectRoot } from './project-registry';
 
@@ -161,6 +162,17 @@ export interface Escalation {
   briefingMd: string | null;
   briefingModel: string | null;
   briefingAt: number | null;
+  /** Durable condition identity (this leaf): `${kind}:${subject[0]}`, greppable and
+   *  stable under tuple growth. Null for callers that don't pass a condition tuple. */
+  conditionKey: string | null;
+  /** sha256 (truncated) over the full sorted condition tuple — detects tuple *content*
+   *  changes while being insensitive to element order. Null when conditionKey is null. */
+  conditionHash: string | null;
+  /** Wall-clock of the most recent raise of this condition (create or recurrence-update).
+   *  Null for rows predating this migration or unkeyed escalations. */
+  lastSeenAt: number | null;
+  /** How many times this condition has recurred while open/acknowledged. Defaults 0. */
+  recurrenceCount: number;
 }
 
 export const ESCALATION_KINDS = [
@@ -353,7 +365,12 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'briefingMd', 'briefingMd TEXT');
   addColumnIfMissing(db, 'escalation', 'briefingModel', 'briefingModel TEXT');
   addColumnIfMissing(db, 'escalation', 'briefingAt', 'briefingAt INTEGER');
+  addColumnIfMissing(db, 'escalation', 'conditionKey', 'conditionKey TEXT');
+  addColumnIfMissing(db, 'escalation', 'conditionHash', 'conditionHash TEXT');
+  addColumnIfMissing(db, 'escalation', 'lastSeenAt', 'lastSeenAt INTEGER');
+  addColumnIfMissing(db, 'escalation', 'recurrenceCount', 'recurrenceCount INTEGER DEFAULT 0');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_esc_condition ON escalation(project, conditionKey, status)');
   // Steward role model (design §2): relax the supervisor_identity singleton
   // (id=1 CHECK) to PRIMARY KEY(role). Additive rebuild that backfills the
   // existing row to role='supervisor', so every current caller is untouched.
@@ -719,7 +736,24 @@ function mapEscalationRow(row: EscalationRow): Escalation {
     // Stored 0/1; surface as a boolean. Coerce defensively (older rows / null).
     triageInFlight: !!triageInFlight,
     resolvedBy: row.resolvedBy ?? null,
+    conditionKey: row.conditionKey ?? null,
+    conditionHash: row.conditionHash ?? null,
+    lastSeenAt: row.lastSeenAt ?? null,
+    recurrenceCount: row.recurrenceCount ?? 0,
   };
+}
+
+/** Hash the FULL condition tuple, sorted (order-insensitive, content-sensitive). Shared
+ *  by `conditionIdentity` and `createEscalation` so key and hash can never diverge. */
+function hashTuple(subject: string[]): string {
+  return createHash('sha256').update([...subject].sort().join('\0')).digest('hex').slice(0, 16);
+}
+
+/** Durable condition identity for an escalation: a greppable `key` (`${kind}:${subject[0]}`)
+ *  plus a `hash` over the full sorted subject tuple. Element order in `subject` never
+ *  changes the hash; tuple content does. */
+export function conditionIdentity(kind: string, subject: string[]): { key: string; hash: string } {
+  return { key: `${kind}:${subject[0] ?? ''}`, hash: hashTuple(subject) };
 }
 
 /**
@@ -768,6 +802,13 @@ export function createEscalation(input: {
   ui?: unknown;
   /** Marks an irreversible/outward action gate → always routes to the human. */
   operatorGated?: boolean;
+  /** Durable condition identity (this leaf): when present, replaces the questionText
+   *  dedup with keyed lookup (open-recurrence update, resolved-suppression). */
+  conditionKey?: string | null;
+  /** The full subject tuple this key was derived from — hashed (sorted) so a resolved
+   *  condition whose inputs are unchanged stays suppressed. A key with no tuple hashes
+   *  to null, so it never matches a resolved row (always re-raises). */
+  conditionTuple?: string[] | null;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   // Normalize the worktree cwd → tracking repo root. Under worker isolation a
@@ -777,10 +818,35 @@ export function createEscalation(input: {
   // Mirrors the todo-store fix. Same-repo (non-isolated) callers pass the root
   // already, so trackingProjectRoot is an identity no-op for them.
   const project = trackingProjectRoot(input.project);
-  const existing = d
-    .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status IN ('open','acknowledged')")
-    .get(project, input.session, input.questionText) as EscalationRow | null;
-  if (existing) return { escalation: mapEscalationRow(existing), isNew: false };
+  const conditionKey = input.conditionKey ?? null;
+  const conditionHash = conditionKey != null && input.conditionTuple ? hashTuple(input.conditionTuple) : null;
+
+  if (conditionKey != null) {
+    // Keyed lookup REPLACES the questionText dedup for this call.
+    const openRow = d
+      .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND status IN ('open','acknowledged') ORDER BY createdAt DESC LIMIT 1")
+      .get(project, conditionKey) as EscalationRow | null;
+    if (openRow) {
+      const now = Date.now();
+      d.prepare('UPDATE escalation SET lastSeenAt = ?, recurrenceCount = recurrenceCount + 1, questionText = ?, conditionHash = ? WHERE id = ?')
+        .run(now, input.questionText, conditionHash, openRow.id);
+      const refreshed = d.query('SELECT * FROM escalation WHERE id = ?').get(openRow.id) as EscalationRow;
+      return { escalation: mapEscalationRow(refreshed), isNew: false };
+    }
+    const resolvedRow = d
+      .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND status = 'resolved' ORDER BY createdAt DESC LIMIT 1")
+      .get(project, conditionKey) as EscalationRow | null;
+    // A null incoming hash must not equal a null stored hash — a missing hash on
+    // either side means "differs", so unhashable callers always re-raise.
+    if (resolvedRow && resolvedRow.conditionHash != null && conditionHash != null && resolvedRow.conditionHash === conditionHash) {
+      return { escalation: mapEscalationRow(resolvedRow), isNew: false };
+    }
+  } else {
+    const existing = d
+      .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status IN ('open','acknowledged')")
+      .get(project, input.session, input.questionText) as EscalationRow | null;
+    if (existing) return { escalation: mapEscalationRow(existing), isNew: false };
+  }
 
   const id = crypto.randomUUID();
   const createdAt = Date.now();
@@ -802,8 +868,8 @@ export function createEscalation(input: {
   const operatorGated = input.operatorGated ? 1 : 0;
   const routedTo = routeEscalation(input.kind, operatorGated === 1);
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0);
   return {
     escalation: {
       id,
@@ -829,6 +895,10 @@ export function createEscalation(input: {
       briefingMd: null,
       briefingModel: null,
       briefingAt: null,
+      conditionKey,
+      conditionHash,
+      lastSeenAt: createdAt,
+      recurrenceCount: 0,
     },
     isNew: true,
   };

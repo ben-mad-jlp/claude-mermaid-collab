@@ -14,6 +14,7 @@ import {
   resolveEscalation,
   getEscalation,
   resolveEscalationShortId,
+  conditionIdentity,
   _closeDb,
 } from '../supervisor-store';
 import { TOKEN_BURN_KIND } from '../burn-watch';
@@ -159,5 +160,108 @@ describe('resolveEscalation / acknowledgeEscalation — short-id parity contract
 
     const fetched = getEscalation(esc1.id);
     expect(fetched!.status).toBe('acknowledged');
+  });
+});
+
+describe('conditionIdentity', () => {
+  it('key is `${kind}:${subject[0]}`', () => {
+    expect(conditionIdentity('blocker', ['b', 'a']).key).toBe('blocker:b');
+  });
+
+  it('hash is stable under reordering but changes when an element is added', () => {
+    const h1 = conditionIdentity('blocker', ['b', 'a']).hash;
+    const h2 = conditionIdentity('blocker', ['a', 'b']).hash;
+    expect(h1).toBe(h2);
+    const h3 = conditionIdentity('blocker', ['a', 'b', 'c']).hash;
+    expect(h3).not.toBe(h1);
+  });
+});
+
+describe('createEscalation — condition-key identity', () => {
+  const countRows = (project: string, conditionKey: string): number => {
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+    const rows = directDb.query('SELECT id FROM escalation WHERE project = ? AND conditionKey = ?').all(project, conditionKey) as { id: string }[];
+    directDb.close();
+    return rows.length;
+  };
+
+  it('keyed raise twice while open updates one row in place', () => {
+    const project = '/test-condition-1';
+    const conditionKey = 'blocker:test-condition-1';
+    const { escalation: esc1, isNew: isNew1 } = createEscalation({
+      project, session: 'sess-c1', kind: 'blocker', questionText: 'first wording',
+      conditionKey, conditionTuple: ['a'],
+    });
+    expect(isNew1).toBe(true);
+    expect(esc1.recurrenceCount).toBe(0);
+
+    const { escalation: esc2, isNew: isNew2 } = createEscalation({
+      project, session: 'sess-c1', kind: 'blocker', questionText: 'refreshed wording',
+      conditionKey, conditionTuple: ['a'],
+    });
+    expect(isNew2).toBe(false);
+    expect(esc2.id).toBe(esc1.id);
+    expect(esc2.recurrenceCount).toBe(1);
+    expect(esc2.lastSeenAt).not.toBeNull();
+    expect(esc2.questionText).toBe('refreshed wording');
+
+    expect(countRows(project, conditionKey)).toBe(1);
+  });
+
+  it('raise → resolve → raise with the identical tuple stays suppressed (still one row)', () => {
+    const project = '/test-condition-2';
+    const conditionKey = 'blocker:test-condition-2';
+    const { escalation: esc1 } = createEscalation({
+      project, session: 'sess-c2', kind: 'blocker', questionText: 'condition present',
+      conditionKey, conditionTuple: ['x', 'y'],
+    });
+    resolveEscalation(esc1.id, 'resolved', 'human');
+
+    const { escalation: esc2, isNew: isNew2 } = createEscalation({
+      project, session: 'sess-c2', kind: 'blocker', questionText: 'condition present again',
+      conditionKey, conditionTuple: ['x', 'y'],
+    });
+    expect(isNew2).toBe(false);
+    expect(esc2.status).toBe('resolved');
+    expect(countRows(project, conditionKey)).toBe(1);
+  });
+
+  it('raise → resolve → raise with a changed tuple re-raises (two rows)', () => {
+    const project = '/test-condition-3';
+    const conditionKey = 'blocker:test-condition-3';
+    const { escalation: esc1 } = createEscalation({
+      project, session: 'sess-c3', kind: 'blocker', questionText: 'condition present',
+      conditionKey, conditionTuple: ['x', 'y'],
+    });
+    resolveEscalation(esc1.id, 'resolved', 'human');
+
+    const { escalation: esc2, isNew: isNew2 } = createEscalation({
+      project, session: 'sess-c3', kind: 'blocker', questionText: 'condition changed',
+      conditionKey, conditionTuple: ['x', 'z'],
+    });
+    expect(isNew2).toBe(true);
+    expect(esc2.id).not.toBe(esc1.id);
+    expect(esc2.recurrenceCount).toBe(0);
+    expect(countRows(project, conditionKey)).toBe(2);
+  });
+
+  it('an unkeyed pair with the same (project, session, questionText) still dedups to one row with conditionKey null', () => {
+    const project = '/test-condition-4';
+    const triple = { project, session: 'sess-c4', kind: 'blocker', questionText: 'unkeyed condition' };
+    const { escalation: esc1, isNew: isNew1 } = createEscalation(triple);
+    expect(isNew1).toBe(true);
+    expect(esc1.conditionKey).toBeNull();
+
+    const { escalation: esc2, isNew: isNew2 } = createEscalation(triple);
+    expect(isNew2).toBe(false);
+    expect(esc2.id).toBe(esc1.id);
+    expect(esc2.conditionKey).toBeNull();
+
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+    const rows = directDb.query('SELECT id FROM escalation WHERE project = ? AND session = ? AND questionText = ?').all(project, triple.session, triple.questionText) as { id: string }[];
+    directDb.close();
+    expect(rows.length).toBe(1);
   });
 });
