@@ -131,6 +131,10 @@ export interface Todo {
    *  completeTodo epic roll-up). */
   hollowLandedAt?: string | null;
   retryCount: number;
+  /** Durable count of epic-base-moved retry REFUNDS granted to this leaf. Bounded by
+   *  MAX_BASE_MOVED_REFUNDS: past the bound the refund stops so retryCount can climb to
+   *  MAX_REDISPATCH and the leaf is parked instead of looping forever. */
+  baseMovedRefunds?: number;
   /** Opaque actor handle (e.g. 'local:<hostname>') recorded as the completer
    *  when a HUMAN todo is marked done — attribution, not auth (B1). Null for
    *  agent todos and for any todo not (yet) completed. One nullable string makes
@@ -497,6 +501,7 @@ interface TodoRow {
   landedAt: string | null;
   hollowLandedAt: string | null;
   retryCount: number;
+  baseMovedRefunds: number;
   completedBy: string | null;
   objectRef: string | null;
   servesCriterionId: string | null;
@@ -549,6 +554,7 @@ CREATE TABLE IF NOT EXISTS todos (
   claimedAt TEXT,
   claimLeaseMs INTEGER,
   retryCount INTEGER NOT NULL DEFAULT 0,
+  baseMovedRefunds INTEGER NOT NULL DEFAULT 0,
   completedBy TEXT,
   objectRef TEXT,
   decisionRef TEXT,
@@ -597,6 +603,9 @@ export function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'claimedAt', 'claimedAt TEXT');
   addColumnIfMissing(db, 'todos', 'claimLeaseMs', 'claimLeaseMs INTEGER');
   addColumnIfMissing(db, 'todos', 'retryCount', 'retryCount INTEGER NOT NULL DEFAULT 0');
+  // Bounded epic-base-moved refunds: durable per-leaf counter so the refund can't
+  // net out the re-dispatch cap forever (see MAX_BASE_MOVED_REFUNDS).
+  addColumnIfMissing(db, 'todos', 'baseMovedRefunds', 'baseMovedRefunds INTEGER NOT NULL DEFAULT 0');
   // B1: human-vs-agent attribution. assigneeKind backfills existing rows to
   // 'agent' (backward compat); completedBy is the nullable actor handle.
   addColumnIfMissing(db, 'todos', 'assigneeKind', "assigneeKind TEXT NOT NULL DEFAULT 'agent'");
@@ -1336,6 +1345,7 @@ function rowToTodo(row: TodoRow): Todo {
     heldAt: row.heldAt ?? null,
     heldReason: row.heldReason ?? null,
     retryCount: row.retryCount ?? 0,
+    baseMovedRefunds: row.baseMovedRefunds ?? 0,
     completedBy: row.completedBy ?? null,
     objectRef: row.objectRef ?? null,
     servesCriterionId: row.servesCriterionId ?? null,
@@ -2648,6 +2658,39 @@ export function decrementRetryCountIfOwned(project: string, id: string, claimTok
     if (!existing || existing.status !== 'in_progress') return false;
     if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
     db.prepare(`UPDATE todos SET retryCount=MAX(0, retryCount-1), updatedAt=? WHERE id=?`).run(nowIso(), id);
+    return true;
+  });
+}
+
+/** BOUNDED epic-base-moved refund. Same ownership-gated decrement as
+ *  {@link decrementRetryCountIfOwned}, but capped per leaf by a durable counter
+ *  (`baseMovedRefunds`). Without the bound, a persistently-red trunk gate makes every
+ *  re-dispatch bump retryCount and every base-moved park refund it — netting to zero
+ *  forever, so MAX_REDISPATCH never engages and the leaf loops. Past `cap` this returns
+ *  false WITHOUT mutating, letting retryCount accumulate to MAX_REDISPATCH so
+ *  parkRedispatchCap retires the leaf.
+ *
+ *  The cap check, the counter bump and the decrement happen in ONE `withLock` critical
+ *  section (single UPDATE), so two concurrent runs can't both read "under cap" and both
+ *  refund. Returns true when a refund landed; false when the bound was already hit, the
+ *  row is gone/not in_progress, or ownership was lost. Never throws on a missing row. */
+export function refundBaseMovedRetryIfUnderCap(
+  project: string,
+  id: string,
+  cap: number,
+  claimToken?: string,
+): Promise<boolean> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const existing = getTodo(project, id);
+    if (!existing || existing.status !== 'in_progress') return false;
+    if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
+    // Bound hit → no refund; retryCount now accumulates toward MAX_REDISPATCH.
+    if ((existing.baseMovedRefunds ?? 0) >= cap) return false;
+    db.prepare(
+      `UPDATE todos SET retryCount=MAX(0, retryCount-1), baseMovedRefunds=baseMovedRefunds+1, updatedAt=? WHERE id=?`,
+    ).run(nowIso(), id);
     return true;
   });
 }

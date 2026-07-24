@@ -480,7 +480,10 @@ export interface LeafExecutorDeps {
   bumpRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
   /** Refund the dispatch-time retryCount bump when zero real work happened (epic-base-moved
    *  park infra incident). Undoes {@link bumpRetry}. Ownership-gated; best-effort —
-   *  never breaks the run. */
+   *  never breaks the run. BOUNDED: the live wiring refunds at most
+   *  MAX_BASE_MOVED_REFUNDS times per leaf (durable `baseMovedRefunds` counter). Past the
+   *  bound it returns false without mutating, so retryCount accumulates to MAX_REDISPATCH
+   *  and the leaf is parked by the re-dispatch cap instead of looping forever. */
   refundRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
   /** Release a claimed leaf (infra park seam). Best-effort; unwired in tests. */
   releaseClaim?: (project: string, todoId: string) => Promise<boolean | void>;
@@ -4111,8 +4114,9 @@ export async function makeLeafExecutorDeps(
     },
     refundRetry: async (p, leafId) => {
       try {
-        const { decrementRetryCountIfOwned } = await import('./todo-store');
-        return await decrementRetryCountIfOwned(p, leafId, runClaimToken);
+        const { refundBaseMovedRetryIfUnderCap } = await import('./todo-store');
+        const { MAX_BASE_MOVED_REFUNDS } = await import('./harness-caps');
+        return await refundBaseMovedRetryIfUnderCap(p, leafId, MAX_BASE_MOVED_REFUNDS, runClaimToken);
       } catch { return false; }
     },
     holdLeaf: async (p, leafId, reason) => {
@@ -4287,7 +4291,8 @@ export async function makeLeafExecutorDeps(
         }
       }
       const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
-      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn);
+      const baseGate = getEpicBaseGate(epicId, epicBaseSha);
+      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null);
     },
     // G2 once-per-epic base gate, cached in the epic_base_gate ledger table keyed by
     // epicId ALONE (never the moving tip) so it runs exactly once per epic, not once
@@ -4304,6 +4309,7 @@ export async function makeLeafExecutorDeps(
           output: cached.output ?? '',
           reasons: [],
           declared: true,
+          baselineFailures: cached.baselineFailures ?? undefined,
           fresh: false,
         };
       }
@@ -4322,6 +4328,7 @@ export async function makeLeafExecutorDeps(
           status: r.status,
           command: r.command ?? null,
           output: r.output || null,
+          baselineFailures: r.baselineFailures ?? null,
         });
       }
       return { ...r, fresh: true };

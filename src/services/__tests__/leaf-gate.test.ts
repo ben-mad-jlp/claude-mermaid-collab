@@ -504,6 +504,69 @@ describe('gate.suites — change-set-triggered full-suite lane', () => {
   });
 });
 
+describe('runLeafGate — base-differential lanes', () => {
+  it('BASELINE-ONLY — suite red reproducing only a baseline fingerprint passes', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^src/'), command: 'bun test', cwd: undefined }],
+    };
+    const baselines = { 'suites:^src\\/': ['src/a.test.ts'] };
+    const { spawn } = stubSpawn({
+      'bun test': { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, baselines);
+    expect(r.status).toBe('pass');
+    expect(r.baselineOnly).toContain('src/a.test.ts');
+  });
+
+  it('NET-NEW — suite red with a fingerprint absent from the baseline fails', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^src/'), command: 'bun test', cwd: undefined }],
+    };
+    const baselines = { 'suites:^src\\/': ['src/a.test.ts'] };
+    const { spawn } = stubSpawn({
+      'bun test': { ran: true, code: 1, output: 'FAIL src/b.test.ts' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/b.test.ts'], spawn, baselines);
+    expect(r.status).toBe('fail');
+  });
+
+  it('NO BASELINE — same red with an empty/null baseline still fails (fail-closed)', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^src/'), command: 'bun test', cwd: undefined }],
+    };
+    const { spawn } = stubSpawn({
+      'bun test': { ran: true, code: 1, output: 'FAIL src/b.test.ts' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/b.test.ts'], spawn, null);
+    expect(r.status).toBe('fail');
+  });
+
+  it('TYPECHECKS LANE — baseline-only typecheck failure passes (the other lane kind, not just suites)', async () => {
+    const cfg: LeafGateConfig = {
+      typechecks: [{ match: new RegExp('^src/'), command: 'npx tsc --noEmit', cwd: undefined }],
+    };
+    const baselines = { 'typechecks:^src\\/': ['src/a.ts'] };
+    const { spawn } = stubSpawn({
+      'npx tsc --noEmit': { ran: true, code: 1, output: 'src/a.ts(1,1): error TS1234' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/a.ts'], spawn, baselines);
+    expect(r.status).toBe('pass');
+    expect(r.baselineOnly).toContain('src/a.ts');
+  });
+
+  it('ABSENT BASELINE KEY — the lane\'s key is missing from the map entirely ⇒ still fails (a key mismatch must never silently pass)', async () => {
+    const cfg: LeafGateConfig = {
+      suites: [{ match: new RegExp('^src/'), command: 'bun test', cwd: undefined }],
+    };
+    const baselines = { 'suites:^other\\/': ['src/a.test.ts'] }; // wrong key — this lane's key is absent
+    const { spawn } = stubSpawn({
+      'bun test': { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, baselines);
+    expect(r.status).toBe('fail');
+  });
+});
+
 describe('lane validation (resolveGateDeclaration)', () => {
   const MANIFEST_PATH = '/tmp/.collab/project.json';
 
@@ -698,6 +761,64 @@ describe('runBaseGate', () => {
     const r = await runBaseGate('/wt', cfg, spawn);
     expect(r.status).toBe('error');
     expect(calls.map((c) => c.command)).toEqual(['tsc']);
+  });
+
+  it('runs EVERY declared lane (no short-circuit) and memoizes each red lane\'s fingerprints', async () => {
+    const cfg: LeafGateConfig = {
+      typecheck: 'tsc',
+      typechecks: [{ match: /^srv\//, command: 'tsc-srv' }],
+      suites: [{ match: /^ui\//, command: 'suite-ui' }],
+      baseTest: 'bun test',
+    };
+    const { spawn, calls } = stubSpawn({
+      tsc: { ran: true, code: 0 },
+      'tsc-srv': { ran: true, code: 0 }, // passing typechecks lane
+      'suite-ui': { ran: true, code: 1, output: 'FAIL ui/a.test.ts\n× renders wrong' }, // failing suite
+      'bun test': { ran: true, code: 0 },
+    });
+    const r = await runBaseGate('/wt', cfg, spawn);
+    expect(r.status).toBe('fail');
+    // No short-circuit: all four full-command lanes spawned, in fixed order.
+    expect(calls.map((c) => c.command)).toEqual(['tsc', 'tsc-srv', 'suite-ui', 'bun test']);
+    // Only the failing suite lane recorded, keyed by its match source, with extracted names.
+    expect(r.baselineFailures).toEqual({ 'suites:^ui\\/': ['ui/a.test.ts', 'renders wrong'] });
+  });
+
+  it('a failing typechecks lane maps its key to the parseTypecheckFiles file list', async () => {
+    const cfg: LeafGateConfig = {
+      typechecks: [{ match: /^srv\//, command: 'tsc-srv' }],
+    };
+    const { spawn } = stubSpawn({
+      'tsc-srv': { ran: true, code: 1, output: 'srv/x.ts(3,5): error TS2322: bad\nsrv/y.ts(9,1): error TS1005: oops' },
+    });
+    const r = await runBaseGate('/wt', cfg, spawn);
+    expect(r.status).toBe('fail');
+    expect(r.baselineFailures).toEqual({ 'typechecks:^srv\\/': ['srv/x.ts', 'srv/y.ts'] });
+  });
+
+  it('fully-green base ⇒ pass with an empty baselineFailures map', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc', baseTest: 'bun test' };
+    const { spawn } = stubSpawn({ tsc: { ran: true, code: 0 }, 'bun test': { ran: true, code: 0 } });
+    const r = await runBaseGate('/wt', cfg, spawn);
+    expect(r.status).toBe('pass');
+    expect(r.baselineFailures).toEqual({});
+  });
+
+  it('ran:false on a mid-list lane ⇒ error, no blob, later lanes not spawned', async () => {
+    const cfg: LeafGateConfig = {
+      typecheck: 'tsc',
+      suites: [{ match: /^ui\//, command: 'suite-ui' }],
+      baseTest: 'bun test',
+    };
+    const { spawn, calls } = stubSpawn({
+      tsc: { ran: true, code: 0 },
+      'suite-ui': { ran: false, output: 'ENOENT' },
+    });
+    const r = await runBaseGate('/wt', cfg, spawn);
+    expect(r.status).toBe('error');
+    expect(r.baselineFailures).toBeUndefined();
+    // baseTest after the erroring suite is never reached.
+    expect(calls.map((c) => c.command)).toEqual(['tsc', 'suite-ui']);
   });
 });
 
