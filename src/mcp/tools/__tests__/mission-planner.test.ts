@@ -375,4 +375,14 @@ describe('parseEpicSpec + buildPlannerPrompt (pure)', () => {
     expect(p).toContain('the thing works');
     expect(p).toContain('Do NOT create anything');
   });
+  test('DISCIPLINE block carries the four structural serve rules (leaf 6bd4c0c6)', () => {
+    const p = buildPlannerPrompt('/proj', 'm1', [{ id: 'c1', text: 'x' }]);
+    expect(p).toContain('DUP-CHECK BEFORE FILING');
+    expect(p).toContain('CHAIN ONLY WHERE TRULY ORDERED');
+    expect(p).toContain('CITABLE ACCEPTANCE CRITERION');
+    expect(p).toContain('CROSS-PROJECT');
+    // JSON emission contract unchanged
+    expect(p).toContain('Emit EXACTLY ONE JSON object');
+    expect(p).toContain('"dependsOn": ["$0"]');
+  });
 });

@@ -42,8 +42,11 @@ function flushTimers() {
 }
 
 // Wait until the lazily-loaded composer has mounted (label is present).
+// Explicit 5s timeout: the lazy Lexical chunk takes ~800ms to mount standalone,
+// so testing-library's 1000ms default starves under any concurrent load — the
+// recurring false epic-base-red of 2026-07-24 traced to exactly this query.
 async function waitForComposer(): Promise<HTMLElement> {
-  return screen.findByLabelText('Message composer');
+  return screen.findByLabelText('Message composer', undefined, { timeout: 5000 });
 }
 
 describe('ChatComposer (Lexical)', () => {
