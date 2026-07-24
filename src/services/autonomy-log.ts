@@ -12,6 +12,8 @@
  *                             active flag on a terminal mission.
  *   - 'dep-settlement'      — dep-settlement.ts settled a dup (settleDupOfLanded) or
  *                             re-pointed dependent edges (repointDependents).
+ *   - 'budget-change'       — mission-store.setMissionBudget raised, lowered, or cleared a
+ *                             mission's budgetUsd ceiling.
  *
  * DESIGN (locked constraints):
  *   - The ring is BOUNDED (RING_CAP) — recording evicts the oldest, never grows unbounded.
@@ -27,7 +29,12 @@
  */
 
 /** The kinds of autonomous mutation B6 observes. */
-export type AutonomyMutationKind = 'reserve-leaf' | 'deploy-refusal' | 'terminal-deactivate' | 'dep-settlement';
+export type AutonomyMutationKind =
+  | 'reserve-leaf'
+  | 'deploy-refusal'
+  | 'terminal-deactivate'
+  | 'dep-settlement'
+  | 'budget-change';
 
 /** One recorded autonomous mutation. `actor` + `reason` are required; the rest is context. */
 export interface AutonomyMutation {
