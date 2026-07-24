@@ -60,6 +60,12 @@ export interface MissionRow {
   /** Debounce fingerprint of the last AUTONOMOUS CONDUCTOR pass (status + criteria actions). The
    *  conductor pass no-ops while this is unchanged, so it only spends a node when state moved. */
   lastConductorKey: string | null;
+  /** Wall-clock ms of the last conductor pass — the pass clock a later throttle reads. Null
+   *  until the first conductor pass runs for this mission. */
+  lastConductorPassAt: number | null;
+  /** The pass's own self-issued key from its last run, distinct from the debounce
+   *  lastConductorKey. Null until the first pass supplies one. */
+  lastConductorSelfKey: string | null;
   /** Whether this is the ACTIVE mission for its owning session. A steward drives ONE
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
@@ -222,6 +228,8 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeKey', 'lastNudgeKey TEXT');
   addColumnIfMissing(db, 'mission', 'lastConductorKey', 'lastConductorKey TEXT');
+  addColumnIfMissing(db, 'mission', 'lastConductorPassAt', 'lastConductorPassAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'lastConductorSelfKey', 'lastConductorSelfKey TEXT');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
@@ -262,6 +270,8 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
     lastNudgeKey: (row.lastNudgeKey as string | null) ?? null,
     lastConductorKey: (row.lastConductorKey as string | null) ?? null,
+    lastConductorPassAt: (row.lastConductorPassAt as number | null) ?? null,
+    lastConductorSelfKey: (row.lastConductorSelfKey as string | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     queuePos: (row.queuePos as number | null) ?? null,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
@@ -279,11 +289,25 @@ export function stampMissionNudge(project: string, todoId: string, key?: string)
     .run(nowMs(), key ?? null, nowMs(), todoId);
 }
 
-/** Record the debounce fingerprint of the conductor pass's last run for a mission. */
-export function stampConductorRun(project: string, todoId: string, key: string): void {
-  openDb(project)
-    .prepare('UPDATE mission SET lastConductorKey = ?, updatedAt = ? WHERE todoId = ?')
-    .run(key, nowMs(), todoId);
+/** Record the debounce fingerprint of the conductor pass's last run for a mission, plus the
+ *  pass clock (lastConductorPassAt) and, when supplied, the pass's self-issued key
+ *  (lastConductorSelfKey). selfKey is written only when present in opts — omitting it leaves
+ *  a previously-stamped self key untouched. */
+export function stampConductorRun(
+  project: string,
+  todoId: string,
+  key: string,
+  opts?: { at?: number; selfKey?: string | null }
+): void {
+  const at = opts?.at ?? nowMs();
+  const db = openDb(project);
+  if (opts && 'selfKey' in opts) {
+    db.prepare('UPDATE mission SET lastConductorKey = ?, lastConductorPassAt = ?, lastConductorSelfKey = ?, updatedAt = ? WHERE todoId = ?')
+      .run(key, at, opts.selfKey ?? null, nowMs(), todoId);
+  } else {
+    db.prepare('UPDATE mission SET lastConductorKey = ?, lastConductorPassAt = ?, updatedAt = ? WHERE todoId = ?')
+      .run(key, at, nowMs(), todoId);
+  }
 }
 
 /**

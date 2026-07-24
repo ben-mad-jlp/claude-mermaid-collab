@@ -11,7 +11,7 @@ import {
   addCriterion, listCriteria, listCriteriaWithActions, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
-  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS,
+  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import Database from 'bun:sqlite';
@@ -1020,5 +1020,25 @@ describe('backfillMissionNodeApproval — idempotent stamp of mission-node appro
     // Second backfill call should be idempotent (no rows updated)
     stamped = backfillMissionNodeApproval(project);
     expect(stamped).toBe(0);
+  });
+});
+
+describe('stampConductorRun — pass clock + self-issued key columns', () => {
+  test('4-arg call round-trips lastConductorPassAt/lastConductorSelfKey; a later 3-arg call preserves the self key', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+
+    stampConductorRun(project, id, 'k', { at: 1234, selfKey: 'self-1' });
+    let m = getMission(project, id)!;
+    expect(m.lastConductorKey).toBe('k');
+    expect(m.lastConductorPassAt).toBe(1234);
+    expect(m.lastConductorSelfKey).toBe('self-1');
+
+    stampConductorRun(project, id, 'k2');
+    m = getMission(project, id)!;
+    expect(m.lastConductorKey).toBe('k2');
+    expect(m.lastConductorSelfKey).toBe('self-1');
+    expect(m.lastConductorPassAt).not.toBeNull();
+    expect(m.lastConductorPassAt as number).toBeGreaterThanOrEqual(1234);
   });
 });
