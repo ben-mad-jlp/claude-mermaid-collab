@@ -65,11 +65,15 @@ export function buildCrashPageHtml(reason: string): string {
 
 interface RendererLike {
   webContents: {
-    on: (event: string, listener: (...args: any[]) => void) => void;
+    // Method shorthand, NOT an arrow-typed property: strictFunctionTypes checks
+    // function-typed properties contravariantly, so Electron's overloaded
+    // `on(event: 'audio-state-changed', ...)` fails against a string-keyed
+    // property — method declarations stay bivariant and accept the real type.
+    on(event: string, listener: (...args: any[]) => void): void;
     reload: () => void;
     forcefullyCrashRenderer: () => void;
   };
-  on: (event: string, listener: (...args: any[]) => void) => void;
+  on(event: string, listener: (...args: any[]) => void): void;
   loadURL: (url: string) => void;
 }
 
