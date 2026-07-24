@@ -25,7 +25,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import type { Todo } from './todo-store';
-import { splitLeafInto } from './todo-store';
+import { splitLeafInto, getTodo } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { type OrchestrationNodeKind, ORCHESTRATION_NODE_KINDS } from './node-kinds';
 import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
@@ -588,6 +588,10 @@ export interface LeafExecutorDeps {
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
   ensureBaseGreen?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
+  /** Reader for the leaf's parent-epic todo row — consulted by the G2 base-red park to
+   *  honor the epic-level `baseRepair` exemption (bug 65345589). Defaults to
+   *  getTodo(project, leaf.parentId); injectable for tests. */
+  getEpicTodo?: () => Todo | null;
   /** Floor-path base-freshness pre-check (real incident: a stale/off-by-one base spent
    *  blueprint+implement+review before being rejected at the gate for tsc errors in files it
    *  never touched — thrash discovered late). Cheap deterministic git probe: is the epic
@@ -2743,7 +2747,20 @@ export async function runLeaf(
   // record). Cached once per epic (deps.ensureBaseGreen) — this call is cheap on every
   // leaf after the first.
   const base = await deps.ensureBaseGreen?.();
-  if (base && base.status !== 'pass') {
+  // BASE-REPAIR EXEMPTION (bug 65345589): an epic whose PURPOSE is greening a red base
+  // lane is otherwise deadlocked by this very hold — its leaves ARE the fix for the lane
+  // that holds them (observed: sixth-drain epic 6560e5e1 'Green the ^ui/ vitest lane',
+  // every leaf parked epic-base-red on the lane it exists to repair). An epic explicitly
+  // flagged `baseRepair` (set by conductor/planner/human — never auto-inferred) runs its
+  // leaves anyway; each leaf's OWN gate still judges net-new-vs-base via the lazy
+  // baseline machinery, so inherited base brokenness cannot land silently. The exemption
+  // covers the red-base park only — a gate CONFIG error (could-not-run) still parks.
+  const baseRepairEpic = base && base.status === 'fail'
+    && !!(deps.getEpicTodo ? deps.getEpicTodo() : (leaf.parentId ? getTodo(project, leaf.parentId) : null))?.baseRepair;
+  if (baseRepairEpic) {
+    console.log(`[leaf-executor] base-red EXEMPT: epic ${(leaf.parentId ?? '').slice(0, 8)} is baseRepair — leaf ${leaf.id.slice(0, 8)} proceeds under net-new gate semantics`);
+  }
+  if (base && base.status !== 'pass' && !baseRepairEpic) {
     const head = base.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
     const cmd = base.command ?? 'gate';
     // Finding 3: a leaf parking on a CACHED verdict (fresh:false) escalates nothing — it
