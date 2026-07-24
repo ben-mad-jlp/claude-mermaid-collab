@@ -543,6 +543,7 @@ export async function runLeafGate(
   changeSet: readonly string[] | null,
   spawn: GateSpawn,
   baselines?: LaneBaselineMap | null,
+  resolveLaneBaseline?: (laneKey: string, commands: readonly string[], laneCwd?: string) => Promise<string[] | null>,
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: ['gate: none declared'], declared: false };
 
@@ -640,8 +641,9 @@ export async function runLeafGate(
       };
     }
 
-    // Execute commands for each lane, in order.
-    const failures: Array<{ command: string; output: string }> = [];
+    // Execute commands for each lane, in order, tracking failures PER LANE so each
+    // diffs against its own baseline (a lane's red is only "known" against ITS base run).
+    const laneRuns: Array<{ lane: GateTestLane; commands: string[]; failures: Array<{ command: string; output: string }> }> = [];
     for (const lane of lanes) {
       const files = byLane.get(lane);
       if (!files?.length) continue;
@@ -650,6 +652,7 @@ export async function runLeafGate(
 
       // Expand {file} or {files} based on the mode.
       const commands = expandLaneCommands(lane, files);
+      const failures: Array<{ command: string; output: string }> = [];
 
       for (const command of commands) {
         const r = await spawn(laneCwd, command);
@@ -664,20 +667,27 @@ export async function runLeafGate(
         }
         if (r.code !== 0) failures.push({ command, output: r.output });
       }
+
+      laneRuns.push({ lane, commands, failures });
     }
 
-    if (failures.length > 0) {
-      const output = failures.map((f) => f.output).join('\n').slice(0, 8000);
-      const failing = failures.flatMap((f) => extractFailingTests(f.output));
-      const { netNew } = classifyRedLane(failing, []);
+    for (const { lane, commands, failures: laneFailures } of laneRuns) {
+      if (laneFailures.length === 0) continue;
+
+      const laneKey = `tests:${lane.match.source}`;
+      const resolved = resolveLaneBaseline ? await resolveLaneBaseline(laneKey, commands, lane.cwd) : null;
+
+      const output = laneFailures.map((f) => f.output).join('\n').slice(0, 8000);
+      const failing = laneFailures.flatMap((f) => extractFailingTests(f.output));
+      const { netNew } = classifyRedLane(failing, resolved ?? []);
       if (netNew.length === 0) {
         baselineOnly.push(...failing);
       } else {
         return {
           status: 'fail',
-          command: failures[0].command,
+          command: laneFailures[0].command,
           output,
-          reasons: [`${failures.length} failing spec file(s)`, ...netNew.slice(0, 20)],
+          reasons: [`${laneFailures.length} failing spec file(s)`, ...netNew.slice(0, 20)],
           declared: true,
         };
       }

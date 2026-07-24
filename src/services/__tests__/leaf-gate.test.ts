@@ -1040,3 +1040,42 @@ describe('bridgeLegacyGate / legacy manifest bridging', () => {
     expect(decl.kind).toBe('absent');
   });
 });
+
+describe('runLeafGate — lazy per-epic base memo for the tests lane (resolveLaneBaseline)', () => {
+  const cfg: LeafGateConfig = {
+    tests: [
+      { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+    ],
+  };
+
+  it('a red lane whose failures all appear in the resolver baseline ⇒ pass with names in baselineOnly', async () => {
+    const { spawn } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
+    });
+    const resolveLaneBaseline = async () => ['src/a.test.ts'];
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, null, resolveLaneBaseline);
+    expect(r.status).toBe('pass');
+    expect(r.baselineOnly).toEqual(['src/a.test.ts']);
+  });
+
+  it('a lane with one net-new failure ⇒ fail naming only the new spec', async () => {
+    const { spawn } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
+      "bun test 'src/b.test.ts'": { ran: true, code: 1, output: 'FAIL src/b.test.ts' },
+    });
+    const resolveLaneBaseline = async () => ['src/a.test.ts'];
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts', 'src/b.test.ts'], spawn, null, resolveLaneBaseline);
+    expect(r.status).toBe('fail');
+    expect(r.reasons.some((reason) => reason.includes('src/b.test.ts'))).toBe(true);
+    expect(r.reasons.some((reason) => reason.includes('src/a.test.ts'))).toBe(false);
+  });
+
+  it('a resolver returning null ⇒ fail (today\'s behavior, empty baseline)', async () => {
+    const { spawn } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
+    });
+    const resolveLaneBaseline = async () => null;
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, null, resolveLaneBaseline);
+    expect(r.status).toBe('fail');
+  });
+});
