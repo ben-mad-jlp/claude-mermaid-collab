@@ -56,7 +56,7 @@ async function seedMissionB(opts: { approved: boolean }) {
 
 function probeFor(epicId: string): GitProbe {
   const branch = epicBranchName(epicId);
-  return (b) => (b === branch
+  return async (b) => (b === branch
     ? { exists: true, ahead: 0, behind: 0, mergeable: true }
     : { exists: false, ahead: null, behind: null, mergeable: null });
 }
@@ -66,10 +66,10 @@ function probeFor(epicId: string): GitProbe {
 function makeStatefulRunner(): BranchGcRunner {
   const deleted = new Set<string>();
   return {
-    revParse: (branch) => (deleted.has(branch) ? null : `sha-${branch}`),
-    deleteBranch: (branch) => { deleted.add(branch); return true; },
-    listEpicBranches: () => [],
-    aheadCount: () => 0,
+    revParse: async (branch) => (deleted.has(branch) ? null : `sha-${branch}`),
+    deleteBranch: async (branch) => { deleted.add(branch); return true; },
+    listEpicBranches: async () => [],
+    aheadCount: async () => 0,
   };
 }
 

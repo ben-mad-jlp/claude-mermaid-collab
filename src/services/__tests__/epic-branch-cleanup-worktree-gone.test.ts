@@ -113,25 +113,25 @@ describe('epic-branch cleanup with missing worktrees', () => {
     const order: string[] = [];
     const pruneCalls: string[] = [];
     const runner: BranchGcRunner = {
-      revParse: () => orphanSha,
-      deleteBranch: (b) => {
+      revParse: async () => orphanSha,
+      deleteBranch: async (b) => {
         order.push('delete:' + b);
         return true;
       },
-      listEpicBranches: () => [orphanBranch],
-      aheadCount: (b) => {
+      listEpicBranches: async () => [orphanBranch],
+      aheadCount: async (b) => {
         // Simulate finding ahead count for an orphan with a gone worktree
         return b === orphanBranch ? 0 : -1;
       },
-      pruneWorktreeFor: (b) => {
+      pruneWorktreeFor: async (b) => {
         pruneCalls.push(b);
         order.push('prune:' + b);
       },
     };
 
-    const probe: GitProbe = () => ({ exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null });
 
-    const result = gcEpicBranches(repo, { probe, runner });
+    const result = await gcEpicBranches(repo, { probe, runner });
 
     // Verify the orphan branch was deleted
     expect(result.deleted).toContain(orphanBranch);
@@ -156,25 +156,25 @@ describe('epic-branch cleanup with missing worktrees', () => {
     const order: string[] = [];
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
-      revParse: () => 'feed0000' + 'abc',
-      deleteBranch: (b) => {
+      revParse: async () => 'feed0000' + 'abc',
+      deleteBranch: async (b) => {
         deleteCalls.push(b);
         order.push('delete:' + b);
         return true;
       },
-      listEpicBranches: () => [orphanBranch],
-      aheadCount: (b) => {
+      listEpicBranches: async () => [orphanBranch],
+      aheadCount: async (b) => {
         // Return ahead>0 for the orphan branch (never delete, only flag)
         return b === orphanBranch ? 5 : -1;
       },
-      pruneWorktreeFor: (b) => {
+      pruneWorktreeFor: async (b) => {
         order.push('prune:' + b);
       },
     };
 
-    const probe: GitProbe = () => ({ exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null });
 
-    const result = gcEpicBranches(repo, { probe, runner });
+    const result = await gcEpicBranches(repo, { probe, runner });
 
     // Verify the branch was flagged but NOT deleted
     expect(result.flagged).toContain(orphanBranch);

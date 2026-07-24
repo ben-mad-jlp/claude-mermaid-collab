@@ -70,10 +70,10 @@ function check(name: string, ok: boolean, detail = ''): boolean {
   return ok;
 }
 
-function buildSnapshot(project: string): Snapshot {
+async function buildSnapshot(project: string): Promise<Snapshot> {
   const todos = listTodos(project, { includeCompleted: true });
   const probe = makeGitProbe(project);
-  const report = buildEpicBranchStatus(todos, probe, 'master', project);
+  const report = await buildEpicBranchStatus(todos, probe, 'master', project);
   const aheadById = new Map(report.epics.map((e) => [e.epicId, e.ahead]));
   const aheadOf = (epicId: string) => aheadById.get(epicId);
   const divergence = findLandedAtDivergence(todos, aheadOf);
@@ -153,16 +153,16 @@ async function main() {
   console.log('');
 
   console.log('Run 1');
-  const before1 = buildSnapshot(PROJECT);
+  const before1 = await buildSnapshot(PROJECT);
   await runReconcilePass(PROJECT);
   const sweep1 = await runLandedEpicSweep(PROJECT, { force: true });
-  const after1 = buildSnapshot(PROJECT);
+  const after1 = await buildSnapshot(PROJECT);
 
   console.log('\nRun 2');
-  const before2 = buildSnapshot(PROJECT);
+  const before2 = await buildSnapshot(PROJECT);
   await runReconcilePass(PROJECT);
   const sweep2 = await runLandedEpicSweep(PROJECT, { force: true });
-  const after2 = buildSnapshot(PROJECT);
+  const after2 = await buildSnapshot(PROJECT);
 
   console.log('\nAssertions');
 

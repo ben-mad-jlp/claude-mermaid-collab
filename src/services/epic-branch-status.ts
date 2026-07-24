@@ -16,7 +16,7 @@
  * Pure git reads only (rev-list / merge-tree / rev-parse) — never a merge, push,
  * or any mutation. Pairs with design-epic-landing / design-epic-git-integration.
  *
- * The git probe is injected (default: a real `git` runner via Bun.spawnSync) so
+ * The git probe is injected (default: a real `git` runner via async Bun.spawn) so
  * the assembly logic — branch-name derivation, ahead/behind/mergeable mapping,
  * land-leaf join — is hermetically unit-testable without a repo.
  */
@@ -37,14 +37,14 @@ export interface BranchProbe {
 }
 
 /** A git probe: given an epic branch + base ref, return the raw counts/flags. */
-export type GitProbe = (branch: string, baseRef: string) => BranchProbe;
+export type GitProbe = (branch: string, baseRef: string) => Promise<BranchProbe>;
 
 /**
  * One-shot branch enumerator: all existing local `collab/epic/*` short refs, or null
  * when enumeration itself failed (fall back to probing every epic). Injected so the
  * prefilter is hermetically testable; the real one is `listEpicBranchesIn`.
  */
-export type BranchLister = () => string[] | null;
+export type BranchLister = () => Promise<string[] | null>;
 
 export interface EpicBranchStatus {
   epicId: string;
@@ -103,13 +103,13 @@ export function epicBranchName(epicId: string): string {
  * No DB or git access of its own — both are injected, so unit tests feed a
  * hand-built Todo[] and a fake probe.
  */
-export function buildEpicBranchStatus(
+export async function buildEpicBranchStatus(
   todos: Todo[],
   probe: GitProbe,
   baseRef: string = 'master',
   project: string = '',
   listBranches?: BranchLister,
-): EpicBranchStatusReport {
+): Promise<EpicBranchStatusReport> {
   // PREFILTER (crit-5, watchdog starvation 2026-07-22): with a real synchronous git
   // probe, probing EVERY epic todo (2-3 spawns each) scales with TODO COUNT (211 rows
   // → ~500+ blocking Bun.spawnSync calls, >45s event-loop hold → the Electron liveness
@@ -118,10 +118,10 @@ export function buildEpicBranchStatus(
   // exists:false today; we just skip the pointless spawn. Enumeration failure (null)
   // falls back to probing everything (never a false all-clear from a broken git).
   let existing: Set<string> | null | undefined; // undefined = not yet enumerated
-  const branchKnownMissing = (branch: string): boolean => {
+  const branchKnownMissing = async (branch: string): Promise<boolean> => {
     if (!listBranches) return false;
     if (existing === undefined) {
-      const listed = listBranches(); // exactly one enumeration per report
+      const listed = await listBranches(); // exactly one enumeration per report
       existing = listed == null ? null : new Set(listed);
     }
     return existing != null && !existing.has(branch);
@@ -154,9 +154,9 @@ export function buildEpicBranchStatus(
   for (const t of todos) {
     if (!isEpic(t)) continue;
     const branch = epicBranchName(t.id);
-    const p: BranchProbe = branchKnownMissing(branch)
+    const p: BranchProbe = (await branchKnownMissing(branch))
       ? { exists: false, ahead: null, behind: null, mergeable: null }
-      : probe(branch, baseRef);
+      : await probe(branch, baseRef);
     const land = landLeafOf(t);
     const landLeafDone = land ? land.status === 'done' : null;
     const stranded = p.exists && (p.ahead ?? 0) > 0;
@@ -182,21 +182,32 @@ export function buildEpicBranchStatus(
 
 /** Hard cap on any single git probe. `git merge-tree` on a badly-conflicted /
  *  far-diverged branch (e.g. an epic branch 100s of commits stale) can run for a very
- *  long time; because this runner is SYNCHRONOUS (Bun.spawnSync), an unbounded git call
- *  blocks the whole event loop — which wedges the orchestrator tick for ALL projects.
- *  The timeout kills the git process and we report the probe as "couldn't tell" (null). */
+ *  long time; the timeout kills the git process and we report the probe as
+ *  "couldn't tell" (null). */
 const GIT_PROBE_TIMEOUT_MS = 15_000;
 
-/** Run git in `cwd`, returning { code, stdout }. Never throws; never hangs (timeout). */
-function runGit(cwd: string, gitArgs: string[]): { code: number; stdout: string } {
+/** Run git in `cwd` ASYNC, returning { code, stdout }. Never throws; never hangs
+ *  (timeout kill). Async spawn (Bun.spawn + await exited) — never spawnSync, which
+ *  would pin the sidecar event loop for the probe's full duration (this module runs
+ *  one-or-more git commands PER EPIC on UI-polled routes). */
+async function runGit(cwd: string, gitArgs: string[]): Promise<{ code: number; stdout: string }> {
   try {
-    const p = Bun.spawnSync(['git', ...gitArgs], {
+    const p = Bun.spawn(['git', ...gitArgs], {
       cwd,
       stdout: 'pipe',
       stderr: 'ignore',
-      timeout: GIT_PROBE_TIMEOUT_MS, // kill a runaway git (e.g. merge-tree on a conflicted branch)
     });
-    return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
+    // kill a runaway git (e.g. merge-tree on a conflicted branch)
+    const killTimer = setTimeout(() => { try { p.kill(); } catch { /* already gone */ } }, GIT_PROBE_TIMEOUT_MS);
+    try {
+      const [stdout, code] = await Promise.all([
+        p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
+        p.exited,
+      ]);
+      return { code: code ?? 1, stdout };
+    } finally {
+      clearTimeout(killTimer);
+    }
   } catch {
     return { code: 1, stdout: '' };
   }
@@ -208,33 +219,33 @@ function runGit(cwd: string, gitArgs: string[]): { code: number; stdout: string 
  * Returns null when git itself failed, so callers fall back to per-epic probing rather
  * than reporting a false "no branches exist".
  */
-export function listEpicBranchesIn(project: string): string[] | null {
-  const r = runGit(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/collab/epic']);
+export async function listEpicBranchesIn(project: string): Promise<string[] | null> {
+  const r = await runGit(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/collab/epic']);
   if (r.code !== 0) return null;
   return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
 /** A real git probe rooted at `project`: exists / ahead / behind / mergeable. */
 export function makeGitProbe(project: string): GitProbe {
-  return (branch: string, baseRef: string): BranchProbe => {
+  return async (branch: string, baseRef: string): Promise<BranchProbe> => {
     const exists =
-      runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).code === 0;
+      (await runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
     if (!exists) return { exists: false, ahead: null, behind: null, mergeable: null };
 
-    const count = (range: string): number | null => {
-      const r = runGit(project, ['rev-list', '--count', range]);
+    const count = async (range: string): Promise<number | null> => {
+      const r = await runGit(project, ['rev-list', '--count', range]);
       if (r.code !== 0) return null;
       const n = parseInt(r.stdout.trim() || '0', 10);
       return Number.isNaN(n) ? null : n;
     };
-    const ahead = count(`${baseRef}..${branch}`);
-    const behind = count(`${branch}..${baseRef}`);
+    const ahead = await count(`${baseRef}..${branch}`);
+    const behind = await count(`${branch}..${baseRef}`);
 
     // Trial merge with no working-tree mutation: `git merge-tree --write-tree`
     // exits 0 on a clean merge, 1 when there are conflicts. A spawn/other failure
     // (e.g. baseRef missing, ancient git) leaves mergeable null rather than lying.
     let mergeable: boolean | null = null;
-    const mt = runGit(project, ['merge-tree', '--write-tree', baseRef, branch]);
+    const mt = await runGit(project, ['merge-tree', '--write-tree', baseRef, branch]);
     if (mt.code === 0) mergeable = true;
     else if (mt.code === 1) mergeable = false;
 
@@ -249,30 +260,31 @@ export function makeGitProbe(project: string): GitProbe {
  * the report read strandedCount:0 against a nonexistent ref (a dangerous false all-clear).
  * Tries main/master, then origin/HEAD. Hermetic — git access is injected for unit tests.
  */
-export function pickBaseRef(
+export async function pickBaseRef(
   requested: string,
-  refExists: (ref: string) => boolean,
-  originHead: () => string | null,
-): string {
-  if (refExists(requested)) return requested;
+  refExists: (ref: string) => Promise<boolean>,
+  originHead: () => Promise<string | null>,
+): Promise<string> {
+  if (await refExists(requested)) return requested;
   for (const cand of ['main', 'master']) {
-    if (cand !== requested && refExists(cand)) return cand;
+    if (cand !== requested && (await refExists(cand))) return cand;
   }
-  const head = originHead();
+  const head = await originHead();
   if (head) return head;
   return requested; // give up — probes return null, exactly as before
 }
 
 /** DB-backed wrapper: load the project's work-graph and report each epic's branch status. */
-export function getEpicBranchStatus(
+export async function getEpicBranchStatus(
   project: string,
   baseRef: string = 'master',
-): EpicBranchStatusReport {
-  const resolved = pickBaseRef(
+): Promise<EpicBranchStatusReport> {
+  const resolved = await pickBaseRef(
     baseRef,
-    (ref) => runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}`]).code === 0,
-    () => {
-      const r = runGit(project, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+    async (ref) =>
+      (await runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}`])).code === 0,
+    async () => {
+      const r = await runGit(project, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
       const short = r.code === 0 ? r.stdout.trim().replace(/^origin\//, '') : '';
       return short || null;
     },

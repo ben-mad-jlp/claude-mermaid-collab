@@ -55,19 +55,19 @@ describe('runSweepMeasurement', () => {
 
     const deletedBranches = new Set<string>();
     const gBranch = epicBranchName(gEpic.id);
-    const probe: GitProbe = (b) => {
+    const probe: GitProbe = async (b) => {
       if (deletedBranches.has(b)) return { exists: false, ahead: null, behind: null, mergeable: null };
       if (b === gBranch) return { exists: true, ahead: 0, behind: 0, mergeable: true };
       return { exists: false, ahead: null, behind: null, mergeable: null };
     };
     const runner: BranchGcRunner = {
-      revParse: () => 'deadbeef',
-      deleteBranch: (b) => { deletedBranches.add(b); return true; },
-      listEpicBranches: () => [],
-      aheadCount: () => 0,
+      revParse: async () => 'deadbeef',
+      deleteBranch: async (b) => { deletedBranches.add(b); return true; },
+      listEpicBranches: async () => [],
+      aheadCount: async () => 0,
     };
 
-    const run1 = runSweepMeasurement(project, { probe, runner, baseRef: 'master' });
+    const run1 = await runSweepMeasurement(project, { probe, runner, baseRef: 'master' });
 
     expect(run1.promoted).toContain(bMission.id);
     expect(run1.promoted).not.toContain(cMission.id);
@@ -80,7 +80,7 @@ describe('runSweepMeasurement', () => {
     expect(run1.gcFlagged).toEqual([]);
     expect(run1.fullyOnMasterBranchesRemaining).toEqual([]);
 
-    const run2 = runSweepMeasurement(project, { probe, runner, baseRef: 'master' });
+    const run2 = await runSweepMeasurement(project, { probe, runner, baseRef: 'master' });
 
     expect(run2.promoted).toEqual([]);
     expect(run2.gcDeleted).toEqual([]);
