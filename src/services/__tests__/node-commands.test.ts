@@ -17,6 +17,9 @@ import {
   splitCommandClauses,
   attributeClauseExit,
   extractCommandScope,
+  escapeIsFatal,
+  escapeMutatesOrVerifies,
+  detectWorkingRootEscape,
   type RecordedCommand,
   type ResultAssertion,
   type CommandClause,
@@ -710,5 +713,161 @@ describe('node-commands', () => {
     expect(res.contradictedClaims).toHaveLength(1);
     expect(res.reject).toBe(true);
   });
+  });
+});
+
+/**
+ * WORKING-ROOT ESCAPE (2026-07-24 build123d empty-diff class).
+ *
+ * A leaf's shell cwd is its lane worktree, but the leaf record / blueprint cite the MAIN
+ * checkout — so a careful node `cd`s to the stated root and every later edit + test run
+ * lands in a tree the executor never diffs. Two guards are tested here:
+ *   1. VERIFICATION_INVOCATION un-blinded to Python & friends (a Python project's escaped
+ *      `pytest` was invisible to the ONE gate that existed).
+ *   2. detectWorkingRootEscape — the implement-node guard: fires on escaped MUTATING or
+ *      verifying commands, never on read-only exploration.
+ */
+describe('escapeIsFatal — verification invocations across ecosystems', () => {
+  const FATAL: Array<[string, string]> = [
+    ['pytest bare', 'pytest tests/'],
+    ['pytest with flags', 'pytest -q bsync/stock/test_stock.py'],
+    ['python -m pytest', 'python -m pytest tests/'],
+    ['python3 -m pytest', 'python3 -m pytest -x tests/'],
+    ['python -m unittest', 'python -m unittest discover'],
+    ['python3 -m unittest', 'python3 -m unittest tests.test_stock'],
+    ['tox', 'tox -e py311'],
+    ['ruff', 'ruff check bsync/'],
+    ['mypy', 'mypy bsync/stock'],
+    ['pip install', 'pip install -e .'],
+    ['pip3 install', 'pip3 install pytest'],
+    ['python -m pip install', 'python -m pip install -r requirements.txt'],
+    ['after cd', 'cd /Users/x/Code/build123d-ocp-mcp/bsync-tools && pytest -q'],
+    // Pre-existing JS/TS coverage must stay intact.
+    ['tsc', 'npx tsc --noEmit'],
+    ['vitest', 'npx vitest run'],
+    ['jest', 'jest --ci'],
+    ['mocha', 'mocha test/'],
+    ['eslint', 'eslint src/'],
+    ['playwright', 'npx playwright test'],
+    ['cypress', 'cypress run'],
+    ['npm run', 'npm run test:ci'],
+    ['bun test', 'bun test src/services'],
+    ['pnpm build', 'pnpm build'],
+    ['yarn install', 'yarn install'],
+    ['make', 'make build'],
+    ['cargo test', 'cargo test'],
+    ['go build', 'go build ./...'],
+  ];
+  const NOT_FATAL: Array<[string, string]> = [
+    ['grep', 'grep -rn "stock" bsync/'],
+    ['grep naming a runner', 'grep -rn pytest bsync-tools/'],
+    ['rg naming a runner', 'rg mypy .'],
+    ['find', 'find /Users/x/Code/build123d-ocp-mcp/bsync-tools -type f -name "*.py"'],
+    ['ls', 'ls -la bsync/stock/'],
+    ['cat', 'cat pyproject.toml'],
+    ['sed -n', 'sed -n 1,40p bsync/stock/__init__.py'],
+    ['git status', 'git status --porcelain'],
+    ['git log', 'git log --oneline -5'],
+  ];
+
+  for (const [name, cmd] of FATAL) {
+    it(`treats an escaped ${name} as a verification invocation`, () => {
+      expect(escapeIsFatal(cmd)).toBe(true);
+    });
+  }
+  for (const [name, cmd] of NOT_FATAL) {
+    it(`does NOT treat read-only ${name} as a verification invocation`, () => {
+      expect(escapeIsFatal(cmd)).toBe(false);
+    });
+  }
+
+  it('an escaped pytest is REJECTED by the evidence gate (Python un-blinding, end to end)', () => {
+    const res = evaluateCommandEvidence({
+      commands: [{ cmd: 'cd /main/bsync-tools && pytest -q', cwd: '/main/bsync-tools', exitCode: 0 }],
+      claims: [],
+      worktreeRoot: '/wt',
+    });
+    expect(res.reject).toBe(true);
+    expect(res.escapes).toHaveLength(1);
+  });
+});
+
+describe('detectWorkingRootEscape — the implement-node cwd guard', () => {
+  const WT = '/wt/leaf-exec-cdc94681';
+  const MAIN = '/Users/x/Code/build123d-ocp-mcp';
+
+  it('fires on the OBSERVED failure: cd to the main checkout then pytest', () => {
+    const found = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'ls bsync-tools/bsync/stock/', cwd: WT, exitCode: 0 },
+        { cmd: `cd ${MAIN}/bsync-tools && pytest -q`, cwd: `${MAIN}/bsync-tools`, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      mainCheckoutRoot: MAIN,
+    });
+    expect(found).not.toBeNull();
+    expect(found!.escaped).toHaveLength(1);
+    expect(found!.message).toContain(WT);
+    expect(found!.message).toContain(MAIN);
+    expect(found!.message).toContain('pytest');
+  });
+
+  it('fires on an escaped MUTATING command (edit in the main checkout)', () => {
+    for (const cmd of [
+      `cd ${MAIN} && sed -i '' 's/a/b/' src/x.py`,
+      `cd ${MAIN} && git commit -am wip`,
+      `cd ${MAIN} && cp /tmp/x.py src/x.py`,
+      `cd ${MAIN} && mkdir -p src/new`,
+    ]) {
+      const found = detectWorkingRootEscape({
+        commands: [{ cmd, cwd: MAIN, exitCode: 0 }],
+        worktreeRoot: WT,
+        mainCheckoutRoot: MAIN,
+      });
+      expect(found).not.toBeNull();
+    }
+  });
+
+  it('does NOT fire on read-only exploration outside the worktree', () => {
+    const found = detectWorkingRootEscape({
+      commands: [
+        { cmd: `find ${MAIN}/bsync-tools -type f -name "*.py"`, cwd: MAIN, exitCode: 0 },
+        { cmd: `cd ${MAIN} && grep -rn "Stock" bsync/`, cwd: MAIN, exitCode: 0 },
+        { cmd: `cat ${MAIN}/pyproject.toml`, cwd: MAIN, exitCode: 0 },
+        { cmd: 'sed -n 1,40p README.md', cwd: MAIN, exitCode: 0 },
+        { cmd: 'ls -la', cwd: MAIN, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      mainCheckoutRoot: MAIN,
+    });
+    expect(found).toBeNull();
+  });
+
+  it('does NOT fire when everything ran INSIDE the worktree', () => {
+    const found = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'pytest -q', cwd: WT, exitCode: 0 },
+        { cmd: 'git commit -am wip', cwd: `${WT}/bsync-tools`, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      mainCheckoutRoot: MAIN,
+    });
+    expect(found).toBeNull();
+  });
+
+  it('escapeMutatesOrVerifies: mutation OR verification, never read-only', () => {
+    expect(escapeMutatesOrVerifies('git commit -am wip')).toBe(true);
+    expect(escapeMutatesOrVerifies('pytest -q')).toBe(true);
+    expect(escapeMutatesOrVerifies('grep -rn cp src/')).toBe(false);
+    expect(escapeMutatesOrVerifies('sed -n 1,5p f.py')).toBe(false);
+  });
+
+  it('FAILS OPEN on a fault (advisory guard must never sink a leaf)', () => {
+    const found = detectWorkingRootEscape({
+      // a getter that throws mid-iteration
+      commands: new Proxy([] as never[], { get() { throw new Error('boom'); } }),
+      worktreeRoot: WT,
+    });
+    expect(found).toBeNull();
   });
 });

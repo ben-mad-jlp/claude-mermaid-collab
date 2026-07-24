@@ -54,7 +54,7 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
-import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
+import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind } from './diff-contract';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
@@ -395,6 +395,10 @@ export interface LeafExecutorDeps {
   /** Epic tip SHA at run start — recorded into the durable resume row so a later
    *  re-claim can detect a moved base (slice 2). Best-effort; may be null. */
   epicBaseSha?: string | null;
+  /** The TARGET repo's MAIN checkout (the leaf's tracking root). Threaded ONLY so node
+   *  prompts and the working-root guard can NAME it — the executor resolves no paths from
+   *  it. Unwired ⇒ prompts state the worktree alone (still the fix's load-bearing half). */
+  mainCheckoutRoot?: string;
   /** Once-per-run subscription auth assertion (throws if not the subscription).
    *  May be async — the REAL assertion spawns `claude auth status` and must never
    *  block the sidecar event loop (crit-6, mission 693bbc27). */
@@ -1076,6 +1080,40 @@ function reviewReportPath(leaf: Todo): string {
   return `docs/review/${leaf.id}.report.md`;
 }
 
+/** The node's WORKING ROOT, written down. A leaf node's shell cwd IS its lane worktree, but
+ *  nothing in its prompt ever said so: the leaf record's `targetProject` and the blueprint's
+ *  prior-art citations name the MAIN checkout, so the moment a model chooses to be explicit
+ *  about a path it writes the root it was TOLD, not the one it is IN — then `cd`s there and
+ *  every later edit/test lands in a tree the executor never diffs (observed 3× on 2026-07-24,
+ *  each filed as a mystery `empty-diff-spec-demands-changes`).
+ *
+ *  PURE: the caller passes the roots (it already holds the lane worktree path); this builder
+ *  resolves nothing. Returns [] when no worktree is threaded, so old call sites are unchanged. */
+export interface NodeRoots {
+  /** The lane worktree — the node's cwd and the ONLY tree its edits count in. */
+  worktree: string;
+  /** The MAIN checkout of the same repo (the leaf's tracking root). Reference only. */
+  mainCheckout?: string | null;
+}
+
+export function workingRootLines(roots?: NodeRoots): string[] {
+  if (!roots?.worktree) return [];
+  const lines = [
+    `WORKING ROOT: ${roots.worktree}`,
+    'That directory is already your shell cwd and is the ONLY tree whose changes count. Write every',
+    'path relative to it (or absolute UNDER it), and do NOT `cd` out of it to work.',
+  ];
+  if (roots.mainCheckout && roots.mainCheckout !== roots.worktree) {
+    lines.push(
+      `The same repository is ALSO checked out at ${roots.mainCheckout} (tracking root, REFERENCE ONLY) and`,
+      'paths in this leaf\'s description may point there. Reading it is fine; editing or running tests',
+      'there is NOT — that work is discarded and your leaf is filed as an empty diff.',
+    );
+  }
+  lines.push('');
+  return lines;
+}
+
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
  *  vibe-go worker / vibe-review as a self-contained string — references NOTHING
  *  in skills/). */
@@ -1084,14 +1122,17 @@ export function buildNodePrompt(
   leaf: Todo,
   blueprintText?: string,
   reviewFindings?: string,
+  roots?: NodeRoots,
 ): string {
   const title = leaf.title ?? leaf.id;
   const description = leaf.description ?? '(no description)';
   const bp = blueprintPath(leaf);
+  const rootLines = workingRootLines(roots);
   switch (kind) {
     case 'blueprint':
       return [
         'You are the BLUEPRINT node for ONE leaf todo. Do NOT write implementation code.',
+        ...rootLines,
         `Title: ${title}`,
         `Description: ${description}`,
         'Read the relevant code (Read/Grep/Glob and Bash for inspection ONLY — no mutations).',
@@ -1137,6 +1178,7 @@ export function buildNodePrompt(
     case 'implement':
       return [
         'You are the IMPLEMENT node. Make REAL, compiling code edits (Read/Edit only).',
+        ...rootLines,
         reviewFindings
           ? `A PRIOR review of the EXISTING working tree FAILED. KEEP the correct work already present and make the SMALLEST changes that address ONLY these findings — do not rewrite from scratch:\n--- REVIEW FINDINGS ---\n${reviewFindings}\n--- END FINDINGS ---`
           : '',
@@ -1150,6 +1192,7 @@ export function buildNodePrompt(
     case 'review':
       return [
         'You are the REVIEW node, READ-ONLY (Read/Grep/Glob and Bash for inspection ONLY; no edits).',
+        ...rootLines,
         blueprintText
           ? `Compare the working tree against THIS leaf's blueprint, inlined below (do NOT read any other blueprint file — ignore strays in shared dirs):\n\n=== BLUEPRINT (${leaf.id}) START ===\n${blueprintText}\n=== BLUEPRINT END ===`
           : `Compare the working tree against the blueprint at \`${bp}\` (ONLY that exact file).`,
@@ -2121,6 +2164,39 @@ export async function runLeaf(
   let pathTaken: 'floor' | 'waves' | 'review' | null = null;
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
+  // WORKING-ROOT GUARD: the last detected escape of the shell out of the lane worktree by a
+  // MUTATING/verifying command. Surfaced (warn + ledger row) the moment it is detected —
+  // right after the implement/fix node — so the operator sees the CAUSE instead of a mystery
+  // empty diff four minutes later. ADVISORY by design: it never aborts a node (an escaped
+  // verification is a legitimate, already-supported baseline pattern), but when the run then
+  // DOES die on an empty diff, the escalation names it first. Fails open on any fault.
+  let workingRootEscape: { escaped: RecordedCommand[]; message: string } | null = null;
+  const checkWorkingRootEscape = (worktreeCwd: string): void => {
+    try {
+      const found = detectWorkingRootEscape({
+        commands: recordedCommands,
+        worktreeRoot: worktreeCwd,
+        mainCheckoutRoot: deps.mainCheckoutRoot ?? null,
+      });
+      if (!found) return;
+      if (workingRootEscape && workingRootEscape.escaped.length === found.escaped.length) return; // already surfaced
+      workingRootEscape = found;
+      console.warn(`[leaf-executor] ${found.message}`);
+      try {
+        deps.recordNode({
+          project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+          nodeKind: 'working-root-escape', nodesSpent: 0, verdict: 'fail',
+          outcomeDetail: JSON.stringify({
+            reason: 'working-root-escape',
+            worktree: worktreeCwd,
+            mainCheckout: deps.mainCheckoutRoot ?? null,
+            commands: found.escaped.slice(0, 5).map((c) => ({ cmd: c.cmd.slice(0, 200), cwd: c.cwd })),
+          }),
+          outputText: found.message,
+        });
+      } catch { /* telemetry — never break the run */ }
+    } catch { /* advisory — never break the run */ }
+  };
   // REBASE-CONTINUE: when a successful reintegration is adopted, flag it so a
   // subsequent base-moved park does NOT reap the lane worktree (it's closer to done).
   let keepWorktreeOnBaseMovedPark = false;
@@ -2575,7 +2651,12 @@ export async function runLeaf(
   ): NodeSpec => {
     const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
-      prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
+      // The node's cwd IS the lane worktree — say so IN the prompt (the root cause of the
+      // main-checkout write/test leak is that nothing ever wrote it down).
+      prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings, {
+        worktree: cwd,
+        mainCheckout: deps.mainCheckoutRoot ?? null,
+      }),
       // Retry ladder: attempt ≥2 implement runs one tier up (see escalateImplementModel).
       model: kind === 'implement' ? escalateImplementModel(nodeModel(kind), state.attempt) : nodeModel(kind),
       effort: nodeEffort(kind),
@@ -3464,6 +3545,9 @@ export async function runLeaf(
       }
       if (impl.startFailure) return parkNodeStartFailure('implement', impl);
     }
+    // Surface a shell escape out of the worktree HERE (right after implement), not as a
+    // mystery empty diff minutes later.
+    checkWorkingRootEscape(cwd);
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
@@ -3578,14 +3662,28 @@ export async function runLeaf(
           recordOutcome(outcome, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
           return finishWith({ outcome, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
         }
+        // THREE causes, most-common FIRST. (1) is the 2026-07-24 build123d class: the node
+        // `cd`s out of the lane worktree to the MAIN checkout named by the leaf's tracking
+        // root / blueprint prior art, edits and tests THERE (honestly green), and the
+        // executor — which diffs the WORKTREE — sees nothing. Misfiled as (2)/(3) three times
+        // in one day, so it is named explicitly with the evidence to check.
+        const escapeNote = workingRootEscape
+          ? `DETECTED ON THIS RUN: ${(workingRootEscape as { message: string }).message} `
+          : '';
         deps.escalate({
           project, session: sessionKey, kind: 'empty-diff-declared-changes', todoId: leaf.id,
           questionText:
             `Leaf "${leaf.title ?? leaf.id}" implemented a ZERO-FILE diff against the epic base, but its blueprint declared file(s) to change (${declaredFiles.join(', ')}). ` +
-            `This blames the empty IMPLEMENT diff — likely a sibling leaf already landed the same change on the epic base, or implement produced no edits — NOT a reviewer rejection (no review node ran). ` +
+            `This blames the empty IMPLEMENT diff — NOT a reviewer rejection (no review node ran). Three causes, most common first: ` +
+            `(1) the implement node LEFT ITS WORKTREE — it edited and tested in the MAIN checkout (${deps.mainCheckoutRoot ?? 'the tracking root'}) after a \`cd\` out of ${cwd}, so its work is real and green but invisible to the worktree diff. ` +
+            `${escapeNote}CHECK: read the recorded commands' \`cwd\` on this leaf's implement node rows (worker ledger \`commands\` column) — any cwd outside ${cwd} is this cause. ` +
+            `FIX: recover/inspect the main checkout for uncommitted work (\`git -C ${deps.mainCheckoutRoot ?? '<main-checkout>'} status\`), then re-run implement; the executor's write-leak sweep relocates leaked FILE writes but cannot relocate a test run. ` +
+            `(2) a sibling leaf already landed the same change on the epic base. (3) implement genuinely produced no edits. ` +
             `Needs a human/conductor call: accept as already-satisfied, or re-run implement.`,
         });
-        return parkBlocked('empty-diff-spec-demands-changes');
+        return parkBlocked(
+          workingRootEscape ? 'empty-diff-after-working-root-escape' : 'empty-diff-spec-demands-changes',
+        );
       }
     }
 
@@ -4017,6 +4115,7 @@ export async function runLeaf(
       reuses += 1;
       prevFindings = findings;
       const fix = await runNode('implement', buildSpec('implement', cwd, blueprintBody, findings));
+      checkWorkingRootEscape(cwd);
       if (fix.rateLimited) return pausedResult('implement', fix);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
       // loop → re-review the surgically-fixed tree
@@ -4265,6 +4364,9 @@ export async function makeLeafExecutorDeps(
     epicBranch,
     baseBranch,
     epicBaseSha,
+    // The MAIN checkout of the target repo — named in node prompts and the working-root
+    // guard so a node can tell its worktree from the tracking root it was told about.
+    mainCheckoutRoot: targetProject,
     resumePlan,
     startNodesSpent: effectiveStart,
     assertAuth: assertSubscriptionAuth,

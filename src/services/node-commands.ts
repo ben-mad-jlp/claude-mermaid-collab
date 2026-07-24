@@ -258,7 +258,22 @@ function claimMatches(claim: string, recorded: RecordedCommand): boolean {
  * it discards CORRECT code. So an escape is fatal ONLY for a verification invocation.
  */
 const VERIFICATION_INVOCATION =
-  /(?:^|[\s;&|`(])(?:tsc|vitest|jest|mocha|eslint|playwright|cypress)\b|(?:^|[\s;&|`(])(?:npm|npx|bun|pnpm|yarn|make|cargo|go)\s+(?:run|test|build|ci|install|exec)\b/i;
+  /(?:^|[\s;&|`(])(?:tsc|vitest|jest|mocha|eslint|playwright|cypress|pytest|tox|ruff|mypy)\b|(?:^|[\s;&|`(])(?:npm|npx|bun|pnpm|yarn|make|cargo|go)\s+(?:run|test|build|ci|install|exec)\b|(?:^|[\s;&|`(])python3?\s+-m\s+(?:pytest|unittest)\b|(?:^|[\s;&|`(])(?:python3?\s+-m\s+)?pip3?\s+install\b/i;
+
+/** A command whose LEAD token is a read-only diagnostic is never a verification invocation,
+ *  however many runner names appear in its ARGUMENTS (`grep -rn pytest tests/` is a search,
+ *  not a test run). Without this, un-blinding the regex to Python would start rejecting the
+ *  very exploration the escape gate deliberately tolerates. `sed -n` (print) is read-only;
+ *  `sed -i` (in-place edit) is deliberately NOT listed. */
+const READ_ONLY_LEAD =
+  /^\s*(?:grep|rg|find|ls|cat|head|tail|wc|file|stat|tree|which|echo|pwd|sed\s+-n|git\s+(?:grep|log|diff|status|show|rev-parse|ls-files))\b/i;
+
+/** Commands that WRITE outside the tree they run in. An escaped mutation is the exact shape
+ *  of the observed main-checkout leak (`cd <main> && <edit/commit>`): it produces work that
+ *  the executor — which diffs the WORKTREE — can never see. Read-only exploration
+ *  (grep/find/ls/cat/`sed -n`) is deliberately absent, mirroring `escapeIsFatal`. */
+const MUTATING_INVOCATION =
+  /(?:^|[\s;&|`(])(?:git\s+(?:commit|add|apply|checkout|restore|rm|mv|stash)|sed\s+-i|patch|cp|mv|rm|mkdir|touch|tee|install)\b/i;
 /** True when a recorded command chains multiple clauses (`;`, `&&`, `||`, pipes are
  *  fine — a pipe is one pipeline with one meaningful exit). Only chain operators make
  *  the single recorded exitCode unattributable to an individual claim's clause. */
@@ -394,7 +409,48 @@ export function extractCommandScope(cmd: string): string {
 }
 
 export function escapeIsFatal(cmd: string): boolean {
+  if (READ_ONLY_LEAD.test(cmd)) return false;
   return VERIFICATION_INVOCATION.test(cmd);
+}
+
+/** True when an escaped command MATTERS for the implement/fix node: it either verifies
+ *  (a green from the wrong tree) or MUTATES (work the executor's worktree diff can never
+ *  see). Read-only exploration outside the worktree is legitimate and returns false —
+ *  the same reasoning `escapeIsFatal` already encodes, reused here rather than restated. */
+export function escapeMutatesOrVerifies(cmd: string): boolean {
+  if (READ_ONLY_LEAD.test(cmd)) return false;
+  return escapeIsFatal(cmd) || MUTATING_INVOCATION.test(cmd);
+}
+
+/** The implement/fix node's WORKING-ROOT guard (root cause of the 2026-07-24 build123d
+ *  empty-diff class): the leaf's shell starts in the lane worktree, but the leaf record and
+ *  its blueprint cite the MAIN checkout, so a careful node writes down the root it was TOLD
+ *  and `cd`s there. Every edit and test after that lands in a tree the executor never diffs,
+ *  and the run dies ~4 minutes later as a mystery `empty-diff-spec-demands-changes`.
+ *
+ *  Returns null when nothing escaped that matters (read-only exploration outside the
+ *  worktree is NOT an escape for this purpose). Never throws — a fault here must never
+ *  sink a leaf that is otherwise fine. */
+export function detectWorkingRootEscape(opts: {
+  commands: readonly RecordedCommand[];
+  worktreeRoot: string;
+  mainCheckoutRoot?: string | null;
+}): { escaped: RecordedCommand[]; message: string } | null {
+  try {
+    const escaped = opts.commands.filter(
+      (c) => isCwdEscape(c.cwd, opts.worktreeRoot) && escapeMutatesOrVerifies(c.cmd),
+    );
+    if (escaped.length === 0) return null;
+    const first = escaped[0]!;
+    const main = opts.mainCheckoutRoot ? ` The repository's MAIN checkout is ${opts.mainCheckoutRoot}.` : '';
+    const message =
+      `working-root-escape: ${escaped.length} command(s) that mutate or verify ran OUTSIDE this leaf's ` +
+      `worktree ${opts.worktreeRoot} — first: \`${first.cmd.slice(0, 200)}\` (cwd ${first.cwd}).${main} ` +
+      `Only the worktree is diffed: edits and test runs anywhere else are discarded and read as an EMPTY DIFF.`;
+    return { escaped, message };
+  } catch {
+    return null; // FAIL OPEN — advisory only
+  }
 }
 
 /**

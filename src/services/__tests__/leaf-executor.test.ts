@@ -20,6 +20,7 @@ import {
   isCacheableBaseGateStatus,
   resolveBaseGreen,
   buildNodePrompt,
+  workingRootLines,
   buildReviewPrompt,
   buildBlueprintRefreshPrompt,
   buildCriteriaRepairPrompt,
@@ -195,6 +196,8 @@ function makeDeps(opts: {
   // Worktree-dirty seam. Absent ⇒ defaults to a CLEAN tree so no unit test ever probes
   // the host filesystem via leaf-executor.ts:3341-3343.
   worktreeDirty?: LeafExecutorDeps['worktreeDirty'];
+  // Recorded commands the IMPLEMENT/fix node "ran" (drives the working-root escape guard).
+  implementCommands?: Array<{ cmd: string; cwd: string; exitCode: number | null }>;
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -245,7 +248,10 @@ function makeDeps(opts: {
           reviewIdx += 1;
           return okResult(v);
         }
-        return okResult('done');
+        // implement / fix node
+        const r = okResult('done');
+        if (opts.implementCommands) r.commands = opts.implementCommands;
+        return r;
       },
     },
     wm: {
@@ -920,6 +926,54 @@ describe('runLeaf state machine', () => {
     expect(card).toBeDefined();
     expect(card!.questionText).toContain('NOT a reviewer rejection');
     expect(spies.nodeRows.find((r) => r.nodeKind === 'own-work-already-committed')).toBeUndefined();
+  });
+
+  it('WORKING-ROOT-ESCAPE: empty diff + implement cd\'d to the main checkout and ran pytest → escalation names the cwd cause FIRST, guard ledger row present', async () => {
+    const { deps, spies } = makeDeps({
+      changeSet: [],
+      implementCommands: [
+        { cmd: 'ls bsync/stock/', cwd: '/tmp/wt/1', exitCode: 0 },
+        { cmd: 'cd /tmp/main-checkout/bsync-tools && pytest -q', cwd: '/tmp/main-checkout/bsync-tools', exitCode: 0 },
+      ],
+    });
+    deps.mainCheckoutRoot = '/tmp/main-checkout';
+    deps.ownWorkCommitOnEpicBranch = async () => null; // not the sibling-landed cause
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    // The park reason distinguishes the escape variant.
+    expect(res.reason).toBe('empty-diff-after-working-root-escape');
+    // The guard fired the moment implement returned — a distinct ledger row, not a mystery.
+    const guardRow = spies.nodeRows.find((r) => r.nodeKind === 'working-root-escape');
+    expect(guardRow).toBeDefined();
+    expect(guardRow!.outputText).toContain('/tmp/wt/1');
+    expect(guardRow!.outputText.toLowerCase()).toContain('pytest');
+    // The escalation names the cwd cause FIRST (before sibling-landed / no-edits).
+    const card = spies.escalations.find((e) => e.kind === 'empty-diff-declared-changes');
+    expect(card).toBeDefined();
+    expect(card!.questionText).toContain('LEFT ITS WORKTREE');
+    expect(card!.questionText).toContain('/tmp/main-checkout');
+    // Ordering: the worktree cause precedes the sibling-landed cause in the text.
+    const q = card!.questionText;
+    expect(q.indexOf('LEFT ITS WORKTREE')).toBeLessThan(q.indexOf('sibling leaf already landed'));
+    expect(q).toContain('DETECTED ON THIS RUN');
+  });
+
+  it('WORKING-ROOT-ESCAPE: read-only exploration outside the worktree does NOT trip the guard (legacy park + text unchanged)', async () => {
+    const { deps, spies } = makeDeps({
+      changeSet: [],
+      implementCommands: [
+        { cmd: 'cd /tmp/main-checkout && grep -rn "Stock" bsync/', cwd: '/tmp/main-checkout', exitCode: 0 },
+        { cmd: 'find /tmp/main-checkout -name "*.py"', cwd: '/tmp/main-checkout', exitCode: 0 },
+      ],
+    });
+    deps.mainCheckoutRoot = '/tmp/main-checkout';
+    deps.ownWorkCommitOnEpicBranch = async () => null;
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes'); // NOT the escape variant
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'working-root-escape')).toBeUndefined();
   });
 
   it('EMPTY-DIFF SALVAGE (friction 6150b497): dirty+untracked work → auto-commit on the leaf branch, review RUNS, no park, no card, no extra attempt', async () => {
@@ -2365,6 +2419,50 @@ describe('blueprint inlining (b77dd104 — no stray-blueprint file discovery)', 
     const impl = buildNodePrompt('implement', makeLeaf());
     expect(impl).toContain('.collab/leaf-blueprints/');
     expect(impl).toContain('ONLY that exact file');
+  });
+});
+
+describe('working-root prompt decoration (2026-07-24 main-checkout write/test leak)', () => {
+  const WT = '/repo/.collab/agent-sessions/worktrees/leaf-exec-cdc94681';
+  const MAIN = '/Users/benmaderazo/Code/build123d-ocp-mcp';
+
+  it('workingRootLines states the worktree as the ONLY tree edits count in, and labels the main checkout reference-only', () => {
+    const lines = workingRootLines({ worktree: WT, mainCheckout: MAIN }).join('\n');
+    expect(lines).toContain(`WORKING ROOT: ${WT}`);
+    expect(lines).toContain('ONLY tree whose changes count');
+    expect(lines).toContain(MAIN);
+    expect(lines).toContain('REFERENCE ONLY');
+    expect(lines.toLowerCase()).toContain('discarded');
+  });
+
+  it('returns [] when no worktree threaded (old call sites unchanged)', () => {
+    expect(workingRootLines()).toEqual([]);
+    expect(workingRootLines({ worktree: '' })).toEqual([]);
+  });
+
+  it('omits the main-checkout clause when it is absent or equals the worktree', () => {
+    const noMain = workingRootLines({ worktree: WT }).join('\n');
+    expect(noMain).toContain(`WORKING ROOT: ${WT}`);
+    expect(noMain).not.toContain('REFERENCE ONLY');
+    const same = workingRootLines({ worktree: WT, mainCheckout: WT }).join('\n');
+    expect(same).not.toContain('REFERENCE ONLY');
+  });
+
+  it('implement / review / blueprint prompts all state the worktree root when threaded', () => {
+    for (const kind of ['implement', 'review', 'blueprint'] as const) {
+      const p = buildNodePrompt(kind, makeLeaf(), undefined, undefined, { worktree: WT, mainCheckout: MAIN });
+      expect(p).toContain(`WORKING ROOT: ${WT}`);
+      expect(p).toContain(MAIN);
+    }
+  });
+
+  it('runLeaf threads the lane worktree into every node prompt', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    await runLeaf('proj', makeLeaf(), { ...deps, mainCheckoutRoot: '/tmp/main-checkout' });
+    for (const spec of spies.invokeSpecs) {
+      expect(spec.prompt).toContain('WORKING ROOT: /tmp/wt/1');
+      expect(spec.prompt).toContain('/tmp/main-checkout');
+    }
   });
 });
 
