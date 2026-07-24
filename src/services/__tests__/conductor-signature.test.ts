@@ -71,6 +71,20 @@ describe('buildServeSignature / conductorFingerprint byte-identity', () => {
     const b = buildServeSignature({ status: 's', actions: [], hardCardIds: ['y'] });
     expect(a).not.toBe(b);
   });
+
+  test('636eee87 un-sleep shape: a mission hard card present vs. resolved yields two different serve signatures', () => {
+    const actions: ConductorActionRow[] = [{ id: 'c1', action: 'building', rejectedParked: 0 }];
+    const openBlocker = card({ id: 'esc-1', kind: 'blocker', todoId: 'm1' });
+    const { hardCardIds: withCard } = collectMissionCardIds([openBlocker], 'p1', ['m1']);
+    const { hardCardIds: resolved } = collectMissionCardIds(
+      [{ ...openBlocker, status: 'resolved' }],
+      'p1',
+      ['m1'],
+    );
+    const sigWithCard = buildServeSignature({ status: 'building', actions, hardCardIds: withCard });
+    const sigResolved = buildServeSignature({ status: 'building', actions, hardCardIds: resolved });
+    expect(sigWithCard).not.toBe(sigResolved);
+  });
 });
 
 describe('buildPassSignature', () => {
