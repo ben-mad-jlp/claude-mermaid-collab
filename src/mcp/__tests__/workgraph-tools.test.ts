@@ -154,6 +154,18 @@ describe('serve-time criterion-edge guard', () => {
     expect(orphans).toEqual([]);
   });
 
+  test('mission-homed create_epic criterion-edge rejection carries code missing-criterion-edge', async () => {
+    const missionId = await freshMission();
+    let caught: any;
+    try {
+      await call('create_epic', { title: 'Unserved epic 2', home: missionId });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeTruthy();
+    expect(caught.code).toBe('missing-criterion-edge');
+  });
+
   test('mission-homed create_epic WITH servesCriterionIds succeeds, parentId is the mission', async () => {
     const missionId = await freshMission();
     const res = await call('create_epic', { title: 'Served epic', home: missionId, servesCriterionIds: ['c1'] });
@@ -199,6 +211,33 @@ describe('cross-project target inheritance', () => {
     for (const id of createdIds) {
       expect(getTodo(project, id)!.targetProject).toBe(OTHER);
     }
+  });
+
+  test('add_leaves rejects when the epic does not match its mission\'s cross-project targetProject', async () => {
+    const mission = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: S,
+      title: '[MISSION] x-proj mismatch',
+      kind: 'mission',
+    });
+
+    // Create the epic while the mission is still same-project so it never inherits OTHER,
+    // then flip the mission's targetProject afterwards to force a divergence.
+    const epic = await call('create_epic', { title: 'Stale target epic', home: mission.id, servesCriterionIds: ['c1'] });
+    await updateTodo(project, mission.id, { targetProject: OTHER });
+
+    let caught: any;
+    try {
+      await call('add_leaves', { epicId: epic.epicId, leaves: [{ title: 'x' }] });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeTruthy();
+    expect(String(caught.message)).toMatch(/missing-target-project|targetProject/);
+    expect(caught.code).toBe('missing-target-project');
+
+    const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === epic.epicId);
+    expect(children).toEqual([]);
   });
 
   test('same-project mission (no targetProject) leaves epic + leaves at the tracking root', async () => {
