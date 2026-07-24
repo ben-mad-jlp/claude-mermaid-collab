@@ -155,13 +155,13 @@ describe('mission is never rolled up / never epic-ready-to-land', () => {
 });
 
 describe('buildEpicBranchStatus lists a mission-parented epic', () => {
-  const probe: GitProbe = () => ({ exists: true, ahead: 5, behind: 0, mergeable: true } as BranchProbe);
+  const probe: GitProbe = async () => ({ exists: true, ahead: 5, behind: 0, mergeable: true } as BranchProbe);
 
-  test('stale prefix in title, kind column wins: mission-parented epic is listed, stranded, mission itself is not an epic', () => {
+  test('stale prefix in title, kind column wins: mission-parented epic is listed, stranded, mission itself is not an epic', async () => {
     const mission = todo({ id: 'm1', title: '[MISSION] M', kind: 'mission', status: 'todo' });
     const epic = todo({ id: 'e1', title: '[MISSION] E', kind: 'epic', parentId: 'm1', status: 'todo' });
     const land = todo({ id: 'l1', title: '[LAND] E → master', kind: 'land', parentId: 'e1', status: 'ready' });
-    const report = buildEpicBranchStatus([mission, epic, land], probe);
+    const report = await buildEpicBranchStatus([mission, epic, land], probe);
 
     expect(report.epics).toHaveLength(1);
     expect(report.epics[0].epicId).toBe('e1');
@@ -169,11 +169,11 @@ describe('buildEpicBranchStatus lists a mission-parented epic', () => {
     expect(report.epics.some((e) => e.epicId === 'm1')).toBe(false);
   });
 
-  test('kind-only: same graph with NO bracket titles, kind column set on the literals', () => {
+  test('kind-only: same graph with NO bracket titles, kind column set on the literals', async () => {
     const mission = todo({ id: 'm2', title: 'M', kind: 'mission', status: 'todo' });
     const epic = todo({ id: 'e2', title: 'E', kind: 'epic', parentId: 'm2', status: 'todo' });
     const land = todo({ id: 'l2', title: '→ master', kind: 'land', parentId: 'e2', status: 'ready' });
-    const report = buildEpicBranchStatus([mission, epic, land], probe);
+    const report = await buildEpicBranchStatus([mission, epic, land], probe);
 
     expect(report.epics).toHaveLength(1);
     expect(report.epics[0].epicId).toBe('e2');
