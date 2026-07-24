@@ -3039,6 +3039,29 @@ export async function handleAPI(
     return Response.json({ windowMs, project: project ?? null, sources: rows });
   }
 
+  // GET /api/usage/mission?project=&missionId=
+  // The single mission-spend readout — THE `getMissionSpend` attribution rule surfaced
+  // directly, so the UI cites the same number as `getMissionCost` and `collectMissionStatusFacts`.
+  if (path === '/api/usage/mission' && req.method === 'GET') {
+    const { trackingProjectRoot } = await import('../services/project-registry');
+    const project = trackingProjectRoot(url.searchParams.get('project') ?? process.cwd());
+    const missionId = url.searchParams.get('missionId');
+    if (!missionId) {
+      return Response.json({ error: 'missionId required' }, { status: 400 });
+    }
+    const { getMission } = await import('../services/mission-store');
+    const mission = getMission(project, missionId);
+    if (!mission) {
+      return Response.json({ error: 'mission not found' }, { status: 404 });
+    }
+    const { getMissionSpend } = await import('../services/ledger-stats');
+    const spend = getMissionSpend(project, mission.todoId);
+    return Response.json({
+      ...spend,
+      budgetUsd: mission.budgetUsd ?? null,
+    });
+  }
+
   // GET /api/worker-lanes?project=
   // Worker-fabric hydration (design-worker-fabric-ui §6.5): the live in-process worker
   // lanes for a project — one entry per in-progress todo with a lane, carrying the lane

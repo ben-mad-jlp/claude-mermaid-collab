@@ -15,6 +15,7 @@ import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
+import { coordinatorCondition, COORDINATOR_CONDITION_REASONS } from './coordinator-condition-keys';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
 
 /** P1 breaker memory: lanes already SOFT-warned this process, so a soft (non-parking)
@@ -201,6 +202,8 @@ function overDailyBudget(project: string): boolean {
         todoId: '',
         questionText: `Daily worker budget reached for ${project}: spent $${spent.toFixed(2)} ≥ cap $${cap.toFixed(2)} since midnight. ` +
           `The coordinator has STOPPED claiming new work for this project today (running lanes finish). Raise WORKER_BUDGET_DAILY or wait for the daily reset.`,
+        conditionKey: coordinatorCondition('blocker', COORDINATOR_CONDITION_REASONS.dailyBudget, project).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', COORDINATOR_CONDITION_REASONS.dailyBudget, project).conditionTuple,
       });
     } catch { /* escalation best-effort */ }
   }
@@ -684,6 +687,8 @@ async function reopenStrandedAccept(
       todoId,
       kind: 'assumption-invalidated',
       questionText: `Stranded acceptance reversed: todo "${title}" was marked done+accepted but its work never reached the epic branch ${epicBranch} (no commit, or a lane that never merged). It has been re-surfaced (status=ready) for re-integration${rolledUp.length ? `; ${rolledUp.length} prematurely-rolled-up epic(s) were re-opened` : ''}.`,
+      conditionKey: coordinatorCondition('assumption-invalidated', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.strandedAcceptReversed).conditionKey,
+              conditionTuple: coordinatorCondition('assumption-invalidated', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.strandedAcceptReversed).conditionTuple,
     });
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, bp0: 'stranded-accept-reversed', reopenedEpics: rolledUp }) });
   } catch (e) {
@@ -744,6 +749,8 @@ async function parkStrandedAccept(
       todoId,
       kind: 'blocker',
       questionText: `Stranded acceptance could NOT be integrated after ${reversals} re-attempts: "${title}" keeps being accepted but its commit never becomes reachable from ${intRef}, and the epic→integration land keeps failing. Re-building won't help (the land is structurally stuck — e.g. the work was merged to the integration branch out-of-band). PARKED (held) to stop the re-claim loop. Integrate the epic / mark this todo done by hand, then clear the hold.`,
+      conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.parkedHeldReopenCap).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.parkedHeldReopenCap).conditionTuple,
     });
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'parked-held-reopen-cap', reversals }) });
   } catch (e) {
@@ -768,6 +775,8 @@ async function parkRedispatchCap(project: string, todoId: string, title: string,
       todoId,
       kind: 'blocker',
       questionText: `Re-dispatch cap: "${title}" has been dispatched ${dispatches}× without reaching done/accepted — each dispatch re-runs (and re-pays) a full blueprint, so this is a LOOP, not progress. PARKED (held) to stop the re-blueprint burn. Investigate the root cause (\`leaf_inspect ${todoId.slice(0, 8)}\` for the failure/parseError), fix the leaf spec / a bad constraint or drop it, then \`reset_todo\` to grant a fresh attempt.`,
+      conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.redispatchCap).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.redispatchCap).conditionTuple,
     });
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, redispatchCap: MAX_REDISPATCH, dispatches, oi1: 'parked-held-redispatch-cap' }) });
   } catch (e) {
@@ -953,6 +962,8 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
               todoId: depId,
               kind: 'assumption-invalidated',
               questionText: `Dependents are blocked at \`drive\`: foundation todo ${depId} is done+accepted, but its commit is reachable from NEITHER trunk (${intRef ?? 'unresolved'}) NOR the dependent's epic branch (${tEpicBranch}) — i.e. its work never reached the epic accumulation branch (no Collab-Todo trailer; e.g. landed out-of-band). Its dependents can't be claimed until it's integrated. Fix: re-land/merge the foundation onto ${tEpicBranch} (stamping its trailer), or drop the project to \`build\` to build dependents on the epic branch instead.`,
+              conditionKey: coordinatorCondition('assumption-invalidated', depId.slice(0, 8), COORDINATOR_CONDITION_REASONS.bp1StrandedFoundation).conditionKey,
+              conditionTuple: coordinatorCondition('assumption-invalidated', depId.slice(0, 8), COORDINATOR_CONDITION_REASONS.bp1StrandedFoundation).conditionTuple,
             });
           } catch { /* never block the claim pass on escalation bookkeeping */ }
           break;
@@ -1146,6 +1157,8 @@ export async function sweepStrandedAccepted(
       questionText:
         'Stranded acceptances detected in this project: one or more todos are marked done+accepted but their work is NOT on the epic branch (commit stranded on a lane branch, or accepted with no commit). Re-integrate the lane branches onto their epic branch, or re-open the todos. Current flagged ids are in this card and in the supervisor audit (bp0: stranded-accept-sweep).',
       options: [{ id: 'review', label: 'Review flagged todos', detail }],
+      conditionKey: coordinatorCondition(BP0_STRANDED_SUMMARY_KIND, project).conditionKey,
+              conditionTuple: coordinatorCondition(BP0_STRANDED_SUMMARY_KIND, project).conditionTuple,
     });
     recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ bp0: 'stranded-accept-sweep', flagged, truncated }) });
   }
@@ -1496,6 +1509,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               todoId: id,
               kind: 'assumption-invalidated',
               questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${displayTitle(r.completed)}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
+              conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionKey,
+              conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionTuple,
             });
             // DEFECT 3 — tear down the lane worktree so it can NEVER be reused stale
             // (a surviving worktree feeds the cached-reuse bug). `git worktree
@@ -1588,6 +1603,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
                   todoId: id,
                   kind: 'assumption-invalidated',
                   questionText: `Stranded leaf: todo "${displayTitle(r.completed)}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
+                  conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionKey,
+              conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionTuple,
                 });
               } catch { /* best-effort: never let escalation failure mask the accept */ }
               // DEFECT 3 — an errored lane must also be torn down so its worktree
@@ -1832,7 +1849,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             try { clearLeafInflight(todo.id); } catch { /* best-effort */ }
             try {
               createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
-                questionText: `Leaf-executor failed for "${displayTitle(todo)}": ${e instanceof Error ? e.message : String(e)}` });
+                questionText: `Leaf-executor failed for "${displayTitle(todo)}": ${e instanceof Error ? e.message : String(e)}`,
+                conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionKey,
+                conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionTuple });
             } catch { /* escalation best-effort */ }
           } finally {
             // Release the in-flight slot the tick reserved for this leaf (fire-and-track
@@ -1865,6 +1884,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             `No worker lane for "${displayTitle(todo)}": the tmux worker lane was retired (P7) and ` +
             `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
             `Re-scope it as a headless work leaf, split it under an epic, or handle it manually.`,
+          conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionTuple,
         });
       } catch { /* escalation is best-effort; the released claim already parks the todo */ }
       recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'tmux-retired-not-headless-leaf', excl: exclReason, released: true }) });
@@ -1916,6 +1937,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         kind: 'blocker',
         questionText: `Todo "${todo ? displayTitle(todo) : todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
         todoId,
+        conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.retryExhausted).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.retryExhausted).conditionTuple,
       });
     },
     enforceBudgetCaps: async (project: string): Promise<string[]> => {
@@ -1964,6 +1987,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             `It burned its budget without completing — running longer is the same action class at higher cost. ` +
             `Decide: (1) extend the cap and re-open (if it was genuinely close), ` +
             `(2) split it into smaller lanes, or (3) drop it. (P1 deterministic breaker — 87452094.)`,
+          conditionKey: coordinatorCondition('blocker', trip.todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.budgetHardCap).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', trip.todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.budgetHardCap).conditionTuple,
         });
         recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: trip.todoId, reason: 'budget-hard', breaches: trip.breaches }) });
         budgetSoftWarned.delete(trip.todoId);
@@ -1991,6 +2016,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           kind: 'blocker',
           questionText: `Leaf "${todo ? displayTitle(todo) : entry.todoId}" is RATE-CAP exhausted — the claude.ai account stayed capped for over 2h. Parked blocked; needs a human (wait for the cap to reset, then re-open, or split/drop).`,
           todoId: entry.todoId,
+          conditionKey: coordinatorCondition('blocker', entry.todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.rateCapExhausted).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', entry.todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.rateCapExhausted).conditionTuple,
         });
         recordResume(project, entry.todoId);
       }
@@ -2005,6 +2032,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         kind: 'blocker',
         questionText: `Worker REJECTED todo "${todo ? displayTitle(todo) : todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
         todoId,
+        conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.gateRejected).conditionKey,
+              conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.gateRejected).conditionTuple,
       });
     },
     runGate: async (project: string, todoId: string): Promise<GateVerdict | null> => {
