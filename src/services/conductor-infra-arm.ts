@@ -30,6 +30,7 @@ import { createEscalation, listEscalations, type Escalation } from './supervisor
 import { epicBranchName } from './epic-branch-status.js';
 import { getEpicBaseGate, recordEpicBaseGate } from './worker-ledger.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn } from './leaf-gate.js';
+import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
 
 /** The INFRA causes an executor stamps as the HEAD of a park reason (leaf-executor's G2
@@ -136,7 +137,10 @@ export const defaultEpicBaseProbe: EpicBaseProbe = async (epicId, targetProject)
     if (gateDecl.kind !== 'declared') return 'unknown';
     const wt = await wm.ensureEpic(epicId, targetProject);
     if (!wt) return 'unknown'; // non-git fallback ⇒ no base gate
-    const r = await runBaseGate(wt.path, gateDecl.cfg, defaultGateSpawn);
+    const r = await runBaseGateShared(
+      baseGateKey(targetProject, sha, gateDecl.cfg),
+      () => runBaseGate(wt.path, gateDecl.cfg, defaultGateSpawn),
+    );
     if (isCacheableBaseGateStatus(r.status)) {
       recordEpicBaseGate({
         epicId,
