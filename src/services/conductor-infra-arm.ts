@@ -12,7 +12,8 @@
  * SAME primitives the executor used (epicHeadSha → epic_base_gate cache → runBaseGate in
  * the epic worktree), and then either:
  *   - un-parks the leaf (`resetTodo` → ready) when the base is provably GREEN again, or
- *   - raises exactly ONE human card (deduped by a marker in questionText) when it is not.
+ *   - raises exactly ONE human card (deduped by the store's keyed `conditionKey`/`conditionTuple`
+ *     path) when it is not.
  *
  * Fail CLOSED in both directions:
  *   - a rejection reason we do not recognise is CONTENT (`classifyInfraRejection` → null)
@@ -26,9 +27,10 @@
 import { listTodos, resetTodo, type Todo } from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
-import { createEscalation, listEscalations, type Escalation } from './supervisor-store.js';
+import { createEscalation, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
-import { getEpicBaseGate, recordEpicBaseGate, shouldHonourCachedBaseGate } from './worker-ledger.js';
+import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHonourCachedBaseGate } from './worker-ledger.js';
+import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
@@ -105,6 +107,13 @@ export const INFRA_REJECTED_KIND = 'leaf-infra-rejected';
  *  to an exact leaf (mirrors serveCapMarker in conductor-pass). Stable + greppable. */
 export function infraRejectedMarker(leafId: string): string {
   return `[infra-rejected:${leafId.slice(0, 8)}]`;
+}
+
+/** The store's durable identity for a leaf-infra-rejected card: one per (leaf, cause). Used
+ *  as `conditionKey` so a resolved card is suppressed and an open one is bumped instead of
+ *  re-raised (supervisor-store.ts createEscalation :824-842). */
+export function infraRejectedConditionKey(leafId: string, cause: InfraCause): string {
+  return `${INFRA_REJECTED_KIND}:${leafId.slice(0, 8)}:${cause}`;
 }
 
 /** 'pass' is the ONLY verdict that un-parks a leaf. 'unknown' = we could not even run the
@@ -187,8 +196,16 @@ export const defaultEpicBaseProbe: EpicBaseProbe = makeEpicBaseProbe();
 export interface InfraArmDeps {
   probe?: EpicBaseProbe;
   createEscalation?: typeof createEscalation;
+  /** Retained for callers (conductor-pass.ts still forwards it) and tests that pass it; the
+   *  arm itself now dedupes via the store's keyed conditionKey path, not a local open-scan. */
   listOpenEscalations?: () => Escalation[];
   reset?: typeof resetTodo;
+  /** Wake gate (conductor-wake-gate.ts). All four default to the live implementations, so
+   *  existing callers and tests keep compiling — and behaving — unchanged. */
+  laneSignature?: (epicId: string, targetProject: string) => Promise<string>;
+  shouldReprobe?: typeof shouldReprobeEpicBase;
+  recordSignature?: typeof recordEpicProbeSignature;
+  now?: () => number;
 }
 
 export interface InfraArmResult {
@@ -196,6 +213,12 @@ export interface InfraArmResult {
   /** Leaf ids actually un-parked this pass (probe proved the base green again). */
   reset: string[];
   cardsRaised: number;
+  /** Leaf ids the wake gate skipped this pass: their lane has not moved since the last probe
+   *  and the re-probe TTL has not elapsed. They stay in `candidates` (still genuinely stuck)
+   *  but appear in NEITHER `reset` NOR `cardsRaised`, so `infraActed` stays false and the
+   *  conductor's fingerprint debounce holds. Observable telemetry only — never a semantics
+   *  channel. */
+  skipped: string[];
 }
 
 /**
@@ -212,29 +235,67 @@ export async function runInfraRejectionArm(
   deps: InfraArmDeps = {},
 ): Promise<InfraArmResult> {
   const candidates = collectInfraRejectedLeaves(project, missionId);
-  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0 };
+  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0, skipped: [] };
   if (candidates.length === 0) return result;
 
   const probe = deps.probe ?? defaultEpicBaseProbe;
   const createEsc = deps.createEscalation ?? createEscalation;
   const resetFn = deps.reset ?? resetTodo;
-  const listOpen = deps.listOpenEscalations ?? (() =>
-    listEscalations().filter((e) => e.status === 'open' || e.status === 'acknowledged'));
-  let open: Escalation[] = [];
-  try { open = listOpen(); } catch { open = []; }
+  const signatureOf = deps.laneSignature ?? ((epicId, targetProject) => laneSignature(epicId, targetProject));
+  const shouldReprobe = deps.shouldReprobe ?? shouldReprobeEpicBase;
+  const recordSignature = deps.recordSignature ?? recordEpicProbeSignature;
+  const nowFn = deps.now;
 
   const todos = listTodos(project, { includeCompleted: true });
   const byId = new Map<string, Todo>(todos.map((t) => [t.id, t]));
+
+  /** ONE wake-gate decision per epic per invocation. Essential, not an optimisation: the
+   *  ledger row is keyed on epicId, so recording it after the FIRST leaf of an epic would
+   *  silently gate out that epic's remaining leaves in the SAME beat and they would never get
+   *  their card. Every decision is taken before any recording. */
+  const decisionByEpic = new Map<string, boolean>();
+  /** The signature each decision was taken at, so the post-probe record writes the value the
+   *  decision was made against (never a re-read that may have moved mid-pass). */
+  const signatureByEpic = new Map<string, string>();
+  /** Recorded at most once per epic per pass, whatever the verdict — recording only on green
+   *  would leave a red base probing every beat, i.e. the burn unfixed. */
+  const recordedEpics = new Set<string>();
 
   for (const c of candidates) {
     try {
       const leaf = byId.get(c.leafId);
       const epic = byId.get(c.epicId);
       const targetProject = leaf?.targetProject ?? epic?.targetProject ?? project;
+
+      // The wake gate applies only to causes that actually touch git. 'mis-homed-target' never
+      // probes (the routing is the defect), so it keeps its current unconditional card path.
+      if (c.cause !== 'mis-homed-target') {
+        if (!decisionByEpic.has(c.epicId)) {
+          const sig = await signatureOf(c.epicId, targetProject);
+          signatureByEpic.set(c.epicId, sig);
+          decisionByEpic.set(
+            c.epicId,
+            shouldReprobe({ epicId: c.epicId, project: targetProject, signature: sig, now: nowFn?.() }),
+          );
+        }
+        if (decisionByEpic.get(c.epicId) === false) {
+          result.skipped.push(c.leafId);
+          continue; // before any git / gate / card work
+        }
+      }
+
       // A mis-homed leaf is never mechanically clearable (the routing is the defect) — go
       // straight to the card path without touching git.
       const verdict: BaseProbeVerdict =
         c.cause === 'mis-homed-target' ? 'unknown' : await probe(c.epicId, targetProject);
+
+      if (c.cause !== 'mis-homed-target' && !recordedEpics.has(c.epicId)) {
+        const sig = signatureByEpic.get(c.epicId);
+        if (sig && sig !== UNKNOWN_LANE_SIGNATURE) {
+          recordedEpics.add(c.epicId);
+          recordSignature({ epicId: c.epicId, project: targetProject, signature: sig });
+        }
+      }
 
       if (verdict === 'pass') {
         // resetTodo clears acceptanceStatus, zeroes retryCount, auto-resolves stale
@@ -245,17 +306,14 @@ export async function runInfraRejectionArm(
       }
 
       const marker = infraRejectedMarker(c.leafId);
-      const already = open.some((e) =>
-        (e.status === 'open' || e.status === 'acknowledged') &&
-        e.kind === INFRA_REJECTED_KIND && e.project === project &&
-        e.todoId === c.leafId && e.questionText.includes(marker));
-      if (already) continue;
-      createEsc({
+      const res = createEsc({
         project,
         session,
         kind: INFRA_REJECTED_KIND,
         todoId: c.leafId,
         operatorGated: true,
+        conditionKey: infraRejectedConditionKey(c.leafId, c.cause),
+        conditionTuple: [INFRA_REJECTED_KIND, c.leafId.slice(0, 8), c.cause],
         questionText:
           `Leaf ${c.leafId.slice(0, 8)} ${marker} is parked on an INFRASTRUCTURE failure ` +
           `(${c.cause}), not on its content — nothing about its spec or diff is wrong.\n` +
@@ -266,7 +324,7 @@ export async function runInfraRejectionArm(
           `Repair the base on that branch (or re-home the leaf) and commit; the next conductor ` +
           `pass re-probes and releases the leaf automatically.`,
       });
-      result.cardsRaised++;
+      if (res && res.isNew) result.cardsRaised++;
     } catch {
       // fail-open per candidate — one bad probe/card must not sink the pass.
     }

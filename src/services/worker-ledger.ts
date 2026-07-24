@@ -216,6 +216,16 @@ function openDb(): Database {
     if (!ebgc.some((c) => c.name === 'baselineFailures')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN baselineFailures TEXT');
     if (!ebgc.some((c) => c.name === 'failAttempts')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN failAttempts INTEGER');
   }
+  // Conductor wake gate: the last lane signature (epic tip + trunk tip) a base re-probe was
+  // taken at. Keyed on epicId ALONE — one probe decision per epic, matching epic_base_gate's
+  // grain, so a lane that has not moved does not buy a probe (and, via infraActed, a whole
+  // conductor node) on every beat.
+  db.exec(`CREATE TABLE IF NOT EXISTS epic_probe_signature (
+    epicId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    probedAt INTEGER NOT NULL
+  )`);
   // Lazy per-epic base memo for the per-file `tests` lanes. Unlike epic_base_gate,
   // baseSha is IN the key: per-lane rows are cheap and need no cross-base invalidation
   // dance — a new base just gets a new row, the old one is simply never looked up again.
@@ -325,6 +335,8 @@ export interface LedgerQuery {
   leafId?: string;
   /** Only rows at/after this epoch-ms. */
   since?: number;
+  /** Only rows at/before this epoch-ms — the descending-page cursor. */
+  until?: number;
   /** Cap rows returned (default 200, max 2000), newest first. */
   limit?: number;
 }
@@ -907,6 +919,43 @@ export function shouldHonourCachedBaseGate(row: EpicBaseGateRow, now: number = D
   return 'honour';
 }
 
+// --- Conductor wake gate: last-probed lane signature (epic_probe_signature) --------------
+
+/** The last lane signature (`${epicHeadSha}:${trunkHeadSha}`) at which this epic's base was
+ *  re-probed by the conductor's INFRA arm, and when. */
+export interface EpicProbeSignatureRow {
+  epicId: string;
+  project: string;
+  signature: string;
+  probedAt: number;
+}
+
+/** Upsert the signature an epic's base was last probed at. Best-effort: a failed write means
+ *  the next beat simply probes again — extra work, never a skipped probe. */
+export function recordEpicProbeSignature(
+  e: Omit<EpicProbeSignatureRow, 'probedAt'>,
+  now: number = Date.now(),
+): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO epic_probe_signature (epicId, project, signature, probedAt)
+       VALUES (?,?,?,?)
+       ON CONFLICT(epicId) DO UPDATE SET
+         project=excluded.project, signature=excluded.signature, probedAt=excluded.probedAt`,
+    ).run(e.epicId, e.project, e.signature, now);
+  } catch { /* best-effort */ }
+}
+
+/** Read an epic's last-probed lane signature. `null` on a miss OR a throw — both mean "we
+ *  cannot prove this lane was already probed", which sends the caller down the probe path. */
+export function getEpicProbeSignature(epicId: string): EpicProbeSignatureRow | null {
+  try {
+    const raw = openDb().prepare('SELECT * FROM epic_probe_signature WHERE epicId=?').get(epicId) as
+      EpicProbeSignatureRow | undefined;
+    return raw ?? null;
+  } catch { return null; }
+}
+
 // --- Lazy per-epic base memo for the per-file `tests` lanes (epic_base_lane) --
 export interface EpicBaseLaneRow {
   epicId: string;
@@ -1023,6 +1072,7 @@ function buildLedgerWhere(q: LedgerQuery): { where: string[]; params: unknown[];
   if (q.epicId) { where.push('epicId = ?'); params.push(q.epicId); }
   if (q.leafId) { where.push('leafId = ?'); params.push(q.leafId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
+  if (q.until != null) { where.push('ts <= ?'); params.push(q.until); }
   const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
   return { where, params, limit };
 }

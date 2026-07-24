@@ -36,6 +36,7 @@ import { runArchivalSweep, shouldRunArchivalSweep } from './archival-sweep.js';
 import { runLandedEpicSweep, shouldRunLandedEpicSweep } from './landed-epic-sweep.js';
 import { runBurnWatchPass, shouldRunBurnWatchPass } from './burn-watch.js';
 import { getBurnBySource } from './spend-ledger.js';
+import { CONDUCTOR_BEAT_MS } from './harness-caps.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -54,7 +55,7 @@ let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let conductorKickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
-export const CONDUCTOR_INTERVAL_MS = 30_000;
+export const CONDUCTOR_INTERVAL_MS = CONDUCTOR_BEAT_MS;
 
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
 // `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a

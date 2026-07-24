@@ -92,6 +92,54 @@ async function salvageCommitDefault(cwd: string, message: string, paths: string[
   }
 }
 
+/** Hard cap on the own-prior-work git probe (same bound the other daemon-resident git
+ *  probes use). A `git log --grep` over one branch range is milliseconds; the cap only
+ *  exists so a pathological repo can never pin the sidecar. */
+const OWN_WORK_PROBE_TIMEOUT_MS = 15_000;
+
+/** Default {@link LeafExecutorDeps.ownWorkCommitOnEpicBranch}: does the EPIC branch's own
+ *  history (`<baseBranch>..refs/heads/<epicBranch>` — commits reachable from the epic tip but
+ *  NOT from trunk, so an unrelated branch's commit can never satisfy the check) contain a
+ *  commit carrying this leaf's `Collab-Todo: <leafId>` trailer? Returns the newest such sha, or
+ *  null. FAIL CLOSED: any git error, non-zero exit, missing ref, or absent epic branch reads as
+ *  null (the caller keeps the legacy escalate+park). ASYNC bounded spawn (Bun.spawn + await
+ *  exited + kill timer) — NEVER spawnSync: this runs in the sidecar process (crit-6, mission
+ *  693bbc27; see `runBounded` in verify-epic.ts). Exported for test. */
+export async function findOwnWorkCommitOnEpicBranch(
+  projectRoot: string,
+  input: { leafId: string; epicBranch: string; baseBranch: string },
+): Promise<{ sha: string } | null> {
+  const { leafId, epicBranch, baseBranch } = input;
+  if (!projectRoot || !leafId || !epicBranch || !baseBranch) return null;
+  // No epic accumulation branch (the leaf builds straight off trunk) ⇒ there is no
+  // epic-scoped range to search ⇒ INDETERMINATE, not negative. Fail closed.
+  if (epicBranch === baseBranch) return null;
+  try {
+    const proc = Bun.spawn(
+      [
+        'git', '-C', projectRoot, 'log', '--format=%H', '-1', '--fixed-strings',
+        `--grep=Collab-Todo: ${leafId}`,
+        `${baseBranch}..refs/heads/${epicBranch}`,
+      ],
+      { stdout: 'pipe', stderr: 'pipe' },
+    );
+    const killTimer = setTimeout(() => { try { proc.kill(); } catch { /* gone */ } }, OWN_WORK_PROBE_TIMEOUT_MS);
+    try {
+      const [stdout, code] = await Promise.all([
+        proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(''),
+        proc.exited,
+      ]);
+      if (code !== 0) return null;
+      const sha = (stdout ?? '').trim().split('\n')[0]?.trim() ?? '';
+      return sha ? { sha } : null;
+    } finally {
+      clearTimeout(killTimer);
+    }
+  } catch {
+    return null;
+  }
+}
+
 /** G3 worktree-existence predicate for review citations (retained-code tolerance).
  *  Bounded to the lane worktree: rejects absolute paths and `..` segments outright, then
  *  checks the cited file exists under `root` with at least `line` lines. Per-run cache —
@@ -525,6 +573,21 @@ export interface LeafExecutorDeps {
    *  null when nothing was committed / the commit failed (caller falls back to the
    *  unsalvaged empty-diff classification). */
   salvageCommit?: (cwd: string, message: string, paths: string[]) => Promise<{ sha?: string } | null>;
+  /** OWN-PRIOR-WORK probe (real incident 2026-07-24: a leaf was dispatched 11 times because
+   *  its work was already committed on the epic branch by an early attempt — every re-dispatch
+   *  re-ran implement, correctly produced a ZERO-FILE diff, and the empty-diff guard parked it
+   *  blocked, dep-blocking the whole epic). Is a commit carrying THIS leaf's
+   *  `Collab-Todo: <leafId>` trailer present in the EPIC branch's OWN history — the
+   *  `<trunk>..refs/heads/<epicBranch>` range, so a commit on some unrelated branch can never
+   *  satisfy it? Returns `{ sha }` only on a positive, unambiguous hit; null when absent OR
+   *  indeterminate (non-git, git error, no epic accumulation branch). The caller FAILS CLOSED
+   *  on null: unchanged escalate + park. Default: real git via an ASYNC bounded spawn in the
+   *  target repo (never spawnSync — this runs in the sidecar event loop). */
+  ownWorkCommitOnEpicBranch?: (input: {
+    leafId: string;
+    epicBranch: string;
+    baseBranch: string;
+  }) => Promise<{ sha: string } | null>;
   /** Auto-split seam. SR-6: takes structured ITEMS (each = one child leaf, >= 1 file, with
    *  sibling `dependsOn` edges), not a flat file list. A plain `string[]` is still accepted
    *  and normalised to one edgeless item per file (legacy file-count path + old tests).
@@ -1642,6 +1705,10 @@ export async function resolveBaseGreen(io: {
     () => io.runGate(wt.path),
   );
   if (isCacheableBaseGateStatus(r.status)) {
+    // Stamp checkedAt from the SAME clock the TTL is later measured against
+    // (shouldHonourCachedBaseGate above). Letting the write default to real Date.now()
+    // while the read uses io.now() makes the TTL window depend on how long the gate
+    // took to run — the window silently shrinks by that elapsed time.
     recordEpicBaseGate({
       epicId,
       project,
@@ -1650,7 +1717,7 @@ export async function resolveBaseGreen(io: {
       command: r.command ?? null,
       output: r.output || null,
       baselineFailures: r.baselineFailures ?? null,
-    });
+    }, io.now?.());
   }
   return { ...r, fresh: true };
 }
@@ -3469,6 +3536,48 @@ export async function runLeaf(
         return finishWith({ outcome, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
       } else {
         // Branch 2: spec-demands-changes (files declared but implement produced nothing).
+        // OWN PRIOR WORK ALREADY PRESENT (real incident 2026-07-24): the comment below
+        // already named this cause ("likely a sibling leaf already landed the same change")
+        // but nothing checked for it — so a leaf whose OWN work was committed to the epic
+        // branch on an early attempt was re-dispatched 11 times (master kept moving ⇒
+        // reattach-blueprint ⇒ implement correctly concluded "already committed, no edits
+        // needed" ⇒ zero-file diff ⇒ park blocked), dep-blocking every dependent leaf until a
+        // human override-accepted it. Before escalating, ask git whether a commit carrying
+        // THIS leaf's own `Collab-Todo` trailer is already on the epic branch's own history.
+        // A positive, unambiguous hit settles the leaf ACCEPTED through the normal gate (no
+        // review node, no escalation — there is nothing for a human to decide). Anything else
+        // (absent, git error, unwired seam) FAILS CLOSED into the legacy escalate+park below.
+        let ownCommit: { sha: string } | null = null;
+        try {
+          ownCommit = (await deps.ownWorkCommitOnEpicBranch?.({
+            leafId: leaf.id,
+            epicBranch: deps.epicBranch,
+            baseBranch: deps.baseBranch ?? 'master',
+          })) ?? null;
+        } catch {
+          ownCommit = null; // FAIL CLOSED — an unreadable probe is never a positive
+        }
+        if (ownCommit?.sha) {
+          console.warn(`[leaf-executor] own-work-already-committed: zero-file diff explained by this leaf's own commit ${ownCommit.sha.slice(0, 8)} on ${deps.epicBranch} — settling accepted instead of parking blocked`);
+          try {
+            deps.recordNode({
+              project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+              nodeKind: 'own-work-already-committed', nodesSpent: 0, verdict: 'pass',
+              outcomeDetail: JSON.stringify({ reason: 'own-work-already-committed', sha: ownCommit.sha, declaredFiles }),
+              outputText:
+                `own-work-already-committed: implement produced a zero-file diff vs the epic base even though the blueprint declared file(s) to change (${declaredFiles.join(', ')}) — because THIS leaf's own work is ALREADY on ${deps.epicBranch} from a prior attempt (commit ${ownCommit.sha}, carrying trailer "Collab-Todo: ${leaf.id}"). ` +
+                `Settling accepted through the normal completion gate without spending a review node, instead of parking blocked on empty-diff-spec-demands-changes (which would dep-block every dependent leaf for a re-dispatch that can never produce a diff).`,
+            });
+          } catch { /* telemetry — never break the run */ }
+          const gate = await deps.complete(project, leaf.id, 'accepted');
+          const effective = gate.effective ?? 'accepted';
+          const outcome: LeafRunResult['outcome'] = effective;
+          const reason = effective === 'pending' ? 'gate-pending'
+            : effective === 'rejected' ? 'gate-rejected'
+            : 'own-work-already-committed';
+          recordOutcome(outcome, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
+          return finishWith({ outcome, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+        }
         deps.escalate({
           project, session: sessionKey, kind: 'empty-diff-declared-changes', todoId: leaf.id,
           questionText:
@@ -4180,6 +4289,8 @@ export async function makeLeafExecutorDeps(
       wm.revertEpicMerge(eId, mergeSha),
     reintegrateBase: (sessionId, base) => wm.reintegrateLaneBase(sessionId, base),
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
+    // Own-prior-work probe: live git read in the TARGET repo (where every branch ref lives).
+    ownWorkCommitOnEpicBranch: (input) => findOwnWorkCommitOnEpicBranch(targetProject, input),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
     proposeSplit,

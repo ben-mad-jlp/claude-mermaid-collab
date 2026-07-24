@@ -19,11 +19,11 @@ import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
-import { listLeafRuns } from './ledger-stats.ts';
+import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
-import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
+import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS, CONDUCTOR_LEADER_STALE_TICKS, CONDUCTOR_BEAT_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
@@ -555,6 +555,7 @@ export function deleteMission(project: string, todoId: string): void {
   const id = resolveMissionTodoId(project, todoId) ?? todoId;
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
+  import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
 }
 
 /** Delete mission control rows (+ their criteria) whose todoId is NOT in the set of
@@ -738,13 +739,42 @@ function missionStatusRank(status: string | null | undefined): number {
   }
 }
 
+/** True iff `m` was selected as the conductor's leader (by the total order below) too long
+ *  ago to still be trusted: its pass clock (lastConductorPassAt, falling back to createdAt
+ *  for a never-run mission) is older than CONDUCTOR_LEADER_STALE_TICKS beats AND it still
+ *  has a 'discover' or 'verify' gap (a fresh 'building' leader is legitimately quiet, not
+ *  stalled). The listCriteriaWithActions call is only paid for clock-stale candidates —
+ *  it re-derives the full status facts and is not cheap. Fails OPEN (returns false) if the
+ *  mission can't be read (listCriteriaWithActions throws 'mission not found') — an
+ *  unreadable mission keeps the turn rather than being skipped. */
+function isStalledLeader(project: string, m: MissionSummary, now: number, beatMs: number): boolean {
+  const last = m.mission.lastConductorPassAt ?? m.mission.createdAt;
+  if (now - last <= CONDUCTOR_LEADER_STALE_TICKS * beatMs) return false;
+  try {
+    const withActions = listCriteriaWithActions(project, m.node.id);
+    return withActions.some((c) => c.action === 'discover' || c.action === 'verify');
+  } catch {
+    return false;
+  }
+}
+
 /** B4 — deterministic TOTAL-ORDER selection of the mission the (unpinned) conductor drives, replacing
  *  first-wins. Filters to the SAME set the old loop considered (active + approved + non-terminal), then
- *  picks a stable winner by status-rank (verify>discover>building) → oldest createdAt → id. Pure over
- *  the store read (listMissions self-heals terminal-active rows first, so a converged mission can never
- *  win); it NEVER writes a mission's active flag — rivals are parked purely by not being selected (the
- *  H4 invariant). Returns the winner + the other actionable ids for a fail-open advisory. */
-export function selectConductorMission(project: string): ConductorSelection {
+ *  orders by status-rank (verify>discover>building) → oldest createdAt → id. Pure over the store read
+ *  (listMissions self-heals terminal-active rows first, so a converged mission can never win); it NEVER
+ *  writes a mission's active flag — rivals are parked purely by not being selected (the H4 invariant).
+ *
+ *  LEADER-YIELD: the head of the total order does not win unconditionally. If it was selected long ago
+ *  (its lastConductorPassAt is stale by CONDUCTOR_LEADER_STALE_TICKS beats) and still has an actionable
+ *  discover/verify gap, it is treated as stalled and the first non-stalled entry of the SAME order wins
+ *  instead — a leader whose fingerprint debounce keeps returning "no change" no longer starves every
+ *  rival forever. If every candidate is stalled, index 0 still wins (the conductor must never go idle).
+ *  This is still read-only selection: a skipped stale leader remains in `rivals`, never has `active`
+ *  written, and the H4 invariant (rivals parked purely by non-selection) holds unchanged. */
+export function selectConductorMission(
+  project: string,
+  opts: { now?: number; beatMs?: number } = {},
+): ConductorSelection {
   const actionable = listMissions(project).filter((m) =>
     m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
     !['unapproved', 'abandoned', 'converged'].includes(m.mission.status));
@@ -755,8 +785,16 @@ export function selectConductorMission(project: string): ConductorSelection {
     if (a.mission.createdAt !== b.mission.createdAt) return a.mission.createdAt - b.mission.createdAt;
     return a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0;
   });
-  const [winner, ...rest] = sorted;
-  return { target: winner, rivals: rest.map((m) => m.node.id) };
+  if (sorted.length === 1) {
+    return { target: sorted[0], rivals: [] };
+  }
+  const now = opts.now ?? nowMs();
+  const beatMs = opts.beatMs ?? CONDUCTOR_BEAT_MS;
+  let winnerIndex = sorted.findIndex((m) => !isStalledLeader(project, m, now, beatMs));
+  if (winnerIndex === -1) winnerIndex = 0;
+  const winner = sorted[winnerIndex];
+  const rivals = sorted.filter((_, i) => i !== winnerIndex).map((m) => m.node.id);
+  return { target: winner, rivals };
 }
 
 /** True iff the session already has an active, NON-TERMINAL mission (used to default
@@ -1170,11 +1208,17 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'),
   );
   const criteria = listCriteria(project, m.todoId);
+  let spendUsd = 0;
+  try {
+    spendUsd = getMissionSpend(project, m.todoId, { listTodos: () => allTodos }).costUsd;
+  } catch {
+    spendUsd = 0;
+  }
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
     budgetUsd: m.budgetUsd,
-    spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
+    spendUsd,
     // Ledger unavailable: we cannot see the leaf runs that would normally reveal a blocked
     // (rejected/parked) leaf, so we can't claim 'blocked' either — false here, same as the prior
     // degrade-to-empty behavior (a ledger hiccup must never manufacture a block it can't see).

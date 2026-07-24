@@ -14,11 +14,12 @@
 import { listTodos } from './todo-store.ts';
 import { getMission } from './mission-store.ts';
 import { isEpic } from './todo-kind.ts';
-import { listLeafRuns, type LeafRunSummary } from './ledger-stats.ts';
+import { listLeafRuns, getMissionSpend, type LeafRunSummary, type MissionSpend } from './ledger-stats.ts';
 
 export interface MissionCost {
   todoId: string;
-  /** Σ USD across the mission's leaf nodes (0 when the model price is unknown, e.g. Max plan). */
+  /** `getMissionSpend`'s closure total (leaves + conductor + planner + forge + verify) —
+   *  NOT a leaf-run sum; 0 when the model price is unknown, e.g. Max plan. */
   costUsd: number;
   /** Σ nodes spent — the plan-independent cost proxy (always available, unlike costUsd). */
   nodesSpent: number;
@@ -32,6 +33,8 @@ export interface MissionCost {
   nodesPerAcceptedChange: number | null;
   /** True when acceptRate is known and below the ~50% "loop costs more than it saves" line. */
   belowBreakEven: boolean | null;
+  /** The full mission-spend breakdown behind `costUsd` — see `getMissionSpend`. */
+  spend: MissionSpend;
 }
 
 /** The break-even accept rate below which the loop is (per the article) net-negative. */
@@ -42,7 +45,7 @@ export const ACCEPT_RATE_BREAK_EVEN = 0.5;
  * money math is trivially unit-tested. `total` counts every run; `inflight` is the
  * non-terminal remainder (pending/paused/unknown) excluded from the accept rate.
  */
-export function computeMissionEconomics(runs: LeafRunSummary[]): Omit<MissionCost, 'todoId'> {
+export function computeMissionEconomics(runs: LeafRunSummary[]): Omit<MissionCost, 'todoId' | 'spend'> {
   let costUsd = 0;
   let nodesSpent = 0;
   let accepted = 0;
@@ -86,5 +89,14 @@ export function getMissionCost(project: string, todoId: string): MissionCost {
     (t) => t.parentId === todoId && t.status !== 'dropped' && isEpic(t),
   );
   const runs = epics.flatMap((epic) => listLeafRuns({ project, epicId: epic.id }));
-  return { todoId, ...computeMissionEconomics(runs) };
+  const econ = computeMissionEconomics(runs);
+  const spend = getMissionSpend(project, todoId);
+  return {
+    todoId,
+    ...econ,
+    costUsd: spend.costUsd,
+    costPerAcceptedChange:
+      econ.leaves.accepted > 0 && spend.costUsd > 0 ? spend.costUsd / econ.leaves.accepted : null,
+    spend,
+  };
 }

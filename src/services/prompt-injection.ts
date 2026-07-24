@@ -10,7 +10,7 @@
 import type { LeafNodeKind } from './leaf-executor';
 import type { InjectionFlags } from './runtime-config';
 import { getActiveConstraints, listDecisionRecords } from './decision-record-store';
-import { readProjectDigest } from './project-digest';
+import { resolveActiveMissionDigest } from './mission-digest';
 
 /** Structural subset of ledger-stats LeafRunStats the retry payload needs. */
 export interface PriorRunInput {
@@ -26,7 +26,8 @@ export interface ComposeInjectedContextArgs {
   flags: InjectionFlags;
   attempt?: number;
   priorRun?: PriorRunInput | null;
-  /** Override for the cached-digest read (test seam). Defaults to readProjectDigest. */
+  /** Override for the digest read (test seam). Defaults to resolveActiveMissionDigest
+   *  (active-mission digest, falling back to the project-global digest). */
   readDigest?: (project: string) => string | null;
 }
 
@@ -152,10 +153,11 @@ export function composeInjectedContext(args: ComposeInjectedContextArgs): string
     }
   }
   // Payload A — serves the projectDigest criterion. When the digest flag is ON and the kind is
-  // orientation-eligible (blueprint/research, NOT implement — v1 scope), read the CACHED digest
-  // (.collab/project-digest.md; never regenerate here) and emit it as an advisory block.
+  // orientation-eligible (blueprint/research, NOT implement — v1 scope), resolve the active
+  // mission's digest (falling back to the project-global digest) and emit it as an advisory
+  // block.
   if (args.flags.digest && DIGEST_KINDS.has(args.kind)) {
-    const read = args.readDigest ?? readProjectDigest;
+    const read = args.readDigest ?? resolveActiveMissionDigest;
     let digest = '';
     try {
       digest = read(args.project) ?? '';

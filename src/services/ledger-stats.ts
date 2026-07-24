@@ -365,7 +365,12 @@ export function listLeafRuns(
   }
   const out: LeafRunSummary[] = [];
   for (const [leafId, group] of byLeaf) {
-    const asc = [...group].sort((a, b) => a.ts - b.ts);
+    // Tie-break on `id` — `ts` is millisecond-resolution, so two rows written in the same
+    // millisecond compare equal and a stable sort would preserve the SOURCE order, which is
+    // `ts DESC, id DESC` (newest first). That inverts same-ms pairs in this "ascending" array,
+    // and latestRunRows then treats the NEWER outcome marker as a run boundary and reports the
+    // OLDER one as final — a leaf's terminal reason silently goes stale.
+    const asc = [...group].sort((a, b) => a.ts - b.ts || (a.id ?? 0) - (b.id ?? 0));
     const run = latestRunRows(asc);                 // newest run only
     const markers = run.filter(isOutcomeMarker);
     const nodeRows = run.filter((r) => !isOutcomeMarker(r));
@@ -505,40 +510,104 @@ export function aggregateMissionSpend(
   return spend;
 }
 
-/** Roll up a mission's ENTIRE spend — the whole closure (dropped epics included), every
- *  run of every leaf, keyed by the ONE attribution rule documented on
- *  `aggregateMissionSpend`. Deps are injectable for tests; the query never throws into
- *  the caller (an accounting read must not break the caller). */
+/** Page size for `sweepMissionSpendRows`'s descending ledger pages. */
+export const MISSION_SPEND_PAGE_ROWS = 2000;
+/** Hard cap on the number of pages `sweepMissionSpendRows` will fetch, so a mission
+ *  whose closure never appears in the ledger (or a pathological project) can't spin. */
+export const MISSION_SPEND_MAX_PAGES = 10;
+
+/** Bounded, project-scoped, single-sweep row source for `getMissionSpend`: pages the
+ *  project's ledger newest-first via `queryThin`, keeping only rows attributed to `ids`
+ *  (mirroring `aggregateMissionSpend`'s own inclusion test so the intermediate array
+ *  stays small — `aggregateMissionSpend` remains the sole authority on inclusion),
+ *  dedupes by row id, and stops on a short page, the page cap, or a page that adds no
+ *  new ledger id (guards against a page of identical `ts` looping forever). Each page
+ *  is wrapped so a query failure breaks the sweep rather than throwing into the caller. */
+export function sweepMissionSpendRows(
+  project: string,
+  ids: Set<string>,
+  queryThin: typeof queryLedgerThin,
+): MissionSpendRow[] {
+  const byId = new Map<number, MissionSpendRow>();
+  let cursor: number | undefined;
+  for (let page = 0; page < MISSION_SPEND_MAX_PAGES; page++) {
+    let rows: ReturnType<typeof queryLedgerThin>;
+    try {
+      rows = queryThin({ project, limit: MISSION_SPEND_PAGE_ROWS, until: cursor });
+    } catch {
+      break;
+    }
+    let addedNew = false;
+    for (const r of rows) {
+      const included = ids.has(r.todoId) || (r.epicId != null && ids.has(r.epicId));
+      if (!included) continue;
+      if (r.id == null) continue;
+      if (!byId.has(r.id)) addedNew = true;
+      byId.set(r.id, r);
+    }
+    if (rows.length < MISSION_SPEND_PAGE_ROWS) break;
+    if (!addedNew) break;
+    cursor = Math.min(...rows.map((r) => r.ts));
+  }
+  return [...byId.values()];
+}
+
+const MISSION_SPEND_MEMO_TTL_MS = 5_000;
+const missionSpendMemo = new Map<string, { at: number; spend: MissionSpend }>();
+
+/** Test seam: clear the `getMissionSpend` memo between fixtures/temp-project runs. */
+export function _resetMissionSpendMemo(): void {
+  missionSpendMemo.clear();
+}
+
+/**
+ * Roll up a mission's ENTIRE spend — the whole closure (dropped epics included), every
+ * run of every leaf, keyed by the ONE attribution rule documented on
+ * `aggregateMissionSpend`:
+ *
+ * INCLUSIONS — a row counts iff ALL of:
+ *   (a) `row.project === project`;
+ *   (b) `ids.has(row.todoId)` OR (`row.epicId != null` AND `ids.has(row.epicId)`);
+ *   (c) ALL runs of a leaf are summed (no `latestRunRows`).
+ *
+ * EXCLUSIONS — a row contributes zero when ANY of:
+ *   - `nodeKind === 'outcome'` (a terminal marker row, not real spend);
+ *   - the row belongs to a different project;
+ *   - the row's `todoId`/`epicId` falls outside the mission's closure.
+ *
+ * THE three consumers of this function: `getMissionCost` (mission-cost.ts),
+ * `collectMissionStatusFacts` (mission-store.ts), and `GET /api/usage/mission`
+ * (routes/api.ts) — every reader of a mission's spend goes through here so they can
+ * never disagree.
+ *
+ * Deps are injectable for tests; the query never throws into the caller (an
+ * accounting read must not break the caller). A 5s memo (keyed `project missionId`)
+ * is consulted/populated ONLY on the default row source — an injected `queryRows`
+ * override must never read or poison the shared cache.
+ */
 export function getMissionSpend(
   project: string,
   missionId: string,
   deps: {
     listTodos?: typeof listTodos;
+    queryThin?: typeof queryLedgerThin;
     queryRows?: (ids: string[]) => MissionSpendRow[];
   } = {},
 ): MissionSpend {
+  const memoKey = `${project} ${missionId}`;
+  const useMemo = deps.queryRows === undefined;
+  if (useMemo) {
+    const cached = missionSpendMemo.get(memoKey);
+    if (cached && Date.now() - cached.at < MISSION_SPEND_MEMO_TTL_MS) return cached.spend;
+  }
+
   const listTodosFn = deps.listTodos ?? listTodos;
   const todos = listTodosFn(project, { includeCompleted: true, includeArchived: true });
   const ids = missionTodoClosure(missionId, todos);
 
+  const queryThinFn = deps.queryThin ?? queryLedgerThin;
   const queryRows =
-    deps.queryRows ??
-    ((idList: string[]): MissionSpendRow[] => {
-      const byId = new Map<number, MissionSpendRow>();
-      for (const id of idList) {
-        try {
-          for (const r of queryLedgerThin({ project, todoId: id, limit: 2000 })) {
-            if (r.id != null) byId.set(r.id, r);
-          }
-          for (const r of queryLedgerThin({ project, epicId: id, limit: 2000 })) {
-            if (r.id != null) byId.set(r.id, r);
-          }
-        } catch {
-          // accounting read — never throw into the caller
-        }
-      }
-      return [...byId.values()];
-    });
+    deps.queryRows ?? ((idList: string[]) => sweepMissionSpendRows(project, new Set(idList), queryThinFn));
 
   let rows: MissionSpendRow[];
   try {
@@ -547,5 +616,7 @@ export function getMissionSpend(
     rows = [];
   }
 
-  return aggregateMissionSpend(missionId, ids, project, rows);
+  const spend = aggregateMissionSpend(missionId, ids, project, rows);
+  if (useMemo) missionSpendMemo.set(memoKey, { at: Date.now(), spend });
+  return spend;
 }

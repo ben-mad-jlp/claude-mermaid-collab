@@ -19,8 +19,10 @@ approved mission becomes a driven, landed convergence — with a human only rati
 
 - **`forge_mission`** — deterministic instantiation of a mission's whole *constitution*:
   constraints → active constraint records (prompt-injection payload C → every build node),
-  rejected alternatives → decision records (payload D), digest → `.collab/project-digest.md`
-  (payload A). `missionConstitutionHealth` (surfaced in `get_mission`) is the enforcement teeth.
+  rejected alternatives → decision records (payload D), digest → `.collab/mission-digests/<missionId>.md`
+  (payload A, resolved for the ACTIVE mission at builder-spawn time — `activate:false` stores a
+  digest without changing what currently-spawning builders receive). `missionConstitutionHealth`
+  (surfaced in `get_mission`) is the enforcement teeth.
 - **`forge_mission_from_doc`** — a server-side `forge` NODE (model/effort configurable per-project
   via `node_profile_override` for kind `forge`, overridable per call) reads a collab doc, surveys
   the repo, and emits a structured mission spec, which `forge_mission` instantiates as an
