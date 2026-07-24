@@ -911,13 +911,13 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // wants opus back can set a per-(project,kind) override (resolveNodeModel in node-provider.ts).
   // Effort stays 'high' — reasoning depth, not model tier, is what blueprint needs most.
   blueprint: { model: 'sonnet', allowedTools: 'Read Write Grep Glob Bash', effort: 'high', timeoutMs: BLUEPRINT_TIMEOUT_MS },
-  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS },
+  implement: { model: 'sonnet', allowedTools: 'Read Edit Write Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS },
   review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // P5 waves:
   research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read-only (spec §12: sonnet for non-blueprint/review)
-  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
+  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Write Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
   verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read + bash-tsc
-  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
+  fix: { model: 'sonnet', allowedTools: 'Read Edit Write Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
   // verify pipeline (epic f5c7fc46): plan authors an AssemblyBuildPlan; driveexec is
   // CONSTRAINED to the single deterministic gate verb (invokes, authors nothing); report
   // writes+commits findings and files one session-todo per finding.

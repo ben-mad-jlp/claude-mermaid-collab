@@ -231,7 +231,7 @@ function makeDeps(opts: {
         // to the same base tool set, so match on the prefix rather than exact equality.
         const isReview = (spec.allowedTools ?? '').startsWith('Read Grep Glob Bash');
         // The blueprint node is the one allowed to Write (implement uses Edit).
-        const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+        const isBlueprint = isBlueprintSpec(spec);
         if (isBlueprint && bpFailsLeft > 0) {
           bpFailsLeft -= 1;
           return failResult();
@@ -340,6 +340,12 @@ function makeDeps(opts: {
   };
   return { deps, spies };
 }
+
+/** Discriminate a BLUEPRINT node's invoke spec from an IMPLEMENT one: both now grant Write
+ *  (implement creates new files — grant added 2026-07-24), so the old "has Write" proxy is
+ *  ambiguous. Blueprint has Write but NOT Edit; implement/fix/wimplement have Edit. */
+const isBlueprintSpec = (spec: { allowedTools?: string }): boolean =>
+  (spec.allowedTools ?? '').includes('Write') && !(spec.allowedTools ?? '').includes('Edit');
 
 describe('planResume (resume decision — conservative, fresh on any doubt)', () => {
   const SHA = 'abc123';
@@ -644,7 +650,7 @@ describe('runLeaf state machine', () => {
     // (implement + review + reuse-implement + reuse-review). Total 9 (was 10 before bfc915dc).
     expect(res.nodesSpent).toBe(9);
     // IN-RUN BLUEPRINT CARRY: the blueprint node runs exactly ONCE across both attempts.
-    const blueprintRuns = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    const blueprintRuns = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintRuns).toBe(1);
     // 2 fresh worktrees, one per attempt (the in-place reuse stays in the same worktree)
     expect(spies.ensureCalls.length).toBe(2);
@@ -2898,7 +2904,7 @@ describe('runLeaf resume consumption (slice 2)', () => {
     const res = await runLeaf('/p', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     // No node with the blueprint's Write profile was invoked — the plan was reused.
-    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    const ranBlueprint = spies.invokeSpecs.some((s) => isBlueprintSpec(s));
     expect(ranBlueprint).toBe(false);
     // implement + review still ran.
     expect(spies.invokeSpecs.length).toBe(2);
@@ -2914,7 +2920,7 @@ describe('runLeaf resume consumption (slice 2)', () => {
     deps.restoreBlueprint = () => null; // plan vanished
     const res = await runLeaf('/p', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
-    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    const ranBlueprint = spies.invokeSpecs.some((s) => isBlueprintSpec(s));
     expect(ranBlueprint).toBe(true); // had to author it after all
   });
 
@@ -2926,7 +2932,7 @@ describe('runLeaf resume consumption (slice 2)', () => {
     const originalInvoke = deps.invoker.invoke;
     deps.invoker = {
       async invoke(spec: NodeSpec): Promise<NodeResult> {
-        if ((spec.allowedTools ?? '').includes('Write')) {
+        if (isBlueprintSpec(spec)) {
           throw new Error('BLUEPRINT_SHOULD_NOT_BE_INVOKED_ON_REATTACH');
         }
         return originalInvoke(spec);
@@ -2935,7 +2941,7 @@ describe('runLeaf resume consumption (slice 2)', () => {
     const res = await runLeaf('/p', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     // Blueprint invoker was never called.
-    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    const ranBlueprint = spies.invokeSpecs.some((s) => isBlueprintSpec(s));
     expect(ranBlueprint).toBe(false);
     // nodesSpent reflects only implement+review (2), not 3.
     expect(res.nodesSpent).toBe(2);
@@ -3223,7 +3229,7 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
     deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
       invocationCount += 1;
       // First invocation is blueprint (has Write in allowedTools)
-      const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+      const isBlueprint = isBlueprintSpec(spec);
       if (isBlueprint && invocationCount === 1) {
         return startFailureResult;
       }
@@ -3333,7 +3339,7 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
       let n = 0;
       deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
         n += 1;
-        const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+        const isBlueprint = isBlueprintSpec(spec);
         if (isBlueprint && n === 1) return sfr;
         return originalInvoke(spec);
       };
@@ -3368,7 +3374,7 @@ describe('F2: start-failure retry circuit-breaker (bug a8935a16 — cap the 4×6
     let n = 0;
     deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
       n += 1;
-      const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+      const isBlueprint = isBlueprintSpec(spec);
       if (isBlueprint && n === 1) return startFailureResult;
       return originalInvoke(spec);
     };
@@ -3423,7 +3429,7 @@ describe('implement start-failure → reactive in-place model escalation', () =>
   };
   // implement node = has Edit, not Write (blueprint) and not the readonly review set.
   const isImplement = (spec: NodeSpec): boolean =>
-    (spec.allowedTools ?? '').includes('Edit') && !(spec.allowedTools ?? '').includes('Write');
+    (spec.allowedTools ?? '').includes('Edit'); // implement/fix/wimplement (Edit-granted); blueprint has no Edit
 
   it('escalates ONCE in-place to the blueprint model, then parks if the retry also start-fails', async () => {
     const { deps, spies } = makeDeps({});
@@ -3619,7 +3625,7 @@ describe('SR-7 inherited blueprint refresh', () => {
     let overrideCalled = false;
     deps.invoker = {
       async invoke(spec: NodeSpec): Promise<NodeResult> {
-        if ((spec.allowedTools ?? '').includes('Write')) {
+        if (isBlueprintSpec(spec)) {
           // This is the blueprint node.
           if (spec.model === 'opus') {
             overrideCalled = true;
@@ -3746,7 +3752,7 @@ describe('replay-corpus recording (G3 + citability)', () => {
     expect(budgetEval?.reasons).toContain('cap=20000');
 
     // Assert exactly 2 blueprint-node calls: original + re-emit
-    const blueprintSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write'));
+    const blueprintSpecs = spies.invokeSpecs.filter((s) => isBlueprintSpec(s));
     expect(blueprintSpecs.length).toBe(2);
   });
 
@@ -3794,7 +3800,7 @@ describe('replay-corpus recording (G3 + citability)', () => {
     expect(budgetEval).toBeDefined();
 
     // Exactly one re-emit attempt (no retry loop)
-    const blueprintSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write'));
+    const blueprintSpecs = spies.invokeSpecs.filter((s) => isBlueprintSpec(s));
     expect(blueprintSpecs.length).toBe(2); // original + one re-emit attempt
 
     // Run still succeeds because we kept the original blueprint
@@ -4405,7 +4411,7 @@ describe('crit 8 — bounded blueprint contract repair', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     // Count blueprint nodes: should be exactly 2 (initial + one repair).
-    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    const blueprintCalls = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintCalls).toBe(2);
   });
 
@@ -4419,7 +4425,7 @@ describe('crit 8 — bounded blueprint contract repair', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     // Still exactly 2 blueprint calls (repair fired once, never a 3rd).
-    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    const blueprintCalls = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintCalls).toBe(2);
     // The pipeline continues with implement + review (degraded to v1 prose path).
     const implementCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit')).length;
@@ -4436,7 +4442,7 @@ describe('crit 8 — bounded blueprint contract repair', () => {
     const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
     expect(res.outcome).toBe('accepted');
     // Small tier synthesizes blueprint (no node spent).
-    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    const blueprintCalls = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintCalls).toBe(0);
   });
 });
@@ -4470,7 +4476,7 @@ describe('rebase-continue dispatch (hot-trunk starvation)', () => {
     expect(spies.refundRetryCalls.length).toBe(0);
 
     // ASSERTION (b): blueprint node is skipped (no 'Write' in allowedTools of any invokeSpec).
-    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    const blueprintCalls = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintCalls).toBe(0);
 
     // Implement and review nodes STILL run against the resumed worktree.
@@ -4502,7 +4508,7 @@ describe('rebase-continue dispatch (hot-trunk starvation)', () => {
     expect(spies.ensureCalls[0].opts.fresh).toBe(true);
 
     // Blueprint still runs (no reattach).
-    const blueprintCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    const blueprintCalls = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintCalls).toBe(1);
   });
 });
@@ -4536,7 +4542,7 @@ describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
     expect(res.outcome).toBe('accepted');
 
     // Exactly ONE blueprint call (no repair round-trip)
-    const blueprintSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write'));
+    const blueprintSpecs = spies.invokeSpecs.filter((s) => isBlueprintSpec(s));
     expect(blueprintSpecs.length).toBe(1);
   });
 
