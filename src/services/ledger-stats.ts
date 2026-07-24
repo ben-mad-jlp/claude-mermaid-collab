@@ -365,7 +365,12 @@ export function listLeafRuns(
   }
   const out: LeafRunSummary[] = [];
   for (const [leafId, group] of byLeaf) {
-    const asc = [...group].sort((a, b) => a.ts - b.ts);
+    // Tie-break on `id` — `ts` is millisecond-resolution, so two rows written in the same
+    // millisecond compare equal and a stable sort would preserve the SOURCE order, which is
+    // `ts DESC, id DESC` (newest first). That inverts same-ms pairs in this "ascending" array,
+    // and latestRunRows then treats the NEWER outcome marker as a run boundary and reports the
+    // OLDER one as final — a leaf's terminal reason silently goes stale.
+    const asc = [...group].sort((a, b) => a.ts - b.ts || (a.id ?? 0) - (b.id ?? 0));
     const run = latestRunRows(asc);                 // newest run only
     const markers = run.filter(isOutcomeMarker);
     const nodeRows = run.filter((r) => !isOutcomeMarker(r));
