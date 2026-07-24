@@ -947,6 +947,17 @@ export function listOpenEscalations(): Escalation[] {
     .all() as EscalationRow[]).map(mapEscalationRow);
 }
 
+/** Escalations RESOLVED (or dismissed) for one project since `sinceMs`. A resolution is a real
+ *  wake cause for the conductor — it moves the debounce fingerprint and means a human answered
+ *  something — so the conductor pass hands these to its node as data (conductor-wake-context.ts).
+ *  Filtered in SQL (project + resolvedAt) rather than by scanning every historical card. */
+export function listEscalationsResolvedSince(project: string, sinceMs: number): Escalation[] {
+  const d = openDb();
+  return (d
+    .query("SELECT * FROM escalation WHERE project = ? AND resolvedAt IS NOT NULL AND resolvedAt > ? AND status != 'open' ORDER BY resolvedAt")
+    .all(project, sinceMs) as EscalationRow[]).map(mapEscalationRow);
+}
+
 export function getEscalation(id: string): Escalation | null {
   const d = openDb();
   const row = d.query('SELECT * FROM escalation WHERE id = ?').get(id) as EscalationRow | null;

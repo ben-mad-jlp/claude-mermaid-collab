@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, setConductorLastPass, createEscalation } from './supervisor-store.js';
+import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -37,6 +37,8 @@ export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allo
 
 import { buildServeSignature, buildPassSignature, collectMissionCardIds, conductorFingerprint } from './conductor-signature.js';
 export { conductorFingerprint, type ConductorActionRow } from './conductor-signature.js';
+import { buildWakeContextBlock, type WakeContextInput } from './conductor-wake-context.js';
+export { buildWakeContextBlock, WAKE_CARD_RENDER_CAP, WAKE_CARD_EXCERPT_CHARS } from './conductor-wake-context.js';
 
 /** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
  *  time — the debounce below skips creating a second while one is still open. */
@@ -92,9 +94,16 @@ export function serveCapConditionKey(criterionId: string): string {
 }
 
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
- *  pass against ONE mission. References nothing in skills/. */
-export function buildConductorPrompt(project: string, missionId: string, missionTitle: string, session: string): string {
+ *  pass against ONE mission. References nothing in skills/.
+ *
+ *  `wakeBlock` is the pre-rendered WAKE CONTEXT (conductor-wake-context.ts) — the cards and deltas
+ *  that CAUSED this pass, handed to the node as DATA. It goes at the TOP, before the steps, because
+ *  the thing that kicked the conductor must be in the conductor's context. Omitted/empty ⇒ the
+ *  prompt is byte-identical to the pre-injection one (the fail-open path). */
+export function buildConductorPrompt(project: string, missionId: string, missionTitle: string, session: string, wakeBlock?: string): string {
+  const wake = wakeBlock && wakeBlock.trim().length > 0 ? [wakeBlock, ''] : [];
   return [
+    ...wake,
     `You are the MISSION CONDUCTOR for project ${project}, driving mission ${missionId} ("${missionTitle}")`,
     `as conductor session "${session}". You DIRECT the work-graph and the build daemon — you NEVER`,
     'hand-edit source (no Edit/Write to product code). Do EXACTLY ONE focused pass, then stop.',
@@ -113,9 +122,11 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     '   then `mcp__mermaid__set_mission_criterion` with `met`, the `evidence` you cited, and',
     '   `verifiedBy`. Never self-grade work you directed.',
     '4. Criteria with action `building` are in flight — leave them; the daemon is on it. BUT there is no',
-    '   longer an AI steward auto-answering escalations — YOU are the authority for stuck work. Call',
-    '   `mcp__mermaid__escalation_list` and look for `blocker` / `assumption-invalidated` cards on this',
-    '   mission\'s todos. For each such todo, call `mcp__mermaid__leaf_inspect` { todoId } and read',
+    '   longer an AI steward auto-answering escalations — YOU are the authority for stuck work. This',
+    '   mission\'s OPEN CARDS ARE LISTED ABOVE in WAKE CONTEXT — act on them; do not go looking for them.',
+    '   (`mcp__mermaid__escalation_list` is still available for the untruncated text of a card, for cards',
+    '   beyond the render cap, or for other projects — but the list above is the mission\'s work.) For each',
+    '   carded todo, call `mcp__mermaid__leaf_inspect` { todoId } and read',
     '   `attempts` — how many times that leaf has re-run (EVERY attempt re-pays an expensive blueprint;',
     '   a todo failing the same way over and over is burn, not progress). Read `parseError`/`reason` for',
     '   WHY it failed. Then DECIDE — never let a todo silently re-blueprint attempt after attempt:',
@@ -144,6 +155,11 @@ export interface ConductorPassDeps {
   /** Injectable for the serve-cap escalation (test spy). Defaults to the store fns. */
   createEscalation?: typeof createEscalation;
   listOpenEscalations?: typeof listOpenEscalations;
+  /** Injectable resolved-card read for the WAKE CONTEXT block. Defaults to the store fn. */
+  listEscalationsResolvedSince?: typeof listEscalationsResolvedSince;
+  /** Injectable WAKE CONTEXT renderer (test seam for the fail-open path). Defaults to the pure
+   *  buildWakeContextBlock. A throw here must degrade to a prompt WITHOUT the block. */
+  buildWakeBlock?: (input: WakeContextInput) => string;
   /** Injectable INFRA stuck-work arm (test spy). Defaults to runInfraRejectionArm. */
   infraArm?: typeof runInfraRejectionArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
@@ -332,7 +348,8 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // leaf-infra-rejected cards are already in it (that is what breaks the debounce for a
   // newly-carded stuck leaf) — feeds BOTH the hard-block and land-ready card id sets.
   const cardSnapshot = (() => { try { return (deps.listOpenEscalations ?? listOpenEscalations)(); } catch { return []; } })();
-  const { hardCardIds, landCardIds } = collectMissionCardIds(cardSnapshot, project, collectMissionTodoIds(project, missionId));
+  const missionTodoIds = collectMissionTodoIds(project, missionId);
+  const { hardCardIds, landCardIds } = collectMissionCardIds(cardSnapshot, project, missionTodoIds);
 
   // The SUCCESS-debounce key includes the open land-ready card ids: a new epic-ready-to-land card is
   // genuinely new work (the conductor must wake to land it), so it must reopen a previously-served
@@ -390,8 +407,43 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // in runConductorPass records the pass's actual outcome.
   setConductorLastPass(project, { missionId, reason: 'pass-ran', tickAt: Date.now() });
 
+  // WAKE CONTEXT. The cards + deltas that CAUSED this pass, handed to the node as data instead of
+  // being left for it to (not) go fetch. Built ONLY from values already in scope for this pass —
+  // cardSnapshot, missionTodoIds, criteriaWithActions, lastConductorPassAt — plus one narrow,
+  // SQL-filtered resolved-card read (a resolution breaks the debounce, so the node must be told a
+  // human answered). FAIL OPEN, mirroring the `// telemetry — never break the run` discipline
+  // elsewhere in this file: a prompt DECORATION that throws must never sink a conductor pass, so
+  // any fault degrades to today's prompt with no block.
+  let wakeBlock: string | undefined;
+  try {
+    const lastPassAt = target.row.lastConductorPassAt ?? null;
+    const openCards = cardSnapshot.filter(
+      (e) => e.project === project && e.todoId != null && missionTodoIds.has(e.todoId),
+    );
+    let resolvedCards: typeof cardSnapshot = [];
+    if (lastPassAt != null) {
+      try {
+        const since = (deps.listEscalationsResolvedSince ?? listEscalationsResolvedSince)(project, lastPassAt);
+        resolvedCards = since.filter((e) => e.todoId != null && missionTodoIds.has(e.todoId));
+      } catch {
+        resolvedCards = [];
+      }
+    }
+    wakeBlock = (deps.buildWakeBlock ?? buildWakeContextBlock)({
+      missionId,
+      missionTitle: target.summary.node.title ?? missionId,
+      now: Date.now(),
+      lastPassAt,
+      openCards,
+      resolvedCards,
+      actions: criteriaWithActions.map((c) => ({ id: c.id, action: c.action, text: c.text })),
+    });
+  } catch {
+    wakeBlock = undefined;
+  }
+
   const res = await (deps.invoke ?? invokeNode)({
-    prompt: buildConductorPrompt(project, missionId, target.summary.node.title ?? missionId, session),
+    prompt: buildConductorPrompt(project, missionId, target.summary.node.title ?? missionId, session, wakeBlock),
     model,
     effort,
     allowedTools: CONDUCTOR_ALLOWED_TOOLS,

@@ -844,3 +844,113 @@ describe('runConductorPass — lastPass refreshes every beat', () => {
     expect(lastPass!.missionId).toBeNull();
   });
 });
+
+/**
+ * WAKE CONTEXT wiring. The pure renderer's contract is covered in conductor-wake-context.test.ts;
+ * these tests cover the PASS side — that the block reaches the node's prompt built from the values
+ * the pass already holds, and that a render fault degrades to today's prompt instead of sinking the
+ * pass. No module mocks: the wake-block builder and the resolved-card read are injected deps.
+ */
+describe('WAKE CONTEXT injection (the things that kick the conductor land in its context)', () => {
+  test('buildConductorPrompt embeds the wake block ABOVE the steps when given one', () => {
+    const block = '=== WAKE CONTEXT ===\nOPEN CARDS ON THIS MISSION\n=== END WAKE CONTEXT ===';
+    const p = buildConductorPrompt('/p', 'm1', 'A mission', 's1', block);
+    expect(p).toContain(block);
+    expect(p.indexOf(block)).toBeLessThan(p.indexOf('You are the MISSION CONDUCTOR'));
+    expect(p).toContain('Steps this pass:');
+  });
+
+  test('buildConductorPrompt still returns a valid prompt when the wake block is undefined or empty', () => {
+    const bare = buildConductorPrompt('/p', 'm1', 'A mission', 's1');
+    const empty = buildConductorPrompt('/p', 'm1', 'A mission', 's1', '   ');
+    for (const p of [bare, empty]) {
+      expect(p.startsWith('You are the MISSION CONDUCTOR')).toBe(true);
+      expect(p).toContain('Steps this pass:');
+      expect(p).toContain('WAKE CONTEXT'); // step 4 references it; the block itself is absent
+      expect(p).not.toContain('OPEN CARDS ON THIS MISSION —');
+    }
+    expect(empty).toBe(bare); // empty ⇒ byte-identical to the pre-injection prompt
+  });
+
+  test('step 4 hands the cards over instead of telling the node to go fetch them', () => {
+    const p = buildConductorPrompt('/p', 'm1', 'A mission', 's1');
+    expect(p).toContain('OPEN CARDS ARE LISTED ABOVE in WAKE CONTEXT — act on them; do not go looking for them');
+    expect(p).toContain('mcp__mermaid__escalation_list'); // still available for detail / other projects
+  });
+
+  test("a live pass injects the mission's OPEN card content (full id + kind + conditionKey) into the prompt", async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    const created = createEscalation({
+      project,
+      session: 's1',
+      kind: 'blocker',
+      todoId: forged.missionId,
+      conditionKey: 'blocker:wake-test',
+      conditionTuple: ['blocker', 'wake-test'],
+      questionText: 'the leaf cannot build because the fixture path moved',
+    });
+    let prompt = '';
+    await runConductorPass(project, {
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    expect(prompt).toContain('OPEN CARDS ON THIS MISSION');
+    expect(prompt).toContain(created.escalation.id); // FULL id, not a short prefix
+    expect(prompt).toContain('blocker:wake-test');
+    expect(prompt).toContain('the leaf cannot build because the fixture path moved');
+  });
+
+  test('a mission with no open cards gets the explicit "none open" line, not a missing section', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    let prompt = '';
+    await runConductorPass(project, {
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    expect(prompt).toContain('none open');
+  });
+
+  test('the actionable-criteria work list reaches the prompt', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    const crit = listCriteria(project, forged.missionId)[0];
+    let prompt = '';
+    await runConductorPass(project, {
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    expect(prompt).toContain('Criteria ACTIONABLE right now');
+    expect(prompt).toContain(`- ${crit.id} [discover]`);
+  });
+
+  test('FAIL OPEN: a throwing wake-block builder still produces a prompt and a normal pass', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    let prompt = '';
+    const r = await runConductorPass(project, {
+      buildWakeBlock: () => { throw new Error('wake render exploded'); },
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted');
+    expect(prompt.startsWith('You are the MISSION CONDUCTOR')).toBe(true);
+    expect(prompt).toContain('Steps this pass:');
+  });
+
+  test('FAIL OPEN: a throwing resolved-card read degrades to a block without the resolved section', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    let prompt = '';
+    const r = await runConductorPass(project, {
+      listEscalationsResolvedSince: () => { throw new Error('store down'); },
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    expect(r.reason).toBe('conducted');
+    expect(prompt).toContain('WAKE CONTEXT');
+    expect(prompt).not.toContain('RESOLVED since your last pass');
+  });
+});
