@@ -13,6 +13,7 @@ import {
   collectInfraRejectedLeaves,
   runInfraRejectionArm,
   infraRejectedMarker,
+  makeEpicBaseProbe,
   INFRA_REJECTED_KIND,
   type EpicBaseProbe,
 } from '../conductor-infra-arm';
@@ -22,7 +23,7 @@ import { _resetMissionDbCache, listCriteria, listCriteriaWithActions, getMission
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { createTodo, updateTodo, getTodo, deriveTodoViews } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
-import { recordNode } from '../worker-ledger';
+import { recordNode, recordEpicBaseGate } from '../worker-ledger';
 
 let project: string;
 
@@ -161,5 +162,43 @@ describe('runInfraRejectionArm', () => {
     expect(r.reason).not.toBe('debounced');
     expect(r.infraCards).toBe(1);
     expect(invoked).toBe(1);
+  });
+});
+
+describe('makeEpicBaseProbe (re-verify policy at the conductor-side cache reader)', () => {
+  test('cached fail at an unchanged baseSha ⇒ the gate RAN, the row flips to pass, and the leaf resets', async () => {
+    const { forged, epic, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+    const baseSha = 'sha-infra-fail-1';
+    recordEpicBaseGate({ epicId: epic.id, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'boom' });
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => baseSha,
+      gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
+      ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+      runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+    });
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', { probe });
+    expect(gateCalls).toBe(1);
+    expect(r.reset).toEqual([leaf.id]);
+    const after = getTodo(project, leaf.id)!;
+    expect(after.acceptanceStatus).toBeNull();
+  });
+
+  test('cached pass ⇒ gate call count 0, verdict pass', async () => {
+    const epicId = 'epic-infra-probe-pass';
+    const baseSha = 'sha-infra-pass-1';
+    recordEpicBaseGate({ epicId, project, baseSha, status: 'pass', command: 'npx tsc --noEmit', output: 'ok' });
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => baseSha,
+      gateDecl: () => { throw new Error('must not be called on a cache hit'); },
+      ensureEpicWorktree: async () => { throw new Error('must not be called on a cache hit'); },
+      runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+    });
+
+    const verdict = await probe(epicId, project);
+    expect(gateCalls).toBe(0);
+    expect(verdict).toBe('pass');
   });
 });
