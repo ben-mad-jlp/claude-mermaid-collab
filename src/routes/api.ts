@@ -42,6 +42,7 @@ import {
   createEpicWithLandLeaf,
   addLeavesToEpic,
   fileToBucketLeaf,
+  workgraphErrorCode,
   type LeafInput,
 } from '../mcp/workgraph-tools';
 import type { TodoKind } from '../services/todo-kind';
@@ -3816,7 +3817,7 @@ export async function handleAPI(
       wsHandler.broadcast({ type: 'session_todos_updated', project, session, ownerSession: epic.ownerSession });
       return Response.json({ epicId: epic.id, epic }, { status: 201 });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return Response.json({ error: error.message, ...(workgraphErrorCode(error) ? { code: workgraphErrorCode(error) } : {}) }, { status: 400 });
     }
   }
 
@@ -3840,7 +3841,7 @@ export async function handleAPI(
         { status: 201 },
       );
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return Response.json({ error: error.message, ...(workgraphErrorCode(error) ? { code: workgraphErrorCode(error) } : {}) }, { status: 400 });
     }
   }
 
