@@ -159,6 +159,8 @@ function makeDeps(opts: {
   // G2: mechanical gate hooks. Absent ⇒ unwired ⇒ pre-G2 behaviour (the floor never calls them).
   runGate?: LeafExecutorDeps['runGate'];
   ensureBaseGreen?: LeafExecutorDeps['ensureBaseGreen'];
+  getEpicTodo?: LeafExecutorDeps['getEpicTodo'];
+  nodeProfileOverrides?: LeafExecutorDeps['nodeProfileOverrides'];
   // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
   changeSet?: string[] | null;
   gateShadowMode?: boolean;
@@ -292,6 +294,8 @@ function makeDeps(opts: {
     clearInflight: () => { spies.inflightSeq.push('clear'); },
     runGate: opts.runGate,
     ensureBaseGreen: opts.ensureBaseGreen,
+    getEpicTodo: opts.getEpicTodo,
+    nodeProfileOverrides: opts.nodeProfileOverrides,
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
     gateShadowMode: () => opts.gateShadowMode ?? false,
@@ -1143,6 +1147,81 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(res.nodesSpent).toBe(0);
     expect(spies.invokeSpecs.length).toBe(0);
     expect(spies.nodeRows.some((r) => r.verdict === 'fail')).toBe(false);
+  });
+
+  it("tier-scoped override 'implement@small' routes a small-tier implement without touching full-tier", async () => {
+    // Model-economics lever: implement@small=haiku trials the cheap model on small leaves
+    // while the kind-wide implement=sonnet pin keeps governing full-tier work.
+    const seen: Record<string, string[]> = { small: [], full: [] };
+    const runWith = async (tier: 'small' | 'full') => {
+      const { deps } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        nodeProfileOverrides: {
+          implement: { model: 'sonnet', effort: null, provider: null },
+          'implement@small': { model: 'haiku', effort: null, provider: null },
+        } as any,
+      });
+      const orig = deps.invoker.invoke.bind(deps.invoker);
+      deps.invoker = { async invoke(spec) { seen[tier].push(spec.model ?? '?'); return orig(spec); } };
+      const res = await runLeaf('proj', makeLeaf({ tier }), deps);
+      expect(res.outcome).toBe('accepted');
+    };
+    await runWith('small');
+    await runWith('full');
+    expect(seen.small).toContain('haiku');   // small-tier implement rode the tier-scoped pin
+    expect(seen.small).not.toContain('opus');
+    expect(seen.full).toContain('sonnet');   // full tier untouched by the @small row
+    expect(seen.full).not.toContain('haiku');
+  });
+
+  it('baseRepair epic EXEMPTS its leaves from the base-red park — the leaf runs and its own gate decides', async () => {
+    // Bug 65345589: an epic whose purpose is greening a red lane was deadlocked by the very
+    // hold that protects normal epics. With the epic flagged baseRepair, the red base no
+    // longer parks the leaf; the normal pipeline runs to acceptance under its own gate.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'bunx vitest --run', output: 'FAIL ui/src/a.test.tsx', reasons: [], declared: true, fresh: true,
+      }),
+      getEpicTodo: () => makeLeaf({ id: '6560e5e1-0000-4000-8000-000000000000', kind: 'epic', baseRepair: 1 }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason ?? '').not.toContain('epic-base-red');
+    // no base-red blocker escalation despite fresh:true — the exemption suppressed the park arm
+    expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
+    expect(spies.invokeSpecs.length).toBeGreaterThan(0); // nodes actually ran
+  });
+
+  it('baseRepair does NOT exempt a gate CONFIG error — could-not-run still parks', async () => {
+    // The exemption covers the red-base park only: a base gate that could not RUN is an
+    // infra/config fact the repair epic cannot outrun, and building on it would be blind.
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'error', command: 'bunx vitest --run', output: 'spawn ENOENT', reasons: [], declared: true, fresh: false,
+      }),
+      getEpicTodo: () => makeLeaf({ id: '6560e5e1-0000-4000-8000-000000000000', kind: 'epic', baseRepair: 1 }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('epic-base-gate-could-not-run');
+  });
+
+  it('a non-baseRepair epic still parks base-red (exemption is opt-in, never default)', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'bunx vitest --run', output: 'FAIL ui/src/a.test.tsx', reasons: [], declared: true, fresh: false,
+      }),
+      getEpicTodo: () => makeLeaf({ id: '62cd0c39-0000-4000-8000-000000000000', kind: 'epic', baseRepair: 0 }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^epic-base-red/);
+    expect(res.nodesSpent).toBe(0);
   });
 
   it('unwired runGate/ensureBaseGreen ⇒ unchanged floor: the LLM verdict alone still decides', async () => {

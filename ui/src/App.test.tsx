@@ -33,6 +33,14 @@ const renderApp = (ui: React.ReactElement = <App />, options?: Omit<RenderOption
   });
 };
 
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }) as any));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('App Component', () => {
   beforeEach(() => {
     // Reset DOM state before each test

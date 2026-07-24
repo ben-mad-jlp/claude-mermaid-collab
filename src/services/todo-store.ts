@@ -135,6 +135,13 @@ export interface Todo {
    *  MAX_BASE_MOVED_REFUNDS: past the bound the refund stops so retryCount can climb to
    *  MAX_REDISPATCH and the leaf is parked instead of looping forever. */
   baseMovedRefunds?: number;
+  /** EPIC-only base-repair exemption (bug 65345589). An epic whose PURPOSE is greening a
+   *  red base lane is otherwise deadlocked by the epic-base-red hold (G2) — its leaves are
+   *  the fix for the very lane that holds them. When 1, G2 skips the base-red park for this
+   *  epic's leaves and lets each leaf's own gate judge NET-NEW-vs-base (the crit-8 lazy
+   *  baseline machinery), so brokenness still cannot land silently. Explicit opt-in set by
+   *  the conductor/planner/human — never auto-inferred. 0/absent = normal hold. */
+  baseRepair?: number;
   /** Opaque actor handle (e.g. 'local:<hostname>') recorded as the completer
    *  when a HUMAN todo is marked done — attribution, not auth (B1). Null for
    *  agent todos and for any todo not (yet) completed. One nullable string makes
@@ -452,6 +459,9 @@ export type UpdateTodoPatch = Partial<{
   /** R5 bucket promotion link: set when promoting a bucket item to a real epic. */
   promotedTo: string | null;
   tier: LeafTier | null;
+  /** Base-repair exemption (epics): 1 exempts this epic's leaves from the epic-base-red
+   *  hold, gating them net-new-vs-base instead (bug 65345589). Explicit opt-in only. */
+  baseRepair: number;
   /** De-conflate S1 (additive). Decision axes; readers ignore these until S3.
    *  `claim` is intentionally NOT patchable here — it is mutated only via writeClaim. */
   approvedAt: string | null;
@@ -502,6 +512,7 @@ interface TodoRow {
   hollowLandedAt: string | null;
   retryCount: number;
   baseMovedRefunds: number;
+  baseRepair: number | null;
   completedBy: string | null;
   objectRef: string | null;
   servesCriterionId: string | null;
@@ -555,6 +566,7 @@ CREATE TABLE IF NOT EXISTS todos (
   claimLeaseMs INTEGER,
   retryCount INTEGER NOT NULL DEFAULT 0,
   baseMovedRefunds INTEGER NOT NULL DEFAULT 0,
+  baseRepair INTEGER NOT NULL DEFAULT 0,
   completedBy TEXT,
   objectRef TEXT,
   decisionRef TEXT,
@@ -606,6 +618,9 @@ export function openDb(project: string): Database {
   // Bounded epic-base-moved refunds: durable per-leaf counter so the refund can't
   // net out the re-dispatch cap forever (see MAX_BASE_MOVED_REFUNDS).
   addColumnIfMissing(db, 'todos', 'baseMovedRefunds', 'baseMovedRefunds INTEGER NOT NULL DEFAULT 0');
+  // Base-repair exemption flag (epics only): lets a lane-repair epic run its leaves
+  // under net-new gate semantics instead of the epic-base-red hold (bug 65345589).
+  addColumnIfMissing(db, 'todos', 'baseRepair', 'baseRepair INTEGER NOT NULL DEFAULT 0');
   // B1: human-vs-agent attribution. assigneeKind backfills existing rows to
   // 'agent' (backward compat); completedBy is the nullable actor handle.
   addColumnIfMissing(db, 'todos', 'assigneeKind', "assigneeKind TEXT NOT NULL DEFAULT 'agent'");
@@ -1346,6 +1361,7 @@ function rowToTodo(row: TodoRow): Todo {
     heldReason: row.heldReason ?? null,
     retryCount: row.retryCount ?? 0,
     baseMovedRefunds: row.baseMovedRefunds ?? 0,
+    baseRepair: row.baseRepair ?? 0,
     completedBy: row.completedBy ?? null,
     objectRef: row.objectRef ?? null,
     servesCriterionId: row.servesCriterionId ?? null,
@@ -1850,6 +1866,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
       promotedTo: patch.promotedTo !== undefined ? patch.promotedTo : (existing.promotedTo ?? null),
       tier: patch.tier !== undefined ? patch.tier : (existing.tier ?? null),
+      baseRepair: patch.baseRepair !== undefined ? patch.baseRepair : (existing.baseRepair ?? 0),
     };
 
     // R5: bucket depth invariant when re-parenting
@@ -1873,13 +1890,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.transaction(() => {
       const res = db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?, baseRepair=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
           completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier, next.baseRepair,
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), patch.retryCount ?? existing.retryCount, fullId
       );
