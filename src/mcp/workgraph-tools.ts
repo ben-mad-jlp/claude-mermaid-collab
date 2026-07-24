@@ -13,6 +13,7 @@ import { getTodo, updateTodo, removeTodo, deriveTodoViews, isBucketEpicTitle, ty
 import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
 import { addSessionTodo } from './tools/session-todos.js';
+import { trackingProjectRoot } from '../services/project-registry.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -32,6 +33,37 @@ export class MissingServesCriterionError extends Error {
     );
     this.name = 'MissingServesCriterionError';
   }
+}
+
+/** Thrown when a mission carries a cross-project `targetProject` that a homed epic
+ *  (or the leaves under it) does not match — refusing to silently default leaves to
+ *  the tracking project when the mission's implementation repo is elsewhere. */
+export class MissingTargetProjectError extends Error {
+  readonly code = 'missing-target-project';
+  constructor(epicId: string, missionId: string, expectedTargetProject: string) {
+    super(
+      `epic ${epicId.slice(0, 8)} is homed to cross-project mission ${missionId.slice(0, 8)} which expects ` +
+      `targetProject "${expectedTargetProject}", but the epic does not match it — leaves would otherwise be ` +
+      `created against the tracking project instead of ${expectedTargetProject}.`,
+    );
+    this.name = 'MissingTargetProjectError';
+  }
+}
+
+/** Returns `err.code` for either typed workgraph error, else undefined. */
+export function workgraphErrorCode(err: unknown): string | undefined {
+  if (err instanceof MissingServesCriterionError || err instanceof MissingTargetProjectError) {
+    return err.code;
+  }
+  return undefined;
+}
+
+/** Compares two targetProject paths through the SAME normalisation createTodo funnels
+ *  its inherited value through, so a raw string compare can't diverge on a worktree-shaped
+ *  path. False when either side is nullish. */
+function sameTarget(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return trackingProjectRoot(a) === trackingProjectRoot(b);
 }
 
 // ============= Shared plain functions (reused by MCP handlers + REST routes) =============
@@ -115,6 +147,13 @@ export async function createEpicWithLandLeaf(
       await updateTodo(project, epic.id, { targetProject: parent.targetProject });
       epic = getTodo(project, epic.id)!;
     }
+    // Belt-and-braces invariant: the inheritance above should always satisfy this, but
+    // if the mission carries a genuinely cross-project targetProject and the epic still
+    // doesn't match it, refuse rather than let leaves default to the tracking project.
+    if (parent.targetProject && !sameTarget(parent.targetProject, project) && !sameTarget(epic.targetProject, parent.targetProject)) {
+      await removeTodo(project, epic.id);
+      throw new MissingTargetProjectError(epic.id, parent.id, parent.targetProject);
+    }
   }
 
   return { epic };
@@ -163,6 +202,11 @@ export async function addLeavesToEpic(
         `add_leaves: parent epic ${epicId.slice(0, 8)} is mission-homed but its mission node ` +
         `${parent.parentId.slice(0, 8)} is unreadable — refusing to default leaves to the tracking project`,
       );
+    }
+    if (isMission(epicMission) && epicMission.targetProject && !sameTarget(epicMission.targetProject, project)) {
+      if (!sameTarget(parent.targetProject, epicMission.targetProject)) {
+        throw new MissingTargetProjectError(epicId, epicMission.id, epicMission.targetProject);
+      }
     }
   }
 
@@ -303,6 +347,23 @@ export const WORKGRAPH_TOOL_DEFS = [
 ];
 
 /**
+ * MCP transports only carry the thrown message, not the Error instance/code — re-throw
+ * the SAME instance with its message prefixed `[<code>] ` (once) so in-process callers
+ * still see `.code` while MCP clients can pattern-match the prefix.
+ */
+async function withWorkgraphErrorCode<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const code = workgraphErrorCode(err);
+    if (code && err instanceof Error && !err.message.startsWith(`[${code}] `)) {
+      err.message = `[${code}] ${err.message}`;
+    }
+    throw err;
+  }
+}
+
+/**
  * Handle a work-graph-group CallTool invocation. Returns the JSON string result, or
  * `null` if `name` is not a work-graph tool — in which case the caller falls through
  * to its own switch (mirrors handleMissionTool's dispatch contract).
@@ -312,14 +373,14 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
     case 'create_epic': {
       const { project, session, title } = args as { project: string; session: string; title: string };
       if (!project || !session || !title) throw new Error('Missing required: project, session, title');
-      const { epic } = await createEpicWithLandLeaf(project, session, {
+      const { epic } = await withWorkgraphErrorCode(() => createEpicWithLandLeaf(project, session, {
         title,
         home: args.home,
         homeProvided: 'home' in args,
         description: args.description,
         servesCriterionIds: args.servesCriterionIds,
         tier: args.tier,
-      });
+      }));
       broadcastTodosUpdated(project, session);
       return JSON.stringify(
         { epicId: epic.id, epic: deriveTodoViews(project, [epic])[0] },
@@ -331,7 +392,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
       const { project, session, epicId, leaves } = args as { project: string; session: string; epicId: string; leaves: LeafInput[] };
       if (!project || !session || !epicId) throw new Error('Missing required: project, session, epicId');
       if (!Array.isArray(leaves) || leaves.length === 0) throw new Error('add_leaves: leaves must be a non-empty array');
-      const { createdIds } = await addLeavesToEpic(project, session, epicId, leaves);
+      const { createdIds } = await withWorkgraphErrorCode(() => addLeavesToEpic(project, session, epicId, leaves));
       broadcastTodosUpdated(project, session);
       return JSON.stringify(
         { epicId, createdIds, leaves: deriveTodoViews(project, createdIds.map((id) => getTodo(project, id)!)) },
