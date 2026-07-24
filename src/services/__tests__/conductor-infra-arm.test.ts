@@ -18,6 +18,7 @@ import {
   type EpicBaseProbe,
 } from '../conductor-infra-arm';
 import { runConductorPass, conductorFingerprint } from '../conductor-pass';
+import { buildPassSignature } from '../conductor-signature';
 import { addWatchedProject, setConductorEnabled, listEscalations } from '../supervisor-store';
 import { _resetMissionDbCache, listCriteria, listCriteriaWithActions, getMission, stampConductorRun } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
@@ -152,7 +153,7 @@ describe('runInfraRejectionArm', () => {
     const status = getMission(project, forged.missionId)!.status!;
     const actions = listCriteriaWithActions(project, forged.missionId)
       .map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
-    stampConductorRun(project, forged.missionId, `${conductorFingerprint(status, actions)}|land:0`);
+    stampConductorRun(project, forged.missionId, buildPassSignature(conductorFingerprint(status, actions), []));
 
     let invoked = 0;
     const r = await runConductorPass(project, {

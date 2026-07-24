@@ -20,6 +20,7 @@ import {
 } from './mission-store.js';
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
+import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
 import { getOrchestratorLevel } from './orchestrator-config.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from './node-provider.js';
@@ -33,7 +34,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
  *  (set_mission_criterion), check readiness and LAND (epic_land_readiness/land_epic). */
 export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allowedTools;
 
-import { conductorFingerprint } from './conductor-signature.js';
+import { buildServeSignature, buildPassSignature, collectMissionCardIds, conductorFingerprint } from './conductor-signature.js';
 export { conductorFingerprint, type ConductorActionRow } from './conductor-signature.js';
 
 /** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
@@ -50,6 +51,36 @@ export { CONDUCTOR_SERVE_RETRY_CAP };
  *  (=missionId) and free text. Stable + greppable. */
 export function serveCapMarker(criterionId: string): string {
   return `[serve-cap:${criterionId}]`;
+}
+
+/** The mission id plus every todo in its transitive descendant tree (any status — a card hanging
+ *  off a done/dropped descendant is still live escalation state and must move the signature,
+ *  unlike collectInfraRejectedLeaves which skips terminal epics because it re-dispatches work).
+ *  One listTodos call; fail-open to just the mission id on a store throw. */
+export function collectMissionTodoIds(project: string, missionId: string): Set<string> {
+  try {
+    const all = listTodos(project, { includeCompleted: true });
+    const childrenByParent = new Map<string, string[]>();
+    for (const t of all) {
+      if (t.parentId == null) continue;
+      const siblings = childrenByParent.get(t.parentId);
+      if (siblings) siblings.push(t.id);
+      else childrenByParent.set(t.parentId, [t.id]);
+    }
+    const ids = new Set<string>([missionId]);
+    const stack = [missionId];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const childId of childrenByParent.get(cur) ?? []) {
+        if (ids.has(childId)) continue; // cyclic/self parent-edge guard
+        ids.add(childId);
+        stack.push(childId);
+      }
+    }
+    return ids;
+  } catch {
+    return new Set([missionId]);
+  }
 }
 
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
@@ -266,7 +297,6 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } catch {
     arm = { candidates: [], reset: [], cardsRaised: 0 };
   }
-  const infraActed = arm.reset.length > 0 || arm.cardsRaised > 0;
   if (arm.reset.length > 0) {
     // A leaf just went back to READY. Spend NOTHING on a conductor node and do NOT stamp the run:
     // the daemon rebuilds the un-parked leaf on its own tick, and the fingerprint moves for real
@@ -282,47 +312,58 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   }
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
-  // A build-green epic surfaces an 'epic-ready-to-land' card while its criterion still reads
-  // 'building' (unlanded) — the conductor must run to LAND it, not wait. (land_epic's ownership gate
-  // ensures the node only lands THIS mission's epics.)
-  const landCards = (() => { try { return (deps.listOpenEscalations ?? listOpenEscalations)().filter((e) => e.project === project && e.kind === 'epic-ready-to-land').length; } catch { return 0; } })();
+  // ONE post-arm escalation snapshot, taken AFTER runInfraRejectionArm so the arm's own
+  // leaf-infra-rejected cards are already in it (that is what breaks the debounce for a
+  // newly-carded stuck leaf) — feeds BOTH the hard-block and land-ready card id sets.
+  const cardSnapshot = (() => { try { return (deps.listOpenEscalations ?? listOpenEscalations)(); } catch { return []; } })();
+  const { hardCardIds, landCardIds } = collectMissionCardIds(cardSnapshot, project, collectMissionTodoIds(project, missionId));
 
-  // The SUCCESS-debounce key includes the open land-card count: a new epic-ready-to-land card is
+  // The SUCCESS-debounce key includes the open land-ready card ids: a new epic-ready-to-land card is
   // genuinely new work (the conductor must wake to land it), so it must reopen a previously-served
-  // state. The FAIL-RETRY counter, however, keys on the SERVE-STATE fingerprint ALONE (status +
-  // per-criterion actions) — NOT on landCards. landCards is a project-GLOBAL count that flips as
-  // unrelated epics across the project surface/clear their land cards; folding it into the fail key
-  // let any such flip reset priorFails and re-spawn CONDUCTOR_SERVE_RETRY_CAP fresh (expensive)
-  // conductor nodes on a mission whose serve-state is structurally UNSERVABLE (the 9688e874 crit7
-  // token churn: an undelegatable criterion got 3 brand-new nodes every time an unrelated land card
-  // came or went). Keying the cap on the serve-state alone makes an unservable state cap ONCE and
-  // STAY capped until the serve-state itself changes (a criterion actually progresses).
-  const serveFp = conductorFingerprint(status, actions);
-  const fp = serveFp + `|land:${landCards}`;
+  // state. The FAIL-RETRY counter, however, keys on the SERVE SIGNATURE ALONE (status + per-criterion
+  // actions + mission-scoped hard-block card ids) — NOT on landCardIds. The old landCards was a
+  // project-GLOBAL count that flipped as unrelated epics across the project surfaced/cleared their
+  // land cards; folding it into the fail key let any such flip reset priorFails and re-spawn
+  // CONDUCTOR_SERVE_RETRY_CAP fresh (expensive) conductor nodes on a mission whose serve-state is
+  // structurally UNSERVABLE (the 9688e874 crit7 token churn: an undelegatable criterion got 3
+  // brand-new nodes every time an unrelated land card came or went). Keying the cap on the serve
+  // signature alone makes an unservable state cap ONCE and STAY capped until the serve signature
+  // itself changes (a criterion actually progresses, OR a mission-scoped hard card opens/resolves —
+  // both are genuinely new information, so a changed serveFp is itself the re-arm; there is no
+  // separate infraActed bypass to key on).
+  const serveFp = buildServeSignature({ status, actions, hardCardIds });
+  const fp = buildPassSignature(serveFp, landCardIds);
   const lastKey = target.row.lastConductorKey;
+  const selfKey = target.row.lastConductorSelfKey;
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
-  // …unless the INFRA arm just carded a stuck leaf: that is genuinely new, un-fingerprinted state
-  // (the card dedupe makes it at most once per leaf), and the node is the stuck-work authority.
-  if (lastKey === fp && !infraActed) return { ran: false, reason: 'debounced', missionId };
+  // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
+  // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
+  // a self-echo, not a wake-up.
+  if (lastKey === fp || selfKey === fp) return { ran: false, reason: 'debounced', missionId };
   // A prior FAILED pass encodes `${serveFp}|fail:N`. A node FAILURE (or empty serve) used to stamp
   // the plain fp and permanently wedge the mission; it now retries up to CONDUCTOR_SERVE_RETRY_CAP
   // times across ticks, then stops respinning an expensive node on an unservable serve-state
-  // (bounded, not a permanent wedge — and NOT re-armed by landCards drift).
+  // (bounded, not a permanent wedge — and NOT re-armed by landCardIds drift). Because hard-card ids
+  // now live INSIDE serveFp, a new hard card changes failPrefix itself and the counter restarts from
+  // 0 for the new serve-state — the intended re-arm (a new card is new information), still bounded by
+  // CONDUCTOR_SERVE_RETRY_CAP per distinct card set.
   const failPrefix = `${serveFp}|fail:`;
   const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
-  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP && !infraActed) return { ran: false, reason: 'debounced', missionId };
+  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return { ran: false, reason: 'debounced', missionId };
 
   // No servable gap and no land card to drive: nothing for the node to do. A capped
   // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
   // above and must NOT spend a node re-filing for it (the thrash this cap kills). Report
   // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
   // building-wait (daemon working) no-op.
-  if (!hasGap && landCards === 0) {
+  if (!hasGap && landCardIds.length === 0) {
     if (escalated.length > 0) return { ran: false, reason: 'criteria-escalated', missionId, escalationsRaised };
-    // 'building' normally means "the daemon is on it — leave it". A just-carded INFRA leaf is the
-    // exception: the daemon is NOT on it (it is parked and un-dispatchable), and step 4 of the
-    // conductor prompt makes the node the authority for exactly that stuck work. Once per leaf.
-    if (status === 'building' && !infraActed) return { ran: false, reason: 'building-wait', missionId };
+    // 'building' normally means "the daemon is on it — leave it". An open mission-scoped hard card
+    // (e.g. a just-carded INFRA leaf) is the exception: reaching this line already proves the
+    // signature differs from both stored keys, and step 4 of the conductor prompt makes the node the
+    // authority for exactly that stuck work. Wakes at most once per distinct card set — the
+    // productive pass stamps the self key over it.
+    if (status === 'building' && hardCardIds.length === 0) return { ran: false, reason: 'building-wait', missionId };
   }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
@@ -372,13 +413,26 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // bounded serve-retry counter.
   const transient = isTransientNodeFault(res);
   if (productive) {
-    // Stamp the fingerprint using the UPDATED state after the node ran, so the next pass
-    // recognizes this state as already-attempted and debounces without re-invoking.
+    // Stamp the fingerprint using the UPDATED state after the node ran (but the PRE-pass card ids —
+    // that is the state the pass reacted to), so the next pass recognizes this state as
+    // already-attempted and debounces without re-invoking.
     const updatedStatus = getMission(project, missionId)?.status ?? status;
     const updatedActions = updatedCriteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
-    const updatedServeFp = conductorFingerprint(updatedStatus, updatedActions);
-    const updatedFp = updatedServeFp + `|land:${landCards}`;
-    stampConductorRun(project, missionId, updatedFp);
+    const updatedServeFp = buildServeSignature({ status: updatedStatus, actions: updatedActions, hardCardIds });
+    const updatedFp = buildPassSignature(updatedServeFp, landCardIds);
+    // Self-issued key: a FRESH card snapshot + FRESH mission todo-id set (a served epic adds ids),
+    // so the pass's own escalation/land-card side effects don't look like a wake-up next tick. Fail
+    // open on a stamping hiccup: the pass must never throw here — degrade to today's behaviour.
+    let postPassSelfKey: string | null = null;
+    try {
+      const postCardSnapshot = (deps.listOpenEscalations ?? listOpenEscalations)();
+      const postIds = collectMissionCardIds(postCardSnapshot, project, collectMissionTodoIds(project, missionId));
+      const postServeFp = buildServeSignature({ status: updatedStatus, actions: updatedActions, hardCardIds: postIds.hardCardIds });
+      postPassSelfKey = buildPassSignature(postServeFp, postIds.landCardIds);
+    } catch {
+      postPassSelfKey = null;
+    }
+    stampConductorRun(project, missionId, updatedFp, { selfKey: postPassSelfKey });
   } else if (transient) {
     // Do NOT stampConductorRun — leave target.row.lastConductorKey unchanged so the next
     // tick re-runs a pass on the SAME serve-state (no fail: increment, no debounce).

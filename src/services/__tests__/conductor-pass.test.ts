@@ -9,7 +9,7 @@ const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
+import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
@@ -17,6 +17,7 @@ import { listCriteria } from '../mission-store';
 import { createTodo, updateTodo } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
+import { recordNode } from '../worker-ledger';
 
 let project: string;
 let invokeCalls: number;
@@ -277,7 +278,9 @@ describe('runConductorPass — scheduling', () => {
     expect(wait.reason).toBe('building-wait');
     expect(invokeCalls).toBe(0);
     // A build-green epic surfaces an epic-ready-to-land card → the conductor MUST run to land it.
-    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: null });
+    // (Real land cards carry the epic id, a mission descendant — mirror that with the mission id
+    // itself so the card is in-scope for the mission-scoped signature.)
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: forged.missionId });
     const r = await runConductorPass(project, { invoke: okInvoke });
     expect(r.ran).toBe(true);
     expect(r.reason).toBe('conducted');
@@ -554,6 +557,65 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     );
     expect(allMatching.length).toBe(1);
     expect(allMatching[0].status).toBe('acknowledged');
+  });
+});
+
+describe('runConductorPass — mission-scoped card ids in the signature', () => {
+  test('un-sleep: a blocker card on a mission todo wakes a debounced mission; resolving it moves the signature again', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    await runConductorPass(project, { invoke: okInvoke });
+    expect(invokeCalls).toBe(1);
+    const debounced = await runConductorPass(project, { invoke: okInvoke });
+    expect(debounced.reason).toBe('debounced');
+    expect(invokeCalls).toBe(1);
+
+    const { escalation } = createEscalation({
+      project, session: 's1', kind: 'blocker', todoId: forged.missionId, questionText: 'stuck leaf under this mission',
+    });
+
+    const r2 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r2.reason).not.toBe('debounced');
+    expect(invokeCalls).toBe(2);
+
+    resolveEscalation(escalation.id, 'resolved');
+    const r3 = await runConductorPass(project, { invoke: okInvoke });
+    expect(r3.reason).not.toBe('debounced');
+  });
+
+  test('self-excitation: a pass whose only delta is its own leaf-infra-rejected card does not re-arm', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    const crit = listCriteria(project, forged.missionId)[0];
+    const epic = await createTodo(project, {
+      ownerSession: 's1', title: '[EPIC] serving epic', kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, epic.id, { status: 'ready' });
+    const leaf = await createTodo(project, { ownerSession: 's1', title: 'the stuck leaf', parentId: epic.id, status: 'ready' });
+    await updateTodo(project, leaf.id, { acceptanceStatus: 'rejected' });
+    recordNode({
+      project, todoId: leaf.id, epicId: epic.id, leafId: leaf.id, session: 's1', nodeKind: 'outcome',
+      nodesSpent: 0, leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'epic-base-red: npx tsc --noEmit\n--- output (tail) ---\nerror TS2345' }),
+    });
+    const failProbe = async () => 'fail' as const;
+
+    // First pass: the INFRA arm cannot prove the base green ⇒ raises exactly one leaf-infra-rejected
+    // card. That card is genuinely new state (it breaks the debounce), so the node runs and its
+    // post-pass self key folds in the card it just saw.
+    const r1 = await runConductorPass(project, { invoke: okInvoke, epicBaseProbe: failProbe });
+    expect(r1.reason).not.toBe('debounced');
+    const callsAfterFirst = invokeCalls;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+
+    // Second pass: SAME state — the card is still open (deduped, no new card raised) and nothing
+    // else moved. The self key the first pass stamped now matches this pass's signature ⇒ debounced,
+    // no second node.
+    const r2 = await runConductorPass(project, { invoke: okInvoke, epicBaseProbe: failProbe });
+    expect(r2.reason).toBe('debounced');
+    expect(invokeCalls).toBe(callsAfterFirst);
   });
 });
 
