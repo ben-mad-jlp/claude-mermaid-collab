@@ -3043,19 +3043,22 @@ export async function handleAPI(
   // The single mission-spend readout — THE `getMissionSpend` attribution rule surfaced
   // directly, so the UI cites the same number as `getMissionCost` and `collectMissionStatusFacts`.
   if (path === '/api/usage/mission' && req.method === 'GET') {
-    const project = url.searchParams.get('project');
+    const { trackingProjectRoot } = await import('../services/project-registry');
+    const project = trackingProjectRoot(url.searchParams.get('project') ?? process.cwd());
     const missionId = url.searchParams.get('missionId');
-    if (!project || !missionId) {
-      return Response.json({ error: 'project and missionId required' }, { status: 400 });
+    if (!missionId) {
+      return Response.json({ error: 'missionId required' }, { status: 400 });
+    }
+    const { getMission } = await import('../services/mission-store');
+    const mission = getMission(project, missionId);
+    if (!mission) {
+      return Response.json({ error: 'mission not found' }, { status: 404 });
     }
     const { getMissionSpend } = await import('../services/ledger-stats');
-    const spend = getMissionSpend(project, missionId);
+    const spend = getMissionSpend(project, mission.todoId);
     return Response.json({
-      missionId: spend.missionId,
-      costUsd: spend.costUsd,
-      nodesSpent: spend.nodesSpent,
-      rows: spend.rows,
-      byBucket: spend.byBucket,
+      ...spend,
+      budgetUsd: mission.budgetUsd ?? null,
     });
   }
 
