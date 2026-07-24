@@ -1235,10 +1235,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
       // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
       const serving = epics.filter((e) => e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id));
-      const servingEpicState: 'landed' | 'open' | 'none' =
-        serving.some((e) => e.status !== 'done') ? 'open'
-        : serving.some((e) => e.status === 'done') ? 'landed'
-        : 'none';
+      // LANDED-ness is `status === 'done'` OR a stamped landedAt: the land paths can leave an
+      // epic landed while its status lags at 'todo' (observed on 7 build123d epics, 2026-07-24),
+      // and such an epic could never satisfy a status-only test — masking its criterion forever.
+      const isLandedEpic = (e: Todo) => e.status === 'done' || e.landedAt != null;
       // Live = the serving open epic has actual motion: a pending/paused ledger run, or a
       // ready/in_progress child leaf (covers approve→claim gap AND a ready land leaf).
       // A filed-but-unapproved epic is NOT live — its criterion stays 'discover'.
@@ -1248,15 +1248,31 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // is actually mid-build and cause the conductor to re-file a duplicate serving epic (real
       // spend). Treat any open serving epic as live until the ledger is readable again.
       const servingEpicLive = ledgerUnavailable
-        ? serving.some((e) => e.status !== 'done')
+        ? serving.some((e) => !isLandedEpic(e))
         : serving.some((e) =>
-          e.status !== 'done' && (
+          !isLandedEpic(e) && (
             runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
             allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
               (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress')) ||
             (!allTodos.some((t) => t.parentId === e.id && !isEpic(t)) && Number.isFinite(Date.parse(e.createdAt)) &&
               now - Date.parse(e.createdAt) < CHILDLESS_SERVE_GRACE_MS)
           ));
+      // LIVENESS decides 'open', not mere existence. The old rule was
+      //   serving.some(e => e.status !== 'done') ? 'open' : serving.some(done) ? 'landed' : 'none'
+      // so ANY non-done serving epic — including a stale, motionless, never-approved one — masked
+      // a sibling that had ALREADY LANDED. Since deriveCriterionAction only returns 'verify' for
+      // 'landed', the verdict gate never ran; with no live motion the criterion then read
+      // 'discover' and the conductor filed YET ANOTHER serving epic every tick, each a fresh
+      // blueprint+implement spend (build123d 2026-07-24: one criterion accrued SEVEN serving
+      // epics). Now: work genuinely in flight still wins ('open' ⇒ wait), but once nothing is
+      // live, landed work asks for a VERDICT instead of another epic. A non-landed, non-live
+      // serving epic still reads 'open'+not-live ⇒ 'discover', preserving the unattended-stall
+      // trap for a filed-but-never-approved epic.
+      const servingEpicState: 'landed' | 'open' | 'none' =
+        servingEpicLive ? 'open'
+        : serving.some(isLandedEpic) ? 'landed'
+        : serving.length > 0 ? 'open'
+        : 'none';
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick
       // accrues its true thrash history (the serve-cap escalation trigger). EXCEPT hollow-
       // landed done epics, which don't burn the cap (LS-1).
