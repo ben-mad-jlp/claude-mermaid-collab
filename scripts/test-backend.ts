@@ -51,6 +51,24 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// Gate on a clean desktop typecheck before running any backend test files, so a type break
+// under desktop/src fails test:backend / test:backend:floor independently of the per-leaf gate.
+{
+  const proc = Bun.spawn(['npx', 'tsc', '--noEmit', '-p', 'tsconfig.json'], {
+    cwd: path.join(ROOT, 'desktop'),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.log(`\n✗ desktop typecheck FAILED:\n`);
+    console.log((err + out).trim().split('\n').slice(-20).join('\n'));
+    process.exit(1);
+  }
+  console.log('✓ desktop typecheck passed\n');
+}
+
 console.log(`Running ${files.length} backend test file(s) under bun, ${concurrency} at a time (per-file isolation)…\n`);
 
 const failed: { file: string; output: string }[] = [];
