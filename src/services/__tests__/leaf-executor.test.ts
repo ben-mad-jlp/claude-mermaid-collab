@@ -6,10 +6,19 @@
  * node is ever spawned, and no real worktree/git is touched.
  */
 import { describe, it, expect } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolated ledger dir so resolveBaseGreen's real recordEpicBaseGate/getEpicBaseGate writes
+// never touch (or leak into) the developer's real ~/.mermaid-collab store.
+process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'leaf-executor-ledger-'));
+
 import {
   runLeaf,
   parseVerdict,
   isCacheableBaseGateStatus,
+  resolveBaseGreen,
   buildNodePrompt,
   buildReviewPrompt,
   buildBlueprintRefreshPrompt,
@@ -47,6 +56,7 @@ import {
   type InheritedSlice,
 } from '../leaf-executor';
 import { sliceCoversFiles } from '../split-decision';
+import { recordEpicBaseGate } from '../worker-ledger';
 import { MAX_BASE_MOVED_REFUNDS, MAX_REDISPATCH } from '../harness-caps';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
@@ -1386,6 +1396,47 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(isCacheableBaseGateStatus('pass')).toBe(true);
     expect(isCacheableBaseGateStatus('fail')).toBe(true);
     expect(isCacheableBaseGateStatus('error')).toBe(false);
+  });
+
+  describe('resolveBaseGreen (re-verify policy at the executor cache reader)', () => {
+    const gateCfg = { typecheck: 'echo ok' } as any;
+
+    it('cached pass ⇒ fresh:false, gate never runs', async () => {
+      const epicId = 'epic-resolve-pass';
+      const baseSha = 'sha-pass-1';
+      recordEpicBaseGate({ epicId, project: 'p', baseSha, status: 'pass', command: 'echo ok', output: 'ok' });
+      let gateCalls = 0;
+      const r = await resolveBaseGreen({
+        epicId,
+        project: 'p',
+        targetProject: 'p',
+        epicBaseSha: baseSha,
+        gateCfg,
+        ensureEpicWorktree: async () => { throw new Error('must not be called'); },
+        runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      });
+      expect(gateCalls).toBe(0);
+      expect(r?.fresh).toBe(false);
+      expect(r?.status).toBe('pass');
+    });
+
+    it('cached fail at the same baseSha ⇒ 1 gate call, fresh:true', async () => {
+      const epicId = 'epic-resolve-fail';
+      const baseSha = 'sha-fail-1';
+      recordEpicBaseGate({ epicId, project: 'p', baseSha, status: 'fail', command: 'echo no', output: 'boom' });
+      let gateCalls = 0;
+      const r = await resolveBaseGreen({
+        epicId,
+        project: 'p',
+        targetProject: 'p',
+        epicBaseSha: baseSha,
+        gateCfg,
+        ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+        runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      });
+      expect(gateCalls).toBe(1);
+      expect(r?.fresh).toBe(true);
+    });
   });
 
   it('error base gate ⇒ zero leaves, zero nodes, escalation on every leaf (not cached)', async () => {
