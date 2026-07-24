@@ -12,7 +12,8 @@
  * SAME primitives the executor used (epicHeadSha → epic_base_gate cache → runBaseGate in
  * the epic worktree), and then either:
  *   - un-parks the leaf (`resetTodo` → ready) when the base is provably GREEN again, or
- *   - raises exactly ONE human card (deduped by a marker in questionText) when it is not.
+ *   - raises exactly ONE human card (deduped by the store's keyed `conditionKey`/`conditionTuple`
+ *     path) when it is not.
  *
  * Fail CLOSED in both directions:
  *   - a rejection reason we do not recognise is CONTENT (`classifyInfraRejection` → null)
@@ -26,7 +27,7 @@
 import { listTodos, resetTodo, type Todo } from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
-import { createEscalation, listEscalations, type Escalation } from './supervisor-store.js';
+import { createEscalation, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { getEpicBaseGate, recordEpicBaseGate, shouldHonourCachedBaseGate } from './worker-ledger.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
@@ -105,6 +106,13 @@ export const INFRA_REJECTED_KIND = 'leaf-infra-rejected';
  *  to an exact leaf (mirrors serveCapMarker in conductor-pass). Stable + greppable. */
 export function infraRejectedMarker(leafId: string): string {
   return `[infra-rejected:${leafId.slice(0, 8)}]`;
+}
+
+/** The store's durable identity for a leaf-infra-rejected card: one per (leaf, cause). Used
+ *  as `conditionKey` so a resolved card is suppressed and an open one is bumped instead of
+ *  re-raised (supervisor-store.ts createEscalation :824-842). */
+export function infraRejectedConditionKey(leafId: string, cause: InfraCause): string {
+  return `${INFRA_REJECTED_KIND}:${leafId.slice(0, 8)}:${cause}`;
 }
 
 /** 'pass' is the ONLY verdict that un-parks a leaf. 'unknown' = we could not even run the
@@ -187,6 +195,8 @@ export const defaultEpicBaseProbe: EpicBaseProbe = makeEpicBaseProbe();
 export interface InfraArmDeps {
   probe?: EpicBaseProbe;
   createEscalation?: typeof createEscalation;
+  /** Retained for callers (conductor-pass.ts still forwards it) and tests that pass it; the
+   *  arm itself now dedupes via the store's keyed conditionKey path, not a local open-scan. */
   listOpenEscalations?: () => Escalation[];
   reset?: typeof resetTodo;
 }
@@ -218,10 +228,6 @@ export async function runInfraRejectionArm(
   const probe = deps.probe ?? defaultEpicBaseProbe;
   const createEsc = deps.createEscalation ?? createEscalation;
   const resetFn = deps.reset ?? resetTodo;
-  const listOpen = deps.listOpenEscalations ?? (() =>
-    listEscalations().filter((e) => e.status === 'open' || e.status === 'acknowledged'));
-  let open: Escalation[] = [];
-  try { open = listOpen(); } catch { open = []; }
 
   const todos = listTodos(project, { includeCompleted: true });
   const byId = new Map<string, Todo>(todos.map((t) => [t.id, t]));
@@ -245,17 +251,14 @@ export async function runInfraRejectionArm(
       }
 
       const marker = infraRejectedMarker(c.leafId);
-      const already = open.some((e) =>
-        (e.status === 'open' || e.status === 'acknowledged') &&
-        e.kind === INFRA_REJECTED_KIND && e.project === project &&
-        e.todoId === c.leafId && e.questionText.includes(marker));
-      if (already) continue;
-      createEsc({
+      const res = createEsc({
         project,
         session,
         kind: INFRA_REJECTED_KIND,
         todoId: c.leafId,
         operatorGated: true,
+        conditionKey: infraRejectedConditionKey(c.leafId, c.cause),
+        conditionTuple: [INFRA_REJECTED_KIND, c.leafId.slice(0, 8), c.cause],
         questionText:
           `Leaf ${c.leafId.slice(0, 8)} ${marker} is parked on an INFRASTRUCTURE failure ` +
           `(${c.cause}), not on its content — nothing about its spec or diff is wrong.\n` +
@@ -266,7 +269,7 @@ export async function runInfraRejectionArm(
           `Repair the base on that branch (or re-home the leaf) and commit; the next conductor ` +
           `pass re-probes and releases the leaf automatically.`,
       });
-      result.cardsRaised++;
+      if (res && res.isNew) result.cardsRaised++;
     } catch {
       // fail-open per candidate — one bad probe/card must not sink the pass.
     }

@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, listEscalations, setConductorLastPass, createEscalation, type Escalation } from './supervisor-store.js';
+import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, setConductorLastPass, createEscalation } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -50,6 +50,13 @@ export { CONDUCTOR_SERVE_RETRY_CAP };
  *  (=missionId) and free text. Stable + greppable. */
 export function serveCapMarker(criterionId: string): string {
   return `[serve-cap:${criterionId}]`;
+}
+
+/** The store's durable identity for a criterion-serve-cap card: one per criterion. Used as
+ *  `conditionKey` so a resolved card is suppressed and an open one is bumped instead of
+ *  re-raised (supervisor-store.ts createEscalation :824-842). */
+export function serveCapConditionKey(criterionId: string): string {
+  return `serve-cap:${criterionId}`;
 }
 
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
@@ -216,33 +223,24 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   let escalationsRaised = 0;
   if (escalated.length > 0) {
     const createEsc = deps.createEscalation ?? createEscalation;
-    const listOpen = deps.listOpenEscalations ?? (() => {
-      const all = listEscalations();
-      return all.filter((e) => e.status === 'open' || e.status === 'acknowledged');
-    });
-    // Fail-open: an escalation-store hiccup must NEVER break the pass.
-    let open: Escalation[] = [];
-    try { open = listOpen(); } catch { open = []; }
     for (const c of escalated) {
       try {
         const marker = serveCapMarker(c.id);
-        const already = open.some((e) =>
-          (e.status === 'open' || e.status === 'acknowledged') && e.kind === CRITERION_SERVE_CAP_KIND &&
-          e.project === project && e.todoId === missionId && e.questionText.includes(marker));
-        if (already) continue;
-        createEsc({
+        const res = createEsc({
           project,
           session,
           kind: CRITERION_SERVE_CAP_KIND,
           todoId: missionId,
           operatorGated: true,
+          conditionKey: serveCapConditionKey(c.id),
+          conditionTuple: ['serve-cap', c.id],
           questionText:
             `Mission "${target.summary.node.title ?? missionId}" — criterion "${c.text}" ${marker}: ` +
             `${c.servedEpicCount} serving epics filed but the criterion is still unmet — it likely needs ` +
             `HUMAN action (a live measurement / deploy / rescope); the conductor will not re-file. ` +
             `Resolve or rescope this criterion.`,
         });
-        escalationsRaised++;
+        if (res && res.isNew) escalationsRaised++;
       } catch {
         // fail-open per criterion — one bad card must not sink the rest of the pass.
       }
