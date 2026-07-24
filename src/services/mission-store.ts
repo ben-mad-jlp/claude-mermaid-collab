@@ -19,7 +19,7 @@ import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
-import { listLeafRuns } from './ledger-stats.ts';
+import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
@@ -1171,11 +1171,17 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress'),
   );
   const criteria = listCriteria(project, m.todoId);
+  let spendUsd = 0;
+  try {
+    spendUsd = getMissionSpend(project, m.todoId, { listTodos: () => allTodos }).costUsd;
+  } catch {
+    spendUsd = 0;
+  }
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
     budgetUsd: m.budgetUsd,
-    spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
+    spendUsd,
     // Ledger unavailable: we cannot see the leaf runs that would normally reveal a blocked
     // (rejected/parked) leaf, so we can't claim 'blocked' either — false here, same as the prior
     // degrade-to-empty behavior (a ledger hiccup must never manufacture a block it can't see).
