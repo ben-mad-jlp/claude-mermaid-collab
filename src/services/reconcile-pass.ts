@@ -35,7 +35,8 @@ import {
 import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
-import { claimReason, danglingDeps } from './claimability.ts';
+import { claimReason, danglingDeps, resolveDepId } from './claimability.ts';
+import { settleDupOfLanded, repointDependents, dependentsOf, DUP_OF_LANDED } from './dep-settlement.ts';
 import { yieldToLoop } from './loop-yield.ts';
 import { promoteQueuedMissions } from './mission-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -51,6 +52,14 @@ export const DANGLING_DEPS_KIND = 'dangling-deps';
  *  Exempted from the stale-close sweep to prevent the close/recreate flap that
  *  would occur on every tick. Auto-closed by step 4 via todoId linking. */
 export const EPIC_SWEEP_TRIAGE_KIND = 'epic-sweep-triage';
+
+/** Escalation `kind` reserved for the dep-strand decision sweep (3j below), mirroring
+ *  `DANGLING_DEPS_KIND`'s pattern of a dedicated kind so that sweep's own auto-close
+ *  finds exactly its own cards and never touches another kind's. Raised for the
+ *  stranding shapes the dep-settlement primitives cannot safely auto-resolve: a
+ *  DROPPED leaf whose dependents read 'dep-dropped', and a HELD leaf whose dependents
+ *  read 'deps-pending' with no landed sha to settle against. */
+export const DEP_STRAND_DECISION_KIND = 'dep-strand-decision';
 
 /** Format an idle duration in milliseconds to a human-readable string. */
 function formatIdleMs(ms: number): string {
@@ -136,7 +145,10 @@ export async function runReconcilePass(project: string): Promise<void> {
       // exempt it from the stale sweep, same as the step-4 auto-close exclusion.
       // Epic-sweep triage cards are similarly durable and would flap on every tick
       // without exemption — auto-closed by step 4 once their linked epic settles.
-      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND) continue;
+      // Dep-strand decision cards (3j) are durable for the same reason: they dedup on a
+      // stable questionText and describe a strand that only a human edge-fix (or the 3j
+      // auto-close) clears, so aging one out just re-raises it on the next tick.
+      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND || esc.kind === DEP_STRAND_DECISION_KIND) continue;
       const age = now - esc.createdAt;
       if (age < SUPERVISOR_STALE_AFTER_MS) continue;
 
@@ -464,6 +476,149 @@ export async function runReconcilePass(project: string): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
+  // 3j. DEP-STRAND SETTLE + DECISION SWEEP (the surfacing/wiring half of
+  // dep-settlement.ts): a leaf held `dup-of-landed:<sha8>` (or plain `manual`) is
+  // neither `done` nor `dropped`, so `depSatisfied` never satisfies it and every
+  // dependent parks 'deps-pending' forever; a DROPPED leaf's dependents park
+  // 'dep-dropped' forever. The dep-settlement primitives exist for exactly this
+  // class but nothing called them from the periodic pass, so the strand had no
+  // signal at all. This sweep is that caller, in three phases:
+  //   1. SELF-SETTLE the safe case: a held `dup-of-landed:<sha8>` leaf carries its own
+  //      proof (the landed sha), so settleDupOfLanded marks it done+accepted with a
+  //      `dup-of-landed:` provenance handle and fires the dep-terminal kick — its
+  //      dependents become claimable within THIS pass. Idempotent via the primitive's
+  //      own completedBy guard.
+  //   2. RE-READ, so the card phase sees settled state (a just-settled dep must not
+  //      also get a spurious "strands its dependents" card in the same pass).
+  //   3. CARD the cases a primitive must NOT auto-resolve: dropping or re-pointing a
+  //      live dependent's edge is a human decision (68b8bb09 — the dependsOn DAG's
+  //      blast radius is invisible at click time), so raise ONE durable
+  //      DEP_STRAND_DECISION_KIND card naming the strander + the stranded dependents.
+  //      Dedup is the usual stable-questionText discipline: the text is built ONLY from
+  //      sorted short-ids (count derived from them), never a per-run token/timestamp, so
+  //      a persisting strand does not flood a card every ~150s tick (the BP0 lesson).
+  // Auto-close mirrors 3i: the card is moot once the strander settles (done+accepted)
+  // or nothing depends on it any more (edges re-pointed / dependents dropped).
+  // -------------------------------------------------------------------------
+  await yieldToLoop();
+  try {
+    // Phase 1 — HELD-DUP SELF-SETTLE (mutating; must run BEFORE the card phases).
+    for (const t of listTodos(project, { includeCompleted: true })) {
+      if (t.status === 'done' || t.status === 'dropped') continue;
+      if (typeof t.heldReason !== 'string' || !t.heldReason.startsWith(`${DUP_OF_LANDED}:`)) continue;
+      const sha8 = t.heldReason.split(':')[1];
+      if (!sha8) continue; // tokenless hold — no landed proof to settle against; phase 3 cards it
+      try {
+        await settleDupOfLanded(project, t.id, {
+          landedCommit: sha8,
+          actor: 'reconcile',
+          reason: 'held-dup-of-landed self-settle',
+        });
+      } catch (err) {
+        console.warn(
+          `[reconcile-pass] dup-of-landed self-settle failed for ${t.id.slice(0, 8)}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // Phase 2 — re-read AFTER settling so the card phase never sees stale held state.
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const byId = new Map(allTodos.map((t) => [t.id, t]));
+
+    // Cheap pre-filter: the exact set of todo ids that some non-terminal todo's
+    // `dependsOn` resolves to (same resolveDepId logic dependentsOf/claimability use).
+    // Without it, EVERY dropped/held row would pay dependentsOf's own full-table scan —
+    // on a large project that is the distributed loop-starvation this pass exists to
+    // avoid. A row nothing depends on cannot strand anything, so it is skipped here.
+    const referenced = new Set<string>();
+    for (const t of allTodos) {
+      if (t.status === 'done' || t.status === 'dropped') continue;
+      for (const dep of t.dependsOn ?? []) {
+        const resolved = resolveDepId(dep, byId);
+        if (resolved) referenced.add(resolved.id);
+      }
+    }
+
+    // Phase 3 — DROPPED-WITH-DEPENDENTS + HELD-STRANDING decision cards.
+    for (const t of allTodos) {
+      try {
+        if (!referenced.has(t.id)) continue;
+
+        let stranded: typeof allTodos = [];
+        let stateLabel: string;
+        if (t.status === 'dropped') {
+          stranded = dependentsOf(project, t.id).filter((d) => claimReason(d, byId) === 'dep-dropped');
+          stateLabel = 'dropped';
+        } else if (
+          t.status !== 'done' &&
+          (t.heldReason === 'manual' || (typeof t.heldReason === 'string' && t.heldReason.startsWith(`${DUP_OF_LANDED}:`)))
+        ) {
+          // A dup-token leaf only reaches here when phase 1 could not settle it (no sha).
+          stranded = dependentsOf(project, t.id).filter((d) => claimReason(d, byId) === 'deps-pending');
+          stateLabel = `held: ${t.heldReason}`;
+        } else {
+          continue;
+        }
+        if (stranded.length === 0) continue;
+
+        const shortIds = stranded.map((d) => d.id.slice(0, 8)).sort();
+        createEscalation({
+          project,
+          session: 'coordinator',
+          kind: DEP_STRAND_DECISION_KIND,
+          todoId: t.id,
+          questionText:
+            `Leaf ${t.id.slice(0, 8)} (${stateLabel}) strands ${shortIds.length} dependent(s): ${shortIds.join(', ')}. ` +
+            `Remediate: re-point those dependsOn edges to the landed/replacement leaf (${repointDependents.name}), ` +
+            `or drop the stranded dependents.`,
+        });
+      } catch (err) {
+        console.warn(
+          `[reconcile-pass] dep-strand card failed for ${t.id.slice(0, 8)}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // Phase 4 — AUTO-CLOSE (mirrors 3i's dangling-deps auto-close).
+    const openStrand = listOpenEscalations().filter((e) => e.project === project && e.kind === DEP_STRAND_DECISION_KIND);
+    for (const esc of openStrand) {
+      try {
+        if (!esc.todoId) continue;
+        if (getEscalation(esc.id)?.status !== 'open') continue;
+        const todo = byId.get(esc.todoId) ?? getTodo(project, esc.todoId);
+        if (!todo) continue; // todo itself gone — leave for the stale sweep to age it out
+        const settled = todo.status === 'done' && todo.acceptanceStatus === 'accepted';
+        const noDependents = dependentsOf(project, esc.todoId).length === 0;
+        if (!settled && !noDependents) continue;
+        resolveEscalation(esc.id, 'resolved', 'ai');
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: 'coordinator',
+          detail: JSON.stringify({
+            source: 'reconcile-pass',
+            escalationId: esc.id,
+            todoId: esc.todoId,
+            reason: settled ? 'strander-settled' : 'dependents-repointed',
+          }),
+        });
+      } catch (err) {
+        console.warn(
+          `[reconcile-pass] dep-strand auto-close failed for ${esc.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] dep-strand sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // 3a. S6 INVARIANT-ASSERT (sweep-as-net): assert the new-model structural
   // invariants (claim ⟺ in-flight; no terminal-with-claim; held never holds a
   // live claim; epic-rollup consistency) and ALARM (console.warn + supervisor
@@ -556,6 +711,12 @@ export async function runReconcilePass(project: string): Promise<void> {
       // todoId (so the guard below already skips them); this explicit kind check is
       // the documented second guard.
       if (esc.kind === BP0_STRANDED_SUMMARY_KIND) continue;
+      // Dep-strand decision cards (3j) are excluded for the same structural reason: the
+      // DROPPED-strander variant links a todo that is dropped BY CONSTRUCTION, so the
+      // 'dropped ⇒ moot' gate below would close it every pass while 3j — whose strand is
+      // still real — re-raises it the next pass: a create/close flood, not a resolution.
+      // 3j owns its own auto-close (strander settled, or nothing depends on it any more).
+      if (esc.kind === DEP_STRAND_DECISION_KIND) continue;
       if (!esc.todoId) continue;
       // The openEscalations snapshot predates the stale-close loop above; skip
       // any escalation it already closed so we don't clobber its 'stale' status.
