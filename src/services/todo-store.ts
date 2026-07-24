@@ -1660,6 +1660,11 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
   assertBucketDepthInvariant(project, { parentId: resolvedParentId, child: { kind: kindOfInput(input), title: input.title } });
   return withLock(project, () => {
     const db = openDb(project);
+    // bug 490ad490: inherit targetProject from the resolved parent when the caller
+    // didn't stamp one explicitly, so children of a cross-project epic/mission don't
+    // silently fall back to this (tracking) project's repo.
+    const parentTarget = resolvedParentId ? getTodo(project, resolvedParentId)?.targetProject ?? null : null;
+    const targetProject = trackingProjectRoot(input.targetProject ?? parentTarget ?? project);
     const maxOrd = (db.query('SELECT MAX(ord) AS m FROM todos').get() as { m: number | null }).m;
     const ord = maxOrd == null ? 10 : maxOrd + 10;
     const id = crypto.randomUUID();
@@ -1701,9 +1706,10 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       status, input.priority ?? null, input.dueDate ?? null, resolvedParentId,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
-      // targetProject is total: default to this todo's tracking project (normalized
-      // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
+      // targetProject is total: explicit input → resolved parent's targetProject →
+      // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
+      // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
