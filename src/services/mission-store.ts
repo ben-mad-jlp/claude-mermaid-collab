@@ -555,6 +555,7 @@ export function deleteMission(project: string, todoId: string): void {
   const id = resolveMissionTodoId(project, todoId) ?? todoId;
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
+  import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
 }
 
 /** Delete mission control rows (+ their criteria) whose todoId is NOT in the set of
