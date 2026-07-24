@@ -35,7 +35,7 @@ import {
 import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
-import { claimReason, danglingDeps, resolveDepId } from './claimability.ts';
+import { claimReason, danglingDeps, resolveDepId, hasTerminalEpicAncestor } from './claimability.ts';
 import { settleDupOfLanded, repointDependents, dependentsOf, DUP_OF_LANDED } from './dep-settlement.ts';
 import { yieldToLoop } from './loop-yield.ts';
 import { promoteQueuedMissions } from './mission-store.js';
@@ -60,6 +60,14 @@ export const EPIC_SWEEP_TRIAGE_KIND = 'epic-sweep-triage';
  *  DROPPED leaf whose dependents read 'dep-dropped', and a HELD leaf whose dependents
  *  read 'deps-pending' with no landed sha to settle against. */
 export const DEP_STRAND_DECISION_KIND = 'dep-strand-decision';
+
+/** Deterministic identity for a dep-strand escalation: same strander + same dependent
+ *  set → same key, so `createEscalation`'s keyed dedup bumps the existing open row
+ *  (or honours a resolved row's suppression) instead of minting a rival card. Sorts
+ *  `dependentIds` internally so callers cannot pass an unsorted set and mint a rival key. */
+export function depStrandConditionKey(stranderId: string, dependentIds: string[]): string {
+  return `dep-strand:${stranderId.slice(0, 8)}:${dependentIds.map((i) => i.slice(0, 8)).sort().join(',')}`;
+}
 
 /** Format an idle duration in milliseconds to a human-readable string. */
 function formatIdleMs(ms: number): string {
@@ -544,6 +552,7 @@ export async function runReconcilePass(project: string): Promise<void> {
     for (const t of allTodos) {
       try {
         if (!referenced.has(t.id)) continue;
+        if (hasTerminalEpicAncestor(t, byId)) continue;
 
         let stranded: typeof allTodos = [];
         let stateLabel: string;
@@ -560,6 +569,7 @@ export async function runReconcilePass(project: string): Promise<void> {
         } else {
           continue;
         }
+        stranded = stranded.filter((d) => !hasTerminalEpicAncestor(d, byId));
         if (stranded.length === 0) continue;
 
         const shortIds = stranded.map((d) => d.id.slice(0, 8)).sort();
@@ -572,6 +582,8 @@ export async function runReconcilePass(project: string): Promise<void> {
             `Leaf ${t.id.slice(0, 8)} (${stateLabel}) strands ${shortIds.length} dependent(s): ${shortIds.join(', ')}. ` +
             `Remediate: re-point those dependsOn edges to the landed/replacement leaf (${repointDependents.name}), ` +
             `or drop the stranded dependents.`,
+          conditionKey: depStrandConditionKey(t.id, stranded.map((d) => d.id)),
+          conditionTuple: ['dep-strand', t.id.slice(0, 8), ...shortIds],
         });
       } catch (err) {
         console.warn(
