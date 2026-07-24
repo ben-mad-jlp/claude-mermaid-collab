@@ -10,7 +10,9 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal } from '../mission-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal } from '../mission-store';
+import { _resetMissionSpendMemo } from '../ledger-stats';
+import { REBET_KIND, rebetConditionKey } from '../rebet-briefing';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
@@ -295,6 +297,98 @@ describe('runConductorPass — scheduling', () => {
     const r = await runConductorPass(project, { invoke: okInvoke });
     expect(r.ran).toBe(false);
     expect(r.reason).toBe('no-actionable-mission');
+    expect(invokeCalls).toBe(0);
+  });
+});
+
+describe('runConductorPass — over-budget re-bet (mission a6ab522b)', () => {
+  /** Forge an approved+active mission with a ceiling, then burn past it in the ledger so
+   *  getMissionSpend (the SAME reader deriveMissionStatus uses) reports over-budget. */
+  async function forgeOverBudget(budgetUsd: number, spendUsd: number) {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    setOrchestratorLevel(project, 'on');
+    const forged = await forgeMission(project, {
+      session: 's1', title: 'burn the budget', criteria: ['a thing is true'], budgetUsd,
+    });
+    recordNode({
+      project, todoId: forged.missionId, session: 's1', nodeKind: 'node',
+      costUsd: spendUsd, knownPrice: true, nodesSpent: 1, model: 'claude-x',
+    });
+    _resetMissionSpendMemo();
+    return forged;
+  }
+
+  test('an over-budget mission raises ONE re-bet card and spends ZERO conductor nodes', async () => {
+    const forged = await forgeOverBudget(50, 62.5);
+    expect(getMission(project, forged.missionId)?.status).toBe('over-budget');
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('over-budget-rebet');
+    expect(invokeCalls).toBe(0); // the whole point: the final act costs no model spend
+
+    const cards = listOpenEscalations().filter((e) => e.project === project && e.kind === REBET_KIND);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].todoId).toBe(forged.missionId);
+    expect(cards[0].conditionKey).toBe(rebetConditionKey(forged.missionId, 50));
+    expect((cards[0].options ?? []).map((o) => o.id).sort()).toEqual(['drop-criteria', 'park-and-reshape', 'raise']);
+    expect(cards[0].questionText).toContain('OVER BUDGET');
+  });
+
+  test('N further ticks: still ONE card, still zero nodes', async () => {
+    await forgeOverBudget(50, 62.5);
+    for (let i = 0; i < 5; i++) {
+      _resetMissionSpendMemo();
+      const r = await runConductorPass(project, { invoke: okInvoke });
+      expect(r.reason).toBe('over-budget-rebet');
+    }
+    expect(invokeCalls).toBe(0);
+    expect(listOpenEscalations().filter((e) => e.project === project && e.kind === REBET_KIND)).toHaveLength(1);
+  });
+
+  test('raising the budget above spend → the conductor RESUMES (a node runs again)', async () => {
+    const forged = await forgeOverBudget(50, 62.5);
+    expect((await runConductorPass(project, { invoke: okInvoke })).reason).toBe('over-budget-rebet');
+    expect(invokeCalls).toBe(0);
+
+    setMissionBudget(project, forged.missionId, 200, { actor: 'test', reason: 're-bet: raise' });
+    _resetMissionSpendMemo();
+    expect(getMission(project, forged.missionId)?.status).not.toBe('over-budget');
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.reason).not.toBe('over-budget-rebet');
+    expect(invokeCalls).toBeGreaterThan(0);
+  });
+
+  test('crossing the NEW ceiling raises exactly one FRESH card (the old key is not reused)', async () => {
+    const forged = await forgeOverBudget(50, 62.5);
+    await runConductorPass(project, { invoke: okInvoke });
+    setMissionBudget(project, forged.missionId, 100, { actor: 'test', reason: 're-bet: raise' });
+    recordNode({
+      project, todoId: forged.missionId, session: 's1', nodeKind: 'node',
+      costUsd: 50, knownPrice: true, nodesSpent: 1, model: 'claude-x',
+    });
+    _resetMissionSpendMemo();
+    expect(getMission(project, forged.missionId)?.status).toBe('over-budget');
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.reason).toBe('over-budget-rebet');
+    const cards = listOpenEscalations().filter((e) => e.project === project && e.kind === REBET_KIND);
+    expect(cards).toHaveLength(2);
+    expect(new Set(cards.map((c) => c.conditionKey))).toEqual(
+      new Set([rebetConditionKey(forged.missionId, 50), rebetConditionKey(forged.missionId, 100)]),
+    );
+  });
+
+  test('FAIL OPEN: a throwing card path leaves the pass returning normally', async () => {
+    await forgeOverBudget(50, 62.5);
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: (() => { throw new Error('escalation store down'); }) as never,
+    });
+    expect(r.reason).toBe('over-budget-rebet');
+    expect(r.escalationsRaised).toBe(0);
     expect(invokeCalls).toBe(0);
   });
 });

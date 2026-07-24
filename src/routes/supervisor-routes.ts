@@ -36,6 +36,7 @@ import {
   getConductorLastPass,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
+import { applyRebetDecision, OVER_BUDGET_REBET_KIND } from '../services/mission-budget-gate.ts';
 import { TOKEN_BURN_KIND } from '../services/burn-watch.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
@@ -824,6 +825,21 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
           }
         }
         const decision = recordEscalationDecision({ escalationId: id, optionId: optionId ?? null, note: note ?? null, decidedBy: 'human' });
+        // Over-budget re-bet: 'raise' is the one option the machine can APPLY, and it does so
+        // through setMissionBudget — the store's only supported budget mutation (audited,
+        // attributed). 'park-and-reshape' / 'drop-criteria' are judgment calls left to the
+        // human/conductor; applyRebetDecision returns a noop for them rather than pretending.
+        // Fail-open: a budget-apply fault must never lose the human's recorded decision.
+        if (esc.kind === OVER_BUDGET_REBET_KIND && esc.todoId) {
+          try {
+            applyRebetDecision(esc.project, esc.todoId, optionId ?? null, {
+              actor: 'human:rebet-card',
+              reason: `over-budget re-bet decision on escalation ${id}`,
+            });
+          } catch (e) {
+            console.warn(`[rebet] budget raise failed for mission ${esc.todoId}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
         resolveEscalation(id, 'decided', 'human');
         getWebSocketHandler()?.broadcast({ type: 'escalation_decided', project: esc.project, session: esc.session, id, optionId: decision.optionId });
         return Response.json({ ok: true, decision });

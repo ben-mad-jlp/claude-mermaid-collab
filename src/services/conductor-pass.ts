@@ -19,6 +19,7 @@ import {
   promoteQueuedMissions,
 } from './mission-store.js';
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
+import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -151,7 +152,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'pass-ran' | 'pass-error';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'over-budget-rebet' | 'pass-ran' | 'pass-error';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** INFRA-rejected leaves un-parked this pass (their base re-probed green). */
@@ -243,6 +244,23 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const missionId = target.row.todoId;
   const status = target.row.status!;
   const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
+
+  // OVER-BUDGET FINAL ACT (mission a6ab522b). The authoritative derived status says this
+  // mission's spend has crossed its ceiling. Everything below this line costs money — the
+  // per-criterion facts scan, the INFRA arm's git probes, and above all the conductor NODE.
+  // So the conductor's LAST act is to raise ONE re-bet decision card and stop. The card is
+  // pure arithmetic over reads the status derivation already paid for (no LLM node), which
+  // is why it needs no exemption from the gate it is being raised under, and the store's
+  // condition-key dedup (mission + ceiling crossed) bounds it to exactly one per crossing:
+  // repeated ticks bump recurrence in place, and a raised ceiling later crossed mints a
+  // fresh card. Before this, the pass silently drove an over-budget mission (missionStatusRank
+  // ranks it 'still actionable') or the loop silently returned none — either way, no card.
+  if (status === 'over-budget') {
+    const card = raiseOverBudgetRebetCard(project, missionId, session, target.summary.node.title ?? missionId, {
+      createEscalation: deps.createEscalation,
+    });
+    return { ran: false, reason: 'over-budget-rebet', missionId, escalationsRaised: card.isNew ? 1 : 0 };
+  }
 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
   const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));

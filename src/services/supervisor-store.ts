@@ -531,7 +531,10 @@ export function setConductorTargetMission(project: string, missionId: string | n
 export type ConductorPassReason =
   | 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable'
   | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed'
-  | 'pass-ran' | 'pass-error' | 'infra-leaf-reset';
+  | 'pass-ran' | 'pass-error' | 'infra-leaf-reset'
+  // The pass STOPPED on an over-budget mission after raising its re-bet decision card
+  // (conductor-pass.ts's final act). Observable, not silent — mission a6ab522b.
+  | 'over-budget-rebet';
 
 export interface ConductorLastPass {
   missionId: string | null;

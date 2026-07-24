@@ -43,6 +43,7 @@ export const STATUS_STYLE: Record<MissionStatus, string> = {
   unapproved:       'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   blocked:          'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
   'over-budget':    'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
+  stalled:          'bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300',
   abandoned:        'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
 };
 
@@ -54,6 +55,7 @@ export const STATUS_LABEL: Record<MissionStatus, string> = {
   unapproved:       'Unapproved',
   blocked:          'Blocked',
   'over-budget':    'Over budget',
+  stalled:          'Stalled',
   abandoned:        'Abandoned',
 };
 
@@ -66,6 +68,7 @@ export function statusTooltip(status: MissionStatus): string {
     unapproved: 'Forged but not yet approved — the mission loop will not drive it until approved.',
     blocked: 'A criterion is blocked and needs attention.',
     'over-budget': 'The mission has exceeded its iteration budget.',
+    stalled: 'Work has STOPPED and no actor is scheduled to restart it — a card names the reason and what you can do.',
     abandoned: 'The mission has been abandoned.',
   };
   return tooltips[status] ?? status;

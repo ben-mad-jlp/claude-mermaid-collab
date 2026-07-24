@@ -61,6 +61,7 @@ export function conductingView(m?: MissionSummary | null): ConductingView | null
     : status === 'needs-discovery' ? 'your move · discover'
     : status === 'blocked' ? 'your move · blocked'
     : status === 'over-budget' ? 'your move · over budget'
+    : status === 'stalled' ? 'your move · stalled'
     : 'your move';
   return { turn: 'conductor', status, goal, label, capability, mechanical };
 }

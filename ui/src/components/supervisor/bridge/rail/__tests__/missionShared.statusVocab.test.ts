@@ -5,7 +5,7 @@ import type { MissionStatus } from '@/stores/supervisorStore';
 // Keep in sync with the MissionStatus union in supervisorStore.ts — this is the
 // exhaustiveness list the test iterates, since TS unions have no runtime form.
 const ALL_STATUSES: MissionStatus[] = [
-  'abandoned', 'over-budget', 'blocked', 'building',
+  'abandoned', 'over-budget', 'stalled', 'blocked', 'building',
   'needs-verify', 'needs-discovery', 'unapproved', 'converged',
 ];
 

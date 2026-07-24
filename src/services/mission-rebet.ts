@@ -11,7 +11,8 @@
 import { CRITERION_SERVE_CAP } from './harness-caps.ts';
 import type { MissionSpend } from './ledger-stats.ts';
 import type { JsonRenderSpec, UiElement } from './escalation-ui-schema';
-import { planRebetBriefing, REBET_KIND, REBET_OPTIONS, type RebetOption } from './rebet-briefing.ts';
+import { planRebetBriefing, rebetOptions, REBET_KIND, REBET_OPTIONS, type RebetOption } from './rebet-briefing.ts';
+import type { EscalationOption } from './supervisor-store.ts';
 import type { CriterionAction } from './mission-store.ts';
 
 /** The escalation kind for a mission-over-budget re-bet briefing. */
@@ -63,8 +64,18 @@ export interface RebetEconomics {
   costPerAcceptedChange: number;
   costPerCriterion: number;
   estimatedCostToConverge: number;
+  /** budget (or spend, when uncapped) + the estimate to converge — the concrete number the
+   *  `raise` option funds. Surfaced (not just used inside the rationale string) so the card
+   *  wiring can raise the ceiling to it without re-deriving the arithmetic. */
+  suggestedBudgetUsd: number;
   recommendation: RebetOption;
   rationale: string;
+}
+
+/** The card's answerable options for a briefing. Delegates to `rebet-briefing.rebetOptions`
+ *  — one definition of the ids/labels across both surfaces. */
+export function buildRebetOptions(briefing: RebetEconomics): EscalationOption[] {
+  return rebetOptions(briefing.suggestedBudgetUsd);
 }
 
 /**
@@ -119,6 +130,7 @@ export function buildRebetBriefing(input: RebetInput): RebetEconomics {
     costPerAcceptedChange,
     costPerCriterion: planned.costPerCriterion,
     estimatedCostToConverge: planned.estimatedCostToConverge,
+    suggestedBudgetUsd: planned.suggestedBudgetUsd,
     recommendation: planned.recommendation,
     rationale,
   };

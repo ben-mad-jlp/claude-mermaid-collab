@@ -4,16 +4,17 @@
  *
  * This module is a PLANNER in the `profile-approve.ts` mould: all money math and
  * the recommendation are computed from a plain `RebetFacts` object by a pure
- * function (`planRebetBriefing`); the only DB-touching function
- * (`collectRebetFacts`) takes its readers as injectable deps so tests never open
- * a store. Nothing here calls `createEscalation` or touches the conductor/UI — a
- * later leaf wires this planner's output into an escalation.
+ * function (`planRebetBriefing`). It is now STRICTLY pure — every import is
+ * type-only, so it opens no store and, load-bearingly, sits OUTSIDE the
+ * mission-store ↔ conductor-pass import cycle. `mission-budget-gate.ts` is the
+ * one module that reads the store for these facts and wires the result into an
+ * escalation; a second store-reading collector used to live here
+ * (`collectRebetFacts`) with zero callers, and its value imports of
+ * mission-store/mission-cost/ledger-stats were what dragged this planner into
+ * that cycle (TDZ on `REBET_OPTIONS` at import time). One collector, no cycle.
  */
 import { CRITERION_SERVE_CAP } from './harness-caps.ts';
 import type { CriterionAction } from './mission-store.ts';
-import { getMission, listCriteriaWithActions } from './mission-store.ts';
-import { getMissionSpend } from './ledger-stats.ts';
-import { getMissionCost } from './mission-cost.ts';
 import type { JsonRenderSpec, UiElement } from './escalation-ui-schema';
 import type { EscalationOption } from './supervisor-store.ts';
 
@@ -67,56 +68,29 @@ export interface RebetBriefing extends RebetFacts {
 }
 
 /**
- * Read the plain facts a re-bet briefing needs from the store. Deps are
- * injectable so tests never open a store; defaults are the real reader
- * functions. Throws when the mission does not exist, matching
- * `mission-store.ts:1250`'s `listCriteriaWithActions` behaviour.
+ * THE single definition of the three answerable re-bet options. Both the planner here and
+ * the `mission-rebet.ts` façade render from this one function, so the option ids/labels a
+ * human sees on the card can never drift between the two surfaces (an id drift would make
+ * `recommendedOptionId` name a missing option, which `supervisor-store.ts` silently drops).
  */
-export function collectRebetFacts(
-  project: string,
-  missionId: string,
-  deps: {
-    getMissionSpend?: typeof getMissionSpend;
-    getMissionCost?: typeof getMissionCost;
-    listCriteriaWithActions?: typeof listCriteriaWithActions;
-    getMission?: typeof getMission;
-  } = {},
-): RebetFacts {
-  const getMissionFn = deps.getMission ?? getMission;
-  const mission = getMissionFn(project, missionId);
-  if (!mission) throw new Error(`mission not found: ${missionId}`);
-
-  const getMissionSpendFn = deps.getMissionSpend ?? getMissionSpend;
-  const spendUsd = getMissionSpendFn(project, missionId).costUsd;
-
-  // An accounting read must not break the briefing (same defensive posture as
-  // ledger-stats.ts:614) — a cost-per-accepted-change read failure just means
-  // we render 'n/a' downstream.
-  let costPerAcceptedChange: number | null;
-  try {
-    const getMissionCostFn = deps.getMissionCost ?? getMissionCost;
-    costPerAcceptedChange = getMissionCostFn(project, missionId).costPerAcceptedChange;
-  } catch {
-    costPerAcceptedChange = null;
-  }
-
-  const listCriteriaWithActionsFn = deps.listCriteriaWithActions ?? listCriteriaWithActions;
-  const perCriterion: RebetCriterionFact[] = listCriteriaWithActionsFn(project, missionId).map((c) => ({
-    id: c.id,
-    text: c.text,
-    action: c.action,
-    met: c.met,
-    verifiedAt: c.verifiedAt,
-    servedEpicCount: c.servedEpicCount,
-  }));
-
-  return {
-    missionId,
-    budgetUsd: mission.budgetUsd ?? null,
-    spendUsd,
-    costPerAcceptedChange,
-    perCriterion,
-  };
+export function rebetOptions(suggestedBudgetUsd: number): EscalationOption[] {
+  return [
+    {
+      id: 'raise',
+      label: `Raise budget to $${suggestedBudgetUsd.toFixed(2)}`,
+      detail: 'Fund the estimated remaining cost to converge and keep going.',
+    },
+    {
+      id: 'park-and-reshape',
+      label: 'Park and reshape',
+      detail: 'Estimated cost to converge exceeds the loop economics — pause and re-scope the mission.',
+    },
+    {
+      id: 'drop-criteria',
+      label: 'Drop stalled criteria',
+      detail: `One or more criteria hit the serve cap (${CRITERION_SERVE_CAP}) without converging — drop them and continue.`,
+    },
+  ];
 }
 
 /**
@@ -149,23 +123,7 @@ export function planRebetBriefing(facts: RebetFacts): RebetBriefing {
     recommendation = 'raise';
   }
 
-  const options: EscalationOption[] = [
-    {
-      id: 'raise',
-      label: `Raise budget to $${suggestedBudgetUsd.toFixed(2)}`,
-      detail: 'Fund the estimated remaining cost to converge and keep going.',
-    },
-    {
-      id: 'park-and-reshape',
-      label: 'Park and reshape',
-      detail: 'Estimated cost to converge exceeds the loop economics — pause and re-scope the mission.',
-    },
-    {
-      id: 'drop-criteria',
-      label: 'Drop stalled criteria',
-      detail: `One or more criteria hit the serve cap (${CRITERION_SERVE_CAP}) without converging — drop them and continue.`,
-    },
-  ];
+  const options = rebetOptions(suggestedBudgetUsd);
   const recommendedOptionId = recommendation;
 
   const calloutText =

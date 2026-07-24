@@ -322,7 +322,7 @@ export type MissionPhase =
   | 'discover' | 'plan' | 'execute' | 'verify' | 'converged' | 'stopped';
 
 export type MissionStatus =
-  | 'abandoned' | 'over-budget' | 'blocked' | 'building'
+  | 'abandoned' | 'over-budget' | 'stalled' | 'blocked' | 'building'
   | 'needs-verify' | 'needs-discovery' | 'unapproved' | 'converged';
 
 export interface MissionSummary {

@@ -75,7 +75,7 @@ describe('mission-store: control state', () => {
     upsertMission(project, id);
     const m = getMission(project, id)!;
     expect(m.status).toBeDefined();
-    const validStatuses = ['needs-discovery', 'needs-verify', 'blocked', 'building', 'over-budget', 'abandoned', 'converged'];
+    const validStatuses = ['needs-discovery', 'needs-verify', 'blocked', 'building', 'over-budget', 'stalled', 'abandoned', 'converged'];
     expect(validStatuses).toContain(m.status ?? '');
   });
 

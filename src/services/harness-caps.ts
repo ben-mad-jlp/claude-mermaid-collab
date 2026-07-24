@@ -101,6 +101,32 @@ export const STUCK_AUTOLAND_THRESHOLD = 3;
 export const CHILDLESS_SERVE_GRACE_MS =
   (Number(process.env.MERMAID_CHILDLESS_SERVE_GRACE_MIN) || 5) * 60 * 1000;
 
+/** NO-SILENT-STOP grace: how long a mission may sit in a STALLED mission-loop reason
+ *  (see mission-stall.ts's classification table — over-budget, no-owner-session,
+ *  blocked-silenced, an unhandled no-action:<status>) before the loop raises ONE
+ *  human-visible card and the mission's derived status flips to 'stalled'.
+ *
+ *  Origin: mission a6ab522b (2026-07-24). Its spend crossed the $50 budget;
+ *  planMissionLoopStep returned `{ kind: 'none', reason: 'over-budget' }` — no card, no
+ *  nudge, no state change — and the mission sat DEAD for 1h45m while its UI badge still
+ *  read "BUILDING". Nobody noticed until a human asked. A stall must cost at most this
+ *  much wall-clock silence.
+ *
+ *  20 min ≈ 8 mission-loop passes (MISSION_LOOP_INTERVAL_MS = 2.5 min), long enough that a
+ *  transient no-owner-session / session-restart blip self-heals without carding a human.
+ *  Override with MERMAID_MISSION_STALL_GRACE_MIN. */
+export const MISSION_STALL_GRACE_MS =
+  (Number(process.env.MERMAID_MISSION_STALL_GRACE_MIN) || 20) * 60 * 1000;
+
+/** TTL on the in-memory stall episode that backs the 'stalled' derived status. The stall
+ *  clock is fed by the mission-loop pass; if the pass STOPS running for a project (project
+ *  unwatched, daemon off, process churn) a stale episode would otherwise pin a mission at
+ *  'stalled' forever with nothing left to clear it. An episode not re-observed within this
+ *  window is treated as absent, so the flag self-heals instead of latching.
+ *  Origin: src/services/mission-stall.ts (isMissionStalled). */
+export const MISSION_STALL_FLAG_TTL_MS =
+  (Number(process.env.MERMAID_MISSION_STALL_TTL_MIN) || 30) * 60 * 1000;
+
 /** ENFORCED ceiling on blueprint output tokens. Observed from 37 blueprints in live runs:
  *  average 17,175 / max 61,655 output tokens. A blueprint node whose output (token count)
  *  exceeds this ceiling triggers exactly one bounded re-emit via buildBlueprintSummarizePrompt,

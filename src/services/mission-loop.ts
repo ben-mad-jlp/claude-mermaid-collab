@@ -20,6 +20,19 @@ import type { MissionStatus, MissionSummary } from './mission-store.ts';
 import { listMissions, stampMissionNudge, isMissionTerminal } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { fireStamp } from './nudge-stamp.ts';
+import {
+  MISSION_STALLED_KIND,
+  buildStallCardText,
+  claimStallCard,
+  clearMissionStall,
+  isMissionStalled,
+  isStalledReason,
+  noteMissionLoopReason,
+  stallConditionKey,
+  type MissionLoopReasonBase,
+} from './mission-stall.ts';
+import { raiseOverBudgetRebetCard } from './mission-budget-gate.ts';
+import { createEscalation } from './supervisor-store.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
 export const MISSION_NUDGE_ESCALATION_MS = 2 * 60 * 60 * 1000; // 2 hour escalation ceiling
@@ -68,8 +81,18 @@ export function _resetMissionLoopThrottle(project?: string): void {
   else lastMissionLoopMs.delete(project);
 }
 
+/**
+ * Every reason `planMissionLoopStep` may return with `kind: 'none'`. Derived from
+ * mission-stall.ts's `MissionLoopReasonBase` (plus the `no-action:<status>` detail form),
+ * so a NEW no-op reason cannot be introduced here without adding it to that module's
+ * QUIET/STALLED classification table — the whole point of mission a6ab522b's incident:
+ * some of these mean "all is well", others mean "nobody is coming", and nothing in the
+ * code used to tell them apart.
+ */
+export type MissionLoopNoneReason = MissionLoopReasonBase | `no-action:${string}`;
+
 export type MissionLoopAction =
-  | { kind: 'none'; reason: string }
+  | { kind: 'none'; reason: MissionLoopNoneReason }
   | { kind: 'nudge'; session: string; message: string; reason: string; key: string };
 
 export interface MissionLoopStepInput {
@@ -139,6 +162,10 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
   if (mission.status === 'converged') return { kind: 'none', reason: 'converged' };
   if (mission.status === 'abandoned') return { kind: 'none', reason: 'abandoned' };
   if (mission.status === 'over-budget') return { kind: 'none', reason: 'over-budget' };
+  // Already inside a stall episode (the derived status flipped past the grace window). The
+  // runner has carded it; nudging on top would be noise. Classified STALLED, so the episode
+  // stays open and the mission keeps reading 'stalled' until it genuinely moves.
+  if (mission.status === 'stalled') return { kind: 'none', reason: 'stalled' };
   if (mission.status === 'building') return { kind: 'none', reason: 'building' };
 
   if (!ownerSession) return { kind: 'none', reason: 'no-owner-session' };
@@ -201,12 +228,82 @@ export interface MissionLoopDeps {
   now?: number;
   cooldownMs?: number;
   escalationMs?: number;
+  /** Injectable card surfaces (test spies). Default to the real store / gate. */
+  createEscalation?: typeof createEscalation;
+  raiseRebetCard?: typeof raiseOverBudgetRebetCard;
 }
 
 export interface MissionLoopResult {
   project: string;
   nudged: string[];
   skipped: number;
+  /** Mission ids the pass carded as STALLED this run (one card per stall episode). */
+  stalled: string[];
+  /** Mission ids for which an over-budget re-bet card exists after this run. */
+  overBudget: string[];
+}
+
+/**
+ * NO SILENT STOP. Given this tick's `none` reason for one mission, keep the stall clock
+ * fed and — once a STALLED reason has been held past MISSION_STALL_GRACE_MS — raise
+ * exactly ONE human card.
+ *
+ * `over-budget` is the one STALLED reason handled elsewhere and IMMEDIATELY (no grace):
+ * it gets the dedicated re-bet card, which carries answerable raise / park / drop options.
+ * A generic "this is stuck" card on top of it would be strictly less useful duplicate noise
+ * for the same condition, so this arm skips it — the classification still calls it STALLED
+ * (it is), which is what keeps the derived status off 'building'.
+ *
+ * FAILS OPEN: every store touch is wrapped, because a card path must never break the pass.
+ */
+function handleNoneReason(
+  project: string,
+  m: MissionSummary,
+  reason: MissionLoopNoneReason,
+  now: number,
+  deps: MissionLoopDeps,
+  result: MissionLoopResult,
+): void {
+  const missionId = m.node.id;
+  try {
+    const episode = noteMissionLoopReason(project, missionId, reason, now);
+    if (!episode) return; // quiet reason — clock cleared, nothing to say
+
+    if (reason === 'over-budget') {
+      const card = (deps.raiseRebetCard ?? raiseOverBudgetRebetCard)(
+        project,
+        missionId,
+        m.ownerSession ?? m.assigneeSession ?? 'mission-loop',
+        m.node.title,
+      );
+      if (card.raised) result.overBudget.push(missionId);
+      return;
+    }
+
+    if (!isMissionStalled(project, missionId, now)) return; // inside the grace window
+    // One card per stall EPISODE: claimStallCard is the local bound, the store's
+    // conditionKey dedup is the durable one (a restart re-arms the local flag, and the
+    // keyed lookup then bumps recurrence in place instead of minting a duplicate).
+    if (!claimStallCard(project, missionId)) return;
+    (deps.createEscalation ?? createEscalation)({
+      project,
+      session: m.ownerSession ?? m.assigneeSession ?? 'mission-loop',
+      kind: MISSION_STALLED_KIND,
+      todoId: missionId,
+      operatorGated: true,
+      conditionKey: stallConditionKey(missionId, episode.reason),
+      conditionTuple: ['mission-stalled', missionId, episode.reason],
+      questionText: buildStallCardText({
+        missionId,
+        missionTitle: m.node.title,
+        reason: episode.reason,
+        stalledForMs: now - episode.since,
+      }),
+    });
+    result.stalled.push(missionId);
+  } catch {
+    /* fail-open — the stall alarm must never break the mission-loop pass */
+  }
 }
 
 /**
@@ -223,7 +320,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;
   const escalationMs = deps.escalationMs ?? MISSION_NUDGE_ESCALATION_MS;
 
-  const result: MissionLoopResult = { project, nudged: [], skipped: 0 };
+  const result: MissionLoopResult = { project, nudged: [], skipped: 0, stalled: [], overBudget: [] };
 
   let missions: MissionSummary[];
   try { missions = list(project); } catch { return result; }
@@ -246,10 +343,15 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
 
     try {
       if (action.kind === 'nudge') {
+        // A nudge IS motion — the mission is being driven, so any stall episode ends here.
+        clearMissionStall(project, m.node.id);
         await nudge(project, action.session, action.message);
         stampNudge(project, m.node.id, action.key);
         result.nudged.push(m.node.id);
       } else {
+        // NO SILENT STOP: classify this no-op and, if it means the mission is stuck,
+        // make it visible (stall clock → derived status → exactly one human card).
+        handleNoneReason(project, m, action.reason, now, deps, result);
         result.skipped++;
       }
     } catch {

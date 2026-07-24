@@ -25,6 +25,7 @@ import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS, CONDUCTOR_LEADER_STALE_TICKS, CONDUCTOR_BEAT_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
+import { isMissionStalled } from './mission-stall.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -34,6 +35,7 @@ export type MissionStatus =
   | 'unapproved'      // awaitingApprovalSince set — forged (e.g. from a doc) but not yet human-approved
   | 'abandoned'       // abandonedAt set
   | 'over-budget'     // spendUsd >= budgetUsd
+  | 'stalled'         // the mission loop has taken no action for a STALLED reason past the grace window
   | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
   | 'building'        // leaves in flight AND nothing left to discover/verify (quietest non-terminal state)
   | 'needs-verify'    // some criterion's serving epic landed, verdict not yet recorded
@@ -1071,6 +1073,10 @@ export interface MissionStatusFacts {
   hasBuildingLeaf: boolean;  // a leaf run in flight (pending/paused)
   hasLandedEpic: boolean;    // a mission epic reached status 'done'
   hasOpenEpic: boolean;      // a mission epic is neither done nor dropped
+  /** NO SILENT STOP (mission a6ab522b): the mission-loop has been taking no action for a
+   *  STALLED reason (see mission-stall.ts) longer than MISSION_STALL_GRACE_MS. Optional so
+   *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
+  stalled?: boolean;
   criteria: MissionCriterionFacts[];
 }
 
@@ -1112,6 +1118,13 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   if (f.abandonedAt != null) return 'abandoned';
   if (f.awaitingApproval) return 'unapproved'; // forged, not yet human-approved — never driven
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
+  // NO SILENT STOP (mission a6ab522b): a mission whose loop has been stuck past the grace
+  // window must NOT keep reading like healthy work in flight. This sits ABOVE blocked/
+  // building deliberately — 'blocked' says a leaf needs attention, 'stalled' says nobody is
+  // coming at all, and the second fact is the one that went unseen for 1h45m. It sits BELOW
+  // over-budget so the more specific (and separately carded) budget crossing keeps its own
+  // status. The flag self-clears the moment the loop sees a QUIET reason or a nudge fires.
+  if (f.stalled) return 'stalled';
   if (f.hasBlockedLeaf) return 'blocked';
   const actions = f.criteria.map(deriveCriterionAction);
   if (actions.includes('verify')) return 'needs-verify';
@@ -1136,6 +1149,7 @@ export function deriveCheapMissionStatus(
   m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'>,
   _epics: readonly { status: string }[],
   criteria: readonly { met: boolean }[] = [],
+  stalled: boolean = false,
 ): MissionStatus {
   if (m.abandonedAt != null) return 'abandoned';
   if (m.awaitingApprovalSince != null) return 'unapproved';
@@ -1146,6 +1160,12 @@ export function deriveCheapMissionStatus(
   // done-signal, so this keeps `status` consistent with the `converged` flag. Non-converged reads
   // 'building' (the list badge; the detail view carries the exact building/needs-discovery status).
   if (criteria.length > 0 && criteria.every((c) => c.met)) return 'converged';
+  // NO SILENT STOP (mission a6ab522b). This is THE line that read "BUILDING" for 1h45m on a
+  // mission that had crossed its budget and would never move again: the cheap path cannot
+  // afford a spend scan, so everything non-converged fell through to 'building'. The stall
+  // clock is an in-memory lookup (no scan), so the badge can now tell "the daemon is on it"
+  // apart from "nobody is coming" without paying for facts.
+  if (stalled) return 'stalled';
   return 'building';
 }
 
@@ -1231,6 +1251,9 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       : liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused') || hasBuildingChildLeaf,
     hasLandedEpic: epics.some((e) => e.status === 'done'),
     hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
+    // In-memory lookup (mission-stall.ts) — no scan, no I/O, and TTL'd so a project whose
+    // mission-loop stopped running cannot latch a mission at 'stalled' forever.
+    stalled: isMissionStalled(project, m.todoId, now),
     criteria: criteria.map((c) => {
       // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
       // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
@@ -1383,7 +1406,7 @@ export function listMissions(
     const criteriaForNode = listCriteria(project, node.id); // cheap indexed lookup — the capability gauge
     const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
     let mission = raw && !withFacts
-      ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode, criteriaForNode) }
+      ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode, criteriaForNode, isMissionStalled(project, node.id)) }
       : raw;
     if (!mission) continue; // a mission-kind node without control state — not a real mission
     if (opts.onlyArchived) { if (mission.archivedAt == null) continue; }
@@ -1414,7 +1437,7 @@ export function listMissions(
           capability: { met: capMet, total: criteria.length },
           converged: criteria.length > 0 && capMet === criteria.length,
           stopped: isMissionTerminal(mission),
-          status: mission.status ?? deriveCheapMissionStatus(mission, epics, criteria),
+          status: mission.status ?? deriveCheapMissionStatus(mission, epics, criteria, isMissionStalled(project, node.id)),
           gaps: 0,
           awaitingVerify: 0,
           // Cheap path: gaps/awaitingVerify are NOT computed (see MissionRollup.factsOmitted) and
