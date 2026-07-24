@@ -14,14 +14,13 @@
  *                               blueprint/implement/review node; the review cite-check verifies them),
  *   - each rejected alternative → a decision record with `alternatives` (payload D surfaces "do not
  *                               re-propose" to blueprint nodes),
- *   - the orientation digest  → .collab/project-digest.md (payload A injects it into blueprint nodes).
+ *   - the orientation digest  → .collab/mission-digests/<missionId>.md (payload A injects it into
+ *                               blueprint nodes).
  *
  * missionConstitutionHealth is the enforcement teeth: a mission that carries a constitution (a
  * handoff doc) but has ZERO active constraint records linked to it never mechanized its rules —
  * flag it so the conductor/human sees that the constitution is stranded as prose.
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { addSessionTodo } from './session-todos.js';
 import {
   upsertMission,
@@ -44,6 +43,7 @@ import {
   listDecisionRecords,
   type DecisionRecord,
 } from '../../services/decision-record-store.js';
+import { writeMissionDigest } from '../../services/mission-digest.js';
 import { stripLabel } from '../../services/todo-kind.js';
 import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
@@ -75,7 +75,7 @@ export interface ForgeMissionInput {
   criteria: string[];
   constraints?: ForgeConstraint[];
   rejectedAlternatives?: ForgeRejectedAlternative[];
-  /** Curated orientation facts (≤ ~2k tokens) → .collab/project-digest.md. */
+  /** Curated orientation facts (≤ ~2k tokens) → .collab/mission-digests/<missionId>.md. */
   digest?: string;
   handoffDocId?: string | null;
   budgetUsd?: number | null;
@@ -168,13 +168,12 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     }));
   }
 
-  // 4. Orientation digest → .collab/project-digest.md (payload A). Curated text, written verbatim.
+  // 4. Orientation digest → .collab/mission-digests/<missionId>.md (payload A). Curated text,
+  //    written verbatim.
   let digestWritten = false;
   const digest = input.digest?.trim();
   if (digest) {
-    const dir = join(project, '.collab');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'project-digest.md'), digest.endsWith('\n') ? digest : digest + '\n');
+    writeMissionDigest(project, missionId, digest);
     digestWritten = true;
   }
 
