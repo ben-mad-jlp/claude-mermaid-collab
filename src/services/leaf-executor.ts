@@ -52,6 +52,7 @@ import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, t
 import { recordFriction } from './friction-store';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
+import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind } from './diff-contract';
@@ -4372,7 +4373,10 @@ export async function makeLeafExecutorDeps(
       // actually fork from.
       const wt = await wm.ensureEpic(epicId, targetProject);
       if (!wt) return null; // non-git fallback ⇒ no base gate
-      const r = await runBaseGate(wt.path, gateCfg, defaultGateSpawn);
+      const r = await runBaseGateShared(
+        baseGateKey(targetProject, epicBaseSha, gateCfg),
+        () => runBaseGate(wt.path, gateCfg, defaultGateSpawn),
+      );
       if (isCacheableBaseGateStatus(r.status)) {
         recordEpicBaseGate({
           epicId,
