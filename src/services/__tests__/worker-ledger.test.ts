@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
 import { parseDiffContract, renderContract, type DiffContract } from '../diff-contract';
 import Database from 'bun:sqlite';
 
@@ -336,6 +336,24 @@ describe('epic_base_gate cache key (baseSha validation)', () => {
     const r = getEpicBaseGate('e1', 'aaa');
     expect(r).not.toBeNull();
     expect(r?.baselineFailures).toBeNull();
+  });
+
+  // Lazy per-epic base memo for the per-file `tests` lanes (epic_base_lane table).
+  test('recordEpicBaseLane → getEpicBaseLane round-trip: hit on matching (epicId, baseSha, laneKey)', () => {
+    recordEpicBaseLane({ epicId: 'e1', baseSha: 'aaa', laneKey: 'tests:^src/', failures: ['src/a.test.ts'], ran: true });
+    const r = getEpicBaseLane('e1', 'aaa', 'tests:^src/');
+    expect(r).not.toBeNull();
+    expect(r?.failures).toEqual(['src/a.test.ts']);
+  });
+
+  test('getEpicBaseLane MISSes on a different baseSha', () => {
+    recordEpicBaseLane({ epicId: 'e1', baseSha: 'aaa', laneKey: 'tests:^src/', failures: ['src/a.test.ts'], ran: true });
+    expect(getEpicBaseLane('e1', 'bbb', 'tests:^src/')).toBeNull();
+  });
+
+  test('a ran:false write is never recorded — a later lookup MISSes', () => {
+    recordEpicBaseLane({ epicId: 'e1', baseSha: 'aaa', laneKey: 'tests:^src/', failures: null, ran: false });
+    expect(getEpicBaseLane('e1', 'aaa', 'tests:^src/')).toBeNull();
   });
 
   // G8 durable blueprint base SHA (leaf_blueprint table).

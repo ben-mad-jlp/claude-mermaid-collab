@@ -45,8 +45,8 @@ import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
-import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
+import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
 import { recordFriction } from './friction-store';
@@ -4043,6 +4043,30 @@ export async function makeLeafExecutorDeps(
   // L4 CITABILITY gate: memoize base line counts (path → line count, -1 = missing/unreadable).
   // Lives in the per-run closure so it never leaks across leaves and needs no invalidation.
   const baseLineCounts = new Map<string, number>();
+  // Lazy per-epic base memo for the per-file `tests` lanes: runs the SAME commands a red
+  // lane just ran, but at the epic base, so `runLeafGate` can diff pre-existing-red out of
+  // this leaf's verdict. Memoized in epic_base_lane per (epicId, baseSha, laneKey) — only
+  // lanes that actually go red pay this cost, and only once per epic base.
+  const resolveLaneBaseline = async (laneKey: string, commands: readonly string[], laneCwd?: string): Promise<string[] | null> => {
+    const hit = getEpicBaseLane(epicId, epicBaseSha, laneKey);
+    if (hit) return hit.failures;
+    try {
+      const wt = await wm.ensureEpic(epicId, targetProject);
+      if (!wt) return null;
+      const runCwd = laneCwd ? join(wt.path, laneCwd) : wt.path;
+      const outputs: string[] = [];
+      for (const command of commands) {
+        const r = await defaultGateSpawn(runCwd, command);
+        if (!r.ran) return null;
+        if (r.code !== 0) outputs.push(r.output);
+      }
+      const failures = outputs.length ? outputs.flatMap((o) => extractFailingTests(o)) : [];
+      recordEpicBaseLane({ epicId, baseSha: epicBaseSha ?? '', laneKey, failures, ran: true });
+      return failures;
+    } catch {
+      return null;
+    }
+  };
   return {
     invoker: ClaudeNodeInvoker,
     grokInvoker: GrokNodeInvoker,
@@ -4292,7 +4316,7 @@ export async function makeLeafExecutorDeps(
       }
       const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
       const baseGate = getEpicBaseGate(epicId, epicBaseSha);
-      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null);
+      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null, resolveLaneBaseline);
     },
     // G2 once-per-epic base gate, cached in the epic_base_gate ledger table keyed by
     // epicId ALONE (never the moving tip) so it runs exactly once per epic, not once
