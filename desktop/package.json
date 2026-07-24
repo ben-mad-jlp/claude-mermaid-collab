@@ -46,6 +46,10 @@
         "to": "public"
       },
       {
+        "from": "../hooks",
+        "to": "hooks"
+      },
+      {
         "from": "resources",
         "to": ".",
         "filter": [

@@ -31,6 +31,9 @@ import {
   _primeAuthCacheForTest,
   mcpConfigFor,
   invokeGrokNode,
+  nodeSettingsFile,
+  resolveConfineHookPath,
+  _resetConfineHookPathCache,
   type NodeSpec,
 } from '../node-invoker.ts';
 import { invokeXaiApiNode } from '../xai-api-invoker.ts';
@@ -301,6 +304,52 @@ describe('worktreeSpawnEnv (E3 git isolation)', () => {
     const baseEnv = { GIT_DIR: '/repo/.git' } as NodeJS.ProcessEnv;
     worktreeSpawnEnv('/repo/wt', baseEnv);
     expect(baseEnv.GIT_DIR).toBe('/repo/.git');
+  });
+
+  it('sets MERMAID_LEAF_WORKTREE to the worktree cwd (the confinement boundary the PreToolUse hook reads)', () => {
+    const env = worktreeSpawnEnv('/repo/.claude/worktrees/wt-1', { PATH: '/usr/bin' } as NodeJS.ProcessEnv);
+    expect(env.MERMAID_LEAF_WORKTREE).toBe('/repo/.claude/worktrees/wt-1');
+  });
+});
+
+describe('worktree-confinement wiring (buildNodeArgv --settings + generated hook file)', () => {
+  beforeEach(() => { _resetConfineHookPathCache(); });
+  afterEach(() => { _resetConfineHookPathCache(); });
+
+  it('resolves the shipped hook script (hooks/worktree-confine.mjs) to an existing absolute path', () => {
+    const p = resolveConfineHookPath();
+    expect(p).not.toBeNull();
+    expect(p!.endsWith('/hooks/worktree-confine.mjs')).toBe(true);
+    expect(existsSync(p!)).toBe(true);
+  });
+
+  it('buildNodeArgv includes --settings <generated file>', () => {
+    const argv = buildNodeArgv(base);
+    const i = argv.indexOf('--settings');
+    expect(i).toBeGreaterThan(-1);
+    const file = argv[i + 1];
+    expect(typeof file).toBe('string');
+    expect(existsSync(file)).toBe(true);
+    // The generated settings file is exactly what nodeSettingsFile() returns (idempotent).
+    expect(file).toBe(nodeSettingsFile()!);
+  });
+
+  it('the generated settings file registers the PreToolUse confinement hook for the write+Bash matcher', () => {
+    const file = nodeSettingsFile();
+    expect(file).not.toBeNull();
+    const body = JSON.parse(readFileSync(file!, 'utf-8'));
+    const pre = body.hooks.PreToolUse;
+    expect(Array.isArray(pre)).toBe(true);
+    expect(pre[0].matcher).toBe('Bash|Write|Edit|MultiEdit|NotebookEdit');
+    expect(pre[0].hooks[0].type).toBe('command');
+    expect(pre[0].hooks[0].command).toBe(resolveConfineHookPath()!);
+    expect(pre[0].hooks[0].command.endsWith('/hooks/worktree-confine.mjs')).toBe(true);
+  });
+
+  it('--settings LAYERS on top of --setting-sources (both present; does not replace it)', () => {
+    const argv = buildNodeArgv(base);
+    expect(argv).toContain('--settings');
+    expect(argv).toContain('--setting-sources');
   });
 });
 

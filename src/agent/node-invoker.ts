@@ -17,6 +17,7 @@
 
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir, homedir } from 'node:os';
 import { resolveGrokModel } from './grok-model.js';
 import { SETTING_SOURCES_ARGS } from './contracts.js';
@@ -47,6 +48,12 @@ export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.
   // Ceiling at the worktree's parent: discovery may find the worktree's own `.git` file
   // but must not climb above it to the main checkout. (No-effect for a non-worktree cwd.)
   env.GIT_CEILING_DIRECTORIES = dirname(cwd);
+  // WORKTREE CONFINEMENT (defense-in-depth): the boundary the PreToolUse confinement hook
+  // (hooks/worktree-confine.mjs, wired via nodeSettingsFile()) reads to DENY any Write/Edit
+  // to — or `cd`/pytest into — a path OUTSIDE this lane worktree. Closes the 2026-07-24
+  // build123d incident (leaves cd'd to the main checkout, ran pytest there, false-green with
+  // empty worktree diffs). Absent var = "not a confined node" → the hook allows everything.
+  env.MERMAID_LEAF_WORKTREE = cwd;
   return env;
 }
 
@@ -70,6 +77,66 @@ export function mcpConfigFor(port: number): string {
   };
   writeFileSync(path, JSON.stringify(body, null, 2));
   mcpConfigPaths.set(port, path);
+  return path;
+}
+
+/**
+ * Resolve the ABSOLUTE path of the shipped worktree-confinement hook script
+ * (hooks/worktree-confine.mjs) robustly — relative to the INSTALLED PACKAGE, never cwd.
+ *  - Packaged sidecar (`bun build --compile`): import.meta points at Bun's virtual FS, so
+ *    resolve under MERMAID_RESOURCES_PATH (electron-builder ships `hooks/` there).
+ *  - From source (dev / daemon / tests): this file is src/agent/node-invoker.ts, so the repo
+ *    root is two levels up → <root>/hooks/worktree-confine.mjs.
+ * Returns null if no candidate exists (then buildNodeArgv omits --settings — fail-open: no
+ * confinement rather than a broken hook command). Memoized. Exported for tests. */
+let cachedConfineHookPath: string | null | undefined;
+export function resolveConfineHookPath(): string | null {
+  if (cachedConfineHookPath !== undefined) return cachedConfineHookPath;
+  const candidates: string[] = [];
+  const res = process.env.MERMAID_RESOURCES_PATH?.trim();
+  if (res) candidates.push(join(res, 'hooks', 'worktree-confine.mjs'));
+  try {
+    const here = dirname(fileURLToPath(import.meta.url)); // .../src/agent
+    candidates.push(resolve(here, '..', '..', 'hooks', 'worktree-confine.mjs'));
+  } catch { /* import.meta.url unavailable (some bundlers) — resources path only */ }
+  for (const c of candidates) {
+    if (existsSync(c)) { cachedConfineHookPath = c; return c; }
+  }
+  cachedConfineHookPath = null;
+  return null;
+}
+/** For tests: drop the memoized confinement-hook path. */
+export function _resetConfineHookPathCache(): void { cachedConfineHookPath = undefined; }
+
+/** Generated `--settings` file registering the worktree-confinement PreToolUse hook for
+ *  every write + Bash tool. Mirrors {@link mcpConfigFor}: written ONCE (idempotent) into the
+ *  OS tmp dir, keyed by the resolved hook path so a redeploy that moves the hook regenerates
+ *  it. Returns null when the hook script can't be found (→ no --settings; fail-open). This is
+ *  passed via --settings, NOT project/local .claude/settings.json, so it applies ONLY to
+ *  headless nodes and never to the user's interactive sessions (see SETTING_SOURCES_ARGS).
+ *  Exported for unit testing. */
+const nodeSettingsPaths = new Map<string, string>();
+export function nodeSettingsFile(): string | null {
+  const hook = resolveConfineHookPath();
+  if (!hook) return null;
+  const cached = nodeSettingsPaths.get(hook);
+  if (cached) return cached;
+  const dir = join(tmpdir(), 'mermaid-node-settings');
+  mkdirSync(dir, { recursive: true });
+  // Key the filename by pid so concurrent servers don't clobber; idempotent per (hook,pid).
+  const path = join(dir, `node-settings-${process.pid}.json`);
+  const body = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit',
+          hooks: [{ type: 'command', command: hook }],
+        },
+      ],
+    },
+  };
+  writeFileSync(path, JSON.stringify(body, null, 2));
+  nodeSettingsPaths.set(hook, path);
   return path;
 }
 
@@ -413,6 +480,14 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
     // spawn paths can't drift.
     ...SETTING_SOURCES_ARGS,
   ];
+  // WORKTREE CONFINEMENT: register the PreToolUse hook that DENIES any write/`cd`-and-test
+  // outside this node's lane worktree (boundary = env MERMAID_LEAF_WORKTREE, set by
+  // worktreeSpawnEnv). Passed as a generated --settings file — NOT project/local settings —
+  // so it binds only headless nodes, never interactive sessions. Omitted when the hook script
+  // can't be resolved (fail-open: no confinement rather than a broken command). Additive to
+  // SETTING_SOURCES_ARGS: --settings LAYERS on top of --setting-sources, it doesn't replace it.
+  const settingsFile = nodeSettingsFile();
+  if (settingsFile) argv.push('--settings', settingsFile);
   if (spec.model) argv.push('--model', spec.model);
   if (spec.effort) argv.push('--effort', spec.effort);
   // Strip MCP: --strict-mcp-config with NO --mcp-config flags = zero MCP servers (build
@@ -1169,6 +1244,14 @@ export function buildGrokArgv(spec: NodeSpec, promptFile: string): string[] {
     '--cwd', absCwd,
     '--no-plan', '--no-subagents', '--no-memory', '--disable-web-search',
   ];
+  // WORKTREE CONFINEMENT NOTE: unlike the claude path (buildNodeArgv), grok gets NO
+  // --settings / PreToolUse hook — the grok CLI has neither flag nor a Claude-style hook
+  // system (verified: `grok agent --settings …` → "unexpected argument '--settings'", which
+  // would start-fail EVERY grok node). Grok still receives MERMAID_LEAF_WORKTREE +
+  // GIT_CEILING_DIRECTORIES via worktreeSpawnEnv (git can't escape the worktree), but the
+  // filesystem/cd confinement the hook provides for claude is NOT enforced for grok here.
+  // A grok-native equivalent would use grok's own `--deny`/`--sandbox <PROFILE>` (GROK_SANDBOX)
+  // and is left as a follow-up — see the mission report's "grok gap".
   if (spec.model) argv.push('-m', resolveGrokModel(spec.model, spec.transcriptLabel));
   if (spec.effort) argv.push('--effort', spec.effort);
   if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
