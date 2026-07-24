@@ -8,6 +8,18 @@ interface OpsEscalationGroupsProps {
   serverScope: string;
 }
 
+/** Recurring-condition indicator: shows `×N` (N = recurrenceCount + 1 raises) once a
+ *  condition has recurred at least once. Silent for a first-ever raise. */
+const RecurrenceBadge: React.FC<{ e: Escalation }> = ({ e }) => {
+  const count = e.recurrenceCount ?? 0;
+  if (count <= 0) return null;
+  return (
+    <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 align-middle">
+      ×{count + 1}
+    </span>
+  );
+};
+
 export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
   escalations,
   serverScope,
@@ -30,7 +42,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
     const hasOptions = !!e.options && e.options.length > 0;
     return (
       <div key={e.id} className="p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-        <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}</p>
+        <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}<RecurrenceBadge e={e} /></p>
         {hasOptions ? (
           <div className="space-y-1.5">
             {e.options!.map((opt) => (
@@ -118,7 +130,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
               key={e.id}
               className="p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
             >
-              <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}<RecurrenceBadge e={e} /></p>
               <div className="flex gap-2">
                 <button
                   onClick={() =>
@@ -157,7 +169,7 @@ export const OpsEscalationGroups: React.FC<OpsEscalationGroupsProps> = ({
               key={e.id}
               className="p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
             >
-              <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">{e.questionText}<RecurrenceBadge e={e} /></p>
               <button
                 onClick={() => acknowledgeEscalationCard(serverScope, e.id)}
                 className="w-full px-2 py-1 text-xs font-medium rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60"

@@ -146,6 +146,18 @@ export interface Escalation {
    *  Lets the inbox show what work the question is about and, on dismiss, optionally
    *  re-ready / block that todo. Null/absent for escalations with no todo link. */
   todoId?: string | null;
+  /** Durable condition identity (this leaf): `${kind}:${subject[0]}`. Absent/null for
+   *  escalations raised without a condition tuple. */
+  conditionKey?: string | null;
+  /** sha256 (truncated) over the sorted condition tuple. Absent/null when conditionKey
+   *  is absent/null. */
+  conditionHash?: string | null;
+  /** Wall-clock of the most recent raise of this condition. Absent/null on older
+   *  payloads or unkeyed escalations. */
+  lastSeenAt?: number | null;
+  /** How many times this condition has recurred while open/acknowledged. Absent on
+   *  older payloads → treat as 0. */
+  recurrenceCount?: number;
 }
 
 /** Orch P2: a Grok-suggested action attached inline to an escalation (mirrors the
