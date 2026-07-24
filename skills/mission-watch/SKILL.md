@@ -66,6 +66,14 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
   escalation_resolve with an 8-hex id returns success while resolving nothing
   (observed 2026-07-22). Use full ids everywhere; after any write that matters,
   re-read and confirm the change landed before acting on it.
+- **An unwedge is verified by the NEXT transition, not the write.** A reset/key-clear/
+  un-hold "succeeding" proves nothing — cached verdicts can silently re-reject in
+  seconds with no ledger trace (a FALSE base-red has nothing to commit, so the base
+  SHA never moves and `epic_base_gate` serves the poison forever). Before resetting a
+  verdict-parked leaf, read the verdict's cache and confirm the retry will actually
+  RE-MEASURE; after any unwedge, watch for the downstream transition (claim + fresh
+  probe, a real conductor node) within one cycle — its absence is a new diagnosis,
+  never a retry prompt.
 - **Duplicate serves** (same criterion, overlapping epics/leaves): keep whichever
   copy has the most progress; DROP the idle copy. Drops are safe — the serve-cap
   counts lifetime including dropped, so a drop never re-opens the serve window.
