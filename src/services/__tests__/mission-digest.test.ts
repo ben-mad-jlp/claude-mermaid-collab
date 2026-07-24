@@ -18,10 +18,11 @@ import {
   resolveActiveMissionDigest,
 } from '../mission-digest';
 import { forgeMission } from '../../mcp/tools/mission-forge';
-import { _resetMissionDbCache } from '../mission-store';
+import { _resetMissionDbCache, activateMission } from '../mission-store';
 import { _closeProject as closeDecisions } from '../decision-record-store';
 import { _closeProject as closeTodos } from '../todo-store';
 import { writeProjectDigest } from '../project-digest';
+import { composeInjectedContext } from '../prompt-injection';
 
 afterEach(() => {
   _resetMissionDbCache(project);
@@ -109,5 +110,42 @@ describe('resolveActiveMissionDigest', () => {
 
   test('no mission and no project digest returns null', () => {
     expect(resolveActiveMissionDigest(project)).toBeNull();
+  });
+});
+
+describe('mission-scoped digest — queued forge never moves the live payload', () => {
+  test('queuing a second mission does not move the live blueprint payload; activating it does', async () => {
+    const FLAGS = { digest: true, retryContext: false, activeConstraints: false };
+
+    const a = await forgeMission(project, {
+      session: 's1',
+      title: 'Steering',
+      criteria: ['it works'],
+      digest: '# DIGEST-A orientation',
+    });
+    const payloadA = composeInjectedContext({ project, kind: 'blueprint', flags: FLAGS });
+
+    const b = await forgeMission(project, {
+      session: 's1',
+      title: 'Converter',
+      criteria: ['it works'],
+      digest: '# DIGEST-B orientation',
+      activate: false,
+    });
+
+    const after = composeInjectedContext({ project, kind: 'blueprint', flags: FLAGS });
+    expect(after).toBe(payloadA);
+    expect(after).toContain('DIGEST-A');
+    expect(after).not.toContain('DIGEST-B');
+
+    expect(readMissionDigest(project, b.missionId)).toContain('DIGEST-B');
+    expect(existsSync(join(project, '.collab', 'project-digest.md'))).toBe(false);
+
+    activateMission(project, b.missionId);
+    const swapped = composeInjectedContext({ project, kind: 'blueprint', flags: FLAGS });
+    expect(swapped).toContain('DIGEST-B');
+    expect(swapped).not.toContain('DIGEST-A');
+
+    void a;
   });
 });
