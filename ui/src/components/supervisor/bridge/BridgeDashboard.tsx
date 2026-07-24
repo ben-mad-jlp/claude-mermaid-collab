@@ -490,18 +490,18 @@ export const BridgeDashboard: React.FC = () => {
 
   const panels = useMemo<Partial<Record<RailKey, React.ReactNode>>>(
     () => ({
-      escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
-      land: <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
+      escalations: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
+      land: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
       work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
       stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
-      stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
-      executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
+      stream: <div className="h-full min-h-0 overflow-y-auto p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
+      executor: <div className="h-full min-h-0 overflow-y-auto p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
       subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
       usage: <UsagePanel project={project} serverScope={serverScope} />,
       // The Missions rail tab renders the SAME detail panel the mission bar opens — it scrolls,
       // has a hide-completed toggle, and lets you click any mission to read its description.
       missions: <MissionDetailPanel serverId={serverScope} project={project} session={currentSession?.name} />,
-      dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
+      dogfood: <div className="h-full min-h-0 overflow-y-auto p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
     }),
     [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name],
   );
