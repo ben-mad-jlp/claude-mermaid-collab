@@ -28,8 +28,9 @@ import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { createEscalation, listEscalations, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
-import { getEpicBaseGate, recordEpicBaseGate } from './worker-ledger.js';
-import { resolveGateDeclaration, runBaseGate, defaultGateSpawn } from './leaf-gate.js';
+import { getEpicBaseGate, recordEpicBaseGate, shouldHonourCachedBaseGate } from './worker-ledger.js';
+import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
+import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
 
 /** The INFRA causes an executor stamps as the HEAD of a park reason (leaf-executor's G2
@@ -112,46 +113,76 @@ export type BaseProbeVerdict = 'pass' | 'fail' | 'error' | 'unknown';
 
 export type EpicBaseProbe = (epicId: string, targetProject: string) => Promise<BaseProbeVerdict>;
 
-/**
- * LIVE re-probe of an epic's base, from the same primitives as the executor's
- * `ensureBaseGreen`: the cache row is keyed to the base commit it examined, so a commit that
- * REPAIRS the base is already a cache MISS and the gate simply re-runs — no invalidation
- * code exists or is needed. Runs in the epic's dedicated worktree (`ensureEpic`), never the
- * main checkout. Any throw degrades to 'unknown' (⇒ card, not reset).
- */
-export const defaultEpicBaseProbe: EpicBaseProbe = async (epicId, targetProject) => {
-  try {
-    // Lazy imports: the live probe pulls the (heavy) worktree/executor surface, but the
-    // classifier + collector must stay cheap to import for the pass and its tests.
-    const { getWorktreeManager } = await import('./coordinator-live.js');
-    const { isCacheableBaseGateStatus } = await import('./leaf-executor.js');
-    const wm = getWorktreeManager(targetProject);
-    const sha = await wm.epicHeadSha(epicId);
-    const cached = getEpicBaseGate(epicId, sha);
-    if (cached) return cached.status === 'pass' ? 'pass' : cached.status === 'fail' ? 'fail' : 'error';
+/** Injectable IO for {@link makeEpicBaseProbe}. Each field defaults to today's LIVE
+ *  implementation, lazily resolved inside the async body so importing this module never
+ *  pulls the heavy worktree/executor surface (the classifier + collector must stay cheap
+ *  to import for the pass and its tests). */
+export interface EpicBaseProbeIo {
+  headSha: (epicId: string, targetProject: string) => Promise<string | null | undefined>;
+  gateDecl: (targetProject: string) => ReturnType<typeof resolveGateDeclaration>;
+  ensureEpicWorktree: (epicId: string, targetProject: string) => Promise<{ path: string } | null>;
+  runGate: (cwd: string, cfg: LeafGateConfig) => Promise<LeafGateResult>;
+  now?: () => number;
+}
 
-    const gateDecl = resolveGateDeclaration(loadManifestSource(targetProject));
-    // No declared gate (absent / misconfigured) ⇒ we cannot PROVE the base is green, and an
-    // abstention must never read as one.
-    if (gateDecl.kind !== 'declared') return 'unknown';
-    const wt = await wm.ensureEpic(epicId, targetProject);
-    if (!wt) return 'unknown'; // non-git fallback ⇒ no base gate
-    const r = await runBaseGate(wt.path, gateDecl.cfg, defaultGateSpawn);
-    if (isCacheableBaseGateStatus(r.status)) {
-      recordEpicBaseGate({
-        epicId,
-        project: targetProject,
-        baseSha: sha,
-        status: r.status,
-        command: r.command ?? null,
-        output: r.output || null,
-      });
+/**
+ * Build a probe of an epic's base, from the same primitives as the executor's
+ * `ensureBaseGreen`: a cached `pass` is terminal for its sha; a cached `fail` is bounded and
+ * re-verifiable (`shouldHonourCachedBaseGate`), so a base repaired WITHOUT a new commit
+ * (flake, contention, a fixed toolchain) still un-parks its leaves rather than being pinned
+ * red forever. Runs in the epic's dedicated worktree (`ensureEpic`), never the main
+ * checkout. Any throw degrades to 'unknown' (⇒ card, not reset).
+ */
+export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe {
+  const headSha = io?.headSha ?? (async (epicId, targetProject) => {
+    const { getWorktreeManager } = await import('./coordinator-live.js');
+    return getWorktreeManager(targetProject).epicHeadSha(epicId);
+  });
+  const gateDecl = io?.gateDecl ?? ((targetProject) => resolveGateDeclaration(loadManifestSource(targetProject)));
+  const ensureEpicWorktree = io?.ensureEpicWorktree ?? (async (epicId, targetProject) => {
+    const { getWorktreeManager } = await import('./coordinator-live.js');
+    return getWorktreeManager(targetProject).ensureEpic(epicId, targetProject);
+  });
+  const runGate = io?.runGate ?? ((cwd, cfg) => runBaseGate(cwd, cfg, defaultGateSpawn));
+  const now = io?.now;
+  return async (epicId, targetProject) => {
+    try {
+      const sha = await headSha(epicId, targetProject);
+      const cached = getEpicBaseGate(epicId, sha);
+      if (cached && shouldHonourCachedBaseGate(cached, now?.()) === 'honour') {
+        return cached.status === 'pass' ? 'pass' : cached.status === 'fail' ? 'fail' : 'error';
+      }
+
+      const decl = gateDecl(targetProject);
+      // No declared gate (absent / misconfigured) ⇒ we cannot PROVE the base is green, and an
+      // abstention must never read as one.
+      if (decl.kind !== 'declared') return 'unknown';
+      const wt = await ensureEpicWorktree(epicId, targetProject);
+      if (!wt) return 'unknown'; // non-git fallback ⇒ no base gate
+      const r = await runBaseGateShared(
+        baseGateKey(targetProject, sha, decl.cfg),
+        () => runGate(wt.path, decl.cfg),
+      );
+      const { isCacheableBaseGateStatus } = await import('./leaf-executor.js');
+      if (isCacheableBaseGateStatus(r.status)) {
+        recordEpicBaseGate({
+          epicId,
+          project: targetProject,
+          baseSha: sha ?? null,
+          status: r.status,
+          command: r.command ?? null,
+          output: r.output || null,
+          baselineFailures: r.baselineFailures ?? null,
+        });
+      }
+      return r.status === 'pass' ? 'pass' : r.status === 'fail' ? 'fail' : 'error';
+    } catch {
+      return 'unknown';
     }
-    return r.status === 'pass' ? 'pass' : r.status === 'fail' ? 'fail' : 'error';
-  } catch {
-    return 'unknown';
-  }
-};
+  };
+}
+
+export const defaultEpicBaseProbe: EpicBaseProbe = makeEpicBaseProbe();
 
 export interface InfraArmDeps {
   probe?: EpicBaseProbe;

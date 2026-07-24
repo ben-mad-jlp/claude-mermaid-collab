@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, BASE_GATE_FAIL_REVERIFY_ATTEMPTS, BASE_GATE_FAIL_TTL_MS, type EpicBaseGateRow, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
 import { parseDiffContract, renderContract, type DiffContract } from '../diff-contract';
 import Database from 'bun:sqlite';
 
@@ -336,6 +336,63 @@ describe('epic_base_gate cache key (baseSha validation)', () => {
     const r = getEpicBaseGate('e1', 'aaa');
     expect(r).not.toBeNull();
     expect(r?.baselineFailures).toBeNull();
+  });
+
+  // --- bounded cached fail: failAttempts counter + shouldHonourCachedBaseGate policy ---
+  const gateRow = (over: Partial<EpicBaseGateRow> = {}): EpicBaseGateRow => ({
+    epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail',
+    command: 'gate', output: 'red', baselineFailures: null,
+    failAttempts: 1, checkedAt: 1_000_000, ...over,
+  });
+
+  test('repeated fail writes at one sha increment failAttempts', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    expect(getEpicBaseGate('e1', 'aaa')?.failAttempts).toBe(1);
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    expect(getEpicBaseGate('e1', 'aaa')?.failAttempts).toBe(2);
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    expect(getEpicBaseGate('e1', 'aaa')?.failAttempts).toBe(3);
+  });
+
+  test('a sha change on a fail write resets failAttempts to 1 (old sha still MISSes)', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    expect(getEpicBaseGate('e1', 'aaa')?.failAttempts).toBe(2);
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'bbb', status: 'fail', command: 'gate', output: 'red' });
+    expect(getEpicBaseGate('e1', 'bbb')?.failAttempts).toBe(1);
+    expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
+  });
+
+  test('a pass write resets failAttempts to 0', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: 'gate', output: null });
+    const r = getEpicBaseGate('e1', 'aaa');
+    expect(r?.status).toBe('pass');
+    expect(r?.failAttempts).toBe(0);
+  });
+
+  test('a first fail is never believed ⇒ reverify', () => {
+    expect(shouldHonourCachedBaseGate(gateRow({ failAttempts: 1 }), 1_000_000)).toBe('reverify');
+  });
+
+  test('at the attempt budget with a fresh checkedAt ⇒ honour', () => {
+    const row = gateRow({ failAttempts: BASE_GATE_FAIL_REVERIFY_ATTEMPTS, checkedAt: 1_000_000 });
+    expect(shouldHonourCachedBaseGate(row, 1_000_000 + 1000)).toBe('honour');
+  });
+
+  test('past the TTL the same red re-verifies', () => {
+    const row = gateRow({ failAttempts: BASE_GATE_FAIL_REVERIFY_ATTEMPTS, checkedAt: 1_000_000 });
+    expect(shouldHonourCachedBaseGate(row, 1_000_000 + BASE_GATE_FAIL_TTL_MS + 1)).toBe('reverify');
+    expect(shouldHonourCachedBaseGate(row, 1_000_000 + BASE_GATE_FAIL_TTL_MS)).toBe('honour');
+  });
+
+  test("a 'pass' row is honoured at any age or attempt count", () => {
+    expect(shouldHonourCachedBaseGate(gateRow({ status: 'pass', failAttempts: 0 }), 1_000_000)).toBe('honour');
+    expect(shouldHonourCachedBaseGate(
+      gateRow({ status: 'pass', failAttempts: 99, checkedAt: 0 }),
+      1_000_000 + BASE_GATE_FAIL_TTL_MS * 1000,
+    )).toBe('honour');
   });
 
   // Lazy per-epic base memo for the per-file `tests` lanes (epic_base_lane table).
