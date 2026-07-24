@@ -578,13 +578,28 @@ export async function runLeafGate(
           declared: true,
         };
       }
-      return {
-        status: 'fail',
-        command: cfg.typecheck,
-        output: r.output,
-        reasons: [`typecheck failed: ${cfg.typecheck}`, lastLines(r.output, 20)],
-        declared: true,
-      };
+      const failing = parseTypecheckFiles(r.output);
+      if (failing === null) {
+        return {
+          status: 'fail',
+          command: cfg.typecheck,
+          output: r.output,
+          reasons: [`typecheck failed: ${cfg.typecheck}`, lastLines(r.output, 20)],
+          declared: true,
+        };
+      }
+      const { netNew } = classifyRedLane(failing, baselines?.['typecheck'] ?? []);
+      if (netNew.length === 0) {
+        baselineOnly.push(...failing);
+      } else {
+        return {
+          status: 'fail',
+          command: cfg.typecheck,
+          output: r.output,
+          reasons: [`typecheck failed: ${cfg.typecheck}`, ...netNew.slice(0, 20)],
+          declared: true,
+        };
+      }
     }
   }
 

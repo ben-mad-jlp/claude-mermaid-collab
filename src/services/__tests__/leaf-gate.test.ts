@@ -567,6 +567,54 @@ describe('runLeafGate — base-differential lanes', () => {
   });
 });
 
+describe('runLeafGate — whole-tree typecheck baseline attribution', () => {
+  it('BASELINE-ONLY — whole-tree typecheck red reproducing only the baseline fingerprint passes', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const baselines = { typecheck: ['src/x.ts'] };
+    const { spawn } = stubSpawn({
+      tsc: { ran: true, code: 1, output: 'src/x.ts(1,1): error TS2304' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/x.ts'], spawn, baselines);
+    expect(r.status).toBe('pass');
+    expect(r.baselineOnly).toContain('src/x.ts');
+  });
+
+  it('NET-NEW — a fingerprint absent from the baseline still fails, baseline fingerprint excluded from the reasons', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const baselines = { typecheck: ['src/x.ts'] };
+    const output = [
+      'src/x.ts(1,1): error TS2304',
+      'src/y.ts(2,2): error TS2304',
+    ].join('\n');
+    const { spawn } = stubSpawn({ tsc: { ran: true, code: 1, output } });
+    const r = await runLeafGate('/wt', cfg, ['src/x.ts', 'src/y.ts'], spawn, baselines);
+    expect(r.status).toBe('fail');
+    const netNewReasons = r.reasons.slice(1);
+    expect(netNewReasons.some((reason) => reason.includes('src/y.ts'))).toBe(true);
+    expect(netNewReasons.some((reason) => reason.includes('src/x.ts'))).toBe(false);
+  });
+
+  it('UNPARSEABLE output with a baseline present ⇒ fail-closed', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const baselines = { typecheck: ['src/x.ts'] };
+    const { spawn } = stubSpawn({ tsc: { ran: true, code: 1, output: 'Build failed.' } });
+    const r = await runLeafGate('/wt', cfg, ['src/x.ts'], spawn, baselines);
+    expect(r.status).toBe('fail');
+  });
+
+  it('FOREIGN-ONLY error with a baseline present ⇒ error incident, baseline step never consulted', async () => {
+    const cfg: LeafGateConfig = { typecheck: 'tsc' };
+    const baselines = { typecheck: ['src/x.ts'] };
+    const foreignFile = 'src/services/__tests__/session-summary-loop.test.ts';
+    const { spawn } = stubSpawn({
+      tsc: { ran: true, code: 1, output: `${foreignFile}(12,5): error TS2304: Cannot find name Y.` },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/x.ts'], spawn, baselines);
+    expect(r.status).toBe('error');
+    expect(r.reasons.some((reason) => reason.includes('foreign-typecheck-errors'))).toBe(true);
+  });
+});
+
 describe('lane validation (resolveGateDeclaration)', () => {
   const MANIFEST_PATH = '/tmp/.collab/project.json';
 
