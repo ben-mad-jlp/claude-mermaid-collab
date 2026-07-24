@@ -61,12 +61,14 @@ describe('UserInputCard', () => {
       vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     });
     afterEach(() => {
+      cleanup();
+      vi.clearAllTimers();
       vi.useRealTimers();
     });
 
     it('renders and updates countdown every second', () => {
       const deadlineMs = Date.now() + 65_000; // 1:05
-      render(
+      const { unmount } = render(
         <UserInputCard
           promptId="p1"
           prompt="hurry"
@@ -84,11 +86,12 @@ describe('UserInputCard', () => {
         vi.advanceTimersByTime(5000);
       });
       expect(screen.getByLabelText('Time remaining').textContent).toBe('00:59');
+      unmount();
     });
 
     it('clamps at 00:00 past deadline', () => {
       const deadlineMs = Date.now() + 2000;
-      render(
+      const { unmount } = render(
         <UserInputCard
           promptId="p1"
           prompt="hurry"
@@ -101,6 +104,7 @@ describe('UserInputCard', () => {
         vi.advanceTimersByTime(10_000);
       });
       expect(screen.getByLabelText('Time remaining').textContent).toBe('00:00');
+      unmount();
     });
   });
 });
