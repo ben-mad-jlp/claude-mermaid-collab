@@ -321,6 +321,9 @@ export async function planMissionCriterion(
         project,
         permissionMode: 'bypassPermissions',
         transcriptLabel: 'planner',
+        ledgerSource: 'planner',
+        ledgerTodoId: input.missionId,
+        ledgerSession: input.session,
       });
       if (!res.ok || !res.text || !res.text.trim()) {
         lastErr = new Error(`the planner node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);

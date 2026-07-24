@@ -47,6 +47,7 @@ import {
 import { stripLabel } from '../../services/todo-kind.js';
 import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
+import { recordSpend } from '../../services/spend-ledger.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import type { EffortLevel } from '../../agent/contracts.js';
@@ -395,18 +396,41 @@ export async function forgeMissionFromDoc(
     cwd: project,
     project,
     transcriptLabel: 'forge',
+    skipAutoLedger: true,
+    ledgerSource: 'forge',
   });
   if (!res.ok || !res.text || !res.text.trim()) {
     throw new Error(`forge_mission_from_doc: the forge node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
   }
 
-  const spec = parseForgeSpec(res.text);
-  const forged = await forgeMission(project, {
-    session: input.session,
-    ...spec,
-    handoffDocId: input.docId, // the source doc IS the mission's constitution
-    approved: false,           // UNAPPROVED: sits in the list, inactive, constraints proposed
-    activate: false,
-  });
-  return { ...forged, spec, modelUsed: model, effortUsed: effort };
+  // The mission doesn't exist until forgeMission returns, so the forge node's spend row
+  // can't be keyed to a missionId at the invoke call site above (hence skipAutoLedger).
+  // Record it here instead, in a `finally` so exactly one row is written whether or not
+  // the parse+instantiate below succeeds (todoId falls back to 'forge' on failure).
+  let spec: ReturnType<typeof parseForgeSpec> | undefined;
+  let forged: ForgeMissionResult | undefined;
+  try {
+    spec = parseForgeSpec(res.text);
+    forged = await forgeMission(project, {
+      session: input.session,
+      ...spec,
+      handoffDocId: input.docId, // the source doc IS the mission's constitution
+      approved: false,           // UNAPPROVED: sits in the list, inactive, constraints proposed
+      activate: false,
+    });
+  } finally {
+    recordSpend({
+      project,
+      source: 'forge',
+      nodeKind: 'forge',
+      session: input.session,
+      todoId: forged?.missionId ?? 'forge',
+      model,
+      usage: res.usage,
+      durationMs: res.durationMs,
+      rateLimited: res.rateLimited,
+      ok: res.ok,
+    });
+  }
+  return { ...forged!, spec: spec!, modelUsed: model, effortUsed: effort };
 }
