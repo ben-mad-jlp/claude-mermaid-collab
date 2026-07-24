@@ -214,6 +214,18 @@ function openDb(): Database {
     const ebgc = db.query('PRAGMA table_info(epic_base_gate)').all() as Array<{ name: string }>;
     if (!ebgc.some((c) => c.name === 'baselineFailures')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN baselineFailures TEXT');
   }
+  // Lazy per-epic base memo for the per-file `tests` lanes. Unlike epic_base_gate,
+  // baseSha is IN the key: per-lane rows are cheap and need no cross-base invalidation
+  // dance — a new base just gets a new row, the old one is simply never looked up again.
+  db.exec(`CREATE TABLE IF NOT EXISTS epic_base_lane (
+    epicId TEXT NOT NULL,
+    baseSha TEXT NOT NULL,
+    laneKey TEXT NOT NULL,
+    failures TEXT,
+    ran INTEGER NOT NULL,
+    checkedAt INTEGER NOT NULL,
+    PRIMARY KEY (epicId, baseSha, laneKey)
+  )`);
   // G10 land gate cache. Keyed on epicId + both shas (tip and base) — both must match
   // for a cache hit. Tip changes after every leaf merge, base changes after every master
   // merge. A stale pass would silently greenlight an unexamined tree (G10 failure).
@@ -834,6 +846,57 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
       try { return JSON.parse(x) as LaneBaselineMap; } catch { return null; }
     };
     return { ...raw, baselineFailures: safeParse(raw.baselineFailures) };
+  } catch { return null; }
+}
+
+// --- Lazy per-epic base memo for the per-file `tests` lanes (epic_base_lane) --
+export interface EpicBaseLaneRow {
+  epicId: string;
+  baseSha: string;
+  laneKey: string;
+  failures: string[] | null;
+  ran: boolean;
+  checkedAt: number;
+}
+
+/** Upsert one lane's base-run fingerprint. `failures` is truncated to
+ *  MAX_OUTPUT_CHARS on write. `ran:false` is NEVER recorded — an incident is not
+ *  a base fact — mirroring the `status==='error'` guard on recordEpicBaseGate. */
+export function recordEpicBaseLane(
+  e: Omit<EpicBaseLaneRow, 'checkedAt'>,
+  now: number = Date.now(),
+): void {
+  if (!e.ran) return;
+  try {
+    openDb().prepare(
+      `INSERT INTO epic_base_lane (epicId, baseSha, laneKey, failures, ran, checkedAt)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT(epicId, baseSha, laneKey) DO UPDATE SET
+         failures=excluded.failures, ran=excluded.ran, checkedAt=excluded.checkedAt`,
+    ).run(
+      e.epicId, e.baseSha, e.laneKey,
+      e.failures == null ? null : JSON.stringify(e.failures).slice(0, MAX_OUTPUT_CHARS),
+      1,
+      now,
+    );
+  } catch { /* best-effort */ }
+}
+
+/** Read a lane's memoized base-run fingerprint for the exact (epicId, baseSha,
+ *  laneKey). A falsy baseSha, a missing row, or any throw all read as `null`
+ *  (mirrors getEpicBaseGate's fail-safe MISS shape). */
+export function getEpicBaseLane(epicId: string, baseSha: string | null | undefined, laneKey: string): EpicBaseLaneRow | null {
+  if (!baseSha) return null;
+  try {
+    const raw = openDb().prepare(
+      'SELECT * FROM epic_base_lane WHERE epicId=? AND baseSha=? AND laneKey=?',
+    ).get(epicId, baseSha, laneKey) as (Omit<EpicBaseLaneRow, 'failures' | 'ran'> & { failures: string | null; ran: number }) | undefined;
+    if (!raw) return null;
+    let failures: string[] | null = null;
+    if (raw.failures != null) {
+      try { failures = JSON.parse(raw.failures) as string[]; } catch { failures = null; }
+    }
+    return { ...raw, failures, ran: Boolean(raw.ran) };
   } catch { return null; }
 }
 
