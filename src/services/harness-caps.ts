@@ -29,6 +29,18 @@ export const CRITERION_SERVE_CAP = 3;
  *  Origin: src/services/conductor-pass.ts (runConductorPass fail-retry counter). */
 export const CONDUCTOR_SERVE_RETRY_CAP = 3;
 
+/** How many conductor beats a SELECTED leader may go without a new pass stamp
+ *  (lastConductorPassAt) before deterministic-select treats it as stalled and lets an
+ *  actionable rival take the turn. A leader whose fingerprint debounce keeps returning
+ *  "no change" would otherwise hold the turn forever and every rival starves.
+ *  Origin: src/services/mission-store.ts (selectConductorMission leader-yield). */
+export const CONDUCTOR_LEADER_STALE_TICKS = 4;
+
+/** The conductor heartbeat period, so the stale-leader bound above is expressed in
+ *  beats rather than a second hardcoded millisecond literal.
+ *  Origin: src/services/orchestrator-live.ts (CONDUCTOR_INTERVAL_MS). */
+export const CONDUCTOR_BEAT_MS = 30_000;
+
 /** HARD RE-DISPATCH CAP (loop breaker). A todo re-dispatched this many times without
  *  reaching done/accepted is looping — each dispatch re-runs (and re-pays) a full
  *  blueprint. Past the cap the daemon PARKS it held + escalates instead of paying
