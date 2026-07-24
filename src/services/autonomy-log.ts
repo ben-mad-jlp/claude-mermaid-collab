@@ -10,6 +10,8 @@
  *                             (leaves-in-flight / tree-does-not-match-head / epic-mid-land).
  *   - 'terminal-deactivate' — mission-store.deactivateIfTerminal self-healed a stale
  *                             active flag on a terminal mission.
+ *   - 'dep-settlement'      — dep-settlement.ts settled a dup (settleDupOfLanded) or
+ *                             re-pointed dependent edges (repointDependents).
  *
  * DESIGN (locked constraints):
  *   - The ring is BOUNDED (RING_CAP) — recording evicts the oldest, never grows unbounded.
@@ -25,7 +27,7 @@
  */
 
 /** The kinds of autonomous mutation B6 observes. */
-export type AutonomyMutationKind = 'reserve-leaf' | 'deploy-refusal' | 'terminal-deactivate';
+export type AutonomyMutationKind = 'reserve-leaf' | 'deploy-refusal' | 'terminal-deactivate' | 'dep-settlement';
 
 /** One recorded autonomous mutation. `actor` + `reason` are required; the rest is context. */
 export interface AutonomyMutation {
