@@ -50,6 +50,7 @@ import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests 
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
 import { recordFriction } from './friction-store';
+import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
@@ -2669,7 +2670,7 @@ export async function runLeaf(
       leafId: leaf.id,
       epicId,
       project, // E1: recorded in the leaf-subprocess registry for per-project brake
-      permissionMode: 'bypassPermissions',
+      permissionMode: resolveNodePermissionMode(),
       transcriptPath: leafTranscriptPath(project, leaf.id),
       transcriptLabel: kind,
       appendSystemPrompt: injected || undefined,
@@ -2712,7 +2713,7 @@ export async function runLeaf(
     leafId: leaf.id,
     epicId,
     project, // E1: recorded in the leaf-subprocess registry for per-project brake
-    permissionMode: 'bypassPermissions',
+    permissionMode: resolveNodePermissionMode(),
     // The execute node runs a heavy CAD build — give it a longer wall-clock cap (L4: the
     // default 600s killed it mid-build). Other verify nodes use the default.
     ...(kind === 'driveexec' ? { timeoutMs: VERIFY_EXEC_TIMEOUT_MS } : {}),
@@ -2817,7 +2818,7 @@ export async function runLeaf(
       cwd,
       leafId: leaf.id,
       epicId,
-      permissionMode: 'bypassPermissions',
+      permissionMode: resolveNodePermissionMode(),
       transcriptPath: leafTranscriptPath(project, leaf.id),
       transcriptLabel: 'review',
       appendSystemPrompt: reviewInjected || undefined,
