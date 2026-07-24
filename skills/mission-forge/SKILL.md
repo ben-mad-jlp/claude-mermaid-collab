@@ -91,8 +91,10 @@ It validates the criteria up front (≥1 required — no half-forged mission), c
 criteria, and — the part that used to be ~20 hand calls you could forget — turns each **constraint**
 into an ACTIVE constraint record (payload C → every blueprint/implement/review node; the review
 cite-check verifies the ids), each **rejectedAlternative** into a decision record whose alternatives
-payload D surfaces as "do not re-propose", and writes **digest** to `.collab/project-digest.md`
-(payload A). A constitution rule that exists only in handoff prose is a prompt-prohibition —
+payload D surfaces as "do not re-propose", and writes **digest** to `.collab/mission-digests/<missionId>.md`
+(payload A). Payload A resolves the ACTIVE mission's digest at builder-spawn time, so forging with
+`activate:false` stores a digest without affecting currently-spawning builders. A constitution rule
+that exists only in handoff prose is a prompt-prohibition —
 decoration to the builder who never sees it; `forge_mission` makes reaching the builders mechanical.
 
 Then confirm it landed: `get_mission` returns `constitutionHealth` — a `constitution-not-injected`
