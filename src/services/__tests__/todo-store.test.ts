@@ -11,6 +11,7 @@ import {
   stampEpicLandedAt, isHollowLand,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import { trackingProjectRoot } from '../project-registry';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
 import { isClaimable, claimReason } from '../claimability';
 import { recordLeafResume, getLeafResume, _closeLedgerDb } from '../worker-ledger';
@@ -1041,6 +1042,37 @@ describe('todo-store targetProject (cross-project todos)', () => {
     // an unrelated update leaves targetProject untouched
     await updateTodo(project, t.id, { targetProject: '/repos/keep' });
     expect((await updateTodo(project, t.id, { title: 'renamed' })).targetProject).toBe('/repos/keep');
+  });
+
+  test('bug 490ad490: a child inherits targetProject from its resolved parent when not stamped explicitly', async () => {
+    const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'cross-project parent', kind: 'epic', targetProject: '/tmp/other-repo' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'inherited child', parentId: parent.id, status: 'planned' });
+    expect(child.targetProject).toBe('/tmp/other-repo');
+    // survives reload
+    expect(getTodo(project, child.id)!.targetProject).toBe('/tmp/other-repo');
+  });
+
+  test('bug 490ad490: an explicit targetProject on the child wins over the inherited parent value', async () => {
+    const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'cross-project parent 2', kind: 'epic', targetProject: '/tmp/other-repo' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'explicit child', parentId: parent.id, status: 'planned', targetProject: '/tmp/explicit-repo' });
+    expect(child.targetProject).toBe('/tmp/explicit-repo');
+  });
+
+  test('bug 490ad490: a root create (no parent) still defaults to trackingProjectRoot(project)', async () => {
+    const root = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'root create' });
+    expect(root.targetProject).toBe(trackingProjectRoot(project));
+  });
+
+  test('bug 490ad490: a bucket epic still defaults to trackingProjectRoot(project)', async () => {
+    const bucket = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] Inbox', kind: 'epic' });
+    expect(bucket.targetProject).toBe(trackingProjectRoot(project));
+  });
+
+  test('bug 490ad490: a worktree-path parent target normalizes to its repo root for the child', async () => {
+    const worktreePath = `${project}/.collab/agent-sessions/worktrees/x`;
+    const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'worktree-homed parent', kind: 'epic', targetProject: worktreePath });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child of worktree parent', parentId: parent.id, status: 'planned' });
+    expect(child.targetProject).toBe(project);
   });
 });
 
