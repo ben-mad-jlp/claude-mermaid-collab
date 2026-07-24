@@ -281,7 +281,7 @@ export async function systemStatus(project: string, deps: SystemStatusDeps = {})
   const poolOccupancy = listPool().filter((s) => s.project === project).length;
   const coldStartsInFlight = getColdStartsInFlight();
   const fleet = getFleetStatus(project, now);
-  const violations = checkInvariants(project);
+  const violations = await checkInvariants(project);
   const topology = await instanceTopology();
   const repoVersion = repoVersionFn(project);
   const { head: repoHead, uncommittedCount } = gitInfoFn(project);

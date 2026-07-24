@@ -69,12 +69,12 @@ describe('runLandedEpicSweep — force bypass + yield-between-batches', () => {
   });
 
   it('does not block: yieldFn is invoked between reconcile and gc batches when forced', async () => {
-    const probe: GitProbe = () => ({ exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null });
     const runner = {
-      revParse: () => null,
-      deleteBranch: () => false,
-      listEpicBranches: () => [],
-      aheadCount: () => 0,
+      revParse: async () => null,
+      deleteBranch: async () => false,
+      listEpicBranches: async () => [],
+      aheadCount: async () => 0,
     };
 
     let yieldCalls = 0;

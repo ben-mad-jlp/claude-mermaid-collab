@@ -1178,7 +1178,7 @@ export async function sweepCorruptEpics(
   if (!opts?.force && now - last < CORRUPT_EPIC_SWEEP_INTERVAL_MS) return [];
   lastCorruptEpicSweepAt.set(project, now);
 
-  const report = opts?.report ?? getEpicBranchStatus(project);
+  const report = opts?.report ?? (await getEpicBranchStatus(project));
   const reopened: string[] = [];
   for (const e of report.epics) {
     if (!e.corrupt) continue;          // git-derived: landLeafDone===true && ahead>0

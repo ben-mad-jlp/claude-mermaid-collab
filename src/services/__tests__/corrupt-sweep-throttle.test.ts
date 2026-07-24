@@ -10,7 +10,7 @@ import { buildEpicBranchStatus, type BranchProbe, type GitProbe } from '../epic-
 import { createTodo, completeTodo, getTodo, listTodos } from '../todo-store';
 
 const probeWith = (facts: Record<string, BranchProbe>): GitProbe =>
-  (branch) => facts[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null };
+  async (branch) => facts[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null };
 
 describe('corrupt-sweep-throttle', () => {
   it('throttles sweepCorruptEpics to a per-project interval', async () => {
@@ -42,7 +42,7 @@ describe('corrupt-sweep-throttle', () => {
     const baseTime = 1000000000;
 
     // First sweep at baseTime should reopen the land leaf
-    const report1 = buildEpicBranchStatus(listTodos(repo, { includeCompleted: true }), probe);
+    const report1 = await buildEpicBranchStatus(listTodos(repo, { includeCompleted: true }), probe);
     const reopened1 = await sweepCorruptEpics(repo, { report: report1, now: baseTime });
     expect(reopened1).toContain(land.id);
     expect(getTodo(repo, land.id)!.status).not.toBe('done');
@@ -51,7 +51,7 @@ describe('corrupt-sweep-throttle', () => {
     await completeTodo(repo, land.id, 'accepted');
 
     // Second sweep at baseTime + 50_000 (inside the 90s window) should be throttled
-    const report2 = buildEpicBranchStatus(listTodos(repo, { includeCompleted: true }), probe);
+    const report2 = await buildEpicBranchStatus(listTodos(repo, { includeCompleted: true }), probe);
     const reopened2 = await sweepCorruptEpics(repo, { report: report2, now: baseTime + 50_000 });
     expect(reopened2).toEqual([]); // throttled, returns empty
     expect(getTodo(repo, land.id)!.status).toBe('done'); // land leaf stays done

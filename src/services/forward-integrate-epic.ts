@@ -99,7 +99,7 @@ export async function forwardIntegrateEpicTool(
 
   // On success or skip: gather ahead/behind via the git probe.
   const p = deps?.probe ?? makeGitProbe(targetProject);
-  const probe = p(epicBranch, baseRef);
+  const probe = await p(epicBranch, baseRef);
 
   return {
     ok: res.integrated && !res.skippedReason,
