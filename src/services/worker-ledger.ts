@@ -325,6 +325,8 @@ export interface LedgerQuery {
   leafId?: string;
   /** Only rows at/after this epoch-ms. */
   since?: number;
+  /** Only rows at/before this epoch-ms — the descending-page cursor. */
+  until?: number;
   /** Cap rows returned (default 200, max 2000), newest first. */
   limit?: number;
 }
@@ -1023,6 +1025,7 @@ function buildLedgerWhere(q: LedgerQuery): { where: string[]; params: unknown[];
   if (q.epicId) { where.push('epicId = ?'); params.push(q.epicId); }
   if (q.leafId) { where.push('leafId = ?'); params.push(q.leafId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
+  if (q.until != null) { where.push('ts <= ?'); params.push(q.until); }
   const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
   return { where, params, limit };
 }
