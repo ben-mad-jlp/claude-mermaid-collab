@@ -6,9 +6,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleWorkgraphTool, WORKGRAPH_TOOL_DEFS } from '../workgraph-tools';
-import { getTodo, listTodos, _closeProject } from '../../services/todo-store';
+import { getTodo, listTodos, _closeProject, createTodo, updateTodo, splitLeafInto } from '../../services/todo-store';
 import { isMission } from '../../services/todo-kind';
 import { isBucketEpic } from '../../services/bucket-registry';
+import { trackingProjectRoot } from '../../services/project-registry';
 
 let project: string;
 beforeEach(() => { project = mkdtempSync(join(tmpdir(), 'workgraph-tools-')); });
@@ -130,6 +131,65 @@ describe('file_to_bucket', () => {
     const bugfixParent = getTodo(project, bugfix.leaf.id)!.parentId!;
     expect(bugfixParent).not.toBe(inboxParent);
     expect(getTodo(project, bugfixParent)!.bucketType).toBe('bugfix');
+  });
+});
+
+describe('cross-project target inheritance', () => {
+  const OTHER = '/tmp/other-implementation-repo';
+
+  test('cross-project mission propagates through create_epic + add_leaves', async () => {
+    const mission = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: S,
+      title: '[MISSION] x-proj',
+      kind: 'mission',
+    });
+    await updateTodo(project, mission.id, { targetProject: OTHER });
+
+    const epic = await call('create_epic', { title: 'Ship it', home: mission.id });
+    expect(getTodo(project, epic.epicId)!.targetProject).toBe(OTHER);
+
+    const { createdIds } = await call('add_leaves', {
+      epicId: epic.epicId,
+      leaves: [{ title: 'l1' }, { title: 'l2' }],
+    });
+    for (const id of createdIds) {
+      expect(getTodo(project, id)!.targetProject).toBe(OTHER);
+    }
+  });
+
+  test('same-project mission (no targetProject) leaves epic + leaves at the tracking root', async () => {
+    const mission = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: S,
+      title: '[MISSION] same',
+      kind: 'mission',
+    });
+
+    const epic = await call('create_epic', { title: 'Ship it too', home: mission.id });
+    expect(getTodo(project, epic.epicId)!.targetProject).toBe(trackingProjectRoot(project));
+
+    const { createdIds } = await call('add_leaves', {
+      epicId: epic.epicId,
+      leaves: [{ title: 'l1' }, { title: 'l2' }],
+    });
+    for (const id of createdIds) {
+      expect(getTodo(project, id)!.targetProject).toBe(trackingProjectRoot(project));
+    }
+  });
+
+  test('splitLeafInto children inherit the leaf\'s cross-project target', async () => {
+    const epic = await call('create_epic', { title: 'Root for split', home: null });
+    const { createdIds } = await call('add_leaves', { epicId: epic.epicId, leaves: [{ title: 'to split' }] });
+    const leafId = createdIds[0];
+    await updateTodo(project, leafId, { targetProject: OTHER });
+    const leaf = getTodo(project, leafId)!;
+
+    const { childIds } = await splitLeafInto(project, leaf, ['a.ts', 'b.ts']);
+    expect(childIds.length).toBe(2);
+    for (const cid of childIds) {
+      expect(getTodo(project, cid)!.targetProject).toBe(OTHER);
+    }
   });
 });
 

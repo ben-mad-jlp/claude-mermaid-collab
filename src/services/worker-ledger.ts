@@ -208,11 +208,13 @@ function openDb(): Database {
     command TEXT,
     output TEXT,
     baselineFailures TEXT,
+    failAttempts INTEGER,
     checkedAt INTEGER NOT NULL
   )`);
   {
     const ebgc = db.query('PRAGMA table_info(epic_base_gate)').all() as Array<{ name: string }>;
     if (!ebgc.some((c) => c.name === 'baselineFailures')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN baselineFailures TEXT');
+    if (!ebgc.some((c) => c.name === 'failAttempts')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN failAttempts INTEGER');
   }
   // Lazy per-epic base memo for the per-file `tests` lanes. Unlike epic_base_gate,
   // baseSha is IN the key: per-lane rows are cheap and need no cross-base invalidation
@@ -793,29 +795,53 @@ export interface EpicBaseGateRow {
   /** Per-lane baseline failure fingerprints for RAN-but-failed base lanes; null when
    *  absent (a green base stores `{}`, a pre-column row reads back null). */
   baselineFailures: LaneBaselineMap | null;
+  /** How many consecutive `fail` verdicts have been recorded at THIS `baseSha`.
+   *  Reset to 0 by a `pass`; pre-column / pre-existing rows read back as `0`. */
+  failAttempts: number;
   checkedAt: number;
 }
+
+/** A cached base-gate `fail` is only believed once this many fail writes exist at the
+ *  same baseSha — a FIRST red (contention, flake) is always re-verified. */
+export const BASE_GATE_FAIL_REVERIFY_ATTEMPTS = 2;
+
+/** An old cached `fail` self-heals without needing a new base commit: past this age the
+ *  next reader re-verifies rather than short-circuiting forever. */
+export const BASE_GATE_FAIL_TTL_MS = 30 * 60_000;
 
 /** Upsert an epic's cached base-gate verdict. `output` is truncated to
  *  MAX_OUTPUT_CHARS on write. Best-effort: if the write throws, the next leaf simply
  *  re-runs the base gate — extra work, never a skipped gate. */
 export function recordEpicBaseGate(
-  e: Omit<EpicBaseGateRow, 'checkedAt' | 'baselineFailures'> & { baselineFailures?: LaneBaselineMap | null },
+  // `failAttempts` is NOT an input: it is derived below from the stored row, so no caller
+  // can hand-set (or forget to advance) the attempt budget.
+  e: Omit<EpicBaseGateRow, 'checkedAt' | 'baselineFailures' | 'failAttempts'> & { baselineFailures?: LaneBaselineMap | null },
   now: number = Date.now(),
 ): void {
   if (e.status === 'error') return; // an incident is not a base fact — never cached (see leaf-executor ensureBaseGreen)
   try {
-    openDb().prepare(
-      `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, baselineFailures, checkedAt)
-       VALUES (?,?,?,?,?,?,?,?)
+    const db = openDb();
+    // Derive the attempt counter at write time: a fail at the SAME base increments (so a
+    // lone contention red is never believed), a pass zeroes it, a moved base restarts at 1.
+    const existing = db.prepare('SELECT baseSha, failAttempts FROM epic_base_gate WHERE epicId=?').get(e.epicId) as
+      { baseSha: string | null; failAttempts: number | null } | undefined;
+    const sameBase = !!existing?.baseSha && !!e.baseSha && existing.baseSha === e.baseSha;
+    const failAttempts = e.status === 'pass'
+      ? 0
+      : (sameBase ? (existing?.failAttempts ?? 0) + 1 : 1);
+    db.prepare(
+      `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, baselineFailures, failAttempts, checkedAt)
+       VALUES (?,?,?,?,?,?,?,?,?)
        ON CONFLICT(epicId) DO UPDATE SET
          project=excluded.project, baseSha=excluded.baseSha, status=excluded.status,
          command=excluded.command, output=excluded.output,
-         baselineFailures=excluded.baselineFailures, checkedAt=excluded.checkedAt`,
+         baselineFailures=excluded.baselineFailures,
+         failAttempts=excluded.failAttempts, checkedAt=excluded.checkedAt`,
     ).run(
       e.epicId, e.project, e.baseSha ?? null, e.status, e.command ?? null,
       e.output == null ? null : e.output.slice(0, MAX_OUTPUT_CHARS),
       e.baselineFailures == null ? null : JSON.stringify(e.baselineFailures).slice(0, MAX_OUTPUT_CHARS),
+      failAttempts,
       now,
     );
   } catch { /* best-effort */ }
@@ -837,7 +863,10 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
   if (!currentBaseSha) return null;
   try {
     const raw = openDb().prepare('SELECT * FROM epic_base_gate WHERE epicId=?').get(epicId) as
-      (Omit<EpicBaseGateRow, 'baselineFailures'> & { baselineFailures: string | null }) | undefined;
+      (Omit<EpicBaseGateRow, 'baselineFailures' | 'failAttempts'> & {
+        baselineFailures: string | null;
+        failAttempts: number | null;
+      }) | undefined;
     if (!raw) return null;
     if (!raw.baseSha || raw.baseSha !== currentBaseSha) return null; // stale row ⇒ MISS, re-check
     // Throw-safe parse: absent/corrupt/truncated JSON ⇒ null (caller sees no baseline).
@@ -845,8 +874,37 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
       if (x == null) return null;
       try { return JSON.parse(x) as LaneBaselineMap; } catch { return null; }
     };
-    return { ...raw, baselineFailures: safeParse(raw.baselineFailures) };
+    return { ...raw, baselineFailures: safeParse(raw.baselineFailures), failAttempts: raw.failAttempts ?? 0 };
   } catch { return null; }
+}
+
+/** Decide whether a cache HIT from {@link getEpicBaseGate} may be honoured as-is, or must be
+ *  re-verified by actually re-running the base gate.
+ *
+ *  A cached `fail` has no TTL and no re-run of its own, so one contention/flake red would
+ *  otherwise short-circuit every subsequent leaf on that epic forever — only a new base
+ *  commit could escape. Two bounds fix that:
+ *   - an ATTEMPT budget: a fail is re-run until `BASE_GATE_FAIL_REVERIFY_ATTEMPTS` fail
+ *     writes exist at that sha, so a first red is never believed;
+ *   - an AGE ttl: a red older than `BASE_GATE_FAIL_TTL_MS` is re-run, so it self-heals
+ *     without a new commit.
+ *
+ *  A `pass` is honoured unconditionally regardless of age or attempts — a green base is a
+ *  durable fact about ONE commit, and a base move is already a MISS via the sha check in
+ *  `getEpicBaseGate`.
+ *
+ *  TERMINATION INVARIANT: the two bounds compose without looping. Each re-verify writes
+ *  another `fail` row, so `failAttempts` strictly increases and a genuinely red base reaches
+ *  `'honour'` after at most `BASE_GATE_FAIL_REVERIFY_ATTEMPTS` runs; thereafter the TTL
+ *  permits at most one further re-run per `BASE_GATE_FAIL_TTL_MS` window, and that re-run
+ *  bumps `checkedAt`, restarting the window. Bounded work, self-healing, never a spin.
+ *
+ *  Pure: no DB access, and `now` is injectable so both bounds are testable. */
+export function shouldHonourCachedBaseGate(row: EpicBaseGateRow, now: number = Date.now()): 'honour' | 'reverify' {
+  if (row.status !== 'fail') return 'honour';
+  if (row.failAttempts < BASE_GATE_FAIL_REVERIFY_ATTEMPTS) return 'reverify';
+  if (now - row.checkedAt > BASE_GATE_FAIL_TTL_MS) return 'reverify';
+  return 'honour';
 }
 
 // --- Lazy per-epic base memo for the per-file `tests` lanes (epic_base_lane) --
