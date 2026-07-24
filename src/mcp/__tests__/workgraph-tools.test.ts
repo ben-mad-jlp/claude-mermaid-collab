@@ -134,6 +134,49 @@ describe('file_to_bucket', () => {
   });
 });
 
+describe('serve-time criterion-edge guard', () => {
+  async function freshMission(title = '[MISSION] guard test'): Promise<string> {
+    const mission = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: S,
+      title,
+      kind: 'mission',
+    });
+    return mission.id;
+  }
+
+  test('mission-homed create_epic with NO servesCriterionIds rejects and leaves no orphan epic', async () => {
+    const missionId = await freshMission();
+    await expect(call('create_epic', { title: 'Unserved epic', home: missionId })).rejects.toThrow(
+      /servesCriterionIds/,
+    );
+    const orphans = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === missionId);
+    expect(orphans).toEqual([]);
+  });
+
+  test('mission-homed create_epic WITH servesCriterionIds succeeds, parentId is the mission', async () => {
+    const missionId = await freshMission();
+    const res = await call('create_epic', { title: 'Served epic', home: missionId, servesCriterionIds: ['c1'] });
+    expect(getTodo(project, res.epicId)!.parentId).toBe(missionId);
+  });
+
+  test('root epic (home:null) with no edge still succeeds (regression)', async () => {
+    const res = await call('create_epic', { title: 'Root, no edge', home: null });
+    expect(getTodo(project, res.epicId)!.parentId).toBeNull();
+  });
+
+  test('add_leaves refuses when parent epic is mission-homed but the mission node is unreadable', async () => {
+    const missionId = await freshMission();
+    const res = await call('create_epic', { title: 'Served epic 2', home: missionId, servesCriterionIds: ['c1'] });
+    // Simulate an unreadable mission node by re-parenting the epic to a bogus id that
+    // still looks mission-homed (parentId set) but resolves to nothing via getTodo.
+    await updateTodo(project, res.epicId, { parentId: 'not-a-real-mission-id' });
+    await expect(
+      call('add_leaves', { epicId: res.epicId, leaves: [{ title: 'x' }] }),
+    ).rejects.toThrow(/mission-homed but its mission node .* is unreadable/);
+  });
+});
+
 describe('cross-project target inheritance', () => {
   const OTHER = '/tmp/other-implementation-repo';
 
@@ -146,7 +189,7 @@ describe('cross-project target inheritance', () => {
     });
     await updateTodo(project, mission.id, { targetProject: OTHER });
 
-    const epic = await call('create_epic', { title: 'Ship it', home: mission.id });
+    const epic = await call('create_epic', { title: 'Ship it', home: mission.id, servesCriterionIds: ['c1'] });
     expect(getTodo(project, epic.epicId)!.targetProject).toBe(OTHER);
 
     const { createdIds } = await call('add_leaves', {
@@ -166,7 +209,7 @@ describe('cross-project target inheritance', () => {
       kind: 'mission',
     });
 
-    const epic = await call('create_epic', { title: 'Ship it too', home: mission.id });
+    const epic = await call('create_epic', { title: 'Ship it too', home: mission.id, servesCriterionIds: ['c1'] });
     expect(getTodo(project, epic.epicId)!.targetProject).toBe(trackingProjectRoot(project));
 
     const { createdIds } = await call('add_leaves', {

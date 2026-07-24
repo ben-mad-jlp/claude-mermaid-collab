@@ -9,13 +9,29 @@
 // plain functions (createEpicWithLandLeaf / addLeavesToEpic / fileToBucketLeaf) so
 // the REST routes in api.ts are thin wrappers over the identical logic.
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
-import { getTodo, deriveTodoViews, isBucketEpicTitle, type Todo, type TodoStatus, type TodoLink, type LeafTier } from '../services/todo-store.js';
-import { isEpic, stripLabel } from '../services/todo-kind.js';
+import { getTodo, updateTodo, removeTodo, deriveTodoViews, isBucketEpicTitle, type Todo, type TodoStatus, type TodoLink, type LeafTier } from '../services/todo-store.js';
+import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
 import { addSessionTodo } from './tools/session-todos.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+}
+
+/** Thrown by createEpicWithLandLeaf when a mission-homed epic declares no
+ *  servesCriterionIds. SAME code as todo-store.ts's MissingCriterionEdgeError so
+ *  callers branch identically — this is an earlier, additional check (at
+ *  create-time, not approval-time), not a replacement. */
+export class MissingServesCriterionError extends Error {
+  readonly code = 'missing-criterion-edge';
+  constructor(epicId: string, missionId: string) {
+    super(
+      `create_epic: a mission-homed epic must declare servesCriterionIds — epic ${epicId.slice(0, 8)} ` +
+      `is homed to mission ${missionId.slice(0, 8)} but declares no servesCriterionIds (the epic→criterion edge). ` +
+      `Pass servesCriterionIds when creating the epic.`,
+    );
+    this.name = 'MissingServesCriterionError';
+  }
 }
 
 // ============= Shared plain functions (reused by MCP handlers + REST routes) =============
@@ -80,7 +96,27 @@ export async function createEpicWithLandLeaf(
     }
   } // else: omit missionId key entirely → active-mission default
 
-  const epic = await addSessionTodo(project, session, strippedTitle, undefined, epicExtras);
+  let epic = await addSessionTodo(project, session, strippedTitle, undefined, epicExtras);
+
+  // Serve-time criterion-edge guard: the epic's home is resolved INSIDE addSessionTodo →
+  // resolveTodoParent → resolveActiveMissionId — reuse that resolution by inspecting the
+  // just-created epic's parentId rather than re-implementing active-mission resolution here.
+  const parent = epic.parentId ? getTodo(project, epic.parentId) : null;
+  if (parent && isMission(parent)) {
+    if ((opts.servesCriterionIds?.length ?? 0) === 0) {
+      // Atomic-or-nothing: drop the just-created epic before throwing — no children
+      // exist yet at this point, so this is a clean removal, not a cascade.
+      await removeTodo(project, epic.id);
+      throw new MissingServesCriterionError(epic.id, parent.id);
+    }
+    // Cross-project mission: the epic inherits the mission node's targetProject so the
+    // worker cwds + gates in the implementation repo, not the tracking repo.
+    if (parent.targetProject && parent.targetProject !== project) {
+      await updateTodo(project, epic.id, { targetProject: parent.targetProject });
+      epic = getTodo(project, epic.id)!;
+    }
+  }
+
   return { epic };
 }
 
@@ -116,6 +152,20 @@ export async function addLeavesToEpic(
     throw new Error('add_leaves: bucket epics are quick-capture only — use file_to_bucket, not add_leaves');
   }
 
+  // Inherit the parent epic's targetProject onto every created leaf so leaves execute
+  // against the same checkout as the epic. If the epic is mission-homed but its mission
+  // node is unreadable, refuse rather than silently defaulting leaves to the tracking project.
+  const epicTarget = parent.targetProject ?? null;
+  if (parent.parentId) {
+    const epicMission = getTodo(project, parent.parentId);
+    if (!epicMission) {
+      throw new Error(
+        `add_leaves: parent epic ${epicId.slice(0, 8)} is mission-homed but its mission node ` +
+        `${parent.parentId.slice(0, 8)} is unreadable — refusing to default leaves to the tracking project`,
+      );
+    }
+  }
+
   const createdIds: string[] = [];
   for (const leaf of leaves) {
     const resolvedDeps = (leaf.dependsOn ?? []).map((token) => {
@@ -141,6 +191,9 @@ export async function addLeavesToEpic(
       assigneeKind: leaf.assigneeKind,
     });
     createdIds.push(created.id);
+    if (epicTarget) {
+      await updateTodo(project, created.id, { targetProject: epicTarget });
+    }
   }
   return { epicId, createdIds };
 }
