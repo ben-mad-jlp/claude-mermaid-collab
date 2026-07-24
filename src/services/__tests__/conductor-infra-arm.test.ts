@@ -23,7 +23,19 @@ import { _resetMissionDbCache, listCriteria, listCriteriaWithActions, getMission
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { createTodo, updateTodo, getTodo, deriveTodoViews } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
-import { recordNode, recordEpicBaseGate, BASE_GATE_FAIL_TTL_MS } from '../worker-ledger';
+import {
+  recordNode,
+  recordEpicBaseGate,
+  recordEpicProbeSignature,
+  getEpicProbeSignature,
+  BASE_GATE_FAIL_TTL_MS,
+} from '../worker-ledger';
+import {
+  laneSignature,
+  shouldReprobeEpicBase,
+  UNKNOWN_LANE_SIGNATURE,
+  WAKE_GATE_REPROBE_TTL_MS,
+} from '../conductor-wake-gate';
 
 let project: string;
 
@@ -208,6 +220,129 @@ describe('runInfraRejectionArm', () => {
     expect(r.reason).not.toBe('debounced');
     expect(r.infraCards).toBe(1);
     expect(invoked).toBe(1);
+  });
+});
+
+describe('conductor wake gate (lane signature)', () => {
+  /** A probe spy plus the arm deps that make the gate hermetic: the injected signature stands in
+   *  for git, and `shouldReprobe`/`recordSignature` are the LIVE implementations against the
+   *  ledger, so the persisted-row behaviour is what is under test. */
+  function makeArm() {
+    let callCount = 0;
+    let signature = 'epicA:trunkA';
+    const probe: EpicBaseProbe = async () => { callCount++; return 'fail'; };
+    return {
+      probe,
+      get callCount() { return callCount; },
+      setSignature(s: string) { signature = s; },
+      run: (missionId: string) =>
+        runInfraRejectionArm(project, missionId, 's1', {
+          probe,
+          laneSignature: async () => signature,
+        }),
+    };
+  }
+
+  test('unchanged lane signature: N conductor beats over a statically-red base run the probe ONCE and raise ONE card', async () => {
+    const { forged, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+    const arm = makeArm();
+
+    let skippedBeats = 0;
+    for (let i = 0; i < 6; i++) {
+      const r = await arm.run(forged.missionId);
+      if (r.skipped.includes(leaf.id)) skippedBeats++;
+    }
+
+    // The burn this gate exists to stop: 6 beats, 1 probe.
+    expect(arm.callCount).toBe(1);
+    expect(skippedBeats).toBe(5);
+    const cards = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cards.length).toBe(1);
+    // The gated-out candidate is still a real stuck leaf — it never leaves `candidates`.
+    expect((await arm.run(forged.missionId)).candidates.map((c) => c.leafId)).toEqual([leaf.id]);
+  });
+
+  test('a moved epic HEAD or a moved trunk HEAD re-probes', async () => {
+    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+    const arm = makeArm();
+
+    await arm.run(forged.missionId);
+    expect(arm.callCount).toBe(1);
+    await arm.run(forged.missionId);
+    expect(arm.callCount).toBe(1); // unchanged lane ⇒ no probe
+
+    arm.setSignature('epicB:trunkA'); // the epic branch tip moved (a base-repair commit)
+    await arm.run(forged.missionId);
+    expect(arm.callCount).toBe(2);
+    await arm.run(forged.missionId);
+    expect(arm.callCount).toBe(2);
+
+    arm.setSignature('epicB:trunkB'); // master moved under the lane
+    await arm.run(forged.missionId);
+    expect(arm.callCount).toBe(3);
+  });
+
+  test('an unknown lane signature probes on EVERY beat (fail-open)', async () => {
+    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+    const arm = makeArm();
+    arm.setSignature(UNKNOWN_LANE_SIGNATURE);
+
+    const beats = 4;
+    for (let i = 0; i < beats; i++) await arm.run(forged.missionId);
+
+    // A signature we could not compute must NEVER buy a skip — and must never be persisted.
+    expect(arm.callCount).toBe(beats);
+    const epicId = collectInfraRejectedLeaves(project, forged.missionId)[0].epicId;
+    expect(getEpicProbeSignature(epicId)).toBeNull();
+  });
+
+  test('an unchanged signature past the re-probe TTL probes again (a base can be repaired without a commit)', async () => {
+    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+    const arm = makeArm();
+    const t0 = Date.now();
+
+    await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: arm.probe, laneSignature: async () => 'epicTtl:trunkTtl', now: () => t0,
+    });
+    expect(arm.callCount).toBe(1);
+    await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: arm.probe, laneSignature: async () => 'epicTtl:trunkTtl', now: () => t0 + 1000,
+    });
+    expect(arm.callCount).toBe(1);
+    await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: arm.probe,
+      laneSignature: async () => 'epicTtl:trunkTtl',
+      now: () => t0 + WAKE_GATE_REPROBE_TTL_MS + 60_000,
+    });
+    expect(arm.callCount).toBe(2);
+  });
+});
+
+describe('laneSignature', () => {
+  test('joins the epic and trunk shas, and degrades to UNKNOWN on a missing sha or a throw', async () => {
+    expect(await laneSignature('e1', project, {
+      epicHeadSha: async () => 'aaa', trunkHeadSha: async () => 'bbb',
+    })).toBe('aaa:bbb');
+    expect(await laneSignature('e1', project, {
+      epicHeadSha: async () => null, trunkHeadSha: async () => 'bbb',
+    })).toBe(UNKNOWN_LANE_SIGNATURE);
+    expect(await laneSignature('e1', project, {
+      epicHeadSha: async () => 'aaa', trunkHeadSha: async () => null,
+    })).toBe(UNKNOWN_LANE_SIGNATURE);
+    expect(await laneSignature('e1', project, {
+      epicHeadSha: async () => { throw new Error('git exploded'); }, trunkHeadSha: async () => 'bbb',
+    })).toBe(UNKNOWN_LANE_SIGNATURE);
+  });
+
+  test('shouldReprobeEpicBase: unknown / no row / moved signature all probe; a fresh matching row does not', () => {
+    const epicId = 'epic-wake-gate-unit';
+    expect(shouldReprobeEpicBase({ epicId, project, signature: UNKNOWN_LANE_SIGNATURE })).toBe(true);
+    expect(shouldReprobeEpicBase({ epicId, project, signature: 'a:b' })).toBe(true);
+    const t0 = Date.now();
+    recordEpicProbeSignature({ epicId, project, signature: 'a:b' }, t0);
+    expect(shouldReprobeEpicBase({ epicId, project, signature: 'a:b', now: t0 })).toBe(false);
+    expect(shouldReprobeEpicBase({ epicId, project, signature: 'a:c', now: t0 })).toBe(true);
+    expect(shouldReprobeEpicBase({ epicId, project, signature: 'a:b', now: t0 + WAKE_GATE_REPROBE_TTL_MS + 1 })).toBe(true);
   });
 });
 
