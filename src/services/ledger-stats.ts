@@ -25,6 +25,7 @@
  */
 import { queryLedger, queryLedgerThin, getLeafResumeDecisions } from './worker-ledger';
 import { NODE_BUDGET } from './leaf-executor';
+import { listTodos } from './todo-store';
 
 export interface LeafNodeStat {
   nodeKind: string | null; // 'blueprint'|'implement'|'review'
@@ -387,4 +388,164 @@ export function listLeafRuns(
   }
   out.sort((a, b) => b.lastTs - a.lastTs);
   return opts.limit ? out.slice(0, opts.limit) : out;
+}
+
+/** BFS-walks `parentId` links to arbitrary depth from `missionId` and returns the set of
+ *  every descendant id (regardless of `status` or `kind` — a `dropped` epic or an
+ *  auto-split child is still in-scope) PLUS the mission's own id, so rule (b) below is
+ *  a single `.has()` test. */
+export function missionTodoClosure(
+  missionId: string,
+  todos: Array<{ id: string; parentId: string | null }>,
+): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const t of todos) {
+    if (!t.parentId) continue;
+    let g = childrenOf.get(t.parentId);
+    if (!g) { g = []; childrenOf.set(t.parentId, g); }
+    g.push(t.id);
+  }
+  const ids = new Set<string>([missionId]);
+  const queue = [missionId];
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    for (const childId of childrenOf.get(id) ?? []) {
+      if (ids.has(childId)) continue;
+      ids.add(childId);
+      queue.push(childId);
+    }
+  }
+  return ids;
+}
+
+/** Structural subset of `ThinLedgerRow` — all `aggregateMissionSpend` needs to attribute
+ *  and bucket a row, kept independent of the full ledger row shape. */
+export interface MissionSpendRow {
+  id?: number;
+  project: string;
+  todoId: string;
+  epicId?: string | null;
+  leafId?: string | null;
+  source?: string | null;
+  nodeKind?: string | null;
+  costUsd?: number | null;
+  nodesSpent?: number | null;
+}
+
+export interface MissionSpend {
+  missionId: string;
+  costUsd: number;
+  nodesSpent: number;
+  rows: number;
+  byBucket: {
+    leaves: number;
+    conductor: number;
+    planner: number;
+    forge: number;
+    verify: number;
+    other: number;
+  };
+}
+
+/**
+ * THE mission-spend attribution rule.
+ *
+ * INCLUSIONS — a row counts toward a mission's spend iff ALL of:
+ *   (a) `row.project === project` (the mission's tracking project);
+ *   (b) the row is keyed to the mission's transitive closure: `ids.has(row.todoId)` OR
+ *       (`row.epicId != null` AND `ids.has(row.epicId)`) — the closure includes EVERY
+ *       descendant of the mission regardless of status/kind (dropped epics, auto-split
+ *       children included) plus the mission id itself (conductor/planner rows are keyed
+ *       directly to `missionId`);
+ *   (c) ALL RUNS of a leaf are summed — this path does NOT call `latestRunRows`, so a
+ *       re-run leaf's earlier attempts are not dropped from the total.
+ *
+ * EXCLUSIONS — a row contributes zero (to `rows`, `costUsd`, `nodesSpent`, and every
+ * bucket) when ANY of:
+ *   - `nodeKind === 'outcome'` (a terminal marker row, not real spend — `isOutcomeMarker`);
+ *   - the row belongs to a different project;
+ *   - the row's `todoId`/`epicId` falls outside the mission's closure.
+ */
+export function aggregateMissionSpend(
+  missionId: string,
+  ids: Set<string>,
+  project: string,
+  rows: Iterable<MissionSpendRow>,
+): MissionSpend {
+  const spend: MissionSpend = {
+    missionId,
+    costUsd: 0,
+    nodesSpent: 0,
+    rows: 0,
+    byBucket: { leaves: 0, conductor: 0, planner: 0, forge: 0, verify: 0, other: 0 },
+  };
+  for (const row of rows) {
+    if (row.project !== project) continue;
+    const included = ids.has(row.todoId) || (row.epicId != null && ids.has(row.epicId));
+    if (!included) continue;
+    if (isOutcomeMarker(row)) continue;
+
+    const cost = row.costUsd ?? 0;
+    spend.rows += 1;
+    spend.costUsd += cost;
+    spend.nodesSpent += row.nodesSpent ?? 1;
+
+    let bucket: keyof MissionSpend['byBucket'];
+    if (row.leafId != null) {
+      bucket = 'leaves';
+    } else {
+      const tag = row.source ?? row.nodeKind;
+      bucket =
+        tag === 'conductor' || tag === 'planner' || tag === 'forge' || tag === 'verify'
+          ? tag
+          : 'other';
+    }
+    spend.byBucket[bucket] += cost;
+  }
+  return spend;
+}
+
+/** Roll up a mission's ENTIRE spend — the whole closure (dropped epics included), every
+ *  run of every leaf, keyed by the ONE attribution rule documented on
+ *  `aggregateMissionSpend`. Deps are injectable for tests; the query never throws into
+ *  the caller (an accounting read must not break the caller). */
+export function getMissionSpend(
+  project: string,
+  missionId: string,
+  deps: {
+    listTodos?: typeof listTodos;
+    queryRows?: (ids: string[]) => MissionSpendRow[];
+  } = {},
+): MissionSpend {
+  const listTodosFn = deps.listTodos ?? listTodos;
+  const todos = listTodosFn(project, { includeCompleted: true, includeArchived: true });
+  const ids = missionTodoClosure(missionId, todos);
+
+  const queryRows =
+    deps.queryRows ??
+    ((idList: string[]): MissionSpendRow[] => {
+      const byId = new Map<number, MissionSpendRow>();
+      for (const id of idList) {
+        try {
+          for (const r of queryLedgerThin({ project, todoId: id, limit: 2000 })) {
+            if (r.id != null) byId.set(r.id, r);
+          }
+          for (const r of queryLedgerThin({ project, epicId: id, limit: 2000 })) {
+            if (r.id != null) byId.set(r.id, r);
+          }
+        } catch {
+          // accounting read — never throw into the caller
+        }
+      }
+      return [...byId.values()];
+    });
+
+  let rows: MissionSpendRow[];
+  try {
+    rows = queryRows([...ids]);
+  } catch {
+    rows = [];
+  }
+
+  return aggregateMissionSpend(missionId, ids, project, rows);
 }
