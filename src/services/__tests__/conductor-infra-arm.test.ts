@@ -18,7 +18,7 @@ import {
   type EpicBaseProbe,
 } from '../conductor-infra-arm';
 import { runConductorPass, conductorFingerprint } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, listEscalations } from '../supervisor-store';
+import { addWatchedProject, setConductorEnabled, listEscalations, resolveEscalation } from '../supervisor-store';
 import { _resetMissionDbCache, listCriteria, listCriteriaWithActions, getMission, stampConductorRun } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { createTodo, updateTodo, getTodo, deriveTodoViews } from '../todo-store';
@@ -133,6 +133,52 @@ describe('runInfraRejectionArm', () => {
     expect(b.cardsRaised).toBe(0);
     expect(listEscalations().length).toBe(afterFirst);
     expect(getTodo(project, leaf.id)!.acceptanceStatus).toBe('rejected');
+  });
+
+  test('a resolved infra-rejected card is NOT re-raised while the leaf and cause are unchanged', async () => {
+    const { forged, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+
+    const a = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(a.cardsRaised).toBe(1);
+    const cardsFirst = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cardsFirst.length).toBe(1);
+    resolveEscalation(cardsFirst[0].id, 'resolved');
+
+    const b = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(b.cardsRaised).toBe(0);
+    const cardsAfter = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cardsAfter.length).toBe(1);
+    expect(cardsAfter[0].status).toBe('resolved');
+    expect(getTodo(project, leaf.id)!.acceptanceStatus).toBe('rejected');
+  });
+
+  test('a changed reason class raises exactly one new card', async () => {
+    const { forged, epic, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+
+    const a = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(a.cardsRaised).toBe(1);
+    const cardsFirst = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    resolveEscalation(cardsFirst[0].id, 'resolved');
+
+    // Re-stamp the leaf's latest ledger run under a DIFFERENT INFRA cause.
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      nodeKind: 'outcome',
+      nodesSpent: 0,
+      leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'mis-homed target: leaf ran in the tracking repo' }),
+    });
+
+    const b = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(b.cardsRaised).toBe(1);
+    const cardsAfter = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cardsAfter.length).toBe(2);
+    const newCard = cardsAfter.find((e) => e.status !== 'resolved')!;
+    expect(newCard.conditionKey).toMatch(/:mis-homed-target$/);
   });
 
   test('CONTENT rejection is never touched — no reset, no card', async () => {
