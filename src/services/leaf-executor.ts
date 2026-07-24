@@ -592,6 +592,11 @@ export interface LeafExecutorDeps {
    *  honor the epic-level `baseRepair` exemption (bug 65345589). Defaults to
    *  getTodo(project, leaf.parentId); injectable for tests. */
   getEpicTodo?: () => Todo | null;
+  /** Injectable node-profile override map (kind → {model,effort,provider}); defaults to
+   *  listNodeProfileOverrides(project). Tier-scoped keys like 'implement@small' beat the
+   *  kind-wide key for leaves of that tier. Injectable for tests (the real store is the
+   *  global supervisor DB, off-limits to hermetic tests). */
+  nodeProfileOverrides?: ReturnType<typeof listNodeProfileOverrides>;
   /** Floor-path base-freshness pre-check (real incident: a stale/off-by-one base spent
    *  blueprint+implement+review before being rejected at the gate for tsc errors in files it
    *  never touched — thrash discovered late). Cheap deterministic git probe: is the epic
@@ -2068,7 +2073,7 @@ export async function runLeaf(
   // model  : per-kind override → NODE_PROFILE default.
   // effort : per-kind override → per-project blanket (getProjectEffort) →
   //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
-  const nodeOverrides = listNodeProfileOverrides(project);
+  const nodeOverrides = deps.nodeProfileOverrides ?? listNodeProfileOverrides(project);
   const projectEffort = getProjectEffort(project);
   // Escalation set: kinds whose model has been bumped to the blueprint model
   // (a higher tier) instead of its normal pinned model. Set on an implement start-failure
@@ -2090,6 +2095,13 @@ export async function runLeaf(
     if (escalatedKinds.has(kind)) {
       return resolveEscalationModel();
     }
+    // TIER-SCOPED override: a `${kind}@${tier}` row in node_profile_override (e.g.
+    // 'implement@small') beats the kind-wide row for leaves of that tier, so a project
+    // can pin implement=sonnet for full-tier work while trialing a cheaper model on
+    // small/test-pinned leaves — the measured-A/B lever for model economics. Escalation
+    // (start-failure retry) still wins above: a failing cheap-model start retries strong.
+    const tierScoped = leaf.tier ? nodeOverrides[`${kind}@${leaf.tier}`]?.model : undefined;
+    if (tierScoped) return tierScoped;
     const provider = resolveNodeProvider(project, kind, allowedTools);
     return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
   };
