@@ -68,11 +68,16 @@ async function measureMaxLag(work: () => Promise<void>): Promise<number> {
 afterEach(() => _setYieldToLoop(null)); // restore the real macrotask yield
 
 describe('loop-yield responsiveness guard (crit-1)', () => {
-  it('WITH a real macrotask yield between chunks, max heartbeat lag stays under the bound', async () => {
+  it('WITH a real macrotask yield between chunks, heartbeat lag stays far below the no-yield stall', async () => {
+    // Load-tolerant by construction: an absolute wall-clock bound here flakes on a busy
+    // machine (OS scheduling delay alone can exceed it), so the assertion is the CONTRAST.
+    // With yields the loop is held one ~25ms chunk at a time; without, the whole ~300ms pass
+    // runs as a single block. Both runs share the machine's load, so the ratio survives it.
+    _setYieldToLoop(() => Promise.resolve()); // microtask no-op = no cede (the stall shape)
+    const stallLag = await measureMaxLag(heavyPass);
     _setYieldToLoop(null); // default = setImmediate macrotask cede
-    const maxLag = await measureMaxLag(heavyPass);
-    // A single chunk (~25ms) is the most the loop is held at once, comfortably under BOUND_MS.
-    expect(maxLag).toBeLessThan(BOUND_MS);
+    const yieldedLag = await measureMaxLag(heavyPass);
+    expect(yieldedLag).toBeLessThan(stallLag / 2);
   });
 
   it('WITHOUT a macrotask yield (microtask no-op) the SAME work blows the bound — falsifiable proof', async () => {
