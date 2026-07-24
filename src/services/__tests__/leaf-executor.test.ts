@@ -855,6 +855,73 @@ describe('runLeaf state machine', () => {
     expect(emptyDiffCard!.questionText).toContain('NOT a reviewer rejection');
   });
 
+  it('OWN-WORK-ALREADY-COMMITTED: declared files + zero-file diff + this leaf\'s own trailer on the epic branch → accepted (no escalation, gate consulted)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const probeCalls: Array<{ leafId: string; epicBranch: string; baseBranch: string }> = [];
+    deps.ownWorkCommitOnEpicBranch = async (input) => {
+      probeCalls.push(input);
+      return { sha: 'feedface00112233445566778899aabbccddeeff' };
+    };
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).toBe('own-work-already-committed');
+    // The probe was scoped to THIS leaf and THIS epic branch.
+    expect(probeCalls.length).toBe(1);
+    expect(probeCalls[0]!.leafId).toBe(leaf.id);
+    expect(probeCalls[0]!.epicBranch).toBe(EPIC_BRANCH);
+    // NOTHING for a human to decide: no empty-diff card, no park.
+    expect(spies.escalations.filter((e) => e.kind === 'empty-diff-declared-changes')).toEqual([]);
+    // The gate WAS consulted (never bypassed).
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    // No review node was spent.
+    expect(spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash')).length).toBe(0);
+    // Forensics: a distinct ledger row naming the prior commit.
+    const row = spies.nodeRows.find((r) => r.nodeKind === 'own-work-already-committed');
+    expect(row).toBeDefined();
+    expect(JSON.parse(row!.outcomeDetail).reason).toBe('own-work-already-committed');
+    expect(JSON.parse(row!.outcomeDetail).sha).toBe('feedface00112233445566778899aabbccddeeff');
+    expect(row!.outputText).toContain('feedface00112233445566778899aabbccddeeff');
+  });
+
+  it('OWN-WORK-ALREADY-COMMITTED: the GATE still wins — a rejecting/pending gate is never bypassed', async () => {
+    for (const [gateEffective, expectedReason] of [['rejected', 'gate-rejected'], ['pending', 'gate-pending']] as const) {
+      const { deps, spies } = makeDeps({ changeSet: [], gateEffective });
+      const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+      deps.ownWorkCommitOnEpicBranch = async () => ({ sha: 'cafebabe0000' });
+      const res = await runLeaf('proj', leaf, deps);
+      expect(res.outcome).toBe(gateEffective);
+      expect(res.reason).toBe(expectedReason);
+      expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+      expect(spies.escalations.filter((e) => e.kind === 'empty-diff-declared-changes')).toEqual([]);
+    }
+  });
+
+  it('OWN-WORK-ALREADY-COMMITTED: NO own trailer found → legacy behaviour unchanged (escalate + park)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    deps.ownWorkCommitOnEpicBranch = async () => null;
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes');
+    const card = spies.escalations.find((e) => e.kind === 'empty-diff-declared-changes');
+    expect(card).toBeDefined();
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'own-work-already-committed')).toBeUndefined();
+  });
+
+  it('OWN-WORK-ALREADY-COMMITTED: the git probe THROWS → fail closed (escalate + park, exactly as before)', async () => {
+    const { deps, spies } = makeDeps({ changeSet: [] });
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    deps.ownWorkCommitOnEpicBranch = async () => { throw new Error('not a git repo'); };
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('empty-diff-spec-demands-changes');
+    const card = spies.escalations.find((e) => e.kind === 'empty-diff-declared-changes');
+    expect(card).toBeDefined();
+    expect(card!.questionText).toContain('NOT a reviewer rejection');
+    expect(spies.nodeRows.find((r) => r.nodeKind === 'own-work-already-committed')).toBeUndefined();
+  });
+
   it('EMPTY-DIFF SALVAGE (friction 6150b497): dirty+untracked work → auto-commit on the leaf branch, review RUNS, no park, no card, no extra attempt', async () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['- [MET] x — src/a.ts:1\n\nVERDICT: PASS'] });
     // changeSet reads EMPTY before the salvage commit, non-empty after (commits vs base).
