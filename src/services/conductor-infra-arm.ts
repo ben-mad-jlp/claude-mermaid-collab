@@ -29,7 +29,8 @@ import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { createEscalation, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
-import { getEpicBaseGate, recordEpicBaseGate, shouldHonourCachedBaseGate } from './worker-ledger.js';
+import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHonourCachedBaseGate } from './worker-ledger.js';
+import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
@@ -199,6 +200,12 @@ export interface InfraArmDeps {
    *  arm itself now dedupes via the store's keyed conditionKey path, not a local open-scan. */
   listOpenEscalations?: () => Escalation[];
   reset?: typeof resetTodo;
+  /** Wake gate (conductor-wake-gate.ts). All four default to the live implementations, so
+   *  existing callers and tests keep compiling — and behaving — unchanged. */
+  laneSignature?: (epicId: string, targetProject: string) => Promise<string>;
+  shouldReprobe?: typeof shouldReprobeEpicBase;
+  recordSignature?: typeof recordEpicProbeSignature;
+  now?: () => number;
 }
 
 export interface InfraArmResult {
@@ -206,6 +213,12 @@ export interface InfraArmResult {
   /** Leaf ids actually un-parked this pass (probe proved the base green again). */
   reset: string[];
   cardsRaised: number;
+  /** Leaf ids the wake gate skipped this pass: their lane has not moved since the last probe
+   *  and the re-probe TTL has not elapsed. They stay in `candidates` (still genuinely stuck)
+   *  but appear in NEITHER `reset` NOR `cardsRaised`, so `infraActed` stays false and the
+   *  conductor's fingerprint debounce holds. Observable telemetry only — never a semantics
+   *  channel. */
+  skipped: string[];
 }
 
 /**
@@ -222,25 +235,67 @@ export async function runInfraRejectionArm(
   deps: InfraArmDeps = {},
 ): Promise<InfraArmResult> {
   const candidates = collectInfraRejectedLeaves(project, missionId);
-  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0 };
+  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0, skipped: [] };
   if (candidates.length === 0) return result;
 
   const probe = deps.probe ?? defaultEpicBaseProbe;
   const createEsc = deps.createEscalation ?? createEscalation;
   const resetFn = deps.reset ?? resetTodo;
+  const signatureOf = deps.laneSignature ?? ((epicId, targetProject) => laneSignature(epicId, targetProject));
+  const shouldReprobe = deps.shouldReprobe ?? shouldReprobeEpicBase;
+  const recordSignature = deps.recordSignature ?? recordEpicProbeSignature;
+  const nowFn = deps.now;
 
   const todos = listTodos(project, { includeCompleted: true });
   const byId = new Map<string, Todo>(todos.map((t) => [t.id, t]));
+
+  /** ONE wake-gate decision per epic per invocation. Essential, not an optimisation: the
+   *  ledger row is keyed on epicId, so recording it after the FIRST leaf of an epic would
+   *  silently gate out that epic's remaining leaves in the SAME beat and they would never get
+   *  their card. Every decision is taken before any recording. */
+  const decisionByEpic = new Map<string, boolean>();
+  /** The signature each decision was taken at, so the post-probe record writes the value the
+   *  decision was made against (never a re-read that may have moved mid-pass). */
+  const signatureByEpic = new Map<string, string>();
+  /** Recorded at most once per epic per pass, whatever the verdict — recording only on green
+   *  would leave a red base probing every beat, i.e. the burn unfixed. */
+  const recordedEpics = new Set<string>();
 
   for (const c of candidates) {
     try {
       const leaf = byId.get(c.leafId);
       const epic = byId.get(c.epicId);
       const targetProject = leaf?.targetProject ?? epic?.targetProject ?? project;
+
+      // The wake gate applies only to causes that actually touch git. 'mis-homed-target' never
+      // probes (the routing is the defect), so it keeps its current unconditional card path.
+      if (c.cause !== 'mis-homed-target') {
+        if (!decisionByEpic.has(c.epicId)) {
+          const sig = await signatureOf(c.epicId, targetProject);
+          signatureByEpic.set(c.epicId, sig);
+          decisionByEpic.set(
+            c.epicId,
+            shouldReprobe({ epicId: c.epicId, project: targetProject, signature: sig, now: nowFn?.() }),
+          );
+        }
+        if (decisionByEpic.get(c.epicId) === false) {
+          result.skipped.push(c.leafId);
+          continue; // before any git / gate / card work
+        }
+      }
+
       // A mis-homed leaf is never mechanically clearable (the routing is the defect) — go
       // straight to the card path without touching git.
       const verdict: BaseProbeVerdict =
         c.cause === 'mis-homed-target' ? 'unknown' : await probe(c.epicId, targetProject);
+
+      if (c.cause !== 'mis-homed-target' && !recordedEpics.has(c.epicId)) {
+        const sig = signatureByEpic.get(c.epicId);
+        if (sig && sig !== UNKNOWN_LANE_SIGNATURE) {
+          recordedEpics.add(c.epicId);
+          recordSignature({ epicId: c.epicId, project: targetProject, signature: sig });
+        }
+      }
 
       if (verdict === 'pass') {
         // resetTodo clears acceptanceStatus, zeroes retryCount, auto-resolves stale
