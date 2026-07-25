@@ -51,10 +51,10 @@ const { getFleetStatus } = await import('../fleet-status');
 const { setLeafInflight, clearLeafInflight } = await import('../worker-ledger');
 
 describe('getFleetStatus lastActivity', () => {
-  it('uses the real session-status heartbeat and is STABLE across polls (no render-time restamp)', () => {
+  it('uses the real session-status heartbeat and is STABLE across polls (no render-time restamp)', async () => {
     heartbeat = HEARTBEAT;
-    const poll1 = getFleetStatus('/repo', HEARTBEAT + 10_000);
-    const poll2 = getFleetStatus('/repo', HEARTBEAT + 999_000); // much later "now"
+    const poll1 = await getFleetStatus('/repo', HEARTBEAT + 10_000);
+    const poll2 = await getFleetStatus('/repo', HEARTBEAT + 999_000); // much later "now"
 
     expect(poll1.entries).toHaveLength(1);
     expect(poll1.entries[0].lastActivity).toBe(HEARTBEAT);
@@ -64,10 +64,10 @@ describe('getFleetStatus lastActivity', () => {
     expect(poll2.entries[0].elapsedMs).toBeGreaterThan(poll1.entries[0].elapsedMs!);
   });
 
-  it('falls back to claim age (still a real, stable timestamp) when there is no heartbeat', () => {
+  it('falls back to claim age (still a real, stable timestamp) when there is no heartbeat', async () => {
     heartbeat = null;
-    const poll1 = getFleetStatus('/repo', CLAIMED_AT_MS + 5_000);
-    const poll2 = getFleetStatus('/repo', CLAIMED_AT_MS + 600_000);
+    const poll1 = await getFleetStatus('/repo', CLAIMED_AT_MS + 5_000);
+    const poll2 = await getFleetStatus('/repo', CLAIMED_AT_MS + 600_000);
 
     expect(poll1.entries[0].lastActivity).toBe(CLAIMED_AT_MS);
     expect(poll2.entries[0].lastActivity).toBe(CLAIMED_AT_MS); // stable across polls
@@ -75,11 +75,11 @@ describe('getFleetStatus lastActivity', () => {
 });
 
 describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_inflight)', () => {
-  it("reports 'working' + the live node when the lane has a leaf_inflight row", () => {
+  it("reports 'working' + the live node when the lane has a leaf_inflight row", async () => {
     heartbeat = HEARTBEAT;
     setLeafInflight({ leafId: 'todo-1', project: '/repo', nodeKind: 'implement' });
     try {
-      const status = getFleetStatus('/repo', HEARTBEAT + 1_000);
+      const status = await getFleetStatus('/repo', HEARTBEAT + 1_000);
       expect(status.entries[0].state).toBe('working');
       expect(status.entries[0].leafNode).toBe('implement');
       expect(status.summary.working).toBe(1);
@@ -88,10 +88,10 @@ describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_in
     }
   });
 
-  it("reports 'idle' (not 'no_tmux') when no leaf is currently in-flight", () => {
+  it("reports 'idle' (not 'no_tmux') when no leaf is currently in-flight", async () => {
     heartbeat = HEARTBEAT;
     clearLeafInflight('todo-1'); // ensure no in-flight row
-    const status = getFleetStatus('/repo', HEARTBEAT + 1_000);
+    const status = await getFleetStatus('/repo', HEARTBEAT + 1_000);
     expect(status.entries[0].state).toBe('idle');
     expect(status.summary.deadOrGone).toBe(0); // headless lanes never read as dead/no_tmux
   });
@@ -100,9 +100,9 @@ describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_in
 describe('getFleetStatus headroom (fork-EAGAIN early warning)', () => {
   const isNumOrNull = (v: unknown) => v === null || typeof v === 'number';
 
-  it('returns a process-headroom block with the cap-vs-liveProcs fields', () => {
+  it('returns a process-headroom block with the cap-vs-liveProcs fields', async () => {
     heartbeat = HEARTBEAT;
-    const status = getFleetStatus('/repo');
+    const status = await getFleetStatus('/repo');
 
     // The block exists and carries the four documented fields…
     expect(status.headroom).toBeDefined();

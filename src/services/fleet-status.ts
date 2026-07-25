@@ -119,44 +119,58 @@ type ProcSnapshot = {
 /** Build a pid → {children, comm} snapshot in one `ps` call (cheap, one spawn).
  *  The same snapshot also yields the current uid's live-process count, so the
  *  headroom read costs no extra spawn (uid column added to the one ps call). */
-function procSnapshot(): ProcSnapshot | null {
+async function procSnapshot(): Promise<ProcSnapshot | null> {
   try {
-    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore', timeout: 10_000 }).stdout?.toString() ?? '';
-    if (!out.trim()) return null;
-    const myUid = typeof process.getuid === 'function' ? process.getuid() : null;
-    let liveProcsForUid = myUid != null ? 0 : null;
-    const byPid = new Map<number, { children: number[]; comm: string }>();
-    const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
-    for (const line of out.split('\n')) {
-      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
-      if (!m) continue;
-      const pid = Number(m[1]);
-      const ppid = Number(m[2]);
-      const uid = Number(m[3]);
-      const comm = m[4];
-      rows.push({ pid, ppid, comm });
-      if (myUid != null && uid === myUid) liveProcsForUid = (liveProcsForUid ?? 0) + 1;
-      const ex = byPid.get(pid);
-      if (ex) ex.comm = comm;
-      else byPid.set(pid, { children: [], comm });
+    const p = Bun.spawn(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore' });
+    const killTimer = setTimeout(() => { try { p.kill(); } catch {} }, 10_000);
+    try {
+      const out = await new Response(p.stdout).text();
+      await p.exited;
+      if (!out.trim()) return null;
+      const myUid = typeof process.getuid === 'function' ? process.getuid() : null;
+      let liveProcsForUid = myUid != null ? 0 : null;
+      const byPid = new Map<number, { children: number[]; comm: string }>();
+      const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
+      for (const line of out.split('\n')) {
+        const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
+        if (!m) continue;
+        const pid = Number(m[1]);
+        const ppid = Number(m[2]);
+        const uid = Number(m[3]);
+        const comm = m[4];
+        rows.push({ pid, ppid, comm });
+        if (myUid != null && uid === myUid) liveProcsForUid = (liveProcsForUid ?? 0) + 1;
+        const ex = byPid.get(pid);
+        if (ex) ex.comm = comm;
+        else byPid.set(pid, { children: [], comm });
+      }
+      for (const r of rows) {
+        let parent = byPid.get(r.ppid);
+        if (!parent) { parent = { children: [], comm: '' }; byPid.set(r.ppid, parent); }
+        parent.children.push(r.pid);
+      }
+      return { byPid, liveProcsForUid };
+    } finally {
+      clearTimeout(killTimer);
     }
-    for (const r of rows) {
-      let parent = byPid.get(r.ppid);
-      if (!parent) { parent = { children: [], comm: '' }; byPid.set(r.ppid, parent); }
-      parent.children.push(r.pid);
-    }
-    return { byPid, liveProcsForUid };
   } catch {
     return null;
   }
 }
 
 /** Per-uid hard process cap (`kern.maxprocperuid`, ~6000 on macOS). null if unreadable. */
-function perUidProcCap(): number | null {
+async function perUidProcCap(): Promise<number | null> {
   try {
-    const out = Bun.spawnSync(['sysctl', '-n', 'kern.maxprocperuid'], { stdout: 'pipe', stderr: 'ignore', timeout: 10_000 }).stdout?.toString().trim() ?? '';
-    const n = Number(out);
-    return Number.isInteger(n) && n > 0 ? n : null;
+    const p = Bun.spawn(['sysctl', '-n', 'kern.maxprocperuid'], { stdout: 'pipe', stderr: 'ignore' });
+    const killTimer = setTimeout(() => { try { p.kill(); } catch {} }, 10_000);
+    try {
+      const out = await new Response(p.stdout).text();
+      await p.exited;
+      const n = Number(out.trim());
+      return Number.isInteger(n) && n > 0 ? n : null;
+    } finally {
+      clearTimeout(killTimer);
+    }
   } catch {
     return null;
   }
@@ -170,8 +184,8 @@ function mcTmuxSessionCount(): number | null {
 
 /** Snapshot the live fleet for a project: every in-progress todo with its worker,
  *  elapsed time, lease headroom, and derived health state. */
-export function getFleetStatus(project: string, now: number = Date.now()): FleetStatus {
-  const snap = procSnapshot();
+export async function getFleetStatus(project: string, now: number = Date.now()): Promise<FleetStatus> {
+  const [snap, perUidCap] = await Promise.all([procSnapshot(), perUidProcCap()]);
   // P7: liveness for headless leaf-executor lanes — a row per leaf currently running a
   // node (keyed by leafId === todoId). One query for the whole pass.
   const inflightByLeaf = new Map(listLeafInflight({ project }).map((r) => [r.leafId, r]));
@@ -256,7 +270,7 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
 
   const headroom: HeadroomInfo = {
     liveProcs: snap?.liveProcsForUid ?? null,
-    perUidCap: perUidProcCap(),
+    perUidCap,
     tmuxSessions: mcTmuxSessionCount(),
     idleSessions: summary.idle,
   };

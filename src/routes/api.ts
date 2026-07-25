@@ -2968,7 +2968,7 @@ export async function handleAPI(
     if (!project) {
       return Response.json({ error: 'project required' }, { status: 400 });
     }
-    return Response.json(getFleetStatus(project));
+    return Response.json(await getFleetStatus(project));
   }
 
   // GET /api/worker-transcript?project=&session=

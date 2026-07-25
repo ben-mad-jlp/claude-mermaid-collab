@@ -53,12 +53,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'A handful of one-shot git reads (ls-files/log) with a 15s hard timeout each, ' +
       'only when the digest regenerates (post-land). Typical <200ms; hard-capped 15s.',
   },
-  'services/fleet-status.ts': {
-    count: 2,
-    reason:
-      'One `ps -axo` + one `sysctl -n` per fleet-status call — ~30ms of kernel ' +
-      'bookkeeping, no repo or network involvement.',
-  },
   'services/leaf-executor.ts': {
     count: 2,
     reason:
