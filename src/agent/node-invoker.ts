@@ -140,6 +140,50 @@ export function nodeSettingsFile(): string | null {
   return path;
 }
 
+/** Matcher constant for grok tools that access the filesystem/shell. Both claude
+ *  (Bash, Write, Edit, MultiEdit, NotebookEdit) and grok aliases (run_terminal_command,
+ *  search_replace, write, create_file, edit_file).
+ *  Exported for unit testing (the test builds a RegExp from the matcher). */
+export const GROK_CONFINE_MATCHER = 'Bash|Write|Edit|MultiEdit|NotebookEdit|run_terminal_command|search_replace|write|create_file|edit_file';
+
+/** Generated grok hook config file (~/.grok/hooks/mermaid-worktree-confine.json) registering
+ *  the worktree-confinement PreToolUse hook for both claude and grok write/shell tools.
+ *  Grok reads ~/.grok/hooks/*.json as its hook config source. Mirrors {@link nodeSettingsFile}:
+ *  written ONCE (idempotent) keyed by the resolved hook path so a redeploy that moves the hook
+ *  regenerates it. Returns null on any fs error (write permission, read-only $HOME, etc.) —
+ *  fail-open: no hook rather than a wedged node. This is never awaited on a code path that can
+ *  fail the node (see invokeGrokNodeInner). Exported for unit testing. */
+const grokConfineHookPaths = new Map<string, string>();
+export function grokConfineHookFile(): string | null {
+  const hook = resolveConfineHookPath();
+  if (!hook) return null;
+  const cached = grokConfineHookPaths.get(hook);
+  if (cached) return cached;
+  try {
+    const dir = join(homedir(), '.grok', 'hooks');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'mermaid-worktree-confine.json');
+    const body = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: GROK_CONFINE_MATCHER,
+            hooks: [{ type: 'command', command: hook, timeout: 5 }],
+          },
+        ],
+      },
+    };
+    writeFileSync(path, JSON.stringify(body, null, 2));
+    grokConfineHookPaths.set(hook, path);
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+/** For tests: drop the memoized grok confinement hook path. */
+export function _resetGrokConfineHookCache(): void { grokConfineHookPaths.clear(); }
+
 /**
  * Append a node's raw stream-json transcript to the per-leaf file, preceded by a
  * synthetic boundary marker so the reader can split the file back into nodes.
@@ -1244,14 +1288,17 @@ export function buildGrokArgv(spec: NodeSpec, promptFile: string): string[] {
     '--cwd', absCwd,
     '--no-plan', '--no-subagents', '--no-memory', '--disable-web-search',
   ];
-  // WORKTREE CONFINEMENT NOTE: unlike the claude path (buildNodeArgv), grok gets NO
-  // --settings / PreToolUse hook — the grok CLI has neither flag nor a Claude-style hook
-  // system (verified: `grok agent --settings …` → "unexpected argument '--settings'", which
-  // would start-fail EVERY grok node). Grok still receives MERMAID_LEAF_WORKTREE +
-  // GIT_CEILING_DIRECTORIES via worktreeSpawnEnv (git can't escape the worktree), but the
-  // filesystem/cd confinement the hook provides for claude is NOT enforced for grok here.
-  // A grok-native equivalent would use grok's own `--deny`/`--sandbox <PROFILE>` (GROK_SANDBOX)
-  // and is left as a follow-up — see the mission report's "grok gap".
+  // WORKTREE CONFINEMENT NOTE: grok reads ~/.grok/hooks/*.json as its hook config source.
+  // grokConfineHookFile() installs mermaid-worktree-confine.json there once per daemon
+  // process, pointing at the same hooks/worktree-confine.mjs the claude lane uses, with
+  // MERMAID_LEAF_WORKTREE supplied by worktreeSpawnEnv (line 56). No grok argv flag is
+  // involved — which is exactly why the lane cannot start-fail.
+  //   REJECTED --deny: deny beats allow and cannot express "everything except this subtree";
+  //   the lane worktree is NESTED inside the main checkout, so any deny pattern broad enough
+  //   to cover the main checkout also covers the worktree.
+  //   REJECTED --sandbox: a custom profile makes grok refuse to start, and the built-in
+  //   `workspace` profile blocks writes to <root>/.git/worktrees/<lane> (which git needs),
+  //   breaking the lane.
   if (spec.model) argv.push('-m', resolveGrokModel(spec.model, spec.transcriptLabel));
   if (spec.effort) argv.push('--effort', spec.effort);
   if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
@@ -1416,6 +1463,7 @@ async function invokeGrokNodeInner(spec: NodeSpec): Promise<NodeResult> {
   }
 
   const grokBin = resolveGrokBin();
+  grokConfineHookFile(); // install-or-skip (result unused; fail-open)
   const argv = buildGrokArgv(spec, promptFile);
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
