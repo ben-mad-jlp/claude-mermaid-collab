@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, completeTodo, sweepEpicRollups, getTodo, updateTodo, _closeProject, stampEpicLandedAt,
+  createTodo, completeTodo, sweepEpicRollups, getTodo, updateTodo, _closeProject, stampEpicLandedAt, openDb,
 } from '../todo-store';
 import {
   upsertMission, getMission, deleteMission,
@@ -14,6 +14,7 @@ import {
   CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
+import { claimReason } from '../claimability';
 import { CONDUCTOR_LEADER_STALE_TICKS } from '../harness-caps';
 import Database from 'bun:sqlite';
 
@@ -1082,6 +1083,51 @@ describe('backfillMissionNodeApproval — idempotent stamp of mission-node appro
     // Second backfill call should be idempotent (no rows updated)
     stamped = backfillMissionNodeApproval(project);
     expect(stamped).toBe(0);
+  });
+
+  test('split-brain repro + heal: mission approved, node desynced, backfill heals', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    setMissionApproved(project, id);
+
+    // Initial backfill to sync mission and node
+    backfillMissionNodeApproval(project);
+
+    // Force split-brain: mission.db is approved, but force node to be unapproved
+    openDb(project).prepare("UPDATE todos SET approvedAt = NULL, approvedBy = NULL WHERE id = ?").run(id);
+
+    // Assert PRE-heal state
+    let todo = getTodo(project, id)!;
+    expect(todo.approvedAt).toBeNull();
+    expect(claimReason(todo, new Map([[id, todo]]))).toBe('unapproved');
+
+    // Heal via backfillMissionNodeApproval
+    let stamped = backfillMissionNodeApproval(project);
+    expect(stamped).toBe(1);
+
+    // Assert POST-heal state
+    todo = getTodo(project, id)!;
+    expect(todo.approvedAt).not.toBeNull();
+    expect(todo.approvedBy).toBe('backfill');
+    expect(claimReason(todo, new Map([[id, todo]]))).toBe('claimable');
+
+    // Idempotent: second call should return 0
+    stamped = backfillMissionNodeApproval(project);
+    expect(stamped).toBe(0);
+  });
+
+  test('unapproved mission is left untouched by backfill', async () => {
+    const id = await makeMissionNode('[MISSION] Unapproved test mission');
+    upsertMission(project, id, { awaitingApprovalSince: Date.now() });
+
+    // Call backfill - should skip this unapproved mission
+    let stamped = backfillMissionNodeApproval(project);
+    expect(stamped).toBe(0);
+
+    // Assert the todo node is still unapproved
+    let todo = getTodo(project, id)!;
+    expect(todo.approvedAt).toBeNull();
+    expect(claimReason(todo, new Map([[id, todo]]))).toBe('unapproved');
   });
 });
 
