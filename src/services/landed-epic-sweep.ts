@@ -80,7 +80,18 @@ export async function reconcileLandedEpics(
       skipped++;
       continue;
     }
-    await stampEpicLandedAtGated(project, epic.id, epic.landedAt, { probe, baseRef });
+    const known = {
+      exists: branchStatus.exists,
+      ahead: branchStatus.ahead,
+      behind: branchStatus.behind,
+      mergeable: branchStatus.mergeable,
+      newCount: branchStatus.newCount,
+    };
+    const { stamped } = await stampEpicLandedAtGated(project, epic.id, epic.landedAt, { probe, baseRef, known });
+    if (!stamped) {
+      skipped++;
+      continue;
+    }
     await completeTodo(project, branchStatus.landLeafId, 'accepted');
     reconciled.push(epic.id);
   }

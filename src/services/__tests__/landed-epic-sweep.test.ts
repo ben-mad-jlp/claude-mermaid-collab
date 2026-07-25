@@ -11,6 +11,7 @@ import {
   upsertMission, addCriterion, setCriterionMet, listCriteria, listMissions, _resetMissionDbCache,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
+import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { epicBranchName, type GitProbe } from '../epic-branch-status';
 import { reconcileLandedEpics, gcEpicBranches, type BranchGcRunner } from '../landed-epic-sweep';
 
@@ -24,6 +25,7 @@ afterEach(() => {
   _closeProject(project);
   _resetMissionDbCache(project);
   _closeLedgerDb();
+  _closeSupervisorDb();
   delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(project, { recursive: true, force: true });
 });
@@ -80,6 +82,22 @@ describe('reconcileLandedEpics', () => {
     const after = getTodo(project, land.id);
     expect(after?.status).toBe('done');
     expect(after?.updatedAt).toBe(before?.updatedAt);
+  });
+
+  test('ahead===0 but newCount>0 (rewritten-but-unlanded commits): gate refuses to stamp, land leaf stays open', async () => {
+    const { epic, land } = await seedConvergedEpic();
+    const branch = epicBranchName(epic.id);
+    const probe: GitProbe = async (b) =>
+      b === branch
+        ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 2 }
+        : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null };
+
+    const result = await reconcileLandedEpics(project, { probe });
+
+    expect(result.reconciled).not.toContain(epic.id);
+    expect(result.skipped).toBeGreaterThanOrEqual(1);
+    const reloaded = getTodo(project, land.id);
+    expect(reloaded?.status).not.toBe('done');
   });
 });
 

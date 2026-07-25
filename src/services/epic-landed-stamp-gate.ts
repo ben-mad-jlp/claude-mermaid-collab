@@ -14,6 +14,7 @@ import {
   epicId8,
   effectiveNewCount,
   type GitProbe,
+  type BranchProbe,
 } from './epic-branch-status';
 import { createEscalation, recordSupervisorAudit } from './supervisor-store';
 import { coordinatorCondition } from './coordinator-condition-keys';
@@ -32,12 +33,14 @@ export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | '
  * - indeterminate (probe failed / branch missing): FAIL-SAFE → stamp, audit with landGate:'indeterminate-stamp'
  * - newCount === 0: stamp and audit with landGate:'gated-clean'
  * - newCount > 0: do NOT stamp; raise one 'land-failed' card, audit with landGate:'ahead-of-master'
+ *
+ * opts.known: a pre-fetched BranchProbe — when supplied, the gate makes zero git calls.
  */
 export async function stampEpicLandedAtGated(
   project: string,
   epicId: string,
   whenIso: string,
-  opts?: { probe?: GitProbe; baseRef?: string; session?: string },
+  opts?: { probe?: GitProbe; baseRef?: string; session?: string; known?: BranchProbe },
 ): Promise<{ stamped: boolean; reason: GateReason; newCount?: number }> {
   try {
     const probe = opts?.probe ?? makeGitProbe(project);
@@ -45,8 +48,9 @@ export async function stampEpicLandedAtGated(
     const session = opts?.session ?? 'coordinator';
     const branch = epicBranchName(epicId);
 
-    // Probe the branch status against the base.
-    const p = await probe(branch, baseRef).catch(() => null);
+    // Probe the branch status against the base — reuse a pre-fetched BranchProbe
+    // when supplied (opts.known), so the gate makes zero git calls.
+    const p = opts?.known ?? (await probe(branch, baseRef).catch(() => null));
 
     // INDETERMINATE: branch missing, probe failed, or no counts available.
     if (!p || p.exists === false || (p.newCount == null && p.ahead == null)) {
