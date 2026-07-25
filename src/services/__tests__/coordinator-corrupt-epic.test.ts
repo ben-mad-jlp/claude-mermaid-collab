@@ -1,20 +1,33 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(path.join(os.tmpdir(), 'mc-corrupt-sup-'));
 
-import { sweepCorruptEpics } from '../coordinator-live';
+import { sweepCorruptEpics, _resetCorruptEpicSweepState } from '../coordinator-live';
 import { buildEpicBranchStatus, type BranchProbe, type GitProbe } from '../epic-branch-status';
-import { createTodo, completeTodo, getTodo, listTodos } from '../todo-store';
+import { createTodo, completeTodo, getTodo, listTodos, stampEpicLandedAt, _closeProject, updateTodo } from '../todo-store';
+import { upsertMission, addCriterion, listCriteria, listPendingRechecks, _resetMissionDbCache } from '../mission-store';
 
 const probeWith = (facts: Record<string, BranchProbe>): GitProbe =>
   async (branch) => facts[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null, newCount: null };
 
 describe('sweepCorruptEpics', () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = mkdtempSync(path.join(os.tmpdir(), 'mc-corrupt-'));
+  });
+
+  afterEach(async () => {
+    _resetCorruptEpicSweepState();
+    _resetMissionDbCache(repo);
+    _closeProject(repo);
+    await fs.rm(repo, { recursive: true, force: true });
+  });
+
   it('corrupt (land done + ahead>0): report flags corrupt AND sweep reopens the land leaf', async () => {
-    const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'mc-corrupt-repo-'));
     const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] corrupt', kind: 'epic', status: 'planned' });
     const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] corrupt → master', parentId: epic.id, kind: 'land', status: 'planned' });
     await completeTodo(repo, land.id, 'accepted'); // FALSELY stamp the land leaf done
@@ -35,7 +48,6 @@ describe('sweepCorruptEpics', () => {
   });
 
   it('clean (land done + ahead==0): NOT corrupt, land leaf NOT reopened', async () => {
-    const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'mc-clean-repo-'));
     const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] clean', kind: 'epic', status: 'planned' });
     const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] clean → master', parentId: epic.id, kind: 'land', status: 'planned' });
     await completeTodo(repo, land.id, 'accepted');
@@ -52,5 +64,146 @@ describe('sweepCorruptEpics', () => {
     const reopened = await sweepCorruptEpics(repo, { report });
     expect(reopened).not.toContain(land.id);
     expect(getTodo(repo, land.id)!.status).toBe('done'); // untouched
+  });
+
+  it('corrupt epic: landedAt/hollowLandedAt cleared, land leaf ready, served criterion met=false with a pending recheck row', async () => {
+    // Seed a mission with a criterion
+    const mission = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[MISSION] m', kind: 'mission' });
+    upsertMission(repo, mission.id);
+    const crit = addCriterion(repo, mission.id, 'test criterion');
+
+    // Create an epic under the mission
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] corrupt', parentId: mission.id, kind: 'epic', status: 'planned' });
+
+    // Create a leaf that serves the criterion
+    const impl = await createTodo(repo, {
+      allowOrphan: true,
+      ownerSession: 's',
+      title: '[IMPL] impl',
+      parentId: epic.id,
+      kind: 'leaf',
+    });
+    // Update it to serve the criterion and complete it
+    await updateTodo(repo, impl.id, { servesCriterionIds: [crit.id] });
+    await completeTodo(repo, impl.id, 'accepted');
+
+    // Create and complete a [LAND] leaf
+    const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] corrupt → master', parentId: epic.id, kind: 'land', status: 'planned' });
+    await completeTodo(repo, land.id, 'accepted');
+
+    // Stamp the epic as landed
+    const iso = new Date(0).toISOString();
+    stampEpicLandedAt(repo, epic.id, iso);
+
+    // Build report: land done + ahead > 0 = corrupt
+    const branch = `collab/epic/${epic.id.slice(0, 8)}`;
+    const report = await buildEpicBranchStatus(
+      listTodos(repo, { includeCompleted: true }),
+      probeWith({ [branch]: { exists: true, ahead: 2, behind: 0, mergeable: true, newCount: 2 } }),
+    );
+
+    // Verify land leaf is done before the sweep
+    const landBefore = getTodo(repo, land.id)!;
+    expect(landBefore.status).toBe('done');
+
+    // Sweep
+    const reopened = await sweepCorruptEpics(repo, { report });
+
+    // Verify: landedAt cleared
+    const epicAfter = getTodo(repo, epic.id)!;
+    expect(epicAfter.landedAt).toBeNull();
+
+    // Verify: land leaf reopened (no longer done)
+    expect(reopened).toContain(land.id);
+    expect(getTodo(repo, land.id)!.status).not.toBe('done');
+
+    // Verify: criterion met = false with pending recheck
+    const criteria = listCriteria(repo, mission.id);
+    const criterion = criteria.find((c) => c.id === crit.id)!;
+    expect(criterion.met).toBe(false);
+
+    const rechecks = listPendingRechecks(repo);
+    expect(rechecks.length).toBe(1);
+    expect(rechecks[0].criterionId).toBe(crit.id);
+    expect(rechecks[0].reason).toBe('corrupt-land');
+  });
+
+  it('second sweep is a no-op (no duplicate recheck, no re-clear)', async () => {
+    // Seed: mission + criterion + epic + accepted leaf serving it + stamped land leaf
+    const mission = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[MISSION] m', kind: 'mission' });
+    upsertMission(repo, mission.id);
+    const crit = addCriterion(repo, mission.id, 'test criterion');
+
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] corrupt', parentId: mission.id, kind: 'epic', status: 'planned' });
+
+    const impl = await createTodo(repo, {
+      allowOrphan: true,
+      ownerSession: 's',
+      title: '[IMPL] impl',
+      parentId: epic.id,
+      kind: 'leaf',
+    });
+    // Update it to serve the criterion and complete it
+    await updateTodo(repo, impl.id, { servesCriterionIds: [crit.id] });
+    await completeTodo(repo, impl.id, 'accepted');
+
+    const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] corrupt → master', parentId: epic.id, kind: 'land', status: 'planned' });
+    await completeTodo(repo, land.id, 'accepted');
+
+    const iso = new Date(0).toISOString();
+    stampEpicLandedAt(repo, epic.id, iso);
+
+    const branch = `collab/epic/${epic.id.slice(0, 8)}`;
+    const report = await buildEpicBranchStatus(
+      listTodos(repo, { includeCompleted: true }),
+      probeWith({ [branch]: { exists: true, ahead: 2, behind: 0, mergeable: true, newCount: 2 } }),
+    );
+
+    // First sweep
+    await sweepCorruptEpics(repo, { report });
+
+    const firstRechecks = listPendingRechecks(repo);
+    expect(firstRechecks.length).toBe(1);
+    const firstEnqueuedAt = firstRechecks[0].enqueuedAt;
+
+    // Second sweep (with force: true to bypass throttle)
+    const reopened2 = await sweepCorruptEpics(repo, { report, force: true });
+
+    // Verify: no duplicate recheck
+    const secondRechecks = listPendingRechecks(repo);
+    expect(secondRechecks.length).toBe(1);
+    expect(secondRechecks[0].enqueuedAt).toBe(firstEnqueuedAt); // unchanged
+
+    // Verify: epic's landedAt still null (not re-cleared)
+    expect(getTodo(repo, epic.id)!.landedAt).toBeNull();
+
+    // Verify: land leaf still not done (not re-reopened)
+    expect(getTodo(repo, land.id)!.status).not.toBe('done');
+  });
+
+  it('a newCount===0 epic with a done land leaf is left untouched (landedAt preserved)', async () => {
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] clean', kind: 'epic', status: 'planned' });
+    const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] clean → master', parentId: epic.id, kind: 'land', status: 'planned' });
+    await completeTodo(repo, land.id, 'accepted');
+
+    const iso = new Date(0).toISOString();
+    stampEpicLandedAt(repo, epic.id, iso);
+
+    // Report: land done + ahead == 0 = NOT corrupt
+    const branch = `collab/epic/${epic.id.slice(0, 8)}`;
+    const report = await buildEpicBranchStatus(
+      listTodos(repo, { includeCompleted: true }),
+      probeWith({ [branch]: { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } }),
+    );
+
+    // Sweep
+    await sweepCorruptEpics(repo, { report });
+
+    // Verify: landedAt untouched
+    const epicAfter = getTodo(repo, epic.id)!;
+    expect(epicAfter.landedAt).toBe(iso);
+
+    // Verify: land leaf still done
+    expect(getTodo(repo, land.id)!.status).toBe('done');
   });
 });
