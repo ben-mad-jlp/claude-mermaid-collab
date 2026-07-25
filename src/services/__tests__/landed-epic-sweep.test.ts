@@ -56,7 +56,9 @@ describe('reconcileLandedEpics', () => {
   test('first pass: stamps and completes the [LAND] leaf for a landed converged-mission epic', async () => {
     const { mission, epic, land } = await seedConvergedEpic();
     const missions = listMissions(project);
-    expect(missions.find((m) => m.node.id === mission.id)?.mission.status).toBe('converged');
+    // A converged mission is immediately frozen to the terminal 'closed' state
+    // (deactivateIfTerminal → setMissionClosed, f6280737); either reads as "converged and done".
+    expect(['converged', 'closed']).toContain(String(missions.find((m) => m.node.id === mission.id)?.mission.status));
 
     const probe = probeFor(epic.id);
     const result = await reconcileLandedEpics(project, { probe });
