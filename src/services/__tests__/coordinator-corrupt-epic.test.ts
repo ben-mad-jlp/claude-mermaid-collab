@@ -9,6 +9,7 @@ import { sweepCorruptEpics, _resetCorruptEpicSweepState } from '../coordinator-l
 import { buildEpicBranchStatus, type BranchProbe, type GitProbe } from '../epic-branch-status';
 import { createTodo, completeTodo, getTodo, listTodos, stampEpicLandedAt, _closeProject, updateTodo } from '../todo-store';
 import { upsertMission, addCriterion, listCriteria, listPendingRechecks, _resetMissionDbCache, setCriterionVerdict, setMissionClosed, getMission, listCriterionVerdictHistory } from '../mission-store';
+import { drainMissionRechecks } from '../mission-recheck-drain';
 
 const probeWith = (facts: Record<string, BranchProbe>): GitProbe =>
   async (branch) => facts[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null, newCount: null };
@@ -126,6 +127,9 @@ describe('sweepCorruptEpics', () => {
     expect(rechecks.length).toBe(1);
     expect(rechecks[0].criterionId).toBe(crit.id);
     expect(rechecks[0].reason).toBe('corrupt-land');
+    // Verify: todoId is the mission id, NOT the epic id (regression test for the keying bug)
+    expect(rechecks[0].todoId).toBe(mission.id);
+    expect(rechecks[0].todoId).not.toBe(epic.id);
   });
 
   it('second sweep is a no-op (no duplicate recheck, no re-clear)', async () => {
@@ -391,5 +395,125 @@ describe('sweepCorruptEpics', () => {
     expect(history[0].verifiedBy).toBe('verify-gate');
     expect(history[0].verifiedAt).not.toBeNull();
     expect(history[0].evidencePaths).toContain('src/x.ts');
+  });
+
+  it('corrupt-land recheck is keyed by mission id: drainMissionRechecks returns it as pending (not cleared)', async () => {
+    // Seed: mission with TWO criteria (one met, one unmet — so mission stays active/non-terminal)
+    const mission = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[MISSION] m', kind: 'mission' });
+    upsertMission(repo, mission.id);
+    const critMet = addCriterion(repo, mission.id, 'met criterion');
+    const critUnmet = addCriterion(repo, mission.id, 'unmet criterion');
+
+    // Mark the first criterion met (but unmet second criterion keeps mission active)
+    setCriterionVerdict(repo, critMet.id, {
+      met: true,
+      evidence: 'e1',
+      verifiedBy: 'verify-gate',
+      evidencePaths: ['src/x.ts'],
+    });
+
+    // Verify mission is still active
+    const m = getMission(repo, mission.id)!;
+    expect(m.active).toBe(true);
+
+    // Create epic + impl serving the met criterion + land leaf
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] corrupt', parentId: mission.id, kind: 'epic', status: 'planned' });
+
+    const impl = await createTodo(repo, {
+      allowOrphan: true,
+      ownerSession: 's',
+      title: '[IMPL] impl',
+      parentId: epic.id,
+      kind: 'leaf',
+    });
+    await updateTodo(repo, impl.id, { servesCriterionIds: [critMet.id] });
+    await completeTodo(repo, impl.id, 'accepted');
+
+    const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] corrupt → master', parentId: epic.id, kind: 'land', status: 'planned' });
+    await completeTodo(repo, land.id, 'accepted');
+
+    // Stamp epic as landed
+    const iso = new Date(0).toISOString();
+    stampEpicLandedAt(repo, epic.id, iso);
+
+    // Build report: corrupt
+    const branch = `collab/epic/${epic.id.slice(0, 8)}`;
+    const report = await buildEpicBranchStatus(
+      listTodos(repo, { includeCompleted: true }),
+      probeWith({ [branch]: { exists: true, ahead: 2, behind: 0, mergeable: true, newCount: 2 } }),
+    );
+
+    // Sweep: re-opens the criterion and enqueues a recheck
+    await sweepCorruptEpics(repo, { report });
+
+    // Verify recheck exists and is keyed by mission id
+    const rechecks = listPendingRechecks(repo);
+    expect(rechecks.length).toBe(1);
+    expect(rechecks[0].todoId).toBe(mission.id);
+
+    // END-TO-END: drain the recheck with the mission id — must return it as pending
+    const drainResult = drainMissionRechecks(repo, mission.id);
+    expect(drainResult.pending.length).toBe(1);
+    expect(drainResult.pending[0].criterionId).toBe(critMet.id);
+    expect(drainResult.pending[0].todoId).toBe(mission.id);
+    expect(drainResult.cleared.length).toBe(0);
+  });
+
+  it('corrupt-land recheck cleared if mission is terminal (closed/converged)', async () => {
+    // Seed: mission with single criterion marked met (making it terminal)
+    const mission = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[MISSION] terminal', kind: 'mission' });
+    upsertMission(repo, mission.id);
+    const crit = addCriterion(repo, mission.id, 'test criterion');
+
+    // Mark criterion met with provenance (auto-closes mission)
+    setCriterionVerdict(repo, crit.id, {
+      met: true,
+      evidence: 'e1',
+      verifiedBy: 'verify-gate',
+      evidencePaths: ['src/x.ts'],
+    });
+
+    // Verify mission is now terminal
+    const m = getMission(repo, mission.id)!;
+    expect(m.status).toBe('closed');
+
+    // Create epic + impl serving criterion + land leaf
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] corrupt', parentId: mission.id, kind: 'epic', status: 'planned' });
+
+    const impl = await createTodo(repo, {
+      allowOrphan: true,
+      ownerSession: 's',
+      title: '[IMPL] impl',
+      parentId: epic.id,
+      kind: 'leaf',
+    });
+    await updateTodo(repo, impl.id, { servesCriterionIds: [crit.id] });
+    await completeTodo(repo, impl.id, 'accepted');
+
+    const land = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[LAND] corrupt → master', parentId: epic.id, kind: 'land', status: 'planned' });
+    await completeTodo(repo, land.id, 'accepted');
+
+    // Stamp epic as landed
+    const iso = new Date(0).toISOString();
+    stampEpicLandedAt(repo, epic.id, iso);
+
+    // Build report: corrupt
+    const branch = `collab/epic/${epic.id.slice(0, 8)}`;
+    const report = await buildEpicBranchStatus(
+      listTodos(repo, { includeCompleted: true }),
+      probeWith({ [branch]: { exists: true, ahead: 2, behind: 0, mergeable: true, newCount: 2 } }),
+    );
+
+    // Sweep: should NOT reopen criterion because mission is terminal
+    await sweepCorruptEpics(repo, { report });
+
+    // Verify: no recheck queued for terminal mission
+    const rechecks = listPendingRechecks(repo);
+    expect(rechecks.length).toBe(0);
+
+    // Verify: criterion still met (not cleared by terminal check)
+    const criteria = listCriteria(repo, mission.id);
+    const criterion = criteria.find((c) => c.id === crit.id)!;
+    expect(criterion.met).toBe(true);
   });
 });

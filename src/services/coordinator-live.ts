@@ -1252,7 +1252,7 @@ export async function sweepCorruptEpics(
             clearCriterionVerdict(project, criterionId, { countReopen: true, reason: 'corrupt-land' });
             enqueueRecheck(project, {
               criterionId,
-              todoId: e.epicId,
+              todoId: missionId!,
               reason: 'corrupt-land',
             });
             reopenedCriterionIds.push(criterionId);
