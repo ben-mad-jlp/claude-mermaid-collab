@@ -63,7 +63,8 @@ import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
 import { loadManifestSource, type ManifestSource, type ProjectManifest } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope, trackedDirtyPaths, stageAndCommitScoped } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
-import { sameReviewWall, isHardWall, type WallReasonClass, getLeafWallHistory } from './leaf-wall-history';
+import { sameReviewWall, isHardWall, type WallReasonClass, type LeafWallHistory, getLeafWallHistory } from './leaf-wall-history';
+import { planTierEscalation, type TierEscalationPlan } from './tier-escalation';
 
 /** Friction 6150b497 default salvage-commit: stage + commit the given dirty/untracked
  *  paths in the leaf worktree via the SAME scoped-commit helper the worker merge path
@@ -650,6 +651,9 @@ export interface LeafExecutorDeps {
    *  kind-wide key for leaves of that tier. Injectable for tests (the real store is the
    *  global supervisor DB, off-limits to hermetic tests). */
   nodeProfileOverrides?: ReturnType<typeof listNodeProfileOverrides>;
+  /** Injectable cross-dispatch wall history; unwired ⇒ `getLeafWallHistory(leaf.id)`
+   *  (keeps hermetic tests off the global ledger DB). */
+  wallHistory?: LeafWallHistory;
   /** Floor-path base-freshness pre-check (real incident: a stale/off-by-one base spent
    *  blueprint+implement+review before being rejected at the gate for tsc errors in files it
    *  never touched — thrash discovered late). Cheap deterministic git probe: is the epic
@@ -2281,6 +2285,11 @@ export async function runLeaf(
   //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
   const nodeOverrides = deps.nodeProfileOverrides ?? listNodeProfileOverrides(project);
   const projectEffort = getProjectEffort(project);
+  // Cross-dispatch wall history: escalation decision driver for implement attempts.
+  const wall = deps.wallHistory ?? getLeafWallHistory(leaf.id);
+  // Tier escalation plan holder: latched by buildSpec's implement branch to compose
+  // the attempt ladder (escalateImplementModel) with the wall-based tier bump.
+  let tierPlan: TierEscalationPlan | null = null;
   // Escalation set: kinds whose model has been bumped to the blueprint model
   // (a higher tier) instead of its normal pinned model. Set on an implement start-failure
   // so the in-place retry runs stronger — coherent everywhere nodeModel is used (spec
@@ -2308,6 +2317,8 @@ export async function runLeaf(
     // (start-failure retry) still wins above: a failing cheap-model start retries strong.
     const tierScoped = leaf.tier ? nodeOverrides[`${kind}@${leaf.tier}`]?.model : undefined;
     if (tierScoped) return tierScoped;
+    const kindWide = nodeOverrides[kind]?.model;
+    if (kindWide) return kindWide;
     const provider = resolveNodeProvider(project, kind, allowedTools);
     return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
   };
@@ -2375,7 +2386,7 @@ export async function runLeaf(
       recordedModel = xaiApiLedgerModel(kind);
     } else {
       invoker = deps.invoker;
-      recordedModel = nodeModel(kind);
+      recordedModel = spec.model!;
     }
     // NOTE (bug 0f1df3d2): do NOT clear the inflight row here. It is set per-node
     // (above) so nodeKind stays fresh, but the row must SPAN the whole run — including
@@ -2669,8 +2680,19 @@ export async function runLeaf(
         worktree: cwd,
         mainCheckout: deps.mainCheckoutRoot ?? null,
       }),
-      // Retry ladder: attempt ≥2 implement runs one tier up (see escalateImplementModel).
-      model: kind === 'implement' ? escalateImplementModel(nodeModel(kind), state.attempt) : nodeModel(kind),
+      // Retry ladder + wall-based tier escalation: compose the attempt ladder with the
+      // cross-dispatch wall bump so implement models escalate monotonically via both paths.
+      model: kind === 'implement'
+        ? (() => {
+            const plan = planTierEscalation({
+              wall,
+              currentModel: escalateImplementModel(nodeModel('implement'), state.attempt),
+              attempt: state.attempt,
+            });
+            tierPlan = plan;
+            return plan.model;
+          })()
+        : nodeModel(kind),
       effort: nodeEffort(kind),
       allowedTools: NODE_PROFILE[kind].allowedTools,
       // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
@@ -4405,6 +4427,7 @@ export async function makeLeafExecutorDeps(
     mainCheckoutRoot: targetProject,
     resumePlan,
     startNodesSpent: effectiveStart,
+    wallHistory: wall,
     assertAuth: assertSubscriptionAuth,
     assertGrokAuth,
     assertXaiApiAuth,
