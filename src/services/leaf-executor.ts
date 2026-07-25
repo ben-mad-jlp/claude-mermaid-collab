@@ -63,6 +63,7 @@ import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
 import { loadManifestSource, type ManifestSource, type ProjectManifest } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope, trackedDirtyPaths, stageAndCommitScoped } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
+import { sameReviewWall } from './leaf-wall-history';
 
 /** Friction 6150b497 default salvage-commit: stage + commit the given dirty/untracked
  *  paths in the leaf worktree via the SAME scoped-commit helper the worker merge path
@@ -304,23 +305,7 @@ export function isTestFilePath(path: string): boolean {
  *  a free-form finding that carries no explicit UNMET/FAIL marker. (A fully-paraphrased SAME
  *  defect with no shared line still evades line-overlap — that residual miss is bounded by the
  *  revise cap + node budget, not an infinite thrash.) */
-const DEFECT_LINE_RE = /\b(?:unmet|fail(?:ed|s|ure)?)\b/i;
-export function sameReviewWall(a: string, b: string): boolean {
-  const norm = (t: string): Set<string> => {
-    const lines = t.split('\n');
-    const defect = lines.filter((l) => DEFECT_LINE_RE.test(l));
-    const use = defect.length ? defect : lines; // wall = defect lines; free-form → all lines
-    return new Set(
-      use.map((l) => l.toLowerCase().replace(/\d+/g, '#').trim()).filter((l) => l.length > 8),
-    );
-  };
-  const A = norm(a);
-  const B = norm(b);
-  if (A.size === 0 || B.size === 0) return false;
-  let inter = 0;
-  for (const l of A) if (B.has(l)) inter += 1;
-  return inter / Math.min(A.size, B.size) >= 0.5;
-}
+export { sameReviewWall } from './leaf-wall-history';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
