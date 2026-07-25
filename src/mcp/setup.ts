@@ -1419,7 +1419,7 @@ export async function setupMCPServer(): Promise<Server> {
           case 'fleet_status': {
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
-            return JSON.stringify(getFleetStatus(project), null, 2);
+            return JSON.stringify(await getFleetStatus(project), null, 2);
           }
 
           case 'get_install_path': {

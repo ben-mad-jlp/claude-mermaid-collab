@@ -280,7 +280,7 @@ export async function systemStatus(project: string, deps: SystemStatusDeps = {})
   // Registry is partitioned by project; count only this project's slots.
   const poolOccupancy = listPool().filter((s) => s.project === project).length;
   const coldStartsInFlight = getColdStartsInFlight();
-  const fleet = getFleetStatus(project, now);
+  const fleet = await getFleetStatus(project, now);
   const violations = await checkInvariants(project);
   const topology = await instanceTopology();
   const repoVersion = repoVersionFn(project);
