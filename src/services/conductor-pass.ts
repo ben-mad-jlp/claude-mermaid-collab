@@ -32,6 +32,9 @@ import { invokeNode, mcpConfigFor, isTransientNodeFault, type NodeSpec, type Nod
 import { config } from '../config.js';
 import type { EffortLevel } from '../agent/contracts.js';
 import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
+import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
+import { summariseEpicOutcomes } from './epic-churn.js';
+import { listLeafRuns } from './ledger-stats.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -94,6 +97,62 @@ export function collectMissionTodoIds(project: string, missionId: string): Set<s
  *  re-raised (supervisor-store.ts createEscalation :824-842). */
 export function serveCapConditionKey(criterionId: string): string {
   return `serve-cap:${criterionId}`;
+}
+
+/** Build serve-cap diagnosis: a pure renderer that emits REASONS SEEN, LADDER, and RECOMMEND blocks.
+ *  Pure — no DB, no clock. */
+export function buildServeCapDiagnosis(input: {
+  criterionText: string;
+  servedEpicCount: number;
+  attempts: ApproachAttempt[];
+  distinctReasons: string[];
+}): string {
+  // REASONS SEEN block: up to 5 reasons, each max 200 chars
+  const slicedReasons = input.distinctReasons.slice(0, 5);
+  const reasonsBlock = slicedReasons.length > 0
+    ? slicedReasons.map((r) => `- ${r.substring(0, 200)}`).join('\n')
+    : '- (none recorded)';
+
+  // LADDER block: three rungs in order
+  const ladderOrder: Array<'fresh-blueprint' | 'tier-bump' | 're-decompose'> = ['fresh-blueprint', 'tier-bump', 're-decompose'];
+  const attemptsByRung = new Map<string, ApproachAttempt>();
+  for (const attempt of input.attempts) {
+    if (!attemptsByRung.has(attempt.rung) || attempt.attemptedAt > attemptsByRung.get(attempt.rung)!.attemptedAt) {
+      attemptsByRung.set(attempt.rung, attempt);
+    }
+  }
+
+  const ladderLines = ladderOrder.map((rung) => {
+    const attempt = attemptsByRung.get(rung);
+    if (!attempt) {
+      return `${rung} — not recorded`;
+    }
+    const detail = attempt.detail ? `, ${attempt.detail}` : (attempt.epicId ? `, epic ${attempt.epicId}` : '');
+    return `${rung} — ${attempt.outcome}${detail}`;
+  });
+
+  // RECOMMEND line based on what rungs are present
+  const presentRungs = ladderOrder.filter((rung) => attemptsByRung.has(rung));
+  const missingRungs = ladderOrder.filter((rung) => !attemptsByRung.has(rung));
+
+  let recommendLine = '';
+  if (presentRungs.length === ladderOrder.length && input.distinctReasons.length === 1) {
+    recommendLine = `RECOMMEND: the criterion likely needs a human action / rescope: ${input.distinctReasons[0]}`;
+  } else if (presentRungs.length === ladderOrder.length) {
+    recommendLine = 'RECOMMEND: all ladder rungs ran and the criterion is still unmet — human rescope';
+  } else {
+    recommendLine = `RECOMMEND: ladder incomplete — ${missingRungs.join(', ')} never ran; investigate the rung owner`;
+  }
+
+  return [
+    'REASONS SEEN',
+    reasonsBlock,
+    '',
+    'LADDER',
+    ...ladderLines,
+    '',
+    recommendLine,
+  ].join('\n');
 }
 
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
@@ -169,6 +228,12 @@ export interface ConductorPassDeps {
   redecomposeArm?: typeof runRedecomposeArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
+  /** Injectable approach attempts read for the serve-cap diagnosis. Defaults to the store fn. */
+  listApproachAttempts?: typeof listApproachAttempts;
+  /** Injectable leaf runs read for the serve-cap diagnosis. Defaults to the store fn. */
+  listLeafRuns?: typeof listLeafRuns;
+  /** Injectable todo list read for the serve-cap diagnosis. Defaults to the store fn. */
+  listTodos?: typeof listTodos;
 }
 
 export interface ConductorPassResult {
@@ -176,6 +241,8 @@ export interface ConductorPassResult {
   reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
+  /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
+  serveCapDeferred?: number;
   /** INFRA-rejected leaves un-parked this pass (their base re-probed green). */
   infraResets?: number;
   /** INFRA-rejection human cards raised this pass (probe could not prove green). */
@@ -302,15 +369,81 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
   const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
   // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
-  // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Raise ONE human
-  // escalation per such criterion, debounced against any already-open one. This runs BEFORE
+  // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Gate card raise on
+  // ladder exhaustion: only raise when all rungs have been attempted. This runs BEFORE
   // the hasGap/no-op decision so a mission whose only gaps are capped never spends a node.
   const escalated = criteriaWithActions.filter((a) => a.action === 'escalate');
   let escalationsRaised = 0;
+  let serveCapDeferred = 0;
+  // Hoist the serving epics read outside the loop, fail-open to []
+  let servingEpicsByComp: Map<string, typeof criteriaWithActions[number]['id'][]> = new Map();
+  try {
+    const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
+    for (const c of escalated) {
+      const matching = allTodos.filter(
+        (t) => t.parentId === missionId && t.kind === 'epic' && (
+          t.servesCriterionId === c.id || (t.servesCriterionIds ?? []).includes(c.id)
+        ),
+      );
+      servingEpicsByComp.set(c.id, matching.map((t) => t.id));
+    }
+  } catch {
+    // fail-open to empty serving epics
+  }
+
   if (escalated.length > 0) {
     const createEsc = deps.createEscalation ?? createEscalation;
+    const listApproachFn = deps.listApproachAttempts ?? listApproachAttempts;
+    const listLeafRunsFn = deps.listLeafRuns ?? listLeafRuns;
+
     for (const c of escalated) {
       try {
+        // Read approach attempts; on throw set storeFaulted to treat ladder as exhausted
+        let attempts: ApproachAttempt[] = [];
+        let storeFaulted = false;
+        try {
+          attempts = listApproachFn(project, c.id);
+        } catch {
+          storeFaulted = true;
+        }
+
+        // Check if ladder is exhausted
+        const { exhausted } = storeFaulted ? { exhausted: true } : ladderExhausted({ attempts, servedEpicCount: c.servedEpicCount });
+
+        // If not exhausted, defer and skip card creation
+        if (!exhausted) {
+          serveCapDeferred++;
+          continue;
+        }
+
+        // Collect reasons from serving epics
+        let distinctReasons: string[] = [];
+        try {
+          const servingEpicIds = servingEpicsByComp.get(c.id) ?? [];
+          const allRuns: Array<ReturnType<typeof listLeafRunsFn>[number]> = [];
+          for (const epicId of servingEpicIds) {
+            try {
+              const runs = listLeafRunsFn({ project, epicId });
+              allRuns.push(...runs);
+            } catch {
+              // per-epic try/catch → []
+            }
+          }
+          if (allRuns.length > 0) {
+            distinctReasons = summariseEpicOutcomes(allRuns).distinctReasons;
+          }
+        } catch {
+          // fail-open to empty reasons
+        }
+
+        // Build diagnosis
+        const diagnosis = buildServeCapDiagnosis({
+          criterionText: c.text,
+          servedEpicCount: c.servedEpicCount,
+          attempts,
+          distinctReasons,
+        });
+
         const marker = serveCapMarker(c.id);
         const res = createEsc({
           project,
@@ -324,7 +457,8 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
             `Mission "${target.summary.node.title ?? missionId}" — criterion "${c.text}" ${marker}: ` +
             `${c.servedEpicCount} serving epics filed but the criterion is still unmet — it likely needs ` +
             `HUMAN action (a live measurement / deploy / rescope); the conductor will not re-file. ` +
-            `Resolve or rescope this criterion.`,
+            `Resolve or rescope this criterion.\n` +
+            diagnosis,
         });
         if (res && res.isNew) escalationsRaised++;
       } catch {
@@ -359,6 +493,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       reason: 'infra-leaf-reset',
       missionId,
       escalationsRaised,
+      serveCapDeferred,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
     });
@@ -368,7 +503,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
   catch { redecomposed = [] }
   if (redecomposed.length > 0)
-    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, redecomposed: redecomposed.length,
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, redecomposed: redecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
@@ -418,7 +553,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
   // building-wait (daemon working) no-op.
   if (!hasGap && landCardIds.length === 0) {
-    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised });
+    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred });
     // 'building' normally means "the daemon is on it — leave it". An open mission-scoped hard card
     // (e.g. a just-carded INFRA leaf) is the exception: reaching this line already proves the
     // signature differs from both stored keys, and step 4 of the conductor prompt makes the node the
@@ -536,5 +671,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
-  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 }
