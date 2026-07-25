@@ -37,6 +37,10 @@ describe('verification-as-event', () => {
     });
     missionTodoId = m.id;
     upsertMission(projectId, missionTodoId);
+    // A second, permanently-unmet criterion — keeps the mission non-terminal (active,
+    // status !== 'converged') as each test below meets its OWN single criterion, so
+    // unverifyCriteriaForLandedPaths's terminal/inactive liveness filter doesn't skip it.
+    addCriterion(projectId, missionTodoId, 'second gap');
   });
 
   afterEach(() => {
@@ -65,9 +69,10 @@ describe('verification-as-event', () => {
     });
 
     let criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria).toHaveLength(1);
-    expect(criteria[0]?.met).toBe(true);
-    expect(criteria[0]?.verifiedAt).not.toBeNull();
+    let target = criteria.find((x) => x.id === criterionId);
+    expect(target?.met).toBe(true);
+    expect(target?.verifiedAt).not.toBeNull();
+    expect(getMission(projectId, missionTodoId)?.status).not.toBe('converged');
 
     // Fire the event: land touches src/foo.ts
     const affected = unverifyCriteriaForLandedPaths(projectId, ['src/foo.ts', 'src/baz.ts'], {
@@ -80,13 +85,14 @@ describe('verification-as-event', () => {
     expect(affected[0]?.todoId).toBe(missionTodoId);
 
     criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.met).toBe(false);
-    expect(criteria[0]?.verifiedAt).toBeNull();
-    expect(criteria[0]?.evidence).toBeNull();
-    expect(criteria[0]?.verifiedBy).toBeNull();
-    expect(criteria[0]?.verifiedAtSha).toBeNull();
+    target = criteria.find((x) => x.id === criterionId);
+    expect(target?.met).toBe(false);
+    expect(target?.verifiedAt).toBeNull();
+    expect(target?.evidence).toBeNull();
+    expect(target?.verifiedBy).toBeNull();
+    expect(target?.verifiedAtSha).toBeNull();
     // evidencePaths is preserved
-    expect(criteria[0]?.evidencePaths).toEqual(['src/foo.ts', 'src/bar.ts']);
+    expect(target?.evidencePaths).toEqual(['src/foo.ts', 'src/bar.ts']);
 
     // Recheck is enqueued
     const rechecks = listPendingRechecks(projectId);
@@ -118,9 +124,10 @@ describe('verification-as-event', () => {
     expect(affected).toHaveLength(0);
 
     const criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.met).toBe(true);
-    expect(criteria[0]?.verifiedAt).not.toBeNull();
-    expect(criteria[0]?.evidence).toBe('test evidence');
+    const target = criteria.find((x) => x.id === criterionId);
+    expect(target?.met).toBe(true);
+    expect(target?.verifiedAt).not.toBeNull();
+    expect(target?.evidence).toBe('test evidence');
 
     // No recheck enqueued
     const rechecks = listPendingRechecks(projectId);
@@ -148,7 +155,8 @@ describe('verification-as-event', () => {
 
     // Criterion unchanged
     const criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.met).toBe(true);
+    const target = criteria.find((x) => x.id === criterionId);
+    expect(target?.met).toBe(true);
 
     // No recheck enqueued
     const rechecks = listPendingRechecks(projectId);
@@ -181,17 +189,19 @@ describe('verification-as-event', () => {
     // (for simplicity, we'll just verify on unverified criteria)
 
     let criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.verifiedAt).not.toBeNull();
+    let target = criteria.find((x) => x.id === criterionId);
+    expect(target?.verifiedAt).not.toBeNull();
 
     // Clear the verdict
     clearCriterionVerdict(projectId, criterionId);
 
     criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.met).toBe(false);
-    expect(criteria[0]?.verifiedAt).toBeNull();
-    expect(criteria[0]?.evidence).toBeNull();
-    expect(criteria[0]?.verifiedBy).toBeNull();
-    expect(criteria[0]?.verifiedAtSha).toBeNull();
+    target = criteria.find((x) => x.id === criterionId);
+    expect(target?.met).toBe(false);
+    expect(target?.verifiedAt).toBeNull();
+    expect(target?.evidence).toBeNull();
+    expect(target?.verifiedBy).toBeNull();
+    expect(target?.verifiedAtSha).toBeNull();
 
     // Mission status should reflect the unverified criterion
     const mission = getMission(projectId, missionTodoId);

@@ -29,7 +29,7 @@ export interface ConductingView {
   mechanical: { done: number; total: number };
 }
 
-const TERMINAL_STATUSES = new Set<MissionStatus>(['converged', 'abandoned']);
+const TERMINAL_STATUSES = new Set<MissionStatus>(['converged', 'abandoned', 'closed']);
 
 /** Display-only: tear the role label off the mission title for the card ribbon.
  *  This never decides a role — the mission-ness of `m` is settled by `m.mission`

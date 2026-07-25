@@ -148,7 +148,7 @@ function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'],
 /**
  * Decide the single action for one mission this tick. PURE.
  *  - inactive → none.
- *  - terminal (converged or abandoned) → none.
+ *  - terminal (converged, closed, or abandoned) → none.
  *  - building / over-budget → none (wait or address the budget).
  *  - blocked: nudge ONCE (blocked-silenced if already nudged).
  *  - needs-discovery / needs-verify: nudge (debounced by fingerprint + cooldown + escalation).
@@ -160,6 +160,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
   const { mission, rollup, ownerSession, idle, now, cooldownMs, escalationMs } = input;
   if (!mission.active) return { kind: 'none', reason: 'inactive' };
   if (mission.status === 'converged') return { kind: 'none', reason: 'converged' };
+  if (mission.status === 'closed') return { kind: 'none', reason: 'closed' };
   if (mission.status === 'abandoned') return { kind: 'none', reason: 'abandoned' };
   if (mission.status === 'over-budget') return { kind: 'none', reason: 'over-budget' };
   // Already inside a stall episode (the derived status flipped past the grace window). The
