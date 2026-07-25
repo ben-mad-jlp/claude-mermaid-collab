@@ -4,7 +4,8 @@
  * leaf — completing it if it isn't already done. Idempotent: a second pass over an
  * already-reconciled epic makes zero writes.
  */
-import { listTodos, stampEpicLandedAt, completeTodo, type Todo } from './todo-store.js';
+import { listTodos, completeTodo, type Todo } from './todo-store.js';
+import { stampEpicLandedAtGated } from './epic-landed-stamp-gate.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, effectiveNewCount, type BranchLister, type GitProbe } from './epic-branch-status.js';
@@ -79,7 +80,7 @@ export async function reconcileLandedEpics(
       skipped++;
       continue;
     }
-    stampEpicLandedAt(project, epic.id, epic.landedAt);
+    await stampEpicLandedAtGated(project, epic.id, epic.landedAt, { probe, baseRef });
     await completeTodo(project, branchStatus.landLeafId, 'accepted');
     reconciled.push(epic.id);
   }
