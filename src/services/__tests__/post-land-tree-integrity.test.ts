@@ -103,7 +103,7 @@ describe('post-land tree integrity — restorePostLandTree + deploy refusal', ()
     await runGit(repo, ['reset', '--soft', landSha]);    // HEAD -> land commit, tree stays stale
 
     // PRE-CONDITION assert: tree is stale (write-tree !== HEAD^{tree})
-    const staleStatus = treeStatus(repo);
+    const staleStatus = await treeStatus(repo);
     expect(staleStatus.resolved).toBe(true);
     expect(staleStatus.match).toBe(false);
     expect(staleStatus.headTree).not.toBe(staleStatus.workTree);
@@ -112,7 +112,7 @@ describe('post-land tree integrity — restorePostLandTree + deploy refusal', ()
     expect(existsSync(join(repo, 'epic-added.txt'))).toBe(false);
 
     // Now restore the tree.
-    const rep = restorePostLandTree(repo, landSha);
+    const rep = await restorePostLandTree(repo, landSha);
 
     // Assert snapshot ref was created under refs/snapshots/
     expect(rep.snapshotRef).toBeTruthy();
@@ -146,12 +146,12 @@ describe('post-land tree integrity — restorePostLandTree + deploy refusal', ()
     expect(addRes.code).toBe(0);
 
     // Assert pre-condition: tree is now stale.
-    const st = treeStatus(repo);
+    const st = await treeStatus(repo);
     expect(st.resolved).toBe(true);
     expect(st.match).toBe(false);
 
     // requestSelfDeploy should refuse with 'tree-does-not-match-head'.
-    const result = requestSelfDeploy(repo);
+    const result = await requestSelfDeploy(repo);
     expect(result.ok).toBe(false);
     expect(result.started).toBe(false);
     expect(result.reason).toBe('tree-does-not-match-head');

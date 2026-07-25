@@ -105,13 +105,13 @@ describe('land-main-checkout-isolation — guardPostLandTree + MainCheckoutInvar
     await runGit(repo, ['reset', '--soft', featureSha]);  // HEAD -> feature commit, tree stays stale
 
     // Verify preconditions.
-    const currentBranch = currentHeadBranch(repo);
+    const currentBranch = await currentHeadBranch(repo);
     expect(currentBranch).toBe('feature/my-work');
     const trackedDirtyRes = (await runGit(repo, ['diff', '--name-only', 'HEAD'])).stdout.split('\n').filter(Boolean);
     expect(trackedDirtyRes.length).toBeGreaterThan(0); // Has uncommitted changes between index and HEAD
 
     // Call guardPostLandTree with baseRef=master (which we're NOT on).
-    const guard = guardPostLandTree(repo, {
+    const guard = await guardPostLandTree(repo, {
       masterSha: landedMasterSha,
       baseRef: 'master',
       trackedDirty: trackedDirtyRes,
@@ -126,7 +126,7 @@ describe('land-main-checkout-isolation — guardPostLandTree + MainCheckoutInvar
     expect(guard.snapshotRef).toBeNull(); // No snapshot created
 
     // Verify the branch is still feature/my-work.
-    expect(currentHeadBranch(repo)).toBe('feature/my-work');
+    expect(await currentHeadBranch(repo)).toBe('feature/my-work');
   });
 
   it('guardPostLandTree: safe-restore when on-base-ref, no tracked dirty, real mismatch', async () => {
@@ -150,11 +150,11 @@ describe('land-main-checkout-isolation — guardPostLandTree + MainCheckoutInvar
     await runGit(repo, ['reset', '--soft', landedSha]);   // HEAD -> land commit, tree stays stale
 
     // Verify preconditions: on master, tree is mismatched (index stale vs HEAD).
-    const currentBranch = currentHeadBranch(repo);
+    const currentBranch = await currentHeadBranch(repo);
     expect(currentBranch).toBe('master');
 
     // Call guardPostLandTree.
-    const guard = guardPostLandTree(repo, {
+    const guard = await guardPostLandTree(repo, {
       masterSha: landedSha,
       baseRef: 'master',
       trackedDirty: [],

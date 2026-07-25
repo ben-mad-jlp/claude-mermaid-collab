@@ -39,14 +39,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'Test infrastructure: PATCHES cp.spawnSync/Bun.spawnSync inside the test runner ' +
       'to intercept hermeticity violations. Never loaded by the daemon.',
   },
-  'services/tree-integrity.ts': {
-    count: 2,
-    reason:
-      'Deliberately sync (see its header): shared by landEpic (async) AND ' +
-      'requestSelfDeploy\'s synchronous context. Each call is one-shot git plumbing ' +
-      '(rev-parse/write-tree/diff/symbolic-ref/checkout) on a local repo — worst case ' +
-      '~1-2s on this repo, far under 45s, and runs only around land/deploy events.',
-  },
   'services/leaf-executor.ts': {
     count: 2,
     reason:

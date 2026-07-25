@@ -96,7 +96,7 @@ describe('land-poisoned-index-clobber — regression test for deleted-file resur
     const landSha = res.masterSha!;
 
     // Assert: the self-heal left index==HEAD (tree is in sync after landing).
-    const statusAfterLand = treeStatus(repo);
+    const statusAfterLand = await treeStatus(repo);
     expect(statusAfterLand.match).toBe(true);
 
     // Assert: the deleted file is absent from the landed tree via git plumbing.
@@ -148,7 +148,7 @@ describe('land-poisoned-index-clobber — regression test for deleted-file resur
     expect(existsSync(join(repo, 'to-delete.txt'))).toBe(true);
 
     // Call divergentTrackedFiles and assert it names the divergence.
-    const divergence = divergentTrackedFiles(repo);
+    const divergence = await divergentTrackedFiles(repo);
     expect(divergence.resolved).toBe(true);
     expect(divergence.files).toContain('to-delete.txt');
   });
