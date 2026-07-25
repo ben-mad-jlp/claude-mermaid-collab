@@ -46,7 +46,8 @@ import { pathToFileURL } from 'node:url';
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
-/** Map grok tool names to claude tool names. */
+/** Map grok tool names to claude tool names. Grok tool names established from `strings`
+ * over the grok 0.2.93 binary (source-of-truth note for future readers). */
 const GROK_TOOL_ALIASES = {
   run_terminal_command: 'Bash',
   search_replace: 'Write',
@@ -54,10 +55,16 @@ const GROK_TOOL_ALIASES = {
   create_file: 'Write',
   edit_file: 'Write',
   edit_notebook: 'NotebookEdit',
+  str_replace: 'Write',
+  delete: 'Write',
+  apply_patch: 'Write',
+  edit: 'Write',
+  bash: 'Bash',
+  shell: 'Bash',
 };
 
 /** Ordered list of possible file path field names across grok and claude dialects. */
-const WRITE_TARGET_ALIASES = ['file_path', 'path', 'abs_path', 'target_file', 'notebook_path', 'target_notebook'];
+const WRITE_TARGET_ALIASES = ['file_path', 'path', 'abs_path', 'target_file', 'notebook_path', 'target_notebook', 'filePath', 'cmd'];
 
 /**
  * Canonicalise a path that may NOT YET EXIST (a Write target's file is created AFTER the

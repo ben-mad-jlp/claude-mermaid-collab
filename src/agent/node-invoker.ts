@@ -142,9 +142,10 @@ export function nodeSettingsFile(): string | null {
 
 /** Matcher constant for grok tools that access the filesystem/shell. Both claude
  *  (Bash, Write, Edit, MultiEdit, NotebookEdit) and grok aliases (run_terminal_command,
- *  search_replace, write, create_file, edit_file).
+ *  search_replace, write, create_file, edit_file, str_replace, delete, apply_patch, edit,
+ *  bash, shell).
  *  Exported for unit testing (the test builds a RegExp from the matcher). */
-export const GROK_CONFINE_MATCHER = 'Bash|Write|Edit|MultiEdit|NotebookEdit|run_terminal_command|search_replace|write|create_file|edit_file';
+export const GROK_CONFINE_MATCHER = 'Bash|Write|Edit|MultiEdit|NotebookEdit|run_terminal_command|search_replace|write|create_file|edit_file|str_replace|delete|apply_patch|edit|bash|shell';
 
 /** Generated grok hook config file (~/.grok/hooks/mermaid-worktree-confine.json) registering
  *  the worktree-confinement PreToolUse hook for both claude and grok write/shell tools.
