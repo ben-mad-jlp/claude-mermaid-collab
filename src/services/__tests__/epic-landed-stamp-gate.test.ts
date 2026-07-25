@@ -23,7 +23,7 @@ const supervisorDir = mkdtempSync(join(tmpdir(), 'sup-stamp-gate-'));
 process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { stampEpicLandedAtGated } from '../epic-landed-stamp-gate';
-import { createTodo, getTodo, _closeProject } from '../todo-store';
+import { createTodo, getTodo, completeTodo, updateTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb, listEscalations } from '../supervisor-store';
 import type { GitProbe, BranchProbe } from '../epic-branch-status';
 
@@ -267,5 +267,50 @@ describe('stampEpicLandedAtGated — gate for master reachability', () => {
     const escalations = listEscalations();
     const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
     expect(landFailedCards.length).toBe(0);
+  });
+
+  // ── ALL-LEAVES-DONE gate (partial-land churn, bugfix 4ff59283) ──────────────
+  it('newCount===0 but a non-dropped impl leaf is NOT done → NOT stamped, reason leaves-pending', async () => {
+    // The epic branch reaches master (newCount 0) but a sibling leaf never ran: PARTIAL land.
+    await createTodo(project, {
+      allowOrphan: true, title: '[LEAF] pending', ownerSession: 'test', kind: 'leaf', parentId: epicId,
+    });
+    const probe: GitProbe = async () => ({ exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 });
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', { probe, session: 'test' });
+
+    expect(result.reason).toBe('leaves-pending');
+    expect(result.stamped).toBe(false);
+    expect(getTodo(project, epicId)!.landedAt).toBeNull();
+    // Not a human-actionable failure — the epic simply is not done yet; no land-failed card.
+    const landFailed = listEscalations().filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
+    expect(landFailed.length).toBe(0);
+  });
+
+  it('once every impl leaf is done, newCount===0 stamps (partial-land guard clears)', async () => {
+    const leaf = await createTodo(project, {
+      allowOrphan: true, title: '[LEAF] done', ownerSession: 'test', kind: 'leaf', parentId: epicId,
+    });
+    await completeTodo(project, leaf.id, 'accepted');
+    const probe: GitProbe = async () => ({ exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 });
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', { probe, session: 'test' });
+
+    expect(result.reason).toBe('gated-clean');
+    expect(result.stamped).toBe(true);
+    expect(getTodo(project, epicId)!.landedAt).toBe('2026-07-24T10:00:00Z');
+  });
+
+  it('a DROPPED impl leaf does not block the stamp (only non-dropped leaves count)', async () => {
+    const leaf = await createTodo(project, {
+      allowOrphan: true, title: '[LEAF] dropped', ownerSession: 'test', kind: 'leaf', parentId: epicId,
+    });
+    await updateTodo(project, leaf.id, { status: 'dropped' });
+    const probe: GitProbe = async () => ({ exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 });
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', { probe, session: 'test' });
+
+    expect(result.reason).toBe('gated-clean');
+    expect(result.stamped).toBe(true);
   });
 });
