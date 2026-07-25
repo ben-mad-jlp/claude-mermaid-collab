@@ -6,7 +6,7 @@ import type { MissionStatus } from '@/stores/supervisorStore';
 // exhaustiveness list the test iterates, since TS unions have no runtime form.
 const ALL_STATUSES: MissionStatus[] = [
   'abandoned', 'over-budget', 'stalled', 'blocked', 'building',
-  'needs-verify', 'needs-discovery', 'unapproved', 'converged',
+  'needs-verify', 'needs-discovery', 'unapproved', 'converged', 'closed',
 ];
 
 describe('missionShared status vocabulary', () => {

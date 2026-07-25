@@ -35,6 +35,10 @@ describe('evidence-path-normalize', () => {
     });
     missionTodoId = m.id;
     upsertMission(projectId, missionTodoId);
+    // A second, permanently-unmet criterion — keeps the mission non-terminal (active,
+    // status !== 'converged') as each test below meets its OWN single criterion, so
+    // unverifyCriteriaForLandedPaths's terminal/inactive liveness filter doesn't skip it.
+    addCriterion(projectId, missionTodoId, 'second gap');
   });
 
   afterEach(() => {
@@ -63,9 +67,9 @@ describe('evidence-path-normalize', () => {
 
     // Verify paths are stored as repo-relative (no ./ prefix, no absolute path)
     let criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria).toHaveLength(1);
-    expect(criteria[0]?.evidencePaths).toEqual(['src/foo.ts', 'src/bar.ts']);
-    expect(criteria[0]?.met).toBe(true);
+    let target = criteria.find((x) => x.id === criterionId);
+    expect(target?.evidencePaths).toEqual(['src/foo.ts', 'src/bar.ts']);
+    expect(target?.met).toBe(true);
 
     // Land touches src/foo.ts — should match normalized path and clear the criterion
     const affected = unverifyCriteriaForLandedPaths(projectId, ['src/foo.ts'], {
@@ -77,8 +81,9 @@ describe('evidence-path-normalize', () => {
 
     // Criterion is now unverified
     criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.met).toBe(false);
-    expect(criteria[0]?.verifiedAt).toBeNull();
+    target = criteria.find((x) => x.id === criterionId);
+    expect(target?.met).toBe(false);
+    expect(target?.verifiedAt).toBeNull();
   });
 
   test('Test B: reopenCount increments and churn card fires once when threshold is crossed', async () => {
@@ -101,9 +106,10 @@ describe('evidence-path-normalize', () => {
     }
 
     // Check reopenCount reached 6
-    let criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.reopenCount).toBe(6);
-    expect(criteria[0]?.lastReopenSha).toBe('sha5');
+    const criteria = listCriteria(projectId, missionTodoId);
+    const target = criteria.find((x) => x.id === criterionId);
+    expect(target?.reopenCount).toBe(6);
+    expect(target?.lastReopenSha).toBe('sha5');
 
     // Verify exactly one mission-criterion-churn escalation is open for this project (deduped)
     const escalations = listOpenEscalations().filter(e => e.kind === 'mission-criterion-churn' && e.project === projectId);
@@ -132,7 +138,8 @@ describe('evidence-path-normalize', () => {
 
     // Check reopenCount is 2
     const criteria = listCriteria(projectId, missionTodoId);
-    expect(criteria[0]?.reopenCount).toBe(2);
+    const target = criteria.find((x) => x.id === criterionId);
+    expect(target?.reopenCount).toBe(2);
 
     // Verify NO mission-criterion-churn escalation is open for this project
     const escalations = listOpenEscalations().filter(e => e.kind === 'mission-criterion-churn' && e.project === projectId);

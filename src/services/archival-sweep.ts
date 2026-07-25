@@ -97,7 +97,7 @@ export async function runArchivalSweep(
   const staleMissionTodoIds = missions
     .filter(
       (m) =>
-        (m.mission.status === 'converged' || m.mission.status === 'abandoned') &&
+        (m.mission.status === 'converged' || m.mission.status === 'abandoned' || m.mission.status === 'closed') &&
         m.mission.updatedAt <= cutoff,
     )
     .map((m) => m.node.id);

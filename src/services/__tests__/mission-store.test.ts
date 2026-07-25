@@ -76,7 +76,7 @@ describe('mission-store: control state', () => {
     upsertMission(project, id);
     const m = getMission(project, id)!;
     expect(m.status).toBeDefined();
-    const validStatuses = ['needs-discovery', 'needs-verify', 'blocked', 'building', 'over-budget', 'stalled', 'abandoned', 'converged'];
+    const validStatuses = ['needs-discovery', 'needs-verify', 'blocked', 'building', 'over-budget', 'stalled', 'abandoned', 'converged', 'closed'];
     expect(validStatuses).toContain(m.status ?? '');
   });
 
@@ -1008,6 +1008,10 @@ describe('deriveCheapMissionStatus — list-badge status keys off CRITERIA, not 
   test('abandoned / unapproved take precedence over the criteria gauge', () => {
     expect(deriveCheapMissionStatus({ abandonedAt: 1, awaitingApprovalSince: null }, [], met(2))).toBe('abandoned');
     expect(deriveCheapMissionStatus({ abandonedAt: null, awaitingApprovalSince: 1 }, [], met(2))).toBe('unapproved');
+  });
+
+  test('closedAt takes precedence over everything else', () => {
+    expect(deriveCheapMissionStatus({ closedAt: 1, abandonedAt: null, awaitingApprovalSince: null }, [], met(2))).toBe('closed');
   });
 });
 
