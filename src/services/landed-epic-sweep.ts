@@ -7,7 +7,7 @@
 import { listTodos, stampEpicLandedAt, completeTodo, type Todo } from './todo-store.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
-import { buildEpicBranchStatus, makeGitProbe, epicBranchName, type BranchLister, type GitProbe } from './epic-branch-status.js';
+import { buildEpicBranchStatus, makeGitProbe, epicBranchName, effectiveNewCount, type BranchLister, type GitProbe } from './epic-branch-status.js';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
@@ -101,6 +101,9 @@ export interface BranchGcRunner {
   /** Commits on `branch` not on `baseRef` (git rev-list --count baseRef..branch). Returns -1 on
    *  error so the caller treats it as ahead>0 and never deletes speculatively (fail-closed). */
   aheadCount(branch: string, baseRef: string): Promise<number>;
+  /** Commits on `branch` with no patch-equivalent on baseRef (--cherry-pick --right-only).
+   *  Returns -1 on error (fail-closed, never deletes). Optional (older/injected runners may omit it). */
+  newCount?(branch: string, baseRef: string): Promise<number>;
   /** Remove the worktree holding `branch` (if any) so `git branch -D` can then delete it — a
    *  fully-on-master epic's post-land worktree is stale cruft. Uses `git worktree remove` WITHOUT
    *  --force, so a worktree with uncommitted changes (an active build) is preserved and its branch
@@ -158,6 +161,11 @@ export function makeBranchGcRunner(project: string): BranchGcRunner {
     },
     async aheadCount(branch: string, baseRef: string): Promise<number> {
       const r = await runGitLocal(project, ['rev-list', '--count', `${baseRef}..${branch}`]);
+      const n = Number(r.stdout.trim());
+      return r.code === 0 && Number.isFinite(n) ? n : -1; // -1 → fail-closed (treat as ahead, never delete)
+    },
+    async newCount(branch: string, baseRef: string): Promise<number> {
+      const r = await runGitLocal(project, ['rev-list', '--count', '--cherry-pick', '--right-only', `${baseRef}...${branch}`]);
       const n = Number(r.stdout.trim());
       return r.code === 0 && Number.isFinite(n) ? n : -1; // -1 → fail-closed (treat as ahead, never delete)
     },
@@ -229,7 +237,7 @@ export async function gcEpicBranches(
     // re-dispatch cap; observed 2026-07-22: c72e635c deleted twice mid-build,
     // 48a3cc6e with two leaves in flight, 234f0021 four times).
     if (e.status !== 'done' && e.status !== 'dropped') { skipped++; continue; }
-    if ((e.ahead ?? 0) > 0) { flagged.push(e.epicId); continue; }
+    if (effectiveNewCount(e) > 0) { flagged.push(e.epicId); continue; }
     const tip = await runner.revParse(e.branch);
     if (tip == null) { skipped++; continue; }
     await runner.pruneWorktreeFor?.(e.branch); // remove a stale post-land worktree so the delete can succeed
@@ -245,13 +253,13 @@ export async function gcEpicBranches(
   // report.epics (built from live todos), so the loop above structurally cannot reach them — this is
   // exactly the gap that left fully-on-master orphan branches accumulating. Enumerate ALL collab/epic
   // refs directly and GC the orphans by the SAME fail-closed rule: delete only when git proves the
-  // branch fully-on-master (ahead===0), flag ahead>0 (or a probe error, ahead<0) for review, and
-  // capture every deleted tip to the recovery log. `flagged` carries the branch name for orphans
-  // (they have no epic id).
+  // branch fully-on-master (newCount===0, fallback to ahead===0), flag newCount>0 (or error) for
+  // review, and capture every deleted tip to the recovery log. `flagged` carries the branch name for
+  // orphans (they have no epic id).
   for (const branch of await runner.listEpicBranches()) {
     if (handled.has(branch)) continue; // already processed via its live epic todo above
-    const ahead = await runner.aheadCount(branch, baseRef);
-    if (ahead !== 0) { flagged.push(branch); continue; } // ahead>0 or error(-1) → keep (fail-closed)
+    const n = runner.newCount ? await runner.newCount(branch, baseRef) : await runner.aheadCount(branch, baseRef);
+    if (n !== 0) { flagged.push(branch); continue; } // newCount>0 (or ahead>0, or error -1) → keep (fail-closed)
     const tip = await runner.revParse(branch);
     if (tip == null) { skipped++; continue; }
     await runner.pruneWorktreeFor?.(branch); // remove a stale post-land worktree so the delete can succeed

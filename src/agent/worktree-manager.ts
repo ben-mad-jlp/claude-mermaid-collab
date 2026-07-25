@@ -1187,7 +1187,7 @@ export class WorktreeManager {
     for (const branch of branches) {
       const res = await this.runGit(
         this.opts.projectRoot,
-        ['rev-list', '--count', `${trunk}..${branch}`],
+        ['rev-list', '--count', '--cherry-pick', '--right-only', `${trunk}...${branch}`],
         QUICK_TIMEOUT_MS,
       ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
       if (res.code !== 0) continue;
