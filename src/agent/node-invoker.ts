@@ -1289,11 +1289,18 @@ export function buildGrokArgv(spec: NodeSpec, promptFile: string): string[] {
     '--cwd', absCwd,
     '--no-plan', '--no-subagents', '--no-memory', '--disable-web-search',
   ];
-  // WORKTREE CONFINEMENT NOTE: grok reads ~/.grok/hooks/*.json as its hook config source.
-  // grokConfineHookFile() installs mermaid-worktree-confine.json there once per daemon
-  // process, pointing at the same hooks/worktree-confine.mjs the claude lane uses, with
-  // MERMAID_LEAF_WORKTREE supplied by worktreeSpawnEnv (line 56). No grok argv flag is
-  // involved — which is exactly why the lane cannot start-fail.
+  // WORKTREE CONFINEMENT NOTE: grokConfineHookFile() writes ~/.grok/hooks/mermaid-worktree-
+  // confine.json, registering hooks/worktree-confine.mjs as a PreToolUse hook under
+  // GROK_CONFINE_MATCHER. The hook aliases grok tool names (run_terminal_command, write,
+  // edit_file, bash, shell, etc.) onto the same out-of-worktree write deny and cd-escape deny
+  // that claude's Write/Edit/Bash hit. The boundary value MERMAID_LEAF_WORKTREE comes from
+  // worktreeSpawnEnv (line 56). No grok argv flag is involved — which is exactly why the lane
+  // cannot start-fail.
+  //   ~/.grok/hooks is the USER-GLOBAL grok config directory. The daemon writes there
+  //   deliberately because it is the only always-trusted, no-argv-flag hook source. The
+  //   installed hook is INERT for the user's own non-lane grok sessions: MERMAID_LEAF_WORKTREE
+  //   is unset in those sessions, and decide() returns allow when the worktree boundary is
+  //   unset.
   //   REJECTED --deny: deny beats allow and cannot express "everything except this subtree";
   //   the lane worktree is NESTED inside the main checkout, so any deny pattern broad enough
   //   to cover the main checkout also covers the worktree.
