@@ -21,6 +21,7 @@ import {
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
+import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
 import { getOrchestratorLevel } from './orchestrator-config.js';
@@ -175,6 +176,8 @@ export interface ConductorPassResult {
   infraResets?: number;
   /** INFRA-rejection human cards raised this pass (probe could not prove green). */
   infraCards?: number;
+  /** mission_recheck rows GC'd this pass. */
+  rechecksDrained?: number;
   missionId?: string;
   modelUsed?: string;
 }
@@ -261,6 +264,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const status = target.row.status!;
   const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
 
+  let rechecksDrained = 0;
+  try {
+    rechecksDrained = drainMissionRechecks(project, missionId).cleared.length;
+  } catch {
+    /* fail-open — a drain hiccup must never abort a conductor pass */
+  }
+
+  const done = (r: ConductorPassResult): ConductorPassResult => ({ ...r, rechecksDrained });
+
   // OVER-BUDGET FINAL ACT (mission a6ab522b). The authoritative derived status says this
   // mission's spend has crossed its ceiling. Everything below this line costs money — the
   // per-criterion facts scan, the INFRA arm's git probes, and above all the conductor NODE.
@@ -275,7 +287,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     const card = raiseOverBudgetRebetCard(project, missionId, session, target.summary.node.title ?? missionId, {
       createEscalation: deps.createEscalation,
     });
-    return { ran: false, reason: 'over-budget-rebet', missionId, escalationsRaised: card.isNew ? 1 : 0 };
+    return done({ ran: false, reason: 'over-budget-rebet', missionId, escalationsRaised: card.isNew ? 1 : 0 });
   }
 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
@@ -333,14 +345,14 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     // A leaf just went back to READY. Spend NOTHING on a conductor node and do NOT stamp the run:
     // the daemon rebuilds the un-parked leaf on its own tick, and the fingerprint moves for real
     // once that rebuild changes rejectedParkedCount.
-    return {
+    return done({
       ran: true,
       reason: 'infra-leaf-reset',
       missionId,
       escalationsRaised,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
-    };
+    });
   }
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
@@ -372,7 +384,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
   // a self-echo, not a wake-up.
-  if (lastKey === fp || selfKey === fp) return { ran: false, reason: 'debounced', missionId };
+  if (lastKey === fp || selfKey === fp) return done({ ran: false, reason: 'debounced', missionId });
   // A prior FAILED pass encodes `${serveFp}|fail:N`. A node FAILURE (or empty serve) used to stamp
   // the plain fp and permanently wedge the mission; it now retries up to CONDUCTOR_SERVE_RETRY_CAP
   // times across ticks, then stops respinning an expensive node on an unservable serve-state
@@ -382,7 +394,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // CONDUCTOR_SERVE_RETRY_CAP per distinct card set.
   const failPrefix = `${serveFp}|fail:`;
   const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
-  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return { ran: false, reason: 'debounced', missionId };
+  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId });
 
   // No servable gap and no land card to drive: nothing for the node to do. A capped
   // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
@@ -390,13 +402,13 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
   // building-wait (daemon working) no-op.
   if (!hasGap && landCardIds.length === 0) {
-    if (escalated.length > 0) return { ran: false, reason: 'criteria-escalated', missionId, escalationsRaised };
+    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised });
     // 'building' normally means "the daemon is on it — leave it". An open mission-scoped hard card
     // (e.g. a just-carded INFRA leaf) is the exception: reaching this line already proves the
     // signature differs from both stored keys, and step 4 of the conductor prompt makes the node the
     // authority for exactly that stuck work. Wakes at most once per distinct card set — the
     // productive pass stamps the self key over it.
-    if (status === 'building' && hardCardIds.length === 0) return { ran: false, reason: 'building-wait', missionId };
+    if (status === 'building' && hardCardIds.length === 0) return done({ ran: false, reason: 'building-wait', missionId });
   }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
@@ -507,5 +519,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
-  return { ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, infraResets: arm.reset.length, infraCards: arm.cardsRaised };
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 }
