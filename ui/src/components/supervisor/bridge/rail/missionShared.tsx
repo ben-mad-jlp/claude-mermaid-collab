@@ -45,6 +45,7 @@ export const STATUS_STYLE: Record<MissionStatus, string> = {
   'over-budget':    'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
   stalled:          'bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300',
   abandoned:        'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  closed:           'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
 };
 
 export const STATUS_LABEL: Record<MissionStatus, string> = {
@@ -57,6 +58,7 @@ export const STATUS_LABEL: Record<MissionStatus, string> = {
   'over-budget':    'Over budget',
   stalled:          'Stalled',
   abandoned:        'Abandoned',
+  closed:           'Closed',
 };
 
 export function statusTooltip(status: MissionStatus): string {
@@ -70,6 +72,7 @@ export function statusTooltip(status: MissionStatus): string {
     'over-budget': 'The mission has exceeded its iteration budget.',
     stalled: 'Work has STOPPED and no actor is scheduled to restart it — a card names the reason and what you can do.',
     abandoned: 'The mission has been abandoned.',
+    closed: 'Converged and frozen — this mission stopped for good.',
   };
   return tooltips[status] ?? status;
 }
