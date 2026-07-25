@@ -23,7 +23,6 @@
 import { join, isAbsolute } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import type { Todo } from './todo-store';
 import { splitLeafInto, getTodo } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -54,7 +53,7 @@ import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
+import { validateReviewGrounding, checkConstraintCitations, extractCitations } from './review-citations';
 import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind } from './diff-contract';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
@@ -646,13 +645,13 @@ export interface LeafExecutorDeps {
     testFiles: string[];
     baseSha?: string | null;
   }) => Promise<boolean | null>;
-  /** L4 CITABILITY gate: check if a line exists at the base SHA via `git show`. Synchronous
-   *  because criteria-citability.ts:126 calls it in a plain .some() never awaited. Memoized
-   *  per-run via a Map living in the makeLeafExecutorDeps closure, so it never leaks across
-   *  leaves and needs no invalidation. Mirrors makeCitationExists pattern (leaf-executor.ts:69-84)
-   *  but resolves at baseSha via git show instead of reading the worktree at HEAD. Unwired ⇒
+  /** L4 CITABILITY gate: check if a line exists at the base SHA. May be sync or async; the
+   *  executor prewarms every extracted citation into a resolved Map and passes a sync reader
+   *  to the validator (criteria-citability.ts:142 calls it in a plain .some() never awaited).
+   *  Default async impl uses `git show` bounded at 10_000 ms via Bun.spawn; promises are
+   *  memoised per-path in the per-run closure, so one path costs one spawn. Unwired ⇒
    *  undefined ⇒ returns false ⇒ base-existence acquittal never fires. */
-  citationLineExistsAtBase?: (input: { cwd: string; baseSha?: string | null; path: string; line: number }) => boolean;
+  citationLineExistsAtBase?: (input: { cwd: string; baseSha?: string | null; path: string; line: number }) => boolean | Promise<boolean>;
   /** G2 once-per-epic base gate. Resolves the CACHED verdict for this epic, computing it on
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
@@ -3330,8 +3329,29 @@ export async function runLeaf(
       ? [...new Set([...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)])]
       : [];
     const criteriaTestOnly = declaredForCriteria.length > 0 && declaredForCriteria.every(isTestFilePath);
+
+    // Prewarm base citations: extract all citations from the blueprint and resolve them
+    // into the cache before the validator runs, so the sync predicate always hits prewarmed keys.
+    const resolvedBaseCitations = new Map<string, boolean>();
+    const prewarmBaseCitations = async (body: string) => {
+      try {
+        const citations = extractCitations(body);
+        for (const { path, line } of citations) {
+          const key = `${path}:${line}`;
+          if (!resolvedBaseCitations.has(key)) {
+            const result = await deps.citationLineExistsAtBase?.({ cwd, baseSha: deps.epicBaseSha, path, line }) ?? false;
+            resolvedBaseCitations.set(key, result);
+          }
+        }
+      } catch {
+        // Fail-closed: if prewarm throws, unprewarmed keys resolve to false in the closure
+      }
+    };
+
     const citationExistsAtBase = (p: string, l: number) =>
-      deps.citationLineExistsAtBase?.({ cwd, baseSha: deps.epicBaseSha, path: p, line: l }) ?? false;
+      resolvedBaseCitations.get(`${p}:${l}`) ?? false;
+
+    await prewarmBaseCitations(blueprintBody);
     let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria, { testOnly: criteriaTestOnly, citationExistsAtBase });
     if (!smallTier) {
       try {
@@ -3382,6 +3402,7 @@ export async function runLeaf(
             ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
             : [];
           const redeclaredTestOnly = redeclaredForCriteria.length > 0 && redeclaredForCriteria.every(isTestFilePath);
+          await prewarmBaseCitations(reBody);
           citability = validateCriteriaCitability(reBody, redeclaredForCriteria, { testOnly: redeclaredTestOnly, citationExistsAtBase });
           try {
             await deps.recordGateEval?.(project, {
@@ -4329,9 +4350,10 @@ export async function makeLeafExecutorDeps(
   // abstention is a property of the LEAF, not of the pass. Latch it so the ledger carries one
   // 'gate-abstain' row per leaf run — matching warnGateAbstention's own once-per-epic dedupe.
   let recordedGateAbstain = false;
-  // L4 CITABILITY gate: memoize base line counts (path → line count, -1 = missing/unreadable).
+  // L4 CITABILITY gate: memoize base line count PROMISES (path → Promise<line count>).
   // Lives in the per-run closure so it never leaks across leaves and needs no invalidation.
-  const baseLineCounts = new Map<string, number>();
+  // Promises are stored synchronously with .set() before any await to dedup concurrent citations.
+  const baseLineCounts = new Map<string, Promise<number>>();
   // Lazy per-epic base memo for the per-file `tests` lanes: runs the SAME commands a red
   // lane just ran, but at the epic base, so `runLeafGate` can diff pre-existing-red out of
   // this leaf's verdict. Memoized in epic_base_lane per (epicId, baseSha, laneKey) — only
@@ -4568,18 +4590,35 @@ export async function makeLeafExecutorDeps(
         }
       }
     },
-    citationLineExistsAtBase: ({ cwd, baseSha, path, line }) => {
+    citationLineExistsAtBase: async ({ cwd, baseSha, path, line }) => {
       if (!baseSha) return false;
-      let n = baseLineCounts.get(path);
-      if (n === undefined) {
-        try {
-          const r = spawnSync('git', ['show', `${baseSha}:${path}`], { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-          n = r.status === 0 ? (r.stdout ?? '').split('\n').length : -1;
-        } catch {
-          n = -1;
-        }
-        baseLineCounts.set(path, n);
+      let p = baseLineCounts.get(path);
+      if (p === undefined) {
+        const compute = async (): Promise<number> => {
+          try {
+            const proc = Bun.spawn(['git', 'show', `${baseSha}:${path}`], {
+              cwd,
+              stdout: 'pipe',
+              stderr: 'pipe',
+            });
+            const killTimer = setTimeout(() => { try { proc.kill(); } catch { /* gone */ } }, 10_000);
+            try {
+              const [exitCode, stdout] = await Promise.all([
+                proc.exited,
+                new Response(proc.stdout).text(),
+              ]);
+              return exitCode === 0 ? stdout.split('\n').length : -1;
+            } finally {
+              clearTimeout(killTimer);
+            }
+          } catch {
+            return -1;
+          }
+        };
+        p = compute();
+        baseLineCounts.set(path, p);
       }
+      const n = await p;
       return n >= 0 && line >= 1 && line <= n;
     },
     // G2 mechanical gate at leaf HEAD. Scoped to this leaf's own change-set (against the
