@@ -7,7 +7,7 @@
  * A gap between them (epic merges but commit somehow not reachable) marks a landing failure.
  */
 
-import { stampEpicLandedAt } from './todo-store';
+import { stampEpicLandedAt, listTodos } from './todo-store';
 import {
   makeGitProbe,
   epicBranchName,
@@ -19,7 +19,7 @@ import {
 import { createEscalation, recordSupervisorAudit } from './supervisor-store';
 import { coordinatorCondition } from './coordinator-condition-keys';
 
-export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error';
+export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error' | 'leaves-pending';
 
 /**
  * Gate the `stampEpicLandedAt` call on master-reachability.
@@ -42,13 +42,44 @@ export async function stampEpicLandedAtGated(
   project: string,
   epicId: string,
   whenIso: string,
-  opts?: { probe?: GitProbe; baseRef?: string; session?: string; known?: BranchProbe },
+  opts?: { probe?: GitProbe; baseRef?: string; session?: string; known?: BranchProbe; listTodos?: typeof listTodos },
 ): Promise<{ stamped: boolean; reason: GateReason; newCount?: number }> {
   try {
     const probe = opts?.probe ?? makeGitProbe(project);
     const baseRef = opts?.baseRef ?? 'master';
     const session = opts?.session ?? 'coordinator';
     const branch = epicBranchName(epicId);
+
+    // ALL-LEAVES-DONE gate (partial-land churn, bugfix 4ff59283): an epic whose branch
+    // reaches master but whose sibling implementation leaves have not all run is only
+    // PARTIALLY built. Stamping landedAt now makes the serving criterion read 'landed'
+    // and verify a PARTIAL land, then re-serve and churn to the serve cap (3 incidents
+    // 2026-07-25: ninth-drain crit3, self-recovery crit2/crit3). Require every non-dropped
+    // kind='leaf' child done (status 'done' && not rejected) before ANY stamp path. Land
+    // leaves (kind='land') are deliberately excluded — they complete AS PART of landing,
+    // so requiring them would be circular. An epic with zero impl leaves is vacuously done.
+    const listTodosFn = opts?.listTodos ?? listTodos;
+    const implLeaves = listTodosFn(project, { includeCompleted: true }).filter(
+      (t) => t.parentId === epicId && t.kind === 'leaf' && t.status !== 'dropped',
+    );
+    const pendingLeaves = implLeaves.filter(
+      (t) => !(t.status === 'done' && t.acceptanceStatus !== 'rejected'),
+    );
+    if (pendingLeaves.length > 0) {
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session,
+        detail: JSON.stringify({
+          epicId,
+          branch,
+          landGate: 'leaves-pending',
+          pendingLeaves: pendingLeaves.length,
+          totalLeaves: implLeaves.length,
+        }),
+      });
+      return { stamped: false, reason: 'leaves-pending' };
+    }
 
     // Probe the branch status against the base — reuse a pre-fetched BranchProbe
     // when supplied (opts.known), so the gate makes zero git calls.
