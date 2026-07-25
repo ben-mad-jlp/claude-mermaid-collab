@@ -8,7 +8,7 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
+import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
@@ -20,6 +20,7 @@ import { createTodo, updateTodo } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
+import { recordApproachAttempt } from '../criterion-approach-store';
 
 let project: string;
 let invokeCalls: number;
@@ -57,13 +58,27 @@ async function forgeApprovedActive() {
 }
 
 /** Forge an approved+active mission whose single criterion has burned CRITERION_SERVE_CAP
- *  serving epics (all dropped → no live serving epic) so it derives action 'escalate'. */
-async function forgeCappedMission(title = 'MEASURED-live: p95 latency < 100ms in prod') {
+ *  serving epics (all dropped → no live serving epic) so it derives action 'escalate'.
+ *  By default, records a 're-decompose' rung so existing tests keep carding unchanged. */
+async function forgeCappedMission(title = 'MEASURED-live: p95 latency < 100ms in prod', opts?: { suppressRung?: boolean }) {
   const forged = await forgeMission(project, { session: 's1', title, criteria: ['p95 latency measured under 100ms on the live deploy'] });
   const crit = listCriteria(project, forged.missionId)[0];
   for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
     const e = await createTodo(project, { ownerSession: 's1', title: `[EPIC] serve ${i}`, kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
     await updateTodo(project, e.id, { status: 'dropped' });
+  }
+  // Record a 're-decompose' rung by default unless suppressed
+  if (!opts?.suppressRung) {
+    recordApproachAttempt({
+      criterionId: crit.id,
+      missionId: forged.missionId,
+      project,
+      rung: 're-decompose',
+      epicId: null,
+      outcome: 'attempted',
+      detail: null,
+      attemptedAt: Date.now(),
+    });
   }
   return { forged, crit };
 }
@@ -684,6 +699,116 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(allMatching.length).toBe(1);
     expect(allMatching[0].status).toBe('acknowledged');
   });
+
+  test('serve-cap with unexhausted ladder — defers and raises no card', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission(undefined, { suppressRung: true });
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(0); // no card raised
+    expect(r.serveCapDeferred).toBe(1); // deferred instead
+    expect(escCalls.length).toBe(0); // no escalation created
+    expect(invokeCalls).toBe(0);
+  });
+
+  test('serve-cap with exhausted ladder — emits diagnosis with reasons, rung outcomes, and RECOMMEND', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1);
+    expect(escCalls.length).toBe(1);
+    const qt = escCalls[0].questionText;
+    expect(qt).toContain('re-decompose');
+    expect(qt).toContain('attempted');
+    expect(qt).toContain('RECOMMEND');
+  });
+
+  test('serve-cap at count+1 with empty ladder — raises card with backstop message', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission(undefined, { suppressRung: true });
+    // Create one more epic to push count beyond cap
+    const e = await createTodo(project, { ownerSession: 's1', title: '[EPIC] extra', kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
+    await updateTodo(project, e.id, { status: 'dropped' });
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1);
+    expect(escCalls.length).toBe(1);
+    const qt = escCalls[0].questionText;
+    expect(qt).toContain('fresh-blueprint');
+    expect(qt).toContain('tier-bump');
+    expect(qt).toContain('ladder incomplete');
+  });
+
+  test('serve-cap with store fault on listApproachAttempts — treats as exhausted and raises card', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission(undefined, { suppressRung: true });
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const throwingListApproachAttempts = () => {
+      throw new Error('store fault');
+    };
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+      listApproachAttempts: throwingListApproachAttempts as any,
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1); // card raised despite fault
+    expect(escCalls.length).toBe(1);
+  });
 });
 
 describe('runConductorPass — mission-scoped card ids in the signature', () => {
@@ -977,5 +1102,128 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     expect(prompt).toContain('REOPENED — needs re-verify');
     expect(prompt).toContain(crit.id);
     expect(prompt).toContain('land-diff-intersects-evidence');
+  });
+});
+
+describe('buildServeCapDiagnosis (pure)', () => {
+  test('emits REASONS SEEN, LADDER, and RECOMMEND blocks', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test criterion',
+      servedEpicCount: 3,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose', epicId: 'e1', outcome: 'attempted', detail: null, attemptedAt: 1 },
+      ],
+      distinctReasons: ['reason one', 'reason two'],
+    });
+    expect(diagnosis).toContain('REASONS SEEN');
+    expect(diagnosis).toContain('LADDER');
+    expect(diagnosis).toContain('RECOMMEND');
+    expect(diagnosis).toContain('fresh-blueprint');
+    expect(diagnosis).toContain('tier-bump');
+    expect(diagnosis).toContain('re-decompose');
+  });
+
+  test('limits reasons to first 5 and each to 200 chars', () => {
+    const longReason = 'a'.repeat(250);
+    const reasons = Array.from({ length: 7 }, (_, i) => `reason ${i}`);
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: [longReason, ...reasons],
+    });
+    // Check that we don't see all 7 reasons (only first 5)
+    expect(diagnosis).toContain('reason 0');
+    expect(diagnosis).not.toContain('reason 5');
+    // Check truncation of long reason
+    expect(diagnosis).toContain('a'.repeat(200));
+    expect(diagnosis).not.toContain('a'.repeat(250));
+  });
+
+  test('shows rung outcomes with details when present', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: 'some context', attemptedAt: 1 },
+      ],
+      distinctReasons: [],
+    });
+    expect(diagnosis).toContain('fresh-blueprint — attempted, some context');
+  });
+
+  test('shows epicId when detail is null', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'tier-bump', epicId: 'epic-123', outcome: 'attempted', detail: null, attemptedAt: 1 },
+      ],
+      distinctReasons: [],
+    });
+    expect(diagnosis).toContain('tier-bump — attempted, epic epic-123');
+  });
+
+  test('RECOMMEND: single reason, all rungs present', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+        { id: '2', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'tier-bump', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 2 },
+        { id: '3', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 3 },
+      ],
+      distinctReasons: ['only one reason'],
+    });
+    expect(diagnosis).toContain('RECOMMEND: the criterion likely needs a human action / rescope: only one reason');
+  });
+
+  test('RECOMMEND: all rungs, multiple reasons', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+        { id: '2', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'tier-bump', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 2 },
+        { id: '3', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 3 },
+      ],
+      distinctReasons: ['reason one', 'reason two'],
+    });
+    expect(diagnosis).toContain('RECOMMEND: all ladder rungs ran and the criterion is still unmet — human rescope');
+  });
+
+  test('RECOMMEND: missing rungs', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: [],
+    });
+    expect(diagnosis).toContain('RECOMMEND: ladder incomplete — fresh-blueprint, tier-bump, re-decompose never ran');
+  });
+
+  test('shows (none recorded) when no reasons', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: [],
+    });
+    expect(diagnosis).toContain('(none recorded)');
+  });
+
+  test('picks newest attempt when multiple for same rung', () => {
+    const now = Date.now();
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose', epicId: 'e1', outcome: 'failed', detail: 'first attempt', attemptedAt: now - 1000 },
+        { id: '2', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose', epicId: 'e2', outcome: 'attempted', detail: 'second attempt', attemptedAt: now },
+      ],
+      distinctReasons: [],
+    });
+    expect(diagnosis).toContain('re-decompose — attempted, second attempt');
+    expect(diagnosis).not.toContain('re-decompose — failed');
   });
 });
