@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, bumpRetryCountIfOwned, decrementRetryCountIfOwned } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, clearEpicLandedAt, bumpRetryCountIfOwned, decrementRetryCountIfOwned } from './todo-store';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { findBlockedSplits, type BlockedSplit } from './claimability';
@@ -29,7 +29,7 @@ import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
 import { findOwningMission } from './land-authority';
-import { getMission, isMissionTerminal } from './mission-store';
+import { getMission, isMissionTerminal, setCriterionMet, enqueueRecheck } from './mission-store';
 // Landing subsystem (extracted to coordinator-land.ts). surfaceEpicLand is the one
 // moved function this file still calls directly (makeCoordinatorDeps' completeTodo
 // continuation); the rest are re-exported below for back-compat only.
@@ -45,7 +45,7 @@ import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executo
 import { leafAbortReason } from './leaf-abort';
 import { listOpenSplitProposals } from './split-proposal';
 import { getLeafRun } from './ledger-stats';
-import { getEpicBranchStatus, type EpicBranchStatusReport } from './epic-branch-status.ts';
+import { getEpicBranchStatus, type EpicBranchStatusReport, effectiveNewCount } from './epic-branch-status.ts';
 import {
   breakerOpen,
   tripBreaker,
@@ -1195,17 +1195,80 @@ export async function sweepCorruptEpics(
   const report = opts?.report ?? (await getEpicBranchStatus(project));
   const reopened: string[] = [];
   for (const e of report.epics) {
-    if (!e.corrupt) continue;          // git-derived: landLeafDone===true && ahead>0
-    if (!e.landLeafId) continue;       // nothing to reopen
+    // Handle corrupt (land done + ahead > 0) OR hollow (false stamp + new commits exist)
+    const liveEpic = getTodo(project, e.epicId);
+    const isHollow = liveEpic?.hollowLandedAt != null && effectiveNewCount(e) > 0;
+    if (!e.corrupt && !isHollow) continue;
+
     try {
-      await resetTodo(project, e.landLeafId, 'ready'); // revert the false stamp
-      reopened.push(e.landLeafId);
-      recordSupervisorAudit({
-        kind: 'reconcile',
-        project,
-        session: 'coordinator',
-        detail: JSON.stringify({ landLeaf: 'reopened-corrupt', epicId: e.epicId, landLeafId: e.landLeafId, ahead: e.ahead }),
-      });
+      // Step 1: clear the false timestamp
+      const cleared = clearEpicLandedAt(project, e.epicId);
+
+      // Step 2: reset the land leaf if it exists and is done
+      let landLeafWasDone = false;
+      if (e.landLeafId) {
+        const landLeaf = getTodo(project, e.landLeafId);
+        if (landLeaf?.status === 'done') {
+          await resetTodo(project, e.landLeafId, 'ready');
+          reopened.push(e.landLeafId);
+          landLeafWasDone = true;
+        }
+      }
+
+      // Step 3: re-open criteria only when we actually cleared a stamp or undid a land leaf
+      const shouldReopenCriteria = cleared || landLeafWasDone;
+      const reopenedCriterionIds: string[] = [];
+      if (shouldReopenCriteria) {
+        // Collect the union of servesCriterionIds over the epic's accepted descendants
+        const allTodos = listTodos(project, { includeCompleted: true });
+        const descendants: (typeof allTodos)[number][] = [];
+        const collectDescendants = (parentId: string) => {
+          for (const t of allTodos) {
+            if (t.parentId === parentId) {
+              descendants.push(t);
+              collectDescendants(t.id);
+            }
+          }
+        };
+        collectDescendants(e.epicId);
+
+        const criterionIdSet = new Set<string>();
+        for (const desc of descendants) {
+          if (desc.acceptanceStatus === 'accepted' && desc.servesCriterionIds && desc.servesCriterionIds.length > 0) {
+            desc.servesCriterionIds.forEach((id) => criterionIdSet.add(id));
+          }
+        }
+
+        // Re-open each criterion
+        for (const criterionId of Array.from(criterionIdSet).sort()) {
+          try {
+            setCriterionMet(project, criterionId, false);
+            enqueueRecheck(project, {
+              criterionId,
+              todoId: e.epicId,
+              reason: 'corrupt-land',
+            });
+            reopenedCriterionIds.push(criterionId);
+          } catch { /* one bad criterion never aborts the heal */ }
+        }
+      }
+
+      // Step 4: extend audit with heal details only when we actually did something
+      if (cleared || landLeafWasDone) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: 'coordinator',
+          detail: JSON.stringify({
+            landLeaf: 'reopened-corrupt',
+            epicId: e.epicId,
+            landLeafId: e.landLeafId,
+            ahead: e.ahead,
+            clearedLandedAt: cleared,
+            reopenedCriterionIds,
+          }),
+        });
+      }
     } catch { /* one bad epic never aborts the sweep */ }
   }
   return reopened;

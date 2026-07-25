@@ -1416,6 +1416,18 @@ export function stampEpicLandedAt(project: string, epicId: string, whenIso: stri
   }
 }
 
+/** Clear a falsely-stamped epic's landedAt and hollowLandedAt (self-heal corrupt land).
+ *  Idempotent: the WHERE clause guards on landedAt IS NOT NULL OR hollowLandedAt IS NOT NULL,
+ *  so a second call on an already-cleared epic returns 0 changes and false. Returns true iff a
+ *  row was updated. Does NOT fire a conductor kick (the caller records audit). */
+export function clearEpicLandedAt(project: string, epicId: string): boolean {
+  const db = openDb(project);
+  const res = db.prepare(
+    `UPDATE todos SET landedAt = NULL, hollowLandedAt = NULL, updatedAt = ? WHERE id = ? AND kind = 'epic' AND (landedAt IS NOT NULL OR hollowLandedAt IS NOT NULL)`
+  ).run(nowIso(), epicId);
+  return res.changes > 0;
+}
+
 /** Idempotent stamp of approvedAt/approvedBy on a mission-kind todo row — used by the
  *  mission-node approval backfill to reconcile diverged approval state between the
  *  mission.db and todos.db. Sets approvedAt = updatedAt (when the row was last touched)
