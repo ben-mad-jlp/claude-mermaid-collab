@@ -36,17 +36,18 @@ async function seedConvergedEpic() {
   for (const c of listCriteria(project, mission.id)) setCriterionMet(project, c.id, true);
 
   const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] land me', parentId: mission.id, kind: 'epic', status: 'planned' });
+  // Create the land leaf BEFORE completing the epic (terminal-parent-approve constraint).
+  const land = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] land me → master', parentId: epic.id, kind: 'land', status: 'todo' });
   await completeTodo(project, epic.id, 'accepted');
   // Simulate the prior land-commit stamp (normally set by the [LAND] leaf's own completion).
   stampEpicLandedAt(project, epic.id, new Date(0).toISOString());
-  const land = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] land me → master', parentId: epic.id, kind: 'land', status: 'ready' });
   const epicWithLandedAt = getTodo(project, epic.id)!;
   return { mission, epic: epicWithLandedAt, land };
 }
 
 function probeFor(epicId: string): GitProbe {
   const branch = epicBranchName(epicId);
-  return async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+  return async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
 }
 
 describe('reconcileLandedEpics', () => {
@@ -88,7 +89,7 @@ describe('gcEpicBranches', () => {
     await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
 
-    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'abc123',
@@ -116,7 +117,7 @@ describe('gcEpicBranches', () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] building', kind: 'epic', status: 'planned' });
     const branch = epicBranchName(epic.id);
 
-    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'live99',
@@ -138,7 +139,7 @@ describe('gcEpicBranches', () => {
     stampEpicLandedAt(project, epic.id, new Date().toISOString());
     const branch = epicBranchName(epic.id);
 
-    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'opt42',
@@ -158,7 +159,7 @@ describe('gcEpicBranches', () => {
     await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
 
-    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 1, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 1, behind: 0, mergeable: true, newCount: 1 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'def456',
@@ -178,7 +179,7 @@ describe('gcEpicBranches', () => {
     // No epic todo exists for these refs → absent from report.epics; only reachable via listEpicBranches.
     const orphanClean = 'collab/epic/deadbeef';
     const orphanAhead = 'collab/epic/feed0000';
-    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'cafe123',
@@ -201,7 +202,7 @@ describe('gcEpicBranches', () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] once', kind: 'epic', status: 'planned' });
     await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
-    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const deleteCalls: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'aaa111',
@@ -220,7 +221,7 @@ describe('gcEpicBranches', () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] worktree-held', kind: 'epic', status: 'planned' });
     await completeTodo(project, epic.id, 'accepted');
     const branch = epicBranchName(epic.id);
-    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
     const order: string[] = [];
     const runner: BranchGcRunner = {
       revParse: async () => 'wt111',
@@ -234,6 +235,88 @@ describe('gcEpicBranches', () => {
 
     expect(result.deleted).toContain(branch);
     expect(order).toEqual(['prune:' + branch, 'delete:' + branch]); // worktree pruned, THEN branch deleted
+  });
+
+  test('ahead>0 but newCount===0 (post-squash): branch IS deleted (new logic supersedes raw ahead)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] squashed-clean', kind: 'epic', status: 'planned' });
+    await completeTodo(project, epic.id, 'accepted');
+    const branch = epicBranchName(epic.id);
+
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 5, behind: 0, mergeable: true, newCount: 0 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: async () => 'sq000',
+      deleteBranch: async (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: async () => [],
+      aheadCount: async () => 5,
+      newCount: async () => 0,
+    };
+
+    const result = await gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toContain(branch); // deleted because newCount===0 (not flagged like old ahead>0 would have)
+    expect(result.flagged).not.toContain(epic.id);
+    expect(deleteCalls).toContain(branch);
+  });
+
+  test('newCount>0 branch is flagged even if ahead===0 (new patches exist)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] new-patches', kind: 'epic', status: 'planned' });
+    await completeTodo(project, epic.id, 'accepted');
+    const branch = epicBranchName(epic.id);
+
+    const probe: GitProbe = async (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 2 } : { exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: async (b) => { throw new Error('must not delete'); },
+      deleteBranch: async (b) => { deleteCalls.push(b); throw new Error('must not delete'); },
+      listEpicBranches: async () => [],
+      aheadCount: async () => 0,
+      newCount: async () => 2,
+    };
+
+    const result = await gcEpicBranches(project, { probe, runner });
+
+    expect(result.flagged).toContain(epic.id); // flagged because newCount>0 (new patches exist)
+    expect(result.deleted).not.toContain(branch); // not deleted
+    expect(deleteCalls).toEqual([]); // delete never called
+  });
+
+  test('orphan branch with newCount>0 (or error -1) is flagged, not deleted', async () => {
+    const orphanWithNewPatches = 'collab/epic/orphan01';
+    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: async () => 'orphan1',
+      deleteBranch: async (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: async () => [orphanWithNewPatches],
+      aheadCount: async () => 0,
+      newCount: async () => 1, // new patches exist
+    };
+
+    const result = await gcEpicBranches(project, { probe, runner });
+
+    expect(result.flagged).toContain(orphanWithNewPatches); // flagged because newCount>0
+    expect(result.deleted).not.toContain(orphanWithNewPatches); // not deleted
+    expect(deleteCalls).toEqual([]);
+  });
+
+  test('orphan branch with newCount===0 (fully-on-master by cherry-pick): deleted', async () => {
+    const orphanClean = 'collab/epic/orphan02';
+    const probe: GitProbe = async () => ({ exists: false, ahead: null, behind: null, mergeable: null, newCount: null });
+    const deleteCalls: string[] = [];
+    const runner: BranchGcRunner = {
+      revParse: async () => 'orphan2',
+      deleteBranch: async (b) => { deleteCalls.push(b); return true; },
+      listEpicBranches: async () => [orphanClean],
+      aheadCount: async () => 10, // raw ahead is nonzero...
+      newCount: async () => 0, // ...but no new patches (post-squash)
+    };
+
+    const result = await gcEpicBranches(project, { probe, runner });
+
+    expect(result.deleted).toContain(orphanClean); // deleted because newCount===0
+    expect(result.flagged).not.toContain(orphanClean);
+    expect(deleteCalls).toEqual([orphanClean]);
   });
 });
 
@@ -253,7 +336,7 @@ describe('crit-5 prefilter plumbing (listBranches)', () => {
     const probed: string[] = [];
     const probe: GitProbe = async (b) => {
       probed.push(b);
-      return { exists: true, ahead: 2, behind: 0, mergeable: true }; // ahead>0 → flagged, never deleted
+      return { exists: true, ahead: 2, behind: 0, mergeable: true, newCount: 2 }; // ahead>0/newCount>0 → flagged, never deleted
     };
     const runner: BranchGcRunner = {
       revParse: async () => 'sha1',
@@ -285,7 +368,7 @@ describe('crit-5 prefilter plumbing (listBranches)', () => {
     const probed: string[] = [];
     const probe: GitProbe = async (b) => {
       probed.push(b);
-      return { exists: true, ahead: 0, behind: 0, mergeable: true };
+      return { exists: true, ahead: 0, behind: 0, mergeable: true, newCount: 0 };
     };
 
     const result = await reconcileLandedEpics(project, { probe, listBranches: async () => [branch] });
