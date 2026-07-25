@@ -526,9 +526,24 @@ export async function surfaceBuildGreenNonMissionEpics(project: string): Promise
  *  next reconcile tick retries. Best-effort; the caller already wraps in try/catch. */
 export async function stampLandLeafOnMerge(
   project: string, epicId: string, landLeafId: string | undefined, landed: boolean,
+  opts?: { stampGate?: typeof stampEpicLandedAtGated },
 ): Promise<boolean> {
   if (!landed) return false;
-  await stampEpicLandedAtGated(project, epicId, new Date().toISOString());
+  const gate = await (opts?.stampGate ?? stampEpicLandedAtGated)(project, epicId, new Date().toISOString());
+  if (gate.stamped !== true) {
+    recordSupervisorAudit({
+      kind: 'reconcile',
+      project,
+      session: 'coordinator',
+      detail: JSON.stringify({
+        epicId,
+        landLeafId: landLeafId ?? null,
+        landLeafStamp: 'gate-refused',
+        reason: gate.reason,
+      }),
+    });
+    return false;
+  }
   if (!landLeafId) return true;
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
   return true;
@@ -549,6 +564,7 @@ export async function convergeObservedMerge(
   epicId: string,
   landLeafId: string | undefined,
   probeAhead: () => Promise<number>,
+  opts?: { stampGate?: typeof stampEpicLandedAtGated },
 ): Promise<{ stamped: boolean; reason: string; ahead?: number }> {
   if (!landLeafId) return { stamped: false, reason: 'no-land-leaf' };
   const leaf = getTodo(project, landLeafId);
@@ -562,9 +578,9 @@ export async function convergeObservedMerge(
     return { stamped: false, reason: ahead > 0 ? 'epic-ahead' : 'ahead-unknown', ahead };
   }
   // Gate the stamp on master-reachability: the authoritative guard is the gate's newCount decision.
-  const gateResult = await stampEpicLandedAtGated(project, epicId, new Date().toISOString());
-  if (gateResult.reason === 'ahead-of-master' && !gateResult.stamped) {
-    return { stamped: false, reason: 'ahead-of-master', ahead: gateResult.newCount };
+  const gateResult = await (opts?.stampGate ?? stampEpicLandedAtGated)(project, epicId, new Date().toISOString());
+  if (gateResult.stamped !== true) {
+    return { stamped: false, reason: gateResult.reason, ahead: gateResult.newCount };
   }
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
   recordSupervisorAudit({
