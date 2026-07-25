@@ -57,26 +57,36 @@ export function estimateTokens(s: string): number {
 }
 
 /** Run git in `cwd`, returning { code, stdout }. Never throws; never hangs (timeout). */
-function runGit(
+async function runGit(
   cwd: string,
   args: string[],
-): { code: number; stdout: string } {
+): Promise<{ code: number; stdout: string }> {
   try {
-    const p = Bun.spawnSync(['git', ...args], {
+    const p = Bun.spawn(['git', ...args], {
       cwd,
       stdout: 'pipe',
       stderr: 'ignore',
-      timeout: 15_000,
     });
-    return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
+    const killTimer = setTimeout(() => {
+      try {
+        p.kill();
+      } catch {}
+    }, 15_000);
+    try {
+      const out = await new Response(p.stdout).text();
+      await p.exited;
+      return { code: p.exitCode ?? 1, stdout: out };
+    } finally {
+      clearTimeout(killTimer);
+    }
   } catch {
     return { code: 1, stdout: '' };
   }
 }
 
 /** Sorted, deduped top-level dirs from `git ls-files` merged with HOT_DIRS. */
-export function topLevelDirs(project: string): string[] {
-  const result = runGit(project, ['ls-files']);
+export async function topLevelDirs(project: string): Promise<string[]> {
+  const result = await runGit(project, ['ls-files']);
   const dirs = new Set<string>();
   if (result.code === 0 && result.stdout) {
     for (const filePath of result.stdout.split('\n')) {
@@ -102,8 +112,8 @@ function readClaudeMd(project: string): string {
  * Path-inclusive skeleton hash: sha256 over the sorted dir path list AND
  * the CLAUDE.md content. A renamed/added dir OR a CLAUDE.md edit changes it.
  */
-export function computeSkeletonHash(project: string): string {
-  const dirs = topLevelDirs(project);
+export async function computeSkeletonHash(project: string): Promise<string> {
+  const dirs = await topLevelDirs(project);
   const claudeMd = readClaudeMd(project);
   return createHash('sha256')
     .update(JSON.stringify(dirs))
@@ -138,14 +148,14 @@ function readMeta(project: string): DigestMeta | null {
 }
 
 /** Section: Where things live. Derives top-level dirs from git ls-files. */
-function whereThingsLive(
+async function whereThingsLive(
   project: string,
   synthesis?: DigestSynthesis,
-): string {
+): Promise<string> {
   const lines: string[] = [];
   lines.push('## Where things live');
 
-  const dirs = topLevelDirs(project);
+  const dirs = await topLevelDirs(project);
 
   for (const dir of dirs) {
     const purpose = synthesis?.dirPurposes[dir] ?? '';
@@ -259,7 +269,7 @@ export function assembleDigest(body: string): ProjectDigest {
  * Generate project digest from git + filesystem facts (no I/O write).
  * Returns { markdown, tokens } with markdown ≤ 5000 tokens.
  */
-export function generateProjectDigest(project: string): ProjectDigest {
+export async function generateProjectDigest(project: string): Promise<ProjectDigest> {
   return generateProjectDigestWith(project, undefined);
 }
 
@@ -267,12 +277,12 @@ export function generateProjectDigest(project: string): ProjectDigest {
  * Generate project digest with optional synthesis (dirPurposes + seams).
  * Returns { markdown, tokens } with markdown ≤ 5000 tokens.
  */
-export function generateProjectDigestWith(
+export async function generateProjectDigestWith(
   project: string,
   synthesis?: DigestSynthesis,
-): ProjectDigest {
+): Promise<ProjectDigest> {
   const body = [
-    whereThingsLive(project, synthesis),
+    await whereThingsLive(project, synthesis),
     keySeams(project, synthesis),
     artifacts(project),
     deeperDocs(project),
@@ -290,7 +300,7 @@ export async function regenerateProjectDigest(
   project: string,
   opts?: { llm?: DigestLlm },
 ): Promise<ProjectDigest> {
-  const currentHash = computeSkeletonHash(project);
+  const currentHash = await computeSkeletonHash(project);
   const prior = readMeta(project);
 
   let synthesis: DigestSynthesis | undefined;
@@ -300,13 +310,13 @@ export async function regenerateProjectDigest(
     synthesis = boundSynthesis(
       await opts.llm({
         claudeMd: readClaudeMd(project),
-        dirs: topLevelDirs(project),
+        dirs: await topLevelDirs(project),
         sample: '', // bounded sample (empty for now)
       }),
     ); // EXACTLY ONE bounded call
   }
 
-  const digest = generateProjectDigestWith(project, synthesis);
+  const digest = await generateProjectDigestWith(project, synthesis);
 
   const dir = join(project, '.collab');
   mkdirSync(dir, { recursive: true });
@@ -314,7 +324,7 @@ export async function regenerateProjectDigest(
   const meta: DigestMeta = {
     tokens: digest.tokens,
     generatedAt: new Date().toISOString(),
-    generatedAtSha: runGit(project, ['rev-parse', 'HEAD']).stdout.trim(),
+    generatedAtSha: (await runGit(project, ['rev-parse', 'HEAD'])).stdout.trim(),
     skeletonHash: currentHash,
     synthesis,
   };
@@ -329,8 +339,8 @@ export async function regenerateProjectDigest(
  * Write project digest to .collab/project-digest.md + sidecar .meta.json.
  * Returns { markdown, tokens }.
  */
-export function writeProjectDigest(project: string): ProjectDigest {
-  const digest = generateProjectDigest(project);
+export async function writeProjectDigest(project: string): Promise<ProjectDigest> {
+  const digest = await generateProjectDigest(project);
 
   const dir = join(project, '.collab');
   mkdirSync(dir, { recursive: true });
@@ -338,7 +348,7 @@ export function writeProjectDigest(project: string): ProjectDigest {
   writeFileSync(join(dir, 'project-digest.md'), digest.markdown);
 
   // Sidecar metadata.
-  const generatedAtSha = runGit(project, ['rev-parse', 'HEAD']).stdout.trim();
+  const generatedAtSha = (await runGit(project, ['rev-parse', 'HEAD'])).stdout.trim();
   const skeletonHash = createHash('sha256')
     .update(digest.markdown)
     .digest('hex');

@@ -409,8 +409,8 @@ describe('payload A — active-mission digest resolution', () => {
     expect(out).toContain('mission orientation');
   });
 
-  test('no mission ⇒ falls back to the project-global digest, no readDigest override', () => {
-    writeProjectDigest(project);
+  test('no mission ⇒ falls back to the project-global digest, no readDigest override', async () => {
+    await writeProjectDigest(project);
     const out = composeInjectedContext({
       kind: 'blueprint',
       project,
