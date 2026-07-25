@@ -120,6 +120,21 @@ export interface MissionCriterion {
   lastReopenSha: string | null;
 }
 
+export interface CriterionVerdictHistoryEntry {
+  id: string;
+  criterionId: string;
+  todoId: string;
+  met: boolean;
+  evidence: string | null;
+  verifiedBy: string | null;
+  verifiedAt: number | null;
+  verifiedAtSha: string | null;
+  evidencePaths: string[];
+  clearedAt: number;
+  clearReason: string | null;
+  reopenSha: string | null;
+}
+
 export interface MissionRecheck {
   criterionId: string;
   todoId: string;
@@ -192,6 +207,21 @@ CREATE TABLE IF NOT EXISTS mission_recheck (
   landedSha TEXT,
   enqueuedAt INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mission_criterion_verdict_history (
+  id TEXT PRIMARY KEY,
+  criterionId TEXT NOT NULL,
+  todoId TEXT NOT NULL,
+  met INTEGER NOT NULL,
+  evidence TEXT,
+  verifiedBy TEXT,
+  verifiedAt INTEGER,
+  verifiedAtSha TEXT,
+  evidencePaths TEXT,
+  clearedAt INTEGER NOT NULL,
+  clearReason TEXT,
+  reopenSha TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcvh_criterion ON mission_criterion_verdict_history(criterionId);
 `;
 
 const dbCache = new Map<string, Database>();
@@ -936,31 +966,93 @@ export function removeCriterion(project: string, criterionId: string): void {
 
 /** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
  *  must re-judge it (met=false, verifiedAt/evidence/verifiedBy/verifiedAtSha → null).
- *  evidencePaths is PRESERVED so a subsequent land can still match it before re-verify. */
+ *  evidencePaths is PRESERVED so a subsequent land can still match it before re-verify.
+ *  If the criterion had provenance (verifiedAt/evidence/verifiedBy not all null), preserves
+ *  the prior verdict in mission_criterion_verdict_history for audit. */
 export function clearCriterionVerdict(
   project: string,
   criterionId: string,
-  opts: { countReopen?: boolean; reopenSha?: string | null } = {},
+  opts: { countReopen?: boolean; reopenSha?: string | null; reason?: string } = {},
 ): number {
-  const setClause: string[] = ['met = 0', 'evidence = NULL', 'verifiedBy = NULL', 'verifiedAt = NULL', 'verifiedAtSha = NULL', 'updatedAt = ?'];
-  const params: (string | number | null)[] = [nowMs()];
+  const db = openDb(project);
+  const nowTs = nowMs();
 
-  if (opts.countReopen) {
-    setClause.push('reopenCount = reopenCount + 1');
-    setClause.push('lastReopenSha = ?');
-    params.push(opts.reopenSha ?? null);
-  }
+  // SELECT prior verdict columns before UPDATE to preserve in history if needed.
+  const priorRow = db
+    .query('SELECT id, todoId, met, evidence, verifiedBy, verifiedAt, verifiedAtSha, evidencePaths FROM mission_criterion WHERE id = ?')
+    .get(criterionId) as Record<string, unknown> | null;
 
-  params.push(criterionId);
+  if (!priorRow) throw new Error(`criterion not found: ${criterionId}`);
 
-  const query = `UPDATE mission_criterion SET ${setClause.join(', ')} WHERE id = ?`;
-  const res = openDb(project).prepare(query).run(...params);
-  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+  // Only insert history row if verdict has provenance (at least one of verifiedAt/evidence/verifiedBy is set).
+  const hasProvenance = priorRow.verifiedAt != null || priorRow.evidence != null || priorRow.verifiedBy != null;
 
-  const row = openDb(project)
+  db.transaction(() => {
+    if (hasProvenance) {
+      const historyId = crypto.randomUUID();
+      const priorMet = priorRow.met as number;
+      const priorEvidence = (priorRow.evidence as string | null) ?? null;
+      const priorVerifiedBy = (priorRow.verifiedBy as string | null) ?? null;
+      const priorVerifiedAt = (priorRow.verifiedAt as number | null) ?? null;
+      const priorVerifiedAtSha = (priorRow.verifiedAtSha as string | null) ?? null;
+      const priorEvidencePaths = (priorRow.evidencePaths as string | null) ?? null;
+      db.prepare(
+        'INSERT INTO mission_criterion_verdict_history (id, criterionId, todoId, met, evidence, verifiedBy, verifiedAt, verifiedAtSha, evidencePaths, clearedAt, clearReason, reopenSha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(
+        historyId,
+        priorRow.id as string,
+        priorRow.todoId as string,
+        priorMet,
+        priorEvidence,
+        priorVerifiedBy,
+        priorVerifiedAt,
+        priorVerifiedAtSha,
+        priorEvidencePaths,
+        nowTs,
+        opts.reason ?? null,
+        opts.reopenSha ?? null,
+      );
+    }
+
+    const setClause: string[] = ['met = 0', 'evidence = NULL', 'verifiedBy = NULL', 'verifiedAt = NULL', 'verifiedAtSha = NULL', 'updatedAt = ?'];
+    const params: (string | number | null)[] = [nowTs];
+
+    if (opts.countReopen) {
+      setClause.push('reopenCount = reopenCount + 1');
+      setClause.push('lastReopenSha = ?');
+      params.push(opts.reopenSha ?? null);
+    }
+
+    params.push(criterionId);
+
+    const query = `UPDATE mission_criterion SET ${setClause.join(', ')} WHERE id = ?`;
+    db.prepare(query).run(...params);
+  })();
+
+  const row = db
     .query('SELECT reopenCount FROM mission_criterion WHERE id = ?')
     .get(criterionId) as Record<string, unknown> | null;
   return (row?.reopenCount as number) ?? 0;
+}
+
+export function listCriterionVerdictHistory(project: string, criterionId: string): CriterionVerdictHistoryEntry[] {
+  const rows = openDb(project)
+    .query('SELECT * FROM mission_criterion_verdict_history WHERE criterionId = ? ORDER BY clearedAt DESC, rowid DESC')
+    .all(criterionId) as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r.id as string,
+    criterionId: r.criterionId as string,
+    todoId: r.todoId as string,
+    met: (r.met as number) === 1,
+    evidence: (r.evidence as string | null) ?? null,
+    verifiedBy: (r.verifiedBy as string | null) ?? null,
+    verifiedAt: (r.verifiedAt as number | null) ?? null,
+    verifiedAtSha: (r.verifiedAtSha as string | null) ?? null,
+    evidencePaths: r.evidencePaths ? (JSON.parse(r.evidencePaths as string) as string[]) : [],
+    clearedAt: r.clearedAt as number,
+    clearReason: (r.clearReason as string | null) ?? null,
+    reopenSha: (r.reopenSha as string | null) ?? null,
+  }));
 }
 
 export function enqueueRecheck(project: string, r: { criterionId: string; todoId: string; reason: string; landedSha?: string | null }): void {
@@ -1025,7 +1117,7 @@ export function unverifyCriteriaForLandedPaths(
       if (!c.evidencePaths.some((p) => landed.has(p))) continue;
       const session = m.ownerSession ?? m.assigneeSession ?? 'mission-loop';
       const reopenCount = clearCriterionVerdict(project, c.id, {
-        countReopen: true, reopenSha: opts.landedSha ?? null,
+        countReopen: true, reopenSha: opts.landedSha ?? null, reason: 'land-diff-intersects-evidence',
       });
       enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
       affected.push({ criterionId: c.id, todoId: c.todoId });
