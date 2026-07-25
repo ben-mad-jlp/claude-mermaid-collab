@@ -12,7 +12,9 @@ import {
   formatWakeAge,
   WAKE_CARD_RENDER_CAP,
   WAKE_CARD_EXCERPT_CHARS,
+  WAKE_CRITERION_RENDER_CAP,
   type WakeCard,
+  type WakeRecheck,
 } from '../conductor-wake-context';
 
 const NOW = 1_800_000_000_000;
@@ -167,6 +169,69 @@ describe('buildWakeContextBlock — why you were woken', () => {
     });
     expect(block).toContain('no previous conductor pass recorded');
     expect(block).toContain('NEW card esc-1');
+  });
+});
+
+describe('buildWakeContextBlock — reopened rechecks section', () => {
+  function recheck(over: Partial<WakeRecheck> & { criterionId: string }): WakeRecheck {
+    return {
+      reason: 'land-diff-intersects-evidence',
+      landedSha: 'deadbeef',
+      enqueuedAt: NOW - 5 * 60 * 1000,
+      ...over,
+    };
+  }
+
+  test('non-empty rechecks ⇒ output contains criterion id, reason, literal "REOPENED — needs re-verify", and age', () => {
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      rechecks: [recheck({ criterionId: 'c1-full-id', reason: 'land-diff-intersects-evidence' })],
+    });
+    expect(block).toContain('REOPENED — needs re-verify');
+    expect(block).toContain('c1-full-id');
+    expect(block).toContain('land-diff-intersects-evidence');
+    expect(block).toContain(formatWakeAge(NOW - (NOW - 5 * 60 * 1000)));
+  });
+
+  test('rechecks: [] and field omitted ⇒ block does not contain "REOPENED"', () => {
+    const empty = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      rechecks: [],
+    });
+    expect(empty).not.toContain('REOPENED');
+
+    const omitted = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+    });
+    expect(omitted).not.toContain('REOPENED');
+  });
+
+  test('over the render cap ⇒ truncation notice names the omitted count and last row is absent', () => {
+    const many = Array.from({ length: WAKE_CRITERION_RENDER_CAP + 3 }, (_, i) =>
+      recheck({ criterionId: `c${i}`, enqueuedAt: NOW - (100 - i) * 60 * 1000 }),
+    );
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      rechecks: many,
+    });
+    expect(block).toContain(`… 3 more`);
+    expect(block).toContain(`cap ${WAKE_CRITERION_RENDER_CAP}`);
+    // First cap items rendered
+    expect(block).toContain(`c0`);
+    // Last overflow item is not rendered
+    expect(block).not.toContain(`c${WAKE_CRITERION_RENDER_CAP + 2}`);
   });
 });
 

@@ -10,7 +10,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal } from '../mission-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
 import { REBET_KIND, rebetConditionKey } from '../rebet-briefing';
 import { forgeMission } from '../../mcp/tools/mission-forge';
@@ -957,5 +957,25 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     expect(r.reason).toBe('conducted');
     expect(prompt).toContain('WAKE CONTEXT');
     expect(prompt).not.toContain('RESOLVED since your last pass');
+  });
+
+  test('pending rechecks from the drain are included in the wake block when non-empty', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    const crit = listCriteria(project, forged.missionId)[0];
+    enqueueRecheck(project, {
+      criterionId: crit.id,
+      todoId: forged.missionId,
+      reason: 'land-diff-intersects-evidence',
+      landedSha: 'deadbeef',
+    });
+    let prompt = '';
+    await runConductorPass(project, {
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    expect(prompt).toContain('REOPENED — needs re-verify');
+    expect(prompt).toContain(crit.id);
+    expect(prompt).toContain('land-diff-intersects-evidence');
   });
 });
