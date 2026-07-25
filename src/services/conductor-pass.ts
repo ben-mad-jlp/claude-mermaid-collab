@@ -22,6 +22,7 @@ import {
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
+import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -164,19 +165,23 @@ export interface ConductorPassDeps {
   buildWakeBlock?: (input: WakeContextInput) => string;
   /** Injectable INFRA stuck-work arm (test spy). Defaults to runInfraRejectionArm. */
   infraArm?: typeof runInfraRejectionArm;
+  /** Injectable re-decompose churn-breaking arm (test spy). Defaults to runRedecomposeArm. */
+  redecomposeArm?: typeof runRedecomposeArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
 }
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'over-budget-rebet' | 'pass-ran' | 'pass-error';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** INFRA-rejected leaves un-parked this pass (their base re-probed green). */
   infraResets?: number;
   /** INFRA-rejection human cards raised this pass (probe could not prove green). */
   infraCards?: number;
+  /** Criteria re-decomposed this pass (dropped churning epics and re-planned with tighter hints). */
+  redecomposed?: number;
   /** mission_recheck rows GC'd this pass. */
   rechecksDrained?: number;
   missionId?: string;
@@ -358,6 +363,13 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       infraCards: arm.cardsRaised,
     });
   }
+
+  let redecomposed: string[] = [];
+  try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
+  catch { redecomposed = [] }
+  if (redecomposed.length > 0)
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, redecomposed: redecomposed.length,
+                  infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
   // ONE post-arm escalation snapshot, taken AFTER runInfraRejectionArm so the arm's own
