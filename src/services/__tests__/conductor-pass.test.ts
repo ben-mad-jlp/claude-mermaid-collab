@@ -83,6 +83,56 @@ async function forgeCappedMission(title = 'MEASURED-live: p95 latency < 100ms in
   return { forged, crit };
 }
 
+/** Forge an approved+active mission with TWO criteria: criterion A (capped, escalate) + criterion B (live epic, building).
+ *  Criterion A burns CRITERION_SERVE_CAP serving epics (all dropped) and records a 're-decompose' rung.
+ *  Criterion B has a serving epic with a ready child leaf, deriving action 'building'.
+ *  Asserts via listCriteriaWithActions that the two actions are exactly 'escalate' and 'building'. */
+async function forgeCappedPlusHoldingMission(title = 'Capped + Building mission') {
+  const forged = await forgeMission(project, {
+    session: 's1',
+    title,
+    criteria: ['criterion A: measure perf', 'criterion B: feature live'],
+  });
+  const criteria = listCriteria(project, forged.missionId);
+  const critA = criteria[0];
+  const critB = criteria[1];
+
+  // Criterion A: burn the cap
+  for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+    const e = await createTodo(project, { ownerSession: 's1', title: `[EPIC] serve A ${i}`, kind: 'epic', parentId: forged.missionId, servesCriterionIds: [critA.id] });
+    await updateTodo(project, e.id, { status: 'dropped' });
+  }
+  recordApproachAttempt({
+    criterionId: critA.id,
+    missionId: forged.missionId,
+    project,
+    rung: 're-decompose',
+    epicId: null,
+    outcome: 'attempted',
+    detail: null,
+    attemptedAt: Date.now(),
+  });
+
+  // Criterion B: create serving epic with ready leaf so deriveCriterionAction returns 'building'
+  const epicB = await createTodo(project, {
+    ownerSession: 's1',
+    title: '[EPIC] serving epic for B',
+    kind: 'epic',
+    parentId: forged.missionId,
+    servesCriterionIds: [critB.id],
+  });
+  await updateTodo(project, epicB.id, { status: 'ready' });
+  await createTodo(project, { ownerSession: 's1', title: 'holding leaf', parentId: epicB.id, status: 'ready' });
+
+  // Pin the fixture's premise: both derived actions as expected
+  const actions = listCriteriaWithActions(project, forged.missionId);
+  const actionMap = new Map(actions.map((a) => [a.id, a.action]));
+  expect(actionMap.get(critA.id)).toBe('escalate');
+  expect(actionMap.get(critB.id)).toBe('building');
+
+  return { forged, critA, critB };
+}
+
 describe('runConductorPass — scheduling', () => {
   test('disabled toggle ⇒ no-op, no node spawned', async () => {
     await forgeApprovedActive();
@@ -906,6 +956,93 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     expect(p).toContain('actor:');
     expect(p).toContain('"conductor"');
     expect(p).toContain('escalation_list');
+  });
+});
+
+describe('runConductorPass — recovery arms run BEFORE the escalate return (mission 362ef9b8 self-wedge lock)', () => {
+  test("(a) 'an escalate-blocked mission still auto-redispatches another criterion's base-red leaf'", async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA, critB } = await forgeCappedPlusHoldingMission();
+
+    const infraArmSpy = (async () => ({ candidates: [], reset: ['leaf-1'], cardsRaised: 0, skipped: [] })) as any;
+    const redecomposeArmSpy = (async () => ({ redecomposed: [] })) as any;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: infraArmSpy,
+      redecomposeArm: redecomposeArmSpy,
+      epicBaseProbe: async () => 'fail',
+      createEscalation: (() => ({})) as any,
+      listOpenEscalations: () => [],
+    });
+
+    expect(r.reason).toBe('infra-leaf-reset');
+    expect(r.infraResets).toBeGreaterThan(0);
+    expect(invokeCalls).toBe(0); // node NOT spawned when infra arm resets
+  });
+
+  test("(b) 'an escalate-blocked mission still re-decomposes a churning epic'", async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA, critB } = await forgeCappedPlusHoldingMission();
+
+    let infraCalled = false;
+    let redecomposeCalled = false;
+    const infraArmSpy = (async () => {
+      infraCalled = true;
+      return { candidates: [], reset: [], cardsRaised: 0, skipped: [] };
+    }) as any;
+    const redecomposeArmSpy = (async () => {
+      redecomposeCalled = true;
+      return { redecomposed: ['epic-1'] };
+    }) as any;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: infraArmSpy,
+      redecomposeArm: redecomposeArmSpy,
+      epicBaseProbe: async () => 'fail',
+      createEscalation: (() => ({})) as any,
+      listOpenEscalations: () => [],
+    });
+
+    expect(infraCalled).toBe(true);
+    expect(redecomposeCalled).toBe(true);
+    expect(r.reason).toBe('redecomposed');
+    expect(r.redecomposed).toBeGreaterThan(0);
+    expect(invokeCalls).toBe(0); // node NOT spawned when redecompose arm acts
+  });
+
+  test("(c) 'both arms find nothing ⇒ the pass falls through to criteria-escalated — and both arms were still CALLED'", async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA, critB } = await forgeCappedPlusHoldingMission();
+
+    let infraCalled = false;
+    let redecomposeCalled = false;
+    const infraArmSpy = (async () => {
+      infraCalled = true;
+      return { candidates: [], reset: [], cardsRaised: 0, skipped: [] };
+    }) as any;
+    const redecomposeArmSpy = (async () => {
+      redecomposeCalled = true;
+      return { redecomposed: [] };
+    }) as any;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: infraArmSpy,
+      redecomposeArm: redecomposeArmSpy,
+      epicBaseProbe: async () => 'fail',
+      createEscalation: (() => ({})) as any,
+      listOpenEscalations: () => [],
+    });
+
+    expect(infraCalled).toBe(true);
+    expect(redecomposeCalled).toBe(true);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(invokeCalls).toBe(0); // node NOT spawned because critB is building (not discover/verify)
   });
 });
 
