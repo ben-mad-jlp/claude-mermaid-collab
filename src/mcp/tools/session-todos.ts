@@ -410,6 +410,9 @@ export async function addSessionTodo(
      *  epic/mission/land callers MUST say so. */
     kind?: TodoKind;
     tier?: LeafTier;
+    /** EPIC-only base-repair exemption: when 1, skips the epic-base-red hold for this
+     *  epic's leaves. Set ONLY for an epic whose purpose is greening a red base lane. */
+    baseRepair?: number;
     approvedBy?: string | null;
   },
 ): Promise<Todo> {
