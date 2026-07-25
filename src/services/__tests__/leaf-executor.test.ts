@@ -454,6 +454,42 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
     expect(planResume({ merged: false, phase: 'review', epicBaseSha: 'old' }, SHA, false, null, true, true))
       .toEqual({ mode: 'rebase-continue', reason: 'epic-base-moved-rebase' });
   });
+  // Poisoned blueprint tests: hard walls block reattach-blueprint
+  it('blueprint-reusable + hard prior wall (review-fail) → downgrade to fresh', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, { repeatedWall: false, lastReasonClass: 'review-fail' }))
+      .toEqual({ mode: 'fresh', reason: 'poisoned-blueprint-same-wall' });
+  });
+  it('blueprint-reusable + repeated hard walls → downgrade to fresh', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, { repeatedWall: true, lastReasonClass: 'review-fail' }))
+      .toEqual({ mode: 'fresh', reason: 'poisoned-blueprint-same-wall' });
+  });
+  it('blueprint-reusable-no-resume-row + hard prior wall (gate-rejected) → downgrade to fresh', () => {
+    expect(planResume(null, SHA, true, SHA, false, false, { repeatedWall: false, lastReasonClass: 'gate-rejected' }))
+      .toEqual({ mode: 'fresh', reason: 'poisoned-blueprint-same-wall' });
+  });
+  it('epic-base-moved-spec-unchanged + hard prior wall (suspect-gate) → downgrade to fresh', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA, false, null, false, true, { repeatedWall: false, lastReasonClass: 'suspect-gate' }))
+      .toEqual({ mode: 'fresh', reason: 'poisoned-blueprint-same-wall' });
+  });
+  it('reattach-blueprint + transient wall (rate-limited) → still reattach (no downgrade)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, { repeatedWall: false, lastReasonClass: 'rate-limited' }))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
+  it('reattach-blueprint + transient walls (paused, infra, epic-base-moved) → still reattach (no downgrade)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, { repeatedWall: false, lastReasonClass: 'paused' }))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, { repeatedWall: false, lastReasonClass: 'infra' }))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, { repeatedWall: false, lastReasonClass: 'epic-base-moved' }))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
+  it('reattach-blueprint + null priorWall → still reattach (default arg back-compat)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false, null))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+    // Also test the implicit default (no 7th arg)
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA, false, null, false, false))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
 });
 
 describe('parseVerdict (fail-closed)', () => {
@@ -2969,6 +3005,44 @@ describe('runLeaf resume consumption (slice 2)', () => {
     expect(res.outcome).toBe('accepted');
     // NOT called on reattach (synthetic result).
     expect(baseSnapshots).toEqual([]);
+  });
+
+  // Poisoned blueprint: hard-wall retries must re-author the blueprint, not replay it
+  it('fresh mode with poisoned-blueprint-same-wall reason: runs blueprint node (no restoreBlueprint)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'fresh', reason: 'poisoned-blueprint-same-wall' };
+    let restoreBlueprintCalls = 0;
+    deps.restoreBlueprint = () => {
+      restoreBlueprintCalls++;
+      return 'ATTEMPT_1_PLAN'; // attempt-1's rejected plan
+    };
+    const writes: Array<{ rel: string; content: string }> = [];
+    deps.writeArtifact = async (_cwd, rel, content) => { writes.push({ rel, content }); };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // restoreBlueprint NOT called (fresh mode = no synthetic restore).
+    expect(restoreBlueprintCalls).toBe(0);
+    // A blueprint node DID run (fresh path always runs blueprint).
+    const ranBlueprint = spies.invokeSpecs.some((s) => isBlueprintSpec(s));
+    expect(ranBlueprint).toBe(true);
+    // The plan written to the worktree is NOT the poisoned attempt-1 text.
+    const wroteAttempt1Plan = writes.some((w) => w.content === 'ATTEMPT_1_PLAN');
+    expect(wroteAttempt1Plan).toBe(false);
+  });
+
+  it('reattach-blueprint + transient wall (rate-limited): still reattaches (no blueprint node)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => 'ATTEMPT_1_PLAN'; // transient wall: reattach is safe
+    const writes: Array<{ rel: string; content: string }> = [];
+    deps.writeArtifact = async (_cwd, rel, content) => { writes.push({ rel, content }); };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // No blueprint node was invoked — the plan was reattached.
+    const ranBlueprint = spies.invokeSpecs.some((s) => isBlueprintSpec(s));
+    expect(ranBlueprint).toBe(false);
+    // The reattached plan was written.
+    expect(writes.some((w) => w.content === 'ATTEMPT_1_PLAN')).toBe(true);
   });
 });
 

@@ -63,7 +63,7 @@ import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
 import { loadManifestSource, type ManifestSource, type ProjectManifest } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope, trackedDirtyPaths, stageAndCommitScoped } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
-import { sameReviewWall } from './leaf-wall-history';
+import { sameReviewWall, isHardWall, type WallReasonClass, getLeafWallHistory } from './leaf-wall-history';
 
 /** Friction 6150b497 default salvage-commit: stage + commit the given dirty/untracked
  *  paths in the leaf worktree via the SAME scoped-commit helper the worker merge path
@@ -1953,6 +1953,9 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
  *                                     plan in a FRESH worktree, re-run implement→
  *                                     review; saves the ~4.5min blueprint without
  *                                     reusing any partial implementation)
+ * - same-wall retry (hard wall + repeated)→ fresh (poisoned-blueprint-same-wall: never
+ *                                     reattach a plan that hit the same hard wall; author
+ *                                     a fresh blueprint instead to break the cycle)
  */
 export function planResume(
   resume: { phase?: string | null; merged: boolean; epicBaseSha?: string | null } | null,
@@ -1969,42 +1972,66 @@ export function planResume(
    *  epic-base move. When true and hasCompletedImplement is false, return reattach-blueprint
    *  instead of fresh to avoid re-authoring the blueprint. */
   specUnchanged = false,
+  /** Prior run wall history: repeated hard walls and last reason class. When a hard wall
+   *  repeated or occurred multiple times, downgrade reattach-blueprint to fresh to author
+   *  a new blueprint instead of replaying the poisoned plan. */
+  priorWall: { repeatedWall: boolean; lastReasonClass: string } | null = null,
 ): ResumePlan {
+  function poisonedBlueprint(p: { repeatedWall: boolean; lastReasonClass: string } | null): boolean {
+    return !!p && (p.repeatedWall || isHardWall(p.lastReasonClass as WallReasonClass));
+  }
+
+  let plan: ResumePlan;
+
   if (!resume) {
     // D1: a terminal outcome cleared the run checkpoint, but a durably-recorded
     // blueprint authored against the CURRENT tip is still reusable. The base guard
     // below is identical to the resume-row path — never weaker.
     if (hasBlueprintOutput && blueprintBaseSha && currentEpicSha) {
       if (blueprintBaseSha === currentEpicSha)
-        return { mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' };
+        plan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' };
+      else if (hasCompletedImplement)
+        return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
+      else if (specUnchanged)
+        plan = { mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' };
+      else
+        return { mode: 'fresh', reason: 'epic-base-moved' };
+    } else {
+      // D3: null currentEpicSha is silently fatal — we can't verify the world state.
+      if (!currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+      return { mode: 'fresh', reason: 'no-resume-state' };
+    }
+  } else if (resume.merged) {
+    return { mode: 'skip-to-gate', reason: 'work-merged' };
+  } else if ((!resume.phase || resume.phase === 'blueprint') && !hasBlueprintOutput) {
+    // Paused/killed at-or-before the blueprint node. If a COMPLETED blueprint was
+    // durably recorded (the leaf rate-paused after authoring it), reuse it instead of
+    // re-burning the ~opus blueprint node — the 1.8M-token re-burn loop. Only treat as
+    // genuinely fresh when no usable blueprint output exists.
+    return { mode: 'fresh', reason: 'killed-before-blueprint' };
+  } else {
+    // Fall back to the durable blueprint base when the row lost its sha (COALESCE gap).
+    const base = resume.epicBaseSha ?? blueprintBaseSha;
+    if (!base || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+    if (base !== currentEpicSha) {
       if (hasCompletedImplement)
         return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
       if (specUnchanged)
-        return { mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' };
-      return { mode: 'fresh', reason: 'epic-base-moved' };
+        plan = { mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' };
+      else
+        return { mode: 'fresh', reason: 'epic-base-moved' };
+    } else {
+      plan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
     }
-    // D3: null currentEpicSha is silently fatal — we can't verify the world state.
-    if (!currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
-    return { mode: 'fresh', reason: 'no-resume-state' };
   }
-  if (resume.merged) return { mode: 'skip-to-gate', reason: 'work-merged' };
-  // Paused/killed at-or-before the blueprint node. If a COMPLETED blueprint was
-  // durably recorded (the leaf rate-paused after authoring it), reuse it instead of
-  // re-burning the ~opus blueprint node — the 1.8M-token re-burn loop. Only treat as
-  // genuinely fresh when no usable blueprint output exists.
-  if ((!resume.phase || resume.phase === 'blueprint') && !hasBlueprintOutput)
-    return { mode: 'fresh', reason: 'killed-before-blueprint' };
-  // Fall back to the durable blueprint base when the row lost its sha (COALESCE gap).
-  const base = resume.epicBaseSha ?? blueprintBaseSha;
-  if (!base || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
-  if (base !== currentEpicSha) {
-    if (hasCompletedImplement)
-      return { mode: 'rebase-continue', reason: 'epic-base-moved-rebase' };
-    if (specUnchanged)
-      return { mode: 'reattach-blueprint', reason: 'epic-base-moved-spec-unchanged' };
-    return { mode: 'fresh', reason: 'epic-base-moved' };
+
+  // Post-filter: downgrade reattach-blueprint to fresh when the prior dispatch hit a hard wall
+  // (and it repeated or was classified as hard). This breaks the poison-pill loop by forcing
+  // a new blueprint instead of replaying a plan that failed the same way.
+  if (plan && plan.mode === 'reattach-blueprint' && poisonedBlueprint(priorWall)) {
+    return { mode: 'fresh', reason: 'poisoned-blueprint-same-wall' };
   }
-  return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+  return plan || { mode: 'fresh', reason: 'no-resume-state' };
 }
 
 /** Pure classifier for the {@link LeafExecutorDeps.worktreeBaseFresh} probe's raw git
@@ -4313,7 +4340,8 @@ export async function makeLeafExecutorDeps(
   const bpRow = getLeafBlueprint(leaf.id);
   const hasCompletedImplement = !!existingResume?.phase && existingResume.phase !== 'blueprint' && existingResume.phase !== 'implement';
   const specUnchanged = !!bpRow?.specSig && bpRow.specSig === leafSpecSignature(leaf);
-  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null, hasCompletedImplement, specUnchanged);
+  const wall = getLeafWallHistory(leaf.id);
+  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null, hasCompletedImplement, specUnchanged, { repeatedWall: wall.repeatedWall, lastReasonClass: wall.lastReasonClass });
   const anomaly = resumePlan.mode === 'fresh' && hasBlueprintOutput
     && (resumePlan.reason === 'no-resume-state' || resumePlan.reason === 'no-epic-base' || resumePlan.reason === 'killed-before-blueprint');
   recordLeafResumeDecision({ leafId: leaf.id, project, mode: resumePlan.mode, reason: resumePlan.reason,
@@ -4325,7 +4353,7 @@ export async function makeLeafExecutorDeps(
     clearLeafResume(leaf.id);
     effectiveStart = 0;
   }
-  if (resumePlan.mode === 'fresh' && resumePlan.reason === 'epic-base-moved') clearLeafBlueprint(leaf.id);
+  if (resumePlan.mode === 'fresh' && (resumePlan.reason === 'epic-base-moved' || resumePlan.reason === 'poisoned-blueprint-same-wall')) clearLeafBlueprint(leaf.id);
   // G2 mechanical gate, G4 abstention: classify ONCE per deps construction. `declared` runs the
   // gate; `absent` abstains LOUDLY; `misconfigured` is INFRA — never a silent pass.
   const manifestSource = loadManifestSource(targetProject);
