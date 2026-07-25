@@ -177,7 +177,7 @@ export interface DeployEligibility {
  * even show a Deploy button. Same checks `requestSelfDeploy` enforces, so the
  * UI can never coax a deploy the server would reject.
  */
-export function selfDeployEligibility(project: string): DeployEligibility {
+export async function selfDeployEligibility(project: string): Promise<DeployEligibility> {
   // Gate #1: must be a checkout of THIS app's source repo (by package name —
   // see isSelfProject). Deploying anyone else's repo from here is never correct.
   if (!isSelfProject(project)) return { eligible: false, reason: 'not-self-project' };
@@ -221,11 +221,11 @@ export function isEpicMidLand(project: string): boolean {
  *  master-green is NOT re-checked here: the land pipeline verifies green before every land, so a
  *  landed master is green by construction; re-running tsc/tests would cost minutes for no added
  *  safety. Pure over injected reads (deps) so each precondition is unit-testable. */
-export function deploySafetyGate(
+export async function deploySafetyGate(
   project: string,
   deps: DeploySafetyDeps = {},
   opts: { force?: boolean } = {},
-): DeploySafetyResult {
+): Promise<DeploySafetyResult> {
   const reap = deps.reap ?? reapStaleInflight;
   const inflight = deps.inflight ?? ((p: string) => listLeafInflight({ project: p }));
   const tree = deps.tree ?? treeStatus;
@@ -240,7 +240,7 @@ export function deploySafetyGate(
     }
   }
 
-  const st = tree(project);
+  const st = await tree(project);
   if (st.resolved && !st.match) {
     console.error(`[deploy] refused — working tree does not match HEAD\n  write-tree   ${st.workTree}\n  HEAD^{tree}  ${st.headTree}`);
     recordDeployRefusal(project, 'tree-does-not-match-head');
@@ -257,16 +257,16 @@ export function deploySafetyGate(
   return { ok: true };
 }
 
-export function requestSelfDeploy(
+export async function requestSelfDeploy(
   project: string,
   opts: { force?: boolean; spawn?: typeof spawn } = {},
-): DeployRequestResult {
-  const gate = selfDeployEligibility(project);
+): Promise<DeployRequestResult> {
+  const gate = await selfDeployEligibility(project);
   if (!gate.eligible) {
     return { ok: false, started: false, reason: gate.reason as DeployRequestResult['reason'] };
   }
   // B2 — fail-closed live-read safety gate (refuse-while-building + tree-match + no-epic-mid-land).
-  const safety = deploySafetyGate(project, {}, { force: opts.force });
+  const safety = await deploySafetyGate(project, {}, { force: opts.force });
   if (!safety.ok) {
     return { ok: false, started: false, reason: safety.reason, inflightLeaves: safety.inflightLeaves };
   }
