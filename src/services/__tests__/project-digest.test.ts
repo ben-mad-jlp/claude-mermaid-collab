@@ -49,8 +49,8 @@ describe('project-digest generator', () => {
       rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('writes .collab/project-digest.md and .meta.json with correct sections', () => {
-      const digest = writeProjectDigest(tmpDir);
+    test('writes .collab/project-digest.md and .meta.json with correct sections', async () => {
+      const digest = await writeProjectDigest(tmpDir);
 
       // Read the written markdown file.
       const mdPath = join(tmpDir, '.collab', 'project-digest.md');
@@ -156,11 +156,11 @@ describe('project-digest generator', () => {
       }
     });
 
-    test('hash changes when a path is added', () => {
+    test('hash changes when a path is added', async () => {
       const tmpDir = mkdtempSync(join(os.tmpdir(), 'digest-hash-'));
       try {
         initRepo(tmpDir, '# CLAUDE.md');
-        const h1 = computeSkeletonHash(tmpDir);
+        const h1 = await computeSkeletonHash(tmpDir);
 
         // Add a new dir
         mkdirSync(join(tmpDir, 'newmod'), { recursive: true });
@@ -173,22 +173,22 @@ describe('project-digest generator', () => {
           });
         git(['add', '-A']);
 
-        const h2 = computeSkeletonHash(tmpDir);
+        const h2 = await computeSkeletonHash(tmpDir);
         expect(h1).not.toBe(h2);
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });
       }
     });
 
-    test('hash changes when CLAUDE.md changes', () => {
+    test('hash changes when CLAUDE.md changes', async () => {
       const tmpDir = mkdtempSync(join(os.tmpdir(), 'digest-hash-'));
       try {
         initRepo(tmpDir, '# CLAUDE.md\noriginal');
-        const h1 = computeSkeletonHash(tmpDir);
+        const h1 = await computeSkeletonHash(tmpDir);
 
         writeFileSync(join(tmpDir, 'CLAUDE.md'), '# CLAUDE.md\nmodified');
 
-        const h2 = computeSkeletonHash(tmpDir);
+        const h2 = await computeSkeletonHash(tmpDir);
         expect(h1).not.toBe(h2);
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });
@@ -233,11 +233,11 @@ describe('project-digest generator', () => {
       git(['commit', '-m', 'init']);
     }
 
-    test('includes directories from git ls-files but excludes top-level files', () => {
+    test('includes directories from git ls-files but excludes top-level files', async () => {
       const tmpDir = mkdtempSync(join(os.tmpdir(), 'digest-topdirs-'));
       try {
         initRepo(tmpDir, '# CLAUDE.md');
-        const dirs = topLevelDirs(tmpDir);
+        const dirs = await topLevelDirs(tmpDir);
 
         expect(dirs).toContain('src');
         expect(dirs).not.toContain('CLAUDE.md');
@@ -246,7 +246,7 @@ describe('project-digest generator', () => {
       }
     });
 
-    test('excludes top-level package.json', () => {
+    test('excludes top-level package.json', async () => {
       const tmpDir = mkdtempSync(join(os.tmpdir(), 'digest-topdirs-'));
       try {
         const git = (args: string[]) =>
@@ -264,7 +264,7 @@ describe('project-digest generator', () => {
         git(['add', '-A']);
         git(['commit', '-m', 'init']);
 
-        const dirs = topLevelDirs(tmpDir);
+        const dirs = await topLevelDirs(tmpDir);
 
         expect(dirs).toContain('src');
         expect(dirs).not.toContain('package.json');

@@ -37,23 +37,23 @@ describe('requestSelfDeploy — refuse-while-building guard', () => {
   // platform gate refuses first and the guard never runs.
   const onDarwin = process.platform === 'darwin' ? test : test.skip;
 
-  onDarwin('refuses with leaves-in-flight when a leaf is running', () => {
+  onDarwin('refuses with leaves-in-flight when a leaf is running', async () => {
     setLeafInflight({ leafId: 'leaf-1', project: repo, nodeKind: 'blueprint' });
-    const res = requestSelfDeploy(repo);
+    const res = await requestSelfDeploy(repo);
     expect(res.ok).toBe(false);
     expect(res.started).toBe(false);
     expect(res.reason).toBe('leaves-in-flight');
     expect(res.inflightLeaves).toEqual(['leaf-1']);
   });
 
-  onDarwin('force bypasses the guard (eligibility still gates spawn)', () => {
+  onDarwin('force bypasses the guard (eligibility still gates spawn)', async () => {
     setLeafInflight({ leafId: 'leaf-1', project: repo, nodeKind: 'blueprint' });
     let spawnArgs: unknown[] | null = null;
     const fakeSpawn = ((...args: unknown[]) => {
       spawnArgs = args;
       return { pid: 4242, unref: () => {} } as unknown as ReturnType<typeof import('node:child_process').spawn>;
     }) as typeof import('node:child_process').spawn;
-    const res = requestSelfDeploy(repo, { force: true, spawn: fakeSpawn });
+    const res = await requestSelfDeploy(repo, { force: true, spawn: fakeSpawn });
     expect(res.reason).not.toBe('leaves-in-flight');
     expect(spawnArgs).not.toBeNull();
     expect(spawnArgs![0]).toBe('bash');
@@ -126,41 +126,41 @@ describe('deploySafetyGate — fail-closed, live-read (B2)', () => {
   const CLEAR = {
     reap: () => {},
     inflight: () => [] as Array<{ leafId: string }>,
-    tree: () => ({ resolved: true, headTree: 't', workTree: 't', match: true }),
+    tree: () => Promise.resolve({ resolved: true, headTree: 't', workTree: 't', match: true }),
     epicMidLand: () => false,
   };
 
-  test('all preconditions clear → ok', () => {
-    expect(deploySafetyGate('/p', CLEAR)).toEqual({ ok: true });
+  test('all preconditions clear → ok', async () => {
+    expect(await deploySafetyGate('/p', CLEAR)).toEqual({ ok: true });
   });
 
-  test('a leaf in flight → refuse leaves-in-flight (naming the live leaf)', () => {
-    const r = deploySafetyGate('/p', { ...CLEAR, inflight: () => [{ leafId: 'lf1' }] });
+  test('a leaf in flight → refuse leaves-in-flight (naming the live leaf)', async () => {
+    const r = await deploySafetyGate('/p', { ...CLEAR, inflight: () => [{ leafId: 'lf1' }] });
     expect(r).toEqual({ ok: false, reason: 'leaves-in-flight', inflightLeaves: ['lf1'] });
   });
 
-  test('working tree does not match HEAD → refuse tree-does-not-match-head', () => {
-    const r = deploySafetyGate('/p', { ...CLEAR, tree: () => ({ resolved: true, headTree: 'a', workTree: 'b', match: false }) });
+  test('working tree does not match HEAD → refuse tree-does-not-match-head', async () => {
+    const r = await deploySafetyGate('/p', { ...CLEAR, tree: () => Promise.resolve({ resolved: true, headTree: 'a', workTree: 'b', match: false }) });
     expect(r).toEqual({ ok: false, reason: 'tree-does-not-match-head' });
   });
 
-  test('an epic is mid-land (merge in progress) → refuse epic-mid-land', () => {
-    const r = deploySafetyGate('/p', { ...CLEAR, epicMidLand: () => true });
+  test('an epic is mid-land (merge in progress) → refuse epic-mid-land', async () => {
+    const r = await deploySafetyGate('/p', { ...CLEAR, epicMidLand: () => true });
     expect(r).toEqual({ ok: false, reason: 'epic-mid-land' });
   });
 
-  test('fail CLOSED: an epic-mid-land probe that THROWS refuses (never deploys on unknown state)', () => {
-    const r = deploySafetyGate('/p', { ...CLEAR, epicMidLand: () => { throw new Error('git err'); } });
+  test('fail CLOSED: an epic-mid-land probe that THROWS refuses (never deploys on unknown state)', async () => {
+    const r = await deploySafetyGate('/p', { ...CLEAR, epicMidLand: () => { throw new Error('git err'); } });
     expect(r).toEqual({ ok: false, reason: 'epic-mid-land' });
   });
 
-  test('force bypasses the inflight courtesy but NOT the hard tree/mid-land safety', () => {
+  test('force bypasses the inflight courtesy but NOT the hard tree/mid-land safety', async () => {
     // force + inflight → ok (courtesy bypassed)
-    expect(deploySafetyGate('/p', { ...CLEAR, inflight: () => [{ leafId: 'lf1' }] }, { force: true })).toEqual({ ok: true });
+    expect(await deploySafetyGate('/p', { ...CLEAR, inflight: () => [{ leafId: 'lf1' }] }, { force: true })).toEqual({ ok: true });
     // force + tree mismatch → still refused (hard safety, the P0 clobber guard)
-    expect(deploySafetyGate('/p', { ...CLEAR, inflight: () => [{ leafId: 'lf1' }], tree: () => ({ resolved: true, headTree: 'a', workTree: 'b', match: false }) }, { force: true }))
+    expect(await deploySafetyGate('/p', { ...CLEAR, inflight: () => [{ leafId: 'lf1' }], tree: () => Promise.resolve({ resolved: true, headTree: 'a', workTree: 'b', match: false }) }, { force: true }))
       .toEqual({ ok: false, reason: 'tree-does-not-match-head' });
     // force + mid-land → still refused
-    expect(deploySafetyGate('/p', { ...CLEAR, epicMidLand: () => true }, { force: true })).toEqual({ ok: false, reason: 'epic-mid-land' });
+    expect(await deploySafetyGate('/p', { ...CLEAR, epicMidLand: () => true }, { force: true })).toEqual({ ok: false, reason: 'epic-mid-land' });
   });
 });

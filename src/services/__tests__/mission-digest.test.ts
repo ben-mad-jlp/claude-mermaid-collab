@@ -95,15 +95,15 @@ describe('resolveActiveMissionDigest', () => {
       criteria: ['it works'],
       digest: '# second',
     });
-    writeProjectDigest(project);
+    await writeProjectDigest(project);
     expect(existsSync(join(project, '.collab', 'project-digest.md'))).toBe(true);
     const resolved = resolveActiveMissionDigest(project);
     expect(resolved).not.toContain('# first');
     expect(resolved).not.toContain('# second');
   });
 
-  test('no mission at all falls back to the project digest', () => {
-    writeProjectDigest(project);
+  test('no mission at all falls back to the project digest', async () => {
+    await writeProjectDigest(project);
     const expected = readFileSync(join(project, '.collab', 'project-digest.md'), 'utf-8');
     expect(resolveActiveMissionDigest(project)).toBe(expected);
   });
