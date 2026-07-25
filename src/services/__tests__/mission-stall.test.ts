@@ -44,7 +44,7 @@ describe('mission-loop none-reason classification', () => {
       .filter((r) => MISSION_LOOP_REASON_CLASS[r] === 'quiet')
       .sort();
     expect(quiet).toEqual(
-      (['building', 'inactive', 'converged', 'abandoned', 'session-busy', 'nudge-cooldown', 'nudge-fingerprint-unchanged'] as MissionLoopReasonBase[]).sort(),
+      (['building', 'inactive', 'converged', 'closed', 'abandoned', 'session-busy', 'nudge-cooldown', 'nudge-fingerprint-unchanged'] as MissionLoopReasonBase[]).sort(),
     );
   });
 
