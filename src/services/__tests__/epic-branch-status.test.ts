@@ -29,7 +29,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
 /** A probe driven by a branch→facts table; unknown branches read as nonexistent. */
 function probeFrom(table: Record<string, BranchProbe>): GitProbe {
   return async (branch: string) =>
-    table[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null };
+    table[branch] ?? { exists: false, ahead: null, behind: null, mergeable: null, newCount: null };
 }
 
 describe('branch-name derivation', () => {
@@ -134,6 +134,89 @@ describe('buildEpicBranchStatus', () => {
     expect(r.epics[0].mergeable).toBe(true);
     expect(r.epics[0].landLeafDone).toBe(false);
     expect(r.strandedCount).toBe(1);
+  });
+
+  test('newCount===0 with ahead>0 (post-squash land): NOT stranded, NOT corrupt', async () => {
+    const epic = todo({ id: 'sq001234-0000', title: '[EPIC] squashed', status: 'done', kind: 'epic' });
+    const land = todo({
+      id: 'l-sq',
+      title: '[LAND] squashed → master',
+      parentId: 'sq001234-0000',
+      status: 'done',
+      kind: 'land',
+    });
+    const branch = epicBranchName('sq001234-0000');
+    const report = await buildEpicBranchStatus(
+      [epic, land],
+      probeFrom({ [branch]: { exists: true, ahead: 3, behind: 0, mergeable: true, newCount: 0 } }),
+    );
+    const e = report.epics[0];
+    expect(e.ahead).toBe(3);
+    expect(e.newCount).toBe(0);
+    expect(e.landLeafDone).toBe(true);
+    expect(e.stranded).toBe(false);
+    expect(e.corrupt).toBe(false);
+    expect(report.strandedCount).toBe(0);
+    expect(report.corruptCount).toBe(0);
+  });
+
+  test('newCount>0 with ahead>0: stranded', async () => {
+    const epic = todo({ id: 'ne001234-0000', title: '[EPIC] new commits', status: 'done', kind: 'epic' });
+    const land = todo({
+      id: 'l-ne',
+      title: '[LAND] new commits → master',
+      parentId: 'ne001234-0000',
+      status: 'ready',
+      kind: 'land',
+    });
+    const branch = epicBranchName('ne001234-0000');
+    const report = await buildEpicBranchStatus(
+      [epic, land],
+      probeFrom({ [branch]: { exists: true, ahead: 3, behind: 0, mergeable: true, newCount: 1 } }),
+    );
+    const e = report.epics[0];
+    expect(e.ahead).toBe(3);
+    expect(e.newCount).toBe(1);
+    expect(e.stranded).toBe(true);
+  });
+
+  test('newCount null (unprobeable) falls back to ahead: ahead>0 → stranded', async () => {
+    const epic = todo({ id: 'unk01234-0000', title: '[EPIC] unknown count', status: 'done', kind: 'epic' });
+    const land = todo({
+      id: 'l-unk',
+      title: '[LAND] unknown count → master',
+      parentId: 'unk01234-0000',
+      status: 'ready',
+      kind: 'land',
+    });
+    const branch = epicBranchName('unk01234-0000');
+    const report = await buildEpicBranchStatus(
+      [epic, land],
+      probeFrom({ [branch]: { exists: true, ahead: 2, behind: 0, mergeable: true, newCount: null } }),
+    );
+    const e = report.epics[0];
+    expect(e.newCount).toBeNull();
+    expect(e.ahead).toBe(2);
+    expect(e.stranded).toBe(true);
+  });
+
+  test('newCount===0 with ahead>0 and land done: NOT corrupt (falsely-stamped check rekeyed to newCount)', async () => {
+    const epic = todo({ id: 'fc001234-0000', title: '[EPIC] false corrupt', status: 'done', kind: 'epic' });
+    const land = todo({
+      id: 'l-fc',
+      title: '[LAND] false corrupt → master',
+      parentId: 'fc001234-0000',
+      status: 'done',
+      kind: 'land',
+    });
+    const branch = epicBranchName('fc001234-0000');
+    const report = await buildEpicBranchStatus(
+      [epic, land],
+      probeFrom({ [branch]: { exists: true, ahead: 5, behind: 0, mergeable: true, newCount: 0 } }),
+    );
+    const e = report.epics[0];
+    expect(e.corrupt).toBe(false); // land done + newCount===0 ⇒ NOT corrupt
+    expect(report.corruptCount).toBe(0);
   });
 });
 

@@ -34,10 +34,20 @@ export interface BranchProbe {
   behind: number | null;
   /** True/false from a trial merge; null when the branch is missing or the probe failed. */
   mergeable: boolean | null;
+  /** Commits on the branch with no patch-equivalent on baseRef (via --cherry-pick --right-only);
+   *  null if not probeable; absent/undefined behaves exactly like null (fall back to ahead). */
+  newCount?: number | null;
 }
 
 /** A git probe: given an epic branch + base ref, return the raw counts/flags. */
 export type GitProbe = (branch: string, baseRef: string) => Promise<BranchProbe>;
+
+/** Fail-closed effective-new-count rule: when newCount is absent or null, degrade to ahead.
+ *  Never yields a false all-clear — a null/absent newCount always produces at least the
+ *  raw ahead count (which is itself null-safe via ?? 0). */
+export function effectiveNewCount(p: { newCount?: number | null; ahead: number | null }): number {
+  return p.newCount ?? p.ahead ?? 0;
+}
 
 /**
  * One-shot branch enumerator: all existing local `collab/epic/*` short refs, or null
@@ -55,20 +65,22 @@ export interface EpicBranchStatus {
   ahead: number | null;
   behind: number | null;
   mergeable: boolean | null;
+  /** Commits with no patch-equivalent on the base (--cherry-pick --right-only); null if not probeable. */
+  newCount: number | null;
   /** Whether the epic's land leaf is done. null when the epic has no land leaf. */
   landLeafDone: boolean | null;
   /** Id of the epic's land leaf, if any — the reopen target for a corrupt epic. */
   landLeafId: string | null;
   /**
-   * True when the branch carries unlanded commits (ahead>0) — the git fact of
-   * "work not on master". Independent of the land-leaf stamp (a falsely-stamped
+   * True when the branch carries unlanded commits (newCount>0 per cherry-pick, fallback to ahead) —
+   * the git fact of "work not on master". Independent of the land-leaf stamp (a falsely-stamped
    * done land leaf does NOT clear this).
    */
   stranded: boolean;
   /**
-   * True when the land leaf claims done (landLeafDone===true) YET the branch is
-   * still ahead>0 — a FALSELY-STAMPED land leaf. Strictly git-derived; the
-   * reconcile pass reopens the land leaf on this flag.
+   * True when the land leaf claims done (landLeafDone===true) YET the branch carries
+   * new commits (newCount>0, fallback to ahead>0) — a FALSELY-STAMPED land leaf. Strictly
+   * git-derived; the reconcile pass reopens the land leaf on this flag.
    */
   corrupt: boolean;
 }
@@ -159,8 +171,9 @@ export async function buildEpicBranchStatus(
       : await probe(branch, baseRef);
     const land = landLeafOf(t);
     const landLeafDone = land ? land.status === 'done' : null;
-    const stranded = p.exists && (p.ahead ?? 0) > 0;
-    const corrupt = p.exists && (p.ahead ?? 0) > 0 && landLeafDone === true;
+    const nNew = effectiveNewCount(p);
+    const stranded = p.exists && nNew > 0;
+    const corrupt = stranded && landLeafDone === true;
     epics.push({
       epicId: t.id,
       title: t.title,
@@ -170,6 +183,7 @@ export async function buildEpicBranchStatus(
       ahead: p.ahead,
       behind: p.behind,
       mergeable: p.mergeable,
+      newCount: p.newCount ?? null,
       landLeafDone,
       landLeafId: land ? land.id : null,
       stranded,
@@ -225,21 +239,22 @@ export async function listEpicBranchesIn(project: string): Promise<string[] | nu
   return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
-/** A real git probe rooted at `project`: exists / ahead / behind / mergeable. */
+/** A real git probe rooted at `project`: exists / ahead / behind / mergeable / newCount. */
 export function makeGitProbe(project: string): GitProbe {
   return async (branch: string, baseRef: string): Promise<BranchProbe> => {
     const exists =
       (await runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
-    if (!exists) return { exists: false, ahead: null, behind: null, mergeable: null };
+    if (!exists) return { exists: false, ahead: null, behind: null, mergeable: null, newCount: null };
 
-    const count = async (range: string): Promise<number | null> => {
-      const r = await runGit(project, ['rev-list', '--count', range]);
+    const count = async (...args: string[]): Promise<number | null> => {
+      const r = await runGit(project, ['rev-list', '--count', ...args]);
       if (r.code !== 0) return null;
       const n = parseInt(r.stdout.trim() || '0', 10);
       return Number.isNaN(n) ? null : n;
     };
     const ahead = await count(`${baseRef}..${branch}`);
     const behind = await count(`${branch}..${baseRef}`);
+    const newCount = await count('--cherry-pick', '--right-only', `${baseRef}...${branch}`);
 
     // Trial merge with no working-tree mutation: `git merge-tree --write-tree`
     // exits 0 on a clean merge, 1 when there are conflicts. A spawn/other failure
@@ -249,7 +264,7 @@ export function makeGitProbe(project: string): GitProbe {
     if (mt.code === 0) mergeable = true;
     else if (mt.code === 1) mergeable = false;
 
-    return { exists, ahead, behind, mergeable };
+    return { exists, ahead, behind, mergeable, newCount };
   };
 }
 
