@@ -43,15 +43,9 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
     count: 2,
     reason:
       'Deliberately sync (see its header): shared by landEpic (async) AND ' +
-      'requestSelfDeploy’s synchronous context. Each call is one-shot git plumbing ' +
+      'requestSelfDeploy\'s synchronous context. Each call is one-shot git plumbing ' +
       '(rev-parse/write-tree/diff/symbolic-ref/checkout) on a local repo — worst case ' +
       '~1-2s on this repo, far under 45s, and runs only around land/deploy events.',
-  },
-  'services/project-digest.ts': {
-    count: 1,
-    reason:
-      'A handful of one-shot git reads (ls-files/log) with a 15s hard timeout each, ' +
-      'only when the digest regenerates (post-land). Typical <200ms; hard-capped 15s.',
   },
   'services/leaf-executor.ts': {
     count: 2,
@@ -83,7 +77,7 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
     reason:
       'import + a shared git helper doing one-shot plumbing (ls-files/rev-parse/' +
       'merge-base/diff) plus ONE detached-worktree add/remove per gate run (~1-3s ' +
-      'worst case on this repo). The gate’s SUITE runs go through the async ' +
+      'worst case on this repo). The gate\'s SUITE runs go through the async ' +
       'defaultGateSpawn (418427a5), never this helper.',
   },
   'services/system-status.ts': {
