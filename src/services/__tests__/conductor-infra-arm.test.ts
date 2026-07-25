@@ -358,6 +358,7 @@ describe('makeEpicBaseProbe (re-verify policy at the conductor-side cache reader
       gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
       ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
       runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      forwardIntegrate: async () => ({ advanced: false, conflict: false }),
     });
 
     const r = await runInfraRejectionArm(project, forged.missionId, 's1', { probe });
@@ -377,6 +378,7 @@ describe('makeEpicBaseProbe (re-verify policy at the conductor-side cache reader
       gateDecl: () => { throw new Error('must not be called on a cache hit'); },
       ensureEpicWorktree: async () => { throw new Error('must not be called on a cache hit'); },
       runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      forwardIntegrate: async () => ({ advanced: false, conflict: false }),
     });
 
     const verdict = await probe(epicId, project);
@@ -396,6 +398,7 @@ describe('makeEpicBaseProbe (re-verify policy at the conductor-side cache reader
       gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
       ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
       runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      forwardIntegrate: async () => ({ advanced: false, conflict: false }),
       now: () => t0 + BASE_GATE_FAIL_TTL_MS + 1,
     });
 
@@ -416,11 +419,86 @@ describe('makeEpicBaseProbe (re-verify policy at the conductor-side cache reader
       gateDecl: () => { throw new Error('must not be called on an honoured cache'); },
       ensureEpicWorktree: async () => { throw new Error('must not be called on an honoured cache'); },
       runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      forwardIntegrate: async () => ({ advanced: false, conflict: false }),
       now: () => t0 + BASE_GATE_FAIL_TTL_MS - 1,
     });
 
     const verdict = await probe(epicId, project);
     expect(gateCalls).toBe(0);
     expect(verdict).toBe('fail');
+  });
+
+  test('forward integrate: advance clears the wedge', async () => {
+    // Regression test: mutation probe verifies that deleting the
+    // `await forwardIntegrate(epicId, targetProject)` call in makeEpicBaseProbe
+    // makes this test red (headSha never advances, cached fail is honoured, leaf not reset).
+    const { forged, epic, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+    const baseShaX = 'sha-infra-advance-x';
+    const baseShaY = 'sha-infra-advance-y';
+    recordEpicBaseGate({ epicId: epic.id, project, baseSha: baseShaX, status: 'fail', command: 'npx tsc --noEmit', output: 'error TS2345' });
+
+    let headShaCallCount = 0;
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => {
+        headShaCallCount++;
+        return headShaCallCount === 1 ? baseShaX : baseShaY;
+      },
+      gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
+      ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+      runGate: async () => { gateCalls++; return { status: 'pass', output: '', reasons: [], declared: true }; },
+      forwardIntegrate: async () => ({ advanced: true, conflict: false }),
+    });
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', { probe });
+    expect(r.reset).toEqual([leaf.id]);
+    expect(gateCalls).toBe(1);
+    const after = getTodo(project, leaf.id)!;
+    expect(after.acceptanceStatus).toBeNull();
+  });
+
+  test('forward integrate: conflict keeps it parked', async () => {
+    const { forged, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+    const baseSha = 'sha-infra-conflict-x';
+    recordEpicBaseGate({ epicId: forged.missionId, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'error TS2345' });
+
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => baseSha,
+      gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
+      ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+      runGate: async () => { gateCalls++; return { status: 'fail', output: 'error TS2345', reasons: [], declared: true }; },
+      forwardIntegrate: async () => ({ advanced: false, conflict: true }),
+    });
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', { probe });
+    expect(r.reset).toEqual([]);
+    expect(r.cardsRaised).toBe(1);
+    expect(gateCalls).toBe(1);
+
+    const after = getTodo(project, leaf.id)!;
+    expect(after.acceptanceStatus).toBe('rejected');
+
+    const cards = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cards.length).toBe(1);
+  });
+
+  test('forward integrate: throw degrades, never fabricates', async () => {
+    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+    const baseSha = 'sha-infra-throw-x';
+    recordEpicBaseGate({ epicId: forged.missionId, project, baseSha, status: 'fail', command: 'npx tsc --noEmit', output: 'error TS2345' });
+
+    let gateCalls = 0;
+    const probe = makeEpicBaseProbe({
+      headSha: async () => baseSha,
+      gateDecl: () => ({ kind: 'declared', cfg: { typecheck: 'npx tsc --noEmit' }, manifestPath: 'x' } as any),
+      ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
+      runGate: async () => { gateCalls++; return { status: 'fail', output: 'error TS2345', reasons: [], declared: true }; },
+      forwardIntegrate: async () => { throw new Error('forward-integrate failed'); },
+    });
+
+    const verdict = await probe(forged.missionId, project);
+    expect(verdict).not.toBe('pass');
+    expect(gateCalls).toBe(1);
   });
 });

@@ -131,6 +131,7 @@ export interface EpicBaseProbeIo {
   gateDecl: (targetProject: string) => ReturnType<typeof resolveGateDeclaration>;
   ensureEpicWorktree: (epicId: string, targetProject: string) => Promise<{ path: string } | null>;
   runGate: (cwd: string, cfg: LeafGateConfig) => Promise<LeafGateResult>;
+  forwardIntegrate: (epicId: string, targetProject: string) => Promise<{ advanced: boolean; conflict: boolean }>;
   now?: () => number;
 }
 
@@ -153,9 +154,15 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
     return getWorktreeManager(targetProject).ensureEpic(epicId, targetProject);
   });
   const runGate = io?.runGate ?? ((cwd, cfg) => runBaseGate(cwd, cfg, defaultGateSpawn));
+  const forwardIntegrate = io?.forwardIntegrate ?? (async (epicId, targetProject) => {
+    const { getWorktreeManager } = await import('./coordinator-live.js');
+    const wm = getWorktreeManager(targetProject);
+    return wm.forwardIntegrateEpic(epicId, await wm.detectBaseBranch());
+  });
   const now = io?.now;
   return async (epicId, targetProject) => {
     try {
+      try { await forwardIntegrate(epicId, targetProject); } catch { /* best-effort */ }
       const sha = await headSha(epicId, targetProject);
       const cached = getEpicBaseGate(epicId, sha);
       if (cached && shouldHonourCachedBaseGate(cached, now?.()) === 'honour') {
