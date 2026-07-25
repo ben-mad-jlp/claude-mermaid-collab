@@ -395,6 +395,13 @@ describe('grok confinement hook installation (grokConfineHookFile + GROK_CONFINE
     expect(re.test('write')).toBe(true);
     expect(re.test('create_file')).toBe(true);
     expect(re.test('edit_file')).toBe(true);
+    // Additional grok write/shell tools
+    expect(re.test('str_replace')).toBe(true);
+    expect(re.test('delete')).toBe(true);
+    expect(re.test('apply_patch')).toBe(true);
+    expect(re.test('edit')).toBe(true);
+    expect(re.test('bash')).toBe(true);
+    expect(re.test('shell')).toBe(true);
   });
 
   it('grokConfineHookFile is idempotent: successive calls return the same path and file', () => {

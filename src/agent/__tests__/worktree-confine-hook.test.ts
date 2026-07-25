@@ -157,6 +157,15 @@ describe('normalizeHookInput — grok dialect', () => {
     const normalized = normalizeHookInput({ toolName: 'search_replace', toolInput: { file_path: join(worktree, 'x.txt') } });
     expect(decide(normalized, worktree).deny).toBe(false);
   });
+  it('str_replace with file_path outside worktree → deny', () => {
+    const normalized = normalizeHookInput({ toolName: 'str_replace', toolInput: { file_path: join(outside, 'x.txt') } });
+    expect(normalized.tool_name).toBe('Write');
+    expect(decide(normalized, worktree).deny).toBe(true);
+  });
+  it('str_replace with file_path inside worktree → allow', () => {
+    const normalized = normalizeHookInput({ toolName: 'str_replace', toolInput: { file_path: join(worktree, 'x.txt') } });
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
   it('run_terminal_command with cd escape (grok) → Bash deny', () => {
     const normalized = normalizeHookInput({ toolName: 'run_terminal_command', toolInput: { command: `cd ${outside} && pytest` } });
     expect(normalized.tool_name).toBe('Bash');
@@ -164,6 +173,15 @@ describe('normalizeHookInput — grok dialect', () => {
   });
   it('run_terminal_command with relative cd (grok) → Bash allow', () => {
     const normalized = normalizeHookInput({ toolName: 'run_terminal_command', toolInput: { command: 'cd sub && pytest' } });
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
+  it('bash with cd escape outside worktree → deny', () => {
+    const normalized = normalizeHookInput({ toolName: 'bash', toolInput: { command: `cd ${outside} && pytest` } });
+    expect(normalized.tool_name).toBe('Bash');
+    expect(decide(normalized, worktree).deny).toBe(true);
+  });
+  it('bash with relative cd inside worktree → allow', () => {
+    const normalized = normalizeHookInput({ toolName: 'bash', toolInput: { command: 'cd sub && pytest' } });
     expect(decide(normalized, worktree).deny).toBe(false);
   });
   it('write tool (grok) with path field → maps to file_path', () => {
