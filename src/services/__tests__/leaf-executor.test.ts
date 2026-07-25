@@ -198,6 +198,8 @@ function makeDeps(opts: {
   worktreeDirty?: LeafExecutorDeps['worktreeDirty'];
   // Recorded commands the IMPLEMENT/fix node "ran" (drives the working-root escape guard).
   implementCommands?: Array<{ cmd: string; cwd: string; exitCode: number | null }>;
+  // crit 7: mock wall history for tier escalation. Absent ⇒ unwired (clean wall).
+  wallHistory?: LeafExecutorDeps['wallHistory'];
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -312,6 +314,7 @@ function makeDeps(opts: {
     ensureBaseGreen: opts.ensureBaseGreen,
     getEpicTodo: opts.getEpicTodo,
     nodeProfileOverrides: opts.nodeProfileOverrides,
+    wallHistory: opts.wallHistory,
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
     gateShadowMode: () => opts.gateShadowMode ?? false,
@@ -4685,5 +4688,105 @@ describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
     // Even though citationLineExistsAtBase is true, testOnly is false (src/other.ts is not a test file)
     // so the acquittal never fires — the citation is still out-of-diff and must gate.
     expect(res.reason).toContain('blueprint-uncitable-criterion');
+  });
+
+  describe('planTierEscalation wiring (crit 7) — wall-history tier bumps', () => {
+    it('repeatedWall sonnet→opus: escalate from attempt-ladder sonnet to wall-bumped opus', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        nodeProfileOverrides: {
+          implement: { model: 'sonnet', effort: null, provider: null },
+        } as any,
+        wallHistory: {
+          leafId: 'test-leaf',
+          priorRuns: 2,
+          hardWallCount: 1,
+          lastReasonClass: 'review-fail',
+          repeatedWall: true,
+          suspectGate: false,
+          priorImplementModels: ['sonnet'],
+        },
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'full' }), deps);
+      expect(res.outcome).toBe('accepted');
+      const implementRow = spies.nodeRows.find((r) => r.nodeKind === 'implement');
+      expect(implementRow).toBeDefined();
+      expect(implementRow?.model).toBe('opus');
+    });
+
+    it('suspectGate haiku→sonnet: escalate from pinned haiku to wall-bumped sonnet', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        nodeProfileOverrides: {
+          implement: { model: 'haiku', effort: null, provider: null },
+        } as any,
+        wallHistory: {
+          leafId: 'test-leaf',
+          priorRuns: 1,
+          hardWallCount: 1,
+          lastReasonClass: 'none',
+          repeatedWall: false,
+          suspectGate: true,
+          priorImplementModels: ['haiku'],
+        },
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'full' }), deps);
+      expect(res.outcome).toBe('accepted');
+      const implementRow = spies.nodeRows.find((r) => r.nodeKind === 'implement');
+      expect(implementRow).toBeDefined();
+      expect(implementRow?.model).toBe('sonnet');
+    });
+
+    it('bump-budget-exhausted: model unchanged when bumps already used', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        nodeProfileOverrides: {
+          implement: { model: 'sonnet', effort: null, provider: null },
+        } as any,
+        wallHistory: {
+          leafId: 'test-leaf',
+          priorRuns: 3,
+          hardWallCount: 2,
+          lastReasonClass: 'review-fail',
+          repeatedWall: true,
+          suspectGate: false,
+          priorImplementModels: ['sonnet', 'opus'],
+        },
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'full' }), deps);
+      expect(res.outcome).toBe('accepted');
+      const implementRow = spies.nodeRows.find((r) => r.nodeKind === 'implement');
+      expect(implementRow).toBeDefined();
+      // Bump budget exhausted (bumpsUsed=2, MAX_TIER_BUMPS=2) so model stays at sonnet
+      expect(implementRow?.model).toBe('sonnet');
+    });
+
+    it('clean-history pass-through: no wall signal, model equals escalateImplementModel result', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        nodeProfileOverrides: {
+          implement: { model: 'sonnet', effort: null, provider: null },
+        } as any,
+        wallHistory: {
+          leafId: 'test-leaf',
+          priorRuns: 0,
+          hardWallCount: 0,
+          lastReasonClass: 'none',
+          repeatedWall: false,
+          suspectGate: false,
+          priorImplementModels: [],
+        },
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'full' }), deps);
+      expect(res.outcome).toBe('accepted');
+      const implementRow = spies.nodeRows.find((r) => r.nodeKind === 'implement');
+      expect(implementRow).toBeDefined();
+      // Clean wall ⇒ no-wall-signal ⇒ model passes through escalateImplementModel unchanged
+      expect(implementRow?.model).toBe('sonnet');
+    });
   });
 });
