@@ -54,7 +54,7 @@ export interface EpicSpec {
 }
 
 /** The planner NODE prompt: decompose the given criteria into ONE right-sized epic + leaves. */
-export function buildPlannerPrompt(project: string, missionId: string, criteria: { id: string; text: string }[]): string {
+export function buildPlannerPrompt(project: string, missionId: string, criteria: { id: string; text: string }[], decompositionHint?: string): string {
   return [
     `You are the PLANNER node for project ${project}, mission ${missionId}. Decompose the acceptance`,
     'criteria below into ONE right-sized EPIC and its LEAVES (the units the build daemon will',
@@ -86,6 +86,7 @@ export function buildPlannerPrompt(project: string, missionId: string, criteria:
     '- CROSS-PROJECT: the epic and its leaves execute against the mission\'s targetProject — name real',
     '  paths in THAT repo, and never propose work in the tracking repo for a cross-project mission.',
     '',
+    ...(decompositionHint && decompositionHint.trim() ? ['RE-DECOMPOSE — a previous epic for this criterion churned:', decompositionHint, ''] : []),
     'Emit EXACTLY ONE JSON object as your FINAL reply (optionally in a ```json fence), nothing after it:',
     '{',
     '  "title": "<epic goal, bare — no role prefix>",',
@@ -156,6 +157,8 @@ export interface PlanCriterionInput {
   criterionIds: string[];
   model?: string;
   effort?: EffortLevel;
+  /** Re-decomposition hint carried into the planner prompt. */
+  decompositionHint?: string;
 }
 export interface PlanCriterionDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
@@ -300,7 +303,7 @@ export async function planMissionCriterion(
     // Invoke the planner with ONE repair retry: a truncated/malformed final-reply JSON must not
     // fail the whole serve (that failure is what wedges the conductor — see conductor-pass.ts). On a
     // parse failure, re-ask ONCE for compact, escaped, prose-free JSON with terser leaf descriptions.
-    const basePrompt = buildPlannerPrompt(project, input.missionId, criteria);
+    const basePrompt = buildPlannerPrompt(project, input.missionId, criteria, input.decompositionHint);
     const REPAIR_SUFFIX =
       '\n\nIMPORTANT: your FINAL reply must be ONLY the single JSON object — compact, on as few lines ' +
       'as possible, every string properly escaped (no literal newline inside a string, no unescaped ' +

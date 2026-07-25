@@ -12,6 +12,7 @@ import { forgeMission } from '../mission-forge';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, _resetMissionDbCache } from '../../../services/mission-store';
 import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos, type Todo } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
+import type { NodeSpec } from '../../../agent/node-invoker.js';
 
 let project: string;
 beforeEach(() => { project = mkdtempSync(join(tmpdir(), 'mission-planner-')); _resetMissionDbCache(project); });
@@ -384,5 +385,43 @@ describe('parseEpicSpec + buildPlannerPrompt (pure)', () => {
     // JSON emission contract unchanged
     expect(p).toContain('Emit EXACTLY ONE JSON object');
     expect(p).toContain('"dependsOn": ["$0"]');
+  });
+});
+
+describe('buildPlannerPrompt decompositionHint', () => {
+  test('byte-identity: undefined/empty string/whitespace-only hint yields identical output', () => {
+    const base = buildPlannerPrompt('/proj', 'm1', [{ id: 'c1', text: 'x' }]);
+    const withUndefined = buildPlannerPrompt('/proj', 'm1', [{ id: 'c1', text: 'x' }], undefined);
+    const withEmpty = buildPlannerPrompt('/proj', 'm1', [{ id: 'c1', text: 'x' }], '');
+    const withWhitespace = buildPlannerPrompt('/proj', 'm1', [{ id: 'c1', text: 'x' }], '   ');
+    expect(base).toBe(withUndefined);
+    expect(base).toBe(withEmpty);
+    expect(base).toBe(withWhitespace);
+  });
+
+  test('presence and placement: hint appears verbatim before "Emit EXACTLY ONE JSON object"', () => {
+    const hint = 'A previous epic for this criterion failed to parse';
+    const p = buildPlannerPrompt('/proj', 'm1', [{ id: 'c1', text: 'x' }], hint);
+    expect(p).toContain(hint);
+    expect(p).toContain('RE-DECOMPOSE — a previous epic for this criterion churned:');
+    const hintIdx = p.indexOf(hint);
+    const emitIdx = p.indexOf('Emit EXACTLY ONE JSON object');
+    expect(hintIdx).toBeGreaterThan(-1);
+    expect(emitIdx).toBeGreaterThan(-1);
+    expect(hintIdx).toBeLessThan(emitIdx);
+  });
+
+  test('end-to-end: planMissionCriterion forwards decompositionHint to buildPlannerPrompt via spy', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const hint = 'The previous epic churned due to plan mismatch';
+    let capturedPrompt = '';
+    const invoke = async (spec: NodeSpec) => {
+      capturedPrompt = spec.prompt;
+      return { ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(EPIC_SPEC) + '\n```' } as any;
+    };
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId], decompositionHint: hint }, { invoke });
+    expect(r.leafIds).toHaveLength(2);
+    expect(capturedPrompt).toContain(hint);
+    expect(capturedPrompt).toContain('RE-DECOMPOSE — a previous epic for this criterion churned:');
   });
 });
