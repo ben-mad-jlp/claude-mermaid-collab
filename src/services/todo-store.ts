@@ -1394,11 +1394,11 @@ function rowToTodo(row: TodoRow): Todo {
  *  completedAt COALESCE pattern at todo-store.ts:2179/2211). Best-effort: swallows errors
  *  so a landedAt write failure never blocks the leaf-done stamp that calls it. Also stamps
  *  hollowLandedAt if the epic has zero accepted criterion-serving leaves. */
-export function stampEpicLandedAt(project: string, epicId: string, whenIso: string): void {
+export function stampEpicLandedAt(project: string, epicId: string, whenIso: string): boolean {
   try {
     const db = openDb(project);
     const epic = getTodo(project, epicId);
-    if (!epic) return;
+    if (!epic) return false;
     const allTodos = listTodos(project, { includeCompleted: true });
     const children = allTodos.filter((t) => t.parentId === epicId && !isEpic(t));
     const hollow = isHollowLand(epic, children);
@@ -1409,7 +1409,11 @@ export function stampEpicLandedAt(project: string, epicId: string, whenIso: stri
         .run(whenIso, epicId);
     }
     fireConductorKick(`epic-landed:${epicId.slice(0, 8)}`);
-  } catch { /* best-effort — never block the land-leaf stamp */ }
+    return true;
+  } catch (e) {
+    console.warn('[todo-store] stampEpicLandedAt failed', epicId, e);
+    return false;
+  }
 }
 
 /** Idempotent stamp of approvedAt/approvedBy on a mission-kind todo row — used by the

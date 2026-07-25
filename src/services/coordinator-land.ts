@@ -11,7 +11,8 @@
  */
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listTodos, getTodo, completeTodo, stampEpicLandedAt } from './todo-store';
+import { listTodos, getTodo, completeTodo } from './todo-store';
+import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic } from './todo-kind.ts';
 import { STUCK_AUTOLAND_THRESHOLD } from './harness-caps';
 import { createEscalation, resolveEscalation, getEscalation, recordSupervisorAudit, getProjectDigestEnabled, conditionIdentity } from './supervisor-store';
@@ -527,7 +528,7 @@ export async function stampLandLeafOnMerge(
   project: string, epicId: string, landLeafId: string | undefined, landed: boolean,
 ): Promise<boolean> {
   if (!landed) return false;
-  stampEpicLandedAt(project, epicId, new Date().toISOString());
+  await stampEpicLandedAtGated(project, epicId, new Date().toISOString());
   if (!landLeafId) return true;
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
   return true;
@@ -560,8 +561,12 @@ export async function convergeObservedMerge(
   if (ahead !== 0) {
     return { stamped: false, reason: ahead > 0 ? 'epic-ahead' : 'ahead-unknown', ahead };
   }
+  // Gate the stamp on master-reachability: the authoritative guard is the gate's newCount decision.
+  const gateResult = await stampEpicLandedAtGated(project, epicId, new Date().toISOString());
+  if (gateResult.reason === 'ahead-of-master' && !gateResult.stamped) {
+    return { stamped: false, reason: 'ahead-of-master', ahead: gateResult.newCount };
+  }
   await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
-  stampEpicLandedAt(project, epicId, new Date().toISOString());
   recordSupervisorAudit({
     kind: 'reconcile', project, session: 'coordinator',
     detail: JSON.stringify({ epicId, landLeafId, convergentStamp: 'observed-merged', ahead: 0 }),
