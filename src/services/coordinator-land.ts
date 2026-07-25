@@ -1043,7 +1043,7 @@ export async function landEpic(
 
       let treeRestored = false;
       const trackedDirty = await wm.trackedDirtyPaths().catch(() => dirty);
-      const guard = guardPostLandTree(targetProject, {
+      const guard = await guardPostLandTree(targetProject, {
         masterSha: land.masterSha,
         baseRef: land.baseRef,
         trackedDirty,

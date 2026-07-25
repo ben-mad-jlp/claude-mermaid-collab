@@ -1927,7 +1927,7 @@ export async function setupMCPServer(): Promise<Server> {
           case 'deploy_self': {
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
-            const result = requestSelfDeploy(project);
+            const result = await requestSelfDeploy(project);
             return JSON.stringify(result, null, 2);
           }
           case 'escalation_create': {

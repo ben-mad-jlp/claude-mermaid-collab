@@ -105,13 +105,13 @@ describe('FAIL-OPEN — the recorder never throws into its caller', () => {
 });
 
 describe('deploySafetyGate wiring', () => {
-  test('a leaves-in-flight refusal records a deploy-refusal entry', () => {
-    const res = deploySafetyGate(
+  test('a leaves-in-flight refusal records a deploy-refusal entry', async () => {
+    const res = await deploySafetyGate(
       '/some/project',
       {
         reap: () => {},
         inflight: () => [{ leafId: 'leaf-1' }],
-        tree: () => ({ resolved: true, match: true } as never),
+        tree: () => Promise.resolve({ resolved: true, match: true } as never),
         epicMidLand: () => false,
       },
     );
@@ -125,13 +125,13 @@ describe('deploySafetyGate wiring', () => {
     expect(rec!.reason).toBe('leaves-in-flight');
   });
 
-  test('an epic-mid-land refusal records a deploy-refusal entry', () => {
-    const res = deploySafetyGate(
+  test('an epic-mid-land refusal records a deploy-refusal entry', async () => {
+    const res = await deploySafetyGate(
       '/proj2',
       {
         reap: () => {},
         inflight: () => [],
-        tree: () => ({ resolved: true, match: true } as never),
+        tree: () => Promise.resolve({ resolved: true, match: true } as never),
         epicMidLand: () => true,
       },
       { force: true }, // skip the inflight check to reach the mid-land refusal

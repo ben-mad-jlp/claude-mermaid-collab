@@ -737,7 +737,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const liveStartedMs = status.deploy.liveStartedAt ? Date.parse(status.deploy.liveStartedAt) : null;
       const lastSelfLandAt = getLastSelfLandAt();
       const selfLandPending = lastSelfLandAt != null && (liveStartedMs == null || lastSelfLandAt > liveStartedMs);
-      const gate = selfDeployEligibility(project);
+      const gate = await selfDeployEligibility(project);
       // Staleness for the banner is NOT system-status `drift`: that counts ALL
       // uncommitted paths including UNTRACKED scratch (leaf-blueprints, daemon-*.ts),
       // which would keep the banner lit forever even right after a clean deploy.
@@ -790,7 +790,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     try {
       const { project, force } = (await req.json()) as { project?: string; force?: boolean };
       if (!project) return jsonError('project is required', 400);
-      const result = requestSelfDeploy(project, { force: !!force });
+      const result = await requestSelfDeploy(project, { force: !!force });
       return Response.json(result, { status: result.ok ? 200 : 409 });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
