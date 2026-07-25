@@ -680,7 +680,7 @@ export function deactivateIfTerminal(project: string, todoId: string): void {
 }
 
 /** Resolve the owning mission todoId for a criterion (criterion setters key off criterionId). */
-function missionIdOfCriterion(project: string, criterionId: string): string | undefined {
+export function missionIdOfCriterion(project: string, criterionId: string): string | undefined {
   const row = openDb(project)
     .query('SELECT todoId FROM mission_criterion WHERE id = ?')
     .get(criterionId) as { todoId: string } | undefined;
