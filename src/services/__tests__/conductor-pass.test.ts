@@ -481,9 +481,14 @@ describe('runConductorPass — target pin', () => {
     expect(getConductorTargetMission(project)).toBe(null);
   });
 
-  test.each(['converged', 'abandoned'] as const)(
+  // Convergence now freezes the mission into the terminal 'closed' state, so the
+  // observable status differs from the case label; the pin must clear on EITHER.
+  test.each([
+    ['converged', 'closed'],
+    ['abandoned', 'abandoned'],
+  ] as const)(
     'pinning a %s mission clears the pin and drives nothing (not even the other actionable mission)',
-    async (terminalStatus) => {
+    async (terminalStatus, expectedStatus) => {
       addWatchedProject(project);
       setConductorEnabled(project, true);
       // A second, actionable mission that MUST NOT be driven as a fallback.
@@ -496,7 +501,7 @@ describe('runConductorPass — target pin', () => {
       } else {
         setMissionAbandoned(project, target.missionId, 1);
       }
-      expect(getMission(project, target.missionId)?.status).toBe(terminalStatus);
+      expect(getMission(project, target.missionId)?.status).toBe(expectedStatus);
 
       setConductorTargetMission(project, target.missionId);
       const r = await runConductorPass(project, { invoke: okInvoke });
