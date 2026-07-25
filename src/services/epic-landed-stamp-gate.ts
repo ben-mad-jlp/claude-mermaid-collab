@@ -19,20 +19,22 @@ import {
 import { createEscalation, recordSupervisorAudit } from './supervisor-store';
 import { coordinatorCondition } from './coordinator-condition-keys';
 
-export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed';
+export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error';
 
 /**
  * Gate the `stampEpicLandedAt` call on master-reachability.
  *
  * Returns { stamped, reason, newCount? }:
  * - stamped: boolean — whether the epic's landedAt was set
- * - reason: 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed'
+ * - reason: 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error'
  * - newCount?: number — only present for ahead-of-master
  *
  * Decision table:
- * - indeterminate (probe failed / branch missing): FAIL-SAFE → stamp, audit with landGate:'indeterminate-stamp'
- * - newCount === 0: stamp and audit with landGate:'gated-clean'
- * - newCount > 0: do NOT stamp; raise one 'land-failed' card, audit with landGate:'ahead-of-master'
+ * - branch absent → FAIL-SAFE stamp, audit with landGate:'indeterminate-stamp', reason 'indeterminate'
+ * - branch exists but counts unreadable (exists=true, newCount=null, ahead=null) → do NOT stamp; raise one 'land-failed' card, audit with landGate:'indeterminate-no-stamp', reason 'indeterminate'
+ * - newCount === 0 → stamp and audit with landGate:'gated-clean' (or stamp-failed if write fails)
+ * - newCount > 0 → do NOT stamp; raise one 'land-failed' card, audit with landGate:'ahead-of-master', reason 'ahead-of-master'
+ * - internal error (probe throws or other exception) → do NOT stamp; raise one 'land-failed' card, reason 'gate-error'
  *
  * opts.known: a pre-fetched BranchProbe — when supplied, the gate makes zero git calls.
  */
@@ -50,10 +52,10 @@ export async function stampEpicLandedAtGated(
 
     // Probe the branch status against the base — reuse a pre-fetched BranchProbe
     // when supplied (opts.known), so the gate makes zero git calls.
-    const p = opts?.known ?? (await probe(branch, baseRef).catch(() => null));
+    const p = opts?.known ?? (await probe(branch, baseRef));
 
-    // INDETERMINATE: branch missing, probe failed, or no counts available.
-    if (!p || p.exists === false || (p.newCount == null && p.ahead == null)) {
+    // INDETERMINATE (branch absent): fail-safe stamp.
+    if (!p || p.exists === false) {
       const ok = stampEpicLandedAt(project, epicId, whenIso);
       recordSupervisorAudit({
         kind: 'reconcile',
@@ -66,6 +68,36 @@ export async function stampEpicLandedAtGated(
         }),
       });
       return { stamped: ok, reason: 'indeterminate' };
+    }
+
+    // INDETERMINATE (branch exists but counts unreadable): do NOT stamp.
+    // Raise escalation and retry next tick.
+    if (p.newCount == null && p.ahead == null) {
+      const id8 = epicId8(epicId);
+      try {
+        createEscalation({
+          project,
+          session,
+          kind: 'land-failed',
+          todoId: epicId,
+          questionText: `Landing cannot proceed: branch ${branch} exists but git counts unreadable (probe returned null for both newCount and ahead)`,
+          ...coordinatorCondition('land-failed', id8),
+        });
+      } catch (e) {
+        console.warn('[epic-landed-stamp-gate] createEscalation failed for indeterminate-no-stamp card', epicId, e);
+      }
+
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session,
+        detail: JSON.stringify({
+          epicId,
+          branch,
+          landGate: 'indeterminate-no-stamp',
+        }),
+      });
+      return { stamped: false, reason: 'indeterminate' };
     }
 
     const newCount = effectiveNewCount(p);
@@ -120,12 +152,21 @@ export async function stampEpicLandedAtGated(
     return { stamped: false, reason: 'ahead-of-master', newCount };
   } catch (e) {
     console.warn('[epic-landed-stamp-gate] stampEpicLandedAtGated failed', epicId, e);
-    // In case of error, fail-safe and try to stamp anyway (never block landing).
+    // Fail-closed: gate error means we cannot prove the landing is safe.
+    // Do NOT stamp. Raise escalation and let the user retry.
+    const errorMsg = e instanceof Error ? e.message : String(e);
     try {
-      stampEpicLandedAt(project, epicId, whenIso);
-    } catch {
-      // best effort
+      createEscalation({
+        project,
+        session: opts?.session ?? 'coordinator',
+        kind: 'land-failed',
+        todoId: epicId,
+        questionText: `Landing failed: internal gate error: ${errorMsg}`,
+        ...coordinatorCondition('land-failed', epicId8(epicId)),
+      });
+    } catch (escErr) {
+      console.warn('[epic-landed-stamp-gate] createEscalation failed in catch block', epicId, escErr);
     }
-    return { stamped: false, reason: 'stamp-failed' };
+    return { stamped: false, reason: 'gate-error' };
   }
 }

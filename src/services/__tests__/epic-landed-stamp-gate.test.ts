@@ -1,11 +1,14 @@
 /**
  * Tests for the stampEpicLandedAtGated gate: verify reachability on master before stamping.
  *
- * Four arms:
+ * Arms:
  * 1. Branch newCount>0 → NOT stamped, one land-failed escalation raised
  * 2. newCount===0 → stamped with reason 'gated-clean'
  * 3. stampEpicLandedAt write fails (returns false) → gate reports 'stamp-failed'
  * 4. Duplicate calls on same epic do not raise duplicate cards (conditionKey dedup)
+ * 5. Branch absent (exists=false) → stamped with reason 'indeterminate' (fail-safe, no escalation)
+ * 6. Branch exists but counts unreadable (exists=true, newCount=null, ahead=null) → NOT stamped, one land-failed escalation, reason 'indeterminate'
+ * 7. Probe throws → NOT stamped, one land-failed escalation, reason 'gate-error'
  *
  * Setup: isolate supervisor.db, use temp project dirs, inject fake git probes.
  */
@@ -181,36 +184,37 @@ describe('stampEpicLandedAtGated — gate for master reachability', () => {
     expect(landFailedCards[0].recurrenceCount).toBe(1); // Updated the existing card
   });
 
-  it('indeterminate probe (missing branch / null counts) → stamped with reason indeterminate', async () => {
-    const probeNotFound: GitProbe = async () => ({
-      exists: false,
+  it('branch exists but counts unreadable (newCount=null, ahead=null) → NOT stamped, one land-failed escalation, reason indeterminate', async () => {
+    const probeUnreadable: GitProbe = async () => ({
+      exists: true,
       ahead: null,
       behind: null,
       mergeable: null,
+      newCount: null,
     });
 
     const beforeEpic = getTodo(project, epicId);
     expect(beforeEpic!.landedAt).toBeNull();
 
     const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', {
-      probe: probeNotFound,
+      probe: probeUnreadable,
       session: 'test',
     });
 
-    // Fail-safe: indeterminate → stamp anyway
+    // Do NOT stamp when counts are unreadable
     expect(result.reason).toBe('indeterminate');
-    expect(result.stamped).toBe(true);
+    expect(result.stamped).toBe(false);
 
     const afterEpic = getTodo(project, epicId);
-    expect(afterEpic!.landedAt).toBe('2026-07-24T10:00:00Z');
+    expect(afterEpic!.landedAt).toBeNull();
 
-    // No escalations for indeterminate (for this epic)
+    // One escalation raised for unreadable counts
     const escalations = listEscalations();
     const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
-    expect(landFailedCards.length).toBe(0);
+    expect(landFailedCards.length).toBe(1);
   });
 
-  it('probe throws (error) → fail-safe stamps anyway, reason indeterminate', async () => {
+  it('probe throws (error) → NOT stamped, one land-failed escalation, reason gate-error', async () => {
     const probeFails: GitProbe = async () => {
       throw new Error('git spawn failed');
     };
@@ -223,14 +227,43 @@ describe('stampEpicLandedAtGated — gate for master reachability', () => {
       session: 'test',
     });
 
-    // Fail-safe: error in probe → caught and treated as indeterminate → stamp anyway
+    // Fail-closed: error means we cannot prove safety → do NOT stamp
+    expect(result.reason).toBe('gate-error');
+    expect(result.stamped).toBe(false);
+
+    const afterEpic = getTodo(project, epicId);
+    expect(afterEpic!.landedAt).toBeNull();
+
+    // One escalation raised for gate error
+    const escalations = listEscalations();
+    const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
+    expect(landFailedCards.length).toBe(1);
+  });
+
+  it('branch absent (exists=false) → stamped with reason indeterminate (fail-safe), no escalation', async () => {
+    const probeAbsent: GitProbe = async () => ({
+      exists: false,
+      ahead: null,
+      behind: null,
+      mergeable: null,
+    });
+
+    const beforeEpic = getTodo(project, epicId);
+    expect(beforeEpic!.landedAt).toBeNull();
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', {
+      probe: probeAbsent,
+      session: 'test',
+    });
+
+    // Fail-safe: branch absent → stamp anyway
     expect(result.reason).toBe('indeterminate');
     expect(result.stamped).toBe(true);
 
     const afterEpic = getTodo(project, epicId);
     expect(afterEpic!.landedAt).toBe('2026-07-24T10:00:00Z');
 
-    // No escalations on probe error
+    // No escalations raised (fail-safe path)
     const escalations = listEscalations();
     const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
     expect(landFailedCards.length).toBe(0);
