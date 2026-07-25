@@ -22,6 +22,12 @@
  *  Origin: src/services/mission-store.ts (deriveCriterionAction). */
 export const CRITERION_SERVE_CAP = 3;
 
+/** Threshold of rejected + blocked leaves in an epic before it is diagnosed as churning
+ *  (producing rejection loops). An epic with >= this many rejections+blocks AND zero
+ *  accepted leaves indicates the epic's decomposition is wrong and needs re-scoping.
+ *  Origin: src/services/epic-churn.ts (detectEpicChurn). */
+export const EPIC_CHURN_REJECT_THRESHOLD = 2;
+
 /** How many times a FAILED conductor serve (node/planner failure) retries the SAME
  *  mission state across ticks before the pass stops respinning an expensive node on it.
  *  Bounds the retry so a transient failure self-heals but a persistently-unservable
