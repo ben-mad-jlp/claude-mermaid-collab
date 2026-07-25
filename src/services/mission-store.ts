@@ -40,12 +40,15 @@ export type MissionStatus =
   | 'building'        // leaves in flight AND nothing left to discover/verify (quietest non-terminal state)
   | 'needs-verify'    // some criterion's serving epic landed, verdict not yet recorded
   | 'needs-discovery' // some criterion has no LIVE serving epic (per-criterion — others may be building)
-  | 'converged';      // every criterion met
+  | 'converged'       // every criterion met
+  | 'closed';         // closedAt set — frozen converged history
 
-/** A mission is terminal (the loop has stopped) when it converged or a human abandoned it.
- *  Replaces the removed isTerminalPhase(phase) — reads the derived status, not stored phase. */
-export function isMissionTerminal(m: Pick<MissionRow, 'status' | 'abandonedAt'>): boolean {
-  return m.abandonedAt != null || m.status === 'converged';
+/** A mission is terminal (the loop has stopped) when it converged, a human abandoned it, or it
+ *  was closed (a converged mission's terminality frozen durably — see setMissionClosed). */
+export function isMissionTerminal(
+  m: Pick<MissionRow, 'status' | 'abandonedAt'> & { closedAt?: number | null },
+): boolean {
+  return m.closedAt != null || m.abandonedAt != null || m.status === 'converged' || m.status === 'closed';
 }
 
 export interface MissionRow {
@@ -80,6 +83,13 @@ export interface MissionRow {
    *  concept: an abandoned mission with unmet criteria is otherwise indistinguishable
    *  from an in-progress one; this makes "done with it" explicit. */
   abandonedAt: number | null;
+  /** Durable "converged and frozen" stamp (ms epoch), or null. Set once by deactivateIfTerminal
+   *  the first time a mission's derived status reads 'converged' — makes terminality durable
+   *  against a later reopened criterion verdict (a `closed` mission's status stays 'closed'
+   *  even if a stray land reopens one of its criteria; see unverifyCriteriaForLandedPaths,
+   *  which skips closed missions entirely so this can't happen going forward). Never set for
+   *  abandonment (setMissionAbandoned does not touch this column). */
+  closedAt: number | null;
   /** Set (ms epoch) when a mission was FORGED but not yet human-approved (e.g. by the doc→node
    *  forge). Null = approved / not applicable (all hand-created + legacy missions). While set the
    *  derived status is 'unapproved' and the mission-loop never drives it. approve_mission clears it. */
@@ -183,6 +193,7 @@ CREATE TABLE IF NOT EXISTS mission (
   lastNudgeKey TEXT,
   active INTEGER NOT NULL DEFAULT 1,
   abandonedAt INTEGER,
+  closedAt INTEGER,
   budgetUsd REAL,
   handoffDocId TEXT,
   queuePos INTEGER
@@ -264,6 +275,12 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'lastConductorSelfKey', 'lastConductorSelfKey TEXT');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
+  // Note: migrateDropPhaseMachine (below) rebuilds the pre-closedAt mission table shape when
+  // it runs (a legacy DB still carrying a `phase` column), which would drop this column on
+  // that pass. Left alone deliberately (see the blueprint) — a legacy DB re-gets closedAt on
+  // the NEXT openDb() call, since this addColumnIfMissing runs before migrateDropPhaseMachine
+  // every time and no-ops once the column already exists.
+  addColumnIfMissing(db, 'mission', 'closedAt', 'closedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
   addColumnIfMissing(db, 'mission', 'handoffDocId', 'handoffDocId TEXT');
@@ -307,6 +324,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     queuePos: (row.queuePos as number | null) ?? null,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
+    closedAt: (row.closedAt as number | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
     handoffDocId: (row.handoffDocId as string | null) ?? null,
@@ -474,6 +492,19 @@ export function setMissionAbandoned(project: string, todoId: string, abandonedAt
   return getMission(project, id)!;
 }
 
+/** Durable "converged and frozen" stamp. Called ONCE by deactivateIfTerminal the first time a
+ *  mission's derived status reads 'converged' — makes terminality durable so a later land that
+ *  happens to reopen one of the mission's criteria (unverifyCriteriaForLandedPaths) cannot
+ *  un-converge stopped history. NOT called for abandonment — setMissionAbandoned keeps its own
+ *  status and never touches this column. */
+export function setMissionClosed(project: string, todoId: string, at: number | null): void {
+  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const res = openDb(project)
+    .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
+    .run(at, nowMs(), id);
+  if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+}
+
 /** Auditable budget mutation: the ONLY supported path for raising/lowering/clearing a
  *  mission's `budgetUsd` ceiling (formerly a raw-SQL free-for-all). Every call is attributed
  *  (`actor`) and logged to the autonomy ring (`kind: 'budget-change'`) so a later raise is
@@ -626,7 +657,11 @@ export function setMissionActive(project: string, todoId: string, active: boolea
  *  the transition points that can flip a mission terminal — abandonment and criterion met/verdict. */
 export function deactivateIfTerminal(project: string, todoId: string): void {
   const m = getMission(project, todoId);
-  if (m && m.active && isMissionTerminal(m)) {
+  if (!m) return;
+  if (isMissionTerminal(m) && m.status === 'converged' && m.closedAt == null) {
+    setMissionClosed(project, m.todoId, Date.now());
+  }
+  if (m.active && isMissionTerminal(m)) {
     setMissionActive(project, m.todoId, false);
     // B6 observability — only when a write ACTUALLY happened (this branch clears active).
     // Kept cheap: this runs from the listMissions terminal-active sweep, so we record at
@@ -809,7 +844,7 @@ export function selectConductorMission(
 ): ConductorSelection {
   const actionable = listMissions(project).filter((m) =>
     m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
-    !['unapproved', 'abandoned', 'converged'].includes(m.mission.status));
+    !['unapproved', 'abandoned', 'converged', 'closed'].includes(m.mission.status));
   if (actionable.length === 0) return { rivals: [] };
   const sorted = [...actionable].sort((a, b) => {
     const ra = missionStatusRank(a.mission.status), rb = missionStatusRank(b.mission.status);
@@ -1111,7 +1146,12 @@ export function unverifyCriteriaForLandedPaths(
   if (landedPaths.length === 0) return [];
   const landed = new Set(landedPaths);
   const affected: { criterionId: string; todoId: string }[] = [];
+  const skipped: string[] = [];
   for (const m of listMissions(project)) {
+    if (!m.mission.active || isMissionTerminal(m.mission)) {
+      skipped.push(m.node.id);
+      continue;
+    }
     for (const c of listCriteria(project, m.node.id)) {
       if (!c.met) continue;
       if (!c.evidencePaths.some((p) => landed.has(p))) continue;
@@ -1123,6 +1163,9 @@ export function unverifyCriteriaForLandedPaths(
       affected.push({ criterionId: c.id, todoId: c.todoId });
       if (reopenCount >= REOPEN_CARD_THRESHOLD) raiseReopenChurnCard(project, session, { ...c, reopenCount });
     }
+  }
+  if (skipped.length > 0) {
+    console.warn(`[mission] unverify skipped ${skipped.length} terminal/inactive mission(s): ${skipped.join(', ')}`);
   }
   return affected;
 }
@@ -1159,6 +1202,9 @@ export interface MissionStatusFacts {
   /** Optional (defaults falsy) so existing fact fixtures need no change; set by collectMissionStatusFacts. */
   awaitingApproval?: boolean;
   abandonedAt: number | null;
+  /** Optional (defaults falsy) so existing fact fixtures need no change; set by
+   *  collectMissionStatusFacts from the mission row's closedAt column. */
+  closedAt?: number | null;
   budgetUsd: number | null;
   spendUsd: number;
   hasBlockedLeaf: boolean;   // a leaf run rejected or blocked (parked/rejected/escalation/unapproved-split)
@@ -1207,6 +1253,7 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
  *  conductor can serve every open gap concurrently. 'building' is now the QUIETEST
  *  non-terminal state — it only surfaces when nothing is left to discover or verify. */
 export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
+  if (f.closedAt != null) return 'closed';
   if (f.abandonedAt != null) return 'abandoned';
   if (f.awaitingApproval) return 'unapproved'; // forged, not yet human-approved — never driven
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
@@ -1238,11 +1285,12 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
  * `withFacts: true`.
  */
 export function deriveCheapMissionStatus(
-  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'>,
+  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null },
   _epics: readonly { status: string }[],
   criteria: readonly { met: boolean }[] = [],
   stalled: boolean = false,
 ): MissionStatus {
+  if (m.closedAt != null) return 'closed';
   if (m.abandonedAt != null) return 'abandoned';
   if (m.awaitingApprovalSince != null) return 'unapproved';
   // Converged = the CAPABILITY gauge: every acceptance criterion met (stored verdicts — cheap, no
@@ -1329,6 +1377,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
+    closedAt: m.closedAt,
     budgetUsd: m.budgetUsd,
     spendUsd,
     // Ledger unavailable: we cannot see the leaf runs that would normally reveal a blocked

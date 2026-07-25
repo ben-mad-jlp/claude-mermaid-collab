@@ -51,7 +51,7 @@ export async function reconcileLandedEpics(
   // their exact semantics (their probe already answers exists:false for free).
   const listBranches =
     opts.listBranches ?? (opts.probe ? undefined : () => makeBranchGcRunner(project).listEpicBranches());
-  const missions = listMissions(project).filter((m) => m.mission.status === 'converged');
+  const missions = listMissions(project).filter((m) => m.mission.status === 'converged' || m.mission.status === 'closed');
   const todos = listTodos(project, { includeCompleted: true });
 
   const missionEpicIds = new Set<string>();

@@ -323,7 +323,7 @@ export type MissionPhase =
 
 export type MissionStatus =
   | 'abandoned' | 'over-budget' | 'stalled' | 'blocked' | 'building'
-  | 'needs-verify' | 'needs-discovery' | 'unapproved' | 'converged';
+  | 'needs-verify' | 'needs-discovery' | 'unapproved' | 'converged' | 'closed';
 
 export interface MissionSummary {
   node: { id: string; title: string; status: string };

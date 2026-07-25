@@ -245,7 +245,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     // back to a different mission — ambiguity is the bug the pin exists to kill.
     const row = getMission(project, pin);
     const summary = row ? listMissions(project).find((m) => m.node.id === row.todoId) : undefined;
-    if (!row || !summary || row.status == null || ['converged', 'abandoned'].includes(row.status)) {
+    if (!row || !summary || row.status == null || ['converged', 'abandoned', 'closed'].includes(row.status)) {
       // Pin points at a mission that no longer exists or is terminal — clear it lazily so the next
       // tick falls back to unpinned selection instead of permanently no-op'ing.
       setConductorTargetMission(project, null);
