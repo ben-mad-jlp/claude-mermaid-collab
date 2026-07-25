@@ -37,6 +37,16 @@ export interface WakeCriterion {
   text?: string;
 }
 
+/** One pending recheck from the mission_recheck queue. Structurally a subset of `MissionRecheck`
+ *  (mission-store.ts:148) minus `todoId` (the block is already mission-scoped), declared locally
+ *  so this module imports nothing. */
+export interface WakeRecheck {
+  criterionId: string;
+  reason: string;
+  landedSha: string | null;
+  enqueuedAt: number;
+}
+
 export interface WakeContextInput {
   missionId: string;
   missionTitle?: string;
@@ -53,6 +63,9 @@ export interface WakeContextInput {
   /** Per-criterion derived actions (listCriteriaWithActions), all of them; the work list picks
    *  out `discover`/`verify`. */
   actions?: readonly WakeCriterion[];
+  /** Criteria that lost their verdict and must be re-verified. Sourced from mission-recheck-drain.ts's
+   *  surviving `pending` list. */
+  rechecks?: readonly WakeRecheck[];
 }
 
 /** MAX open cards rendered in full. Bounding matters: the conductor node is the most expensive
@@ -109,6 +122,7 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
     (a, b) => (a.resolvedAt ?? 0) - (b.resolvedAt ?? 0),
   );
   const actionable = (input.actions ?? []).filter((a) => ACTIONABLE_ACTIONS.includes(a.action));
+  const rechecks = [...(input.rechecks ?? [])].sort((a, b) => a.enqueuedAt - b.enqueuedAt);
 
   const lines: string[] = [];
   lines.push('=== WAKE CONTEXT (injected by the harness — this is DATA already fetched for you) ===');
@@ -153,6 +167,23 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
   }
   lines.push(...whyLines);
   lines.push('');
+
+  // ── 1.5 REOPENED CRITERIA ────────────────────────────────────────────────────
+  if (rechecks.length > 0) {
+    lines.push(`REOPENED — needs re-verify (${rechecks.length} criterion/criteria lost verdict):`);
+    const shown = rechecks.slice(0, WAKE_CRITERION_RENDER_CAP);
+    for (const r of shown) {
+      lines.push(
+        `  ${r.criterionId}   reason: ${r.reason}   reopened ${formatWakeAge(now - r.enqueuedAt)} ago   landedSha: ${r.landedSha ?? '(none)'}`,
+      );
+    }
+    if (rechecks.length > shown.length) {
+      lines.push(
+        `  … ${rechecks.length - shown.length} more (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
+      );
+    }
+    lines.push('');
+  }
 
   // ── 2. OPEN CARDS ON THIS MISSION ────────────────────────────────────────────
   lines.push('OPEN CARDS ON THIS MISSION — act on these; do not go looking for them:');
