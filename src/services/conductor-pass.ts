@@ -17,6 +17,7 @@ import {
   selectConductorMission,
   CRITERION_SERVE_CAP,
   promoteQueuedMissions,
+  type MissionRecheck,
 } from './mission-store.js';
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
@@ -265,8 +266,11 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
 
   let rechecksDrained = 0;
+  let pendingRechecks: MissionRecheck[] = [];
   try {
-    rechecksDrained = drainMissionRechecks(project, missionId).cleared.length;
+    const drained = drainMissionRechecks(project, missionId);
+    rechecksDrained = drained.cleared.length;
+    pendingRechecks = drained.pending;
   } catch {
     /* fail-open — a drain hiccup must never abort a conductor pass */
   }
@@ -449,6 +453,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       openCards,
       resolvedCards,
       actions: criteriaWithActions.map((c) => ({ id: c.id, action: c.action, text: c.text })),
+      rechecks: pendingRechecks.map((r) => ({ criterionId: r.criterionId, reason: r.reason, landedSha: r.landedSha, enqueuedAt: r.enqueuedAt })),
     });
   } catch {
     wakeBlock = undefined;
