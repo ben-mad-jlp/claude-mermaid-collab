@@ -29,7 +29,7 @@ import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
 import { findOwningMission } from './land-authority';
-import { getMission, isMissionTerminal, setCriterionMet, enqueueRecheck } from './mission-store';
+import { getMission, isMissionTerminal, clearCriterionVerdict, missionIdOfCriterion, enqueueRecheck } from './mission-store';
 // Landing subsystem (extracted to coordinator-land.ts). surfaceEpicLand is the one
 // moved function this file still calls directly (makeCoordinatorDeps' completeTodo
 // continuation); the rest are re-exported below for back-compat only.
@@ -1218,6 +1218,7 @@ export async function sweepCorruptEpics(
       // Step 3: re-open criteria only when we actually cleared a stamp or undid a land leaf
       const shouldReopenCriteria = cleared || landLeafWasDone;
       const reopenedCriterionIds: string[] = [];
+      const skippedCriterionIds: string[] = [];
       if (shouldReopenCriteria) {
         // Collect the union of servesCriterionIds over the epic's accepted descendants
         const allTodos = listTodos(project, { includeCompleted: true });
@@ -1242,7 +1243,13 @@ export async function sweepCorruptEpics(
         // Re-open each criterion
         for (const criterionId of Array.from(criterionIdSet).sort()) {
           try {
-            setCriterionMet(project, criterionId, false);
+            const missionId = missionIdOfCriterion(project, criterionId);
+            const m = missionId ? getMission(project, missionId) : undefined;
+            if (!m || !m.active || isMissionTerminal(m)) {
+              skippedCriterionIds.push(criterionId);
+              continue;
+            }
+            clearCriterionVerdict(project, criterionId, { countReopen: true, reason: 'corrupt-land' });
             enqueueRecheck(project, {
               criterionId,
               todoId: e.epicId,
@@ -1250,6 +1257,9 @@ export async function sweepCorruptEpics(
             });
             reopenedCriterionIds.push(criterionId);
           } catch { /* one bad criterion never aborts the heal */ }
+        }
+        if (skippedCriterionIds.length > 0) {
+          console.warn(`[coordinator] corrupt-land reopen skipped ${skippedCriterionIds.length} criterion(s) under terminal/inactive mission(s): ${skippedCriterionIds.join(', ')}`);
         }
       }
 
@@ -1266,6 +1276,7 @@ export async function sweepCorruptEpics(
             ahead: e.ahead,
             clearedLandedAt: cleared,
             reopenedCriterionIds,
+            skippedCriterionIds,
           }),
         });
       }
