@@ -166,6 +166,21 @@ describe('normalizeHookInput — grok dialect', () => {
     const normalized = normalizeHookInput({ toolName: 'str_replace', toolInput: { file_path: join(worktree, 'x.txt') } });
     expect(decide(normalized, worktree).deny).toBe(false);
   });
+  it('create_file with file_path outside worktree → deny', () => {
+    const normalized = normalizeHookInput({ toolName: 'create_file', toolInput: { file_path: join(outside, 'x.txt') } });
+    expect(normalized.tool_name).toBe('Write');
+    expect(decide(normalized, worktree).deny).toBe(true);
+    expect(denyReason(decide(normalized, worktree))).toContain(outside);
+  });
+  it('create_file with file_path inside worktree → allow', () => {
+    const normalized = normalizeHookInput({ toolName: 'create_file', toolInput: { file_path: join(worktree, 'x.txt') } });
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
+  it('view_file with file_path outside worktree → allow (read not confined)', () => {
+    const normalized = normalizeHookInput({ toolName: 'view_file', toolInput: { file_path: join(outside, 'x.txt') } });
+    expect(normalized.tool_name).toBe('view_file');
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
   it('run_terminal_command with cd escape (grok) → Bash deny', () => {
     const normalized = normalizeHookInput({ toolName: 'run_terminal_command', toolInput: { command: `cd ${outside} && pytest` } });
     expect(normalized.tool_name).toBe('Bash');
