@@ -467,6 +467,11 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     }
   }
 
+  // RECOVERY ARMS: infraArm + redecomposeArm. Even if a mission is escalate-blocked (a capped
+  // criterion), both arms MUST run first — they fix INFRA (base-red leaves) and re-decompose
+  // churning epics. Only after both arms find nothing (and hasGap remains false) do we reach
+  // the criteria-escalated return at line 556. This lock is tested in conductor-pass.test.ts.
+  //
   // INFRA STUCK-WORK ARM. A leaf parked on `epic-base-red` (or a gate that could not run, or a
   // mis-homed target) is INFRA-dead, not content-dead: its rejection moves rejectedParkedCount
   // exactly ONCE, after which the fingerprint below is constant and every later pass debounces —
