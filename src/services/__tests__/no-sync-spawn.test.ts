@@ -39,13 +39,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'Test infrastructure: PATCHES cp.spawnSync/Bun.spawnSync inside the test runner ' +
       'to intercept hermeticity violations. Never loaded by the daemon.',
   },
-  'services/leaf-executor.ts': {
-    count: 2,
-    reason:
-      'import + citationLineExistsAtBase: one-shot `git show <sha>:<path>` of a single ' +
-      'file (8MB buffer cap), memoized per path per run behind a sync deps interface. ' +
-      '~50ms worst case. The suite-running sites in this file were converted to async.',
-  },
   'services/leaf-commit-scope.ts': {
     count: 4,
     reason:
