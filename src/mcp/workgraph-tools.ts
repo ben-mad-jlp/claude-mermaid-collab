@@ -107,6 +107,9 @@ export interface CreateEpicOpts {
   description?: string;
   servesCriterionIds?: string[];
   tier?: LeafTier;
+  /** Opt-in only: when true, this epic's purpose is greening a red base lane. Disables
+   *  the epic-base-red hold for this epic's leaves. Never auto-inferred from title. */
+  baseRepair?: boolean;
 }
 
 /**
@@ -140,6 +143,7 @@ export async function createEpicWithLandLeaf(
     description: opts.description,
     servesCriterionIds: opts.servesCriterionIds,
     tier: opts.tier,
+    baseRepair: opts.baseRepair ? 1 : 0,
   };
   if (opts.homeProvided) {
     if (opts.home === null) {
@@ -348,6 +352,7 @@ export const WORKGRAPH_TOOL_DEFS = [
         servesCriterionIds: { type: 'array', items: { type: 'string' } },
         description: { type: 'string' },
         tier: { type: 'string', enum: ['full', 'small', 'test-pinned'] },
+        baseRepair: { type: 'boolean', description: 'Opt-in only, for an epic whose purpose is greening a red base lane. When true, disables the epic-base-red hold (G2) for this epic\'s leaves, allowing each leaf\'s gate to judge net-new-vs-base (crit-8 lazy baseline). Never auto-inferred from title or description.' },
       },
       required: ['project', 'session', 'title'],
     },
@@ -440,6 +445,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         description: args.description,
         servesCriterionIds: args.servesCriterionIds,
         tier: args.tier,
+        baseRepair: args.baseRepair,
       }));
       broadcastTodosUpdated(project, session);
       return JSON.stringify(

@@ -62,6 +62,22 @@ describe('create_epic', () => {
   test('home:"null" (literal string) throws the guard, does not mission-home (case 4)', async () => {
     await expect(call('create_epic', { title: 'Trap epic', home: 'null' })).rejects.toThrow(/literal string/i);
   });
+
+  test('create_epic with baseRepair:true persists baseRepair=1 on the created epic row (getTodo readback)', async () => {
+    const res = await call('create_epic', { title: 'Green the base', baseRepair: true });
+    const epic = getTodo(project, res.epicId)!;
+    expect(epic.baseRepair).toBe(1);
+  });
+
+  test('create_epic without baseRepair leaves baseRepair=0 (opt-in, never default)', async () => {
+    const res1 = await call('create_epic', { title: 'Normal epic' });
+    const epic1 = getTodo(project, res1.epicId)!;
+    expect(epic1.baseRepair).toBe(0);
+
+    const res2 = await call('create_epic', { title: 'Green the red base lane' });
+    const epic2 = getTodo(project, res2.epicId)!;
+    expect(epic2.baseRepair).toBe(0);
+  });
 });
 
 describe('add_leaves', () => {
