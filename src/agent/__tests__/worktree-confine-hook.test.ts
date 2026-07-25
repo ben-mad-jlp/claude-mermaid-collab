@@ -9,9 +9,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 // The shipped hook lives at repo-root hooks/. From src/agent/__tests__ that's ../../../hooks.
-import { decide, findCdEscapes, isInside, canonicalize } from '../../../hooks/worktree-confine.mjs';
+import { decide, findCdEscapes, isInside, canonicalize, normalizeHookInput, buildDenyOutput } from '../../../hooks/worktree-confine.mjs';
 
 let root = '';          // a real temp dir standing in for the lane worktree's PARENT
 let worktree = '';      // the lane worktree (canonical)
@@ -140,5 +140,131 @@ describe('helpers', () => {
   });
   it('findCdEscapes catches a chained absolute escape after &&', () => {
     expect(findCdEscapes(`echo hi && cd ${outside} && pytest`, worktree).length).toBe(1);
+  });
+});
+
+describe('normalizeHookInput — grok dialect', () => {
+  it('search_replace with file_path (grok dialect) → Write', () => {
+    const result = normalizeHookInput({ toolName: 'search_replace', toolInput: { file_path: join(outside, 'x.txt') } });
+    expect(decide(result, worktree).deny).toBe(true);
+  });
+  it('search_replace with file_path (grok) outside worktree → deny', () => {
+    const normalized = normalizeHookInput({ toolName: 'search_replace', toolInput: { file_path: join(outside, 'x.txt') } });
+    expect(normalized.tool_name).toBe('Write');
+    expect(decide(normalized, worktree).deny).toBe(true);
+  });
+  it('search_replace with file_path (grok) inside worktree → allow', () => {
+    const normalized = normalizeHookInput({ toolName: 'search_replace', toolInput: { file_path: join(worktree, 'x.txt') } });
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
+  it('run_terminal_command with cd escape (grok) → Bash deny', () => {
+    const normalized = normalizeHookInput({ toolName: 'run_terminal_command', toolInput: { command: `cd ${outside} && pytest` } });
+    expect(normalized.tool_name).toBe('Bash');
+    expect(decide(normalized, worktree).deny).toBe(true);
+  });
+  it('run_terminal_command with relative cd (grok) → Bash allow', () => {
+    const normalized = normalizeHookInput({ toolName: 'run_terminal_command', toolInput: { command: 'cd sub && pytest' } });
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
+  it('write tool (grok) with path field → maps to file_path', () => {
+    const normalized = normalizeHookInput({ toolName: 'write', toolInput: { path: join(worktree, 'test.txt') } });
+    expect(normalized.tool_input?.file_path).toBe(join(worktree, 'test.txt'));
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
+  it('edit_notebook (grok) → NotebookEdit', () => {
+    const normalized = normalizeHookInput({ toolName: 'edit_notebook', toolInput: { notebook_path: join(worktree, 'nb.ipynb') } });
+    expect(normalized.tool_name).toBe('NotebookEdit');
+    expect(decide(normalized, worktree).deny).toBe(false);
+  });
+});
+
+describe('normalizeHookInput — fallback & malformed input', () => {
+  it('null input → allow-shaped output', () => {
+    const result = normalizeHookInput(null);
+    expect(result.tool_name).toBeUndefined();
+    expect(decide(result, worktree).deny).toBe(false);
+  });
+  it('number input → allow-shaped output', () => {
+    const result = normalizeHookInput(42);
+    expect(decide(result, worktree).deny).toBe(false);
+  });
+  it('empty object {} → allow-shaped output', () => {
+    const result = normalizeHookInput({});
+    expect(result.tool_name).toBeUndefined();
+    expect(decide(result, worktree).deny).toBe(false);
+  });
+  it('unknown tool name → passes through and allows', () => {
+    const result = normalizeHookInput({ toolName: 'made_up_tool', toolInput: {} });
+    expect(result.tool_name).toBe('made_up_tool');
+    expect(decide(result, worktree).deny).toBe(false);
+  });
+});
+
+describe('buildDenyOutput', () => {
+  it('returns object with decision, reason, and hookSpecificOutput', () => {
+    const output = buildDenyOutput('test reason');
+    expect(output.decision).toBe('deny');
+    expect(output.reason).toBe('test reason');
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('test reason');
+  });
+});
+
+describe('hook main() wire format — grok payload simulation', () => {
+  it('grok payload normalizes and produces correct deny output structure', () => {
+    // Simulate a grok payload with search_replace attempting to write outside worktree
+    const grokPayload = {
+      hookEventName: 'pre_tool_use',
+      toolName: 'search_replace',
+      toolInput: { file_path: join(outside, 'target.txt'), old_string: 'hello', new_string: 'goodbye' },
+    };
+
+    const normalized = normalizeHookInput(grokPayload);
+    const decision = decide(normalized, worktree);
+    if (!decision.deny) throw new Error('expected deny decision');
+    const output = buildDenyOutput(decision.reason);
+
+    expect(output.decision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBeDefined();
+  });
+
+  it('grok run_terminal_command with in-worktree cd normalizes and allows', () => {
+    const grokPayload = {
+      hookEventName: 'pre_tool_use',
+      toolName: 'run_terminal_command',
+      toolInput: { command: 'cd sub && pytest' },
+    };
+
+    const normalized = normalizeHookInput(grokPayload);
+    const decision = decide(normalized, worktree);
+
+    expect(decision.deny).toBe(false);
+  });
+
+  it('spawns hook with grok search_replace deny payload and verifies deny output', async () => {
+    const hookPath = join(import.meta.dir, '..', '..', '..', 'hooks', 'worktree-confine.mjs');
+
+    const grokPayload = JSON.stringify({
+      hookEventName: 'pre_tool_use',
+      toolName: 'search_replace',
+      toolInput: { file_path: join(outside, 'target.txt'), old_string: 'hello', new_string: 'goodbye' },
+    });
+
+    const proc = Bun.spawn([process.execPath, hookPath], {
+      env: { ...process.env, MERMAID_LEAF_WORKTREE: worktree },
+      stdin: 'pipe',
+      stdout: 'pipe',
+    });
+
+    await proc.stdin!.write(grokPayload);
+    proc.stdin!.end();
+
+    const stdoutData = await new Response(proc.stdout!).arrayBuffer();
+    const stdout = new TextDecoder().decode(stdoutData);
+    const output = JSON.parse(stdout);
+
+    expect(output.decision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 });

@@ -21,6 +21,15 @@
  *                                           relative cd, in-tree cd, reads, no-cd → ALLOW.
  *   - everything else                     → ALLOW.
  *
+ * Grok dialect: grok CLI 0.2.93 emits hook payloads with the following schema (observed
+ * 2026-07-25). Observed verbatim payloads:
+ *   {"hookEventName":"pre_tool_use","sessionId":"…","cwd":"/private/tmp/probe","workspaceRoot":"/private/tmp/probe","timestamp":"2026-07-25T22:21:34Z","transcriptPath":"…/updates.jsonl","toolName":"run_terminal_command","toolUseId":"call-…-0","toolInput":{"command":"echo probe-shell","description":"Run echo probe-shell"},"toolInputTruncated":false,"permissionMode":"bypassPermissions"}
+ *   {"…","toolName":"search_replace","toolInput":{"file_path":"/private/tmp/probe/target.txt","old_string":"hello","new_string":"goodbye"},"toolInputTruncated":false,"permissionMode":"bypassPermissions"}
+ *   {"…","toolName":"write","toolInput":{"file_path":"/private/tmp/probe/fresh.txt","content":"banana\n"},"toolInputTruncated":false,"permissionMode":"bypassPermissions"}
+ * The hook normalizes both grok and claude dialects before calling {@link decide}.
+ * Environment inheritance is proven: the hook child receives MERMAID_LEAF_WORKTREE from
+ * the parent process.
+ *
  * FAIL-OPEN by construction: any error (bad JSON, unreadable env, exception) → ALLOW,
  * logged to stderr. A PreToolUse hook that PRINTS NOTHING and exits 0 defers to the
  * permission rules (= allow under dontAsk). It NEVER emits "ask" (that hangs a tty-less
@@ -36,6 +45,19 @@ import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+/** Map grok tool names to claude tool names. */
+const GROK_TOOL_ALIASES = {
+  run_terminal_command: 'Bash',
+  search_replace: 'Write',
+  write: 'Write',
+  create_file: 'Write',
+  edit_file: 'Write',
+  edit_notebook: 'NotebookEdit',
+};
+
+/** Ordered list of possible file path field names across grok and claude dialects. */
+const WRITE_TARGET_ALIASES = ['file_path', 'path', 'abs_path', 'target_file', 'notebook_path', 'target_notebook'];
 
 /**
  * Canonicalise a path that may NOT YET EXIST (a Write target's file is created AFTER the
@@ -72,6 +94,63 @@ function expandHome(p) {
   if (p === '~') return homedir();
   if (p.startsWith('~/')) return join(homedir(), p.slice(2));
   return p;
+}
+
+/**
+ * Normalize hook input from both grok and claude dialects into a common shape.
+ * Returns { tool_name, tool_input } that decide() expects.
+ * Never throws — malformed inputs fall back to allow-shaped outputs.
+ */
+export function normalizeHookInput(raw) {
+  // Garbage or non-object → fail-open
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { tool_name: undefined, tool_input: {} };
+  }
+
+  // Normalize tool name: grok uses camelCase (toolName), claude uses snake_case (tool_name)
+  let tool_name = raw.tool_name ?? raw.toolName;
+  if (typeof tool_name !== 'string') {
+    return { tool_name: undefined, tool_input: {} };
+  }
+
+  // Apply grok → claude alias mapping
+  tool_name = GROK_TOOL_ALIASES[tool_name] ?? tool_name;
+
+  // Normalize tool input: grok uses camelCase (toolInput), claude uses snake_case (tool_input)
+  let tool_input = raw.tool_input ?? raw.toolInput;
+  if (typeof tool_input !== 'object' || tool_input === null || Array.isArray(tool_input)) {
+    tool_input = {};
+  }
+
+  // If this is a write tool and file_path/notebook_path is missing, copy the first present
+  // path-like field onto file_path. Do this on a shallow copy to never mutate raw.
+  if (WRITE_TOOLS.has(tool_name) && !tool_input.file_path && !tool_input.notebook_path) {
+    for (const alias of WRITE_TARGET_ALIASES) {
+      if (typeof tool_input[alias] === 'string') {
+        // Shallow copy and assign
+        tool_input = { ...tool_input, file_path: tool_input[alias] };
+        break;
+      }
+    }
+  }
+
+  return { tool_name, tool_input };
+}
+
+/**
+ * Build a deny response object that works for both grok and claude hooks.
+ * Grok expects `{ decision, reason }` and optionally `hookSpecificOutput.permissionDecision`.
+ */
+export function buildDenyOutput(reason) {
+  return {
+    decision: 'deny',
+    reason,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason,
+    },
+  };
 }
 
 /**
@@ -162,21 +241,13 @@ async function main() {
   }
   let result;
   try {
-    result = decide(input, process.env.MERMAID_LEAF_WORKTREE);
+    result = decide(normalizeHookInput(input), process.env.MERMAID_LEAF_WORKTREE);
   } catch (e) {
     process.stderr.write(`[worktree-confine] allow (decision error): ${e}\n`);
     return; // FAIL OPEN
   }
   if (result && result.deny) {
-    process.stdout.write(
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: result.reason,
-        },
-      }) + '\n',
-    );
+    process.stdout.write(JSON.stringify(buildDenyOutput(result.reason)) + '\n');
   }
   // else: print nothing → defer to permission rules (allow under dontAsk).
 }
