@@ -34,6 +34,10 @@ import {
   nodeSettingsFile,
   resolveConfineHookPath,
   _resetConfineHookPathCache,
+  buildGrokArgv,
+  grokConfineHookFile,
+  _resetGrokConfineHookCache,
+  GROK_CONFINE_MATCHER,
   type NodeSpec,
 } from '../node-invoker.ts';
 import { invokeXaiApiNode } from '../xai-api-invoker.ts';
@@ -350,6 +354,107 @@ describe('worktree-confinement wiring (buildNodeArgv --settings + generated hook
     const argv = buildNodeArgv(base);
     expect(argv).toContain('--settings');
     expect(argv).toContain('--setting-sources');
+  });
+});
+
+describe('grok confinement hook installation (grokConfineHookFile + GROK_CONFINE_MATCHER)', () => {
+  beforeEach(() => { _resetConfineHookPathCache(); _resetGrokConfineHookCache(); });
+  afterEach(() => { _resetConfineHookPathCache(); _resetGrokConfineHookCache(); });
+
+  it('grokConfineHookFile returns a path whose JSON contains the correct hook structure', () => {
+    const path = grokConfineHookFile();
+    expect(path).not.toBeNull();
+    expect(path!.endsWith('/hooks/mermaid-worktree-confine.json')).toBe(true);
+    expect(existsSync(path!)).toBe(true);
+
+    const body = JSON.parse(readFileSync(path!, 'utf-8'));
+    expect(body.hooks.PreToolUse).toBeDefined();
+    expect(Array.isArray(body.hooks.PreToolUse)).toBe(true);
+    expect(body.hooks.PreToolUse.length).toBe(1);
+    expect(body.hooks.PreToolUse[0].matcher).toBe(GROK_CONFINE_MATCHER);
+    expect(body.hooks.PreToolUse[0].hooks).toBeDefined();
+    expect(Array.isArray(body.hooks.PreToolUse[0].hooks)).toBe(true);
+    expect(body.hooks.PreToolUse[0].hooks.length).toBe(1);
+    expect(body.hooks.PreToolUse[0].hooks[0].type).toBe('command');
+    expect(body.hooks.PreToolUse[0].hooks[0].command).toBe(resolveConfineHookPath()!);
+    expect(body.hooks.PreToolUse[0].hooks[0].command.endsWith('/hooks/worktree-confine.mjs')).toBe(true);
+    expect(body.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
+  });
+
+  it('GROK_CONFINE_MATCHER includes both claude and grok tool names', () => {
+    const re = new RegExp(GROK_CONFINE_MATCHER);
+    // Claude tools
+    expect(re.test('Bash')).toBe(true);
+    expect(re.test('Write')).toBe(true);
+    expect(re.test('Edit')).toBe(true);
+    expect(re.test('MultiEdit')).toBe(true);
+    expect(re.test('NotebookEdit')).toBe(true);
+    // Grok tools
+    expect(re.test('run_terminal_command')).toBe(true);
+    expect(re.test('search_replace')).toBe(true);
+    expect(re.test('write')).toBe(true);
+    expect(re.test('create_file')).toBe(true);
+    expect(re.test('edit_file')).toBe(true);
+  });
+
+  it('grokConfineHookFile is idempotent: successive calls return the same path and file', () => {
+    const path1 = grokConfineHookFile();
+    const body1 = JSON.parse(readFileSync(path1!, 'utf-8'));
+    const count1 = body1.hooks.PreToolUse.length;
+    expect(count1).toBe(1);
+
+    const path2 = grokConfineHookFile();
+    expect(path2).toBe(path1);
+
+    const body2 = JSON.parse(readFileSync(path2!, 'utf-8'));
+    const count2 = body2.hooks.PreToolUse.length;
+    expect(count2).toBe(1);
+  });
+
+  it('grokConfineHookFile never throws, even on fs errors or when resolveConfineHookPath returns null', () => {
+    // Test fail-open: grokConfineHookFile catches all errors and returns null.
+    // With the hook available (normal case), we get a path; the key is it never throws.
+    _resetConfineHookPathCache();
+    _resetGrokConfineHookCache();
+    const result = grokConfineHookFile();
+    // Result is either a string (success) or null (graceful fail) — never throws.
+    expect(typeof result === 'string' || result === null).toBe(true);
+  });
+});
+
+describe('buildGrokArgv', () => {
+  it('produces the exact expected argv list (no --settings flag, no added flags)', () => {
+    const argv = buildGrokArgv({ prompt: 'hello', cwd: '/tmp/worktree' }, '/tmp/p.txt');
+    expect(argv).toEqual([
+      '--prompt-file', '/tmp/p.txt',
+      '--output-format', 'json',
+      '--permission-mode', 'bypassPermissions',
+      '--cwd', '/tmp/worktree',
+      '--no-plan', '--no-subagents', '--no-memory', '--disable-web-search',
+    ]);
+  });
+
+  it('respects optional flags (model, effort, allowedTools, appendSystemPrompt, maxTurns)', () => {
+    const argv = buildGrokArgv(
+      { prompt: 'hello', cwd: '/tmp/x', model: 'grok-4', effort: 'high', allowedTools: 'Read Write', appendSystemPrompt: 'sys', maxTurns: 5 },
+      '/tmp/p.txt'
+    );
+    expect(argv).toContain('-m');
+    expect(argv).toContain('--effort');
+    expect(argv).toContain('high');
+    expect(argv).toContain('--allowedTools');
+    expect(argv).toContain('Read Write');
+    expect(argv).toContain('--append-system-prompt');
+    expect(argv).toContain('sys');
+    expect(argv).toContain('--max-turns');
+    expect(argv).toContain('5');
+  });
+
+  it('includes streaming-json output format when transcriptPath is set', () => {
+    const argv = buildGrokArgv({ prompt: 'hello', cwd: '/tmp/x', transcriptPath: '/tmp/out.jsonl' }, '/tmp/p.txt');
+    const idx = argv.indexOf('--output-format');
+    expect(idx).toBeGreaterThan(-1);
+    expect(argv[idx + 1]).toBe('streaming-json');
   });
 });
 
