@@ -22,6 +22,15 @@
  *  Origin: src/services/mission-store.ts (deriveCriterionAction). */
 export const CRITERION_SERVE_CAP = 3;
 
+/** Panel review starts before the serve cap escalates. When a criterion approaches
+ *  CRITERION_SERVE_CAP, the verify process requests a high-stakes panel (multiple
+ *  independent checkers) to raise confidence on the prior evidence before the
+ *  criterion hands off to a human for manual intervention. This threshold must remain
+ *  strictly < CRITERION_SERVE_CAP, so the panel convenes at serve-burn and has time
+ *  to run before deriveCriterionAction escalates.
+ *  Origin: src/services/criterion-verify-stakes.ts (classifyVerifyStakes). */
+export const CRITERION_PANEL_SERVE_THRESHOLD = 2;
+
 /** Threshold of rejected + blocked leaves in an epic before it is diagnosed as churning
  *  (producing rejection loops). An epic with >= this many rejections+blocks AND zero
  *  accepted leaves indicates the epic's decomposition is wrong and needs re-scoping.
