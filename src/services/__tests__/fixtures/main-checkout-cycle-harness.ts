@@ -111,3 +111,33 @@ export async function probeMainCheckout(repo: string): Promise<MainCheckoutProbe
     unstagedNameStatus: unstagedNameStatus.stdout,
   };
 }
+
+export async function assertCleanMainCheckout(probe: MainCheckoutProbes): Promise<void> {
+  const offendingPaths: string[] = [];
+
+  if (probe.porcelain.trim() !== '') {
+    const lines = probe.porcelain
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    offendingPaths.push(...lines.map((line) => line.split(/\s+/).slice(1).join(' ')));
+  }
+
+  if (probe.stagedNameStatus.trim() !== '') {
+    const lines = probe.stagedNameStatus
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const line of lines) {
+      const [code, ...pathParts] = line.split('\t');
+      const path = pathParts.join('\t');
+      if (code!.startsWith('D')) {
+        offendingPaths.push(path);
+      }
+    }
+  }
+
+  if (offendingPaths.length > 0) {
+    throw new Error(`Main checkout not clean: ${offendingPaths.join(', ')}`);
+  }
+}
