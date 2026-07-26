@@ -5,6 +5,7 @@ import {
   validateCriteriaCitability,
   uncitedCriteriaAreAllCommandResults,
   compliantShapeFor,
+  namesScopeGuardCheck,
 } from '../criteria-citability';
 
 // FLOOR-PATH FIX: an uncited command-result criterion defers to the command-evidence gate
@@ -332,6 +333,51 @@ test('classifyCriterion: bare-prose absence stays convicted even with read-only 
   expect(v.kind).toBe('absence');
 });
 
+test('classifyCriterion: git diff with pathspec and scope-guard result acquitted as command-result (Rule 1.5)', () => {
+  const v = classifyCriterion(
+    'Implementation untouched. git diff HEAD --stat -- src/services/foo.ts is empty',
+    ['src/services/__tests__/foo.test.ts'],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: bare git diff (no pathspec) stays convicted as absence', () => {
+  const v = classifyCriterion(
+    'Implementation is untouched. git diff is empty',
+    ['src/services/__tests__/foo.test.ts'],
+  );
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
+test('classifyCriterion: namesScopeGuardCheck recognizes "0 files changed" idiom', () => {
+  const v = classifyCriterion(
+    'Scope is narrow. `git diff HEAD --stat -- src/services/auth.ts` shows 0 files changed',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: namesScopeGuardCheck recognizes "no output" idiom', () => {
+  const v = classifyCriterion(
+    'git diff --stat -- ui/src/hooks.ts returns no output',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: namesScopeGuardCheck recognizes "prints nothing" idiom', () => {
+  const v = classifyCriterion(
+    'Verify with: git diff HEAD --stat -- src/lib/index.ts prints nothing',
+    [],
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
 test('classifyCriterion: result predicate patterns trigger command-result', () => {
   const patterns = [
     'Suite passes',
@@ -567,6 +613,32 @@ test('classifyCriterion: citation into unrelated file matching no declared entry
   expect(v.kind).toBe('out-of-diff-location');
 });
 
+// --- namesScopeGuardCheck: unit tests for the scope-guard predicate -------------------------
+
+test('namesScopeGuardCheck: true when git diff with --stat pathspec and result token', () => {
+  expect(namesScopeGuardCheck('git diff HEAD --stat -- src/services/foo.ts shows 0 files changed')).toBe(true);
+});
+
+test('namesScopeGuardCheck: true when git diff with -- pathspec and empty output', () => {
+  expect(namesScopeGuardCheck('`git diff -- src/x.ts` prints nothing')).toBe(true);
+});
+
+test('namesScopeGuardCheck: true when git diff --stat with result token', () => {
+  expect(namesScopeGuardCheck('git diff --stat src/lib/index.ts yields no output')).toBe(true);
+});
+
+test('namesScopeGuardCheck: false when git diff has no pathspec argument', () => {
+  expect(namesScopeGuardCheck('git diff is empty')).toBe(false);
+});
+
+test('namesScopeGuardCheck: false when git diff has pathspec but no result token', () => {
+  expect(namesScopeGuardCheck('git diff HEAD --stat -- src/services/foo.ts')).toBe(false);
+});
+
+test('namesScopeGuardCheck: false when no git diff invocation at all', () => {
+  expect(namesScopeGuardCheck('Implementation unchanged')).toBe(false);
+});
+
 // --- compliantShapeFor: per-arm compliant-shape template -------------------------------------
 
 test('compliantShapeFor: command-result carries the marker and a grep example drawn from the input', () => {
@@ -581,6 +653,7 @@ test('compliantShapeFor: absence carries the marker and an outOfScope example dr
   expect(shape).toContain('move the negation into the size-manifest');
   expect(shape).toContain('outOfScope:');
   expect(shape).toContain('ZenMode');
+  expect(shape).toContain('git diff');
 });
 
 test('compliantShapeFor: out-of-diff-location carries the marker and the offending path', () => {
