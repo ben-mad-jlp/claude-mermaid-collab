@@ -54,6 +54,14 @@ export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.
   // build123d incident (leaves cd'd to the main checkout, ran pytest there, false-green with
   // empty worktree diffs). Absent var = "not a confined node" → the hook allows everything.
   env.MERMAID_LEAF_WORKTREE = cwd;
+  // GROK HOOK ISOLATION: when MERMAID_GROK_HOOKS_HOME is set (test isolation), redirect HOME
+  // so grok CLI reads hooks from the test-isolated directory, not the user's ~/.grok/hooks.
+  // This allows concurrent tests on the same machine to avoid interference: each test gets its
+  // own per-run hook directory that is cleaned up in afterAll without affecting other runs.
+  const grokHooksHome = base?.MERMAID_GROK_HOOKS_HOME?.trim();
+  if (grokHooksHome) {
+    env.HOME = grokHooksHome;
+  }
   return env;
 }
 
@@ -150,18 +158,21 @@ export const GROK_CONFINE_MATCHER = 'Bash|Write|Edit|MultiEdit|NotebookEdit|run_
 /** Generated grok hook config file (~/.grok/hooks/mermaid-worktree-confine.json) registering
  *  the worktree-confinement PreToolUse hook for both claude and grok write/shell tools.
  *  Grok reads ~/.grok/hooks/*.json as its hook config source. Mirrors {@link nodeSettingsFile}:
- *  written ONCE (idempotent) keyed by the resolved hook path so a redeploy that moves the hook
- *  regenerates it. Returns null on any fs error (write permission, read-only $HOME, etc.) —
- *  fail-open: no hook rather than a wedged node. This is never awaited on a code path that can
- *  fail the node (see invokeGrokNodeInner). Exported for unit testing. */
+ *  written ONCE (idempotent) keyed by (hook path, home dir) so each test run gets its own
+ *  isolated hook file, preventing race conditions when concurrent runs share $HOME. Returns null
+ *  on any fs error (write permission, read-only $HOME, etc.) — fail-open: no hook rather than a
+ *  wedged node. This is never awaited on a code path that can fail the node (see invokeGrokNodeInner).
+ *  Exported for unit testing. */
 const grokConfineHookPaths = new Map<string, string>();
 export function grokConfineHookFile(): string | null {
   const hook = resolveConfineHookPath();
   if (!hook) return null;
-  const cached = grokConfineHookPaths.get(hook);
+  const homeDir = getGrokHooksHomeDir();
+  const cacheKey = `${hook}|${homeDir}`;
+  const cached = grokConfineHookPaths.get(cacheKey);
   if (cached) return cached;
   try {
-    const dir = join(homedir(), '.grok', 'hooks');
+    const dir = join(homeDir, '.grok', 'hooks');
     mkdirSync(dir, { recursive: true });
     const path = join(dir, 'mermaid-worktree-confine.json');
     const body = {
@@ -175,7 +186,7 @@ export function grokConfineHookFile(): string | null {
       },
     };
     writeFileSync(path, JSON.stringify(body, null, 2));
-    grokConfineHookPaths.set(hook, path);
+    grokConfineHookPaths.set(cacheKey, path);
     return path;
   } catch {
     return null;
@@ -184,6 +195,29 @@ export function grokConfineHookFile(): string | null {
 
 /** For tests: drop the memoized grok confinement hook path. */
 export function _resetGrokConfineHookCache(): void { grokConfineHookPaths.clear(); }
+
+/**
+ * Per-run isolation of grok hook installation. In tests where multiple concurrent
+ * runs share a machine and $HOME, grok hooks must live in separate per-run directories
+ * to avoid race conditions during cleanup (e.g. one test's afterAll deletes the hook
+ * while another test's grok process is still using it).
+ *
+ * Returns the base directory where grok hooks are installed:
+ *  - If MERMAID_GROK_HOOKS_HOME is set (test isolation): use it directly
+ *  - Otherwise: use the user's home directory (~)
+ *
+ * The caller must ensure the returned directory exists and is writable.
+ * Exported for testing: allows unit tests to verify the isolation mechanism
+ * and mutation-probe that it actually controls hook placement. */
+export function getGrokHooksHomeDir(): string {
+  const override = process.env.MERMAID_GROK_HOOKS_HOME?.trim();
+  if (override) return override;
+  return homedir();
+}
+
+/** GROK_HOOKS_HOME_ENV_VAR: the canonical name of the per-run grok hook isolation
+ *  env var, exported so tests can assert its presence in spawn env. */
+export const GROK_HOOKS_HOME_ENV_VAR = 'MERMAID_GROK_HOOKS_HOME';
 
 /**
  * Append a node's raw stream-json transcript to the per-leaf file, preceded by a
