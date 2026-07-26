@@ -15,6 +15,7 @@ import {
   type MainCheckoutBranchChangedError,
 } from '../services/main-checkout-invariant';
 import { escalateMainCheckoutViolation } from '../services/main-checkout-escalation';
+import { rescueOrphanedLeafCommitsForEpic } from '../services/rescue-ref';
 
 export interface WorktreeManagerOpts {
   projectRoot: string; // absolute path to the project (git) root
@@ -27,6 +28,9 @@ export interface WorktreeManagerOpts {
   /** Optional hook invoked (best-effort) when withMainCheckoutInvariant throws. Defaults to
    *  escalateMainCheckoutViolation. Tests inject a fake here. */
   onMainCheckoutViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
+  /** Optional hook invoked (best-effort) before branch deletion to rescue orphaned leaf commits.
+   *  Defaults to rescueOrphanedLeafCommitsForEpic. Tests inject a fake here. */
+  rescueBeforeBranchDelete?: (epicId: string, project: string) => Promise<unknown>;
 }
 
 export const WORKTREE_TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -273,11 +277,15 @@ export class WorktreeManager {
     err: MainCheckoutResidueError | MainCheckoutBranchChangedError,
   ) => void;
 
+  private readonly rescueBeforeBranchDelete: (epicId: string, project: string) => Promise<unknown>;
+
   constructor(private readonly opts: WorktreeManagerOpts) {
     this.spawnFn =
       opts.spawn ?? ((cmd: string[], so: any) => (globalThis as any).Bun.spawn(cmd, so));
     this.now = opts.now ?? Date.now;
     this.onMainCheckoutViolation = opts.onMainCheckoutViolation ?? escalateMainCheckoutViolation;
+    this.rescueBeforeBranchDelete =
+      opts.rescueBeforeBranchDelete ?? ((epicId, project) => rescueOrphanedLeafCommitsForEpic(project, epicId));
   }
 
   /** Serialise a worktree-mutating section behind the per-project lock. A prior section
@@ -2265,18 +2273,18 @@ export class WorktreeManager {
   // branch is fine. Gated by the caller on land success — never call this on a
   // conflict (the branch must survive for the human to rebase + re-land).
   // ---------------------------------------------------------------------------
-  async removeEpic(epicId: string, _project?: string): Promise<void> {
+  async removeEpic(epicId: string, project?: string): Promise<void> {
     return this.withWorktreeLock(() =>
       withMainCheckoutInvariant(
         this.opts.projectRoot,
         this.mainCheckoutGit,
-        () => this._removeEpicInner(epicId),
+        () => this._removeEpicInner(epicId, project),
         { opName: 'epic_gc_remove', onViolation: this.onMainCheckoutViolation },
       ),
     );
   }
 
-  private async _removeEpicInner(epicId: string): Promise<void> {
+  private async _removeEpicInner(epicId: string, project?: string): Promise<void> {
     if (!(await this.isGitRepo())) return;
     const branch = this.epicBranchName(epicId);
     const wtPath = path.join(this.opts.baseDir, `__epic-${this.epicId8(epicId)}__`);
@@ -2288,6 +2296,9 @@ export class WorktreeManager {
       stdout: '',
       stderr: '',
     }));
+    // Rescue orphaned leaf commits before deleting the branch.
+    const projectRoot = project ?? this.opts.projectRoot;
+    await this.rescueBeforeBranchDelete(epicId, projectRoot).catch(() => undefined);
     // The epic branch is now merged into master — delete it unconditionally (-D);
     // a missing branch is swallowed so the call stays idempotent.
     await this.runGit(this.opts.projectRoot, ['branch', '-D', branch], QUICK_TIMEOUT_MS).catch(() => ({
