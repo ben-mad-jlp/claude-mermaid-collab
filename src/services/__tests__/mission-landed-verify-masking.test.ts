@@ -117,6 +117,28 @@ describe('landed serving epic → verify (masking regression)', () => {
   // re-file a duplicate epic). That fail-open masks the assertion. The rule itself is
   // pinned by the first test above, which is the same masking scenario.
 
+  test('a landed untagged epic with an unfinished descendant leaf is not proven — no legacy escape', async () => {
+    await withProject('mission-verify-unfinished-', async (proj) => {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] VU', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'untagged leaves, one still unfinished');
+
+      const e = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] landed untagged', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+      await updateTodo(proj, e.id, { status: 'done' });
+      // Both children are untagged (no servesCriterionId) — the legacy no-tags fallback would
+      // normally trust the epic→criterion edge. Leaf A settled; leaf B never left 'planned'
+      // (createTodo's default status for an unapproved leaf — todo-store.ts:1697).
+      const leafA = await createTodo(proj, { ownerSession: 's1', title: 'settled leaf', kind: 'leaf', parentId: e.id });
+      await updateTodo(proj, leafA.id, { status: 'done' });
+      await createTodo(proj, { ownerSession: 's1', title: 'unfinished leaf', kind: 'leaf', parentId: e.id });
+
+      const cf = collectMissionStatusFacts(proj, getMission(proj, m.id)!).criteria.find((c) => c.id === c1.id)!;
+      expect(cf.servingEpicState).not.toBe('landed');
+      expect(cf.verifiedAt == null).toBe(true);
+      expect(deriveCriterionAction(cf)).not.toBe('verify');
+    });
+  });
+
   test('no serving epic at all still derives discover (unchanged)', async () => {
     await withProject('mission-verify-none-', async (proj) => {
       const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] VN', kind: 'mission' });

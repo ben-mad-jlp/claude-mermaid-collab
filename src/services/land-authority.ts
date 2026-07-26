@@ -10,7 +10,7 @@
  */
 
 import type { Todo } from './todo-store';
-import { listTodos } from './todo-store';
+import { listTodos, readClaim } from './todo-store';
 import type { LandReadinessReport } from './epic-land-readiness';
 import { getEpicLandReadiness } from './epic-land-readiness';
 import type { EpicLandGateResult, EpicLandGateOpts } from './epic-land-gate';
@@ -227,7 +227,7 @@ export function checkOwnership(
  * Check that the epic's [LAND] leaf dependencies are satisfied.
  * Returns null if all checks pass, or a LandBlocker if any fail.
  */
-export function checkLandDeps(todos: Todo[], epicId: string): LandBlocker | null {
+export function checkLandDeps(todos: Todo[], epicId: string, opts?: { now?: string }): LandBlocker | null {
   const byId = new Map(todos.map((t) => [t.id, t]));
   const epic = byId.get(epicId);
 
@@ -242,19 +242,48 @@ export function checkLandDeps(todos: Todo[], epicId: string): LandBlocker | null
     };
   }
 
-  // Derive the barrier from live sibling state, not a land leaf's stored
+  const nowMs = opts?.now ? new Date(opts.now).getTime() : Date.now();
+
+  // Derive the barrier from live descendant state, not a land leaf's stored
   // dependsOn edges (stale for leaves added after the land leaf was minted —
-  // constraint 856840e6). A sibling is gating iff it is a direct child of the
-  // epic, not a land-kind todo, and not dropped. Works with zero, one, or a
-  // legacy done land-leaf child present.
-  const siblings = todos.filter(
-    (t) => t.parentId === epicId && t.status !== 'dropped' && !isLandTodo(t),
-  );
+  // constraint 856840e6). Walk the full transitive descendant tree (cycle-safe)
+  // rather than direct children only, so work nested under a container row still
+  // gates. A descendant is gating iff not dropped, not a land-kind todo, and not
+  // itself a container (nested epic or a row with non-dropped children) — those
+  // are traversed THROUGH, never gated ON.
+  const childrenOf = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (t.parentId) {
+      const arr = childrenOf.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenOf.set(t.parentId, arr);
+    }
+  }
+
+  const descendants: Todo[] = [];
+  const stack = [...(childrenOf.get(epicId) ?? [])];
+  const seen = new Set<string>();
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    descendants.push(node);
+    stack.push(...(childrenOf.get(node.id) ?? []));
+  }
+
+  const gating = descendants.filter((t) => {
+    if (t.status === 'dropped') return false;
+    if (isLandTodo(t)) return false;
+    if (isEpicTodo(t)) return false;
+    const nonDroppedChildren = (childrenOf.get(t.id) ?? []).filter((c) => c.status !== 'dropped');
+    if (nonDroppedChildren.length > 0) return false; // container row — traverse through, don't gate on
+    return true;
+  });
 
   const unsatisfied: string[] = [];
-  for (const sib of siblings) {
-    if (sib.status !== 'done' || sib.acceptanceStatus !== 'accepted') {
-      unsatisfied.push(sib.id.slice(0, 8));
+  for (const t of gating) {
+    if (t.status !== 'done' || t.acceptanceStatus !== 'accepted') {
+      unsatisfied.push(t.id.slice(0, 8));
       if (unsatisfied.length >= 3) break; // Collect first 3 offenders
     }
   }
@@ -264,6 +293,29 @@ export function checkLandDeps(todos: Todo[], epicId: string): LandBlocker | null
       code: 'land-deps-unsatisfied',
       message: `[LAND] leaf dependencies unsatisfied: ${unsatisfied.join(', ')}`,
     };
+  }
+
+  // Live-claim barrier: a gating descendant that is in_progress, or holds an
+  // unexpired claim, blocks landing even though acceptance passed — the exact
+  // complement of releaseExpiredClaims' expiry test (todo-store.ts:2107-2108).
+  for (const t of gating) {
+    const claim = readClaim({
+      claim: t.claim ? JSON.stringify(t.claim) : null,
+      claimedBy: t.claimedBy,
+      claimToken: t.claimToken,
+      claimedAt: t.claimedAt,
+      claimLeaseMs: t.claimLeaseMs,
+    });
+    const held = t.status === 'in_progress' || (claim != null && new Date(claim.at).getTime() + claim.leaseMs >= nowMs);
+    if (held) {
+      const id8 = t.id.slice(0, 8);
+      const holder = claim?.by ?? 'unknown';
+      return {
+        code: 'land-deps-unsatisfied',
+        message: `leaf ${id8} is still claimed by ${holder}`,
+        detail: `todo ${t.id} status=${t.status} claim=${claim ? JSON.stringify(claim) : 'null'}`,
+      };
+    }
   }
 
   return null;

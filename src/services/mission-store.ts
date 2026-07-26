@@ -1404,19 +1404,22 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   // dropped/orphaned still advertises EVERY criterion it served as verify-ready, and a generous
   // verify can rubber-stamp the unproven one. LEGACY FALLBACK: an epic whose descendant leaves
   // carry NO criterion tags at all (pre-leaf-tagging authoring) cannot be proof-checked, so trust
-  // the epic→criterion edge (prior behaviour) rather than wedge the criterion at 'discover' forever.
+  // the epic→criterion edge (prior behaviour) rather than wedge the criterion at 'discover' forever
+  // — but ONLY once every descendant leaf has settled (done/accepted/dropped); an untagged epic
+  // still holding an unfinished proof-leaf must not escape via this fallback.
   const childrenByParent = new Map<string, Todo[]>();
   for (const t of allTodos) {
     if (t.parentId == null) continue;
     const arr = childrenByParent.get(t.parentId);
     if (arr) arr.push(t); else childrenByParent.set(t.parentId, [t]);
   }
-  const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean }>();
-  const proofForEpic = (epicId: string): { proven: Set<string>; tagsAnyLeaf: boolean } => {
+  const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean }>();
+  const proofForEpic = (epicId: string): { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean } => {
     const hit = proofByEpic.get(epicId);
     if (hit) return hit;
     const proven = new Set<string>();
     let tagsAnyLeaf = false;
+    let hasUnfinishedLeaf = false;
     const walk = (parentId: string) => {
       for (const t of childrenByParent.get(parentId) ?? []) {
         if (!isEpic(t)) {
@@ -1427,12 +1430,19 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
             tagsAnyLeaf = true;
             if (t.status === 'done' && t.acceptanceStatus !== 'rejected') tags.forEach((id) => proven.add(id));
           }
+          // UNFINISHED LEAF (proofForEpic-hasUnfinishedLeaf): independent of tagging — an
+          // untagged leaf that hasn't settled (not done, not accepted) is exactly the case the
+          // legacy no-tags fallback must not paper over. Dropped leaves are settled (deliberately
+          // out of play), so they don't count.
+          if (t.status !== 'dropped' && t.status !== 'done' && t.acceptanceStatus !== 'accepted') {
+            hasUnfinishedLeaf = true;
+          }
         }
         walk(t.id); // recurse through nested epics / split children
       }
     };
     walk(epicId);
-    const res = { proven, tagsAnyLeaf };
+    const res = { proven, tagsAnyLeaf, hasUnfinishedLeaf };
     proofByEpic.set(epicId, res);
     return res;
   };
@@ -1495,14 +1505,16 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // serving epic still reads 'open'+not-live ⇒ 'discover', preserving the unattended-stall
       // trap for a filed-but-never-approved epic.
       // A landed serving epic only marks THIS criterion 'landed' (verify-ready) when it PROVED it
-      // (a delivered descendant leaf tagged with c.id) OR the epic tags no leaf at all (legacy →
-      // trust the edge). A landed epic that did NOT prove c (its proof leaf was dropped/orphaned)
-      // falls to 'open'→not-live→'discover', so the conductor re-serves a real proof instead of the
-      // gate being handed an unproven criterion to (maybe) rubber-stamp.
+      // (a delivered descendant leaf tagged with c.id) OR the epic tags no leaf at all AND every
+      // descendant leaf has settled (legacy → trust the edge, but only once nothing is still in
+      // flight). A landed epic that did NOT prove c (its proof leaf was dropped/orphaned), or whose
+      // untagged legacy proof-leaf is still unfinished, falls to 'open'→not-live→'discover', so the
+      // conductor re-serves a real proof instead of the gate being handed an unproven criterion to
+      // (maybe) rubber-stamp.
       const landedProvesC = serving.some((e) => {
         if (!isLandedEpic(e)) return false;
         const pf = proofForEpic(e.id);
-        return pf.proven.has(c.id) || !pf.tagsAnyLeaf;
+        return pf.proven.has(c.id) || (!pf.tagsAnyLeaf && !pf.hasUnfinishedLeaf);
       });
       const servingEpicState: 'landed' | 'open' | 'none' =
         servingEpicLive ? 'open'
