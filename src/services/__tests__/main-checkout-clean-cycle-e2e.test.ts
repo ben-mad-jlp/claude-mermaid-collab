@@ -23,6 +23,7 @@ import {
   makeManager,
   buildEpicTouchingExistingTestFile,
   probeMainCheckout,
+  assertCleanMainCheckout,
 } from './fixtures/main-checkout-cycle-harness';
 
 const EPIC = 'epic-clean-cycle';
@@ -75,17 +76,7 @@ describe('clean main checkout — forward-integrate + land cycle', () => {
     expect(onDiskContent).toBe(editedContent);
 
     // Main checkout must be clean
-    expect(after.porcelain).toBe('');
-    expect(after.stagedNameStatus).toBe('');
-
-    // No deleted files in staged
-    const stagedLines = after.stagedNameStatus
-      .split('\n')
-      .filter((line) => line.trim() !== '');
-    for (const line of stagedLines) {
-      const code = line.split('\t')[0];
-      expect(code!.startsWith('D')).toBe(false);
-    }
+    await assertCleanMainCheckout(after);
 
     // Refs and branch match expectations
     expect(after.sha).toBe(land.masterSha);
