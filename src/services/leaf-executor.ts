@@ -1487,6 +1487,19 @@ export function buildVerifyPrompt(
   }
 }
 
+export type ReviewLens = 'completeness' | 'regression-blast-radius';
+
+export const REVIEW_LENS_INSTRUCTIONS: Record<ReviewLens, string> = {
+  'completeness': `Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or
+unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.`,
+
+  'regression-blast-radius': `Judge REGRESSION BLAST RADIUS: what could this change-set break OUTSIDE its own spec?
+Identify changes to symbols (functions, constants, interfaces, exports), invariants, or default
+behaviors that other code may already depend on. For each at-risk external call site, cite it as
+\`file:line\`. You are NOT reviewing spec completeness here (leave that to the other lens) —
+focus on unintended consequences for callers and downstream modules.`,
+};
+
 /** Build the inline prompt for a REVIEW-shape leaf (epic d8ac1a18 dogfood): a single
  *  read-only LLM judgment node that reviews the EPIC's union change-set against the leaf's
  *  spec (the spec is inlined — it carries the LOCKED DECISIONS), files one session-todo per
@@ -1497,7 +1510,7 @@ export function buildVerifyPrompt(
  *  hallucination guard at the content layer (a vacuous report has no parseable verdict →
  *  the executor parks it blocked). Teaches the three-dot diff caveat (lesson 5) and verify
  *  discipline (lesson 1). Self-contained (references nothing in skills/). */
-export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
+export function buildReviewPrompt(leaf: Todo, baseRef: string, lens: ReviewLens = 'completeness'): string {
   const title = leaf.title ?? leaf.id;
   const spec = leaf.description ?? '(no spec provided)';
   return [
@@ -1537,8 +1550,7 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
     'Do NOT judge from a whole-directory run: files share a SQLite database and the runner',
     'parallelizes, so aggregate red/green is noise. One file, in isolation, on both sides.',
     '',
-    'Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or',
-    'unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.',
+    REVIEW_LENS_INSTRUCTIONS[lens],
     '',
     'For EACH distinct gap/finding, file one bucket item via the collab MCP tool',
     '`mcp__mermaid__file_to_bucket` (title = the finding, description = detail + where + why it',
@@ -1696,6 +1708,56 @@ export function parseVerdict(text: string | undefined): LeafReviewVerdict {
   const m = stripSentinelFmt(text).match(/^\s*VERDICT:\s*(PASS|FAIL)\b/im);
   if (!m) return 'error';
   return m[1].toUpperCase() === 'PASS' ? 'pass' : 'fail';
+}
+
+/** Result of a single review pass with a specific lens. */
+export interface ReviewPassResult {
+  lens: ReviewLens;
+  verdict: 'pass' | 'fail';
+  report: string;
+}
+
+/** Join multiple review pass results using stricter-wins logic. A fail in any pass yields
+ *  an overall fail. Single pass returns verbatim. Empty array returns fail-closed. When
+ *  joining ≥2 passes, quotes each sub-report's VERDICT: lines with `> ` prefix so the
+ *  final appended VERDICT line is the one parseVerdict reads. */
+export function joinReviewReports(passes: ReviewPassResult[]): { verdict: 'pass' | 'fail'; report: string; lenses: ReviewLens[] } {
+  if (passes.length === 0) {
+    return {
+      verdict: 'fail',
+      report: 'VERDICT: FAIL — no review passes',
+      lenses: [],
+    };
+  }
+  if (passes.length === 1) {
+    return {
+      verdict: passes[0].verdict,
+      report: passes[0].report,
+      lenses: [passes[0].lens],
+    };
+  }
+  // ≥2 passes: quote sub-report VERDICT lines and append final verdict
+  const quotedReports = passes.map((pass) => {
+    const lines = pass.report.split('\n');
+    const quotedLines = lines.map((line) =>
+      line.match(/^\s*VERDICT:/i) ? `> ${line}` : line
+    );
+    return quotedLines.join('\n');
+  });
+
+  const anyFail = passes.some((p) => p.verdict === 'fail');
+  const verdict = anyFail ? 'fail' : 'pass';
+
+  const sections = passes.map((pass, idx) => `## Lens: ${pass.lens}\n${quotedReports[idx]}`);
+  const finalVerdictLine = anyFail
+    ? `VERDICT: FAIL — ${passes.filter((p) => p.verdict === 'fail').map((p) => p.lens).join(', ')} raised concerns`
+    : 'VERDICT: PASS';
+
+  return {
+    verdict,
+    report: [...sections, finalVerdictLine].join('\n\n'),
+    lenses: passes.map((p) => p.lens),
+  };
 }
 
 /** A base-gate verdict is a durable BASE FACT only when the gate actually RAN.
@@ -2867,8 +2929,8 @@ export async function runLeaf(
     const risk = await (deps.collectDiffRisk ?? collectDiffRisk)(cwd, baseRef);
     const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled() });
 
-    const buildReviewSpec = (): NodeSpec => ({
-      prompt: buildReviewPrompt(leaf, baseRef),
+    const buildReviewSpec = (lens: ReviewLens): NodeSpec => ({
+      prompt: buildReviewPrompt(leaf, baseRef, lens),
       model: nodeModel('review', reviewTools, route.depth),
       effort: nodeEffort('review', route.depth),
       allowedTools: reviewTools,
@@ -2883,38 +2945,105 @@ export async function runLeaf(
       appendSystemPrompt: reviewInjected || undefined,
     });
 
-    let rev = await runNode('review', buildReviewSpec());
-    if (rev.startFailure) return parkNodeStartFailure('review', rev);
-    if (rev.rateLimited) return pausedResult('review', rev);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    if (!rev.ok) {
-      rev = await runNode('review', buildReviewSpec());
-      if (rev.rateLimited) return pausedResult('review', rev);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    // Run a single review pass with the given lens. Returns ReviewPassResult or { failure: ... }.
+    const runReviewPass = async (lens: ReviewLens): Promise<ReviewPassResult | { failure: string }> => {
+      let rev = await runNode('review', buildReviewSpec(lens));
+      if (rev.startFailure) return { failure: 'start-failure' };
+      if (rev.rateLimited) return { failure: 'rate-limited' };
+      if (!checkBudget()) return { failure: 'budget-exhausted' };
+      if (!rev.ok) {
+        rev = await runNode('review', buildReviewSpec(lens));
+        if (rev.rateLimited) return { failure: 'rate-limited' };
+        if (!checkBudget()) return { failure: 'budget-exhausted' };
+      }
+      if (!rev.ok) return { failure: 'node-failed' };
+
+      // CONTENT GATE: report must be non-empty and end with a parseable VERDICT line.
+      const reportMd = (rev.text ?? '').trim();
+      if (!reportMd) return { failure: 'report-empty' };
+      const parsedVerdict = parseVerdict(reportMd);
+      if (parsedVerdict === 'error') return { failure: 'report-no-verdict' };
+
+      return {
+        lens,
+        verdict: parsedVerdict,
+        report: reportMd,
+      };
+    };
+
+    // Run pass 1 (completeness).
+    const pass1 = await runReviewPass('completeness');
+    if ('failure' in pass1) {
+      const failure = pass1.failure;
+      if (failure === 'start-failure') return parkNodeStartFailure('review', {} as any);
+      if (failure === 'rate-limited') return pausedResult('review', {} as any);
+      if (failure === 'budget-exhausted') return parkBlocked('node-budget-exhausted');
+      if (failure === 'node-failed') return parkBlocked('review-node-failed');
+      if (failure === 'report-empty') return parkBlocked('review-report-empty');
+      if (failure === 'report-no-verdict') return parkBlocked('review-report-no-verdict');
+      return parkBlocked('review-node-failed');
     }
-    if (!rev.ok) return parkBlocked('review-node-failed');
 
-    // CONTENT GATE (Grok #3): a committed report would trivially pass the work-committed
-    // re-verify, so re-arm the hallucination guard HERE — the report must be non-empty AND
-    // end with a parseable VERDICT line, else the reviewer did no real work → park blocked.
-    const reportMd = (rev.text ?? '').trim();
-    if (!reportMd) return parkBlocked('review-report-empty');
-    const parsedVerdict = parseVerdict(reportMd);
-    if (parsedVerdict === 'error') return parkBlocked('review-report-no-verdict'); // no parseable VERDICT line
-    const verdict = parsedVerdict; // pass|fail — informational; BOTH accept.
+    // If standard depth, return immediately with pass 1.
+    if (route.depth !== 'heavy') {
+      const { verdict, report } = pass1;
+      try {
+        await deps.writeArtifact?.(cwd, reviewReportPath(leaf), report);
+      } catch (e) {
+        return parkBlocked(
+          `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
+          verdict,
+        );
+      }
+      return finalizeReportLeaf(verdict, `review: ${leaf.title ?? leaf.id}`);
+    }
 
-    // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
-    // node's new-file Write resolves to the project root, not the worktree, so it would never
-    // reach mergeToEpic.
+    // Heavy depth: run pass 2 (regression-blast-radius) with one attempt, no retry.
+    // If it fails for any reason, degrade to pass 1.
+    let pass2: ReviewPassResult | undefined;
+    let degradeReason: string | undefined;
     try {
-      await deps.writeArtifact?.(cwd, reviewReportPath(leaf), reportMd);
+      const pass2Result = await runReviewPass('regression-blast-radius');
+      if ('failure' in pass2Result) {
+        degradeReason = `pass-2-${pass2Result.failure}`;
+      } else {
+        pass2 = pass2Result;
+      }
+    } catch (e) {
+      degradeReason = `pass-2-exception: ${e instanceof Error ? e.message : String(e)}`;
+    }
+
+    if (degradeReason) {
+      deps.recordNode?.({
+        project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+        nodeKind: 'review-lens-degraded',
+        outputText: `degraded: ${degradeReason}`,
+      });
+    }
+
+    // Join the passes (if pass 2 failed, join only pass 1; joinReviewReports handles single pass).
+    const passes = pass2 ? [pass1, pass2] : [pass1];
+    const joined = joinReviewReports(passes);
+
+    try {
+      await deps.writeArtifact?.(cwd, reviewReportPath(leaf), joined.report);
     } catch (e) {
       return parkBlocked(
         `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
-        verdict,
+        joined.verdict,
       );
     }
-    return finalizeReportLeaf(verdict, `review: ${leaf.title ?? leaf.id}`);
+
+    if (!degradeReason) {
+      deps.recordNode?.({
+        project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+        nodeKind: 'review-panel-join',
+        verdict: joined.verdict,
+        outputText: `lenses: ${joined.lenses.join(', ')}`,
+      });
+    }
+
+    return finalizeReportLeaf(joined.verdict, `review: ${leaf.title ?? leaf.id}`);
   };
 
   const runVerifyPipeline = async (): Promise<LeafRunResult> => {

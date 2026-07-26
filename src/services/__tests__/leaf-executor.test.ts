@@ -51,6 +51,10 @@ import {
   classifyWorktreeBaseFreshness,
   isNodeStartFailure,
   resolveInheritedSlice,
+  type ReviewLens,
+  REVIEW_LENS_INSTRUCTIONS,
+  joinReviewReports,
+  type ReviewPassResult,
   type LeafExecutorDeps,
   type LeafSizeManifest,
   type LeafSplitItem,
@@ -4900,6 +4904,176 @@ describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
       // The depth should have been computed from risk (large LOC change)
       const routeRow = spies.nodeRows[routeRowIdx];
       expect(routeRow?.outputText).toContain('heavy');
+    });
+  });
+
+  describe('heavy review lens panel', () => {
+    it('heavy depth spawns two review nodes with distinct lens prompts', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS', 'VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        // Large LOC change triggers heavy depth
+        collectDiffRisk: async () => ({
+          files: ['src/services/leaf-executor.ts'],
+          addedLines: 500,
+          deletedLines: 200,
+        }),
+      });
+      const res = await runLeaf('proj', makeLeaf({ type: 'reviewer' }), deps);
+      expect(res.outcome).toBe('accepted');
+
+      // Find all review specs (there should be 2 for heavy depth)
+      const reviewSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+      expect(reviewSpecs.length).toBe(2);
+
+      // First should have completeness lens instructions
+      expect(reviewSpecs[0].prompt).toContain('COMPLETENESS and CORRECTNESS');
+      expect(reviewSpecs[0].prompt).not.toContain('REGRESSION BLAST RADIUS');
+
+      // Second should have regression-blast-radius lens instructions
+      expect(reviewSpecs[1].prompt).toContain('REGRESSION BLAST RADIUS');
+      expect(reviewSpecs[1].prompt).not.toContain('COMPLETENESS and CORRECTNESS');
+    });
+
+    it('heavy join takes the stricter verdict (any fail → fail)', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS', 'VERDICT: FAIL — regression risk found'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        collectDiffRisk: async () => ({
+          files: ['src/services/leaf-executor.ts'],
+          addedLines: 500,
+          deletedLines: 0,
+        }),
+      });
+      const res = await runLeaf('proj', makeLeaf({ type: 'reviewer' }), deps);
+      expect(res.outcome).toBe('accepted');
+
+      // Artifact should be the joined report (parsing it should yield fail)
+      const joinRow = spies.nodeRows.find((r) => r.nodeKind === 'review-panel-join');
+      expect(joinRow?.verdict).toBe('fail');
+    });
+
+    it('heavy degrades to the first pass when the second lens node fails', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS', ''], // second pass returns empty (no verdict line)
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        collectDiffRisk: async () => ({
+          files: ['src/services/leaf-executor.ts'],
+          addedLines: 500,
+          deletedLines: 0,
+        }),
+      });
+      const res = await runLeaf('proj', makeLeaf({ type: 'reviewer' }), deps);
+      // Should still accept because pass 1 was good
+      expect(res.outcome).toBe('accepted');
+
+      // Should have a degrade row (second pass failed with empty report)
+      const degradeRow = spies.nodeRows.find((r) => r.nodeKind === 'review-lens-degraded');
+      expect(degradeRow).toBeDefined();
+      expect(degradeRow?.outputText).toContain('pass-2-');
+
+      // Should NOT have a join row (only degrade happened)
+      const joinRow = spies.nodeRows.find((r) => r.nodeKind === 'review-panel-join');
+      expect(joinRow).toBeUndefined();
+    });
+
+    it('standard depth spawns exactly one review node', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        // Small LOC change keeps standard depth
+        collectDiffRisk: async () => ({
+          files: ['docs/README.md'],
+          addedLines: 10,
+          deletedLines: 5,
+        }),
+      });
+      const res = await runLeaf('proj', makeLeaf({ type: 'reviewer' }), deps);
+      expect(res.outcome).toBe('accepted');
+
+      // Should have exactly one review node spec
+      const reviewSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+      expect(reviewSpecs.length).toBe(1);
+
+      // Should NOT have a join row (standard depth doesn't use join)
+      const joinRow = spies.nodeRows.find((r) => r.nodeKind === 'review-panel-join');
+      expect(joinRow).toBeUndefined();
+    });
+  });
+
+  describe('joinReviewReports', () => {
+    it('empty passes array returns fail-closed result', () => {
+      const result = joinReviewReports([]);
+      expect(result.verdict).toBe('fail');
+      expect(result.report).toBe('VERDICT: FAIL — no review passes');
+      expect(result.lenses).toEqual([]);
+    });
+
+    it('single pass returns verbatim', () => {
+      const pass: ReviewPassResult = {
+        lens: 'completeness',
+        verdict: 'pass',
+        report: 'Checked all requirements.\n\nVERDICT: PASS',
+      };
+      const result = joinReviewReports([pass]);
+      expect(result.verdict).toBe('pass');
+      expect(result.report).toBe('Checked all requirements.\n\nVERDICT: PASS');
+      expect(result.lenses).toEqual(['completeness']);
+    });
+
+    it('multiple passes quote sub-report VERDICT lines and appends final verdict', () => {
+      const pass1: ReviewPassResult = {
+        lens: 'completeness',
+        verdict: 'pass',
+        report: 'Checked completeness.\n\nVERDICT: PASS',
+      };
+      const pass2: ReviewPassResult = {
+        lens: 'regression-blast-radius',
+        verdict: 'pass',
+        report: 'Checked blast radius.\n\nVERDICT: PASS',
+      };
+      const result = joinReviewReports([pass1, pass2]);
+      expect(result.verdict).toBe('pass');
+      expect(result.report).toContain('## Lens: completeness');
+      expect(result.report).toContain('## Lens: regression-blast-radius');
+      // Original VERDICT lines should be quoted
+      expect(result.report).toContain('> VERDICT: PASS');
+      // Final verdict should not be quoted
+      expect(result.report).toMatch(/\n\nVERDICT: PASS\s*$/);
+    });
+
+    it('stricter-wins: any fail yields fail verdict', () => {
+      const pass1: ReviewPassResult = {
+        lens: 'completeness',
+        verdict: 'pass',
+        report: 'OK\n\nVERDICT: PASS',
+      };
+      const pass2: ReviewPassResult = {
+        lens: 'regression-blast-radius',
+        verdict: 'fail',
+        report: 'Risk found\n\nVERDICT: FAIL — external callers affected',
+      };
+      const result = joinReviewReports([pass1, pass2]);
+      expect(result.verdict).toBe('fail');
+      expect(result.report).toContain('VERDICT: FAIL');
+      expect(result.report).toContain('regression-blast-radius raised concerns');
+    });
+
+    it('parseVerdict round-trip: joined report parses to correct verdict', () => {
+      const pass1: ReviewPassResult = {
+        lens: 'completeness',
+        verdict: 'pass',
+        report: 'Check 1 OK.\n\nVERDICT: PASS',
+      };
+      const pass2: ReviewPassResult = {
+        lens: 'regression-blast-radius',
+        verdict: 'fail',
+        report: 'Check 2 found issues.\n\nVERDICT: FAIL — risk identified',
+      };
+      const result = joinReviewReports([pass1, pass2]);
+      // The joined report's final verdict should be the one parseVerdict reads
+      const parsed = parseVerdict(result.report);
+      expect(parsed).toBe(result.verdict);
     });
   });
 });
