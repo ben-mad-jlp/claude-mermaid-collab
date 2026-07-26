@@ -5,6 +5,7 @@ import {
   buildLensVerifyPrompt,
   parseLensVerdict,
   joinPanelVerdicts,
+  normalizePanelVerdicts,
   type VerifyLens,
   type LensVerifyCtx,
   type PanelVerdict,
@@ -177,5 +178,43 @@ describe('criterion-verify-panel', () => {
     const block = buildLensEvidenceBlock(ctx);
     expect(block).toContain('Criterion with no paths');
     expect(block).toContain('none');
+  });
+});
+
+// A high-stakes criterion verdict was UNRECORDABLE through MCP: some clients marshal the
+// array-of-objects `panelVerdicts` param as a JSON STRING, which cleared the ≥2 count gate on
+// char-length and then made joinPanelVerdicts throw `verdicts.filter is not a function`.
+// normalizePanelVerdicts is the fail-closed coercion that unwedged converged-mission auto-close.
+describe('normalizePanelVerdicts (MCP string-coercion fix)', () => {
+  const panel: PanelVerdict[] = [
+    { lens: 'evidence-exists', met: true, reason: 'present' },
+    { lens: 'regression-red-when-neutered', met: true, reason: 'guard live' },
+    { lens: 'holds-at-head', met: true, reason: 'intact' },
+  ];
+
+  test('a JSON-string array (the MCP-marshalled shape) is parsed back to a real array', () => {
+    const out = normalizePanelVerdicts(JSON.stringify(panel));
+    expect(Array.isArray(out)).toBe(true);
+    expect(out).toHaveLength(3);
+    // and the parsed array is usable by the join (the exact call that used to throw)
+    expect(joinPanelVerdicts(out!).met).toBe(true);
+  });
+
+  test('a real array passes through unchanged (the in-process conductor path)', () => {
+    expect(normalizePanelVerdicts(panel)).toEqual(panel);
+  });
+
+  test('undefined / null stay undefined (no panel supplied)', () => {
+    expect(normalizePanelVerdicts(undefined)).toBeUndefined();
+    expect(normalizePanelVerdicts(null)).toBeUndefined();
+  });
+
+  test('fails CLOSED on an unparseable string', () => {
+    expect(() => normalizePanelVerdicts('{not json')).toThrow(/unparseable/);
+  });
+
+  test('fails CLOSED on a non-array (e.g. a bare object or a JSON scalar)', () => {
+    expect(() => normalizePanelVerdicts({ lens: 'x' } as unknown)).toThrow(/must be an array/);
+    expect(() => normalizePanelVerdicts('42')).toThrow(/must be an array/); // parses to a number
   });
 });

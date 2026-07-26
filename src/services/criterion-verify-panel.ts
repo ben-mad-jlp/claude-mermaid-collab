@@ -122,3 +122,21 @@ export function joinPanelVerdicts(verdicts: PanelVerdict[]): PanelJoin {
 
   return { met: false, split: true, dissent };
 }
+
+/** Normalize the `panelVerdicts` argument as it arrives at a tool/route boundary.
+ *  Some MCP clients marshal an array-OF-OBJECTS argument as a JSON STRING (array-of-strings
+ *  params like evidencePaths pass through as real arrays, so only the nested one is affected).
+ *  Left un-coerced, a high-stakes verdict is UNRECORDABLE: a string has `.length` (spuriously
+ *  clearing the ≥2 panel gate) and then joinPanelVerdicts calls `.filter` on it and throws
+ *  `verdicts.filter is not a function`. Coerce a JSON string to its array; fail CLOSED (throw a
+ *  clear error) on any non-array shape rather than letting a malformed panel slip through. */
+export function normalizePanelVerdicts(raw: unknown): PanelVerdict[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  let v: unknown = raw;
+  if (typeof v === 'string') {
+    try { v = JSON.parse(v); }
+    catch { throw new Error('panelVerdicts must be a JSON array of {lens,met,reason}; received an unparseable string'); }
+  }
+  if (!Array.isArray(v)) throw new Error('panelVerdicts must be an array of {lens,met,reason}');
+  return v as PanelVerdict[];
+}

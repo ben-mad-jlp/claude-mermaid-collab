@@ -20,7 +20,7 @@ import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMi
 import { planMissionCriterion } from './tools/mission-planner.js';
 import { collectVerifyStakesInput } from '../services/criterion-verify-facts.js';
 import { classifyVerifyStakes } from '../services/criterion-verify-stakes.js';
-import { joinPanelVerdicts, VERIFY_LENSES, type PanelVerdict } from '../services/criterion-verify-panel.js';
+import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVerdict } from '../services/criterion-verify-panel.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -260,6 +260,16 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const { project, criterionId, met, evidence, verifiedBy, verifiedAtSha, evidencePaths, remove, panelVerdicts } = args as {
         project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; verifiedAtSha?: string; evidencePaths?: string[]; remove?: boolean; panelVerdicts?: { lens: string; met: boolean; reason: string }[];
       };
+      // The MCP bridge marshals an array-OF-OBJECTS argument (panelVerdicts) to the handler as a
+      // JSON STRING for some clients — array-of-strings params (evidencePaths) pass through as real
+      // arrays, so only this one is affected. normalizePanelVerdicts coerces + validates fail-closed.
+      // Without it a high-stakes verdict is UNRECORDABLE through MCP: `panelVerdicts?.length` reads the
+      // string's CHAR length (≥2 → spuriously clears the panel gate), then joinPanelVerdicts calls
+      // .filter on a string and throws. That wedged auto-close for every converged mission with a
+      // reopened-by-land criterion (missions f1404796 / 48e1a624 / 245a679b / fb417397 …) and blocked
+      // any external maker≠checker verifier (the in-process conductor was unaffected — it passes a real
+      // array — which is why it went unseen).
+      const panelVerdictsArr = normalizePanelVerdicts(panelVerdicts);
       if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
       if (remove) { removeCriterion(project, criterionId); return JSON.stringify({ removed: criterionId }, null, 2); }
       if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
@@ -276,13 +286,14 @@ export async function handleMissionTool(name: string, args: any): Promise<string
 
         if (panel) {
           // High-stakes criterion requires a panel verdict. Fail closed if insufficient verdicts.
-          const verdictCount = panelVerdicts?.length ?? 0;
+          // Count off the coerced/validated array (never a raw string — see the normalization above).
+          const verdictCount = Array.isArray(panelVerdictsArr) ? panelVerdictsArr.length : 0;
           if (verdictCount < 2) {
             throw new Error(`High-stakes criterion (trigger=${trigger}) requires ≥2 panel verdicts (lenses: ${VERIFY_LENSES.join(', ')}); received ${verdictCount}`);
           }
 
           // Join the panel verdicts by strict-majority vote.
-          const join = joinPanelVerdicts(panelVerdicts as PanelVerdict[]);
+          const join = joinPanelVerdicts(panelVerdictsArr as PanelVerdict[]);
           recordedMet = join.met;
 
           // Compose evidence with dissent if split.
