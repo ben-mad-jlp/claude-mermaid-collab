@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
 export type ReviewDepth = 'light' | 'standard' | 'heavy';
 
@@ -58,12 +58,27 @@ export function routeReviewDepth(
   return { depth, reasons };
 }
 
-export function collectDiffRisk(cwd: string, baseRef: string): DiffRisk {
+/** Async execFile: resolves stdout, or '' on any failure. NEVER a *Sync spawn — this
+ *  runs in the sidecar process on the review-spawn path, and a sync git call holds the
+ *  event loop for its full runtime (the 45s watchdog crash-loop class, crit-6 693bbc27). */
+function gitNumstat(cwd: string, baseRef: string): Promise<string> {
+  return new Promise((resolvePromise) => {
+    try {
+      execFile(
+        'git',
+        ['-C', cwd, 'diff', '--numstat', baseRef],
+        { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+        (err, stdout) => resolvePromise(err ? '' : stdout ?? ''),
+      );
+    } catch {
+      resolvePromise('');
+    }
+  });
+}
+
+export async function collectDiffRisk(cwd: string, baseRef: string): Promise<DiffRisk> {
   try {
-    const output = execFileSync('git', ['-C', cwd, 'diff', '--numstat', baseRef], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const output = await gitNumstat(cwd, baseRef);
 
     const files: string[] = [];
     let addedLines = 0;
