@@ -124,6 +124,25 @@ export function getEpicLandRecord(project: string, epicId: string): EpicLandReco
   }
 }
 
+/** Read all land records for `project` with `landedAt` in [sinceMs, untilMs], oldest first.
+ *  Advisory read — never throws; any DB error yields []. `project` is passed through
+ *  verbatim (the table stores the raw project string `recordEpicLand` wrote; only
+ *  `openDb` normalizes via `trackingProjectRoot`). */
+export function listEpicLandRecordsInWindow(project: string, sinceMs: number, untilMs: number): EpicLandRecord[] {
+  try {
+    const db = openDb(project);
+    const rows = db.query(
+      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt
+       FROM epic_land_record
+       WHERE project = ? AND landedAt >= ? AND landedAt <= ?
+       ORDER BY landedAt ASC`,
+    ).all(project, sinceMs, untilMs) as EpicLandRecord[];
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 export type LandCycleSource = 'escalation-land' | 'reconcile-land';
 
 export interface LandCycleInput {

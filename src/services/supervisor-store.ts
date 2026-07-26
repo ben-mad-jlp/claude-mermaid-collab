@@ -960,6 +960,19 @@ export function listEscalationsResolvedSince(project: string, sinceMs: number): 
     .all(project, sinceMs) as EscalationRow[]).map(mapEscalationRow);
 }
 
+/** Escalations of one `kind` for `project` with `createdAt` in [sinceMs, untilMs], oldest first.
+ *  SQL-filtered (unlike `listEscalations`, which has no project/kind/window filter and maps
+ *  every historical row) — for windowed reporting over a specific escalation kind. Normalizes
+ *  `project` through `trackingProjectRoot` so the read boundary matches `createEscalation`'s
+ *  write boundary. */
+export function listEscalationsByKindInWindow(project: string, kind: string, sinceMs: number, untilMs: number): Escalation[] {
+  const d = openDb();
+  const normalizedProject = trackingProjectRoot(project);
+  return (d
+    .query("SELECT * FROM escalation WHERE project = ? AND kind = ? AND createdAt >= ? AND createdAt <= ? ORDER BY createdAt")
+    .all(normalizedProject, kind, sinceMs, untilMs) as EscalationRow[]).map(mapEscalationRow);
+}
+
 export function getEscalation(id: string): Escalation | null {
   const d = openDb();
   const row = d.query('SELECT * FROM escalation WHERE id = ?').get(id) as EscalationRow | null;
