@@ -286,6 +286,50 @@ describe('buildLandReadiness', () => {
     expect(report.findings).toHaveLength(0);
   });
 
+  test('planned leaf tagged with a criterion the epic serves is an orphaned-proof finding', async () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done', servesCriterionIds: ['critX'] });
+    const accepted = todo({
+      id: 'w1',
+      title: 'work',
+      parentId: 'e1',
+      acceptanceStatus: 'accepted',
+    });
+    const orphan = todo({
+      id: 'w2',
+      title: 'proof leaf',
+      parentId: 'e1',
+      status: 'planned',
+      acceptanceStatus: null,
+      servesCriterionIds: ['critX'],
+    });
+    const report = await buildLandReadiness(
+      [epic, accepted, orphan],
+      'e1',
+      probeFrom({ w1: { onEpicTip: ['abc'], anyRef: ['abc'] } }),
+    );
+    expect(report.blocking).toBe(true);
+    expect(report.checked).toBe(1);
+    const orphanFindings = report.findings.filter((f) => f.kind === 'orphaned-proof');
+    expect(orphanFindings).toHaveLength(1);
+    expect(orphanFindings[0].todoId).toBe('w2');
+    expect(orphanFindings[0].reason).toContain('critX');
+    expect(orphanFindings[0].reason).toContain('w2'.slice(0, 8));
+  });
+
+  test('planned leaf tagged with a criterion the epic does NOT serve is not a finding', async () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done', servesCriterionIds: ['critX'] });
+    const orphan = todo({
+      id: 'w2',
+      title: 'proof leaf',
+      parentId: 'e1',
+      status: 'planned',
+      acceptanceStatus: null,
+      servesCriterionIds: ['critY'],
+    });
+    const report = await buildLandReadiness([epic, orphan], 'e1', probeFrom({}));
+    expect(report.blocking).toBe(false);
+  });
+
   test('cycle safety: descendant walk does not hang on a cycle', async () => {
     const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
     const a = todo({ id: 'a', title: 'task a', parentId: 'e1', acceptanceStatus: 'accepted' });

@@ -351,9 +351,14 @@ export async function landReadiness(
   presence = await presenceProbe(project, epicId);
 
   if (presence.blocking) {
+    const orphaned = presence.findings.filter((f) => f.kind === 'orphaned-proof').length;
+    const absent = presence.findings.length - orphaned;
+    const messageParts: string[] = [];
+    if (absent > 0) messageParts.push(`Accepted CODE leaves have no commits reachable from epic branch`);
+    if (orphaned > 0) messageParts.push(`${orphaned} proof leaf/leaves for served criteria are not accepted/done`);
     blockers.push({
       code: 'presence-findings',
-      message: `Accepted CODE leaves have no commits reachable from epic branch`,
+      message: messageParts.join('; '),
       detail: presence.findings.map((f) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
     });
   }

@@ -35,13 +35,14 @@ export interface CommitProbeResult {
 export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<CommitProbeResult>;
 
 export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic';
-export type FindingKind = 'missing' | 'stranded';
+export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof';
 
 export interface LandFinding {
   todoId: string;
   title: string;
   /** 'missing' = no commit on ANY ref (accepted nothing).
-   *  'stranded' = a commit exists on some ref but is NOT reachable from the epic tip. */
+   *  'stranded' = a commit exists on some ref but is NOT reachable from the epic tip.
+   *  'orphaned-proof' = a non-terminal descendant tagged with a criterion this epic serves. */
   kind: FindingKind;
   /** Populated for 'stranded': where the work actually sits. */
   strayShas: string[];
@@ -148,13 +149,43 @@ export async function buildLandReadiness(
     return { project, epicId, epicBranch, checked: 0, findings, exemptions, duplicateCommits, blocking: false };
   }
 
+  const epicCriteria = new Set<string>([
+    ...(epic.servesCriterionIds ?? []),
+    ...(epic.servesCriterionId ? [epic.servesCriterionId] : []),
+  ]);
+
   for (const desc of descendantsOf(epic)) {
     // Skip dropped descendants.
     if (desc.status === 'dropped') continue;
 
     // In scope iff accepted or done.
     const inScope = desc.acceptanceStatus === 'accepted' || desc.status === 'done';
-    if (!inScope) continue;
+    if (!inScope) {
+      if (epicCriteria.size === 0) continue;
+
+      // Same exemption predicates as below, applied as pure predicates only —
+      // out-of-scope nodes never get pushed to `exemptions`.
+      const nonDroppedChildren = (childrenOf.get(desc.id) ?? []).filter((c) => c.status !== 'dropped');
+      if (nonDroppedChildren.length >= 1 || isGateTodo(desc) || isLandTodo(desc) || isEpicTodo(desc)) {
+        continue;
+      }
+
+      const descCriteria = new Set<string>([
+        ...(desc.servesCriterionIds ?? []),
+        ...(desc.servesCriterionId ? [desc.servesCriterionId] : []),
+      ]);
+      const hit = new Set<string>([...descCriteria].filter((c) => epicCriteria.has(c)));
+      if (hit.size === 0) continue;
+
+      findings.push({
+        todoId: desc.id,
+        title: desc.title ?? '',
+        kind: 'orphaned-proof',
+        strayShas: [],
+        reason: `orphaned proof leaf ${desc.id.slice(0, 8)} for criterion ${[...hit].sort().join(', ')} is ${desc.status} (not accepted/done)`,
+      });
+      continue;
+    }
 
     // Exempt, in order:
     // 1. Container — has non-dropped children
