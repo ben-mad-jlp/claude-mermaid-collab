@@ -1240,6 +1240,65 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     expect(prompt).toContain(crit.id);
     expect(prompt).toContain('land-diff-intersects-evidence');
   });
+
+  /** Forge an approved+active mission whose single criterion derives action 'verify' (a landed,
+   *  proving serving epic, no verdict yet) AND has burned servedEpicCount >= CRITERION_PANEL_SERVE_THRESHOLD
+   *  (2 real-work serving epics) so classifyVerifyStakes fires the 'serve-burn' trigger → panel. */
+  async function forgeVerifyServeBurn() {
+    const forged = await forgeMission(project, { session: 's1', title: 'Serve-burn verify mission', criteria: ['the landed change still holds at HEAD'] });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    // epic1: LANDED + proves crit + did real work → servingEpicState 'landed' ⇒ action 'verify'.
+    const epic1 = await createTodo(project, { ownerSession: 's1', title: '[EPIC] serve 1 (landed)', kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
+    const leaf1 = await createTodo(project, { ownerSession: 's1', title: 'proof leaf', parentId: epic1.id, servesCriterionIds: [crit.id] });
+    await updateTodo(project, leaf1.id, { status: 'done', acceptanceStatus: 'accepted' });
+    await updateTodo(project, epic1.id, { status: 'done' }); // status 'done' ⇒ isLandedEpic
+
+    // epic2: dropped but did real work (a rejected leaf) → bumps servedEpicCount to 2 (serve-burn).
+    const epic2 = await createTodo(project, { ownerSession: 's1', title: '[EPIC] serve 2 (dropped)', kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
+    const leaf2 = await createTodo(project, { ownerSession: 's1', title: 'rejected leaf', parentId: epic2.id, servesCriterionIds: [crit.id] });
+    await updateTodo(project, leaf2.id, { status: 'done', acceptanceStatus: 'rejected' });
+    await updateTodo(project, epic2.id, { status: 'dropped' });
+
+    return { forged, crit };
+  }
+
+  test('a serve-burn verify criterion (servedEpicCount ≥ panel threshold) carries a HIGH-STAKES VERIFY panel entry', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeVerifyServeBurn();
+    // Premise: the derivation reads this criterion as 'verify' with servedEpicCount ≥ 2.
+    const c = listCriteriaWithActions(project, forged.missionId).find((x) => x.id === crit.id)!;
+    expect(c.action).toBe('verify');
+    expect(c.servedEpicCount).toBeGreaterThanOrEqual(2);
+
+    let prompt = '';
+    await runConductorPass(project, {
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    // Assert on the WAKE-CONTEXT panel bullet, not the always-present step-3 instruction text:
+    // the per-criterion "trigger: serve-burn" line is emitted ONLY by the rendered section.
+    expect(prompt).toContain(`${crit.id}   trigger: serve-burn`);
+    expect(prompt).toContain('verify each of these with 2–3 DISTINCT lenses, NOT one checker');
+  });
+
+  test('a fresh unserved criterion carries NO HIGH-STAKES VERIFY panel entry', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeApprovedActive();
+    // Premise: fresh criterion derives 'discover' (unserved) — not high-stakes.
+    const c = listCriteriaWithActions(project, forged.missionId)[0];
+    expect(c.action).toBe('discover');
+    expect(c.servedEpicCount).toBe(0);
+
+    let prompt = '';
+    await runConductorPass(project, {
+      invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+    });
+    // The step-3 instruction always mentions "HIGH-STAKES VERIFY"; the RENDERED panel section (its
+    // distinctive header) must be absent for a fresh, non-high-stakes criterion.
+    expect(prompt).not.toContain('verify each of these with 2–3 DISTINCT lenses, NOT one checker');
+  });
 });
 
 describe('buildServeCapDiagnosis (pure)', () => {

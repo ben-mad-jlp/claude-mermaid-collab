@@ -44,6 +44,8 @@ export const CONDUCTOR_ALLOWED_TOOLS = ORCHESTRATION_NODE_PROFILE.conductor.allo
 import { buildServeSignature, buildPassSignature, collectMissionCardIds, conductorFingerprint } from './conductor-signature.js';
 export { conductorFingerprint, type ConductorActionRow } from './conductor-signature.js';
 import { buildWakeContextBlock, type WakeContextInput } from './conductor-wake-context.js';
+import { collectVerifyStakesInput } from './criterion-verify-facts.js';
+import { classifyVerifyStakes } from './criterion-verify-stakes.js';
 export { buildWakeContextBlock, WAKE_CARD_RENDER_CAP, WAKE_CARD_EXCERPT_CHARS } from './conductor-wake-context.js';
 
 /** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
@@ -182,7 +184,15 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     '3. For a criterion with action `verify` (its serving epic LANDED, verdict not recorded): run the',
     '   INDEPENDENT verify — check the landed change against ground truth (maker≠checker, fail CLOSED),',
     '   then `mcp__mermaid__set_mission_criterion` with `met`, the `evidence` you cited, and',
-    '   `verifiedBy`. Never self-grade work you directed.',
+    '   `verifiedBy`. Never self-grade work you directed. That is ONE independent checker — the default.',
+    '   EXCEPTION — HIGH-STAKES VERIFY: any criterion listed under the HIGH-STAKES VERIFY section in',
+    '   WAKE CONTEXT above is contested (land-reopened, human-carded, or serve-burning) and must NOT be',
+    '   graded by a single checker. Check it with the 2–3 DISTINCT lenses named there',
+    '   (evidence-exists / regression-red-when-neutered / holds-at-head), each an independent PASS/FAIL,',
+    '   and pass those to `set_mission_criterion` as `panelVerdicts` (an array of {lens, met, reason}).',
+    '   The code joins them by MAJORITY — a split records NOT-met with the dissent, and recording a',
+    '   high-stakes criterion met with fewer than 2 lens verdicts FAILS CLOSED. A criterion NOT listed',
+    '   there takes the default single-checker path above, unchanged.',
     '4. Criteria with action `building` are in flight — leave them; the daemon is on it. BUT there is no',
     '   longer an AI steward auto-answering escalations — YOU are the authority for stuck work. This',
     '   mission\'s OPEN CARDS ARE LISTED ABOVE in WAKE CONTEXT — act on them; do not go looking for them.',
@@ -597,6 +607,19 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         resolvedCards = [];
       }
     }
+    // HIGH-STAKES VERIFY routing. For each criterion the derivation says needs a `verify`, classify
+    // its stakes deterministically (criterion-verify-facts collects the live signals; classify is a
+    // pure first-match). Only the enumerated triggers (reopened-by-land / contested-card / serve-burn)
+    // flip panel===true; a fresh/unserved criterion stays panel===false and the renderer drops it.
+    // This is the ROUTING half of the panel: the enforcement half (set_mission_criterion fail-closes
+    // a high-stakes met without ≥2 panelVerdicts) already landed — without this signal the conductor
+    // runs one checker and only learns it was high-stakes at the hard throw on record.
+    const stakes = criteriaWithActions
+      .filter((c) => c.action === 'verify')
+      .map((c) => {
+        const cls = classifyVerifyStakes(collectVerifyStakesInput(project, c.id));
+        return { criterionId: c.id, panel: cls.panel, trigger: cls.trigger, checkerCount: cls.checkerCount };
+      });
     wakeBlock = (deps.buildWakeBlock ?? buildWakeContextBlock)({
       missionId,
       missionTitle: target.summary.node.title ?? missionId,
@@ -606,6 +629,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       resolvedCards,
       actions: criteriaWithActions.map((c) => ({ id: c.id, action: c.action, text: c.text })),
       rechecks: pendingRechecks.map((r) => ({ criterionId: r.criterionId, reason: r.reason, landedSha: r.landedSha, enqueuedAt: r.enqueuedAt })),
+      stakes,
     });
   } catch {
     wakeBlock = undefined;

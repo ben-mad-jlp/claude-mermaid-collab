@@ -15,7 +15,9 @@ import {
   WAKE_CRITERION_RENDER_CAP,
   type WakeCard,
   type WakeRecheck,
+  type WakeStakes,
 } from '../conductor-wake-context';
+import { VERIFY_LENSES } from '../criterion-verify-panel';
 
 const NOW = 1_800_000_000_000;
 const LAST_PASS = NOW - 60 * 60 * 1000; // 1h ago
@@ -232,6 +234,82 @@ describe('buildWakeContextBlock — reopened rechecks section', () => {
     expect(block).toContain(`c0`);
     // Last overflow item is not rendered
     expect(block).not.toContain(`c${WAKE_CRITERION_RENDER_CAP + 2}`);
+  });
+});
+
+describe('buildWakeContextBlock — high-stakes verify panel section', () => {
+  function stakes(over: Partial<WakeStakes> & { criterionId: string }): WakeStakes {
+    return { panel: true, trigger: 'serve-burn', checkerCount: 3, ...over };
+  }
+
+  test('ABSENT when no criterion has panel===true (stakes omitted, empty, or all panel===false)', () => {
+    const omitted = buildWakeContextBlock({ missionId: 'm1', now: NOW, lastPassAt: LAST_PASS, openCards: [] });
+    expect(omitted).not.toContain('HIGH-STAKES VERIFY');
+
+    const empty = buildWakeContextBlock({ missionId: 'm1', now: NOW, lastPassAt: LAST_PASS, openCards: [], stakes: [] });
+    expect(empty).not.toContain('HIGH-STAKES VERIFY');
+
+    const allFalse = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      stakes: [stakes({ criterionId: 'c1', panel: false, trigger: null, checkerCount: 1 })],
+    });
+    expect(allFalse).not.toContain('HIGH-STAKES VERIFY');
+    expect(allFalse).not.toContain('c1');
+  });
+
+  test('a panel===true criterion names its trigger and ALL THREE lens names', () => {
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      stakes: [
+        stakes({ criterionId: 'c-serve-burn', panel: true, trigger: 'serve-burn' }),
+        stakes({ criterionId: 'c-not-panel', panel: false, trigger: null, checkerCount: 1 }),
+      ],
+    });
+    expect(block).toContain('HIGH-STAKES VERIFY');
+    expect(block).toContain('c-serve-burn');
+    expect(block).toContain('serve-burn');
+    // All three distinct-lens names are present.
+    expect(VERIFY_LENSES.length).toBe(3);
+    for (const lens of VERIFY_LENSES) expect(block).toContain(lens);
+    // The panel===false criterion is NOT rendered.
+    expect(block).not.toContain('c-not-panel');
+  });
+
+  test('renders each distinct trigger verbatim', () => {
+    for (const trigger of ['reopened-by-land', 'contested-card', 'serve-burn']) {
+      const block = buildWakeContextBlock({
+        missionId: 'm1',
+        now: NOW,
+        lastPassAt: LAST_PASS,
+        openCards: [],
+        stakes: [stakes({ criterionId: `c-${trigger}`, trigger })],
+      });
+      expect(block).toContain(trigger);
+      expect(block).toContain(`c-${trigger}`);
+    }
+  });
+
+  test('over the render cap ⇒ truncation notice names the omitted count and last row is absent', () => {
+    const many = Array.from({ length: WAKE_CRITERION_RENDER_CAP + 3 }, (_, i) =>
+      stakes({ criterionId: `panel-c${i}` }),
+    );
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      stakes: many,
+    });
+    expect(block).toContain('… 3 more high-stakes');
+    expect(block).toContain(`cap ${WAKE_CRITERION_RENDER_CAP}`);
+    expect(block).toContain('panel-c0');
+    expect(block).not.toContain(`panel-c${WAKE_CRITERION_RENDER_CAP + 2}`);
   });
 });
 

@@ -13,8 +13,11 @@
  *
  * This module is PURE: no store reads, no I/O, no clock of its own (the caller passes `now`).
  * Everything it renders arrives as plain data, so it is unit-testable without a database and
- * without module mocks.
+ * without module mocks. (The one import, VERIFY_LENSES, is a frozen pure constant — the three
+ * distinct-lens names — not a store or clock.)
  */
+
+import { VERIFY_LENSES } from './criterion-verify-panel.ts';
 
 /** One escalation card, reduced to the fields the block renders. Structurally a subset of
  *  supervisor-store's `Escalation`, declared locally so this module imports nothing. */
@@ -35,6 +38,19 @@ export interface WakeCriterion {
   id: string;
   action: string;
   text?: string;
+}
+
+/** One criterion's high-stakes verify classification, reduced to what the panel section renders.
+ *  Structurally a subset of criterion-verify-stakes.ts's `VerifyStakesResult` plus the criterion id.
+ *  Only entries with `panel === true` are rendered: the panel is OPT-IN on the enumerated triggers
+ *  (reopened-by-land / contested-card / serve-burn). A fresh/unserved criterion classifies
+ *  `panel === false` and MUST NOT produce a HIGH-STAKES VERIFY entry. */
+export interface WakeStakes {
+  criterionId: string;
+  panel: boolean;
+  /** Which high-stakes trigger fired (only meaningful when panel===true). */
+  trigger: string | null;
+  checkerCount: number;
 }
 
 /** One pending recheck from the mission_recheck queue. Structurally a subset of `MissionRecheck`
@@ -66,6 +82,10 @@ export interface WakeContextInput {
   /** Criteria that lost their verdict and must be re-verified. Sourced from mission-recheck-drain.ts's
    *  surviving `pending` list. */
   rechecks?: readonly WakeRecheck[];
+  /** Per-criterion high-stakes verify classification (conductor-pass runs classifyVerifyStakes for
+   *  every `verify` criterion). ONLY entries with `panel === true` render a HIGH-STAKES VERIFY entry;
+   *  a fresh/unserved criterion (panel===false, or simply absent from this list) never appears. */
+  stakes?: readonly WakeStakes[];
 }
 
 /** MAX open cards rendered in full. Bounding matters: the conductor node is the most expensive
@@ -180,6 +200,30 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
     if (rechecks.length > shown.length) {
       lines.push(
         `  … ${rechecks.length - shown.length} more (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
+      );
+    }
+    lines.push('');
+  }
+
+  // ── 1.6 HIGH-STAKES VERIFY (distinct-lens panel) ─────────────────────────────
+  // OPT-IN: only criteria classified panel===true (an enumerated trigger fired) appear. Absent
+  // entirely when nothing is high-stakes — an absent section is correct here (a fresh criterion is
+  // NOT high-stakes), unlike the OPEN CARDS section whose absence would read as "not checked".
+  const panelStakes = (input.stakes ?? []).filter((s) => s.panel === true);
+  if (panelStakes.length > 0) {
+    const lensNames = VERIFY_LENSES.join(', ');
+    lines.push('HIGH-STAKES VERIFY — verify each of these with 2–3 DISTINCT lenses, NOT one checker:');
+    lines.push(
+      `  Run the panel — the three lenses are: ${lensNames}. Pass per-lens PASS/FAIL as \`panelVerdicts\`` +
+        ' to `set_mission_criterion`; the code joins by MAJORITY (a split records not-met with dissent).',
+    );
+    const shown = panelStakes.slice(0, WAKE_CRITERION_RENDER_CAP);
+    for (const s of shown) {
+      lines.push(`  • ${s.criterionId}   trigger: ${s.trigger ?? '(unknown)'}   lenses: ${lensNames}`);
+    }
+    if (panelStakes.length > shown.length) {
+      lines.push(
+        `  … ${panelStakes.length - shown.length} more high-stakes criterion/criteria omitted (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
       );
     }
     lines.push('');
