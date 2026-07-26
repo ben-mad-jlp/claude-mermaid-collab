@@ -1383,6 +1383,45 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   } catch {
     spendUsd = 0;
   }
+  // PROOF-AWARE LAND (verify-action-lies-on-partial-land / joining-leaf-omitted): a landed epic
+  // must not flip a criterion to 'verify' (capability-landed, awaiting the gate) unless it actually
+  // PROVED that criterion — a delivered (done, non-rejected) descendant leaf carries this
+  // criterion's id in servesCriterionId(s). Without it, an epic that lands with its proving leaf
+  // dropped/orphaned still advertises EVERY criterion it served as verify-ready, and a generous
+  // verify can rubber-stamp the unproven one. LEGACY FALLBACK: an epic whose descendant leaves
+  // carry NO criterion tags at all (pre-leaf-tagging authoring) cannot be proof-checked, so trust
+  // the epic→criterion edge (prior behaviour) rather than wedge the criterion at 'discover' forever.
+  const childrenByParent = new Map<string, Todo[]>();
+  for (const t of allTodos) {
+    if (t.parentId == null) continue;
+    const arr = childrenByParent.get(t.parentId);
+    if (arr) arr.push(t); else childrenByParent.set(t.parentId, [t]);
+  }
+  const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean }>();
+  const proofForEpic = (epicId: string): { proven: Set<string>; tagsAnyLeaf: boolean } => {
+    const hit = proofByEpic.get(epicId);
+    if (hit) return hit;
+    const proven = new Set<string>();
+    let tagsAnyLeaf = false;
+    const walk = (parentId: string) => {
+      for (const t of childrenByParent.get(parentId) ?? []) {
+        if (!isEpic(t)) {
+          const tags = t.servesCriterionIds && t.servesCriterionIds.length > 0
+            ? t.servesCriterionIds
+            : (t.servesCriterionId ? [t.servesCriterionId] : []);
+          if (tags.length > 0) {
+            tagsAnyLeaf = true;
+            if (t.status === 'done' && t.acceptanceStatus !== 'rejected') tags.forEach((id) => proven.add(id));
+          }
+        }
+        walk(t.id); // recurse through nested epics / split children
+      }
+    };
+    walk(epicId);
+    const res = { proven, tagsAnyLeaf };
+    proofByEpic.set(epicId, res);
+    return res;
+  };
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
@@ -1441,9 +1480,19 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // live, landed work asks for a VERDICT instead of another epic. A non-landed, non-live
       // serving epic still reads 'open'+not-live ⇒ 'discover', preserving the unattended-stall
       // trap for a filed-but-never-approved epic.
+      // A landed serving epic only marks THIS criterion 'landed' (verify-ready) when it PROVED it
+      // (a delivered descendant leaf tagged with c.id) OR the epic tags no leaf at all (legacy →
+      // trust the edge). A landed epic that did NOT prove c (its proof leaf was dropped/orphaned)
+      // falls to 'open'→not-live→'discover', so the conductor re-serves a real proof instead of the
+      // gate being handed an unproven criterion to (maybe) rubber-stamp.
+      const landedProvesC = serving.some((e) => {
+        if (!isLandedEpic(e)) return false;
+        const pf = proofForEpic(e.id);
+        return pf.proven.has(c.id) || !pf.tagsAnyLeaf;
+      });
       const servingEpicState: 'landed' | 'open' | 'none' =
         servingEpicLive ? 'open'
-        : serving.some(isLandedEpic) ? 'landed'
+        : landedProvesC ? 'landed'
         : serving.length > 0 ? 'open'
         : 'none';
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick

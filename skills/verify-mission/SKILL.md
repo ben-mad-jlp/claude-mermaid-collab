@@ -46,6 +46,18 @@ Check it against real ground truth — read the relevant code, run the tests / t
 checker / build, drive the running app, inspect output. Do NOT rely on anyone's
 claim that it works; confirm it yourself.
 
+CAPABILITY IS NOT PROOF. An epic can LAND the capability code while the leaf that
+was supposed to PROVE this criterion was dropped, orphaned, or never ran — the land
+still flips the criterion to "needs-verify". So if the criterion NAMES or DEMANDS a
+specific proof artifact — "proven by a test that …", a named test file, a
+measurement, an acyclic/parse/round-trip demonstration, a grep that must return
+zero — then that artifact MUST EXIST and PASS. The capability code being present and
+looking correct is NOT sufficient. GREP for the demanded test / caller / artifact;
+if it does not exist on the current tree, that is a concrete gap → NOT met, even
+when the underlying implementation looks right. (This is the "landed pure module is
+dead code" / "joining-leaf-omitted" trap: the proving leaf is the thing that goes
+missing, and its absence is exactly what a generous reviewer overlooks.)
+
 Tool preferences: Read/Grep/Glob for code; Bash only for genuinely needed commands
 (tests, build, curl). Prefer the project's real test/build commands.
 
@@ -80,5 +92,9 @@ Summarize: N/total criteria met, which failed + the evidence, and the resulting 
 ## Rules
 - **Independence is non-negotiable.** A fresh agent per criterion, none of them "you." Reusing the maker defeats the gate.
 - **Fail closed.** Uncertain = not met. Never grade generously to let the loop finish.
+- **Capability ≠ proof.** If the criterion demands a proof artifact (a named test, a
+  measurement, a demonstration), that artifact must EXIST and PASS on the current
+  tree — grep for it; its absence is a concrete gap → NOT met, however good the
+  capability code looks. The proving leaf is what goes missing on a partial land.
 - **Evidence is mandatory.** A verdict with no cited ground truth is not a verdict.
 - **Re-verify every criterion each pass** — a criterion met last iteration can regress.

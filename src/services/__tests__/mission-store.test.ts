@@ -835,6 +835,58 @@ describe('per-criterion discovery', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // PROOF-AWARE VERIFY-FLIP (verify-action-lies-on-partial-land / joining-leaf-omitted):
+  // a landed epic must only advertise a criterion as verify-ready when a DELIVERED leaf tagged
+  // with that criterion landed. A dropped/orphaned proof leaf must leave the criterion at
+  // 'discover' (re-serve), not flip it to 'verify' for a (maybe rubber-stamp) gate.
+  describe('proof-aware verify-flip', () => {
+    const withProj = async (fn: (proj: string) => Promise<void>) => {
+      const dir = mkdtempSync(join(tmpdir(), 'mission-proof-'));
+      const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
+      process.env.MERMAID_SUPERVISOR_DIR = dir;
+      const proj = join(dir, 'p');
+      try { await fn(proj); }
+      finally {
+        _closeProject(proj);
+        _resetMissionDbCache(proj);
+        if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    // Build mission + 1 criterion + 1 serving epic (landed) + 1 proof leaf; return the criterion action.
+    const actionAfterLand = async (proj: string, opts: { tagLeaf: boolean; dropLeaf: boolean }) => {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] G', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c = addCriterion(proj, m.id, 'proven by a specific test');
+      const epic = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] serve', kind: 'epic', parentId: m.id, servesCriterionIds: [c.id] });
+      const leaf = await createTodo(proj, { ownerSession: 's1', title: 'the proof leaf', kind: 'leaf', parentId: epic.id, servesCriterionIds: opts.tagLeaf ? [c.id] : undefined });
+      if (opts.dropLeaf) updateTodo(proj, leaf.id, { status: 'dropped' });
+      else await completeTodo(proj, leaf.id, 'accepted');
+      stampEpicLandedAt(proj, epic.id, new Date(0).toISOString());
+      return listCriteriaWithActions(proj, m.id).find((x) => x.id === c.id)!.action;
+    };
+
+    test('tagged proof leaf DELIVERED under a landed epic → verify (normal case preserved)', async () => {
+      await withProj(async (proj) => {
+        expect(await actionAfterLand(proj, { tagLeaf: true, dropLeaf: false })).toBe('verify');
+      });
+    });
+
+    test('tagged proof leaf DROPPED under a landed epic → discover, NOT verify (the fix)', async () => {
+      await withProj(async (proj) => {
+        const a = await actionAfterLand(proj, { tagLeaf: true, dropLeaf: true });
+        expect(a).not.toBe('verify'); // the unproven criterion must not be handed to the gate
+        expect(a).toBe('discover');   // it re-serves a real proof instead
+      });
+    });
+
+    test('UNtagged leaf under a landed epic → verify (legacy epics untouched — no regression)', async () => {
+      await withProj(async (proj) => {
+        expect(await actionAfterLand(proj, { tagLeaf: false, dropLeaf: false })).toBe('verify');
+      });
+    });
+  });
 });
 
 describe('mission handoffDocId (constitution link)', () => {

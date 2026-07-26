@@ -202,6 +202,14 @@ export interface LeafInput {
   status?: TodoStatus;
   assigneeKind?: 'agent' | 'human';
   link?: TodoLink;
+  /** Which mission acceptance criterion THIS leaf proves. Drives the proof-aware verify-flip
+   *  (mission-store deriveCriterionAction): a landed epic only advertises a criterion as
+   *  verify-ready if a delivered leaf tagged with it landed, so a dropped/orphaned proof leaf can
+   *  no longer flip an unproven criterion. OPTIONAL — for a single-criterion epic the leaves
+   *  auto-inherit the epic's one criterion; set this explicitly on a MULTI-criterion epic so each
+   *  leaf names the criterion it proves. `servesCriterionIds` wins over the singular when both set. */
+  servesCriterionId?: string;
+  servesCriterionIds?: string[];
   /** ESCAPE HATCH for the duplicate-of-done guard below. A deliberate re-do (a landed change
    *  that regressed, a second pass over the same surface) is legitimate work, and the guard
    *  is a heuristic — an author who has looked at the prior leaf and still wants this one
@@ -233,6 +241,15 @@ export async function addLeavesToEpic(
   // against the same checkout as the epic. If the epic is mission-homed but its mission
   // node is unreadable, refuse rather than silently defaulting leaves to the tracking project.
   const epicTarget = parent.targetProject ?? null;
+  // Proof-aware verify-flip: each leaf carries the criterion(s) it proves. An explicit per-leaf
+  // tag wins; otherwise, when the epic serves exactly ONE criterion, its leaves auto-inherit it
+  // (so the common one-epic-per-criterion case needs no authoring change). A multi-criterion epic
+  // whose leaves aren't tagged falls through untagged — the mission-store flip then treats that
+  // epic as legacy (trusts the epic edge) rather than wedging, and the /conductor skill instructs
+  // authors to tag per-leaf in that case.
+  const epicCriteria = parent.servesCriterionIds && parent.servesCriterionIds.length > 0
+    ? parent.servesCriterionIds
+    : (parent.servesCriterionId ? [parent.servesCriterionId] : []);
   if (parent.parentId) {
     const epicMission = getTodo(project, parent.parentId);
     if (!epicMission) {
@@ -286,6 +303,9 @@ export async function addLeavesToEpic(
       }
       return createdIds[idx]!;
     });
+    const leafCriteria = leaf.servesCriterionIds && leaf.servesCriterionIds.length > 0
+      ? leaf.servesCriterionIds
+      : (leaf.servesCriterionId ? [leaf.servesCriterionId] : (epicCriteria.length === 1 ? epicCriteria : []));
     const created = await addSessionTodo(project, session, leaf.title, leaf.link, {
       kind: 'leaf',
       parentId: epicId,
@@ -296,6 +316,7 @@ export async function addLeavesToEpic(
       dependsOn: resolvedDeps,
       status: leaf.status,
       assigneeKind: leaf.assigneeKind,
+      servesCriterionIds: leafCriteria.length > 0 ? leafCriteria : undefined,
     });
     createdIds.push(created.id);
     if (epicTarget) {
@@ -381,6 +402,8 @@ export const WORKGRAPH_TOOL_DEFS = [
               status: { type: 'string', enum: ['planned', 'ready'] },
               assigneeKind: { type: 'string', enum: ['agent', 'human'] },
               link: { type: 'object' },
+              servesCriterionId: { type: 'string', description: 'The mission criterion THIS leaf proves. Auto-inherited from the epic when the epic serves exactly ONE criterion; set it explicitly on a MULTI-criterion epic so the proof-aware verify-flip knows which criterion each leaf proves (a criterion is only advertised verify-ready once a delivered leaf tagged with it lands).' },
+              servesCriterionIds: { type: 'array', items: { type: 'string' }, description: 'The mission criteria THIS leaf proves (wins over servesCriterionId). Use when one leaf proves several aspect criteria.' },
               allowDuplicate: { type: 'boolean', description: 'Skip the duplicate-of-done check for THIS leaf — for a deliberate re-do of already-landed work.' },
             },
             required: ['title'],

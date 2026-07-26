@@ -490,3 +490,26 @@ describe('leaf-dup-guard: distinct-subject carve-out', () => {
     expect(findDuplicateDoneLeaf([entry(t)], t)).not.toBeNull();
   });
 });
+
+// PROOF-TAGGING (proof-aware verify-flip): add_leaves stamps each leaf with the criterion it
+// proves so a landed epic only advertises a criterion verify-ready once a DELIVERED tagged leaf
+// lands. Single-criterion epics auto-inherit; multi-criterion epics need per-leaf tags.
+describe('add_leaves proof-tagging', () => {
+  test('single-criterion epic → leaves AUTO-INHERIT the one criterion', async () => {
+    const e = await call('create_epic', { title: 'serve C1', home: null, servesCriterionIds: ['C1'] });
+    const r = await call('add_leaves', { epicId: e.epicId, leaves: [{ title: 'do the thing' }] });
+    expect(getTodo(project, r.createdIds[0])?.servesCriterionIds).toEqual(['C1']);
+  });
+
+  test('explicit per-leaf servesCriterionId WINS over inherit', async () => {
+    const e = await call('create_epic', { title: 'serve C1', home: null, servesCriterionIds: ['C1'] });
+    const r = await call('add_leaves', { epicId: e.epicId, leaves: [{ title: 'proves C2', servesCriterionId: 'C2' }] });
+    expect(getTodo(project, r.createdIds[0])?.servesCriterionIds).toEqual(['C2']);
+  });
+
+  test('multi-criterion epic → an untagged leaf stays UNTAGGED (no ambiguous inherit)', async () => {
+    const e = await call('create_epic', { title: 'serve C1+C2', home: null, servesCriterionIds: ['C1', 'C2'] });
+    const r = await call('add_leaves', { epicId: e.epicId, leaves: [{ title: 'untagged' }] });
+    expect(getTodo(project, r.createdIds[0])?.servesCriterionIds ?? []).toEqual([]);
+  });
+});
