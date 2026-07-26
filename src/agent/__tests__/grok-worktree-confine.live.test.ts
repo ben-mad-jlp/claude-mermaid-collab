@@ -15,14 +15,16 @@ import {
   unlinkSync,
   rmSync,
   realpathSync,
+  copyFileSync,
 } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
 import {
   resolveGrokBin,
   assertGrokAuth,
   invokeGrokNode,
   grokConfineHookFile,
+  getGrokHooksHomeDir,
   _resetGrokConfineHookCache,
   _resetConfineHookPathCache,
   type NodeResult,
@@ -55,18 +57,41 @@ describe.skipIf(!LIVE_GROK)('live grok worktree confinement (skipped unless LIVE
   let root = '';
   let worktree = '';
   let outside = '';
+  let testHomeDir = '';
   let hookPath = '';
   let savedHook: string | null = null;
   const savedResourcesPath = process.env.MERMAID_RESOURCES_PATH;
+  const savedGrokHooksHome = process.env.MERMAID_GROK_HOOKS_HOME;
 
   beforeAll(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), 'grok-confine-live-')));
+    testHomeDir = join(root, 'fake-home');
     worktree = join(root, 'wt-lane');
     outside = join(root, 'main-checkout');
+    mkdirSync(testHomeDir, { recursive: true });
     mkdirSync(worktree, { recursive: true });
     mkdirSync(outside, { recursive: true });
 
-    hookPath = join(homedir(), '.grok', 'hooks', 'mermaid-worktree-confine.json');
+    // Per-run isolation: redirect grok hooks to a temp directory instead of the user's
+    // global ~/.grok/hooks. This prevents concurrent test runs from interfering with
+    // each other when one test's afterAll cleanup deletes the hook while another test's
+    // grok process is still running.
+    process.env.MERMAID_GROK_HOOKS_HOME = testHomeDir;
+
+    // Copy grok auth from the real home so grok can authenticate in the test-isolated HOME.
+    // When worktreeSpawnEnv redirects HOME to testHomeDir, grok will read ~/.grok/auth.json
+    // from there. Without this, grok fails "not logged in" when spawned.
+    const realHome = process.env.HOME;
+    if (realHome) {
+      const realAuthPath = join(realHome, '.grok', 'auth.json');
+      const testAuthPath = join(testHomeDir, '.grok', 'auth.json');
+      if (existsSync(realAuthPath)) {
+        mkdirSync(dirname(testAuthPath), { recursive: true });
+        copyFileSync(realAuthPath, testAuthPath);
+      }
+    }
+
+    hookPath = join(testHomeDir, '.grok', 'hooks', 'mermaid-worktree-confine.json');
     savedHook = existsSync(hookPath) ? readFileSync(hookPath, 'utf-8') : null;
 
     // This test proves the hook script IN THIS WORKING TREE, not whatever a previously
@@ -89,6 +114,8 @@ describe.skipIf(!LIVE_GROK)('live grok worktree confinement (skipped unless LIVE
   afterAll(() => {
     delete process.env.MERMAID_TEST_ALLOW_DETACHED;
     if (savedResourcesPath !== undefined) process.env.MERMAID_RESOURCES_PATH = savedResourcesPath;
+    if (savedGrokHooksHome !== undefined) process.env.MERMAID_GROK_HOOKS_HOME = savedGrokHooksHome;
+    else delete process.env.MERMAID_GROK_HOOKS_HOME;
     _resetConfineHookPathCache();
     try {
       if (savedHook !== null) {

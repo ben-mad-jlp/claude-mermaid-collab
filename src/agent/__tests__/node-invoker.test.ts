@@ -36,8 +36,10 @@ import {
   _resetConfineHookPathCache,
   buildGrokArgv,
   grokConfineHookFile,
+  getGrokHooksHomeDir,
   _resetGrokConfineHookCache,
   GROK_CONFINE_MATCHER,
+  GROK_HOOKS_HOME_ENV_VAR,
   type NodeSpec,
 } from '../node-invoker.ts';
 import { invokeXaiApiNode } from '../xai-api-invoker.ts';
@@ -855,5 +857,92 @@ describe('isTransientNodeFault: real start-failure paths set startFailure', () =
     expect(res.authMode).toBe('api');
     expect(res.startFailure != null).toBe(true);
     expect(isTransientNodeFault(res)).toBe(true);
+  });
+});
+
+describe('getGrokHooksHomeDir: per-run grok hook isolation', () => {
+  const savedEnv = process.env.MERMAID_GROK_HOOKS_HOME;
+
+  afterEach(() => {
+    if (savedEnv !== undefined) process.env.MERMAID_GROK_HOOKS_HOME = savedEnv;
+    else delete process.env.MERMAID_GROK_HOOKS_HOME;
+  });
+
+  it('returns env var MERMAID_GROK_HOOKS_HOME when set', () => {
+    const testDir = '/tmp/test-grok-home';
+    process.env.MERMAID_GROK_HOOKS_HOME = testDir;
+    expect(getGrokHooksHomeDir()).toBe(testDir);
+  });
+
+  it('returns homedir when MERMAID_GROK_HOOKS_HOME is not set', () => {
+    delete process.env.MERMAID_GROK_HOOKS_HOME;
+    const result = getGrokHooksHomeDir();
+    // The result should be an absolute path (homedir never returns empty/relative)
+    expect(result.length > 0).toBe(true);
+    expect(result.startsWith('/')).toBe(true);
+  });
+
+  it('allows per-run isolation: concurrent tests do not share hook directories', () => {
+    // Simulate two concurrent test runs setting different hook directories
+    const home1 = '/tmp/test-run-1';
+    const home2 = '/tmp/test-run-2';
+
+    process.env.MERMAID_GROK_HOOKS_HOME = home1;
+    const result1 = getGrokHooksHomeDir();
+    expect(result1).toBe(home1);
+
+    process.env.MERMAID_GROK_HOOKS_HOME = home2;
+    const result2 = getGrokHooksHomeDir();
+    expect(result2).toBe(home2);
+
+    // Each run gets its own directory — no interference
+    expect(result1).not.toBe(result2);
+  });
+});
+
+describe('grokConfineHookFile isolation (mutation-probe: cache key includes home dir)', () => {
+  const savedEnv = process.env.MERMAID_GROK_HOOKS_HOME;
+
+  beforeEach(() => {
+    _resetConfineHookPathCache();
+    _resetGrokConfineHookCache();
+  });
+
+  afterEach(() => {
+    _resetConfineHookPathCache();
+    _resetGrokConfineHookCache();
+    if (savedEnv !== undefined) process.env.MERMAID_GROK_HOOKS_HOME = savedEnv;
+    else delete process.env.MERMAID_GROK_HOOKS_HOME;
+  });
+
+  it('caches hook paths per home directory — different homes → different hook paths (mutation-probe: removed home-dir from cache key fails this)', () => {
+    const dir1 = mkdtempSync(join(tmpdir(), 'grok-cache-test-1-'));
+    const dir2 = mkdtempSync(join(tmpdir(), 'grok-cache-test-2-'));
+
+    try {
+      // First call with dir1
+      process.env.MERMAID_GROK_HOOKS_HOME = dir1;
+      _resetGrokConfineHookCache();
+      const path1 = grokConfineHookFile();
+      expect(path1).not.toBeNull();
+      expect(path1!).toContain(dir1);
+      expect(existsSync(path1!)).toBe(true);
+
+      // Change to dir2 WITHOUT resetting cache — if cache key doesn't include home dir,
+      // this would return the old path from dir1 (the mutation). With proper isolation,
+      // grokConfineHookFile should recognize the home dir changed and compute a new path.
+      process.env.MERMAID_GROK_HOOKS_HOME = dir2;
+      const path2 = grokConfineHookFile();
+
+      // MUTATION PROBE: if home dir is NOT in the cache key, path2 === path1.
+      // This test would FAIL on the assertion below.
+      expect(path1).not.toBe(path2);
+      expect(path2).not.toBeNull();
+      expect(path2!).toContain(dir2);
+      expect(existsSync(path2!)).toBe(true);
+    } finally {
+      rmSync(dir1, { recursive: true, force: true });
+      rmSync(dir2, { recursive: true, force: true });
+    }
   });
 });
