@@ -455,6 +455,18 @@ describe('selectConductorMission — deterministic total order (B4, replaces fir
     const freshRival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] fresh-rival', kind: 'mission' })).id;
     upsertMission(project, freshLeader); addCriterion(project, freshLeader, 'gap');
     upsertMission(project, freshRival); addCriterion(project, freshRival, 'gap');
+    // Deterministic total-order head: force distinct mission.createdAt so the comparator decides on
+    // createdAt (leader first). Without this the two upsertMission calls can land in the SAME
+    // millisecond, and the comparator's createdAt tie then falls to the RANDOM-uuid node-id
+    // tiebreak (mission-store.ts:852-853) — a ~50% flake on which mission is "the leader" that
+    // surfaced only under cross-file load (mission-store.ts:448).
+    const setMissionCreatedAt = (id: string, ts: number) => {
+      const mdb = new Database(join(project, '.collab', 'mission.db'));
+      mdb.exec(`UPDATE mission SET createdAt = ${ts} WHERE todoId = '${id}'`);
+      mdb.close();
+    };
+    setMissionCreatedAt(freshLeader, 1);
+    setMissionCreatedAt(freshRival, 2);
     stampConductorRun(project, freshLeader, 'k', { at: now });
     stampConductorRun(project, freshRival, 'k', { at: now });
     const freshSelection = selectConductorMission(project, { now, beatMs });
@@ -481,6 +493,10 @@ describe('selectConductorMission — deterministic total order (B4, replaces fir
     await updateTodo(project, rivalEpic, { servesCriterionId: rivalCrit.id, status: 'ready' });
     const rivalLeaf = await createTodo(project, { ownerSession: 's1', title: 'leaf under B', kind: 'leaf', parentId: rivalEpic });
     await updateTodo(project, rivalLeaf.id, { status: 'ready' });
+    // Same determinism for (b): staleLeader must be the total-order head, not a coin-flip on a
+    // same-ms createdAt tie.
+    setMissionCreatedAt(staleLeader, 3);
+    setMissionCreatedAt(staleRival, 4);
 
     stampConductorRun(project, staleLeader, 'k', { at: now - (CONDUCTOR_LEADER_STALE_TICKS * beatMs + 1) });
     stampConductorRun(project, staleRival, 'k', { at: now });
