@@ -1029,7 +1029,7 @@ const BLUEPRINT_CONCISENESS_RULES_LINES: readonly string[] = [
  *  Shared VERBATIM by the same four blueprint-authoring prompts as
  *  BLUEPRINT_CONCISENESS_RULES_LINES. */
 const BLUEPRINT_DELETION_CRITERIA_RULES_LINES: readonly string[] = [
-  'DELETION/REMOVAL criteria — a criterion asserting an absence MUST take one of these three',
+  'DELETION/REMOVAL criteria — a criterion asserting an absence MUST take one of these four',
   'citable forms, or it stays rejected exactly like any other bare prose absence:',
   '  (a) SURVIVING-STATE citation: cite the positive fact about what remains, not what is gone —',
   '      "App.tsx:42 renders OpsScreen; the sole remaining reference to ptyManager is server.ts:10".',
@@ -1039,6 +1039,8 @@ const BLUEPRINT_DELETION_CRITERIA_RULES_LINES: readonly string[] = [
   '  (c) diff-contract v2 (diff-contract.ts) structural absence: a ThresholdRequirement with',
   '      source "grep-count", comparison "eq", value 0 — the typed, mechanically-decided form —',
   '      when this leaf authors a v2 contract.',
+  '  (d) SCOPE-GUARD negation: name the implementation PATH and a `git diff` check with an',
+  '      asserted empty/zero result — e.g. "Implementation untouched — `git diff HEAD --stat -- src/services/foo.ts` is empty (0 files changed)".',
   'A bare absence with no exact pattern+scope ("X no longer defines Y", "Z is gone") is REJECTED —',
   'this is a narrow exception to the no-absence rule above, not a loophole for vague prose.',
 ];
@@ -1309,12 +1311,12 @@ export function buildCriteriaRepairPrompt(
     "Every acceptance criterion in a blueprint must be satisfiable by a `file:line` citation inside the diff this leaf produces.",
     "These three criterion types are NEVER citable in principle:",
     "1. A command's result: a criterion that invokes a build/test (bun run, npm test, npx vitest, tsc, make, etc.) or asserts its outcome (tests pass, suite green, build clean, etc.) — UNLESS it names a runnable read-only verification command (grep/rg/tsc/vitest/bun test) WITH a real argument AND an asserted checkable result token ('returns 0', 'no matches', ...); that shape is verified against the command actually recorded, not trusted from prose.",
-    "2. An absence: a criterion that asserts a negative about code (no file touched, no field added, not changed, etc.) — UNLESS it takes one of the three citable DELETION/REMOVAL forms below.",
+    "2. An absence: a criterion that asserts a negative about code (no file touched, no field added, not changed, etc.) — UNLESS it takes one of the four citable DELETION/REMOVAL forms below.",
     "3. A location outside your diff: a citation to a file:line you do not modify.",
     '',
     ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
     '',
-    "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass, or — if it is a genuine absence — as one of the three citable forms above.",
+    "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass, or — if it is a genuine absence — as one of the four citable forms above.",
     MANIFEST_GLOB_RULE_LINE,
     "Then read the relevant code, and produce your corrected blueprint and WRITE it to `" +
       bp +
