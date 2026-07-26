@@ -66,4 +66,14 @@ describe('routeReviewDepth', () => {
     const resultFalse = routeReviewDepth(risk, { lightPathEnabled: false });
     expect(resultFalse.depth).toBe('standard');
   });
+
+  test('a hot-path diff never routes light even with the flag forced on', () => {
+    const risk: DiffRisk = {
+      files: ['docs/a.md', 'src/services/mission-store.ts'],
+      addedLines: 3,
+      deletedLines: 2,
+    };
+    const { depth } = routeReviewDepth(risk, { lightPathEnabled: true });
+    expect(depth).toBe('heavy');
+  });
 });
