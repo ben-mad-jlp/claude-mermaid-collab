@@ -242,6 +242,8 @@ function convictOnAbsence(text: string): { uncitable: boolean; reason?: string }
   return { uncitable: false };
 }
 
+const SCOPE_GUARD_RESULT = /\b(?:0\s+files?\s+changed|empty(?:\s+output)?|no\s+output|no\s+changes|prints?\s+nothing)\b/i;
+
 /** True when the criterion names a runnable READ-ONLY verification invocation WITH a real
  *  argument AND asserts a checkable RESULT token. Such a criterion — even an absence-shaped
  *  one ("X no longer appears — grep -c X file returns 0") — is a command-result the
@@ -259,6 +261,19 @@ function namesVerificationCommand(text: string): boolean {
     /-c\b[^.]*\b0\b/.test(text) ||
     /\b0\s+occurrences\b/i.test(text) ||
     /\bcount\s+is\s+0\b/i.test(text);
+  return hasResult;
+}
+
+/** True when the criterion names a git diff invocation with a pathspec argument AND asserts
+ *  a checkable scope-guard RESULT token. Such a criterion is mechanically checkable and must
+ *  be ACQUITTED as a command-result, not convicted as an absence. */
+export function namesScopeGuardCheck(text: string): boolean {
+  // (i) invocation with a concrete path argument — git diff with --stat or -- pathspec separator
+  const hasInvocation = /(?:^|[\s`(])git\s+diff\b[^`\n]*(?:--\s+|--stat\s+)\S/.test(text);
+  if (!hasInvocation) return false;
+
+  // (ii) checkable result token from ABSENCE_RESULT or SCOPE_GUARD_RESULT
+  const hasResult = ABSENCE_RESULT.test(text) || SCOPE_GUARD_RESULT.test(text);
   return hasResult;
 }
 
@@ -311,7 +326,7 @@ export function compliantShapeFor(kind: UncitableKind, offendingText: string): s
     }
     case 'absence': {
       const subject = pickSubject(offendingText);
-      return `Compliant shape: move the negation into the size-manifest — e.g. outOfScope: ["${subject}"] — or restate as one of the three DELETION/REMOVAL citable forms.`;
+      return `Compliant shape: move the negation into the size-manifest — e.g. outOfScope: ["${subject}"] — or name a scope guard, e.g. \`git diff HEAD --stat -- <path>\` is empty — or restate as one of the three DELETION/REMOVAL citable forms.`;
     }
     case 'out-of-diff-location': {
       const citations = extractCitations(offendingText);
@@ -355,7 +370,7 @@ export function classifyCriterion(
 
   // Rule 1.5: ACQUIT on a named runnable read-only verification command with a checkable result.
   // Reuse the 'command-result' kind so the review-time defer predicate accepts it too.
-  if (namesVerificationCommand(text)) {
+  if (namesVerificationCommand(text) || namesScopeGuardCheck(text)) {
     return { text, citable: true, kind: 'command-result' };
   }
 
