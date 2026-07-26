@@ -1502,8 +1502,25 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         e.hollowLandedAt != null ||
         isHollowLand(e, allTodos.filter((t) => t.parentId === e.id && !isEpic(t)))
       );
+      // SERVE-CAP REFUND (infra-flake serve): a serving epic that FILED leaves but was killed by an
+      // INFRA hold (epic-base-red, spawn-ENOENT, auth-logout) BEFORE any of them ran must NOT burn
+      // the anti-thrash cap — the cap exists to stop re-filing a criterion that has been genuinely
+      // ATTEMPTED and still failed, not one whose serves never got to run. An epic counts toward the
+      // cap iff it made a genuine attempt: it has NO leaf children (a thin re-file — preserved as
+      // thrash history, the existing deliberate behaviour), OR at least one descendant leaf settled
+      // (accepted|rejected), OR a ledger node actually spent under it. An epic whose leaves are all
+      // filed-but-unrun (dropped/blocked at attempts=0, zero nodes, none settled) is refunded, so the
+      // conductor can serve once more when the flake clears rather than the cap wedging a solvable
+      // criterion into a human-only 'escalate'.
+      const countsTowardServeCap = (e: Todo): boolean => {
+        const leaves = allTodos.filter((t) => t.parentId === e.id && !isEpic(t));
+        if (leaves.length === 0) return true; // thin re-file — unchanged thrash-history counting
+        return leaves.some((t) => t.acceptanceStatus === 'accepted' || t.acceptanceStatus === 'rejected')
+          || runs.some((r) => r.epicId === e.id && (r.nodesSpent ?? 0) > 0);
+      };
       const servedEpicCount = allEpicsEver.filter(
-        (e) => (e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id)) && !isHollowDone(e),
+        (e) => (e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id)) &&
+          !isHollowDone(e) && countsTowardServeCap(e),
       ).length;
       const servingEpicIds = new Set(serving.map((e) => e.id));
       const rejectedParkedCount = runs.filter(

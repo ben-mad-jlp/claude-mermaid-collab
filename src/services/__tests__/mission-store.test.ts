@@ -886,6 +886,38 @@ describe('per-criterion discovery', () => {
         expect(await actionAfterLand(proj, { tagLeaf: false, dropLeaf: false })).toBe('verify');
       });
     });
+
+    // SERVE-CAP REFUND: CRITERION_SERVE_CAP serving epics that did ZERO work (leaf never settled,
+    // e.g. base-red-killed at attempts=0) must NOT burn the cap — the criterion stays servable, not
+    // wedged into human-only 'escalate'. A serve that genuinely worked (a settled leaf) still counts.
+    test('zero-work (infra-killed) serves are refunded; real-work serves still burn the cap', async () => {
+      await withProj(async (proj) => {
+        const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] G', kind: 'mission' });
+        upsertMission(proj, m.id);
+        const c = addCriterion(proj, m.id, 'crit');
+        // CAP serving epics, each with a leaf that NEVER settled (dropped at attempts=0) → zero work.
+        for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+          const e = await createTodo(proj, { ownerSession: 's1', title: `[EPIC] noop ${i}`, kind: 'epic', parentId: m.id, servesCriterionIds: [c.id] });
+          const l = await createTodo(proj, { ownerSession: 's1', title: `leaf ${i}`, kind: 'leaf', parentId: e.id });
+          updateTodo(proj, l.id, { status: 'dropped' });
+          updateTodo(proj, e.id, { status: 'dropped' });
+        }
+        const refunded = listCriteriaWithActions(proj, m.id).find((x) => x.id === c.id)!;
+        expect(refunded.servedEpicCount).toBe(0);        // all CAP serves refunded
+        expect(refunded.action).not.toBe('escalate');    // not wedged — still servable
+
+        // CAP more serving epics, each with a REJECTED (settled) leaf → genuine attempts that failed
+        // (rejected, not accepted, so the epic does not auto-land → stays an unmet serve, not verify).
+        for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+          const e = await createTodo(proj, { ownerSession: 's1', title: `[EPIC] real ${i}`, kind: 'epic', parentId: m.id, servesCriterionIds: [c.id] });
+          const l = await createTodo(proj, { ownerSession: 's1', title: `leaf r${i}`, kind: 'leaf', parentId: e.id });
+          await completeTodo(proj, l.id, 'rejected');
+        }
+        const capped = listCriteriaWithActions(proj, m.id).find((x) => x.id === c.id)!;
+        expect(capped.servedEpicCount).toBe(CRITERION_SERVE_CAP); // only the real-work serves count
+        expect(capped.action).toBe('escalate');                   // now genuinely capped
+      });
+    });
   });
 });
 
