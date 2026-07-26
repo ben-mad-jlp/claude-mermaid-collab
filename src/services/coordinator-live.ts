@@ -71,6 +71,7 @@ import {
 } from './worker-pool';
 import { getConfig } from './config-service';
 import { recordFriction } from './friction-store';
+import { recordLandCycle } from './epic-land-record-store.js';
 
 // ---------------------------------------------------------------------------
 // Pure pane-scrape detectors — the in-app terminal UI + interactive-launch tmux
@@ -856,6 +857,24 @@ export async function acceptTimeAncestorGate(
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
     if (land.landed === true) {
       await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
+      // This reconcile lands the EPIC accumulation branch onto `intRef`. resolveIntegrationRef
+      // (worktree-manager.ts:1915-1945) resolves `intRef` to the local trunk, so it IS an
+      // epic→master land and MUST be recorded on the same terms as path A (escalation-land).
+      // A hypothetical land whose realised `baseRef` is NOT the integration ref (a
+      // leaf→integration reconcile shape) is deliberately NOT recorded, because `epic_land_record`
+      // is the proof that an EPIC reached trunk and the reaper (leaf-worktree-reaper.ts:571)
+      // reclaims worktrees off it — recording a non-trunk merge would authorise a reclaim of
+      // unlanded work.
+      if ((land.baseRef ?? intRef) === intRef) {
+        const tip = await wm.epicHeadSha(epicId).catch(() => null);
+        await recordLandCycle(project, {
+          epicId,
+          epicTipSha: tip,
+          landedMergeSha: land.masterSha ?? '',
+          source: 'reconcile-land',
+          session,
+        });
+      }
     }
   } catch (e) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
