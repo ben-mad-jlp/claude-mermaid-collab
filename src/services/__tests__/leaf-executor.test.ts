@@ -601,7 +601,7 @@ describe('buildNodePrompt per-node specs', () => {
       reasons: ['criterion "ptyManager import removed": criterion asserts an absence, which is uncitable'],
     };
     const repair = buildCriteriaRepairPrompt(makeLeaf(), 'prior blueprint text', citability);
-    expect(repair).toContain('UNLESS it takes one of the three citable DELETION/REMOVAL forms');
+    expect(repair).toContain('UNLESS it takes one of the four citable DELETION/REMOVAL forms');
     expect(repair).toContain('DELETION/REMOVAL criteria');
     expect(repair).toMatch(/MECHANICAL zero-match gate/);
   });
@@ -4704,6 +4704,34 @@ describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
     // Even though citationLineExistsAtBase is true, testOnly is false (src/other.ts is not a test file)
     // so the acquittal never fires — the citation is still out-of-diff and must gate.
     expect(res.reason).toContain('blueprint-uncitable-criterion');
+  });
+
+  it('SCOPE-GUARD criterion with git diff check → no park, exactly 1 blueprint call', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] criterion cites src/existing.ts:5\n- [MET] `git diff HEAD --stat -- src/unmodified-impl.ts` returns 0 files changed\n\nVERDICT: PASS'],
+      runGate: greenGate,
+      readBlueprintReturns: [
+        `# Blueprint
+
+## Acceptance Criteria
+
+- [ ] Add implementation that cites src/existing.ts:5
+- [ ] \`git diff HEAD --stat -- src/unmodified-impl.ts\` is empty (0 files changed)
+
+\`\`\`json
+{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["src/existing.test.ts"],"tasks":[{"id":"task-1","files":["src/existing.test.ts"]}]}
+\`\`\``,
+      ],
+      citationLineExistsAtBase: ({ path, line }) => path === 'src/existing.ts' && line === 5,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+
+    // SCOPE-GUARD criterion does not trigger uncitable-criterion park
+    expect(res.reason ?? '').not.toContain('blueprint-uncitable-criterion');
+
+    // Exactly ONE blueprint call (no repair round-trip)
+    expect(spies.invokeSpecs.filter(isBlueprintSpec).length).toBe(1);
   });
 
   describe('planTierEscalation wiring (crit 7) — wall-history tier bumps', () => {
