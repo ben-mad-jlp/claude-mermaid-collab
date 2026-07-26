@@ -66,6 +66,7 @@ import { listUntrackedPaths, parseDeclaredScope, trackedDirtyPaths, stageAndComm
 import { ScopeIncidentError } from '../agent/worktree-manager';
 import { sameReviewWall, isHardWall, type WallReasonClass, type LeafWallHistory, getLeafWallHistory } from './leaf-wall-history';
 import { planTierEscalation, type TierEscalationPlan } from './tier-escalation';
+import { isLightPathParityMet } from './review-depth-parity';
 
 /** Friction 6150b497 default salvage-commit: stage + commit the given dirty/untracked
  *  paths in the leaf worktree via the SAME scoped-commit helper the worker merge path
@@ -932,10 +933,12 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
  *  Kept as an explicit constant so a future blueprint-tier change can't neuter escalation again. */
 export const ESCALATION_MODEL = 'opus';
 
-/** Light-path kill switch — returns false unconditionally. A later leaf replaces the body to
- *  enable light-path routing in review-depth-router. */
-export function resolveLightPathEnabled(): boolean {
-  return false;
+export function resolveLightPathEnabled(project?: string): boolean {
+  try {
+    return isLightPathParityMet(project);
+  } catch {
+    return false;
+  }
 }
 
 /** SR-7: a split child inherits its parent's plan slice, so its blueprint node RECONCILES
@@ -2865,7 +2868,7 @@ export async function runLeaf(
 
     // Route review depth based on diff risk (hot-path changes, large diffs, etc.).
     const risk = await (deps.collectDiffRisk ?? collectDiffRisk)(cwd, baseRef);
-    const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled() });
+    const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled(project) });
 
     const buildReviewSpec = (): NodeSpec => ({
       prompt: buildReviewPrompt(leaf, baseRef),
@@ -3953,7 +3956,7 @@ export async function runLeaf(
         // Route review depth based on diff risk (hot-path changes, large diffs, etc.).
         const riskBaseRef = deps.epicBaseSha ?? epicBranch;
         const risk = await (deps.collectDiffRisk ?? collectDiffRisk)(cwd, riskBaseRef);
-        const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled() });
+        const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled(project) });
 
         try {
           deps.recordNode({
