@@ -714,3 +714,113 @@ test('round-trip: the embedded out-of-diff-location compliant shape (re-cited in
   const result = validateCriteriaCitability(blueprintMd, ['src/services/new-handler.ts']);
   expect(result.status).toBe('ok');
 });
+
+// --- scope-guard acquit tests ---
+
+test('scope-guard acquit: canonical leaf-executor form is citable as command-result', () => {
+  const v = classifyCriterion(
+    'Implementation untouched. git diff HEAD --stat -- src/services/leaf-executor.ts is empty',
+    ['src/services/__tests__/criteria-citability.test.ts']
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+test('scope-guard acquit: result-token variants (0 files changed / no output / returns 0)', () => {
+  const stem = 'Implementation untouched. git diff HEAD --stat -- src/services/leaf-executor.ts is';
+  const variants = [' 0 files changed', ' no output', ' returns 0'];
+
+  for (const variant of variants) {
+    const v = classifyCriterion(stem + variant, [
+      'src/services/__tests__/criteria-citability.test.ts',
+    ]);
+    expect(v.citable).toBe(true);
+    expect(v.kind).toBe('command-result');
+  }
+});
+
+test('scope-guard acquit: validateCriteriaCitability returns ok with zero offenders', () => {
+  const blueprintMd = [
+    '## Acceptance Criteria',
+    '1. Implementation untouched. git diff HEAD --stat -- src/services/leaf-executor.ts is empty',
+    '2. Test covers consumer — src/services/__tests__/criteria-citability.test.ts:120 adds the acquit case',
+  ].join('\n');
+
+  const result = validateCriteriaCitability(blueprintMd, [
+    'src/services/__tests__/criteria-citability.test.ts',
+  ]);
+  expect(result.status).toBe('ok');
+  expect(result.offenders.length).toBe(0);
+  // Consumer: src/services/leaf-executor.ts:3619 (parkBlocked is reached only on status === 'uncitable')
+});
+
+test('scope-guard acquit: uncitedCriteriaAreAllCommandResults defers the scope-guard shape', () => {
+  expect(
+    uncitedCriteriaAreAllCommandResults(
+      [
+        cr(
+          'Implementation untouched. git diff HEAD --stat -- src/services/leaf-executor.ts is empty'
+        ),
+      ],
+      []
+    )
+  ).toBe(true);
+});
+
+// --- MUTATION PROBE: scope-guard survivors ---
+// The following convictions remain load-bearing. Attempting these edits will turn the tests red:
+//   - delete the /\b(unchanged|untouched)\b/i branch at criteria-citability.ts:227-232 →
+//     reds "surviving conviction: bare "Implementation untouched." stays absence"
+//   - drop requirement (ii) in namesScopeGuardCheck at :276-277 (change return true to return hasResult) →
+//     reds "surviving conviction: git diff pathspec with NO result token stays absence"
+//   - drop requirement (i) in namesScopeGuardCheck at :272-273 (delete the if (!hasInvocation) return false guard) →
+//     reds "surviving conviction: bare git diff with no pathspec stays absence"
+
+test('surviving conviction: bare "Implementation untouched." stays absence', () => {
+  const v = classifyCriterion('Implementation untouched.', ['src/services/test.ts']);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
+test('surviving conviction: "No new fields added" stays absence', () => {
+  const v = classifyCriterion('No new fields added', ['src/services/test.ts']);
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
+test('surviving conviction: git diff pathspec with NO result token stays absence', () => {
+  const v = classifyCriterion(
+    'Implementation untouched. git diff HEAD --stat -- src/foo.ts',
+    ['src/foo.ts']
+  );
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
+test('surviving conviction: bare git diff with no pathspec stays absence', () => {
+  const v = classifyCriterion(
+    'Implementation is untouched. git diff is empty',
+    ['src/services/test.ts']
+  );
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('absence');
+});
+
+test('surviving conviction: bun test invocation and "suite is green" stay command-result', () => {
+  const testCases = ['bun test src/services/__tests__/x.test.ts passes', 'the suite is green'];
+
+  for (const text of testCases) {
+    const v = classifyCriterion(text, ['src/services/__tests__/x.test.ts']);
+    expect(v.citable).toBe(false);
+    expect(v.kind).toBe('command-result');
+  }
+});
+
+test('surviving conviction: scope-guard criterion citing a file outside declaredFiles is out-of-diff', () => {
+  const v = classifyCriterion(
+    'src/other/thing.ts:42 is updated. git diff HEAD --stat -- src/x.ts is empty',
+    ['src/x.ts']
+  );
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('out-of-diff-location');
+});
