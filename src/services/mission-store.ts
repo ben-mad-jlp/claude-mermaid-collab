@@ -1363,6 +1363,20 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     runs = [];
     ledgerUnavailable = true;
   }
+  // SERVE-CAP LEDGER (dropped-inclusive). `runs` above is built from `epics`, which EXCLUDES
+  // dropped epics — so a dropped serving epic has no ledger rows in it at all. The serve cap must
+  // still see the work such an epic did: dropping an epic cascades its leaves to `dropped` and
+  // clears their `acceptanceStatus`, so leaf acceptance alone cannot prove a dropped epic ever ran.
+  // Used ONLY by countsTowardServeCap — `runs` keeps its live scoping for spend/liveness.
+  let capRuns = runs;
+  if (!ledgerUnavailable) {
+    try {
+      capRuns = runs.concat(
+        allEpicsEver.filter((e) => e.status === 'dropped')
+          .flatMap((e) => listLeafRuns({ project, epicId: e.id })),
+      );
+    } catch { capRuns = runs; }
+  }
   // Blocked/building state is LIVE only from epics still in play (see liveRunsOf) — a converged
   // mission that once had a parked leaf under a since-landed epic must not read "blocked" forever
   // (and nudge). Spend still counts ALL runs (total cost is historical by nature).
@@ -1515,8 +1529,17 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       const countsTowardServeCap = (e: Todo): boolean => {
         const leaves = allTodos.filter((t) => t.parentId === e.id && !isEpic(t));
         if (leaves.length === 0) return true; // thin re-file — unchanged thrash-history counting
-        return leaves.some((t) => t.acceptanceStatus === 'accepted' || t.acceptanceStatus === 'rejected')
-          || runs.some((r) => r.epicId === e.id && (r.nodesSpent ?? 0) > 0);
+        // A blind ledger read cannot PROVE an epic did no work; refunding on it would hand back
+        // serves the criterion really burned. Fail toward counting.
+        if (ledgerUnavailable) return true;
+        if (leaves.some((t) => t.acceptanceStatus === 'accepted' || t.acceptanceStatus === 'rejected')) return true;
+        // Ledger history is immutable, so it still proves a genuine attempt after the epic was
+        // dropped and its leaves' acceptanceStatus wiped by the drop cascade. A SETTLED leaf outcome
+        // (accepted|rejected) or a node actually spent counts; a leaf parked on infra — outcome
+        // blocked/pending at attempts=0, zero nodes — is not settled and is still refunded.
+        return capRuns.some((r) => r.epicId === e.id && (
+          r.finalOutcome === 'accepted' || r.finalOutcome === 'rejected' || (r.nodesSpent ?? 0) > 0
+        ));
       };
       const servedEpicCount = allEpicsEver.filter(
         (e) => (e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id)) &&
