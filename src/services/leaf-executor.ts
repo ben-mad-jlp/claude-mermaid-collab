@@ -3917,6 +3917,12 @@ export async function runLeaf(
             );
           }
         }
+        // GATE–REVIEW SERIALIZATION: review must run only after gate passes (mech.status==='pass').
+        // Three dependencies enforce this: (1) gate ERROR short-circuits at :3812, (2) gate FAIL
+        // branches at :3836 with review spawned only in the else-arm (:3920), (3) optimistic merge
+        // at :3861 precedes review so post-land revert (:4159) is meaningful. Falsifiability
+        // demotions (:4024, :4056, :4148) are gate-conditioned; review PROMPT is gate-blind (:1491).
+        // See docs/gate-review-serialization.md for the full analysis.
         const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
