@@ -26,7 +26,7 @@ import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
-import { recordEpicLand } from './epic-land-record-store.js';
+import { recordLandCycle } from './epic-land-record-store.js';
 import { guardPostLandTree } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
@@ -1017,16 +1017,14 @@ export async function landEpic(
       // Landed — persist the durable land-record BEFORE teardown removes the branch
       // (epicHeadSha reads refs/heads/<epicBranch>, which removeEpic deletes).
       const epicTipSha = await wm.epicHeadSha(epicId).catch(() => null);
-      if (epicTipSha) {
-        try {
-          recordEpicLand(targetProject, {
-            epicId,
-            epicTipSha,
-            landedMergeSha: land.masterSha ?? '',
-            landedAt: Date.now(),
-          });
-        } catch { /* advisory — must never fail a completed land */ }
-      }
+      await recordLandCycle(targetProject, {
+        epicId,
+        epicTipSha,
+        landedMergeSha: land.masterSha ?? '',
+        landedAt: Date.now(),
+        source: 'escalation-land',
+        session: esc.session,
+      });
 
       // Remove the epic branch + worktree (gated on land success), resolve the card.
       try {
