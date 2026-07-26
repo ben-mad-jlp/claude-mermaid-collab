@@ -62,6 +62,7 @@ import { MAX_BASE_MOVED_REFUNDS, MAX_REDISPATCH } from '../harness-caps';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
 import { classifyWorktreeAddFault } from '../../agent/node-invoker';
+import type { DiffRisk } from '../review-depth-router';
 
 const EPIC_BRANCH = 'collab/epic/abcd1234';
 const EPIC_ID = 'epic-abcd1234';
@@ -156,6 +157,7 @@ interface Spies {
   gateEvals: Array<any>;
   coverageCalls: Array<{ testFiles: string[]; baseSha?: string | null }>;
   contestedCalls: Array<{ reason: string }>;
+  collectDiffRiskCalls: Array<{ cwd: string; baseRef: string }>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -200,6 +202,8 @@ function makeDeps(opts: {
   implementCommands?: Array<{ cmd: string; cwd: string; exitCode: number | null }>;
   // crit 7: mock wall history for tier escalation. Absent ⇒ unwired (clean wall).
   wallHistory?: LeafExecutorDeps['wallHistory'];
+  // Diff-risk probe seam. Absent ⇒ unwired.
+  collectDiffRisk?: LeafExecutorDeps['collectDiffRisk'];
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -219,6 +223,7 @@ function makeDeps(opts: {
     gateEvals: [],
     coverageCalls: [],
     contestedCalls: [],
+    collectDiffRiskCalls: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -340,6 +345,12 @@ function makeDeps(opts: {
     reintegrateBase: opts.reintegrateBase,
     restoreBlueprint: opts.restoreBlueprint,
     worktreeDirty: opts.worktreeDirty ?? (() => []),
+    collectDiffRisk: opts.collectDiffRisk !== undefined
+      ? async (cwd: string, baseRef: string) => {
+          spies.collectDiffRiskCalls.push({ cwd, baseRef });
+          return opts.collectDiffRisk!(cwd, baseRef);
+        }
+      : undefined,
   };
   return { deps, spies };
 }
@@ -2652,6 +2663,7 @@ function makeVerifyDeps(opts: {
     gateEvals: [] as Spies['gateEvals'],
     coverageCalls: [] as Spies['coverageCalls'],
     contestedCalls: [] as Spies['contestedCalls'],
+    collectDiffRiskCalls: [] as Spies['collectDiffRiskCalls'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
@@ -4787,6 +4799,107 @@ describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
       expect(implementRow).toBeDefined();
       // Clean wall ⇒ no-wall-signal ⇒ model passes through escalateImplementModel unchanged
       expect(implementRow?.model).toBe('sonnet');
+    });
+  });
+
+  describe('review-depth routing (hot-path changes, large diffs, etc.)', () => {
+    it('routes heavy for a leaf-executor hot-path change-set', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        collectDiffRisk: async () => ({
+          files: ['src/services/leaf-executor.ts', 'src/services/coordinator-live.ts'],
+          addedLines: 100,
+          deletedLines: 50,
+        }),
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+      expect(res.outcome).toBe('accepted');
+
+      // Find the review node spec
+      const reviewSpec = spies.invokeSpecs.find((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+      expect(reviewSpec).toBeDefined();
+      // Heavy route to hot-path files should escalate model even for small tier
+      expect(reviewSpec?.model).toBe('opus');
+      // Heavy route should escalate effort to xhigh
+      expect(reviewSpec?.effort).toBe('xhigh');
+
+      // Check that collectDiffRisk was called once
+      expect(spies.collectDiffRiskCalls).toHaveLength(1);
+
+      // Check for review-route telemetry row
+      const routeRow = spies.nodeRows.find((r) => r.nodeKind === 'review-route');
+      expect(routeRow).toBeDefined();
+      expect(routeRow?.outputText).toContain('heavy');
+      expect(routeRow?.outputText).toContain('hot-path-found');
+    });
+
+    it('routes standard for an ordinary small diff and selects the same model as before', async () => {
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        collectDiffRisk: async () => ({
+          files: ['docs/example.md'],
+          addedLines: 10,
+          deletedLines: 5,
+        }),
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+      expect(res.outcome).toBe('accepted');
+
+      // Find the review node spec
+      const reviewSpec = spies.invokeSpecs.find((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash'));
+      expect(reviewSpec).toBeDefined();
+      // Standard route for small tier should use the small-tier demotion (sonnet)
+      expect(reviewSpec?.model).toBe('sonnet');
+      // Standard effort is the default high
+      expect(reviewSpec?.effort).toBe('high');
+
+      // Check that collectDiffRisk was called once
+      expect(spies.collectDiffRiskCalls.length).toBe(1);
+
+      // Check for review-route telemetry row
+      const routeRow = spies.nodeRows.find((r) => r.nodeKind === 'review-route');
+      expect(routeRow).toBeDefined();
+      expect(routeRow?.outputText).toContain('standard');
+    });
+
+    it('computes depth before the review node spawns (router result derives only from collectDiffRisk output)', async () => {
+      let riskProbeInvokeSpecCount: number | undefined;
+
+      const { deps, spies } = makeDeps({
+        reviewVerdicts: ['VERDICT: PASS'],
+        runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+        collectDiffRisk: async () => {
+          // Record the spec count when collectDiffRisk is called (should be before review spec is added)
+          riskProbeInvokeSpecCount = spies.invokeSpecs.length;
+          return {
+            files: ['src/services/leaf-executor.ts', 'src/services/review-depth-router.ts'],
+            addedLines: 500,
+            deletedLines: 200,
+          };
+        },
+      });
+      const res = await runLeaf('proj', makeLeaf({ tier: 'small' }), deps);
+      expect(res.outcome).toBe('accepted');
+
+      // Verify that the risk probe was called before review node was added to specs
+      const reviewSpecCount = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').startsWith('Read Grep Glob Bash')).length;
+      expect(reviewSpecCount).toBe(1);
+      expect(riskProbeInvokeSpecCount).toBeLessThan(spies.invokeSpecs.length);
+
+      // Verify the probe was called exactly once
+      expect(spies.collectDiffRiskCalls.length).toBe(1);
+
+      // Verify review-route row appears before review node row
+      const routeRowIdx = spies.nodeRows.findIndex((r) => r.nodeKind === 'review-route');
+      const reviewRowIdx = spies.nodeRows.findIndex((r) => r.nodeKind === 'review');
+      expect(routeRowIdx).toBeGreaterThanOrEqual(0);
+      expect(reviewRowIdx).toBeGreaterThan(routeRowIdx);
+
+      // The depth should have been computed from risk (large LOC change)
+      const routeRow = spies.nodeRows[routeRowIdx];
+      expect(routeRow?.outputText).toContain('heavy');
     });
   });
 });

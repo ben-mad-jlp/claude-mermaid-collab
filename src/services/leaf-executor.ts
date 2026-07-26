@@ -43,6 +43,7 @@ import { composeInjectedContext, type PriorRunInput } from './prompt-injection';
 import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
+import { collectDiffRisk, routeReviewDepth, type ReviewDepth, type DiffRisk } from './review-depth-router';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
@@ -563,6 +564,8 @@ export interface LeafExecutorDeps {
    *  null when nothing was committed / the commit failed (caller falls back to the
    *  unsalvaged empty-diff classification). */
   salvageCommit?: (cwd: string, message: string, paths: string[]) => Promise<{ sha?: string } | null>;
+  /** Diff-risk probe feeding the review-depth router. Default `collectDiffRisk`. */
+  collectDiffRisk?: (cwd: string, baseRef: string) => Promise<DiffRisk>;
   /** OWN-PRIOR-WORK probe (real incident 2026-07-24: a leaf was dispatched 11 times because
    *  its work was already committed on the epic branch by an early attempt — every re-dispatch
    *  re-ran implement, correctly produced a ZERO-FILE diff, and the empty-diff guard parked it
@@ -928,6 +931,12 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
  *  escalation a no-op for every kind already pinned at sonnet (implement, driveexec, ...).
  *  Kept as an explicit constant so a future blueprint-tier change can't neuter escalation again. */
 export const ESCALATION_MODEL = 'opus';
+
+/** Light-path kill switch — returns false unconditionally. A later leaf replaces the body to
+ *  enable light-path routing in review-depth-router. */
+export function resolveLightPathEnabled(): boolean {
+  return false;
+}
 
 /** SR-7: a split child inherits its parent's plan slice, so its blueprint node RECONCILES
  *  instead of re-deriving. Cheap model, low effort. It is NOT skipped: the parent plan
@@ -2303,7 +2312,10 @@ export async function runLeaf(
     const bpTools = NODE_PROFILE['blueprint'].allowedTools;
     return resolveNodeModel(project, 'blueprint', resolveNodeProvider(project, 'blueprint', bpTools), ESCALATION_MODEL);
   };
-  const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools): string => {
+  const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools, depth?: ReviewDepth): string => {
+    if (depth === 'heavy') {
+      return resolveEscalationModel();
+    }
     if (kind === 'review' && leaf.tier === 'small') {
       return NODE_PROFILE.implement.model; // 'sonnet' — demote off opus for the small tier
     }
@@ -2322,8 +2334,16 @@ export async function runLeaf(
     const provider = resolveNodeProvider(project, kind, allowedTools);
     return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
   };
-  const nodeEffort = (kind: LeafNodeKind): EffortLevel =>
-    nodeOverrides[kind]?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
+  const nodeEffort = (kind: LeafNodeKind, depth?: ReviewDepth): EffortLevel => {
+    const baseEffort = nodeOverrides[kind]?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
+    if (depth === 'heavy') {
+      const effortRank: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+      const currentIdx = effortRank.indexOf(baseEffort);
+      const xhighIdx = effortRank.indexOf('xhigh');
+      return currentIdx >= xhighIdx ? baseEffort : 'xhigh';
+    }
+    return baseEffort;
+  };
 
   // NODE_BUDGET (20) is the runaway ceiling sized for the FLOOR (≤6 nodes/2 attempts). The
   // WAVES path legitimately spends ~tasks + files×~3 nodes (research per task, then
@@ -2671,6 +2691,7 @@ export async function runLeaf(
     cwd: string,
     blueprintText?: string,
     reviewFindings?: string,
+    depth?: ReviewDepth,
   ): NodeSpec => {
     const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
@@ -2692,8 +2713,8 @@ export async function runLeaf(
             tierPlan = plan;
             return plan.model;
           })()
-        : nodeModel(kind),
-      effort: nodeEffort(kind),
+        : nodeModel(kind, NODE_PROFILE[kind].allowedTools, depth),
+      effort: nodeEffort(kind, depth),
       allowedTools: NODE_PROFILE[kind].allowedTools,
       // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
       // tool — build nodes use only built-ins, so the ~200-tool surface is dead context.
@@ -2841,10 +2862,15 @@ export async function runLeaf(
     // NO Write (the executor commits the report — a node Write resolves to the project root).
     const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_to_bucket`;
     const reviewInjected = composeInjectedContext({ kind: 'review', project, epicId, flags: getInjectionFlags(project) });
+
+    // Route review depth based on diff risk (hot-path changes, large diffs, etc.).
+    const risk = await (deps.collectDiffRisk ?? collectDiffRisk)(cwd, baseRef);
+    const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled() });
+
     const buildReviewSpec = (): NodeSpec => ({
       prompt: buildReviewPrompt(leaf, baseRef),
-      model: nodeModel('review', reviewTools),
-      effort: nodeEffort('review'),
+      model: nodeModel('review', reviewTools, route.depth),
+      effort: nodeEffort('review', route.depth),
       allowedTools: reviewTools,
       mcpConfig: mcpConfigFor(config.PORT),
       strictMcpConfig: true,
@@ -3923,7 +3949,22 @@ export async function runLeaf(
         // at :3861 precedes review so post-land revert (:4159) is meaningful. Falsifiability
         // demotions (:4024, :4056, :4148) are gate-conditioned; review PROMPT is gate-blind (:1491).
         // See docs/gate-review-serialization.md for the full analysis.
-        const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
+
+        // Route review depth based on diff risk (hot-path changes, large diffs, etc.).
+        const riskBaseRef = deps.epicBaseSha ?? epicBranch;
+        const risk = await (deps.collectDiffRisk ?? collectDiffRisk)(cwd, riskBaseRef);
+        const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled() });
+
+        try {
+          deps.recordNode({
+            project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+            nodeKind: 'review-route', nodesSpent: 0,
+            outcomeDetail: JSON.stringify({ depth: route.depth, files: risk.files.length, addedLines: risk.addedLines, deletedLines: risk.deletedLines, tier: leaf.tier }),
+            outputText: `review-route: ${route.depth} — ${route.reasons.join('; ')}`,
+          });
+        } catch { /* telemetry — never break the run */ }
+
+        const review = await runNode('review', buildSpec('review', cwd, blueprintBody, undefined, route.depth));
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
         llm = parseVerdict(review.text);
