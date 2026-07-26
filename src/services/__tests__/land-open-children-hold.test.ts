@@ -163,6 +163,57 @@ describe('checkLandDeps — land-time open-children hold (D2 / friction c31ef24f
     expect(blocker).not.toBeNull();
     expect(blocker!.code).toBe('land-deps-unsatisfied');
   });
+
+  it('a planned leaf nested under a container child (grandchild of the epic) gates land', () => {
+    const epicId = 'e1';
+    const epic = todo({ id: epicId, title: '[EPIC] the work', kind: 'epic' });
+    const landLeaf = todo({ id: 'land1', title: '[LAND] merge e1', parentId: epicId, kind: 'land' });
+    const container = todo({
+      id: 'container1', title: 'nested container', parentId: epicId,
+      status: 'done', acceptanceStatus: 'accepted',
+    });
+    const grandchild = todo({
+      id: 'grandchild1', title: 'leaf: nested work', parentId: container.id,
+      status: 'planned',
+    });
+
+    const todos = [epic, landLeaf, container, grandchild];
+    const blocker = checkLandDeps(todos, epicId);
+    expect(blocker).not.toBeNull();
+    expect(blocker!.code).toBe('land-deps-unsatisfied');
+    expect(blocker!.message).toContain(grandchild.id.slice(0, 8));
+  });
+
+  it('an unexpired claim on a done+accepted descendant blocks land; an expired claim does not', () => {
+    const epicId = 'e1';
+    const epic = todo({ id: epicId, title: '[EPIC] the work', kind: 'epic' });
+    const landLeaf = todo({ id: 'land1', title: '[LAND] merge e1', parentId: epicId, kind: 'land' });
+    const now = '2026-07-26T12:00:00.000Z';
+    const nowMs = new Date(now).getTime();
+
+    const heldChild = todo({
+      id: 'held1', title: 'leaf: held', parentId: epicId,
+      status: 'done', acceptanceStatus: 'accepted',
+      claimedBy: 'agent-x', claimToken: 'tok1', claimedAt: new Date(nowMs - 1000).toISOString(), claimLeaseMs: 60_000,
+      claim: { by: 'agent-x', token: 'tok1', at: new Date(nowMs - 1000).toISOString(), leaseMs: 60_000 },
+    });
+
+    const heldTodos = [epic, landLeaf, heldChild];
+    const heldBlocker = checkLandDeps(heldTodos, epicId, { now });
+    expect(heldBlocker).not.toBeNull();
+    expect(heldBlocker!.message).toContain(heldChild.id.slice(0, 8));
+    expect(heldBlocker!.message).toContain('agent-x');
+
+    const expiredChild = todo({
+      id: 'expired1', title: 'leaf: expired', parentId: epicId,
+      status: 'done', acceptanceStatus: 'accepted',
+      claimedBy: 'agent-y', claimToken: 'tok2', claimedAt: new Date(nowMs - 120_000).toISOString(), claimLeaseMs: 60_000,
+      claim: { by: 'agent-y', token: 'tok2', at: new Date(nowMs - 120_000).toISOString(), leaseMs: 60_000 },
+    });
+
+    const expiredTodos = [epic, landLeaf, expiredChild];
+    expect(checkLandDeps(expiredTodos, epicId, { now })).toBeNull();
+  });
 });
 
 describe('landEpic — land-time re-check wiring smoke test', () => {
