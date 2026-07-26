@@ -2,6 +2,9 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { trackingProjectRoot } from './project-registry.js';
+import type { Todo } from './todo-store.js';
+import { isGateTodo } from './epic-land-readiness.js';
+import { isEpicTodo, isLandTodo } from './invariant-check.js';
 
 /**
  * Per-PROJECT durable epic-land record store. Mirrors the bun:sqlite-per-project
@@ -23,6 +26,11 @@ export interface EpicLandRecord {
   epicTipSha: string;
   landedMergeSha: string;
   landedAt: number;
+  nonTerminalServingLeafIds?: string[] | null;
+  nonTerminalServingLeafCount?: number | null;
+  postLandStatusClean?: number | null;
+  postLandResidue?: string | null;
+  landPath?: string | null;
 }
 
 const DDL = `
@@ -32,11 +40,21 @@ CREATE TABLE IF NOT EXISTS epic_land_record (
   epicTipSha TEXT NOT NULL,
   landedMergeSha TEXT NOT NULL,
   landedAt INTEGER NOT NULL,
+  nonTerminalServingLeafIds TEXT,
+  nonTerminalServingLeafCount INTEGER,
+  postLandStatusClean INTEGER,
+  postLandResidue TEXT,
+  landPath TEXT,
   PRIMARY KEY (project, epicId)
 );
 `;
 
 const dbCache = new Map<string, Database>();
+
+export function addColumnIfMissing(db: Database, table: string, col: string, ddl: string): void {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+}
 
 function openDb(project: string): Database {
   const root = trackingProjectRoot(project);
@@ -47,6 +65,11 @@ function openDb(project: string): Database {
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  addColumnIfMissing(db, 'epic_land_record', 'nonTerminalServingLeafIds', 'TEXT');
+  addColumnIfMissing(db, 'epic_land_record', 'nonTerminalServingLeafCount', 'INTEGER');
+  addColumnIfMissing(db, 'epic_land_record', 'postLandStatusClean', 'INTEGER');
+  addColumnIfMissing(db, 'epic_land_record', 'postLandResidue', 'TEXT');
+  addColumnIfMissing(db, 'epic_land_record', 'landPath', 'TEXT');
   dbCache.set(root, db);
   return db;
 }
@@ -56,13 +79,29 @@ function openDb(project: string): Database {
 export function recordEpicLand(project: string, rec: Omit<EpicLandRecord, 'project'>): void {
   const db = openDb(project);
   db.query(
-    `INSERT INTO epic_land_record (project, epicId, epicTipSha, landedMergeSha, landedAt)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO epic_land_record (project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(project, epicId) DO UPDATE SET
        epicTipSha = excluded.epicTipSha,
        landedMergeSha = excluded.landedMergeSha,
-       landedAt = excluded.landedAt`,
-  ).run(project, rec.epicId, rec.epicTipSha, rec.landedMergeSha, rec.landedAt);
+       landedAt = excluded.landedAt,
+       nonTerminalServingLeafIds = excluded.nonTerminalServingLeafIds,
+       nonTerminalServingLeafCount = excluded.nonTerminalServingLeafCount,
+       postLandStatusClean = excluded.postLandStatusClean,
+       postLandResidue = excluded.postLandResidue,
+       landPath = excluded.landPath`,
+  ).run(
+    project,
+    rec.epicId,
+    rec.epicTipSha,
+    rec.landedMergeSha,
+    rec.landedAt,
+    rec.nonTerminalServingLeafIds ? JSON.stringify(rec.nonTerminalServingLeafIds) : null,
+    rec.nonTerminalServingLeafCount ?? null,
+    rec.postLandStatusClean ?? null,
+    rec.postLandResidue ?? null,
+    rec.landPath ?? null,
+  );
 }
 
 /** Read the land record for an epic, or null on no-row or any DB error
@@ -71,11 +110,15 @@ export function getEpicLandRecord(project: string, epicId: string): EpicLandReco
   try {
     const db = openDb(project);
     const row = db.query(
-      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt
+      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath
        FROM epic_land_record
        WHERE project = ? AND epicId = ?`,
-    ).get(project, epicId) as EpicLandRecord | undefined;
-    return row ?? null;
+    ).get(project, epicId) as (Omit<EpicLandRecord, 'nonTerminalServingLeafIds'> & { nonTerminalServingLeafIds: string | null }) | undefined;
+    if (!row) return null;
+    return {
+      ...row,
+      nonTerminalServingLeafIds: row.nonTerminalServingLeafIds ? JSON.parse(row.nonTerminalServingLeafIds) : null,
+    };
   } catch {
     return null;
   }
@@ -90,12 +133,99 @@ export interface LandCycleInput {
   landedAt?: number;
   source: LandCycleSource;
   session?: string;
+  nonTerminalServingLeafIds?: string[] | null;
+  postLandClean?: { clean: boolean; residue: string | null } | null;
+  landPath?: string;
 }
 
 export interface LandCycleResult {
   recorded: boolean;
   usedFallback: boolean;
   reason?: string;
+}
+
+/** Derive non-terminal criterion-serving leaf ids from a work-graph.
+ *  Pure derivation (no DB, no git) so tests can feed hand-built Todo[].
+ *  Returns sorted ids of non-terminal descendants whose criterion set
+ *  intersects the epic's own criteria (when epic declares none, any criterion-serving
+ *  non-terminal counts). Excludes containers, gates, land leaves, and epics. */
+export function nonTerminalServingLeafIds(todos: Todo[], epicId: string): string[] {
+  const childrenOf = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (t.parentId) {
+      const arr = childrenOf.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenOf.set(t.parentId, arr);
+    }
+  }
+
+  const descendantsOf = (epic: Todo): Todo[] => {
+    const result: Todo[] = [];
+    const stack = [...(childrenOf.get(epic.id) ?? [])];
+    const seen = new Set<string>();
+    while (stack.length) {
+      const node = stack.pop()!;
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
+      result.push(node);
+      stack.push(...(childrenOf.get(node.id) ?? []));
+    }
+    return result;
+  };
+
+  const epic = todos.find((t) => t.id === epicId);
+  if (!epic) return [];
+
+  const epicCriteria = new Set<string>([
+    ...(epic.servesCriterionIds ?? []),
+    ...(epic.servesCriterionId ? [epic.servesCriterionId] : []),
+  ]);
+
+  const result: string[] = [];
+  for (const desc of descendantsOf(epic)) {
+    if (desc.status === 'dropped') continue;
+
+    const terminal = desc.acceptanceStatus === 'accepted' || desc.status === 'done';
+    if (terminal) continue;
+
+    const nonDroppedChildren = (childrenOf.get(desc.id) ?? []).filter((c) => c.status !== 'dropped');
+    if (nonDroppedChildren.length >= 1 || isGateTodo(desc) || isLandTodo(desc) || isEpicTodo(desc)) {
+      continue;
+    }
+
+    const descCriteria = new Set<string>([
+      ...(desc.servesCriterionIds ?? []),
+      ...(desc.servesCriterionId ? [desc.servesCriterionId] : []),
+    ]);
+
+    if (epicCriteria.size > 0) {
+      const hit = new Set<string>([...descCriteria].filter((c) => epicCriteria.has(c)));
+      if (hit.size === 0) continue;
+    }
+
+    result.push(desc.id);
+  }
+
+  result.sort();
+  return result;
+}
+
+/** Capture post-land tree cleanliness from the main checkout.
+ *  Spawns a fresh `git status --porcelain` and returns {clean, residue}
+ *  from trimmed stdout, or null on any error (never throws). */
+export async function capturePostLandCleanliness(repoRoot: string): Promise<{ clean: boolean; residue: string | null } | null> {
+  try {
+    const p = Bun.spawn(['git', 'status', '--porcelain'], {
+      cwd: repoRoot,
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const stdout = await new Response(p.stdout).text();
+    const trimmed = stdout.trim();
+    return { clean: trimmed === '', residue: trimmed ? trimmed : null };
+  } catch {
+    return null;
+  }
 }
 
 /** Shared land-cycle recorder for both epic→master paths (escalation-land and reconcile-land).
@@ -139,11 +269,17 @@ export async function recordLandCycle(project: string, input: LandCycleInput): P
     // Attempt to record the land.
     let reason: string | undefined;
     try {
+      const landPath = input.landPath ?? (input.source === 'reconcile-land' ? 'oi1-reconcile' : input.source);
       recordEpicLand(project, {
         epicId: input.epicId,
         epicTipSha: sha,
         landedMergeSha: input.landedMergeSha,
         landedAt: input.landedAt ?? Date.now(),
+        nonTerminalServingLeafIds: input.nonTerminalServingLeafIds ?? null,
+        nonTerminalServingLeafCount: input.nonTerminalServingLeafIds ? input.nonTerminalServingLeafIds.length : null,
+        postLandStatusClean: input.postLandClean?.clean ? 1 : (input.postLandClean?.clean === false ? 0 : null),
+        postLandResidue: input.postLandClean?.residue ?? null,
+        landPath,
       });
       return { recorded: true, usedFallback };
     } catch (err) {
