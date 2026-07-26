@@ -26,7 +26,7 @@ import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
-import { recordLandCycle } from './epic-land-record-store.js';
+import { recordLandCycle, nonTerminalServingLeafIds, capturePostLandCleanliness } from './epic-land-record-store.js';
 import { guardPostLandTree } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
@@ -1017,6 +1017,14 @@ export async function landEpic(
       // Landed — persist the durable land-record BEFORE teardown removes the branch
       // (epicHeadSha reads refs/heads/<epicBranch>, which removeEpic deletes).
       const epicTipSha = await wm.epicHeadSha(epicId).catch(() => null);
+
+      let derivedNonTerminalLeaves: string[] | null = null;
+      try {
+        derivedNonTerminalLeaves = nonTerminalServingLeafIds(freshTodosAtLandTime, epicId);
+      } catch { /* advisory */ }
+
+      const postLandClean = await capturePostLandCleanliness(targetProject);
+
       await recordLandCycle(targetProject, {
         epicId,
         epicTipSha,
@@ -1024,6 +1032,9 @@ export async function landEpic(
         landedAt: Date.now(),
         source: 'escalation-land',
         session: esc.session,
+        nonTerminalServingLeafIds: derivedNonTerminalLeaves,
+        postLandClean,
+        landPath: 'escalation-land',
       });
 
       // Remove the epic branch + worktree (gated on land success), resolve the card.

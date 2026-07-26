@@ -873,6 +873,7 @@ export async function acceptTimeAncestorGate(
           landedMergeSha: land.masterSha ?? '',
           source: 'reconcile-land',
           session,
+          landPath: 'oi1-reconcile',
         });
       }
     }
