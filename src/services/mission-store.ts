@@ -1256,6 +1256,17 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   if (f.closedAt != null) return 'closed';
   if (f.abandonedAt != null) return 'abandoned';
   if (f.awaitingApproval) return 'unapproved'; // forged, not yet human-approved — never driven
+  const actions = f.criteria.map(deriveCriterionAction);
+  // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
+  // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
+  // of the open-missions list rather than linger labelled 'over-budget'. A mission that crossed
+  // its ceiling ON THE WAY to 5/5 was still a success; calling it over-budget misrepresents a win
+  // as a blown-budget failure and keeps a done mission dangling "in play". The overspend stays
+  // permanently in the cost ledger and the re-bet card history is untouched — only the status
+  // stops lying. This also matches deriveCheapMissionStatus, which already ranks converged first.
+  if (f.criteria.length > 0 && actions.every((a) => a === 'met')) return 'converged';
+  // over-budget applies only to a mission that has NOT converged: the breaker fired, the loop
+  // stopped serving, and a re-bet is genuinely owed — that one belongs in the open list.
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
   // NO SILENT STOP (mission a6ab522b): a mission whose loop has been stuck past the grace
   // window must NOT keep reading like healthy work in flight. This sits ABOVE blocked/
@@ -1265,11 +1276,9 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   // status. The flag self-clears the moment the loop sees a QUIET reason or a nudge fires.
   if (f.stalled) return 'stalled';
   if (f.hasBlockedLeaf) return 'blocked';
-  const actions = f.criteria.map(deriveCriterionAction);
   if (actions.includes('verify')) return 'needs-verify';
   if (actions.includes('discover')) return 'needs-discovery';
   if (f.hasBuildingLeaf || actions.includes('building')) return 'building';
-  if (f.criteria.length > 0 && actions.every((a) => a === 'met')) return 'converged';
   return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
 }
 

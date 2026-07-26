@@ -795,6 +795,24 @@ describe('per-criterion discovery', () => {
     expect(deriveMissionStatus({ ...baseFacts, hasLandedEpic: true, hasBlockedLeaf: true, criteria })).toBe('blocked');
   });
 
+  // ── CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22) ──────────────
+  // A mission that met every criterion AFTER crossing its ceiling succeeded; it must read
+  // 'converged' (a terminal state that drops out of the open-missions list), NOT 'over-budget'
+  // (which lingers "in play" and misrepresents a win as a blown-budget failure). The overspend
+  // stays in the cost ledger — only the derived status changes.
+  test('all criteria met + spend over budget → converged, not over-budget', () => {
+    const criteria = [crit({ id: 'c1', met: true, verifiedAt: 1 }), crit({ id: 'c2', met: true, verifiedAt: 1 })];
+    // sanity: same facts UNDER budget already converge
+    expect(deriveMissionStatus({ ...baseFacts, budgetUsd: 200, spendUsd: 50, hasLandedEpic: true, criteria })).toBe('converged');
+    // the bug: over the ceiling, a 2/2 mission must STILL be converged
+    expect(deriveMissionStatus({ ...baseFacts, budgetUsd: 120, spendUsd: 152.9, hasLandedEpic: true, criteria })).toBe('converged');
+  });
+
+  test('over budget but a criterion still UNMET → over-budget (breaker owed, stays in open list)', () => {
+    const criteria = [crit({ id: 'c1', met: true, verifiedAt: 1 }), crit({ id: 'c2' })]; // c2 unmet
+    expect(deriveMissionStatus({ ...baseFacts, budgetUsd: 120, spendUsd: 152.9, criteria })).toBe('over-budget');
+  });
+
   test('rollup gaps/awaitingVerify count per-criterion actions', async () => {
     // exercised through the store: mission with 2 criteria, none served
     const dir = mkdtempSync(join(tmpdir(), 'mission-gaps-'));
