@@ -9,6 +9,7 @@ import { stampEpicLandedAtGated } from './epic-landed-stamp-gate.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, effectiveNewCount, type BranchLister, type GitProbe } from './epic-branch-status.js';
+import { rescueOrphanedLeafCommitsForBranch } from './rescue-ref.js';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
@@ -217,12 +218,13 @@ function appendRecoveryLog(project: string, branch: string, tipSha: string, when
  */
 export async function gcEpicBranches(
   project: string,
-  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister } = {},
+  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister; rescue?: (branch: string) => Promise<unknown> } = {},
 ): Promise<GcEpicBranchesResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
   const baseRef = opts.baseRef ?? 'master';
   const now = opts.now ?? (() => new Date().toISOString());
+  const rescue = opts.rescue ?? ((branch: string) => rescueOrphanedLeafCommitsForBranch(project, branch, { baseRef }));
 
   // Same prefilter rule as reconcileLandedEpics: with the REAL probe, enumerate
   // collab/epic/* once (via the runner, one spawn) so per-epic probing is bounded by
@@ -253,6 +255,7 @@ export async function gcEpicBranches(
     const tip = await runner.revParse(e.branch);
     if (tip == null) { skipped++; continue; }
     await runner.pruneWorktreeFor?.(e.branch); // remove a stale post-land worktree so the delete can succeed
+    await rescue(e.branch).catch(() => undefined);
     if (await runner.deleteBranch(e.branch)) {
       appendRecoveryLog(project, e.branch, tip, now());
       deleted.push(e.branch);
@@ -275,6 +278,7 @@ export async function gcEpicBranches(
     const tip = await runner.revParse(branch);
     if (tip == null) { skipped++; continue; }
     await runner.pruneWorktreeFor?.(branch); // remove a stale post-land worktree so the delete can succeed
+    await rescue(branch).catch(() => undefined);
     if (await runner.deleteBranch(branch)) {
       appendRecoveryLog(project, branch, tip, now());
       deleted.push(branch);
