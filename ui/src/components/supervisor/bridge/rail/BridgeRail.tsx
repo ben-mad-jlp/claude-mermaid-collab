@@ -49,12 +49,6 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
       label: 'HOME',
       items: [
         {
-          key: 'missions',
-          label: 'Missions',
-          icon: '⌖',
-          description: 'Convergence missions — status, criteria, and serving epics',
-        },
-        {
           key: 'plan',
           label: 'Plan',
           icon: '▤',
