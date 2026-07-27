@@ -12,6 +12,7 @@
  */
 
 import type { Escalation } from '@/stores/supervisorStore';
+import { classifyEscalationLifecycle } from '@/lib/escalationLifecycle';
 
 /** Open escalations scoped to a single project — the one true "needs you" set. */
 export function selectOpenEscalations(escalations: Escalation[], project: string): Escalation[] {
@@ -40,6 +41,60 @@ export function selectFleetOpenCount(escalations: Escalation[]): number {
   if (!Array.isArray(escalations)) return 0;
   let n = 0;
   for (const e of escalations) if (e.status === 'open') n++;
+  return n;
+}
+
+/**
+ * Escalation kinds that are machine-generated triage/infrastructure noise
+ * and should be hidden from the human-actionable list. Mirrors server originals:
+ * 'epic-sweep-triage' (reconcile-pass.ts:54), 'infra-park' / 'leaf-infra-rejected'
+ * (orchestrator.ts:133 / leaf-wall-history.ts:48), 'split-proposal', 'base-moved'
+ * (conductor-signature.ts:21). Not importable from ui/ — duplicated here per the
+ * file's existing header comment style (server originals live in the daemon).
+ */
+export const MACHINE_HYGIENE_KINDS = new Set<string>([
+  'epic-sweep-triage',
+  'infra-park',
+  'leaf-infra-rejected',
+  'split-proposal',
+  'base-moved',
+]);
+
+/**
+ * Open escalations scoped to a single project that require human attention —
+ * excludes machine-hygiene noise and AI-handling/AI-suggested states.
+ * Sorted: operator-gated rows first, then by createdAt (stable).
+ */
+export function selectHumanActionableEscalations(escalations: Escalation[], project: string): Escalation[] {
+  if (!Array.isArray(escalations)) return [];
+  const open = selectOpenEscalations(escalations, project);
+  return open
+    .filter((e) => !MACHINE_HYGIENE_KINDS.has(e.kind))
+    .filter((e) => {
+      const lifecycle = classifyEscalationLifecycle(e);
+      return lifecycle !== 'ai-handling' && lifecycle !== 'ai-suggested';
+    })
+    .filter((e) => !e.triageInFlight)
+    .sort((a, b) => {
+      const aGated = !!a.operatorGated;
+      const bGated = !!b.operatorGated;
+      if (aGated !== bGated) return aGated ? -1 : 1;
+      return a.createdAt - b.createdAt;
+    });
+}
+
+/**
+ * Count of open escalations in a project that are machine-handled (hygiene-kind
+ * exclusions only) — the "excluded-but-open" count. Does not apply lifecycle or
+ * triageInFlight filters.
+ */
+export function selectMachineHandledCount(escalations: Escalation[], project: string): number {
+  if (!Array.isArray(escalations)) return 0;
+  const open = selectOpenEscalations(escalations, project);
+  let n = 0;
+  for (const e of open) {
+    if (MACHINE_HYGIENE_KINDS.has(e.kind)) n++;
+  }
   return n;
 }
 
