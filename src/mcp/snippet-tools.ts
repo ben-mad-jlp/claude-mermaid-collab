@@ -20,6 +20,7 @@ import {
   handleDeleteSnippet,
   handleExportSnippet,
 } from './tools/snippet.js';
+import { coerceArrayArg } from './arg-coercion.js';
 
 /**
  * ListTools declarations for the snippet tool group. Spread into the ListTools
@@ -195,21 +196,23 @@ export async function handleSnippetTool(name: string, args: any): Promise<string
 
     case 'create_snippet':
     case 'add_design_snippet': {
-      const { project, session, name, content, sourcePath, startLine, endLine, groupId, groupName, startAt, endAt, maxLines } = args as {
+      const { project, session, name, content, sourcePath, startLine, endLine, groupId, groupName, startAt, endAt, maxLines, tags } = args as {
         project: string; session: string; name?: string; content?: string;
         sourcePath?: string; startLine?: number; endLine?: number; groupId?: string; groupName?: string;
-        startAt?: string; endAt?: string; maxLines?: number;
+        startAt?: string; endAt?: string; maxLines?: number; tags?: any;
       };
       if (!project || !session) throw new Error('Missing required: project, session');
       if (!sourcePath && (!name || content === undefined)) throw new Error('Either provide name+content, or sourcePath');
-      const result = await handleCreateSnippet(project, session, name, content);
+      const coercedTags = coerceArrayArg(tags, 'tags');
+      const result = await handleCreateSnippet(project, session, name, content, coercedTags as any);
       return JSON.stringify(result, null, 2);
     }
 
     case 'update_snippet': {
-      const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
+      const { project, session, id, content, tags } = args as { project: string; session: string; id: string; content: string; tags?: any };
       if (!project || !session || !id || content === undefined) throw new Error('Missing required: project, session, id, content');
-      const result = await handleUpdateSnippet(project, session, id, content);
+      const coercedTags = coerceArrayArg(tags, 'tags');
+      const result = await handleUpdateSnippet(project, session, id, content, coercedTags as any);
       return JSON.stringify(result, null, 2);
     }
 
