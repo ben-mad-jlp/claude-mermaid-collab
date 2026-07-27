@@ -14,6 +14,7 @@ import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
 import { addSessionTodo } from './tools/session-todos.js';
 import { trackingProjectRoot } from '../services/project-registry.js';
+import { criterionEdgesOf } from '../services/criterion-edges.js';
 import {
   buildMissionDoneLeafIndex, findDuplicateDoneLeaf, missionOfEpic,
   type DoneLeafEntry, type DuplicateLeafMatch,
@@ -247,9 +248,7 @@ export async function addLeavesToEpic(
   // whose leaves aren't tagged falls through untagged — the mission-store flip then treats that
   // epic as legacy (trusts the epic edge) rather than wedging, and the /conductor skill instructs
   // authors to tag per-leaf in that case.
-  const epicCriteria = parent.servesCriterionIds && parent.servesCriterionIds.length > 0
-    ? parent.servesCriterionIds
-    : (parent.servesCriterionId ? [parent.servesCriterionId] : []);
+  const epicCriteria = criterionEdgesOf(parent);
   if (parent.parentId) {
     const epicMission = getTodo(project, parent.parentId);
     if (!epicMission) {
@@ -303,9 +302,8 @@ export async function addLeavesToEpic(
       }
       return createdIds[idx]!;
     });
-    const leafCriteria = leaf.servesCriterionIds && leaf.servesCriterionIds.length > 0
-      ? leaf.servesCriterionIds
-      : (leaf.servesCriterionId ? [leaf.servesCriterionId] : (epicCriteria.length === 1 ? epicCriteria : []));
+    const leafOwn = criterionEdgesOf(leaf);
+    const leafCriteria = leafOwn.length > 0 ? leafOwn : (epicCriteria.length === 1 ? epicCriteria : []);
     const created = await addSessionTodo(project, session, leaf.title, leaf.link, {
       kind: 'leaf',
       parentId: epicId,
