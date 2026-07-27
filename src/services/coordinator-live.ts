@@ -1447,6 +1447,509 @@ export function todoIsMissionScoped(project: string, todoId: string, todos: Todo
   return false;
 }
 
+async function coordinatorCompleteTodo(
+  project: string,
+  id: string,
+  acceptance: 'pending' | 'accepted' | 'rejected' | undefined,
+  claimToken: string | undefined,
+) {
+  // E2 ownership-CAS + token-scope (bf2eaf84): this is the fire-and-track worker
+  // continuation. A run can finish minutes after it claimed — requireInProgress AND
+  // the claim token gate the write so the completion applies ONLY if the todo is still
+  // the in_progress claim THIS run owns (not a row re-claimed by another run).
+  const r = await completeTodo(project, id, acceptance, undefined, { requireInProgress: true, claimToken });
+  if (r.skipped) {
+    // The todo was dropped / held / re-claimed / already terminal while this run
+    // was in flight — it is no longer ours. DISCARD the outcome: no merge-back, no
+    // accept side effects, no escalation. Clear the inflight row (the Bridge would
+    // otherwise show a phantom in-flight run), free the slot, and audit the discard.
+    try { clearLeafInflight(id); } catch { /* best-effort */ }
+    const discardSession = r.completed.sessionName ?? '';
+    const discardSlotProject = r.completed.targetProject ?? project;
+    if (discardSession) markIdle(discardSlotProject, discardSession);
+    recordSupervisorAudit({ kind: 'complete', project, session: discardSession, detail: JSON.stringify({ todoId: id, discarded: 'todo-no-longer-owned', status: r.completed.status }) });
+    return r;
+  }
+  // POOL-4 keep-warm: the worker's pool session is NOT killed on complete —
+  // mark its slot idle so it can take the next matching todo (context is bounded
+  // only by the context-watchdog, never an idle-kill here). The slot frees on
+  // the session name the todo was claimed under.
+  const session = r.completed.sessionName ?? '';
+  // The slot lives in the project the worker's tmux/worktree ran in
+  // (targetProject for cross-project todos, else the tracking project).
+  const slotProject = r.completed.targetProject ?? project;
+  if (session) markIdle(slotProject, session);
+  recordSupervisorAudit({ kind: 'complete', project, session, detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted, rolledUp: r.rolledUp }) });
+  // Escalation lifecycle: a todo that completes (accepted) may have left an
+  // OPEN escalation behind — e.g. it exhausted its retry budget, the
+  // coordinator filed a 'blocker', and it later recovered (human decision +
+  // reclaim) and finished. Auto-resolve those so the inbox doesn't keep
+  // phantom 'exhausted retry budget' entries. Match by exact todoId and by
+  // the worker/pool session names this todo ran under.
+  const accepted = (acceptance ?? r.completed.acceptanceStatus) === 'accepted';
+  // DOGFOOD #5 isolation: on acceptance, commit the worker's worktree and
+  // merge its branch back into its EPIC's accumulation branch (FBPE P2 — each
+  // epic-kind root has its own collab/epic/<id8> off master). A conflict leaves the
+  // epic branch untouched and is escalated for a human to resolve. The merge
+  // commit carries Collab-Epic/Collab-Todo trailers (commitAndMergeToEpic).
+  if (accepted && workerIsolationEnabled() && session) {
+    const targetProject = r.completed.targetProject ?? project;
+    try {
+      const wm = getWorktreeManager(targetProject);
+      // Walk the parent chain in the TRACKING project (where the work-graph lives).
+      const epicId = resolveEpicId(r.completed, project);
+      const message = `collab(${id.slice(0, 8)}): ${r.completed.title}`.slice(0, 200);
+      // IDEMPOTENT merge-back: the LEAF-EXECUTOR self-merges its lane onto the epic
+      // branch in runLeaf (before proposing acceptance), so by accept-time the work is
+      // ALREADY integrated. Re-running commitAndMergeToEpic on that already-merged lane
+      // can report a spurious conflict and wrongly park the (correctly-accepted) todo
+      // BLOCKED. If the todo's commit is already on the epic branch, the merge is done —
+      // synthesize a clean integrated result and skip the re-merge. The legacy tmux lane
+      // is NOT yet on the branch at accept-time, so it still merges here as before.
+      // REVERTED 60e99489 (caused data loss): trusting the durable `merged` flag here
+      // is UNSAFE — under concurrency a leaf's self-merge can set merged=1 yet its merge
+      // commit never persists on the epic TIP (a sibling lane's simultaneous merge
+      // overwrites the ref). The flag then LIES, and synthesizing integrated=true skips
+      // the stranded-accept recovery → the leaf's work is silently lost (observed: BETA
+      // orphaned, GAMMA=ALPHA+BETA tsc-broke). `todoOnEpicBranch` (reachable-from-tip) is
+      // the AUTHORITATIVE check; its false-negative-under-concurrency re-dispatch is a
+      // wasteful-but-SAFE recovery that actually re-lands the work. Real fix = serialize
+      // the concurrent merge-back (bug 60e99489), not trust a stale flag.
+      const alreadyOnEpic = await wm.todoOnEpicBranch(epicId, id).catch(() => false);
+      const merge = alreadyOnEpic
+        ? { merged: true, conflict: false, committed: false, integrated: true, workerBranch: '', epicBranch: wm.epicBranchName(epicId) }
+        : await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
+      if (merge.conflict) {
+        // DEFECT 2 — a conflicted merge-back must NOT leave the todo accepted.
+        // Reverse the premature accept by PARKING the todo BLOCKED (a conflict
+        // needs a human to integrate the branch — not an auto-rebuild, so we do
+        // NOT reset it to `ready`). Clear the acceptance/completion the store
+        // stamped (mirrors reopenStrandedAccept's field-clearing, but blocked).
+        try {
+          await updateTodo(project, id, { status: 'blocked', completed: false, acceptanceStatus: null });
+        } catch (e) {
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'park-blocked-failed', reason: e instanceof Error ? e.message : String(e) }) });
+        }
+        createEscalation({
+          project,
+          session,
+          todoId: id,
+          kind: 'assumption-invalidated',
+          questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${displayTitle(r.completed)}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
+          conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionKey,
+          conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionTuple,
+        });
+        // DEFECT 3 — tear down the lane worktree so it can NEVER be reused stale
+        // (a surviving worktree feeds the cached-reuse bug). `git worktree
+        // remove` deletes only the worktree DIR — the worker's branch survives,
+        // so the human's commit is preserved for manual integration.
+        await wm.remove(session).catch(() => {});
+        removeSlot(targetProject, session);
+        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
+      } else if (!merge.integrated && leafNoCommitExpected(id)) {
+        // VERIFY-ONLY (todo 231d10d4): the merge reported nothing integrated because
+        // there was genuinely nothing to integrate — the blueprint declared this a
+        // no-op leaf (estimatedFiles:0, work already done). That clean-lane outcome is
+        // EXPECTED, not a strand: keep the acceptance and tear the lane down as on a
+        // normal integrated accept. (Mirrors the integrated branch's teardown.)
+        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept' }) });
+        await wm.remove(session).catch(() => {});
+        removeSlot(targetProject, session);
+      } else if (!merge.integrated) {
+        // BP0 INVARIANT: the merge reported success but the todo's work is NOT
+        // on the epic branch (PHANTOM: a clean worktree with no commit; or a
+        // lane whose commit never reached collab/epic/<id8>). `accepted` must
+        // NOT survive that — the upstream guarantee is accepted ⇒ work-on-branch.
+        // Reverse the premature acceptance: re-surface this todo (and any epic
+        // the store just rolled up off the back of this child) and escalate.
+        await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), merge.epicBranch, session);
+      } else {
+        // OI-1 ACCEPT-TIME ANCESTOR GATE: the worker→epic merge succeeded, but
+        // `accepted` must imply `reachable from the integration branch`, not
+        // merely `on the epic branch`. Verify the leaf's commit is an ancestor
+        // of the integration ref (one-shot epic→integration land reconcile if
+        // not); if it's genuinely stranded, REVERSE the acceptance (keep the
+        // leaf actionable) rather than tearing down its worktree on a false
+        // accept. Only proceed with teardown when the leaf is confirmed-safe
+        // (or fail-safe: indeterminate/non-git → accept). Best-effort.
+        let safe = true;
+        try {
+          safe = await acceptTimeAncestorGate(project, id, epicId, r.rolledUp, displayTitle(r.completed), session);
+        } catch (e) {
+          // Gate threw → fail-safe to accept (today's behaviour), but log it.
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, oi1: 'gate-error-failsafe-accept', reason: e instanceof Error ? e.message : String(e) }) });
+        }
+        if (!safe) {
+          // Acceptance reversed: leaf is back to `ready`. Leave its worktree in
+          // place so the re-surfaced leaf / human can re-integrate the work
+          // rather than losing it to teardown.
+          return r;
+        }
+        // Merge succeeded — the worktree branch is now in integration. Remove
+        // the worktree so the next todo for this pool lane gets a fresh one
+        // branched off the latest integration (sees this merge).
+        await wm.remove(session).catch(() => {});
+        // DROP keep-warm (decision c4a8bf40): the worktree is now gone, so the
+        // warm session's cwd is a deleted dir. Kill its tmux session and drop
+        // the pool slot so the next todo spawns a FRESH session in a FRESH
+        // worktree instead of reusing a bare-shell session.
+        removeSlot(targetProject, session);
+      }
+    } catch (e) {
+      // BP0 + abb4fd7e (unioned): the merge-back THREW, so the work almost
+      // certainly never reached the epic branch — yet the store already marked the
+      // todo accepted. Verify; if genuinely stranded, REVERSE the acceptance
+      // (reopenStrandedAccept) AND raise an escalation so a human integrates the
+      // orphaned session branch rather than discovering it via `git log --all`.
+      const reason = e instanceof Error ? e.message : String(e);
+      const errTargetProject = r.completed.targetProject ?? project;
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason }) });
+      try {
+        const wm = getWorktreeManager(errTargetProject);
+        const epicId = resolveEpicId(r.completed, project);
+        if (leafNoCommitExpected(id)) {
+          // VERIFY-ONLY (todo 231d10d4): the merge-back threw because there was no
+          // lane/worktree to merge — but the blueprint declared this a no-op leaf
+          // (estimatedFiles:0, work already done), so "nothing to integrate" is the
+          // EXPECTED outcome, not a strand. Keep the acceptance; just tear the lane
+          // down. (This is the path verify-only leaves actually hit: a clean lane is
+          // torn down by accept-time, so commitAndMergeToEpic throws 'no worktree'.)
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept-on-throw' }) });
+          await wm.remove(session).catch(() => {});
+          removeSlot(errTargetProject, session);
+        } else if (!(await wm.todoOnEpicBranch(epicId, id))) {
+          await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), wm.epicBranchName(epicId), session);
+          try {
+            createEscalation({
+              project,
+              session,
+              todoId: id,
+              kind: 'assumption-invalidated',
+              questionText: `Stranded leaf: todo "${displayTitle(r.completed)}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
+              conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionKey,
+          conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionTuple,
+            });
+          } catch { /* best-effort: never let escalation failure mask the accept */ }
+          // DEFECT 3 — an errored lane must also be torn down so its worktree
+          // can't be reused stale. The branch survives `git worktree remove`, so
+          // the orphaned commit is preserved for the human to integrate.
+          await wm.remove(session).catch(() => {});
+          removeSlot(errTargetProject, session);
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
+        }
+      } catch { /* best-effort BP0 re-surface; never throw from the complete callback */ }
+    }
+  }
+  if (accepted) {
+    const sessions = [session, `worker-${id.slice(0, 8)}`].filter(Boolean);
+    const resolved = resolveEscalationsForTodo(project, id, sessions, 'resolved');
+    if (resolved.length > 0) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, autoResolvedEscalations: resolved.map((e) => e.id), reason: 'todo-completed' }) });
+    }
+  }
+  // FBPE P3 — land proof + inbox surface (READ-ONLY; master is NEVER mutated).
+  // Completing the last child of an epic rolls the epic up (r.rolledUp). For each
+  // such epic, re-derive epic-landability from ground truth via the land_epic proof
+  // gate (children done+accepted in the store; tsc clean IN the epic worktree;
+  // epic branch dry-merges cleanly into a master checkout) and raise a single
+  // 'epic-ready-to-land' card carrying a green/red proof summary. A red proof
+  // annotates the same card with the blocking reason — it never acts. Piggybacks
+  // on this completeTodo callback (no new tick phase); fully best-effort.
+  if (accepted && r.rolledUp.length > 0) {
+    for (const epicId of r.rolledUp) {
+      await surfaceEpicLand(project, epicId, { sessionHint: session, preferLinkTodoId: id });
+    }
+  }
+  return r;
+}
+
+async function coordinatorLaunchWorker(project: string, todo: Todo): Promise<boolean> {
+  // SAFETY VALVE 0 — HARD RE-DISPATCH CAP (loop breaker): a todo dispatched
+  // MAX_REDISPATCH times without reaching done/accepted is looping — each dispatch
+  // re-pays a full blueprint. PARK it held + escalate instead of paying another.
+  // Checked BEFORE backoff so a capped todo is retired, not just slowed. reset_todo
+  // clears retryCount, so a human/conductor can grant a fresh attempt post-fix.
+  if ((todo.retryCount ?? 0) >= MAX_REDISPATCH) {
+    await parkRedispatchCap(project, todo.id, todo.title ?? todo.id, todo.retryCount ?? 0);
+    recordSupervisorAudit({ kind: 'spawn', project, session: '', detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'redispatch-cap', dispatches: todo.retryCount ?? 0, cap: MAX_REDISPATCH }) });
+    return false;
+  }
+
+  // SAFETY VALVE 1 — respawn backoff (944408c2): a todo whose worker was just
+  // attempted waits backoff(retryCount) before another spawn, so a crash loop
+  // can't hammer the sidecar tick after tick. Defer (release the claim) until
+  // the window elapses; it stays re-claimable.
+  const backoff = respawnBackoffMs(todo.retryCount ?? 0);
+  if (backoff > 0) {
+    const last = lastSpawnAttempt.get(todo.id);
+    if (last != null && Date.now() - last < backoff) {
+      try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+      recordSupervisorAudit({ kind: 'spawn', project, session: '', detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'respawn-backoff', backoffMs: backoff, retryCount: todo.retryCount ?? 0, released: true }) });
+      return false;
+    }
+  }
+
+  // POOL-4: route the todo to a persistent, role-typed pool session instead
+  // of spawning a fresh worker-<id8> per todo.
+  //
+  // 1. Resolve the routing `type`. Prefer the todo's assigned `type` (set at
+  //    sync time, the same input resolveProfile/resolveWorkerProfile uses); if
+  //    it's null, fall back to file-based inference (typeForFiles). Both default
+  //    unmatched → 'general'.
+  const files = (todo as { files?: string[] | null }).files;
+  const type = todo.type ? resolveType(todo.type) : (files ? typeForFiles(files) : 'general');
+
+  // 2. Find a routable session of that type. Prefer a warm idle session; else
+  //    lazily grab a slot within the type's budget. At capacity (no idle + no
+  //    slot budget) → defer. The coordinator already claimed this todo this
+  //    tick, but we never attempted a spawn — so RELEASE the claim immediately
+  //    (no retry penalty: nothing ran) back to 'ready'. Otherwise the todo
+  //    sits in_progress holding a dead full-length lease with no worker until
+  //    the lease expires → reclaim → re-defer (DOGFOOD #3). Releasing keeps it
+  //    re-claimable next tick once a slot frees, so with pool=N exactly N
+  //    todos run and the rest stay 'ready'. Spawn-FAILED (a real spawn attempt
+  //    that errored, below) is different: it keeps the lease for retry.
+  // DROP keep-warm UNDER ISOLATION (decision c4a8bf40): a warm pool session
+  // kept its prior worktree as cwd, but that worktree is REMOVED on merge-back
+  // → reusing it lands the worker at a bare shell in a deleted dir (the observed
+  // regression). So under isolation never route to a warm idle session; always
+  // grab a slot → a FRESH session in a FRESH worktree per todo. Keep-warm reuse
+  // stays for the non-isolation shared-tree path.
+  // The pool is partitioned by project; use the project that OWNS the lane —
+  // i.e. the project the worker's tmux/worktree lives in. That is the target
+  // repo (todo.targetProject) for cross-project todos, else the tracking
+  // project. Match tmuxBaseName(targetProject, poolName) below so the registry
+  // partition and the tmux name agree.
+  const poolProject = todo.targetProject ?? project;
+
+  // P7 PHASE 2: the tmux CLI lane and the in-process grok-build/anthropic-core harnesses
+  // are RETIRED — the headless leaf-executor (below) is the sole worker path. The pool
+  // slot registry is still provider-tagged for lane-name back-compat, so pin a constant
+  // 'claude' tag. (Collapsing the pool to a bare per-project concurrency limiter is a
+  // later P7 step.)
+  const provider: ProviderId = 'claude';
+
+  let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type, provider);
+  if (!poolName) {
+    const slot = getOrCreateSlot(poolProject, type, provider, getProjectPoolConfig(poolProject));
+    if (!slot) {
+      try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
+      recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type, provider), detail: JSON.stringify({ todoId: todo.id, type, provider, started: false, reason: 'pool-busy-deferred', released: true }) });
+      return false;
+    }
+    poolName = poolSessionName(slot.type, slot.provider, slot.slot);
+  }
+
+  // Persist the pool lane onto the todo NOW — as soon as the lane is committed,
+  // before the (possibly slow / failure-prone) spawn. Every downstream identity
+  // derivation (fleet-status, stall detector, reaper, escalations, the UI card →
+  // create-terminal) reads todo.sessionName to compute the worker's tmux name.
+  // If this is left until after a successful spawn (and swallowed best-effort),
+  // any race/failure leaves sessionName null → those sites fall back to a
+  // fabricated `worker-<id8>` name that can NEVER match the real `<type>-<slot>`
+  // tmux → the worker shows no_tmux and can't be attached/viewed. Setting it here
+  // pins the identity even if the spawn later fails (a released todo leaves
+  // in_progress, so it won't linger as a phantom worker in the fleet view).
+  if (todo.sessionName !== poolName) {
+    // executedBySession pins the WORKER lane as the durable executor (distinct
+    // from claimedBy=coordinator). Set alongside sessionName here at launch.
+    try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); }
+    catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
+  }
+
+  // Headless leaf-executor (P7): the SOLE worker path — deterministic
+  // blueprint→implement→review executor, always-on (the tmux escape hatch and
+  // its LEAF_EXECUTOR gate were retired). The lane identity is already persisted
+  // above (so the executor lane still shows in the fleet with a real sessionName).
+  // On any auth-halt or hard error we release + escalate rather than silently
+  // dropping the todo.
+  // One snapshot for this single dispatch — shared by isHeadlessLeaf below and by
+  // headlessExclusionReason further down (mutually exclusive branches of the same
+  // check), so this call site still costs exactly one listTodos per launch, not two.
+  const launchChildrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
+  if (isHeadlessLeaf(todo, launchChildrenIndex)) {
+    // P3 breaker gate: if the cap window is still open, do NOT spawn. Release the
+    // claim so the todo returns to `ready` (the claimGuard filter normally holds
+    // it out, but a todo claimed before the breaker tripped this tick can still
+    // reach here). Transient hold — no escalation. The lease also backstops.
+    if (breakerOpen()) {
+      try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+      return false;
+    }
+    // Count THIS dispatch toward the hard re-dispatch cap (SAFETY VALVE 0 above).
+    // releaseExpiredClaims only bumps retryCount on LEASE EXPIRY, so a leaf that
+    // finishes its run cleanly (e.g. raising a blocker/assumption escalation) would
+    // otherwise re-dispatch forever with retryCount≈1 — the observed re-blueprint
+    // burn. Bumping here (owned-guarded — we hold the claim) makes retryCount a true
+    // per-dispatch counter so the cap actually fires. Best-effort: never block a dispatch.
+    try { await bumpRetryCountIfOwned(project, todo.id, todo.claimToken ?? undefined); } catch { /* counter is telemetry — never break the dispatch */ }
+    // FIRE-AND-TRACK: run the leaf in the BACKGROUND and return immediately so the
+    // orchestrator tick is never blocked on a multi-minute leaf run (the coupling that
+    // serialized the whole fleet). The leaf's in-flight slot was reserved by the tick
+    // before this call; the continuation below releases it when the run settles, and
+    // owns ALL post-run handling (audit, paused/breaker, resume, streak reset). On any
+    // pre-launch failure (makeLeafExecutorDeps throws) the continuation releases the
+    // claim + escalates, exactly as the prior inline path did.
+    const ledProject = todo.targetProject ?? project;
+    void (async () => {
+      // E4: mark the run live for the same-epoch orphan-inflight sweep — removed in
+      // the finally below on EVERY exit (normal/abort/throw), so a row left behind by
+      // an aborted/errored run becomes reapable within a tick.
+      markRunLive(todo.id);
+      try {
+        // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
+        // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
+        // breaker record is freshest (graceful pause); the DURABLE leaf_resume row
+        // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
+        // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
+        const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
+        // Captured at LAUNCH (this dispatch's claim token) — threaded into the executor's
+        // shouldAbort so a later claim release/re-mint (a DIFFERENT run now owns the todo)
+        // stops THIS run instead of racing the new owner.
+        const launchToken = todo.claimToken ?? null;
+        const execDeps = await makeLeafExecutorDeps(project, ledProject, todo, carried);
+        execDeps.shouldAbort = (p, id) => leafAbortReason(p, id, launchToken);
+        execDeps.clearResume = (id) => clearLeafResume(id);
+        const res = await runLeaf(project, todo, execDeps);
+        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+        if (res.outcome === 'aborted') {
+          // The daemon (ancestor-drop cascade, hold, or a claim-loss it detected
+          // elsewhere) already decided this todo's terminal state — do NOT
+          // recordResume/resetBreakerStreak and do NOT releaseClaim (re-releasing
+          // could stomp a claim a fresh run already took). Just clear this run's
+          // own bookkeeping and stop.
+          recordSupervisorAudit({ kind: 'reconcile', project, session: poolName, detail: JSON.stringify({ source: 'executor-aborted', todoId: todo.id, reason: res.reason }) });
+          clearLeafInflight(todo.id);
+          clearLeafResume(todo.id);
+          return;
+        }
+        if (res.outcome === 'paused') {
+          // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
+          // owns the response: trip the breaker (backoff/capReset), record the leaf
+          // for exhaustion tracking, and release the claim so the ordinary claim
+          // loop re-dispatches it once the breaker closes.
+          tripBreaker(res.paused?.capReset);
+          enqueuePausedLeaf(project, todo.id, res.paused!);
+          // CAP-NEUTRAL PAUSE (crit-8): this dispatch's bumpRetryCountIfOwned above made
+          // retryCount a per-dispatch counter, but a TRANSIENT pause (rate cap, auth
+          // logout, stdin-delivery death — anything node-invoker classifies rateLimited)
+          // is an infra hold, not a failed attempt. Without a refund, a sustained CLI
+          // logout burns MAX_REDISPATCH slots in pause/resume cycles and parkRedispatchCap
+          // parks the leaf. Refund the bump so a paused dispatch never counts toward the
+          // cap. Ownership-safe: threaded with THIS dispatch's launch token (mirrors the
+          // epic-base-moved refund), so if another run already re-claimed the todo we
+          // refund nothing rather than clobber its counter. Must run BEFORE releaseClaim
+          // (a released row is no longer in_progress → the guarded decrement would no-op).
+          try { await decrementRetryCountIfOwned(project, todo.id, launchToken ?? undefined); } catch { /* counter is telemetry — never break the pause */ }
+          // A live-process pause leaves no terminal node-finally to clear the leaf's
+          // live in-flight row, and reapStaleInflight() only deletes OTHER-epoch
+          // (dead-process) rows — so the row would linger and inflate daemon_status'
+          // in-flight count until re-dispatch. The daemon owns the pause response, so
+          // it also owns clearing the row here. Best-effort (telemetry never blocks).
+          clearLeafInflight(todo.id);
+          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+          return;
+        }
+        // A non-paused outcome is TERMINAL for this dispatch (accepted/blocked/
+        // rejected/pending) — clear the in-memory paused record AND the durable
+        // resume row so a future claim starts clean (no stale carried budget).
+        recordResume(project, todo.id);
+        clearLeafResume(todo.id);
+        // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
+        // backoff STREAK (not the whole breaker) so the next isolated cap starts at
+        // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
+        // G8: also clear the durable blueprint row so an accepted leaf's blueprint does
+        // not linger forever.
+        if (res.outcome === 'accepted') {
+          resetBreakerStreak();
+          clearLeafBlueprint(todo.id);
+        }
+      } catch (e) {
+        try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
+        // E4: an errored run never reached finishWith, so its run-spanning inflight
+        // row would linger as a current-epoch phantom (and block reclaim via the
+        // lease-fix guard). Clear it here. Best-effort — telemetry never blocks.
+        try { clearLeafInflight(todo.id); } catch { /* best-effort */ }
+        try {
+          createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
+            questionText: `Leaf-executor failed for "${displayTitle(todo)}": ${e instanceof Error ? e.message : String(e)}`,
+            conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionKey,
+            conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionTuple });
+        } catch { /* escalation best-effort */ }
+      } finally {
+        // Release the in-flight slot the tick reserved for this leaf (fire-and-track
+        // ownership: the tick handed the slot to this run when launchWorker returned true).
+        releaseLeafSlot(ledProject);
+        markRunDone(todo.id); // E4: run is over (any outcome) — drop run-level liveness
+      }
+    })();
+    // Launched (fired). The tick records it as spawned and moves on without awaiting
+    // the run; the continuation above owns completion + slot release.
+    return true;
+  }
+
+  // P7 PHASE 2 — TMUX LANE RETIRED. The headless leaf-executor above is the SOLE
+  // worker path; the legacy tmux CLI spawn and the in-process grok-build/anthropic-core
+  // harnesses have been deleted. Reaching here means a CLAIMED todo is NOT a headless
+  // leaf — which, for claimable WORK, isHeadlessLeaf coverage proved should not happen
+  // (epic/mission/GATE/human/reviewer/parent are never claimed as work). Fail SAFE: release the
+  // claim and escalate a blocker rather than silently dropping it. (No tmux lane remains
+  // to fall back to; the LEAF_EXECUTOR escape hatch is retired with it.)
+  try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+  const exclReason = headlessExclusionReason(todo, launchChildrenIndex) ?? 'unknown';
+  try {
+    createEscalation({
+      project,
+      session: poolName,
+      kind: 'blocker',
+      todoId: todo.id,
+      questionText:
+        `No worker lane for "${displayTitle(todo)}": the tmux worker lane was retired (P7) and ` +
+        `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
+        `Re-scope it as a headless work leaf, split it under an epic, or handle it manually.`,
+      conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionKey,
+            conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionTuple,
+    });
+  } catch { /* escalation is best-effort; the released claim already parks the todo */ }
+  recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'tmux-retired-not-headless-leaf', excl: exclReason, released: true }) });
+  return false;
+}
+
+async function coordinatorReapDeadWorkers(
+  project: string,
+  leafHadProgress: (id: string) => boolean,
+): Promise<{ reclaimed: string[]; exhausted: string[] }> {
+  const wlDeps: WorkerLivenessDeps = {
+    listTodos,
+    getTodo,
+    reclaimClaim,
+    reclaimOrphan,
+    leafHadProgress: () => leafHadProgress,
+    isRunLive,
+    isLeafInflightLive,
+    inProcessLaneAlive,
+    lanePulseAt,
+    markIdle,
+    recordSupervisorAudit,
+    clearLeafInflight,
+    reapStaleInflight,
+    reapSameEpochOrphanInflight,
+    listLeafInflight,
+    reconcileInflight,
+    listTrackedLeaves,
+    killLeafSubtree,
+    leafAbortReason,
+    reapOrphanedLeafWorktrees,
+    tickGcLeafWorktrees,
+    isHeadlessLeaf,
+    buildChildrenIndex,
+    coordinatorEpoch: COORDINATOR_EPOCH,
+    pulseStaleMs: PULSE_STALE_MS,
+    orphanGraceMs: DEFAULT_ORPHAN_GRACE_MS,
+  };
+  return reapDeadWorkersImpl(project, wlDeps);
+}
 
 /** Wire the Coordinator daemon to the real todo-store + a live worker launcher. */
 export function makeCoordinatorDeps(): CoordinatorDeps {
@@ -1518,504 +2021,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // would spawn a duplicate run). isRunLive = whole run (incl. between nodes);
     // isLeafInflightLive = an active node. Either ⇒ skip the lease release for that row.
     releaseExpiredClaims: (project, now) => releaseExpiredClaims(project, now, (id) => isRunLive(id) || isLeafInflightLive(id), leafHadProgress(project)),
-    completeTodo: async (project, id, acceptance, claimToken) => {
-      // E2 ownership-CAS + token-scope (bf2eaf84): this is the fire-and-track worker
-      // continuation. A run can finish minutes after it claimed — requireInProgress AND
-      // the claim token gate the write so the completion applies ONLY if the todo is still
-      // the in_progress claim THIS run owns (not a row re-claimed by another run).
-      const r = await completeTodo(project, id, acceptance, undefined, { requireInProgress: true, claimToken });
-      if (r.skipped) {
-        // The todo was dropped / held / re-claimed / already terminal while this run
-        // was in flight — it is no longer ours. DISCARD the outcome: no merge-back, no
-        // accept side effects, no escalation. Clear the inflight row (the Bridge would
-        // otherwise show a phantom in-flight run), free the slot, and audit the discard.
-        try { clearLeafInflight(id); } catch { /* best-effort */ }
-        const discardSession = r.completed.sessionName ?? '';
-        const discardSlotProject = r.completed.targetProject ?? project;
-        if (discardSession) markIdle(discardSlotProject, discardSession);
-        recordSupervisorAudit({ kind: 'complete', project, session: discardSession, detail: JSON.stringify({ todoId: id, discarded: 'todo-no-longer-owned', status: r.completed.status }) });
-        return r;
-      }
-      // POOL-4 keep-warm: the worker's pool session is NOT killed on complete —
-      // mark its slot idle so it can take the next matching todo (context is bounded
-      // only by the context-watchdog, never an idle-kill here). The slot frees on
-      // the session name the todo was claimed under.
-      const session = r.completed.sessionName ?? '';
-      // The slot lives in the project the worker's tmux/worktree ran in
-      // (targetProject for cross-project todos, else the tracking project).
-      const slotProject = r.completed.targetProject ?? project;
-      if (session) markIdle(slotProject, session);
-      recordSupervisorAudit({ kind: 'complete', project, session, detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted, rolledUp: r.rolledUp }) });
-      // Escalation lifecycle: a todo that completes (accepted) may have left an
-      // OPEN escalation behind — e.g. it exhausted its retry budget, the
-      // coordinator filed a 'blocker', and it later recovered (human decision +
-      // reclaim) and finished. Auto-resolve those so the inbox doesn't keep
-      // phantom 'exhausted retry budget' entries. Match by exact todoId and by
-      // the worker/pool session names this todo ran under.
-      const accepted = (acceptance ?? r.completed.acceptanceStatus) === 'accepted';
-      // DOGFOOD #5 isolation: on acceptance, commit the worker's worktree and
-      // merge its branch back into its EPIC's accumulation branch (FBPE P2 — each
-      // epic-kind root has its own collab/epic/<id8> off master). A conflict leaves the
-      // epic branch untouched and is escalated for a human to resolve. The merge
-      // commit carries Collab-Epic/Collab-Todo trailers (commitAndMergeToEpic).
-      if (accepted && workerIsolationEnabled() && session) {
-        const targetProject = r.completed.targetProject ?? project;
-        try {
-          const wm = getWorktreeManager(targetProject);
-          // Walk the parent chain in the TRACKING project (where the work-graph lives).
-          const epicId = resolveEpicId(r.completed, project);
-          const message = `collab(${id.slice(0, 8)}): ${r.completed.title}`.slice(0, 200);
-          // IDEMPOTENT merge-back: the LEAF-EXECUTOR self-merges its lane onto the epic
-          // branch in runLeaf (before proposing acceptance), so by accept-time the work is
-          // ALREADY integrated. Re-running commitAndMergeToEpic on that already-merged lane
-          // can report a spurious conflict and wrongly park the (correctly-accepted) todo
-          // BLOCKED. If the todo's commit is already on the epic branch, the merge is done —
-          // synthesize a clean integrated result and skip the re-merge. The legacy tmux lane
-          // is NOT yet on the branch at accept-time, so it still merges here as before.
-          // REVERTED 60e99489 (caused data loss): trusting the durable `merged` flag here
-          // is UNSAFE — under concurrency a leaf's self-merge can set merged=1 yet its merge
-          // commit never persists on the epic TIP (a sibling lane's simultaneous merge
-          // overwrites the ref). The flag then LIES, and synthesizing integrated=true skips
-          // the stranded-accept recovery → the leaf's work is silently lost (observed: BETA
-          // orphaned, GAMMA=ALPHA+BETA tsc-broke). `todoOnEpicBranch` (reachable-from-tip) is
-          // the AUTHORITATIVE check; its false-negative-under-concurrency re-dispatch is a
-          // wasteful-but-SAFE recovery that actually re-lands the work. Real fix = serialize
-          // the concurrent merge-back (bug 60e99489), not trust a stale flag.
-          const alreadyOnEpic = await wm.todoOnEpicBranch(epicId, id).catch(() => false);
-          const merge = alreadyOnEpic
-            ? { merged: true, conflict: false, committed: false, integrated: true, workerBranch: '', epicBranch: wm.epicBranchName(epicId) }
-            : await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
-          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
-          if (merge.conflict) {
-            // DEFECT 2 — a conflicted merge-back must NOT leave the todo accepted.
-            // Reverse the premature accept by PARKING the todo BLOCKED (a conflict
-            // needs a human to integrate the branch — not an auto-rebuild, so we do
-            // NOT reset it to `ready`). Clear the acceptance/completion the store
-            // stamped (mirrors reopenStrandedAccept's field-clearing, but blocked).
-            try {
-              await updateTodo(project, id, { status: 'blocked', completed: false, acceptanceStatus: null });
-            } catch (e) {
-              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'park-blocked-failed', reason: e instanceof Error ? e.message : String(e) }) });
-            }
-            createEscalation({
-              project,
-              session,
-              todoId: id,
-              kind: 'assumption-invalidated',
-              questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${displayTitle(r.completed)}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
-              conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionKey,
-              conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionTuple,
-            });
-            // DEFECT 3 — tear down the lane worktree so it can NEVER be reused stale
-            // (a surviving worktree feeds the cached-reuse bug). `git worktree
-            // remove` deletes only the worktree DIR — the worker's branch survives,
-            // so the human's commit is preserved for manual integration.
-            await wm.remove(session).catch(() => {});
-            removeSlot(targetProject, session);
-            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
-          } else if (!merge.integrated && leafNoCommitExpected(id)) {
-            // VERIFY-ONLY (todo 231d10d4): the merge reported nothing integrated because
-            // there was genuinely nothing to integrate — the blueprint declared this a
-            // no-op leaf (estimatedFiles:0, work already done). That clean-lane outcome is
-            // EXPECTED, not a strand: keep the acceptance and tear the lane down as on a
-            // normal integrated accept. (Mirrors the integrated branch's teardown.)
-            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept' }) });
-            await wm.remove(session).catch(() => {});
-            removeSlot(targetProject, session);
-          } else if (!merge.integrated) {
-            // BP0 INVARIANT: the merge reported success but the todo's work is NOT
-            // on the epic branch (PHANTOM: a clean worktree with no commit; or a
-            // lane whose commit never reached collab/epic/<id8>). `accepted` must
-            // NOT survive that — the upstream guarantee is accepted ⇒ work-on-branch.
-            // Reverse the premature acceptance: re-surface this todo (and any epic
-            // the store just rolled up off the back of this child) and escalate.
-            await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), merge.epicBranch, session);
-          } else {
-            // OI-1 ACCEPT-TIME ANCESTOR GATE: the worker→epic merge succeeded, but
-            // `accepted` must imply `reachable from the integration branch`, not
-            // merely `on the epic branch`. Verify the leaf's commit is an ancestor
-            // of the integration ref (one-shot epic→integration land reconcile if
-            // not); if it's genuinely stranded, REVERSE the acceptance (keep the
-            // leaf actionable) rather than tearing down its worktree on a false
-            // accept. Only proceed with teardown when the leaf is confirmed-safe
-            // (or fail-safe: indeterminate/non-git → accept). Best-effort.
-            let safe = true;
-            try {
-              safe = await acceptTimeAncestorGate(project, id, epicId, r.rolledUp, displayTitle(r.completed), session);
-            } catch (e) {
-              // Gate threw → fail-safe to accept (today's behaviour), but log it.
-              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, oi1: 'gate-error-failsafe-accept', reason: e instanceof Error ? e.message : String(e) }) });
-            }
-            if (!safe) {
-              // Acceptance reversed: leaf is back to `ready`. Leave its worktree in
-              // place so the re-surfaced leaf / human can re-integrate the work
-              // rather than losing it to teardown.
-              return r;
-            }
-            // Merge succeeded — the worktree branch is now in integration. Remove
-            // the worktree so the next todo for this pool lane gets a fresh one
-            // branched off the latest integration (sees this merge).
-            await wm.remove(session).catch(() => {});
-            // DROP keep-warm (decision c4a8bf40): the worktree is now gone, so the
-            // warm session's cwd is a deleted dir. Kill its tmux session and drop
-            // the pool slot so the next todo spawns a FRESH session in a FRESH
-            // worktree instead of reusing a bare-shell session.
-            removeSlot(targetProject, session);
-          }
-        } catch (e) {
-          // BP0 + abb4fd7e (unioned): the merge-back THREW, so the work almost
-          // certainly never reached the epic branch — yet the store already marked the
-          // todo accepted. Verify; if genuinely stranded, REVERSE the acceptance
-          // (reopenStrandedAccept) AND raise an escalation so a human integrates the
-          // orphaned session branch rather than discovering it via `git log --all`.
-          const reason = e instanceof Error ? e.message : String(e);
-          const errTargetProject = r.completed.targetProject ?? project;
-          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason }) });
-          try {
-            const wm = getWorktreeManager(errTargetProject);
-            const epicId = resolveEpicId(r.completed, project);
-            if (leafNoCommitExpected(id)) {
-              // VERIFY-ONLY (todo 231d10d4): the merge-back threw because there was no
-              // lane/worktree to merge — but the blueprint declared this a no-op leaf
-              // (estimatedFiles:0, work already done), so "nothing to integrate" is the
-              // EXPECTED outcome, not a strand. Keep the acceptance; just tear the lane
-              // down. (This is the path verify-only leaves actually hit: a clean lane is
-              // torn down by accept-time, so commitAndMergeToEpic throws 'no worktree'.)
-              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept-on-throw' }) });
-              await wm.remove(session).catch(() => {});
-              removeSlot(errTargetProject, session);
-            } else if (!(await wm.todoOnEpicBranch(epicId, id))) {
-              await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), wm.epicBranchName(epicId), session);
-              try {
-                createEscalation({
-                  project,
-                  session,
-                  todoId: id,
-                  kind: 'assumption-invalidated',
-                  questionText: `Stranded leaf: todo "${displayTitle(r.completed)}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
-                  conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionKey,
-              conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionTuple,
-                });
-              } catch { /* best-effort: never let escalation failure mask the accept */ }
-              // DEFECT 3 — an errored lane must also be torn down so its worktree
-              // can't be reused stale. The branch survives `git worktree remove`, so
-              // the orphaned commit is preserved for the human to integrate.
-              await wm.remove(session).catch(() => {});
-              removeSlot(errTargetProject, session);
-              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
-            }
-          } catch { /* best-effort BP0 re-surface; never throw from the complete callback */ }
-        }
-      }
-      if (accepted) {
-        const sessions = [session, `worker-${id.slice(0, 8)}`].filter(Boolean);
-        const resolved = resolveEscalationsForTodo(project, id, sessions, 'resolved');
-        if (resolved.length > 0) {
-          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, autoResolvedEscalations: resolved.map((e) => e.id), reason: 'todo-completed' }) });
-        }
-      }
-      // FBPE P3 — land proof + inbox surface (READ-ONLY; master is NEVER mutated).
-      // Completing the last child of an epic rolls the epic up (r.rolledUp). For each
-      // such epic, re-derive epic-landability from ground truth via the land_epic proof
-      // gate (children done+accepted in the store; tsc clean IN the epic worktree;
-      // epic branch dry-merges cleanly into a master checkout) and raise a single
-      // 'epic-ready-to-land' card carrying a green/red proof summary. A red proof
-      // annotates the same card with the blocking reason — it never acts. Piggybacks
-      // on this completeTodo callback (no new tick phase); fully best-effort.
-      if (accepted && r.rolledUp.length > 0) {
-        for (const epicId of r.rolledUp) {
-          await surfaceEpicLand(project, epicId, { sessionHint: session, preferLinkTodoId: id });
-        }
-      }
-      return r;
-    },
-    launchWorker: async (project: string, todo: Todo): Promise<boolean> => {
-      // SAFETY VALVE 0 — HARD RE-DISPATCH CAP (loop breaker): a todo dispatched
-      // MAX_REDISPATCH times without reaching done/accepted is looping — each dispatch
-      // re-pays a full blueprint. PARK it held + escalate instead of paying another.
-      // Checked BEFORE backoff so a capped todo is retired, not just slowed. reset_todo
-      // clears retryCount, so a human/conductor can grant a fresh attempt post-fix.
-      if ((todo.retryCount ?? 0) >= MAX_REDISPATCH) {
-        await parkRedispatchCap(project, todo.id, todo.title ?? todo.id, todo.retryCount ?? 0);
-        recordSupervisorAudit({ kind: 'spawn', project, session: '', detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'redispatch-cap', dispatches: todo.retryCount ?? 0, cap: MAX_REDISPATCH }) });
-        return false;
-      }
-
-      // SAFETY VALVE 1 — respawn backoff (944408c2): a todo whose worker was just
-      // attempted waits backoff(retryCount) before another spawn, so a crash loop
-      // can't hammer the sidecar tick after tick. Defer (release the claim) until
-      // the window elapses; it stays re-claimable.
-      const backoff = respawnBackoffMs(todo.retryCount ?? 0);
-      if (backoff > 0) {
-        const last = lastSpawnAttempt.get(todo.id);
-        if (last != null && Date.now() - last < backoff) {
-          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-          recordSupervisorAudit({ kind: 'spawn', project, session: '', detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'respawn-backoff', backoffMs: backoff, retryCount: todo.retryCount ?? 0, released: true }) });
-          return false;
-        }
-      }
-
-      // POOL-4: route the todo to a persistent, role-typed pool session instead
-      // of spawning a fresh worker-<id8> per todo.
-      //
-      // 1. Resolve the routing `type`. Prefer the todo's assigned `type` (set at
-      //    sync time, the same input resolveProfile/resolveWorkerProfile uses); if
-      //    it's null, fall back to file-based inference (typeForFiles). Both default
-      //    unmatched → 'general'.
-      const files = (todo as { files?: string[] | null }).files;
-      const type = todo.type ? resolveType(todo.type) : (files ? typeForFiles(files) : 'general');
-
-      // 2. Find a routable session of that type. Prefer a warm idle session; else
-      //    lazily grab a slot within the type's budget. At capacity (no idle + no
-      //    slot budget) → defer. The coordinator already claimed this todo this
-      //    tick, but we never attempted a spawn — so RELEASE the claim immediately
-      //    (no retry penalty: nothing ran) back to 'ready'. Otherwise the todo
-      //    sits in_progress holding a dead full-length lease with no worker until
-      //    the lease expires → reclaim → re-defer (DOGFOOD #3). Releasing keeps it
-      //    re-claimable next tick once a slot frees, so with pool=N exactly N
-      //    todos run and the rest stay 'ready'. Spawn-FAILED (a real spawn attempt
-      //    that errored, below) is different: it keeps the lease for retry.
-      // DROP keep-warm UNDER ISOLATION (decision c4a8bf40): a warm pool session
-      // kept its prior worktree as cwd, but that worktree is REMOVED on merge-back
-      // → reusing it lands the worker at a bare shell in a deleted dir (the observed
-      // regression). So under isolation never route to a warm idle session; always
-      // grab a slot → a FRESH session in a FRESH worktree per todo. Keep-warm reuse
-      // stays for the non-isolation shared-tree path.
-      // The pool is partitioned by project; use the project that OWNS the lane —
-      // i.e. the project the worker's tmux/worktree lives in. That is the target
-      // repo (todo.targetProject) for cross-project todos, else the tracking
-      // project. Match tmuxBaseName(targetProject, poolName) below so the registry
-      // partition and the tmux name agree.
-      const poolProject = todo.targetProject ?? project;
-
-      // P7 PHASE 2: the tmux CLI lane and the in-process grok-build/anthropic-core harnesses
-      // are RETIRED — the headless leaf-executor (below) is the sole worker path. The pool
-      // slot registry is still provider-tagged for lane-name back-compat, so pin a constant
-      // 'claude' tag. (Collapsing the pool to a bare per-project concurrency limiter is a
-      // later P7 step.)
-      const provider: ProviderId = 'claude';
-
-      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type, provider);
-      if (!poolName) {
-        const slot = getOrCreateSlot(poolProject, type, provider, getProjectPoolConfig(poolProject));
-        if (!slot) {
-          try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type, provider), detail: JSON.stringify({ todoId: todo.id, type, provider, started: false, reason: 'pool-busy-deferred', released: true }) });
-          return false;
-        }
-        poolName = poolSessionName(slot.type, slot.provider, slot.slot);
-      }
-
-      // Persist the pool lane onto the todo NOW — as soon as the lane is committed,
-      // before the (possibly slow / failure-prone) spawn. Every downstream identity
-      // derivation (fleet-status, stall detector, reaper, escalations, the UI card →
-      // create-terminal) reads todo.sessionName to compute the worker's tmux name.
-      // If this is left until after a successful spawn (and swallowed best-effort),
-      // any race/failure leaves sessionName null → those sites fall back to a
-      // fabricated `worker-<id8>` name that can NEVER match the real `<type>-<slot>`
-      // tmux → the worker shows no_tmux and can't be attached/viewed. Setting it here
-      // pins the identity even if the spawn later fails (a released todo leaves
-      // in_progress, so it won't linger as a phantom worker in the fleet view).
-      if (todo.sessionName !== poolName) {
-        // executedBySession pins the WORKER lane as the durable executor (distinct
-        // from claimedBy=coordinator). Set alongside sessionName here at launch.
-        try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); }
-        catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
-      }
-
-      // Headless leaf-executor (P7): the SOLE worker path — deterministic
-      // blueprint→implement→review executor, always-on (the tmux escape hatch and
-      // its LEAF_EXECUTOR gate were retired). The lane identity is already persisted
-      // above (so the executor lane still shows in the fleet with a real sessionName).
-      // On any auth-halt or hard error we release + escalate rather than silently
-      // dropping the todo.
-      // One snapshot for this single dispatch — shared by isHeadlessLeaf below and by
-      // headlessExclusionReason further down (mutually exclusive branches of the same
-      // check), so this call site still costs exactly one listTodos per launch, not two.
-      const launchChildrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
-      if (isHeadlessLeaf(todo, launchChildrenIndex)) {
-        // P3 breaker gate: if the cap window is still open, do NOT spawn. Release the
-        // claim so the todo returns to `ready` (the claimGuard filter normally holds
-        // it out, but a todo claimed before the breaker tripped this tick can still
-        // reach here). Transient hold — no escalation. The lease also backstops.
-        if (breakerOpen()) {
-          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-          return false;
-        }
-        // Count THIS dispatch toward the hard re-dispatch cap (SAFETY VALVE 0 above).
-        // releaseExpiredClaims only bumps retryCount on LEASE EXPIRY, so a leaf that
-        // finishes its run cleanly (e.g. raising a blocker/assumption escalation) would
-        // otherwise re-dispatch forever with retryCount≈1 — the observed re-blueprint
-        // burn. Bumping here (owned-guarded — we hold the claim) makes retryCount a true
-        // per-dispatch counter so the cap actually fires. Best-effort: never block a dispatch.
-        try { await bumpRetryCountIfOwned(project, todo.id, todo.claimToken ?? undefined); } catch { /* counter is telemetry — never break the dispatch */ }
-        // FIRE-AND-TRACK: run the leaf in the BACKGROUND and return immediately so the
-        // orchestrator tick is never blocked on a multi-minute leaf run (the coupling that
-        // serialized the whole fleet). The leaf's in-flight slot was reserved by the tick
-        // before this call; the continuation below releases it when the run settles, and
-        // owns ALL post-run handling (audit, paused/breaker, resume, streak reset). On any
-        // pre-launch failure (makeLeafExecutorDeps throws) the continuation releases the
-        // claim + escalates, exactly as the prior inline path did.
-        const ledProject = todo.targetProject ?? project;
-        void (async () => {
-          // E4: mark the run live for the same-epoch orphan-inflight sweep — removed in
-          // the finally below on EVERY exit (normal/abort/throw), so a row left behind by
-          // an aborted/errored run becomes reapable within a tick.
-          markRunLive(todo.id);
-          try {
-            // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
-            // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
-            // breaker record is freshest (graceful pause); the DURABLE leaf_resume row
-            // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
-            // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
-            const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
-            // Captured at LAUNCH (this dispatch's claim token) — threaded into the executor's
-            // shouldAbort so a later claim release/re-mint (a DIFFERENT run now owns the todo)
-            // stops THIS run instead of racing the new owner.
-            const launchToken = todo.claimToken ?? null;
-            const execDeps = await makeLeafExecutorDeps(project, ledProject, todo, carried);
-            execDeps.shouldAbort = (p, id) => leafAbortReason(p, id, launchToken);
-            execDeps.clearResume = (id) => clearLeafResume(id);
-            const res = await runLeaf(project, todo, execDeps);
-            recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
-            if (res.outcome === 'aborted') {
-              // The daemon (ancestor-drop cascade, hold, or a claim-loss it detected
-              // elsewhere) already decided this todo's terminal state — do NOT
-              // recordResume/resetBreakerStreak and do NOT releaseClaim (re-releasing
-              // could stomp a claim a fresh run already took). Just clear this run's
-              // own bookkeeping and stop.
-              recordSupervisorAudit({ kind: 'reconcile', project, session: poolName, detail: JSON.stringify({ source: 'executor-aborted', todoId: todo.id, reason: res.reason }) });
-              clearLeafInflight(todo.id);
-              clearLeafResume(todo.id);
-              return;
-            }
-            if (res.outcome === 'paused') {
-              // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
-              // owns the response: trip the breaker (backoff/capReset), record the leaf
-              // for exhaustion tracking, and release the claim so the ordinary claim
-              // loop re-dispatches it once the breaker closes.
-              tripBreaker(res.paused?.capReset);
-              enqueuePausedLeaf(project, todo.id, res.paused!);
-              // CAP-NEUTRAL PAUSE (crit-8): this dispatch's bumpRetryCountIfOwned above made
-              // retryCount a per-dispatch counter, but a TRANSIENT pause (rate cap, auth
-              // logout, stdin-delivery death — anything node-invoker classifies rateLimited)
-              // is an infra hold, not a failed attempt. Without a refund, a sustained CLI
-              // logout burns MAX_REDISPATCH slots in pause/resume cycles and parkRedispatchCap
-              // parks the leaf. Refund the bump so a paused dispatch never counts toward the
-              // cap. Ownership-safe: threaded with THIS dispatch's launch token (mirrors the
-              // epic-base-moved refund), so if another run already re-claimed the todo we
-              // refund nothing rather than clobber its counter. Must run BEFORE releaseClaim
-              // (a released row is no longer in_progress → the guarded decrement would no-op).
-              try { await decrementRetryCountIfOwned(project, todo.id, launchToken ?? undefined); } catch { /* counter is telemetry — never break the pause */ }
-              // A live-process pause leaves no terminal node-finally to clear the leaf's
-              // live in-flight row, and reapStaleInflight() only deletes OTHER-epoch
-              // (dead-process) rows — so the row would linger and inflate daemon_status'
-              // in-flight count until re-dispatch. The daemon owns the pause response, so
-              // it also owns clearing the row here. Best-effort (telemetry never blocks).
-              clearLeafInflight(todo.id);
-              try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-              return;
-            }
-            // A non-paused outcome is TERMINAL for this dispatch (accepted/blocked/
-            // rejected/pending) — clear the in-memory paused record AND the durable
-            // resume row so a future claim starts clean (no stale carried budget).
-            recordResume(project, todo.id);
-            clearLeafResume(todo.id);
-            // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
-            // backoff STREAK (not the whole breaker) so the next isolated cap starts at
-            // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
-            // G8: also clear the durable blueprint row so an accepted leaf's blueprint does
-            // not linger forever.
-            if (res.outcome === 'accepted') {
-              resetBreakerStreak();
-              clearLeafBlueprint(todo.id);
-            }
-          } catch (e) {
-            try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
-            // E4: an errored run never reached finishWith, so its run-spanning inflight
-            // row would linger as a current-epoch phantom (and block reclaim via the
-            // lease-fix guard). Clear it here. Best-effort — telemetry never blocks.
-            try { clearLeafInflight(todo.id); } catch { /* best-effort */ }
-            try {
-              createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
-                questionText: `Leaf-executor failed for "${displayTitle(todo)}": ${e instanceof Error ? e.message : String(e)}`,
-                conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionKey,
-                conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionTuple });
-            } catch { /* escalation best-effort */ }
-          } finally {
-            // Release the in-flight slot the tick reserved for this leaf (fire-and-track
-            // ownership: the tick handed the slot to this run when launchWorker returned true).
-            releaseLeafSlot(ledProject);
-            markRunDone(todo.id); // E4: run is over (any outcome) — drop run-level liveness
-          }
-        })();
-        // Launched (fired). The tick records it as spawned and moves on without awaiting
-        // the run; the continuation above owns completion + slot release.
-        return true;
-      }
-
-      // P7 PHASE 2 — TMUX LANE RETIRED. The headless leaf-executor above is the SOLE
-      // worker path; the legacy tmux CLI spawn and the in-process grok-build/anthropic-core
-      // harnesses have been deleted. Reaching here means a CLAIMED todo is NOT a headless
-      // leaf — which, for claimable WORK, isHeadlessLeaf coverage proved should not happen
-      // (epic/mission/GATE/human/reviewer/parent are never claimed as work). Fail SAFE: release the
-      // claim and escalate a blocker rather than silently dropping it. (No tmux lane remains
-      // to fall back to; the LEAF_EXECUTOR escape hatch is retired with it.)
-      try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-      const exclReason = headlessExclusionReason(todo, launchChildrenIndex) ?? 'unknown';
-      try {
-        createEscalation({
-          project,
-          session: poolName,
-          kind: 'blocker',
-          todoId: todo.id,
-          questionText:
-            `No worker lane for "${displayTitle(todo)}": the tmux worker lane was retired (P7) and ` +
-            `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
-            `Re-scope it as a headless work leaf, split it under an epic, or handle it manually.`,
-          conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionKey,
-              conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionTuple,
-        });
-      } catch { /* escalation is best-effort; the released claim already parks the todo */ }
-      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'tmux-retired-not-headless-leaf', excl: exclReason, released: true }) });
-      return false;
-    },
+    completeTodo: (project, id, acceptance, claimToken) => coordinatorCompleteTodo(project, id, acceptance, claimToken),
+    launchWorker: (project, todo) => coordinatorLaunchWorker(project, todo),
     // Single death-detection surface (unification of the former reapDeadClaims +
     // reapOrphanedLeaves deps — see src/services/worker-liveness.ts for the ordered
     // rule engine + the shared shield chain). Wires the SAME functions/closures this
     // file used inline before the extraction; the live wiring stays here, the pure
     // ordered-rule logic lives in worker-liveness.ts.
-    reapDeadWorkers: (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
-      const wlDeps: WorkerLivenessDeps = {
-        listTodos,
-        getTodo,
-        reclaimClaim,
-        reclaimOrphan,
-        leafHadProgress,
-        isRunLive,
-        isLeafInflightLive,
-        inProcessLaneAlive,
-        lanePulseAt,
-        markIdle,
-        recordSupervisorAudit,
-        clearLeafInflight,
-        reapStaleInflight,
-        reapSameEpochOrphanInflight,
-        listLeafInflight,
-        reconcileInflight,
-        listTrackedLeaves,
-        killLeafSubtree,
-        leafAbortReason,
-        reapOrphanedLeafWorktrees,
-        tickGcLeafWorktrees,
-        isHeadlessLeaf,
-        buildChildrenIndex,
-        coordinatorEpoch: COORDINATOR_EPOCH,
-        pulseStaleMs: PULSE_STALE_MS,
-        orphanGraceMs: DEFAULT_ORPHAN_GRACE_MS,
-      };
-      return reapDeadWorkersImpl(project, wlDeps);
-    },
+    reapDeadWorkers: (project) => coordinatorReapDeadWorkers(project, leafHadProgress(project)),
     escalateExhausted: async (project: string, todoId: string): Promise<void> => {
       const todo = getTodo(project, todoId);
       createEscalation({

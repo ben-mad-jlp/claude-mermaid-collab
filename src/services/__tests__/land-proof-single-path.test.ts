@@ -404,16 +404,30 @@ describe('land-proof-single-path — topology verification', () => {
     const nextExport = content.indexOf('\nexport ', landEpicStart + 1);
     const landEpicBody = content.slice(landEpicStart, nextExport === -1 ? undefined : nextExport);
 
-    // Proof derivation must come before merge
-    const proofIdx = landEpicBody.indexOf('deriveEpicLandProof(');
-    const mergeIdx = landEpicBody.indexOf('landEpicToMaster(');
-    const refusalIdx = landEpicBody.indexOf('if (!proof.ok)');
+    // landEpic is now a thin SEQUENCER over named stage functions, so the proof
+    // derivation and the merge live one level down. The ordering guarantee is
+    // unchanged: proof stage -> refusal on a red proof -> merge stage.
+    const proofIdx = landEpicBody.indexOf('deps.runProofStage(');
+    const mergeIdx = landEpicBody.indexOf('deps.runMerge(');
+    const refusalIdx = landEpicBody.indexOf('if (!proofResult.ok)');
 
     expect(proofIdx).toBeGreaterThan(-1);
     expect(mergeIdx).toBeGreaterThan(-1);
     expect(refusalIdx).toBeGreaterThan(-1);
     expect(proofIdx).toBeLessThan(refusalIdx);
     expect(refusalIdx).toBeLessThan(mergeIdx);
+
+    // ...and the stages the sequencer names really are the proof and the merge.
+    const bodyOf = (decl: string) => {
+      const start = content.indexOf(decl);
+      expect(start).toBeGreaterThan(-1);
+      const next = content.indexOf('\nasync function ', start + 1);
+      const nextExp = content.indexOf('\nexport ', start + 1);
+      const end = Math.min(next === -1 ? content.length : next, nextExp === -1 ? content.length : nextExp);
+      return content.slice(start, end);
+    };
+    expect(bodyOf('async function runProofStage(')).toContain('deriveEpicLandProof(');
+    expect(bodyOf('async function runMerge(')).toContain('wm.landEpicToMaster(');
   });
 
   it('test 6c — entrypoint allowlist is exactly 3 files', () => {
