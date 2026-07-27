@@ -23,6 +23,7 @@ import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner'
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
 import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-authority';
+import { hasLandStamp } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
@@ -393,7 +394,8 @@ export function missionLandLeafPromotion(
   if (!epic || epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) {
     return { promote: false, reason: 'epic-terminal-or-held', buildChildIds: [] };
   }
-  if (epic.landedAt != null) {
+  // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+  if (hasLandStamp(epic)) {
     return { promote: false, reason: 'epic-already-landed', buildChildIds: [] };
   }
   const { buildChildren, landLeaves } = epicGatingChildren(allTodos, epicId, '');

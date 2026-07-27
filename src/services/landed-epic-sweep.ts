@@ -14,6 +14,7 @@ import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
 import { syncMissionSubscription } from './mission-subscription.js';
+import { hasLandStamp } from './epic-landedness.js';
 
 /** Minimum spacing between PERIODIC landed-epic sweeps for a single project. Same
  *  throttle shape as ARCHIVAL_SWEEP_INTERVAL_MS (archival-sweep.ts) — hygiene, not
@@ -73,7 +74,8 @@ export async function reconcileLandedEpics(
   for (const epicId of missionEpicIds) {
     const epic = todos.find((t) => t.id === epicId) as Todo | undefined;
     const branchStatus = statusByEpicId.get(epicId);
-    if (!epic || !branchStatus || branchStatus.landLeafId == null || epic.landedAt == null || (branchStatus.ahead ?? 0) !== 0) {
+    // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+    if (!epic || !branchStatus || branchStatus.landLeafId == null || !hasLandStamp(epic) || (branchStatus.ahead ?? 0) !== 0) {
       skipped++;
       continue;
     }
@@ -88,7 +90,7 @@ export async function reconcileLandedEpics(
       mergeable: branchStatus.mergeable,
       newCount: branchStatus.newCount,
     };
-    const { stamped } = await stampEpicLandedAtGated(project, epic.id, epic.landedAt, { probe, baseRef, known });
+    const { stamped } = await stampEpicLandedAtGated(project, epic.id, epic.landedAt!, { probe, baseRef, known });
     if (!stamped) {
       skipped++;
       continue;

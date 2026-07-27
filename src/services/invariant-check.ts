@@ -4,6 +4,7 @@ import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
 import { yieldToLoop } from './loop-yield.ts';
 import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe } from './epic-branch-status.ts';
+import { hasLandStamp } from './epic-landedness';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -106,7 +107,8 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
     //    [LAND]-descendant requirement (a383bc2c intent unchanged: an epic that
     //    looks done must actually land) now that landedAt is the sole source of
     //    truth (W5 cutover) and no [LAND] leaf is minted to check for.
-    if (isEpicTodo(t) && t.landedAt == null) {
+    // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+    if (isEpicTodo(t) && !hasLandStamp(t)) {
       const kids = (childrenOf.get(t.id) ?? []).filter((c) => c.status !== 'dropped');
       if (kids.length > 0 && kids.every((c) => c.status === 'done' && c.acceptanceStatus === 'accepted')) {
         violations.push({
@@ -169,7 +171,8 @@ export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): In
   for (const t of todos) {
     if (!isEpicTodo(t)) continue;
     const hasDoneLand = (childrenOf.get(t.id) ?? []).some((c) => isLandTodo(c) && c.status === 'done');
-    if (hasDoneLand && t.landedAt == null) {
+    // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+    if (hasDoneLand && !hasLandStamp(t)) {
       violations.push({
         kind: 'landed-at-divergence',
         todoId: t.id,
@@ -178,7 +181,8 @@ export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): In
       });
       continue;
     }
-    if (!hasDoneLand && t.landedAt != null) {
+    // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+    if (!hasDoneLand && hasLandStamp(t)) {
       const ahead = aheadOf?.(t.id) ?? 0;
       if ((ahead ?? 0) > 0) {
         violations.push({
