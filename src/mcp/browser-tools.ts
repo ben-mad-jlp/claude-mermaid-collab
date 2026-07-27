@@ -7,6 +7,7 @@
 // no browser tool is ever called. Behavior is identical to the inline version.
 import { browserToolSchemas } from './tools/browser.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
+import { coerceArrayArg } from './arg-coercion.js';
 
 /**
  * ListTools declarations for the browser tool group. Spread into the ListTools
@@ -236,10 +237,13 @@ export async function handleBrowserTool(name: string, args: any): Promise<string
     }
 
     case 'browser_save_setup': {
-      const { session, project, name, steps, description, parameters, check } = args as { session: string; project: string; name: string; steps: any[]; description?: string; parameters?: any[]; check?: any };
+      const { session, project, name, steps, description, parameters, check } = args as { session: string; project: string; name: string; steps: any; description?: string; parameters?: any; check?: any };
       if (!session) throw new Error('browser_save_setup requires session');
+      const coercedSteps = coerceArrayArg(steps, 'steps');
+      if (!coercedSteps) throw new Error('browser_save_setup requires steps');
+      const coercedParameters = coerceArrayArg(parameters, 'parameters');
       const { browserSaveSetup } = await import('./tools/browser.js');
-      return await browserSaveSetup(session, project, name, steps, description, parameters, check);
+      return await browserSaveSetup(session, project, name, coercedSteps as any, description, coercedParameters as any, check);
     }
     case 'browser_get_setup': {
       const { session, project, name } = args as { session: string; project: string; name: string };
