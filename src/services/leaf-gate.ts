@@ -11,6 +11,10 @@ import { join } from 'node:path';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
+import type { Todo } from './todo-store';
+import { createEscalation } from './supervisor-store';
+import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate } from './worker-ledger';
+import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
 export interface GateTestLane {
@@ -869,6 +873,121 @@ export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn
   }
 
   return { status: 'pass', output: '', reasons: [], declared: true, baselineFailures };
+}
+
+/** A base-gate verdict is a durable BASE FACT only when the gate actually RAN.
+ *  status==='error' means the gate could not run (missing npx, OOM, signal kill) — an
+ *  INCIDENT, not a fact about the base. Caching it under the tip-less epicId key would
+ *  silently block every later leaf on the epic (they read fresh:false ⇒ no escalation).
+ *  Re-check on the next leaf instead. */
+export function isCacheableBaseGateStatus(
+  status: 'pass' | 'fail' | 'error',
+): status is 'pass' | 'fail' {
+  return status !== 'error';
+}
+
+/** Injectable core of `ensureBaseGreen`: read the epic_base_gate cache, honour it via
+ *  {@link shouldHonourCachedBaseGate} (a cached `pass` is terminal for its sha; a cached
+ *  `fail` is re-verified until the attempt/TTL bounds are exhausted), and otherwise
+ *  actually run the base gate and record the result. Extracted so the policy is
+ *  unit-testable without a live worktree/git (see `defaultEpicBaseProbe` in
+ *  conductor-infra-arm.ts for the sibling seam). */
+export async function resolveBaseGreen(io: {
+  epicId: string;
+  project: string;
+  targetProject: string;
+  epicBaseSha: string | null | undefined;
+  gateCfg: LeafGateConfig | null;
+  ensureEpicWorktree: () => Promise<{ path: string } | null>;
+  runGate: (cwd: string) => Promise<LeafGateResult>;
+  now?: () => number;
+}): Promise<(LeafGateResult & { fresh: boolean }) | null> {
+  const { epicId, project, epicBaseSha, gateCfg } = io;
+  if (!gateCfg) return null; // absent → abstain (unchanged)
+  const cached = getEpicBaseGate(epicId, epicBaseSha);
+  if (cached && shouldHonourCachedBaseGate(cached, io.now?.()) === 'honour') {
+    return {
+      status: cached.status,
+      command: cached.command ?? undefined,
+      output: cached.output ?? '',
+      reasons: [],
+      declared: true,
+      baselineFailures: cached.baselineFailures ?? undefined,
+      fresh: false,
+    };
+  }
+  const wt = await io.ensureEpicWorktree();
+  if (!wt) return null; // non-git fallback ⇒ no base gate
+  const r = await runBaseGateShared(
+    baseGateKey(io.targetProject, epicBaseSha, gateCfg),
+    () => io.runGate(wt.path),
+  );
+  if (isCacheableBaseGateStatus(r.status)) {
+    // Stamp checkedAt from the SAME clock the TTL is later measured against
+    // (shouldHonourCachedBaseGate above). Letting the write default to real Date.now()
+    // while the read uses io.now() makes the TTL window depend on how long the gate
+    // took to run — the window silently shrinks by that elapsed time.
+    recordEpicBaseGate({
+      epicId,
+      project,
+      baseSha: epicBaseSha ?? null,
+      status: r.status,
+      command: r.command ?? null,
+      output: r.output || null,
+      baselineFailures: r.baselineFailures ?? null,
+    }, io.now?.());
+  }
+  return { ...r, fresh: true };
+}
+
+const LEGACY_GATE_KEYS = ['gateCommand', 'frontendGateCommand', 'changeSetTestCommand',
+  'changeSetTestCwd', 'frontendBaselineFailures'] as const;
+
+function findResidualLegacyGateKeys(m: ProjectManifest): string[] {
+  return LEGACY_GATE_KEYS.filter((k) => {
+    const v = (m as Record<string, unknown>)[k];
+    return typeof v === 'string' ? v.trim().length > 0 : Array.isArray(v) && v.length > 0;
+  });
+}
+
+const escalatedLegacyGateResidual = new Set<string>();
+export function escalateLegacyGateResidual(
+  project: string, targetProject: string, leaf: Pick<Todo, 'id'>, manifestSource: ManifestSource,
+): void {
+  if (escalatedLegacyGateResidual.has(targetProject)) return;
+  const manifest = manifestSource.manifest;
+  if (!manifest) return;
+  const keys = findResidualLegacyGateKeys(manifest);
+  if (keys.length === 0) return;
+  escalatedLegacyGateResidual.add(targetProject);
+  try {
+    createEscalation({
+      project,
+      session: `legacy-gate-migration::${targetProject}`,
+      kind: 'operator-gated',
+      operatorGated: true,
+      todoId: leaf.id,
+      questionText:
+        `Project ${targetProject} sets legacy gate key(s) [${keys.join(', ')}] in ` +
+        `${manifestSource.path} but no mechanical gate resolves — leaves run gateless. ` +
+        `Migrate to gate:{}: gateCommand/frontendGateCommand -> gate.suites[] ` +
+        `({match,command,cwd}); changeSetTestCommand+changeSetTestCwd -> gate.tests[] ` +
+        `({match,command,cwd}); frontendBaselineFailures has no gate:{} equivalent and ` +
+        `should be dropped once frontendGateCommand becomes a suites[] lane.`,
+    });
+  } catch { /* best-effort: never let escalation failure block the leaf */ }
+}
+
+/** Compose the terminal reason for a gate that could not run (mech.status==='error').
+ *  The misconfigured-declaration path (leaf-gate.gateResultForDeclaration) puts its whole
+ *  explanation in `reasons`, with NO `command` and an empty `output` — so formatting from
+ *  command+output alone produced the opaque `gate-could-not-run: gate — ` that stranded leaf
+ *  41718cf0 with nothing recorded. Include `reasons` when present; otherwise fall back to the
+ *  exact command+output shape (do not regress the legible messages). */
+export function formatGateErrorReason(mech: LeafGateResult): string {
+  const head = `gate-could-not-run: ${mech.command ?? 'gate'} — ${lastLines(mech.output, 5)}`;
+  const reasons = (mech.reasons ?? []).filter((r) => r && r.trim());
+  return reasons.length ? `${head} [${reasons.join('; ')}]` : head;
 }
 
 // --- lane primitives (exported for land-gate reuse) --------------------
