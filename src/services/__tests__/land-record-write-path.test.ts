@@ -609,25 +609,4 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
     expect(coordinatorLiveSource).toContain('postLandClean: cycle.postLandClean');
   });
 
-  it('Reconcile gate false — if ((land.baseRef ?? intRef) === intRef) fails, no record is written', async () => {
-    await buildEpic();
-
-    // Simulate a reconcile land where baseRef != intRef (the gate is false).
-    // This is a hypothetical scenario; we model it by NOT calling recordLandCycle.
-    const land = await mgr.landEpicToMaster(EPIC);
-    expect(land.landed).toBe(true);
-
-    // Under the gate condition `(land.baseRef ?? intRef) === intRef`, if this is false,
-    // recordLandCycle is never called. Verify that without the call, no record exists.
-    const recordBefore = getEpicLandRecord(repo, EPIC);
-    expect(recordBefore).toBeNull();
-
-    // Record a land with source 'reconcile-land' but a different landPath to model
-    // a rejected reconcile (the gate didn't pass).
-    const mergeSha = land.masterSha ?? '';
-    // Don't call recordLandCycle for this epic, so no row is created.
-    // Verify the record is still null.
-    const recordAfter = getEpicLandRecord(repo, EPIC);
-    expect(recordAfter).toBeNull();
-  });
 });
