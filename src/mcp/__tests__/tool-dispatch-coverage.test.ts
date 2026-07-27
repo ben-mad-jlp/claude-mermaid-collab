@@ -25,6 +25,10 @@ import { DIAGRAM_TOOL_DEFS, handleDiagramTool } from '../diagram-tools.js';
 import { DESIGN_TOOL_DEFS, handleDesignTool } from '../design-tools.js';
 import { SUPERVISOR_TOOL_DEFS, handleSupervisorTool } from '../supervisor-tools.js';
 import { EPIC_TOOL_DEFS, handleEpicTool } from '../epic-tools.js';
+import { DECISION_TOOL_DEFS, handleDecisionTool } from '../decision-tools.js';
+import { SYSTEM_TOOL_DEFS, handleSystemTool } from '../system-tools.js';
+import { SESSION_TOOL_DEFS, handleSessionTool } from '../session-tools.js';
+import { DESKTOP_TOOL_DEFS, handleDesktopTool } from '../desktop-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -204,5 +208,70 @@ describe('tool dispatch coverage', () => {
 
   it('handleEpicTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleEpicTool('definitely_not_an_epic_tool', {})).toBeNull();
+  });
+
+  it('DECISION_TOOL_DEFS declares exactly the expected decision surface', () => {
+    expect(new Set(DECISION_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set([
+        'create_decision_record', 'list_decision_records', 'approve_decision_record',
+        'supersede_decision_record', 'get_active_constraints', 'get_active_requirements',
+        'spec_coverage', 'cartographer_health', 'cartographer_sync', 'list_system_objects',
+        'system_object_bom', 'decide_requirement', 'check_graph_drift',
+      ]),
+    );
+  });
+
+  it('every DECISION_TOOL_DEFS name is wired in handleDecisionTool', async () => {
+    expect(DECISION_TOOL_DEFS.length).toBe(13);
+    for (const def of DECISION_TOOL_DEFS) {
+      expect(await isRecognized(handleDecisionTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleDecisionTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleDecisionTool('definitely_not_a_decision_tool', {})).toBeNull();
+  });
+
+  it('SYSTEM_TOOL_DEFS declares exactly the expected system surface', () => {
+    expect(new Set(SYSTEM_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set([
+        'check_server_health', 'fleet_status', 'deploy_self', 'instance_topology',
+        'launch_remote_server', 'system_status', 'daemon_status', 'friction_trends',
+        'orchestrator_off', 'runtime_config', 'orchestrator_status', 'set_watchdog_threshold',
+        'set_context_recycle', 'context_usage',
+      ]),
+    );
+  });
+
+  it('every SYSTEM_TOOL_DEFS name is wired in handleSystemTool', async () => {
+    expect(SYSTEM_TOOL_DEFS.length).toBe(14);
+    for (const def of SYSTEM_TOOL_DEFS) {
+      expect(await isRecognized(handleSystemTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleSystemTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleSystemTool('definitely_not_a_system_tool', {})).toBeNull();
+  });
+
+  it('every SESSION_TOOL_DEFS name is wired in handleSessionTool', async () => {
+    expect(SESSION_TOOL_DEFS.length).toBe(40);
+    for (const def of SESSION_TOOL_DEFS) {
+      expect(await isRecognized(handleSessionTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleSessionTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleSessionTool('definitely_not_a_session_tool', {})).toBeNull();
+  });
+
+  it('every DESKTOP_TOOL_DEFS name is wired in handleDesktopTool', async () => {
+    for (const def of DESKTOP_TOOL_DEFS) {
+      expect(await isRecognized(handleDesktopTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleDesktopTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleDesktopTool('definitely_not_a_desktop_tool', {})).toBeNull();
   });
 });
