@@ -67,6 +67,53 @@ describe('ConductorLadder', () => {
     expect(post).not.toHaveBeenCalled(); // can't enable the conductor while the daemon is off
   });
 
+  /** Conductor GET returns enabled + a lastPass heartbeat; other GETs are inert. */
+  function mockConductorWithPass(enabled: boolean, lastPass: Record<string, unknown>) {
+    global.fetch = vi.fn((url: any) => {
+      if (String(url).includes('/api/supervisor/conductor')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ enabled, lastPass }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }) as any;
+  }
+
+  it('shows an amber pulsing dot + "running…" while a pass is in-flight', async () => {
+    mockConductorWithPass(true, { reason: 'pass-ran', tickAt: Date.now() });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-last-pass')).toBeTruthy());
+    expect(screen.getByTestId('conductor-run-dot').className).toContain('bg-warning-500');
+    expect(screen.getByTestId('conductor-run-dot').className).toContain('animate-pulse');
+    const readout = screen.getByTestId('conductor-last-pass');
+    expect(readout.getAttribute('data-running')).toBe('true');
+    expect(readout.textContent).toContain('running');
+  });
+
+  it('shows a green dot + the previous-run relative time when idle', async () => {
+    mockConductorWithPass(true, { reason: 'building-wait', tickAt: Date.now() - 120_000 });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-last-pass')).toBeTruthy());
+    expect(screen.getByTestId('conductor-run-dot').className).toContain('bg-success-500');
+    const readout = screen.getByTestId('conductor-last-pass');
+    expect(readout.getAttribute('data-running')).toBe('false');
+    expect(readout.textContent).toContain('2m ago');
+  });
+
+  it('treats a STALE pass-ran heartbeat as not running (green, not amber)', async () => {
+    mockConductorWithPass(true, { reason: 'pass-ran', tickAt: Date.now() - 10 * 60 * 1000 });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-last-pass')).toBeTruthy());
+    expect(screen.getByTestId('conductor-run-dot').className).toContain('bg-success-500');
+    expect(screen.getByTestId('conductor-last-pass').getAttribute('data-running')).toBe('false');
+  });
+
+  it('shows no run-dot or readout when the conductor is off', async () => {
+    mockConductorWithPass(false, { reason: 'pass-ran', tickAt: Date.now() });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-ladder')).toBeTruthy());
+    expect(screen.queryByTestId('conductor-run-dot')).toBeNull();
+    expect(screen.queryByTestId('conductor-last-pass')).toBeNull();
+  });
+
   it('does not POST when the already-active stop is clicked', async () => {
     const { post } = mockConductor(true);
     render(<ConductorLadder project="/abs/p" />);
