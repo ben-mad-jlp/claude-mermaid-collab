@@ -23,7 +23,6 @@ import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './
  *  breach is surfaced once, not re-audited every 30s tick. HARD trips park the lane
  *  out of in_progress, so they self-dedup; the escalation store dedups too. */
 const budgetSoftWarned = new Set<string>();
-import { tmuxBaseName } from './tmux-naming';
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -230,14 +229,6 @@ async function inProcessLaneAlive(session: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** Tear down a worker-isolation warm session by base name. The tmux-backed warm
- *  session this used to kill no longer exists (workers run in-process, §6.7) —
- *  kept as a no-op call target so the 5 best-effort teardown call sites below
- *  don't need individual edits. */
-async function killTmuxSession(_tmux: string): Promise<void> {
-  /* no-op: tmux/terminal stack removed (Phase 4) */
 }
 
 // --- P3 (fe153cdd): restart-reconcile the worker-pool registry ------------------
@@ -1619,7 +1610,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // remove` deletes only the worktree DIR — the worker's branch survives,
             // so the human's commit is preserved for manual integration.
             await wm.remove(session).catch(() => {});
-            try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
             removeSlot(targetProject, session);
             recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
           } else if (!merge.integrated && leafNoCommitExpected(id)) {
@@ -1630,7 +1620,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // normal integrated accept. (Mirrors the integrated branch's teardown.)
             recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept' }) });
             await wm.remove(session).catch(() => {});
-            try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
             removeSlot(targetProject, session);
           } else if (!merge.integrated) {
             // BP0 INVARIANT: the merge reported success but the todo's work is NOT
@@ -1670,7 +1659,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // warm session's cwd is a deleted dir. Kill its tmux session and drop
             // the pool slot so the next todo spawns a FRESH session in a FRESH
             // worktree instead of reusing a bare-shell session.
-            try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
             removeSlot(targetProject, session);
           }
         } catch (e) {
@@ -1694,7 +1682,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               // torn down by accept-time, so commitAndMergeToEpic throws 'no worktree'.)
               recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept-on-throw' }) });
               await wm.remove(session).catch(() => {});
-              try { await killTmuxSession(tmuxBaseName(errTargetProject, session)); } catch { /* best-effort teardown */ }
               removeSlot(errTargetProject, session);
             } else if (!(await wm.todoOnEpicBranch(epicId, id))) {
               await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), wm.epicBranchName(epicId), session);
@@ -1713,7 +1700,6 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               // can't be reused stale. The branch survives `git worktree remove`, so
               // the orphaned commit is preserved for the human to integrate.
               await wm.remove(session).catch(() => {});
-              try { await killTmuxSession(tmuxBaseName(errTargetProject, session)); } catch { /* best-effort teardown */ }
               removeSlot(errTargetProject, session);
               recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
             }
