@@ -9,7 +9,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionTodo } from '@/types/sessionTodo';
+import { RecurrenceBadge } from '@/components/shared/RecurrenceBadge';
 import { classifyEscalationLifecycle, selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
 
 /**
@@ -109,8 +111,29 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   const resolvedEscalations = useSupervisorStore((s) => s.resolvedEscalations);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
+  const sessions = useSessionStore((s) => s.sessions);
 
   const open = escalations.filter((e) => e.status === 'open');
+
+  // Collapse same-conditionKey rows by keeping the one with greatest createdAt.
+  interface EscalationCard { rep: Escalation; count: number }
+  const cards = useMemo<EscalationCard[]>(() => {
+    const byKey = new Map<string, EscalationCard>();
+    const ordered: EscalationCard[] = [];
+    for (const e of open) {
+      if (!e.conditionKey) { ordered.push({ rep: e, count: 1 }); continue; }
+      const existing = byKey.get(e.conditionKey);
+      if (!existing) {
+        const card = { rep: e, count: 1 };
+        byKey.set(e.conditionKey, card);
+        ordered.push(card);
+      } else {
+        existing.count += 1;
+        if (e.createdAt > existing.rep.createdAt) existing.rep = e;
+      }
+    }
+    return ordered;
+  }, [open]);
 
   // Index this project's todos so a card can show + act on the work it links to.
   const todoById = useMemo(() => {
@@ -163,26 +186,27 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
           <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{isLand ? '⬇ Ready to Land' : '⚠ Escalation Inbox'}</span>
           <span
             className={`text-2xs font-bold px-1.5 rounded-full ${
-              open.length === 0
+              cards.length === 0
                 ? 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                 : isLand
                   ? 'bg-info-500 text-white'
                   : 'bg-danger-500 text-white'
             }`}
           >
-            {open.length}
+            {cards.length}
           </span>
         </div>
       )}
 
-      {open.length === 0 ? (
+      {cards.length === 0 ? (
         bare ? null : <p className="text-2xs text-gray-500 dark:text-gray-400">{isLand ? '✓ Nothing to land — all merged.' : '✓ No open escalations — all clear.'}</p>
       ) : (
         <div className={bare ? 'space-y-2' : 'space-y-2 max-h-72 overflow-y-auto'}>
-          {open.map((e) => {
+          {cards.map((card) => { const e = card.rep;
             const hasOptions = !!e.options && e.options.length > 0;
             const todo = e.todoId ? todoById.get(e.todoId) : undefined;
             const todoActive = todo && !TERMINAL_TODO.has(todo.status);
+            const sessionMatch = sessions.some((s) => s.project === e.project && s.name === e.session);
             return (
               <div
                 key={e.id}
@@ -193,13 +217,14 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                   <span className="text-3xs font-medium text-gray-500 dark:text-gray-400 truncate" title={`${e.project} / ${e.session}`}>
                     {e.session}
                   </span>
+                  {card.count > 1 && <RecurrenceBadge count={card.count - 1} />}
                   {/* Triage lifecycle (fd934fb7): in-flight Grok consult, or a
                       Grok-tried-and-deferred "needs you" flag. Supersedes the old
                       bare steward-provenance tag — derived from the same server
                       facts (routedTo / stewardAttempts / triageInFlight) via the
                       shared classifier so the left column and Bridge never disagree. */}
                   <TriageLifecycleBadge escalation={e} />
-                  {onJump && (
+                  {sessionMatch && onJump ? (
                     <button
                       type="button"
                       onClick={() => onJump(e.project, e.session)}
@@ -208,7 +233,17 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                     >
                       Jump
                     </button>
-                  )}
+                  ) : onSelectTodo && e.todoId ? (
+                    <button
+                      type="button"
+                      data-testid="escalation-open-todo"
+                      onClick={() => onSelectTodo(todo ?? ({ id: e.todoId } as SessionTodo))}
+                      className="ml-auto px-1.5 py-0.5 text-3xs rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                      title="Open"
+                    >
+                      Open
+                    </button>
+                  ) : null}
                 </div>
                 <div className="text-xs leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
                   {e.questionText}
