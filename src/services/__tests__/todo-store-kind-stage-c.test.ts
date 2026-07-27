@@ -76,6 +76,11 @@ function seedLegacyRow(db: Database, id: string, title: string): void {
   ).run(id, title, 10, now, now);
 }
 
+/** Reset user_version to 0 so that migrations replay when the DB is reopened. */
+function resetUserVersion(db: Database): void {
+  db.prepare('PRAGMA user_version = 0').run();
+}
+
 describe('stage-C strip migration', () => {
   test('strips exactly the three role prefixes, keyed on kind; topic tags survive verbatim', async () => {
     // Seed via a first createTodo (creates the DB + runs initSchema on an EMPTY
@@ -97,6 +102,7 @@ describe('stage-C strip migration', () => {
     const before_role = (raw.query(`SELECT count(*) AS n FROM todos WHERE ${roleLike('title')}`).get() as { n: number }).n;
     const before_brack = (raw.query(`SELECT count(*) AS n FROM todos WHERE TRIM(title) LIKE '[%]%'`).get() as { n: number }).n;
     const before_total = (raw.query(`SELECT count(*) AS n FROM todos`).get() as { n: number }).n;
+    resetUserVersion(raw);
     raw.close();
 
     // Re-open via todo-store — runs initSchema → kind backfill + strip.
@@ -134,6 +140,7 @@ describe('stage-C strip migration', () => {
     const raw = new Database(dbPath(project));
     seedLegacyRow(raw, 'id-epic', '[EPIC] Foo');
     seedLegacyRow(raw, 'id-ui', '[UI] keep me');
+    resetUserVersion(raw);
     raw.close();
 
     // Second open — runs backfill + strip.
@@ -161,6 +168,7 @@ describe('Inbox find-or-create across the migration boundary', () => {
     _closeProject(project);
     const raw = new Database(dbPath(project));
     seedLegacyRow(raw, 'id-inbox', '[EPIC] Inbox');
+    resetUserVersion(raw);
     raw.close();
 
     // Force the migration to run (backfill assigns kind='epic', strip drops the prefix → 'Inbox').
