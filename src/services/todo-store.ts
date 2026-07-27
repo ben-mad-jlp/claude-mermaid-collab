@@ -14,6 +14,7 @@ import { LANDED_LEFTOVER_GRACE_MS } from './harness-caps';
 import { topoSortSplitItems } from './split-decision';
 import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
+import { hasLandStamp } from './epic-landedness';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -3002,7 +3003,8 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
 
         if (!allDone) {
           // Some children still open — check for landed-settlement or motionless conditions.
-          if (epic.landedAt != null) {
+          // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+          if (hasLandStamp(epic)) {
             // Landed-settlement path: check for stuck leftovers.
             const leftover = children.filter((c) => c.status !== 'done');
             const doneUnaccepted = children.filter((c) => c.status === 'done' && c.acceptanceStatus !== 'accepted');
