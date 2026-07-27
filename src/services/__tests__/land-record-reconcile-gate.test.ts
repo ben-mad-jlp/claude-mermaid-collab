@@ -46,10 +46,11 @@ afterAll(() => {
   delete process.env.MERMAID_SUPERVISOR_DIR;
 });
 
-// MIRROR of the reconcile record step in src/services/coordinator-live.ts:868-884 — the block
+// MIRROR of the reconcile record step in src/services/coordinator-live.ts:868-885 — the block
 // beginning `if ((land.baseRef ?? intRef) === intRef)` through its `recordLandCycle` call. This
-// harness function must be kept in lockstep with coordinator-live: any change to that block
-// (coordinator-live.ts:868-884) must be mirrored here, and vice versa.
+// mirror stays in lockstep because the source-reading case below (lines 182–203) reads
+// ../coordinator-live.ts and fails when the gate, its guarded recordLandCycle call, or their
+// single-occurrence property changes.
 async function reconcileRecordStep(opts: {
   mgr: WorktreeManager;
   project: string;
@@ -176,5 +177,28 @@ describe('reconcile-path land-record gate — (land.baseRef ?? intRef) === intRe
     // gate inside reconcileRecordStep would call recordLandCycle unconditionally, and this
     // toBeNull() assertion would flip to red because the record would be written.
     expect(getEpicLandRecord(repo, epicId)).toBeNull();
+  });
+
+  it('production gate is present — coordinator-live.ts gates the reconcile record step', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../coordinator-live.ts', import.meta.url).pathname, 'utf-8');
+
+    const gateExpr = '(land.baseRef ?? intRef) === intRef';
+    const recordCall = 'recordLandCycle(';
+    const landPath = "landPath: 'oi1-reconcile'";
+
+    // (a) Gate present
+    expect(src).toContain(gateExpr);
+
+    // (b) Gate guards the record
+    const i = src.indexOf(gateExpr);
+    expect(i).toBeGreaterThanOrEqual(0);
+    const block = src.slice(i, i + 800);
+    expect(block).toContain(recordCall);
+    expect(block).toContain(landPath);
+
+    // (c) Exactly one of each
+    expect(src.split(gateExpr).length - 1).toBe(1);
+    expect(src.split(landPath).length - 1).toBe(1);
   });
 });
