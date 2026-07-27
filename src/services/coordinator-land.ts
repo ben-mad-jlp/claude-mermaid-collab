@@ -811,6 +811,362 @@ export async function refreshProjectDigestOnLand(
   }
 }
 
+// --- FBPE P4 Land-Stage Functions ---------------------------------------------------
+// Extracted stages of the landEpic sequencer, each a pure async function performing
+// one logical step. Returns { ok: true, ... } on success or a LandEpicOutcome on failure.
+// These are module-level so tests can inject stubs via LandStageDeps.
+
+async function checkDirtyTree(
+  wm: ReturnType<typeof getWorktreeManager>,
+  opts: { allowDirty?: boolean } | undefined,
+  ctx: { epicId: string; epicBranch: string; targetProject: string; project: string; session: string; escalationId: string },
+): Promise<{ ok: boolean; dirty?: string[] } | LandEpicOutcome> {
+  const dirty = await wm.dirtyPaths().catch(() => [] as string[]);
+  if (dirty.length > 0) {
+    if (!opts?.allowDirty) {
+      recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId: ctx.epicId, epicBranch: ctx.epicBranch, land: 'refused', reason: 'dirty-tree', dirtyPaths: dirty }) });
+      return {
+        ok: false, landed: false, reason: 'dirty-tree', epicId: ctx.epicId, epicBranch: ctx.epicBranch, dirtyPaths: dirty,
+      };
+    }
+    console.warn(`[land] allowDirty override — main checkout dirty:\n${dirty.map((p) => `  ${p}`).join('\n')}`);
+    try {
+      await recordFriction(ctx.targetProject, {
+        layer: 'orchestration',
+        retryReason: 'land-allow-dirty',
+        todoId: ctx.epicId,
+        detail: `land of epic ${ctx.epicBranch} proceeded over a dirty main checkout (allowDirty). paths: ${dirty.join(', ')}`,
+      });
+    } catch { /* best-effort */ }
+  }
+  return { ok: true, dirty };
+}
+
+async function runStewardPrecheck(
+  project: string,
+  epicId: string,
+  epicBranch: string,
+  targetProject: string,
+  todosAtProofTime: Todo[],
+  ctx: { escalationId: string; session: string },
+): Promise<{ ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] } | LandEpicOutcome> {
+  const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
+  const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
+  const wm = getWorktreeManager(targetProject);
+  const epic = await wm.ensureEpic(epicId).catch(() => null);
+  const verdict = await validateStewardProof(
+    'land_epic',
+    { kind: 'epic-landable', epicId, epicBranch },
+    {
+      project,
+      dependsOn: [],
+      getDep: (cid) => {
+        const d = getTodo(project, cid);
+        return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
+      },
+      epicChildIds,
+      epicWorktreeCwd: epic?.path ?? targetProject,
+      masterCwd: targetProject,
+    },
+  );
+  if (!verdict.ok) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'rejected', reason: verdict.reason }) });
+    return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
+  }
+  return { ok: true, epic, epicChildIds };
+}
+
+async function checkStaleness(
+  wm: ReturnType<typeof getWorktreeManager>,
+  targetProject: string,
+  epicId: string,
+  epicBranch: string,
+  ctx: { project: string; session: string; escalationId: string; todoId: string },
+): Promise<{ ok: boolean } | LandEpicOutcome> {
+  const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
+  if (staleness?.stale) {
+    const rev = await revalidateStaleEpic(targetProject, epicId);
+    if (!rev.ok) {
+      const failReason = `stale-build-base:${rev.reason}`;
+      const detail =
+        rev.reason === 'forward-integrate-conflict'
+          ? `re-integration hit a merge conflict (${rev.conflictedPaths.join(', ') || 'unknown'})`
+          : rev.reason === 'revalidation-gate-failed'
+            ? `the re-run gate FAILED:\n${rev.output}`
+            : rev.reason;
+      const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'stale-base']);
+      createEscalation({
+        project: ctx.project,
+        session: ctx.session,
+        todoId: ctx.todoId,
+        kind: 'assumption-invalidated',
+        conditionKey: cond.conditionKey,
+        conditionTuple: cond.conditionTuple,
+        questionText:
+          `Land blocked — epic ${epicBranch} was built against a stale trunk base ` +
+          `(${staleness.commitsAhead} trunk commit(s) ahead; ${staleness.reason}` +
+          `${staleness.overlap.length ? `; overlapping files: ${staleness.overlap.join(', ')}` : ''}). ` +
+          `${detail}. Master is UNTOUCHED — merge master into ${epicBranch}, resolve/fix, re-gate, then re-land.`,
+      });
+      recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'refused', reason: failReason, commitsAhead: staleness.commitsAhead, overlap: staleness.overlap }) });
+      return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
+    }
+    recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
+  }
+  return { ok: true };
+}
+
+async function runProofStage(
+  project: string,
+  targetProject: string,
+  epicId: string,
+  epicBranch: string,
+  todosAtProofTime: Todo[],
+  epic: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null,
+  ctx: { escalationId: string; session: string; todoId: string },
+): Promise<{ ok: boolean; proof?: LandProof } | LandEpicOutcome> {
+  const wm = getWorktreeManager(targetProject);
+  const proof = await deriveEpicLandProof({
+    project,
+    repo: targetProject,
+    epicId,
+    epicBranch,
+    todos: todosAtProofTime,
+    epicWorktreeCwd: epic?.path ?? targetProject,
+  });
+  if (!proof.ok) {
+    const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
+    createEscalation({
+      project,
+      session: ctx.session,
+      todoId: ctx.todoId,
+      kind: 'assumption-invalidated',
+      questionText: `Land blocked — ${proof.reason} (tip ${epicBranch.slice(0, 8)}). Master is UNTOUCHED.\n${proof.detail}`,
+      conditionKey: cond.conditionKey,
+      conditionTuple: cond.conditionTuple,
+    });
+    recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'refused', reason: proof.reason, regressions: proof.gate.regressions.map(u => u.files).flat(), inherited: proof.gate.inherited.length }) });
+    await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'land-gate-failed', todoId: epicId, detail: proof.detail ?? proof.reason }).catch(() => {});
+    return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch };
+  }
+  return { ok: true, proof };
+}
+
+async function checkOpenChildren(
+  project: string,
+  epicId: string,
+  ctx: { escalationId: string; session: string; epicBranch: string },
+): Promise<{ ok: boolean } | LandEpicOutcome> {
+  const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
+  const openChildBlocker = checkLandDeps(freshTodosAtLandTime, epicId);
+  if (openChildBlocker) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch: ctx.epicBranch, land: 'held', reason: 'open-children-at-land-time', detail: openChildBlocker.message }) });
+    return { ok: false, landed: false, reason: 'open-children-at-land-time', epicId, epicBranch: ctx.epicBranch };
+  }
+  return { ok: true };
+}
+
+async function runMerge(
+  wm: ReturnType<typeof getWorktreeManager>,
+  epicId: string,
+  dirty: string[],
+  opts: { allowDirty?: boolean } | undefined,
+  proof: LandProof,
+  ctx: { targetProject: string; project: string; session: string; escalationId: string; epicBranch: string; todoId: string },
+): Promise<{ ok: boolean; land?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>> } | LandEpicOutcome> {
+  const land = await wm.landEpicToMaster(epicId, {
+    ...(dirty.length > 0 && opts?.allowDirty ? { allowDirtyPaths: dirty } : {}),
+    extraTrailers: landGateTrailer(proof.gate),
+  });
+  if (land.conflict) {
+    const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'merge-conflict']);
+    createEscalation({
+      project: ctx.project,
+      session: ctx.session,
+      todoId: ctx.todoId,
+      kind: 'assumption-invalidated',
+      questionText: `Land conflict: epic ${ctx.epicBranch} did not merge cleanly into master (master untouched). Rebase ${ctx.epicBranch} onto master, resolve conflicts, then re-land.`,
+      conditionKey: cond.conditionKey,
+      conditionTuple: cond.conditionTuple,
+    });
+    recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch: ctx.epicBranch, land: 'conflict' }) });
+    try {
+      const fkey = `watch:land-conflict:${epicId.slice(0, 8)}`;
+      if (getWatchState(ctx.targetProject, fkey) !== 'conflict') {
+        await recordFriction(ctx.targetProject, {
+          layer: 'operational',
+          retryReason: 'land-merge-conflict',
+          detail: `epic ${ctx.epicBranch} did not merge cleanly into master (master untouched). reason=${land.reason ?? 'epic-merge-conflict'}`,
+        });
+        await setWatchState(ctx.targetProject, fkey, 'conflict');
+      }
+    } catch { /* best-effort */ }
+    return { ok: false, landed: false, conflict: true, reason: 'epic-merge-conflict', epicId, epicBranch: ctx.epicBranch };
+  }
+  if (!land.landed) {
+    recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch: ctx.epicBranch, land: 'failed', reason: land.reason }) });
+    return { ok: false, landed: false, reason: land.reason ?? 'land-failed', epicId, epicBranch: ctx.epicBranch };
+  }
+  return { ok: true, land };
+}
+
+async function finalizeLandRecord(
+  targetProject: string,
+  epicId: string,
+  land: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>>,
+  freshTodosAtLandTime: Todo[],
+  ctx: { project: string; session: string; escalationId: string; epicBranch: string },
+): Promise<void> {
+  const wm = getWorktreeManager(targetProject);
+  const cycle = await captureLandCycleFields({
+    epicId,
+    todos: freshTodosAtLandTime,
+    repoRoot: targetProject,
+    epicHeadSha: () => wm.epicHeadSha(epicId).catch(() => null),
+  });
+
+  await recordLandCycle(targetProject, {
+    epicId,
+    epicTipSha: cycle.epicTipSha,
+    landedMergeSha: land.masterSha ?? '',
+    landedAt: Date.now(),
+    source: 'escalation-land',
+    session: ctx.session,
+    nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
+    postLandClean: cycle.postLandClean,
+    landPath: 'escalation-land',
+  });
+}
+
+async function teardownEpic(
+  wm: ReturnType<typeof getWorktreeManager>,
+  epicId: string,
+  targetProject: string,
+  ctx: { epicBranch: string },
+): Promise<void> {
+  try {
+    await wm.removeEpic(epicId, targetProject);
+  } catch (err) {
+    await recordFrictionOnce(targetProject, {
+      layer: 'operational',
+      retryReason: 'landed-epic-teardown-failed',
+      todoId: epicId,
+      detail: `removeEpic(${epicId}) failed after a successful land of ${ctx.epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
+    }).catch(() => {});
+  }
+  try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
+}
+
+async function runPostLandGuard(
+  targetProject: string,
+  land: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>>,
+  wm: ReturnType<typeof getWorktreeManager>,
+  dirty: string[],
+  ctx: { project: string; session: string; escalationId: string; epicId: string; epicBranch: string; todoId: string },
+): Promise<{ ok: boolean; treeRestored?: boolean } | LandEpicOutcome> {
+  let treeRestored = false;
+  const trackedDirty = await wm.trackedDirtyPaths().catch(() => dirty);
+  const guard = await guardPostLandTree(targetProject, {
+    masterSha: land.masterSha,
+    baseRef: land.baseRef,
+    trackedDirty,
+  });
+
+  if (guard.mismatch && guard.skippedUnsafe) {
+    const cond = landCondition('blocker', [ctx.epicId.slice(0, 8), 'tree-drift-unsafe']);
+    createEscalation({
+      project: ctx.project, session: ctx.session, todoId: ctx.todoId,
+      kind: 'blocker',
+      conditionKey: cond.conditionKey,
+      conditionTuple: cond.conditionTuple,
+      questionText:
+        `⚠️ Post-land tree drift detected on ${targetProject} but NOT auto-restored: ` +
+        `after landing ${ctx.epicBranch} at ${land.masterSha}, the checkout's index tree ` +
+        `(${guard.before.workTree}) did not match HEAD^{tree} (${guard.before.headTree}). ` +
+        (guard.trackedDirtyCount > 0
+          ? `${guard.trackedDirtyCount} tracked path(s) have uncommitted changes. `
+          : '') +
+        (guard.trackedDirtyCount > 0 && !guard.onBaseRef
+          ? `Checkout is on branch other than ${land.baseRef ?? 'master'}. `
+          : !guard.onBaseRef
+          ? `Checkout is on branch other than ${land.baseRef ?? 'master'}, not on base ref. `
+          : '') +
+        `Commit or stash dirty work and switch to the base branch, then manually sync the checkout. ` +
+        (guard.divergentFiles.length > 0 ? `Divergent tracked files: ${guard.divergentFiles.join(', ')}.` : ''),
+    });
+    recordSupervisorAudit({
+      kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({
+        escalationId: ctx.escalationId, epicId: ctx.epicId, epicBranch: ctx.epicBranch, land: 'tree-drift-unsafe-skip',
+        landSha: land.masterSha, workTree: guard.before.workTree, headTree: guard.before.headTree,
+        onBaseRef: guard.onBaseRef, trackedDirtyCount: guard.trackedDirtyCount,
+        ...(guard.divergentFiles.length > 0 ? { divergentFiles: guard.divergentFiles } : {}),
+      })
+    });
+    await recordFriction(targetProject, {
+      layer: 'orchestration', retryReason: 'post-land-tree-drift-skipped', todoId: ctx.epicId,
+      detail: `landSha=${land.masterSha} onBaseRef=${guard.onBaseRef} trackedDirty=${guard.trackedDirtyCount}` +
+        (guard.divergentFiles.length > 0 ? ` divergentFiles=${guard.divergentFiles.join(',')}` : '')
+    }).catch(() => {});
+  } else if (guard.mismatch && !guard.skippedUnsafe) {
+    treeRestored = guard.restored;
+    const cond = landCondition('assumption-invalidated', [ctx.epicId.slice(0, 8), 'tree-corrupt']);
+    createEscalation({
+      project: ctx.project, session: ctx.session, todoId: ctx.todoId,
+      kind: 'assumption-invalidated',
+      operatorGated: true,
+      conditionKey: cond.conditionKey,
+      conditionTuple: cond.conditionTuple,
+      questionText:
+        `Post-land tree corruption on ${targetProject}: after landing ${ctx.epicBranch} at ` +
+        `${land.masterSha}, the checkout's index tree (${guard.before.workTree}) did not match ` +
+        `HEAD^{tree} (${guard.before.headTree}). Corrupted index snapshotted at ` +
+        `${guard.snapshotRef ?? '(snapshot FAILED)'}. Restore ${guard.restored ? 'succeeded' : 'FAILED'}.`
+        + (guard.divergentFiles.length > 0 ? ` Divergent tracked files: ${guard.divergentFiles.join(', ')}.` : ''),
+    });
+    recordSupervisorAudit({
+      kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({
+        escalationId: ctx.escalationId, epicId: ctx.epicId, epicBranch: ctx.epicBranch, land: 'tree-corrupt',
+        landSha: land.masterSha, workTree: guard.before.workTree, headTree: guard.before.headTree,
+        snapshotRef: guard.snapshotRef, restored: guard.restored,
+        ...(guard.divergentFiles.length > 0 ? { divergentFiles: guard.divergentFiles } : {}),
+      })
+    });
+    await recordFriction(targetProject, {
+      layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: ctx.epicId,
+      detail: `landSha=${land.masterSha} snapshot=${guard.snapshotRef}` +
+        (guard.divergentFiles.length > 0 ? ` divergentFiles=${guard.divergentFiles.join(',')}` : '')
+    }).catch(() => {});
+    if (!guard.restored) {
+      return { ok: false, landed: true, reason: 'post-land-tree-corrupt', epicId: ctx.epicId, epicBranch: ctx.epicBranch, masterSha: land.masterSha, treeRestored: false };
+    }
+  }
+  return { ok: true, treeRestored };
+}
+
+export interface LandStageDeps {
+  checkDirtyTree: typeof checkDirtyTree;
+  runStewardPrecheck: typeof runStewardPrecheck;
+  checkStaleness: typeof checkStaleness;
+  runProofStage: typeof runProofStage;
+  checkOpenChildren: typeof checkOpenChildren;
+  runMerge: typeof runMerge;
+  finalizeLandRecord: typeof finalizeLandRecord;
+  teardownEpic: typeof teardownEpic;
+  runPostLandGuard: typeof runPostLandGuard;
+}
+
+export const defaultLandStageDeps: LandStageDeps = {
+  checkDirtyTree,
+  runStewardPrecheck,
+  checkStaleness,
+  runProofStage,
+  checkOpenChildren,
+  runMerge,
+  finalizeLandRecord,
+  teardownEpic,
+  runPostLandGuard,
+};
+
 /**
  * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
  * land-readiness server-side at click time (never trust the summary baked into the
@@ -823,6 +1179,7 @@ export async function landEpic(
   project: string,
   escalationId: string,
   opts?: { allowDirty?: boolean },
+  deps: LandStageDeps = defaultLandStageDeps,
 ): Promise<LandEpicOutcome> {
   const esc = getEscalation(escalationId);
   if (!esc) return { ok: false, landed: false, reason: 'escalation-not-found' };
@@ -838,297 +1195,61 @@ export async function landEpic(
 
   return withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
     try {
-      // Clean-tree guard: refuse a land when the main checkout has uncommitted/untracked
-      // changes unless the caller explicitly passes allowDirty (operator override).
-      const dirty = await wm.dirtyPaths().catch(() => [] as string[]);
-      if (dirty.length > 0) {
-        if (!opts?.allowDirty) {
-          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: 'dirty-tree', dirtyPaths: dirty }) });
-          return {
-            ok: false, landed: false, reason: 'dirty-tree', epicId, epicBranch, dirtyPaths: dirty,
-          };
-        }
-        // allowDirty: proceed, but make the override loud + durable.
-        console.warn(`[land] allowDirty override — main checkout dirty:\n${dirty.map((p) => `  ${p}`).join('\n')}`);
-        try {
-          await recordFriction(targetProject, {
-            layer: 'orchestration',
-            retryReason: 'land-allow-dirty',
-            todoId: epicId,
-            detail: `land of epic ${epicBranch} proceeded over a dirty main checkout (allowDirty). paths: ${dirty.join(', ')}`,
-          });
-        } catch { /* best-effort */ }
-      }
+      const ctx = { project, escalationId, session: esc.session, epicId, epicBranch, targetProject, todoId };
 
-      // Fail-fast: RE-DERIVE steward predicates (cheap check, fail immediately on storev
-      // truth failure). Skip deriveEpicLandProof here; we'll run it after forward-integration.
-      // Exclude the epic's own [LAND] leaf: it is stamped done AFTER the merge lands
-      // (stampLandLeafOnMerge), so counting it as a required-done child would deadlock every
-      // auto-land (epic-children-incomplete). Mirrors surfaceEpicLand's pre-check filter.
+      const dirtyResult = await deps.checkDirtyTree(wm, opts, ctx);
+      if (!dirtyResult.ok) {
+        const outcome = dirtyResult as LandEpicOutcome;
+        return outcome;
+      }
+      const dirty = (dirtyResult as { ok: boolean; dirty?: string[] }).dirty ?? [];
+
       const todosAtProofTime = listTodos(project, { includeCompleted: true });
-      const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
-      const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
-      const epic = await wm.ensureEpic(epicId).catch(() => null);
-      const verdict = await validateStewardProof(
-        'land_epic',
-        { kind: 'epic-landable', epicId, epicBranch },
-        {
-          project,
-          dependsOn: [],
-          getDep: (cid) => {
-            const d = getTodo(project, cid);
-            return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
-          },
-          epicChildIds,
-          epicWorktreeCwd: epic?.path ?? targetProject,
-          masterCwd: targetProject,
-        },
-      );
-      if (!verdict.ok) {
-        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'rejected', reason: verdict.reason }) });
-        return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
+      const stewardResult = await deps.runStewardPrecheck(project, epicId, epicBranch, targetProject, todosAtProofTime, { escalationId, session: esc.session });
+      if (!stewardResult.ok) {
+        const outcome = stewardResult as LandEpicOutcome;
+        return outcome;
+      }
+      const stewardOk = stewardResult as { ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] };
+      const epic = stewardOk.epic ?? null;
+      const epicChildIds = stewardOk.epicChildIds ?? [];
+
+      const stalenessResult = await deps.checkStaleness(wm, targetProject, epicId, epicBranch, ctx);
+      if (!stalenessResult.ok) {
+        const outcome = stalenessResult as LandEpicOutcome;
+        return outcome;
       }
 
-      // L3 — LAND-TIME FRESHNESS GUARD. Before advancing trunk, check whether the epic's
-      // build-base drifted from CURRENT trunk (L1 `epicBuildBaseStaleness`). If stale,
-      // forward-integrate trunk + re-run the gate INSIDE the epic worktree (L2
-      // `revalidateStaleEpic`, where deps resolve) so we never advance trunk on a tree that
-      // was only ever gated against an OLDER trunk tip — the semantic-drift / build123d
-      // importorskip false-green class. FRESH → fall straight through to the merge (the fast,
-      // common path; no behaviour change). STALE + revalidation-fail → master UNTOUCHED, raise
-      // one escalation, refuse. Both land routes inherit this: the human land_epic MCP path AND
-      // the daemon auto-land (reconcile-pass surfaceEpicLand → landEpic at level>=drive) call
-      // THIS function. (The OI-1 reachability reconcile's landEpicToMaster lands a leaf onto the
-      // INTEGRATION ref during acceptance — not trunk at epic-completion — so it is intentionally
-      // NOT guarded here.)
-      const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
-      if (staleness?.stale) {
-        const rev = await revalidateStaleEpic(targetProject, epicId);
-        if (!rev.ok) {
-          const failReason = `stale-build-base:${rev.reason}`;
-          const detail =
-            rev.reason === 'forward-integrate-conflict'
-              ? `re-integration hit a merge conflict (${rev.conflictedPaths.join(', ') || 'unknown'})`
-              : rev.reason === 'revalidation-gate-failed'
-                ? `the re-run gate FAILED:\n${rev.output}`
-                : rev.reason;
-          const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'stale-base']);
-          createEscalation({
-            project,
-            session: esc.session,
-            todoId,
-            kind: 'assumption-invalidated',
-            conditionKey: cond.conditionKey,
-            conditionTuple: cond.conditionTuple,
-            questionText:
-              `Land blocked — epic ${epicBranch} was built against a stale trunk base ` +
-              `(${staleness.commitsAhead} trunk commit(s) ahead; ${staleness.reason}` +
-              `${staleness.overlap.length ? `; overlapping files: ${staleness.overlap.join(', ')}` : ''}). ` +
-              `${detail}. Master is UNTOUCHED — merge master into ${epicBranch}, resolve/fix, re-gate, then re-land.`,
-          });
-          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: failReason, commitsAhead: staleness.commitsAhead, overlap: staleness.overlap }) });
-          return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
-        }
-        // rev.ok → epic now carries trunk + re-gated green → fall through to the real merge.
-        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
+      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: esc.session, todoId });
+      if (!proofResult.ok) {
+        const outcome = proofResult as LandEpicOutcome;
+        return outcome;
+      }
+      const proofOk = proofResult as { ok: boolean; proof?: LandProof };
+      const proof = proofOk.proof!;
+
+      const openChildResult = await deps.checkOpenChildren(project, epicId, { escalationId, session: esc.session, epicBranch });
+      if (!openChildResult.ok) {
+        const outcome = openChildResult as LandEpicOutcome;
+        return outcome;
       }
 
-      // Run the land proof (ONE PROOF — landReadiness: deps + tsc + dry-merge + G9 presence +
-      // G10 gate) — re-derives after any forward-integration so it is authoritative against
-      // the current epic tip. Tighten the auto-land path: never bypass a check, never
-      // auto-land if the gate is misconfigured or missing.
-      const proof = await deriveEpicLandProof({
-        project,
-        repo: targetProject,
-        epicId,
-        epicBranch,
-        todos: todosAtProofTime,
-        epicWorktreeCwd: epic?.path ?? targetProject,
-      });
-      if (!proof.ok) {
-        const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
-        createEscalation({
-          project,
-          session: esc.session,
-          todoId,
-          kind: 'assumption-invalidated',
-          questionText: `Land blocked — ${proof.reason} (tip ${epicBranch.slice(0, 8)}). Master is UNTOUCHED.\n${proof.detail}`,
-          conditionKey: cond.conditionKey,
-          conditionTuple: cond.conditionTuple,
-        });
-        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: proof.reason, regressions: proof.gate.regressions.map(u => u.files).flat(), inherited: proof.gate.inherited.length }) });
-        await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'land-gate-failed', todoId: epicId, detail: proof.detail ?? proof.reason }).catch(() => {});
-        return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch };
+      const mergeResult = await deps.runMerge(wm, epicId, dirty, opts, proof, ctx);
+      if (!mergeResult.ok) {
+        const outcome = mergeResult as LandEpicOutcome;
+        return outcome;
       }
+      const mergeOk = mergeResult as { ok: boolean; land?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>> };
+      const land = mergeOk.land!;
 
-      // L4 — LAND-TIME OPEN-CHILDREN HOLD (friction c31ef24f): re-check the epic's
-      // children against LIVE store state, not the epicChildIds snapshot taken
-      // above (line ~2101) or any earlier promotion-time snapshot — a sibling
-      // leaf dropped-and-replaced (or any newly-filed child) between that
-      // snapshot and this point must not slip through. checkLandDeps already
-      // excludes the [LAND] leaf itself and treats a dropped child as
-      // non-gating while still requiring every OTHER open child closed. A
-      // blocker here HOLDS (defer, re-evaluated next tick) — it never parks a
-      // new escalation; the existing epic-ready-to-land card stays open.
       const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
-      const openChildBlocker = checkLandDeps(freshTodosAtLandTime, epicId);
-      if (openChildBlocker) {
-        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'held', reason: 'open-children-at-land-time', detail: openChildBlocker.message }) });
-        return { ok: false, landed: false, reason: 'open-children-at-land-time', epicId, epicBranch };
-      }
+      await deps.finalizeLandRecord(targetProject, epicId, land, freshTodosAtLandTime, ctx);
 
-      // Green proof → perform the real single --no-ff epic→master merge.
-      const land = await wm.landEpicToMaster(epicId, {
-        ...(dirty.length > 0 && opts?.allowDirty ? { allowDirtyPaths: dirty } : {}),
-        extraTrailers: landGateTrailer(proof.gate),
-      });
-      if (land.conflict) {
-        // Master untouched. Re-surface as a human-rebase request; the ready-to-land
-        // card stays open so the human can re-land after resolving.
-        const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'merge-conflict']);
-        createEscalation({
-          project,
-          session: esc.session,
-          todoId,
-          kind: 'assumption-invalidated',
-          questionText: `Land conflict: epic ${epicBranch} did not merge cleanly into master (master untouched). Rebase ${epicBranch} onto master, resolve conflicts, then re-land.`,
-          conditionKey: cond.conditionKey,
-          conditionTuple: cond.conditionTuple,
-        });
-        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'conflict' }) });
-        // DF2: silently capture the land-merge conflict as operational friction (deduped
-        // per-epic edge — record once until a later land of this epic succeeds).
-        try {
-          const fkey = `watch:land-conflict:${epicId.slice(0, 8)}`;
-          if (getWatchState(targetProject, fkey) !== 'conflict') {
-            await recordFriction(targetProject, {
-              layer: 'operational',
-              retryReason: 'land-merge-conflict',
-              detail: `epic ${epicBranch} did not merge cleanly into master (master untouched). reason=${land.reason ?? 'epic-merge-conflict'}`,
-            });
-            await setWatchState(targetProject, fkey, 'conflict');
-          }
-        } catch { /* best-effort */ }
-        return { ok: false, landed: false, conflict: true, reason: 'epic-merge-conflict', epicId, epicBranch };
-      }
-      if (!land.landed) {
-        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'failed', reason: land.reason }) });
-        return { ok: false, landed: false, reason: land.reason ?? 'land-failed', epicId, epicBranch };
-      }
+      await deps.teardownEpic(wm, epicId, targetProject, { epicBranch });
 
-      // Landed — persist the durable land-record BEFORE teardown removes the branch
-      // (epicHeadSha reads refs/heads/<epicBranch>, which removeEpic deletes).
-      const cycle = await captureLandCycleFields({
-        epicId,
-        todos: freshTodosAtLandTime,
-        repoRoot: targetProject,
-        epicHeadSha: () => wm.epicHeadSha(epicId).catch(() => null),
-      });
-
-      await recordLandCycle(targetProject, {
-        epicId,
-        epicTipSha: cycle.epicTipSha,
-        landedMergeSha: land.masterSha ?? '',
-        landedAt: Date.now(),
-        source: 'escalation-land',
-        session: esc.session,
-        nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
-        postLandClean: cycle.postLandClean,
-        landPath: 'escalation-land',
-      });
-
-      // Remove the epic branch + worktree (gated on land success), resolve the card.
-      try {
-        await wm.removeEpic(epicId, targetProject);
-      } catch (err) {
-        await recordFrictionOnce(targetProject, {
-          layer: 'operational',
-          retryReason: 'landed-epic-teardown-failed',
-          todoId: epicId,
-          detail: `removeEpic(${epicId}) failed after a successful land of ${epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
-        }).catch(() => {});
-      }
-      try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
-
-      let treeRestored = false;
-      const trackedDirty = await wm.trackedDirtyPaths().catch(() => dirty);
-      const guard = await guardPostLandTree(targetProject, {
-        masterSha: land.masterSha,
-        baseRef: land.baseRef,
-        trackedDirty,
-      });
-
-      if (guard.mismatch && guard.skippedUnsafe) {
-        // Tree mismatch but unsafe to restore: either tracked-dirty work or checkout on non-base branch.
-        // Do NOT auto-restore; surface for manual reconciliation.
-        const cond = landCondition('blocker', [epicId.slice(0, 8), 'tree-drift-unsafe']);
-        createEscalation({
-          project, session: esc.session, todoId,
-          kind: 'blocker',
-          conditionKey: cond.conditionKey,
-          conditionTuple: cond.conditionTuple,
-          questionText:
-            `⚠️ Post-land tree drift detected on ${targetProject} but NOT auto-restored: ` +
-            `after landing ${epicBranch} at ${land.masterSha}, the checkout's index tree ` +
-            `(${guard.before.workTree}) did not match HEAD^{tree} (${guard.before.headTree}). ` +
-            (guard.trackedDirtyCount > 0
-              ? `${guard.trackedDirtyCount} tracked path(s) have uncommitted changes. `
-              : '') +
-            (guard.trackedDirtyCount > 0 && !guard.onBaseRef
-              ? `Checkout is on branch other than ${land.baseRef ?? 'master'}. `
-              : !guard.onBaseRef
-              ? `Checkout is on branch other than ${land.baseRef ?? 'master'}, not on base ref. `
-              : '') +
-            `Commit or stash dirty work and switch to the base branch, then manually sync the checkout. ` +
-            (guard.divergentFiles.length > 0 ? `Divergent tracked files: ${guard.divergentFiles.join(', ')}.` : ''),
-        });
-        recordSupervisorAudit({
-          kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
-            escalationId, epicId, epicBranch, land: 'tree-drift-unsafe-skip',
-            landSha: land.masterSha, workTree: guard.before.workTree, headTree: guard.before.headTree,
-            onBaseRef: guard.onBaseRef, trackedDirtyCount: guard.trackedDirtyCount,
-            ...(guard.divergentFiles.length > 0 ? { divergentFiles: guard.divergentFiles } : {}),
-          })
-        });
-        await recordFriction(targetProject, {
-          layer: 'orchestration', retryReason: 'post-land-tree-drift-skipped', todoId: epicId,
-          detail: `landSha=${land.masterSha} onBaseRef=${guard.onBaseRef} trackedDirty=${guard.trackedDirtyCount}` +
-            (guard.divergentFiles.length > 0 ? ` divergentFiles=${guard.divergentFiles.join(',')}` : '')
-        }).catch(() => {});
-      } else if (guard.mismatch && !guard.skippedUnsafe) {
-        // Tree mismatch and safe to restore (no tracked dirty, on base ref).
-        treeRestored = guard.restored;
-        const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'tree-corrupt']);
-        createEscalation({
-          project, session: esc.session, todoId,
-          kind: 'assumption-invalidated',
-          operatorGated: true,
-          conditionKey: cond.conditionKey,
-          conditionTuple: cond.conditionTuple,
-          questionText:
-            `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
-            `${land.masterSha}, the checkout's index tree (${guard.before.workTree}) did not match ` +
-            `HEAD^{tree} (${guard.before.headTree}). Corrupted index snapshotted at ` +
-            `${guard.snapshotRef ?? '(snapshot FAILED)'}. Restore ${guard.restored ? 'succeeded' : 'FAILED'}.`
-            + (guard.divergentFiles.length > 0 ? ` Divergent tracked files: ${guard.divergentFiles.join(', ')}.` : ''),
-        });
-        recordSupervisorAudit({
-          kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
-            escalationId, epicId, epicBranch, land: 'tree-corrupt',
-            landSha: land.masterSha, workTree: guard.before.workTree, headTree: guard.before.headTree,
-            snapshotRef: guard.snapshotRef, restored: guard.restored,
-            ...(guard.divergentFiles.length > 0 ? { divergentFiles: guard.divergentFiles } : {}),
-          })
-        });
-        await recordFriction(targetProject, {
-          layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: epicId,
-          detail: `landSha=${land.masterSha} snapshot=${guard.snapshotRef}` +
-            (guard.divergentFiles.length > 0 ? ` divergentFiles=${guard.divergentFiles.join(',')}` : '')
-        }).catch(() => {});
-        if (!guard.restored) {
-          return { ok: false, landed: true, reason: 'post-land-tree-corrupt', epicId, epicBranch, masterSha: land.masterSha, treeRestored: false };
-        }
-      }
+      const postLandResult = await deps.runPostLandGuard(targetProject, land, wm, dirty, ctx);
+      if (!postLandResult.ok) return postLandResult as LandEpicOutcome;
+      const treeRestored = postLandResult.treeRestored ?? false;
 
       resolveEscalation(escalationId, 'resolved', 'ai');
       try {
@@ -1139,12 +1260,8 @@ export async function landEpic(
         }
       } catch { /* best-effort — never fail a completed land on the un-verify */ }
       const selfLand = isSelfProject(targetProject);
-      // Stamp the self-land so the deploy-status surface can flag the running
-      // binary as stale even when the version string didn't change.
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
-      // Advisory: refresh the landed project's digest (gated on the flag, never
-      // fails the land). See refreshProjectDigestOnLand.
       await refreshProjectDigestOnLand(targetProject);
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
