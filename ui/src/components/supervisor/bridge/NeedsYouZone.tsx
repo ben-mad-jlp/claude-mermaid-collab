@@ -7,9 +7,10 @@
  * narrow, pinned top-of-column on wide) so the "needs you" cards can never be
  * scrolled away. Empty state is a calm tick.
  *
- * It derives its set from the SAME P1 selector (`selectOpenEscalations`) that
- * feeds the CommandBarBadge and the FleetGraph danger ring, so the red count in
- * the zone, the badge and the graph rings stay in lockstep (parity).
+ * It derives its set from the SAME P1 selectors (`selectHumanActionableEscalations`
+ * and `selectMachineHandledCount`) that feed the CommandBarBadge and the FleetGraph
+ * danger ring, so the red count in the zone, the badge and the graph rings stay in
+ * lockstep (parity).
  *
  * P2 only LIFTS — the rail is not deleted yet (that's P4); the rail keeps its
  * calm all-clear line. Only this zone mounts the inbox, so the inbox's window
@@ -19,7 +20,7 @@
 import React from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
 import type { SessionTodo } from '@/types/sessionTodo';
-import { selectOpenEscalations } from '@/lib/statusSelectors';
+import { selectHumanActionableEscalations, selectMachineHandledCount } from '@/lib/statusSelectors';
 import { selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 
@@ -49,7 +50,8 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
   emptyLabel = 'All clear — nothing needs you',
   variant = 'escalation',
 }) => {
-  const open = selectOpenEscalations(escalations, { kind: 'project', project });
+  const open = selectHumanActionableEscalations(escalations, { kind: 'project', project });
+  const machineHandled = selectMachineHandledCount(escalations, { kind: 'project', project });
 
   // Keep the zone mounted while a recently AI-resolved escalation is still
   // lingering for this project (fd934fb7) — otherwise the "All clear" branch would
@@ -72,7 +74,14 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
       <BridgeEscalationInbox escalations={open} serverScope={serverScope} variant={variant} bare={embedded} onJump={onJump} project={project} onSelectTodo={onSelectTodo} />
     );
 
-  return <div data-testid="needs-you-zone" data-needs-you={open.length}>{body}</div>;
+  return (
+    <div data-testid="needs-you-zone" data-needs-you={open.length}>
+      {body}
+      {machineHandled > 0 && (
+        <div data-testid="machine-items-handled" className="text-3xs text-gray-500 dark:text-gray-400 px-1 pt-1">{machineHandled} machine item{machineHandled === 1 ? '' : 's'} handled</div>
+      )}
+    </div>
+  );
 };
 
 export default NeedsYouZone;

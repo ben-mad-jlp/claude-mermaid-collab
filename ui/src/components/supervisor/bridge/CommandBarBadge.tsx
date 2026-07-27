@@ -4,7 +4,7 @@
  * A single pill welded into the top mode chrome, visible in ALL modes
  * (studio/bridge/plan): a red `! N need you` with the FLEET-WIDE open-escalation
  * total, a calm green tick when the whole fleet is clear. It counts via the ONE
- * shared selector (`selectOpenEscalationCount(open, {fleet})` from statusSelectors),
+ * shared selector (`selectHumanActionableEscalations(open, {fleet})` from statusSelectors),
  * the same selector the Project Rail badges/zones use at a narrower scope — so the
  * badge can never disagree with the rail; a fleet badge differs from a project
  * badge only by its explicit scope, never by an accidental drift.
@@ -18,7 +18,7 @@ import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDeckStore } from '@/stores/deckStore';
 import { highestPriorityEscalation, nodeIdForEscalation } from './escalationSelectors';
-import { selectOpenEscalations, selectOpenEscalationCount } from '@/lib/statusSelectors';
+import { selectHumanActionableEscalations } from '@/lib/statusSelectors';
 
 export const CommandBarBadge: React.FC = () => {
   // Coherence: read the open slice through the shared scoped selector (fleet),
@@ -30,10 +30,10 @@ export const CommandBarBadge: React.FC = () => {
   const setFocalEscalationId = useDeckStore((s) => s.setFocalEscalationId);
   const setFocusNodeId = useDeckStore((s) => s.setFocusNodeId);
 
-  const count = selectOpenEscalationCount(openEscalations, { kind: 'fleet' });
+  const count = selectHumanActionableEscalations(openEscalations, { kind: 'fleet' }).length;
 
   const onClick = () => {
-    const allOpen = selectOpenEscalations(openEscalations, { kind: 'fleet' });
+    const allOpen = selectHumanActionableEscalations(openEscalations, { kind: 'fleet' });
     const esc = highestPriorityEscalation(allOpen);
     if (!esc) return;
     const nodeId = nodeIdForEscalation(esc, todosByProject[esc.project] ?? []);
