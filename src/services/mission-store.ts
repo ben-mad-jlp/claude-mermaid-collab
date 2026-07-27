@@ -28,6 +28,7 @@ import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
+import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -1426,36 +1427,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     if (arr) arr.push(t); else childrenByParent.set(t.parentId, [t]);
   }
   const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean }>();
-  const proofForEpic = (epicId: string): { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean } => {
-    const hit = proofByEpic.get(epicId);
-    if (hit) return hit;
-    const proven = new Set<string>();
-    let tagsAnyLeaf = false;
-    let hasUnfinishedLeaf = false;
-    const walk = (parentId: string) => {
-      for (const t of childrenByParent.get(parentId) ?? []) {
-        if (!isEpic(t)) {
-          const tags = criterionEdgesOf(t);
-          if (tags.length > 0) {
-            tagsAnyLeaf = true;
-            if (t.status === 'done' && t.acceptanceStatus !== 'rejected') tags.forEach((id) => proven.add(id));
-          }
-          // UNFINISHED LEAF (proofForEpic-hasUnfinishedLeaf): independent of tagging — an
-          // untagged leaf that hasn't settled (not done, not accepted) is exactly the case the
-          // legacy no-tags fallback must not paper over. Dropped leaves are settled (deliberately
-          // out of play), so they don't count.
-          if (t.status !== 'dropped' && t.status !== 'done' && t.acceptanceStatus !== 'accepted') {
-            hasUnfinishedLeaf = true;
-          }
-        }
-        walk(t.id); // recurse through nested epics / split children
-      }
-    };
-    walk(epicId);
-    const res = { proven, tagsAnyLeaf, hasUnfinishedLeaf };
-    proofByEpic.set(epicId, res);
-    return res;
-  };
+  const proofForEpic = (epicId: string) => predProofForEpic(epicId, childrenByParent, proofByEpic);
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
@@ -1492,16 +1464,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // epic must NOT fall back to "not live" — that would derive 'discover' for a criterion that
       // is actually mid-build and cause the conductor to re-file a duplicate serving epic (real
       // spend). Treat any open serving epic as live until the ledger is readable again.
-      const servingEpicLive = ledgerUnavailable
-        ? serving.some((e) => !isLanded(e))
-        : serving.some((e) =>
-          !isLanded(e) && (
-            runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
-            allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
-              (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress')) ||
-            (!allTodos.some((t) => t.parentId === e.id && !isEpic(t)) && Number.isFinite(Date.parse(e.createdAt)) &&
-              now - Date.parse(e.createdAt) < CHILDLESS_SERVE_GRACE_MS)
-          ));
+      const servingEpicLive = serving.some((e) => predServingEpicLive(e, ledgerUnavailable, runs, allTodos, byId, now));
       // LIVENESS decides 'open', not mere existence. The old rule was
       //   serving.some(e => e.status !== 'done') ? 'open' : serving.some(done) ? 'landed' : 'none'
       // so ANY non-done serving epic — including a stale, motionless, never-approved one — masked
@@ -1533,10 +1496,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick
       // accrues its true thrash history (the serve-cap escalation trigger). EXCEPT hollow-
       // landed done epics, which don't burn the cap (LS-1).
-      const isHollowDone = (e: Todo) => e.status === 'done' && (
-        e.hollowLandedAt != null ||
-        isHollowLand(e, allTodos.filter((t) => t.parentId === e.id && !isEpic(t)))
-      );
+      const isHollowDone = (e: Todo) => predIsHollowDone(e, allTodos);
       // SERVE-CAP REFUND (infra-flake serve): a serving epic that FILED leaves but was killed by an
       // INFRA hold (epic-base-red, spawn-ENOENT, auth-logout) BEFORE any of them ran must NOT burn
       // the anti-thrash cap — the cap exists to stop re-filing a criterion that has been genuinely
@@ -1547,21 +1507,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // filed-but-unrun (dropped/blocked at attempts=0, zero nodes, none settled) is refunded, so the
       // conductor can serve once more when the flake clears rather than the cap wedging a solvable
       // criterion into a human-only 'escalate'.
-      const countsTowardServeCap = (e: Todo): boolean => {
-        const leaves = allTodos.filter((t) => t.parentId === e.id && !isEpic(t));
-        if (leaves.length === 0) return true; // thin re-file — unchanged thrash-history counting
-        // A blind ledger read cannot PROVE an epic did no work; refunding on it would hand back
-        // serves the criterion really burned. Fail toward counting.
-        if (ledgerUnavailable) return true;
-        if (leaves.some((t) => t.acceptanceStatus === 'accepted' || t.acceptanceStatus === 'rejected')) return true;
-        // Ledger history is immutable, so it still proves a genuine attempt after the epic was
-        // dropped and its leaves' acceptanceStatus wiped by the drop cascade. A SETTLED leaf outcome
-        // (accepted|rejected) or a node actually spent counts; a leaf parked on infra — outcome
-        // blocked/pending at attempts=0, zero nodes — is not settled and is still refunded.
-        return capRuns.some((r) => r.epicId === e.id && (
-          r.finalOutcome === 'accepted' || r.finalOutcome === 'rejected' || (r.nodesSpent ?? 0) > 0
-        ));
-      };
+      const countsTowardServeCap = (e: Todo) => predCountsTowardServeCap(e, allTodos, capRuns, ledgerUnavailable);
       const servedEpicCount = allEpicsEver.filter(
         (e) => todoServesCriterion(e, c.id) &&
           !isHollowDone(e) && countsTowardServeCap(e),
