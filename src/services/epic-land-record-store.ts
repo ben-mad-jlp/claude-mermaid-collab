@@ -5,6 +5,7 @@ import { trackingProjectRoot } from './project-registry.js';
 import type { Todo } from './todo-store.js';
 import { isGateTodo } from './epic-land-readiness.js';
 import { isEpicTodo, isLandTodo } from './invariant-check.js';
+import { criterionEdgesOf } from './criterion-edges.js';
 
 /**
  * Per-PROJECT durable epic-land record store. Mirrors the bun:sqlite-per-project
@@ -195,10 +196,7 @@ export function nonTerminalServingLeafIds(todos: Todo[], epicId: string): string
   const epic = todos.find((t) => t.id === epicId);
   if (!epic) return [];
 
-  const epicCriteria = new Set<string>([
-    ...(epic.servesCriterionIds ?? []),
-    ...(epic.servesCriterionId ? [epic.servesCriterionId] : []),
-  ]);
+  const epicCriteria = new Set(criterionEdgesOf(epic));
 
   const result: string[] = [];
   for (const desc of descendantsOf(epic)) {
@@ -212,10 +210,7 @@ export function nonTerminalServingLeafIds(todos: Todo[], epicId: string): string
       continue;
     }
 
-    const descCriteria = new Set<string>([
-      ...(desc.servesCriterionIds ?? []),
-      ...(desc.servesCriterionId ? [desc.servesCriterionId] : []),
-    ]);
+    const descCriteria = new Set(criterionEdgesOf(desc));
 
     if (epicCriteria.size > 0) {
       const hit = new Set<string>([...descCriteria].filter((c) => epicCriteria.has(c)));
