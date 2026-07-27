@@ -199,7 +199,18 @@ function HeadingCollapseView() {
   const { node, contentRef, getPos } = useNodeViewContext();
   const context = useCollapsibleSectionsSafe();
   const level = Math.max(1, Math.min(6, (node.attrs?.level ?? 1) as number));
-  const pos = typeof getPos === 'function' ? getPos() : undefined;
+  // getPos() computes the node's position by walking parent content. During a
+  // view desync/teardown (e.g. while a restored document mounts) that walk can
+  // throw a "Cannot read properties of undefined (reading 'size')" from
+  // prosemirror-view — which, thrown synchronously in render, escapes to the
+  // React error boundary and takes down the whole app. Treat a throw the same as
+  // an unknown position: fall back to the 'heading-unknown' section.
+  let pos: number | undefined;
+  try {
+    pos = typeof getPos === 'function' ? getPos() : undefined;
+  } catch {
+    pos = undefined;
+  }
   const sectionId = typeof pos === 'number' ? getHeadingSectionId(pos) : 'heading-unknown';
 
   const isExpanded = context ? context.expandedSections.has(sectionId) : true;
