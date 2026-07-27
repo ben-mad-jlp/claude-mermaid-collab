@@ -10,7 +10,7 @@ import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, listCriteriaWithActions, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
-  liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
+  liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveTerminalMissionPrefix, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
   CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
@@ -1130,6 +1130,60 @@ describe('deriveCheapMissionStatus — list-badge status keys off CRITERIA, not 
 
   test('closedAt takes precedence over everything else', () => {
     expect(deriveCheapMissionStatus({ closedAt: 1, abandonedAt: null, awaitingApprovalSince: null }, [], met(2))).toBe('closed');
+  });
+});
+
+describe('deriveTerminalMissionPrefix — shared terminal prefix', () => {
+  test('all 8 combinations: helper returns prefix, both derivers agree on terminal', () => {
+    // Non-terminal fixture that would read 'needs-discovery' (full) vs 'building' (cheap) if prefix is absent.
+    const facts = {
+      ...baseFacts,
+      closedAt: undefined,
+      abandonedAt: null,
+      awaitingApproval: false,
+      stalled: false,
+      criteria: [crit({ id: 'c1' })], // unmet, no serving epic → deriveMissionStatus reads 'needs-discovery'
+    };
+    const cheapRow = { closedAt: undefined, abandonedAt: null, awaitingApprovalSince: null };
+
+    // Helper returns null when all flags absent — both derivers proceed to non-terminal arms.
+    // They deliberately disagree (facts-backed vs proxy), which this test pins.
+    const terminalNull = deriveTerminalMissionPrefix({ ...facts, awaitingApproval: false });
+    expect(terminalNull).toBeNull();
+    expect(deriveMissionStatus(facts)).toBe('needs-discovery');
+    expect(deriveCheapMissionStatus(cheapRow, [], [{ met: false }])).toBe('building');
+
+    // Test all 7 combinations with at least one flag set:
+    // closed takes precedence over abandoned and unapproved
+    expect(deriveTerminalMissionPrefix({ closedAt: 1, abandonedAt: null, awaitingApproval: false })).toBe('closed');
+    expect(deriveMissionStatus({ ...facts, closedAt: 1 })).toBe('closed');
+    expect(deriveCheapMissionStatus({ ...cheapRow, closedAt: 1 }, [])).toBe('closed');
+
+    expect(deriveTerminalMissionPrefix({ closedAt: 1, abandonedAt: 1, awaitingApproval: false })).toBe('closed');
+    expect(deriveMissionStatus({ ...facts, closedAt: 1, abandonedAt: 1 })).toBe('closed');
+    expect(deriveCheapMissionStatus({ ...cheapRow, closedAt: 1, abandonedAt: 1 }, [])).toBe('closed');
+
+    expect(deriveTerminalMissionPrefix({ closedAt: 1, abandonedAt: null, awaitingApproval: true })).toBe('closed');
+    expect(deriveMissionStatus({ ...facts, closedAt: 1, awaitingApproval: true })).toBe('closed');
+    expect(deriveCheapMissionStatus({ ...cheapRow, closedAt: 1, awaitingApprovalSince: 1 }, [])).toBe('closed');
+
+    expect(deriveTerminalMissionPrefix({ closedAt: 1, abandonedAt: 1, awaitingApproval: true })).toBe('closed');
+    expect(deriveMissionStatus({ ...facts, closedAt: 1, abandonedAt: 1, awaitingApproval: true })).toBe('closed');
+    expect(deriveCheapMissionStatus({ ...cheapRow, closedAt: 1, abandonedAt: 1, awaitingApprovalSince: 1 }, [])).toBe('closed');
+
+    // abandoned takes precedence over unapproved
+    expect(deriveTerminalMissionPrefix({ closedAt: null, abandonedAt: 1, awaitingApproval: false })).toBe('abandoned');
+    expect(deriveMissionStatus({ ...facts, abandonedAt: 1 })).toBe('abandoned');
+    expect(deriveCheapMissionStatus({ ...cheapRow, abandonedAt: 1 }, [])).toBe('abandoned');
+
+    expect(deriveTerminalMissionPrefix({ closedAt: null, abandonedAt: 1, awaitingApproval: true })).toBe('abandoned');
+    expect(deriveMissionStatus({ ...facts, abandonedAt: 1, awaitingApproval: true })).toBe('abandoned');
+    expect(deriveCheapMissionStatus({ ...cheapRow, abandonedAt: 1, awaitingApprovalSince: 1 }, [])).toBe('abandoned');
+
+    // unapproved alone
+    expect(deriveTerminalMissionPrefix({ closedAt: null, abandonedAt: null, awaitingApproval: true })).toBe('unapproved');
+    expect(deriveMissionStatus({ ...facts, awaitingApproval: true })).toBe('unapproved');
+    expect(deriveCheapMissionStatus({ ...cheapRow, awaitingApprovalSince: 1 }, [])).toBe('unapproved');
   });
 });
 
