@@ -72,6 +72,7 @@ import {
   DOCUMENT_TOOL_DEFS, handleDocumentTool,
   listDocuments, getDocument, createDocument,
 } from './document-tools.js';
+import { coerceArrayArg } from './arg-coercion.js';
 import { BROWSER_TOOL_DEFS, handleBrowserTool } from './browser-tools.js';
 import { SPREADSHEET_TOOL_DEFS, handleSpreadsheetTool, listSpreadsheets } from './spreadsheet-tools.js';
 import {
@@ -1941,7 +1942,8 @@ export async function setupMCPServer(): Promise<Server> {
             // pre-check → no TOCTOU): broadcast/record only for new escalations.
             // `ui` (BR-4) is server-validated inside createEscalation against the
             // closed catalog; an invalid spec is dropped, never throws.
-            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId, options, recommended, ui, operatorGated });
+            const coercedOptions = coerceArrayArg(options, 'options') as Array<{ id: string; label: string; detail?: string }> | undefined;
+            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId, options: coercedOptions, recommended, ui, operatorGated });
             if (isNew) {
               getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo, escalation: esc });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
@@ -2443,8 +2445,10 @@ export async function setupMCPServer(): Promise<Server> {
           }
           case 'submit_reconcile_result': {
             const { reconcileId, mergedGraph, newConstraints } = args as { reconcileId: string; mergedGraph: unknown[]; newConstraints?: unknown[] };
-            if (!reconcileId || !Array.isArray(mergedGraph)) throw new Error('Missing required: reconcileId, mergedGraph');
-            const accepted = resolveReconcile(reconcileId, { mergedGraph: mergedGraph as any, newConstraints: newConstraints as any });
+            const coercedMergedGraph = coerceArrayArg(mergedGraph, 'mergedGraph');
+            const coercedNewConstraints = coerceArrayArg(newConstraints, 'newConstraints');
+            if (!reconcileId || !Array.isArray(coercedMergedGraph)) throw new Error('Missing required: reconcileId, mergedGraph');
+            const accepted = resolveReconcile(reconcileId, { mergedGraph: coercedMergedGraph as any, newConstraints: coercedNewConstraints as any });
             return JSON.stringify({ accepted, reason: accepted ? undefined : 'no-pending-request (timed out or unknown id)' }, null, 2);
           }
           case 'create_decision_record': {
