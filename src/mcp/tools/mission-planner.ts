@@ -16,6 +16,7 @@ import { config } from '../../config.js';
 import type { EffortLevel } from '../../agent/contracts.js';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, type CriterionAction } from '../../services/mission-store.js';
 import { listTodos, updateTodo, type Todo } from '../../services/todo-store.js';
+import { todoServesCriterion } from '../../services/criterion-edges.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import { isEpic } from '../../services/todo-kind.js';
@@ -191,7 +192,7 @@ function findServingEpic(
   const allTodos = listTodos(project, { includeCompleted: true });
   for (const todo of allTodos) {
     if (!isEpic(todo) || todo.status === 'dropped') continue;
-    const serves = todo.servesCriterionId === criterionId || (todo.servesCriterionIds ?? []).includes(criterionId);
+    const serves = todoServesCriterion(todo, criterionId);
     if (!serves) continue;
     if (servingEpicState === 'landed' && todo.status === 'done') return { id: todo.id, title: todo.title };
     if (servingEpicState === 'open' && todo.status !== 'done') return { id: todo.id, title: todo.title };
@@ -210,7 +211,7 @@ function findRecentServingEpic(
   let newest: { id: string; title: string; status: Todo['status']; createdAt: number } | undefined;
   for (const todo of allTodos) {
     if (!isEpic(todo) || todo.status === 'dropped') continue;
-    const serves = todo.servesCriterionId === criterionId || (todo.servesCriterionIds ?? []).includes(criterionId);
+    const serves = todoServesCriterion(todo, criterionId);
     if (!serves) continue;
     const createdMs = Date.parse(todo.createdAt);
     if (!Number.isFinite(createdMs)) continue;
