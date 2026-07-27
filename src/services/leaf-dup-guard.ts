@@ -17,6 +17,7 @@
 // block legitimate filing.
 import { listTodos, type Todo } from './todo-store.js';
 import { isEpic, isLeaf, isMission } from './todo-kind.js';
+import { hasLandStamp } from './epic-landedness.js';
 
 /** Words carrying no discriminating signal in a work-item title. Dropped before comparison
  *  so "Gate the INFRA base re-probe ON A ..." and "Make THE base-red re-probe ... ON ..."
@@ -128,7 +129,8 @@ export function buildMissionDoneLeafIndex(project: string, missionId: string): D
   const entries: DoneLeafEntry[] = [];
   for (const epic of byParent.get(missionId) ?? []) {
     if (!isEpic(epic) || epic.isBucket) continue;
-    const epicLanded = epic.landedAt != null;
+    // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+    const epicLanded = hasLandStamp(epic);
     for (const leaf of byParent.get(epic.id) ?? []) {
       if (!isLeaf(leaf)) continue;
       if (leaf.status === 'dropped') continue;

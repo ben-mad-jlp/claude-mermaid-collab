@@ -21,6 +21,7 @@ import { epicBranchName } from './epic-branch-status';
 import { isMission, stripLabel } from './todo-kind.ts';
 import { getMission, isMissionTerminal } from './mission-store';
 import { realRunners } from './steward-proof';
+import { hasLandStamp } from './epic-landedness';
 
 /** Actor types for land authority checking */
 export type LandActor =
@@ -235,7 +236,8 @@ export function checkLandDeps(todos: Todo[], epicId: string, opts?: { now?: stri
     return null;
   }
 
-  if (epic.landedAt != null) {
+  // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
+  if (hasLandStamp(epic)) {
     return {
       code: 'land-deps-unsatisfied',
       message: `Epic ${epic.title} already landed at ${epic.landedAt}.`,
