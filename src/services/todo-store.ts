@@ -870,7 +870,7 @@ export function backfillBucketTypeV5(db: Database): void {
        SET parentId = (
          SELECT s.id FROM todos s
           WHERE s.bucketType IS NOT NULL
-            AND s.targetProject = (SELECT p.targetProject FROM todos p WHERE p.id = todos.parentId)
+            AND s.targetProject IS (SELECT p.targetProject FROM todos p WHERE p.id = todos.parentId)
             AND s.bucketType    = (SELECT p.bucketType    FROM todos p WHERE p.id = todos.parentId)
           ORDER BY s.rowid ASC LIMIT 1
        )
@@ -879,7 +879,7 @@ export function backfillBucketTypeV5(db: Database): void {
         WHERE l.bucketType IS NOT NULL
           AND l.rowid > (SELECT MIN(m.rowid) FROM todos m
                           WHERE m.bucketType IS NOT NULL
-                            AND m.targetProject = l.targetProject
+                            AND m.targetProject IS l.targetProject
                             AND m.bucketType    = l.bucketType)
      )`
   );
@@ -889,7 +889,7 @@ export function backfillBucketTypeV5(db: Database): void {
       WHERE bucketType IS NOT NULL
         AND rowid > (SELECT MIN(m.rowid) FROM todos m
                       WHERE m.bucketType IS NOT NULL
-                        AND m.targetProject = todos.targetProject
+                        AND m.targetProject IS todos.targetProject
                         AND m.bucketType    = todos.bucketType)`
   );
   // 3. Singleton now holds — create the partial UNIQUE index.
@@ -929,7 +929,7 @@ export function backfillTriageTagV6(db: Database): void {
        SET parentId = (
          SELECT s.id FROM todos s
           WHERE s.bucketType IS NOT NULL
-            AND s.targetProject = (SELECT p.targetProject FROM todos p WHERE p.id = todos.parentId)
+            AND s.targetProject IS (SELECT p.targetProject FROM todos p WHERE p.id = todos.parentId)
             AND s.bucketType    = (SELECT p.bucketType    FROM todos p WHERE p.id = todos.parentId)
           ORDER BY s.rowid ASC LIMIT 1
        )
@@ -938,7 +938,7 @@ export function backfillTriageTagV6(db: Database): void {
         WHERE l.bucketType IS NOT NULL
           AND l.rowid > (SELECT MIN(m.rowid) FROM todos m
                           WHERE m.bucketType IS NOT NULL
-                            AND m.targetProject = l.targetProject
+                            AND m.targetProject IS l.targetProject
                             AND m.bucketType    = l.bucketType)
      )`
   );
@@ -948,7 +948,7 @@ export function backfillTriageTagV6(db: Database): void {
       WHERE bucketType IS NOT NULL
         AND rowid > (SELECT MIN(m.rowid) FROM todos m
                       WHERE m.bucketType IS NOT NULL
-                        AND m.targetProject = todos.targetProject
+                        AND m.targetProject IS todos.targetProject
                         AND m.bucketType    = todos.bucketType)`
   );
 }
