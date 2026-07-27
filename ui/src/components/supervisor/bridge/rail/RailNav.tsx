@@ -17,6 +17,10 @@ export interface RailItem {
   count?: number;
   /** Work only: second number of the `inflight·ready` badge. Rendered when EITHER number > 0. */
   secondaryCount?: number;
+  /** Expanded-rail word label for `count` (e.g. "running", "stranded"). Ignored when collapsed. */
+  countWord?: string;
+  /** Expanded-rail word label for `secondaryCount` (e.g. "queued"). Ignored when collapsed. */
+  secondaryCountWord?: string;
   /** One-line hover description; surfaced via the button `title` tooltip. */
   description: string;
 }
@@ -51,10 +55,15 @@ const getToneClass = (tone?: RailTone) => {
   return 'text-gray-400 dark:text-gray-500';
 };
 
-const getBadgeText = (item: RailItem): string => {
+const getBadgeText = (item: RailItem, expanded: boolean): string => {
   if (item.secondaryCount != null) {
-    // Work item: show as "inflight·ready"
+    if (expanded && item.countWord && item.secondaryCountWord) {
+      return `${item.count ?? 0} ${item.countWord} · ${item.secondaryCount} ${item.secondaryCountWord}`;
+    }
     return `${item.count ?? 0}·${item.secondaryCount}`;
+  }
+  if (expanded && item.countWord) {
+    return `${item.count ?? 0} ${item.countWord}`;
   }
   return String(item.count ?? 0);
 };
@@ -95,7 +104,7 @@ export const RailNav: React.FC<RailNavProps> = ({ sections, selected, onSelect, 
                   data-testid={`rail-badge-${item.key}`}
                   className={`${expanded ? 'ml-auto ' : ''}${getToneClass(item.tone)}`}
                 >
-                  {getBadgeText(item)}
+                  {getBadgeText(item, expanded)}
                 </span>
               )}
             </button>

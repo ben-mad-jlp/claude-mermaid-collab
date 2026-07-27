@@ -79,7 +79,7 @@ export const PoolSizeControl: React.FC<PoolSizeControlProps> = ({ project }) => 
       title={`Max concurrent leaves in flight for this project (${effective}). The canonical fire-and-track cap — matches the Executor tab's "Concurrency Pools". Global fleet ceiling: ${globalMax}. Range ${MIN_CAP}–${MAX_CAP}.`}
       className={`flex items-center rounded overflow-hidden border text-3xs font-medium select-none shrink-0 border-gray-300 dark:border-gray-600 ${busy ? 'opacity-60' : ''} ${loaded ? '' : 'opacity-50'}`}
     >
-      <span className="px-1.5 py-0.5 text-gray-500 dark:text-gray-400">conc</span>
+      <span className="px-1.5 py-0.5 text-gray-500 dark:text-gray-400">concurrency</span>
       <button
         type="button"
         data-testid="pool-size-dec"

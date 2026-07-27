@@ -69,6 +69,17 @@ describe('BridgeRail', () => {
     expect(badge.textContent).toBe('6·40');
   });
 
+  it('WORK item renders inflight and ready as labelled words', () => {
+    renderRail({ counts: { inflight: 3, ready: 5 } });
+    fireEvent.click(screen.getByTestId('rail-expand-toggle'));
+
+    const badge = screen.getByTestId('rail-badge-work');
+    expect(badge.textContent).toContain('running');
+    expect(badge.textContent).toContain('queued');
+    expect(badge.textContent).toContain('3');
+    expect(badge.textContent).toContain('5');
+  });
+
   it('work badge with 0·0 renders no badge', () => {
     renderRail({
       counts: { inflight: 0, ready: 0 },
