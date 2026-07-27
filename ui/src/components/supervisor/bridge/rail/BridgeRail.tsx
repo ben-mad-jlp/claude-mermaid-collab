@@ -99,6 +99,8 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           tone: 'info',
           count: counts.inflight,
           secondaryCount: counts.ready,
+          countWord: 'running',
+          secondaryCountWord: 'queued',
           description: 'In-flight and ready leaves',
         },
         {
@@ -107,6 +109,7 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           icon: '⑂',
           tone: 'warn',
           count: counts.stranded,
+          countWord: 'stranded',
           description: 'Leaves stranded on a branch',
         },
       ],
