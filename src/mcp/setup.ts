@@ -191,28 +191,12 @@ export async function setupMCPServer(): Promise<Server> {
   });
 
   // Tools list
+  // Only entries verified byte-identical (description+inputSchema) to SESSION_TOOL_DEFS /
+  // DECISION_TOOL_DEFS / SYSTEM_TOOL_DEFS are spread below; diverged entries stay as literals to keep
+  // list-tools-snapshot.test.ts green — see leaf d0636ef7 for the verified index list.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
-      {
-        name: 'generate_session_name',
-        description: 'Generate a memorable session name (adjective-adjective-noun format). Use this when creating a new collab session.',
-        inputSchema: { type: 'object', properties: {} },
-      },
-      {
-        name: 'get_datetime',
-        description: "Get the current date and time on the server. Returns ISO-8601 UTC, a human-readable local string, the IANA timezone, and epoch milliseconds. Use this to timestamp observations while monitoring a long-running process — so when fired events are reviewed later (e.g. overnight) the wall-clock time of each is visible.",
-        inputSchema: { type: 'object', properties: {} },
-      },
-      {
-        name: 'list_sessions',
-        description: 'List registered collab sessions. Pass `project` to list only sessions in that project (e.g. to pick an assignee for cross-session todos); omit for all projects.',
-        inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path to filter sessions by (optional).' } } },
-      },
-      {
-        name: 'recommend_session_cleanup',
-        description: 'Recommend stale collab sessions for cleanup (read-only). Returns sessions idle longer than `days` (default 30) — excluding any that are live-bound to a running Claude PID or hold in-progress work. Each item carries an age + reason. Clean up a recommended session with archive_session (it copies artifacts to docs/designs/ then optionally deletes). This NEVER deletes anything itself.',
-        inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'Staleness window in days (default 30).' } } },
-      },
+      ...SESSION_TOOL_DEFS.slice(0, 4),
       {
         name: 'list_projects',
         description: 'List all registered projects',
@@ -230,29 +214,7 @@ export async function setupMCPServer(): Promise<Server> {
       },
       ...DIAGRAM_TOOL_DEFS,
       ...DOCUMENT_TOOL_DEFS,
-      // Session Summary
-      {
-        name: 'generate_session_summary',
-        description: 'Generate a markdown document summarizing all artifacts (diagrams, documents, designs, spreadsheets) in the current session.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            ...sessionParamsDesc,
-            documentName: { type: 'string', description: 'Name for the summary document (default: "Session Summary")' },
-          },
-          required: ['project'],
-        },
-      },
-      // Cross-Artifact Link Validation
-      {
-        name: 'validate_session_links',
-        description: 'Scan all documents in a session for artifact references ({{diagram:id}}, {{design:id}}, {{spreadsheet:id}}) and validate that referenced artifacts exist.',
-        inputSchema: {
-          type: 'object',
-          properties: sessionParamsDesc,
-          required: ['project'],
-        },
-      },
+      ...SESSION_TOOL_DEFS.slice(7, 9),
       ...DESIGN_TOOL_DEFS,
       {
         name: 'render_ui',
@@ -274,87 +236,12 @@ export async function setupMCPServer(): Promise<Server> {
         description: 'Ask the user a question and wait for their response. Returns the user-provided value.',
         inputSchema: requestUserInputSchema,
       },
-      {
-        name: 'get_ui_response',
-        description: 'Poll for UI response status. Use after render_ui with blocking=false to check if user has responded.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to the project root directory' },
-            session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
-            uiId: { type: 'string', description: 'UI ID returned from render_ui' },
-          },
-          required: ['project', 'session', 'uiId'],
-        },
-      },
-      {
-        name: 'register_claude_session',
-        description: 'Register the current Claude Code session with a collab session for notifications. Before calling this tool, run Bash with command "echo $PPID" to discover the Claude Code process PID, then pass that value as claudePid. The tool reads /tmp/.claude-session-id-<claudePid> (written by the SessionStart hook) to resolve the Claude session ID, writes a binding file, and triggers the initial WebSocket broadcast. Returns { success, claudeSessionId, sessionRole } — sessionRole is the durable role this session resumes into ("conductor" if it owns an active mission, otherwise null); the caller must load the named skill.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            project: { type: 'string', description: 'Project path' },
-            session: { type: 'string', description: 'Collab session name' },
-            claudePid: { type: 'string', description: 'Claude Code process PID discovered via Bash "echo $PPID" (passed as string or number)' },
-          },
-          required: ['project', 'session', 'claudePid'],
-        },
-      },
-      {
-        name: 'check_server_health',
-        description: 'Check if MCP server, HTTP/API backend, and React UI are running',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-          required: [],
-        },
-      },
-      {
-        name: 'fleet_status',
-        description: 'Live fleet read-model for a project: per in-progress lane its worker, derived liveness state (working/idle/permission/dead_shell/no_tmux), elapsed time and lease headroom — PLUS a process-headroom block {liveProcs, perUidCap, tmuxSessions, idleSessions} that surfaces the fork-EAGAIN wedge before it hits (uid live procs vs the kern.maxprocperuid cap). Read-only; one ps snapshot per call.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to the project root whose fleet to report' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'get_install_path',
-        description: 'Get the installation path of the mermaid-collab plugin. Use this to run CLI commands like server start/stop.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-          required: [],
-        },
-      },
-      {
-        name: 'clear_session_artifacts',
-        description: 'Delete all artifacts (documents, diagrams, designs, snippets) from a session. Session state and the session folder are preserved.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-          },
-          required: ['project', 'session'],
-        },
-      },
-      {
-        name: 'archive_session',
-        description: 'Archive a collab session by copying documents, diagrams, designs, and spreadsheets to docs/designs/[session]/ and optionally deleting the session folder.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name to archive' },
-            delete_session: { type: 'boolean', description: 'Delete the session after archiving (default: true)' },
-            timestamp: { type: 'boolean', description: 'Add timestamp to archive folder name (default: false)' },
-          },
-          required: ['project', 'session'],
-        },
-      },
+      SESSION_TOOL_DEFS[12],
+      SESSION_TOOL_DEFS[13],
+      ...SYSTEM_TOOL_DEFS.slice(0, 2),
+      SESSION_TOOL_DEFS[14],
+      SESSION_TOOL_DEFS[15],
+      SESSION_TOOL_DEFS[16],
       {
         name: 'archive_by_prefix',
         description: 'Archive (copy + deprecate) all artifacts whose name begins with a given prefix. Scans documents, diagrams, designs, and snippets. Each match is copied to "Archive/{slug}/{rest-of-name}" and the original is deprecated. Returns the list of archived items. Useful for clearing out previous "Implementing/" work before generating a new blueprint.',
@@ -576,15 +463,9 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'approve_decision_record', description: 'Approve a proposed constraint or requirement (human gate) → active.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, approvedBy: { type: 'string' } }, required: ['project', 'id', 'approvedBy'] } },
       { name: 'supersede_decision_record', description: 'Mark a decision record superseded by another (the superseding record should already exist).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, bySupersedingId: { type: 'string' } }, required: ['project', 'id', 'bySupersedingId'] } },
       { name: 'get_active_constraints', description: 'Active constraints in scope for an epic (epic-level + project-level) — the decision-record half of /focus. Omit epicId for all active constraints.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
-      { name: 'get_active_requirements', description: 'Active requirements in scope for an epic (epic-level + project-level) — the spec→Planner bridge, peer of get_active_constraints. Omit epicId for all active requirements.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
-      { name: 'spec_coverage', description: 'Spec coverage rollup (design-system-object-ui §5): for each durable system object, is it covered/partial/uncovered, derived inline from the Todo.objectRef join (no full-tree walk). Returns { total, covered, partial, uncovered, byObject[] }.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
-      { name: 'cartographer_health', description: 'Cartographer spec-health summary (design-cartographer §8, Phase 1): read-only counts { uncoveredRequirements, orphanObjects, staleEdges }. Proposes nothing; never writes.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
-      { name: 'cartographer_sync', description: 'Cartographer drift sync (design-cartographer §3/§6, Phase 1): runs the deterministic detectors then ranks (drift > inverse-coverage), dedupes by object, and caps to the top 5 — the pre-write batch sheet the human approves per-line in the Inbox later. ZERO DB writes. Quiet-by-default: nothing drifted → { inSync: true, message: "spec in sync" }.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
-      { name: 'list_system_objects', description: 'List the durable system-object tree (instances) + the type registry for a project — the data the Spec Sheet renders.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
-      { name: 'system_object_bom', description: 'Rolled-up bill-of-materials beneath a root object (derived recursive-CTE; never stored): total qty per child type.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, rootId: { type: 'string' } }, required: ['project', 'rootId'] } },
-      { name: 'decide_requirement', description: 'Sign/reject/re-sign a requirement promise (reuses the decision-record approve/supersede path). decision: "approve" → active; "reject" → superseded (no replacement); "edit" → creates a fresh proposed requirement carrying the new spec and supersedes the old (the re-sign DIFF). edit requires spec.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string', enum: ['approve', 'reject', 'edit'] }, approvedBy: { type: 'string' }, spec: { type: 'object', description: 'New requirement spec {metric, op, target} — required for decision="edit".', properties: { metric: { type: 'string' }, op: { type: 'string' }, target: {} } }, title: { type: 'string' } }, required: ['project', 'id', 'decision'] } },
+      ...DECISION_TOOL_DEFS.slice(5, 12),
       ...SUPERVISOR_TOOL_DEFS.slice(17, 20),
-      { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
+      DECISION_TOOL_DEFS[12],
       ...SUPERVISOR_TOOL_DEFS.slice(20, 21),
       { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns, recentAutonomousMutations:[{kind,actor,reason,project?,detail?,at}] }. `recentAutonomousMutations` (B6) is the in-memory newest-first log of self-driven mutations — reserve-leaf re-cuts, deploy-gate refusals, and terminal-mission self-heals — scoped to `project` when given (global entries always included), else all. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Scope recentAutonomousMutations to this project (global entries are always included). Omit for all.' } } } },
       { name: 'system_status', description: "THE one-call steward rollup — call this FIRST to ground a decision instead of a stale checkpoint + N bash probes. COMPOSES the four foundational read-models (orchestrator_status: daemon running/level + pool occupancy + cold-starts · fleet_status: worker occupancy + proc-headroom early-warning · invariant_check: work-graph violation count · instance_topology: canonical :9002 confirmation vs stale shadows) PLUS inline: deploy/version drift (live sidecar pid+version+startedAt vs repo package.json version + git HEAD + uncommitted WIP — the 'did the deploy land or go cosmetic?' read), open-escalation + pending-decision counts, and steward/supervisor pause state. Returns a COMPACT summary with `pointers` to the focused tool for full detail behind any field. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project to roll up (work-graph + deploy/git lives here).' } }, required: ['project'] } },
@@ -601,37 +482,7 @@ export async function setupMCPServer(): Promise<Server> {
       ...SNIPPET_TOOL_DEFS,
       ...EMBED_TOOL_DEFS,
       ...IMAGE_TOOL_DEFS,
-      {
-        name: 'deprecate_artifact',
-        description: 'Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Project path' },
-            session: { type: 'string', description: 'Session name' },
-            id: { type: 'string', description: 'Artifact ID' },
-            deprecated: { type: 'boolean', description: 'true to deprecate, false to restore' },
-          },
-          required: ['project', 'session', 'id', 'deprecated'],
-        },
-      },
-      {
-        name: 'set_artifact_metadata',
-        description: 'Set metadata flags on an artifact. Use to mark documents as blueprint (locked, shown in Blueprint section), pin/unpin, or set any combination of metadata flags.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Project path' },
-            session: { type: 'string', description: 'Session name' },
-            id: { type: 'string', description: 'Artifact ID' },
-            blueprint: { type: 'boolean', description: 'Mark as blueprint (read-only plan document shown in Blueprint section). Also sets locked: true.' },
-            locked: { type: 'boolean', description: 'Lock the artifact to prevent editing' },
-            pinned: { type: 'boolean', description: 'Pin to top of sidebar list' },
-            deprecated: { type: 'boolean', description: 'Hide from default view' },
-          },
-          required: ['project', 'session', 'id'],
-        },
-      },
+      ...SESSION_TOOL_DEFS.slice(18, 20),
     ],
   }));
 
