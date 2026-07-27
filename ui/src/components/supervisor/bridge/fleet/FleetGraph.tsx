@@ -78,11 +78,16 @@ export interface FleetGraphProps {
    * everywhere → no daemon enrichment (falls back to local status buckets).
    */
   project?: string;
+  /**
+   * Server scope (serverId) for the daemon poll. Threads to useLeafDaemon to scope
+   * the inflight ledger to the correct server. OPTIONAL; defaults to empty string.
+   */
+  serverScope?: string;
 }
 
 const LOD_LABELS: Record<Lod | 'auto', string> = { auto: 'Auto', 0: 'L0', 1: 'L1', 2: 'L2' };
 
-const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo, onSelectEpic, project }) => {
+const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo, onSelectEpic, project, serverScope = '' }) => {
   const diveIn = useDiveIn();
   const setSelectedNodeId = useDeckStore((s) => s.setSelectedNodeId);
   const forcedLod = useDeckStore((s) => s.forcedLod);
@@ -143,7 +148,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
     () => project ?? todos.find((t) => t.targetProject)?.targetProject ?? null,
     [project, todos],
   );
-  const inflightLeafIds = useInflightLeafIds(graphProject);
+  const inflightLeafIds = useInflightLeafIds(graphProject, serverScope);
 
   // The fleet graph flows left→right (LR): dependency waves read as columns
   // advancing rightward, which suits the full-width bottom graph strip.
