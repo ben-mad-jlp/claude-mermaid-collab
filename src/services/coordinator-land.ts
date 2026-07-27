@@ -26,7 +26,7 @@ import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
-import { recordLandCycle, nonTerminalServingLeafIds, capturePostLandCleanliness } from './epic-land-record-store.js';
+import { recordLandCycle, captureLandCycleFields } from './epic-land-record-store.js';
 import { guardPostLandTree } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
@@ -1016,24 +1016,22 @@ export async function landEpic(
 
       // Landed — persist the durable land-record BEFORE teardown removes the branch
       // (epicHeadSha reads refs/heads/<epicBranch>, which removeEpic deletes).
-      const epicTipSha = await wm.epicHeadSha(epicId).catch(() => null);
-
-      let derivedNonTerminalLeaves: string[] | null = null;
-      try {
-        derivedNonTerminalLeaves = nonTerminalServingLeafIds(freshTodosAtLandTime, epicId);
-      } catch { /* advisory */ }
-
-      const postLandClean = await capturePostLandCleanliness(targetProject);
+      const cycle = await captureLandCycleFields({
+        epicId,
+        todos: freshTodosAtLandTime,
+        repoRoot: targetProject,
+        epicHeadSha: () => wm.epicHeadSha(epicId).catch(() => null),
+      });
 
       await recordLandCycle(targetProject, {
         epicId,
-        epicTipSha,
+        epicTipSha: cycle.epicTipSha,
         landedMergeSha: land.masterSha ?? '',
         landedAt: Date.now(),
         source: 'escalation-land',
         session: esc.session,
-        nonTerminalServingLeafIds: derivedNonTerminalLeaves,
-        postLandClean,
+        nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
+        postLandClean: cycle.postLandClean,
         landPath: 'escalation-land',
       });
 

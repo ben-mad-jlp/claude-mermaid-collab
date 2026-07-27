@@ -71,7 +71,7 @@ import {
 } from './worker-pool';
 import { getConfig } from './config-service';
 import { recordFriction } from './friction-store';
-import { recordLandCycle } from './epic-land-record-store.js';
+import { recordLandCycle, captureLandCycleFields } from './epic-land-record-store.js';
 
 // ---------------------------------------------------------------------------
 // Pure pane-scrape detectors — the in-app terminal UI + interactive-launch tmux
@@ -866,13 +866,20 @@ export async function acceptTimeAncestorGate(
       // reclaims worktrees off it — recording a non-trunk merge would authorise a reclaim of
       // unlanded work.
       if ((land.baseRef ?? intRef) === intRef) {
-        const tip = await wm.epicHeadSha(epicId).catch(() => null);
+        const cycle = await captureLandCycleFields({
+          epicId,
+          todos: allTodos,
+          repoRoot: targetProject,
+          epicHeadSha: () => wm.epicHeadSha(epicId).catch(() => null),
+        });
         await recordLandCycle(project, {
           epicId,
-          epicTipSha: tip,
+          epicTipSha: cycle.epicTipSha,
           landedMergeSha: land.masterSha ?? '',
           source: 'reconcile-land',
           session,
+          nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
+          postLandClean: cycle.postLandClean,
           landPath: 'oi1-reconcile',
         });
       }
