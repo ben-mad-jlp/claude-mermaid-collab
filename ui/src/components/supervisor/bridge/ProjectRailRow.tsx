@@ -26,7 +26,7 @@ const ProjectRailRowImpl: React.FC<{
 }> = ({ data, active, onSelect, onRemove, onReorder }) => {
   const red = data.escalationCount > 0;
   const dot = red ? 'bg-danger-500' : data.idleWithWork ? 'bg-warning-500' : 'border border-gray-400 dark:border-gray-500';
-  // Live worker-fabric summary for this project (reframed card: Nλ running · $run).
+  // Live worker-fabric summary for this project (reframed card: N running · $run).
   const lanes = useWorkerFabricStore((s) => s.lanes);
   const { live, cost } = React.useMemo(() => {
     let live = 0, cost = 0;
@@ -63,7 +63,7 @@ const ProjectRailRowImpl: React.FC<{
       <span className="flex-1 min-w-0 truncate">{data.name}</span>
       {live > 0 && (
         <span className="shrink-0 text-3xs font-semibold text-accent-600 dark:text-accent-400 tabular-nums" title={`${live} worker lane(s) running`}>
-          {live}λ
+          {live} running
         </span>
       )}
       {cost > 0 && (
