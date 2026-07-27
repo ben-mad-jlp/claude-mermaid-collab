@@ -3302,20 +3302,6 @@ export function reorder(project: string, ids: string[]): Promise<void> {
   });
 }
 
-export interface ImportTodoInput {
-  id: string;
-  ownerSession: string;
-  title: string;
-  description?: string | null;
-  status?: TodoStatus;
-  parentId?: string | null;
-  dependsOn?: string[];
-  order?: number;
-  sessionName?: string | null;
-  blueprintId?: string | null;
-  type?: string | null;
-}
-
 export interface EpicBackfillResult {
   moved: string[];
   skipped: Array<{ id: string; reason: string }>;
@@ -3357,24 +3343,4 @@ export async function backfillEpicsUnderMission(
     result.moved.push(id);
   }
   return result;
-}
-
-export function importTodo(project: string, input: ImportTodoInput): void {
-  const db = openDb(project);
-  const maxOrd = (db.query('SELECT MAX(ord) AS m FROM todos').get() as { m: number | null }).m;
-  const ord = input.order ?? (maxOrd == null ? 10 : maxOrd + 10);
-  const ts = nowIso();
-  const status = input.status ?? 'todo';
-  db.prepare(
-    `INSERT OR IGNORE INTO todos
-      (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority, dueDate, parentId,
-       dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-       sessionName, blueprintId, type, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(
-    input.id, input.ownerSession, input.ownerSession, 'agent', input.title, input.description ?? null, status,
-    null, null, input.parentId ?? null, JSON.stringify(input.dependsOn ?? []), ord, null, ts, ts,
-    status === 'done' ? ts : null, null,
-    input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, null, null, null, null, null, 0, null
-  );
 }
