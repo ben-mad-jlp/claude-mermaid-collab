@@ -247,6 +247,52 @@ export async function capturePostLandCleanliness(repoRoot: string): Promise<{ cl
   }
 }
 
+/** Capture the land-cycle preamble: epic tip sha, non-terminal serving leaves, post-land
+ *  tree cleanliness. Used by both escalation-land and reconcile-land paths. The epic-head-sha
+ *  thunk is injected to avoid a worktree-manager import cycle (worktree-manager ← coordinator
+ *  → land-record-store). All three captures are wrapped in a total try/catch so the function
+ *  never throws; a thrown capture anywhere yields all-null. Order is load-bearing: epic tip
+ *  sha captured first (before epicBranch is deleted), then leaves, then cleanliness. */
+export async function captureLandCycleFields(opts: {
+  epicId: string;
+  todos: Todo[];
+  repoRoot: string;
+  epicHeadSha: () => Promise<string | null>;
+}): Promise<{
+  epicTipSha: string | null;
+  nonTerminalServingLeafIds: string[] | null;
+  postLandClean: { clean: boolean; residue: string | null } | null;
+}> {
+  try {
+    // 1. Capture epic tip sha first (before removeEpic deletes the ref).
+    const epicTipSha = await opts.epicHeadSha();
+
+    // 2. Derive non-terminal serving leaf ids.
+    let derivedNonTerminalLeafIds: string[] | null = null;
+    try {
+      derivedNonTerminalLeafIds = nonTerminalServingLeafIds(opts.todos, opts.epicId);
+    } catch {
+      // null on throw (matches today's semantics — null, not [], on error)
+    }
+
+    // 3. Capture post-land tree cleanliness.
+    const postLandClean = await capturePostLandCleanliness(opts.repoRoot);
+
+    return {
+      epicTipSha,
+      nonTerminalServingLeafIds: derivedNonTerminalLeafIds,
+      postLandClean,
+    };
+  } catch {
+    // Total fallback: any thrown value anywhere yields all-null.
+    return {
+      epicTipSha: null,
+      nonTerminalServingLeafIds: null,
+      postLandClean: null,
+    };
+  }
+}
+
 /** Shared land-cycle recorder for both epic→master paths (escalation-land and reconcile-land).
  *  Records a durable land proof with an explicit fallback: when the epic tip is unavailable
  *  (branch torn down / rev-parse failure), the land merge sha stands in, ensuring a completed
