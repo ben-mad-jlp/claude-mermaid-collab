@@ -5,6 +5,8 @@
 
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { parseSplitDecision } from './split-decision';
+import type { Todo } from './todo-store';
+import { VERIFY_GATE_VERB } from './leaf-prompts';
 
 // Re-export types so they're available to users of leaf-parsing.ts
 export type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -193,6 +195,46 @@ export function parseSizeManifest(
     }
   }
   return null;
+}
+
+/** Parse build_assembly_plan's raw PlanReport result into a {@link VerifyGateVerdict}. Pure +
+ *  unit-testable, tolerant of markdown-fenced JSON. The real shape (confirmed L4 against the
+/** The build123d MCP server key (its FastMCP name — `FastMCP("bsync-cad")`, registered in
+ *  build123d-ocp-mcp/.mcp.json). A Claude Code node addresses its tools as
+ *  `mcp__bsync-cad__<verb>`. Confirmed against the live MCP in L4. */
+export const VERIFY_GATE_MCP_SERVER = 'bsync-cad';
+/** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. Kept as one
+ *  function so every call site generalizes together. */
+export function verbMcpTool(verb: string): string {
+  return `mcp__${VERIFY_GATE_MCP_SERVER}__${verb}`;
+}
+/** The default verb's MCP tool — NODE_PROFILE.driveexec's static allowlist fallback. The
+ *  pipeline recomputes the allowlist per-leaf from the resolved config (so a non-default verb
+ *  is allowlisted correctly); this keeps the profile table total. */
+export const VERIFY_GATE_MCP_TOOL = verbMcpTool(VERIFY_GATE_VERB);
+
+/** The verify pipeline's domain gate, made PLUGGABLE in L3 (epic f5c7fc46 e9ce8693). A gate
+ *  is a deterministic VERB (an MCP tool the execute node calls — its returned geometry/DOF/
+ *  clearance verdicts are parsed by {@link parseVerifyGate}) and/or an optional COMMAND (a
+ *  shell gate, e.g. `pytest -q`, composed AFTER the verb gate). This is the single seam other
+ *  verify configs extend through: cartographer spec-sync (verb: check_graph_drift), asset-gen
+ *  fitness, a pure-pytest dogfood — each lands as a CONFIG here with ZERO new dispatch in
+ *  runVerifyPipeline (the hygiene that keeps a future recipe-registry extraction cheap). */
+export interface VerifyGateConfig {
+  /** The deterministic MCP verb the execute node invokes. Defaults to {@link VERIFY_GATE_VERB}. */
+  verb: string;
+  /** Optional shell command gate run in the worktree AFTER the verb gate; its non-zero exit is
+   *  a FINDING (not an executor failure), composed into the report alongside the verb verdicts. */
+  command?: string;
+}
+
+/** Resolve a verify leaf's gate config. L3 keys off `leaf.type`; today every verify type maps
+ *  to the build_assembly_plan verb (no command), so this is behavior-identical to L2 — the
+ *  POINT is the extension seam, not new routing. Add a case here (not new pipeline code) to
+ *  introduce a new verify gate. Pure + unit-testable. */
+export function resolveVerifyGate(leaf: Todo): VerifyGateConfig {
+  // (future) switch on (leaf.type ?? '').toLowerCase() to pick verb/command per domain.
+  return { verb: VERIFY_GATE_VERB };
 }
 
 /** Parse build_assembly_plan's raw PlanReport result into a {@link VerifyGateVerdict}. Pure +
