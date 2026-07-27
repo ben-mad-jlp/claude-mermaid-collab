@@ -449,7 +449,9 @@ describe('land-proof-single-path — topology verification', () => {
     const expected = [
       join(srcDir, 'services/coordinator-land.ts'),
       join(srcDir, 'routes/supervisor-routes.ts'),
-      join(srcDir, 'mcp/setup.ts'),
+      // The MCP land_epic entrypoint MOVED from setup.ts into the extracted
+      // epic-lifecycle tool module (EPIC_TOOL_DEFS + handleEpicTool).
+      join(srcDir, 'mcp/epic-tools.ts'),
     ].sort();
 
     expect(filesWithLandEpic).toEqual(expected);
@@ -457,7 +459,9 @@ describe('land-proof-single-path — topology verification', () => {
 
   it('test 6d — each entrypoint is on the proof', () => {
     const supervisorPath = join(import.meta.dir, '../../routes/supervisor-routes.ts');
-    const mcpPath = join(import.meta.dir, '../../mcp/setup.ts');
+    // The land_epic handler MOVED out of setup.ts into ./mcp/epic-tools.ts
+    // (epic-lifecycle tool-group extraction); setup.ts delegates to handleEpicTool.
+    const mcpPath = join(import.meta.dir, '../../mcp/epic-tools.ts');
     // autoLandReadiness MOVED to coordinator-land.ts (landing-subsystem extraction).
     const coordinatorPath = join(import.meta.dir, '../../services/coordinator-land.ts');
 
