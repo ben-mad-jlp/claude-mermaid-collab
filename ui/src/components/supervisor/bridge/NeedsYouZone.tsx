@@ -74,6 +74,7 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
 
   if (embedded) return <div data-testid="needs-you-zone" data-needs-you={open.length}>{body}</div>;
 
+  // Standalone branch: bordered card with uppercase "Escalations" header (lines 77–89). Exercised by NeedsYouZone.test.tsx:29, :39, :47; BridgeDashboard.tsx:493/494 only pass embedded, so reachable via tests only.
   return (
     <div
       data-testid="needs-you-zone"

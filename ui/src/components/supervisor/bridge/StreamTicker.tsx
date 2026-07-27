@@ -26,6 +26,7 @@ export interface StreamTickerProps {
 export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded, collapsed, onSelectEvent, titleByTodoId }) => {
   if (collapsed) return <EventStream events={events} collapsed titleByTodoId={titleByTodoId} />;
   if (embedded) return <EventStream events={events} className="min-h-0" onSelectEvent={onSelectEvent} titleByTodoId={titleByTodoId} />;
+  // Card branch (lines 29–39, data-testid="bridge-stream-ticker"): no current non-test render site; BridgeStage.tsx:51 passes collapsed, hitting early return at :27. Deletion-only-after-audit epic.
   return (
     <div
       data-testid="bridge-stream-ticker"
