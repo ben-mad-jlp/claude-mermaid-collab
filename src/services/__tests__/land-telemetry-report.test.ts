@@ -125,10 +125,16 @@ describe('reportLandCycles — windowed land telemetry', () => {
     expect(report.mainCheckoutEscalations.count).toBe(1);
   });
 
-  it('the MCP tool is declared and dispatched in setup.ts', () => {
-    const setupPath = join(import.meta.dir, '../../mcp/setup.ts');
-    const content = readFileSync(setupPath, 'utf8');
+  it('the MCP tool is declared and dispatched in the epic-lifecycle tool module', () => {
+    // The epic-lifecycle group was extracted out of setup.ts into ./mcp/epic-tools.ts
+    // (EPIC_TOOL_DEFS + handleEpicTool); setup.ts now delegates by name.
+    const epicToolsPath = join(import.meta.dir, '../../mcp/epic-tools.ts');
+    const content = readFileSync(epicToolsPath, 'utf8');
     expect(content).toContain("name: 'land_telemetry_report'");
     expect(content).toContain("case 'land_telemetry_report':");
+
+    const setupContent = readFileSync(join(import.meta.dir, '../../mcp/setup.ts'), 'utf8');
+    expect(setupContent).toContain('handleEpicTool(');
+    expect(setupContent).toContain('EPIC_TOOL_DEFS');
   });
 });
