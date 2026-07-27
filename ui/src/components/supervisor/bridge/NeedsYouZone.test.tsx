@@ -48,4 +48,27 @@ describe('NeedsYouZone', () => {
     expect(screen.getByTestId('needs-you-zone').getAttribute('data-needs-you')).toBe('0');
     expect(screen.queryByTestId('bridge-escalation-inbox')).toBeNull();
   });
+
+  it('shows machine-items-handled count for mixed-kind escalations', () => {
+    const escalations = [
+      esc({ id: 'e1', project: 'P', status: 'open', kind: 'decision', questionText: 'deploy?' }),
+      esc({ id: 'e2', project: 'P', status: 'open', kind: 'blocker', questionText: 'fix leak?' }),
+      esc({ id: 'e3', project: 'P', status: 'open', kind: 'epic-sweep-triage' }),
+      esc({ id: 'e4', project: 'P', status: 'open', kind: 'infra-park' }),
+      esc({ id: 'e5', project: 'P', status: 'open', kind: 'leaf-infra-rejected' }),
+    ];
+    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" embedded />);
+    const zone = screen.getByTestId('needs-you-zone');
+    expect(zone.getAttribute('data-needs-you')).toBe('2');
+    expect(screen.getByText('deploy?')).toBeInTheDocument();
+    expect(screen.getByText('fix leak?')).toBeInTheDocument();
+    expect(screen.getByTestId('machine-items-handled')).toHaveTextContent('3 machine items handled');
+  });
+
+  it('hides machine-items-handled when count is zero', () => {
+    const escalations = [esc({ id: 'e1', project: 'P', status: 'open', kind: 'decision', questionText: 'go?' })];
+    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" embedded />);
+    expect(screen.getByTestId('needs-you-zone').getAttribute('data-needs-you')).toBe('1');
+    expect(screen.queryByTestId('machine-items-handled')).toBeNull();
+  });
 });

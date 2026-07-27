@@ -36,6 +36,7 @@ import { StreamTicker } from './StreamTicker';
 import { DecisionCard } from './focal/DecisionCard';
 import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
+import { selectHumanActionableEscalations } from '@/lib/statusSelectors';
 import { useLeafDaemon } from './leafDaemon';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
@@ -403,14 +404,18 @@ export const BridgeDashboard: React.FC = () => {
   );
   const openEscalationCount = openEscalations.length;
   // Split the open escalations the way the project cards do: land-ready (a positive
-  // "ship to master" prompt → its own Land tab) vs blockers (genuine "needs you").
+  // "ship to master" prompt → its own Land tab) vs non-land (genuine "needs you").
   const landEscalations = useMemo(
     () => openEscalations.filter((e) => e.kind === 'epic-ready-to-land'),
     [openEscalations],
   );
-  const blockerEscalations = useMemo(
+  const nonLandOpenEscalations = useMemo(
     () => openEscalations.filter((e) => e.kind !== 'epic-ready-to-land'),
     [openEscalations],
+  );
+  const blockerEscalations = useMemo(
+    () => selectHumanActionableEscalations(nonLandOpenEscalations, { kind: 'project', project }),
+    [nonLandOpenEscalations, project],
   );
   const liveCount = useMemo(
     () => projectSubs.filter((s) => s.status === 'active').length,
@@ -479,7 +484,7 @@ export const BridgeDashboard: React.FC = () => {
 
   const panels = useMemo<Partial<Record<RailKey, React.ReactNode>>>(
     () => ({
-      escalations: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
+      escalations: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={nonLandOpenEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
       land: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
       work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
       stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
@@ -489,7 +494,7 @@ export const BridgeDashboard: React.FC = () => {
       usage: <UsagePanel project={project} serverScope={serverScope} />,
       dogfood: <div className="h-full min-h-0 overflow-y-auto p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
     }),
-    [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name],
+    [nonLandOpenEscalations, blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name],
   );
 
   // Mission detail is a stage view (design 2026-07-13): when the mission strip is
