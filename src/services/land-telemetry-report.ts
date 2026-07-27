@@ -11,9 +11,7 @@
  */
 import type { Todo } from './todo-store.js';
 import { listTodos } from './todo-store.js';
-import { isGateTodo } from './epic-land-readiness.js';
-import { isEpicTodo, isLandTodo } from './invariant-check.js';
-import { listEpicLandRecordsInWindow, type EpicLandRecord } from './epic-land-record-store.js';
+import { listEpicLandRecordsInWindow, nonTerminalServingLeafIds, type EpicLandRecord } from './epic-land-record-store.js';
 import { listEscalationsByKindInWindow, type Escalation } from './supervisor-store.js';
 import { readMainCheckoutHead } from './main-checkout-invariant.js';
 
@@ -60,58 +58,11 @@ export interface LandTelemetryDeps {
   readResidue?: (project: string, cycle: EpicLandRecord) => Promise<string[]>;
 }
 
-/** Transitive descendants of `epicId` (cycle-safe walk, same `childrenOf`/`descendantsOf` shape
- *  as epic-land-readiness.ts:118-138) that are code leaves — excluding containers (>=1
- *  non-dropped child), gates, land leaves, and nested epics — and are NOT terminal
- *  (`status !== 'done' && acceptanceStatus !== 'accepted'`). Sorted ascending. This is the
- *  inverse of the `inScope` filter at epic-land-readiness.ts:156 — the blind spot that file
- *  skips is precisely what this report counts. */
-function nonTerminalServingLeafIds(todos: Todo[], epicId: string): string[] {
-  const childrenOf = new Map<string, Todo[]>();
-  for (const t of todos) {
-    if (t.parentId) {
-      const arr = childrenOf.get(t.parentId) ?? [];
-      arr.push(t);
-      childrenOf.set(t.parentId, arr);
-    }
-  }
-
-  const epic = todos.find((t) => t.id === epicId);
-  if (!epic) return [];
-
-  const descendantsOf = (root: Todo): Todo[] => {
-    const result: Todo[] = [];
-    const stack = [...(childrenOf.get(root.id) ?? [])];
-    const seen = new Set<string>();
-    while (stack.length) {
-      const node = stack.pop()!;
-      if (seen.has(node.id)) continue;
-      seen.add(node.id);
-      result.push(node);
-      stack.push(...(childrenOf.get(node.id) ?? []));
-    }
-    return result;
-  };
-
-  const result: string[] = [];
-  for (const desc of descendantsOf(epic)) {
-    if (desc.status === 'dropped') continue;
-
-    const nonDroppedChildren = (childrenOf.get(desc.id) ?? []).filter((c) => c.status !== 'dropped');
-    if (nonDroppedChildren.length >= 1 || isGateTodo(desc) || isLandTodo(desc) || isEpicTodo(desc)) {
-      continue;
-    }
-
-    const terminal = desc.status === 'done' || desc.acceptanceStatus === 'accepted';
-    if (terminal) continue;
-
-    result.push(desc.id);
-  }
-
-  result.sort();
-  return result;
-}
-
+// The store-side derivation (epic-land-record-store.ts:171) is authoritative and adds
+// a criterion-intersection filter (epic-land-record-store.ts:215-223) that this report
+// needs to match: when the epic declares criteria, descendants only count if they serve
+// an intersecting criterion. The test fixtures use empty servesCriterionIds, so existing
+// expectations remain valid.
 async function defaultReadResidue(project: string, _cycle: EpicLandRecord): Promise<string[]> {
   const runGit = async (cwd: string, gitArgs: string[]) => {
     const p = Bun.spawn(['git', ...gitArgs], { cwd, stdout: 'pipe', stderr: 'pipe' });
