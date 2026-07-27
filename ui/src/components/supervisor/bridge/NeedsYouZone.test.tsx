@@ -26,7 +26,7 @@ function esc(p: Partial<Escalation>): Escalation {
 describe('NeedsYouZone', () => {
   it('renders the inbox cards for open escalations in this project', () => {
     const escalations = [esc({ id: 'e1', project: 'P', status: 'open', questionText: 'deploy now?' })];
-    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" />);
+    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" embedded />);
     const zone = screen.getByTestId('needs-you-zone');
     expect(zone).toBeInTheDocument();
     expect(zone.getAttribute('data-needs-you')).toBe('1');
@@ -36,7 +36,7 @@ describe('NeedsYouZone', () => {
 
   it('shows the calm tick and no inbox when there is nothing open', () => {
     const escalations = [esc({ id: 'e1', project: 'P', status: 'resolved' })];
-    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" />);
+    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" embedded />);
     expect(screen.getByTestId('needs-you-zone').getAttribute('data-needs-you')).toBe('0');
     expect(screen.queryByTestId('bridge-escalation-inbox')).toBeNull();
     expect(screen.getByText(/All clear/i)).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe('NeedsYouZone', () => {
 
   it('excludes escalations from other projects (selector scope)', () => {
     const escalations = [esc({ id: 'e1', project: 'OTHER', status: 'open' })];
-    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" />);
+    render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" embedded />);
     expect(screen.getByTestId('needs-you-zone').getAttribute('data-needs-you')).toBe('0');
     expect(screen.queryByTestId('bridge-escalation-inbox')).toBeNull();
   });
