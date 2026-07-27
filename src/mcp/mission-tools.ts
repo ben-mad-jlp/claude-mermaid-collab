@@ -21,6 +21,7 @@ import { planMissionCriterion } from './tools/mission-planner.js';
 import { collectVerifyStakesInput } from '../services/criterion-verify-facts.js';
 import { classifyVerifyStakes } from '../services/criterion-verify-stakes.js';
 import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVerdict } from '../services/criterion-verify-panel.js';
+import { coerceArrayArg } from './arg-coercion.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -84,6 +85,8 @@ export async function handleMissionTool(name: string, args: any): Promise<string
     case 'forge_mission': {
       const { project, ...rest } = args as { project: string } & Record<string, unknown>;
       if (!project) throw new Error('Missing required: project');
+      rest.constraints = coerceArrayArg(rest.constraints, 'constraints');
+      rest.rejectedAlternatives = coerceArrayArg(rest.rejectedAlternatives, 'rejectedAlternatives');
       const result = await forgeMission(project, rest as any);
       const node: any = result.node;
       getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: (rest as any).session, ownerSession: node.ownerSession, assigneeSession: node.assigneeSession ?? undefined });
