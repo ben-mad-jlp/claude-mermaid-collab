@@ -32,6 +32,7 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { WorktreeManager } from '../../agent/worktree-manager';
 import { recordLandCycle, getEpicLandRecord, recordEpicLand, captureLandCycleFields } from '../epic-land-record-store';
+import type { EpicLandRecord } from '../epic-land-record-store';
 import { listFriction } from '../friction-store';
 import { listSupervisorAudit } from '../supervisor-store';
 import type { Todo } from '../todo-store';
@@ -74,6 +75,8 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
     await runGit(repo, ['init', '-q', '-b', 'master']);
     await runGit(repo, ['config', 'user.email', 't@t']);
     await runGit(repo, ['config', 'user.name', 'T']);
+    // Add .gitignore to exclude .collab directory (created by epic-land-record.db store).
+    writeFileSync(join(repo, '.gitignore'), '.collab/\n');
     writeFileSync(join(repo, 'base.txt'), 'base\n');
     await runGit(repo, ['add', '-A']);
     await runGit(repo, ['commit', '-q', '-m', 'base']);
@@ -284,26 +287,128 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
   });
 
   it('Both land paths write the SAME epic_land_record field set for the same land shape', async () => {
+    // Shared leaf id: both fixtures use the same id so nonTerminalServingLeafIds is a parity key,
+    // not a deliberately-differing one (the fixtures are independent in-memory arrays).
+    const NT_LEAF_ID = 'leaf-nt-parity';
+
+    // Real Todo[] fixtures using the hand-built pattern from land-record-fields.test.ts.
+    // Each has an epic row + a non-terminal serving-leaf row.
+    const todosA: Todo[] = [
+      {
+        id: EPIC,
+        kind: 'epic',
+        title: EPIC,
+        status: 'in_progress',
+        acceptanceStatus: null,
+        completed: false,
+        servesCriterionId: 'crit-parity',
+        servesCriterionIds: ['crit-parity'],
+        parentId: null,
+        dependsOn: [],
+        order: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        completedAt: null,
+        ownerSession: 'test',
+        assigneeSession: null,
+        assigneeKind: 'agent',
+        description: null,
+        priority: null,
+        dueDate: null,
+        link: null,
+        asanaGid: null,
+        sessionName: null,
+        executedBySession: null,
+        blueprintId: null,
+        type: null,
+        targetProject: null,
+        claimedBy: null,
+        claimToken: null,
+        claimedAt: null,
+        claimLeaseMs: null,
+        claim: null,
+        approvedAt: null,
+        approvedBy: null,
+        heldAt: null,
+        heldReason: null,
+        retryCount: 0,
+        completedBy: null,
+        objectRef: null,
+        decisionRef: null,
+        claimProbe: null,
+        inheritedBlueprintFrom: null,
+        inheritedFiles: [],
+        isBucket: false,
+      } as unknown as Todo,
+      {
+        id: NT_LEAF_ID,
+        kind: 'leaf',
+        title: 'Non-terminal leaf serving crit-parity',
+        status: 'in_progress',
+        acceptanceStatus: null,
+        completed: false,
+        servesCriterionId: 'crit-parity',
+        servesCriterionIds: ['crit-parity'],
+        parentId: EPIC,
+        dependsOn: [],
+        order: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        completedAt: null,
+        ownerSession: 'test',
+        assigneeSession: null,
+        assigneeKind: 'agent',
+        description: null,
+        priority: null,
+        dueDate: null,
+        link: null,
+        asanaGid: null,
+        sessionName: null,
+        executedBySession: null,
+        blueprintId: null,
+        type: null,
+        targetProject: null,
+        claimedBy: null,
+        claimToken: null,
+        claimedAt: null,
+        claimLeaseMs: null,
+        claim: null,
+        approvedAt: null,
+        approvedBy: null,
+        heldAt: null,
+        heldReason: null,
+        retryCount: 0,
+        completedBy: null,
+        objectRef: null,
+        decisionRef: null,
+        claimProbe: null,
+        inheritedBlueprintFrom: null,
+        inheritedFiles: [],
+        isBucket: false,
+      } as unknown as Todo,
+    ];
+
     await buildEpic();
 
     const land = await mgr.landEpicToMaster(EPIC);
     expect(land.landed).toBe(true);
     const mergeSha = land.masterSha ?? '';
 
-    // Capture once for path A (escalation-land) with an empty todos array.
+    // Capture once for path A (escalation-land) with the real todos fixture.
     const capA = await captureLandCycleFields({
       epicId: EPIC,
-      todos: [],
+      todos: todosA,
       repoRoot: repo,
       epicHeadSha: () => mgr.epicHeadSha(EPIC).catch(() => null),
     });
 
-    // Record path A.
+    // Record path A with an explicit landedAt to control the timestamp.
+    const landedAtA = Date.now();
     const resultA = await recordLandCycle(repo, {
       epicId: EPIC,
       epicTipSha: capA.epicTipSha,
       landedMergeSha: mergeSha,
-      landedAt: Date.now(),
+      landedAt: landedAtA,
       source: 'escalation-land',
       session: 'test-a',
       nonTerminalServingLeafIds: capA.nonTerminalServingLeafIds,
@@ -314,6 +419,9 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
 
     const recordA = getEpicLandRecord(repo, EPIC);
     expect(recordA).not.toBeNull();
+
+    // Clean up epic A's worktree to ensure main checkout is clean for path B.
+    await mgr.removeEpic(EPIC, repo);
 
     // Capture and record path B (reconcile-land) with a different epicId to avoid PK conflict.
     const epicB = 'epic-parity-b';
@@ -327,13 +435,110 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
     expect(landB.landed).toBe(true);
     const mergeShaB = landB.masterSha ?? '';
 
+    // Fixture B: identical structure to A but with epicB instead of EPIC.
+    const todosB: Todo[] = [
+      {
+        id: epicB,
+        kind: 'epic',
+        title: epicB,
+        status: 'in_progress',
+        acceptanceStatus: null,
+        completed: false,
+        servesCriterionId: 'crit-parity',
+        servesCriterionIds: ['crit-parity'],
+        parentId: null,
+        dependsOn: [],
+        order: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        completedAt: null,
+        ownerSession: 'test',
+        assigneeSession: null,
+        assigneeKind: 'agent',
+        description: null,
+        priority: null,
+        dueDate: null,
+        link: null,
+        asanaGid: null,
+        sessionName: null,
+        executedBySession: null,
+        blueprintId: null,
+        type: null,
+        targetProject: null,
+        claimedBy: null,
+        claimToken: null,
+        claimedAt: null,
+        claimLeaseMs: null,
+        claim: null,
+        approvedAt: null,
+        approvedBy: null,
+        heldAt: null,
+        heldReason: null,
+        retryCount: 0,
+        completedBy: null,
+        objectRef: null,
+        decisionRef: null,
+        claimProbe: null,
+        inheritedBlueprintFrom: null,
+        inheritedFiles: [],
+        isBucket: false,
+      } as unknown as Todo,
+      {
+        id: NT_LEAF_ID,
+        kind: 'leaf',
+        title: 'Non-terminal leaf serving crit-parity',
+        status: 'in_progress',
+        acceptanceStatus: null,
+        completed: false,
+        servesCriterionId: 'crit-parity',
+        servesCriterionIds: ['crit-parity'],
+        parentId: epicB,
+        dependsOn: [],
+        order: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        completedAt: null,
+        ownerSession: 'test',
+        assigneeSession: null,
+        assigneeKind: 'agent',
+        description: null,
+        priority: null,
+        dueDate: null,
+        link: null,
+        asanaGid: null,
+        sessionName: null,
+        executedBySession: null,
+        blueprintId: null,
+        type: null,
+        targetProject: null,
+        claimedBy: null,
+        claimToken: null,
+        claimedAt: null,
+        claimLeaseMs: null,
+        claim: null,
+        approvedAt: null,
+        approvedBy: null,
+        heldAt: null,
+        heldReason: null,
+        retryCount: 0,
+        completedBy: null,
+        objectRef: null,
+        decisionRef: null,
+        claimProbe: null,
+        inheritedBlueprintFrom: null,
+        inheritedFiles: [],
+        isBucket: false,
+      } as unknown as Todo,
+    ];
+
     const capB = await captureLandCycleFields({
       epicId: epicB,
-      todos: [],
+      todos: todosB,
       repoRoot: repo,
       epicHeadSha: () => mgr.epicHeadSha(epicB).catch(() => null),
     });
 
+    // Record path B; landedAt defaults to Date.now() via recordLandCycle.
     const resultB = await recordLandCycle(repo, {
       epicId: epicB,
       epicTipSha: capB.epicTipSha,
@@ -349,15 +554,59 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
     const recordB = getEpicLandRecord(repo, epicB);
     expect(recordB).not.toBeNull();
 
-    // Assert both paths recorded via captureLandCycleFields (by having non-null fields).
-    // The exact field values depend on repo state at capture time, so we assert structure, not equality.
-    expect(recordA!.nonTerminalServingLeafCount).toBeDefined();
-    expect(recordB!.nonTerminalServingLeafCount).toBeDefined();
-    expect(recordA!.postLandStatusClean).toBeDefined();
-    expect(recordB!.postLandStatusClean).toBeDefined();
+    // Clean up epic B's worktree after recording.
+    await mgr.removeEpic(epicB, repo);
+
+    // Assert exact-value captures for both paths: the shared non-terminal leaf drives count=1.
+    expect(recordA!.nonTerminalServingLeafCount).toBe(1);
+    expect(recordA!.nonTerminalServingLeafIds).toEqual([NT_LEAF_ID]);
+    expect(recordB!.nonTerminalServingLeafCount).toBe(1);
+    expect(recordB!.nonTerminalServingLeafIds).toEqual([NT_LEAF_ID]);
+
+    // Assert the tmp repo is clean after landEpicToMaster (same concrete pattern as land-record-fields.test.ts:443-444).
+    expect(recordA!.postLandStatusClean).toBe(1);
+    expect(recordA!.postLandResidue).toBeNull();
+    expect(recordB!.postLandStatusClean).toBe(1);
+    expect(recordB!.postLandResidue).toBeNull();
+
     // landPath differs by design.
     expect(recordA!.landPath).toBe('escalation-land');
     expect(recordB!.landPath).toBe('oi1-reconcile');
+
+    // Strip and assert whole-row parity: all columns that MUST NOT differ should be identical.
+    type EpicLandRecordNonNull = Omit<typeof recordA, 'epicId' | 'epicTipSha' | 'landedMergeSha' | 'landedAt' | 'landPath'>;
+    const strip = (rec: EpicLandRecord): EpicLandRecordNonNull => {
+      const copy = { ...rec };
+      delete (copy as any).epicId;           // distinct epics
+      delete (copy as any).epicTipSha;       // distinct branch tips
+      delete (copy as any).landedMergeSha;   // distinct merge commits
+      delete (copy as any).landedAt;         // path A passes explicit Date.now(), path B defaults in recordLandCycle
+      delete (copy as any).landPath;         // routing tag, differs by design
+      return copy as EpicLandRecordNonNull;
+    };
+    expect(strip(recordA!)).toEqual(strip(recordB!));
+
+    // Call-site routing assertion (unit-test-practical substitute).
+    // Driving coordinator-land.ts:1018-1039 and coordinator-live.ts:868-884 end-to-end
+    // needs a live escalation/reconcile tick and is out of reach for this store-level test.
+    // Instead, read both production files and assert each contains all three routed fields.
+    const { readFileSync } = await import('node:fs');
+    const coordinatorLandSource = readFileSync(
+      new URL('../coordinator-land.ts', import.meta.url).pathname,
+      'utf-8'
+    );
+    const coordinatorLiveSource = readFileSync(
+      new URL('../coordinator-live.ts', import.meta.url).pathname,
+      'utf-8'
+    );
+
+    expect(coordinatorLandSource).toContain('epicTipSha: cycle.epicTipSha');
+    expect(coordinatorLandSource).toContain('nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds');
+    expect(coordinatorLandSource).toContain('postLandClean: cycle.postLandClean');
+
+    expect(coordinatorLiveSource).toContain('epicTipSha: cycle.epicTipSha');
+    expect(coordinatorLiveSource).toContain('nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds');
+    expect(coordinatorLiveSource).toContain('postLandClean: cycle.postLandClean');
   });
 
   it('Reconcile gate false — if ((land.baseRef ?? intRef) === intRef) fails, no record is written', async () => {
