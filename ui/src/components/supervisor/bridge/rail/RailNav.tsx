@@ -1,7 +1,7 @@
 import React from 'react';
 
 export type RailKey =
-  | 'missions' | 'plan'                               // HOME
+  | 'plan'                               // HOME
   | 'escalations' | 'land'          // ACT
   | 'work' | 'stranded'             // WORK
   | 'stream' | 'executor' | 'subscribers' | 'usage' | 'dogfood'; // TELEMETRY

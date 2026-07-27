@@ -23,7 +23,6 @@ describe('BridgeRail', () => {
     renderRail();
     const items = screen.getAllByTestId(/^rail-item-/);
     const expectedOrder: RailKey[] = [
-      'missions',
       'plan',
       'escalations',
       'land',
