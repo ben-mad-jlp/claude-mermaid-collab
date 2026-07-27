@@ -36,6 +36,7 @@ import { StreamTicker } from './StreamTicker';
 import { DecisionCard } from './focal/DecisionCard';
 import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
+import { useLeafDaemon } from './leafDaemon';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
@@ -60,7 +61,6 @@ import { UnlandedStrip } from './UnlandedStrip';
 // cross-instance escalation that misses the per-process broadcast still surfaces
 // within the same window the worker card turns red.
 const ESCALATION_POLL_MS = 10_000;
-const DAEMON_COUNTS_POLL_MS = 10_000;
 
 /** Graph-only view: hide finished noise. An epic is an epic BY DECLARED KIND
  *  (`kind === 'epic'`), never "a todo that has children" — a split leaf keeps its
@@ -239,27 +239,16 @@ export const BridgeDashboard: React.FC = () => {
   // headless / breaker gates) and `In-flight` UNDER-counts (a headless leaf doesn't flip
   // its todo's local status, so an actively-building project read 0). Prefer the daemon's
   // numbers; fall back to the local derivation until the first poll lands.
-  const [daemonCounts, setDaemonCounts] = useState<{ claimable: number | null; inflight: number | null; claimableIds: string[] | null }>({ claimable: null, inflight: null, claimableIds: null });
-  useEffect(() => {
-    if (!project) { setDaemonCounts({ claimable: null, inflight: null, claimableIds: null }); return; }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/leaf-executor/daemon?project=${encodeURIComponent(project)}`);
-        if (!res.ok || cancelled) return;
-        const d = await res.json();
-        if (cancelled) return;
-        setDaemonCounts({
-          claimable: typeof d?.claimSuppression?.claimable === 'number' ? d.claimSuppression.claimable : null,
-          inflight: Array.isArray(d?.inflight) ? d.inflight.length : null,
-          claimableIds: Array.isArray(d?.claimSuppression?.claimableIds) ? d.claimSuppression.claimableIds : null,
-        });
-      } catch { /* best-effort; keep the last good / local fallback */ }
+  const { daemon: leafDaemonStatus } = useLeafDaemon(project, serverScope);
+  const daemonCounts = useMemo(() => {
+    if (!project || !leafDaemonStatus) return { claimable: null, inflight: null, claimableIds: null };
+    const d = leafDaemonStatus;
+    return {
+      claimable: typeof d.claimSuppression?.claimable === 'number' ? d.claimSuppression.claimable : null,
+      inflight: Array.isArray(d.inflight) ? d.inflight.length : null,
+      claimableIds: Array.isArray(d.claimSuppression?.claimableIds) ? d.claimSuppression.claimableIds : null,
     };
-    void poll();
-    const id = setInterval(() => { void poll(); }, DAEMON_COUNTS_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [project]);
+  }, [project, leafDaemonStatus]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
