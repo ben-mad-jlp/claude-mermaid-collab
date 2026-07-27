@@ -714,6 +714,29 @@ export interface LeafRunResult {
   };
 }
 
+export interface LeafRunContext {
+  project: string;
+  leaf: Todo;
+  deps: LeafExecutorDeps;
+  epicId: string;
+  epicBranch: string;
+  sessionKey: string;
+  state: { attempt: number; nodesSpent: number; pathTaken: 'floor' | 'waves' | 'review' | null };
+  budgetState: { value: number; raises: number };
+  escalatedKinds: Set<LeafNodeKind>;
+  checkBudget: () => boolean;
+  runNode: (kind: LeafNodeKind, spec: NodeSpec, extra?: { verdict?: 'pass' | 'fail' | null; leafOutcome?: LeafRunResult['outcome'] | null }) => Promise<NodeResult>;
+  parkBlocked: (reason: string, verdict?: 'pass' | 'fail' | null) => Promise<LeafRunResult>;
+  parkNodeStartFailure: (kind: LeafNodeKind, res: NodeResult) => Promise<LeafRunResult>;
+  pausedResult: (kind: LeafNodeKind, res: NodeResult) => LeafRunResult;
+  pausedForWorktreeAddFault: (kind: LeafNodeKind) => LeafRunResult;
+  finalizeReportLeaf: (gateVerdict: 'pass' | 'fail', commitMessage: string) => Promise<LeafRunResult>;
+  buildVerifySpec: (kind: 'driveplan' | 'driveexec' | 'report', cwd: string, verb: string, planText?: string, gateFindings?: string) => NodeSpec;
+  nodeModel: (kind: LeafNodeKind, allowedTools?: string, depth?: ReviewDepth) => string;
+  nodeEffort: (kind: LeafNodeKind, depth?: ReviewDepth) => EffortLevel;
+  untrackedAtStart: string[];
+}
+
 export const ATTEMPT_CAP = 2;
 export const NODE_BUDGET = 20;
 /** Max number of times a single leaf run may self-raise its own node budget via a
@@ -1844,6 +1867,277 @@ export function resolveInheritedSlice(
   return { from, files, text: text as string };
 }
 
+/**
+ * REVIEW PASS: run a single review pass with the given lens (lifted to module scope).
+ */
+async function runReviewPass(
+  ctx: LeafRunContext,
+  lens: ReviewLens,
+  buildReviewSpec: (lens: ReviewLens) => NodeSpec,
+): Promise<ReviewPassResult | { failure: string }> {
+  let rev = await ctx.runNode('review', buildReviewSpec(lens));
+  if (rev.startFailure) return { failure: 'start-failure' };
+  if (rev.rateLimited) return { failure: 'rate-limited' };
+  if (!ctx.checkBudget()) return { failure: 'budget-exhausted' };
+  if (!rev.ok) {
+    rev = await ctx.runNode('review', buildReviewSpec(lens));
+    if (rev.rateLimited) return { failure: 'rate-limited' };
+    if (!ctx.checkBudget()) return { failure: 'budget-exhausted' };
+  }
+  if (!rev.ok) return { failure: 'node-failed' };
+
+  // CONTENT GATE: report must be non-empty and end with a parseable VERDICT line.
+  const reportMd = (rev.text ?? '').trim();
+  if (!reportMd) return { failure: 'report-empty' };
+  const parsedVerdict = parseVerdict(reportMd);
+  if (parsedVerdict === 'error') return { failure: 'report-no-verdict' };
+
+  return {
+    lens,
+    verdict: parsedVerdict,
+    report: reportMd,
+  };
+}
+
+/**
+ * REVIEW pipeline (epic d8ac1a18 dogfood): a single read-only LLM judgment node reviews
+ * the epic's UNION change-set (git diff <epic-base>...HEAD) against the leaf's inlined spec,
+ * files one session-todo per gap, and emits the report markdown. The EXECUTOR writes +
+ * commits that report (docs/review/<id>.report.md) and merges it onto the epic branch —
+ * so the deliverable is a COMMITTED report that survives the work-committed re-verify, the
+ * same way verify does. The trailing `VERDICT:` line is the CONTENT GATE (re-arms the
+ * hallucination guard at the content layer): an empty report or one with no parseable
+ * verdict parks the leaf blocked. A FAIL verdict still ACCEPTS — gaps are the deliverable
+ * (filed as todos), not a rejection; the human reads the report before [LAND]. Single pass,
+ * one in-place retry on a failed node (mirrors the verify plan-node retry).
+ */
+export async function runReviewPipeline(ctx: LeafRunContext): Promise<LeafRunResult> {
+  ctx.state.attempt = 1; // single pass (no fresh-worktree retry loop)
+  ctx.state.pathTaken = 'review';
+  let wt: Awaited<ReturnType<WorktreeManager['ensure']>>;
+  try {
+    wt = await ctx.deps.wm.ensure(ctx.sessionKey, { baseBranch: ctx.epicBranch, fresh: true });
+  } catch (e) {
+    if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
+      return ctx.pausedForWorktreeAddFault('review');
+    }
+    throw e;
+  }
+  const cwd = wt.path;
+  // The union change-set base: the epic branch was cut off the repo's trunk, so
+  // <baseRef>..HEAD is the epic's accumulated work. ctx.deps.baseBranch is detected at
+  // deps-construction (falls back to 'master' only when a caller doesn't thread it —
+  // e.g. legacy test fixtures); a non-master-trunk project no longer silently diffs
+  // against a nonexistent 'master'. The node is told to fall back if the ref doesn't resolve.
+  const baseRef = ctx.deps.baseBranch ?? 'master';
+  // The review node needs file_to_bucket (file gap todos) on top of the read-only set;
+  // NO Write (the executor commits the report — a node Write resolves to the project root).
+  const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_to_bucket`;
+  const reviewInjected = composeInjectedContext({ kind: 'review', project: ctx.project, epicId: ctx.epicId, flags: getInjectionFlags(ctx.project) });
+
+  // Route review depth based on diff risk (hot-path changes, large diffs, etc.).
+  const risk = await (ctx.deps.collectDiffRisk ?? collectDiffRisk)(cwd, baseRef);
+  const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled(ctx.project) });
+
+  const buildReviewSpec = (lens: ReviewLens): NodeSpec => ({
+    prompt: buildReviewPrompt(ctx.leaf, baseRef, lens),
+    model: ctx.nodeModel('review', reviewTools, route.depth),
+    effort: ctx.nodeEffort('review', route.depth),
+    allowedTools: reviewTools,
+    mcpConfig: mcpConfigFor(config.PORT),
+    strictMcpConfig: true,
+    cwd,
+    leafId: ctx.leaf.id,
+    epicId: ctx.epicId,
+    permissionMode: resolveNodePermissionMode(),
+    transcriptPath: leafTranscriptPath(ctx.project, ctx.leaf.id),
+    transcriptLabel: 'review',
+    appendSystemPrompt: reviewInjected || undefined,
+  });
+
+  // Run pass 1 (completeness).
+  const pass1 = await runReviewPass(ctx, 'completeness', buildReviewSpec);
+  if ('failure' in pass1) {
+    const failure = pass1.failure;
+    if (failure === 'start-failure') return ctx.parkNodeStartFailure('review', {} as any);
+    if (failure === 'rate-limited') return ctx.pausedResult('review', {} as any);
+    if (failure === 'budget-exhausted') return ctx.parkBlocked('node-budget-exhausted');
+    if (failure === 'node-failed') return ctx.parkBlocked('review-node-failed');
+    if (failure === 'report-empty') return ctx.parkBlocked('review-report-empty');
+    if (failure === 'report-no-verdict') return ctx.parkBlocked('review-report-no-verdict');
+    return ctx.parkBlocked('review-node-failed');
+  }
+
+  // If standard depth, return immediately with pass 1.
+  if (route.depth !== 'heavy') {
+    const { verdict, report } = pass1;
+    try {
+      await ctx.deps.writeArtifact?.(cwd, reviewReportPath(ctx.leaf), report);
+    } catch (e) {
+      return ctx.parkBlocked(
+        `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
+        verdict,
+      );
+    }
+    return ctx.finalizeReportLeaf(verdict, `review: ${ctx.leaf.title ?? ctx.leaf.id}`);
+  }
+
+  // Heavy depth: run pass 2 (regression-blast-radius) with one attempt, no retry.
+  // If it fails for any reason, degrade to pass 1.
+  let pass2: ReviewPassResult | undefined;
+  let degradeReason: string | undefined;
+  try {
+    const pass2Result = await runReviewPass(ctx, 'regression-blast-radius', buildReviewSpec);
+    if ('failure' in pass2Result) {
+      degradeReason = `pass-2-${pass2Result.failure}`;
+    } else {
+      pass2 = pass2Result;
+    }
+  } catch (e) {
+    degradeReason = `pass-2-exception: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  if (degradeReason) {
+    ctx.deps.recordNode?.({
+      project: ctx.project, todoId: ctx.leaf.id, session: ctx.sessionKey, epicId: ctx.epicId, leafId: ctx.leaf.id,
+      nodeKind: 'review-lens-degraded',
+      outputText: `degraded: ${degradeReason}`,
+    });
+  }
+
+  // Join the passes (if pass 2 failed, join only pass 1; joinReviewReports handles single pass).
+  const passes = pass2 ? [pass1, pass2] : [pass1];
+  const joined = joinReviewReports(passes);
+
+  try {
+    await ctx.deps.writeArtifact?.(cwd, reviewReportPath(ctx.leaf), joined.report);
+  } catch (e) {
+    return ctx.parkBlocked(
+      `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
+      joined.verdict,
+    );
+  }
+
+  if (!degradeReason) {
+    ctx.deps.recordNode?.({
+      project: ctx.project, todoId: ctx.leaf.id, session: ctx.sessionKey, epicId: ctx.epicId, leafId: ctx.leaf.id,
+      nodeKind: 'review-panel-join',
+      verdict: joined.verdict,
+      outputText: `lenses: ${joined.lenses.join(', ')}`,
+    });
+  }
+
+  return ctx.finalizeReportLeaf(joined.verdict, `review: ${ctx.leaf.title ?? ctx.leaf.id}`);
+}
+
+/**
+ * VERIFY pipeline (epic f5c7fc46): plan(LLM authors AssemblyBuildPlan) → execute(node
+ * constrained to the deterministic gate verb, captures raw result) → gate(executor parses
+ * the verb's TRUE verdicts) → report(LLM writes+commits findings, files one todo each).
+ * The LLM authors + reports (both safe, committable) but is OUT of the stateful execution
+ * loop — the deterministic verb does the CAD (Grok's key point). The deliverable is a
+ * COMMITTED report, so it reuses the SAME mergeToEpic/complete machinery as the code path
+ * (no no-commit escape hatch). A failing DOMAIN gate is not an executor failure — it is the
+ * finding the leaf exists to surface, so it still reports + accepts; only an INFRA error
+ * (verb crashed / no parseable verdict) parks blocked. L3: the gate is a PLUGGABLE
+ * {verb, command} ({@link resolveVerifyGate}) — the verb result AND an optional shell
+ * command gate (e.g. pytest) compose into the findings. Spends 3–4 nodes through the
+ * shared budget/runNode.
+ */
+export async function runVerifyPipeline(ctx: LeafRunContext): Promise<LeafRunResult> {
+  ctx.state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
+  const cfg = (ctx.deps.resolveVerifyGate ?? resolveVerifyGate)(ctx.leaf); // L3: pluggable {verb, command}
+  let wt: Awaited<ReturnType<WorktreeManager['ensure']>>;
+  try {
+    wt = await ctx.deps.wm.ensure(ctx.sessionKey, { baseBranch: ctx.epicBranch, fresh: true });
+  } catch (e) {
+    if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
+      return ctx.pausedForWorktreeAddFault('driveplan');
+    }
+    throw e;
+  }
+  const cwd = wt.path;
+
+  // 1. PLAN — author the AssemblyBuildPlan. One in-place retry on a failed node (mirrors
+  //    the code path's blueprint retry) before parking.
+  let plan = await ctx.runNode('driveplan', ctx.buildVerifySpec('driveplan', cwd, cfg.verb));
+  if (plan.rateLimited) return ctx.pausedResult('driveplan', plan);
+  if (!ctx.checkBudget()) return ctx.parkBlocked('node-budget-exhausted');
+  if (!plan.ok) {
+    plan = await ctx.runNode('driveplan', ctx.buildVerifySpec('driveplan', cwd, cfg.verb));
+    if (plan.rateLimited) return ctx.pausedResult('driveplan', plan);
+    if (!ctx.checkBudget()) return ctx.parkBlocked('node-budget-exhausted');
+  }
+  if (!plan.ok) return ctx.parkBlocked('verify-plan-node-failed');
+
+  // Read the plan artifact back (deterministic source); fall back to the node's final text.
+  const planFromFile = await ctx.deps.readArtifact?.(cwd, verifyPlanPath(ctx.leaf)).catch(() => undefined);
+  const planText = planFromFile && planFromFile.trim() ? planFromFile : plan.text;
+  if (!planText || !planText.trim()) return ctx.parkBlocked('verify-plan-empty');
+
+  // 2. EXECUTE — node constrained to the resolved verb; captures its raw result. The verb
+  //    call is a single network-heavy MCP round-trip, so give ONE in-place retry on a
+  //    transient node failure (e.g. the "Connection closed while thinking" API drop seen in
+  //    the first live T14 run) before parking — mirrors the blueprint-node retry. The verb is
+  //    deterministic/idempotent, so re-calling is safe.
+  let exec = await ctx.runNode('driveexec', ctx.buildVerifySpec('driveexec', cwd, cfg.verb, planText));
+  if (exec.rateLimited) return ctx.pausedResult('driveexec', exec);
+  if (!ctx.checkBudget()) return ctx.parkBlocked('node-budget-exhausted');
+  if (!exec.ok) {
+    exec = await ctx.runNode('driveexec', ctx.buildVerifySpec('driveexec', cwd, cfg.verb, planText));
+    if (exec.rateLimited) return ctx.pausedResult('driveexec', exec);
+    if (!ctx.checkBudget()) return ctx.parkBlocked('node-budget-exhausted');
+  }
+  if (!exec.ok) return ctx.parkBlocked('verify-execute-node-failed');
+
+  // 3. GATE — parse the verb's TRUE verdicts from the result artifact (not the prose).
+  const resultFromFile = await ctx.deps.readArtifact?.(cwd, verifyResultPath(ctx.leaf)).catch(() => undefined);
+  const resultText = resultFromFile && resultFromFile.trim() ? resultFromFile : exec.text;
+  const gate = parseVerifyGate(resultText);
+  // INFRA error (verb crashed / no parseable verdict) is NOT a finding → park blocked.
+  if (gate.status === 'error') return ctx.parkBlocked(gate.reasons[0] ?? 'verify-gate-error', 'fail');
+  // 'pass' or 'fail' (real domain findings) both proceed; the command gate composes below.
+  const findings = [...gate.reasons];
+
+  // 3b. COMMAND GATE (L3, optional) — run the config's shell gate in the worktree, composed
+  //     AFTER the verb gate. A spawn failure (ran:false) is INFRA → park blocked; a non-zero
+  //     exit (ran:true, ok:false) is a FINDING folded into the report alongside the verdicts.
+  if (cfg.command) {
+    const cmd = await ctx.deps.runCommandGate?.(cwd, cfg.command);
+    if (!cmd) return ctx.parkBlocked(`verify-command-gate-unwired: ${cfg.command}`, 'fail');
+    if (!cmd.ran) return ctx.parkBlocked(`verify-command-gate-failed-to-run: ${cfg.command}`, 'fail');
+    if (!cmd.ok) findings.push(`command gate failed: \`${cfg.command}\`\n${cmd.output.slice(0, 2000)}`);
+  }
+
+  // 4. REPORT — write + commit the findings .md, file one session-todo per finding.
+  const report = await ctx.runNode(
+    'report',
+    ctx.buildVerifySpec('report', cwd, cfg.verb, planText, findings.join('\n')),
+  );
+  if (report.rateLimited) return ctx.pausedResult('report', report);
+  if (!ctx.checkBudget()) return ctx.parkBlocked('node-budget-exhausted');
+  if (!report.ok) return ctx.parkBlocked('verify-report-node-failed');
+
+  // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
+  // node's new-file Write resolves to the project root, not the worktree, so it would never
+  // reach mergeToEpic. Write it at the worktree path; an empty report is an executor failure.
+  const reportMd = (report.text ?? '').trim();
+  if (!reportMd) return ctx.parkBlocked('verify-report-empty');
+  try {
+    await ctx.deps.writeArtifact?.(cwd, verifyReportPath(ctx.leaf), reportMd);
+  } catch (e) {
+    return ctx.parkBlocked(`verify-report-write-failed: ${e instanceof Error ? e.message : String(e)}`, 'fail');
+  }
+
+  // Overall verdict: clean ONLY if BOTH the verb gate passed AND no command-gate finding.
+  // COMMIT-SHAPED DELIVERABLE: the shared report tail merges the committed report onto the
+  // epic branch BEFORE proposing acceptance, exactly like the code path, so the gate's
+  // work-committed re-verify sees committed work. A failing DOMAIN gate is captured in the
+  // report + filed findings, not a rejected leaf.
+  const gateVerdict: 'pass' | 'fail' = findings.length === 0 ? 'pass' : 'fail';
+  return ctx.finalizeReportLeaf(gateVerdict, `verify: ${ctx.leaf.title ?? ctx.leaf.id}`);
+}
+
 export async function runLeaf(
   project: string,
   leaf: Todo,
@@ -1896,10 +2190,7 @@ export async function runLeaf(
   // ALL attempts and ALL node kinds).
   // nodesSpent is SEEDED from startNodesSpent (P3 resume) so the master budget is
   // global across pause/resume cycles, not reset per re-dispatch.
-  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0 };
-  // Which execution path the last attempt took — recorded on the terminal record so a
-  // run's shape (and which path a failure came from) is legible without re-deriving.
-  let pathTaken: 'floor' | 'waves' | 'review' | null = null;
+  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0, pathTaken: null as 'floor' | 'waves' | 'review' | null };
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
   // WORKING-ROOT GUARD: the last detected escape of the shell out of the lane worktree by a
@@ -2064,12 +2355,10 @@ export async function runLeaf(
   // false-kills mid-wave (the L4 node-budget-exhausted). Raise the ceiling size-aware for
   // waves (computed from the manifest below), capped so a true runaway is still bounded.
   // A test-supplied nodeBudget is honored verbatim (so budget-ceiling tests stay
-  // deterministic). `let` so the waves branch can lift it once the manifest is known.
-  let budget = deps.nodeBudget ?? NODE_BUDGET;
-  /** Count of self-raises already applied this run (see MAX_BUDGET_RAISES). */
-  let budgetRaises = 0;
+  // deterministic). Mutable so the waves branch can lift it once the manifest is known.
+  const budgetState = { value: deps.nodeBudget ?? NODE_BUDGET, raises: 0 };
   /** TRUE while still within the master node budget. */
-  const checkBudget = (): boolean => state.nodesSpent <= budget;
+  const checkBudget = (): boolean => state.nodesSpent <= budgetState.value;
 
   /** Single wrapper used for EVERY invokeNode call: increment BEFORE the spawn
    *  (so a hanging node still counts toward the budget), invoke, then a best-effort
@@ -2217,7 +2506,7 @@ export async function runLeaf(
         outcomeDetail: JSON.stringify({
           effectiveOutcome: outcome,
           reviewVerdict: verdict,
-          pathTaken,
+          pathTaken: state.pathTaken,
           tier: leaf.tier ?? 'full',
           attempts: state.attempt,
           nodesSpent: state.nodesSpent,
@@ -2540,256 +2829,6 @@ export async function runLeaf(
     });
   };
 
-  /**
-   * REVIEW pipeline (epic d8ac1a18 dogfood): a single read-only LLM judgment node reviews
-   * the epic's UNION change-set (git diff <epic-base>...HEAD) against the leaf's inlined spec,
-   * files one session-todo per gap, and emits the report markdown. The EXECUTOR writes +
-   * commits that report (docs/review/<id>.report.md) and merges it onto the epic branch —
-   * so the deliverable is a COMMITTED report that survives the work-committed re-verify, the
-   * same way verify does. The trailing `VERDICT:` line is the CONTENT GATE (re-arms the
-   * hallucination guard at the content layer): an empty report or one with no parseable
-   * verdict parks the leaf blocked. A FAIL verdict still ACCEPTS — gaps are the deliverable
-   * (filed as todos), not a rejection; the human reads the report before [LAND]. Single pass,
-   * one in-place retry on a failed node (mirrors the verify plan-node retry).
-   */
-  const runReviewPipeline = async (): Promise<LeafRunResult> => {
-    state.attempt = 1; // single pass (no fresh-worktree retry loop)
-    pathTaken = 'review';
-    let wt: Awaited<ReturnType<WorktreeManager['ensure']>>;
-    try {
-      wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
-    } catch (e) {
-      if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
-        return pausedForWorktreeAddFault('review');
-      }
-      throw e;
-    }
-    const cwd = wt.path;
-    // The union change-set base: the epic branch was cut off the repo's trunk, so
-    // <baseRef>..HEAD is the epic's accumulated work. deps.baseBranch is detected at
-    // deps-construction (falls back to 'master' only when a caller doesn't thread it —
-    // e.g. legacy test fixtures); a non-master-trunk project no longer silently diffs
-    // against a nonexistent 'master'. The node is told to fall back if the ref doesn't resolve.
-    const baseRef = deps.baseBranch ?? 'master';
-    // The review node needs file_to_bucket (file gap todos) on top of the read-only set;
-    // NO Write (the executor commits the report — a node Write resolves to the project root).
-    const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_to_bucket`;
-    const reviewInjected = composeInjectedContext({ kind: 'review', project, epicId, flags: getInjectionFlags(project) });
-
-    // Route review depth based on diff risk (hot-path changes, large diffs, etc.).
-    const risk = await (deps.collectDiffRisk ?? collectDiffRisk)(cwd, baseRef);
-    const route = routeReviewDepth(risk, { lightPathEnabled: resolveLightPathEnabled(project) });
-
-    const buildReviewSpec = (lens: ReviewLens): NodeSpec => ({
-      prompt: buildReviewPrompt(leaf, baseRef, lens),
-      model: nodeModel('review', reviewTools, route.depth),
-      effort: nodeEffort('review', route.depth),
-      allowedTools: reviewTools,
-      mcpConfig: mcpConfigFor(config.PORT),
-      strictMcpConfig: true,
-      cwd,
-      leafId: leaf.id,
-      epicId,
-      permissionMode: resolveNodePermissionMode(),
-      transcriptPath: leafTranscriptPath(project, leaf.id),
-      transcriptLabel: 'review',
-      appendSystemPrompt: reviewInjected || undefined,
-    });
-
-    // Run a single review pass with the given lens. Returns ReviewPassResult or { failure: ... }.
-    const runReviewPass = async (lens: ReviewLens): Promise<ReviewPassResult | { failure: string }> => {
-      let rev = await runNode('review', buildReviewSpec(lens));
-      if (rev.startFailure) return { failure: 'start-failure' };
-      if (rev.rateLimited) return { failure: 'rate-limited' };
-      if (!checkBudget()) return { failure: 'budget-exhausted' };
-      if (!rev.ok) {
-        rev = await runNode('review', buildReviewSpec(lens));
-        if (rev.rateLimited) return { failure: 'rate-limited' };
-        if (!checkBudget()) return { failure: 'budget-exhausted' };
-      }
-      if (!rev.ok) return { failure: 'node-failed' };
-
-      // CONTENT GATE: report must be non-empty and end with a parseable VERDICT line.
-      const reportMd = (rev.text ?? '').trim();
-      if (!reportMd) return { failure: 'report-empty' };
-      const parsedVerdict = parseVerdict(reportMd);
-      if (parsedVerdict === 'error') return { failure: 'report-no-verdict' };
-
-      return {
-        lens,
-        verdict: parsedVerdict,
-        report: reportMd,
-      };
-    };
-
-    // Run pass 1 (completeness).
-    const pass1 = await runReviewPass('completeness');
-    if ('failure' in pass1) {
-      const failure = pass1.failure;
-      if (failure === 'start-failure') return parkNodeStartFailure('review', {} as any);
-      if (failure === 'rate-limited') return pausedResult('review', {} as any);
-      if (failure === 'budget-exhausted') return parkBlocked('node-budget-exhausted');
-      if (failure === 'node-failed') return parkBlocked('review-node-failed');
-      if (failure === 'report-empty') return parkBlocked('review-report-empty');
-      if (failure === 'report-no-verdict') return parkBlocked('review-report-no-verdict');
-      return parkBlocked('review-node-failed');
-    }
-
-    // If standard depth, return immediately with pass 1.
-    if (route.depth !== 'heavy') {
-      const { verdict, report } = pass1;
-      try {
-        await deps.writeArtifact?.(cwd, reviewReportPath(leaf), report);
-      } catch (e) {
-        return parkBlocked(
-          `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
-          verdict,
-        );
-      }
-      return finalizeReportLeaf(verdict, `review: ${leaf.title ?? leaf.id}`);
-    }
-
-    // Heavy depth: run pass 2 (regression-blast-radius) with one attempt, no retry.
-    // If it fails for any reason, degrade to pass 1.
-    let pass2: ReviewPassResult | undefined;
-    let degradeReason: string | undefined;
-    try {
-      const pass2Result = await runReviewPass('regression-blast-radius');
-      if ('failure' in pass2Result) {
-        degradeReason = `pass-2-${pass2Result.failure}`;
-      } else {
-        pass2 = pass2Result;
-      }
-    } catch (e) {
-      degradeReason = `pass-2-exception: ${e instanceof Error ? e.message : String(e)}`;
-    }
-
-    if (degradeReason) {
-      deps.recordNode?.({
-        project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
-        nodeKind: 'review-lens-degraded',
-        outputText: `degraded: ${degradeReason}`,
-      });
-    }
-
-    // Join the passes (if pass 2 failed, join only pass 1; joinReviewReports handles single pass).
-    const passes = pass2 ? [pass1, pass2] : [pass1];
-    const joined = joinReviewReports(passes);
-
-    try {
-      await deps.writeArtifact?.(cwd, reviewReportPath(leaf), joined.report);
-    } catch (e) {
-      return parkBlocked(
-        `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
-        joined.verdict,
-      );
-    }
-
-    if (!degradeReason) {
-      deps.recordNode?.({
-        project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
-        nodeKind: 'review-panel-join',
-        verdict: joined.verdict,
-        outputText: `lenses: ${joined.lenses.join(', ')}`,
-      });
-    }
-
-    return finalizeReportLeaf(joined.verdict, `review: ${leaf.title ?? leaf.id}`);
-  };
-
-  const runVerifyPipeline = async (): Promise<LeafRunResult> => {
-    state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
-    const cfg = (deps.resolveVerifyGate ?? resolveVerifyGate)(leaf); // L3: pluggable {verb, command}
-    let wt: Awaited<ReturnType<WorktreeManager['ensure']>>;
-    try {
-      wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
-    } catch (e) {
-      if (e instanceof Error && classifyWorktreeAddFault(e.message)) {
-        return pausedForWorktreeAddFault('driveplan');
-      }
-      throw e;
-    }
-    const cwd = wt.path;
-
-    // 1. PLAN — author the AssemblyBuildPlan. One in-place retry on a failed node (mirrors
-    //    the code path's blueprint retry) before parking.
-    let plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd, cfg.verb));
-    if (plan.rateLimited) return pausedResult('driveplan', plan);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    if (!plan.ok) {
-      plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd, cfg.verb));
-      if (plan.rateLimited) return pausedResult('driveplan', plan);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    }
-    if (!plan.ok) return parkBlocked('verify-plan-node-failed');
-
-    // Read the plan artifact back (deterministic source); fall back to the node's final text.
-    const planFromFile = await deps.readArtifact?.(cwd, verifyPlanPath(leaf)).catch(() => undefined);
-    const planText = planFromFile && planFromFile.trim() ? planFromFile : plan.text;
-    if (!planText || !planText.trim()) return parkBlocked('verify-plan-empty');
-
-    // 2. EXECUTE — node constrained to the resolved verb; captures its raw result. The verb
-    //    call is a single network-heavy MCP round-trip, so give ONE in-place retry on a
-    //    transient node failure (e.g. the "Connection closed while thinking" API drop seen in
-    //    the first live T14 run) before parking — mirrors the blueprint-node retry. The verb is
-    //    deterministic/idempotent, so re-calling is safe.
-    let exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, cfg.verb, planText));
-    if (exec.rateLimited) return pausedResult('driveexec', exec);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    if (!exec.ok) {
-      exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, cfg.verb, planText));
-      if (exec.rateLimited) return pausedResult('driveexec', exec);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    }
-    if (!exec.ok) return parkBlocked('verify-execute-node-failed');
-
-    // 3. GATE — parse the verb's TRUE verdicts from the result artifact (not the prose).
-    const resultFromFile = await deps.readArtifact?.(cwd, verifyResultPath(leaf)).catch(() => undefined);
-    const resultText = resultFromFile && resultFromFile.trim() ? resultFromFile : exec.text;
-    const gate = parseVerifyGate(resultText);
-    // INFRA error (verb crashed / no parseable verdict) is NOT a finding → park blocked.
-    if (gate.status === 'error') return parkBlocked(gate.reasons[0] ?? 'verify-gate-error', 'fail');
-    // 'pass' or 'fail' (real domain findings) both proceed; the command gate composes below.
-    const findings = [...gate.reasons];
-
-    // 3b. COMMAND GATE (L3, optional) — run the config's shell gate in the worktree, composed
-    //     AFTER the verb gate. A spawn failure (ran:false) is INFRA → park blocked; a non-zero
-    //     exit (ran:true, ok:false) is a FINDING folded into the report alongside the verdicts.
-    if (cfg.command) {
-      const cmd = await deps.runCommandGate?.(cwd, cfg.command);
-      if (!cmd) return parkBlocked(`verify-command-gate-unwired: ${cfg.command}`, 'fail');
-      if (!cmd.ran) return parkBlocked(`verify-command-gate-failed-to-run: ${cfg.command}`, 'fail');
-      if (!cmd.ok) findings.push(`command gate failed: \`${cfg.command}\`\n${cmd.output.slice(0, 2000)}`);
-    }
-
-    // 4. REPORT — write + commit the findings .md, file one session-todo per finding.
-    const report = await runNode(
-      'report',
-      buildVerifySpec('report', cwd, cfg.verb, planText, findings.join('\n')),
-    );
-    if (report.rateLimited) return pausedResult('report', report);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    if (!report.ok) return parkBlocked('verify-report-node-failed');
-
-    // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
-    // node's new-file Write resolves to the project root, not the worktree, so it would never
-    // reach mergeToEpic. Write it at the worktree path; an empty report is an executor failure.
-    const reportMd = (report.text ?? '').trim();
-    if (!reportMd) return parkBlocked('verify-report-empty');
-    try {
-      await deps.writeArtifact?.(cwd, verifyReportPath(leaf), reportMd);
-    } catch (e) {
-      return parkBlocked(`verify-report-write-failed: ${e instanceof Error ? e.message : String(e)}`, 'fail');
-    }
-
-    // Overall verdict: clean ONLY if BOTH the verb gate passed AND no command-gate finding.
-    // COMMIT-SHAPED DELIVERABLE: the shared report tail merges the committed report onto the
-    // epic branch BEFORE proposing acceptance, exactly like the code path, so the gate's
-    // work-committed re-verify sees committed work. A failing DOMAIN gate is captured in the
-    // report + filed findings, not a rejected leaf.
-    const gateVerdict: 'pass' | 'fail' = findings.length === 0 ? 'pass' : 'fail';
-    return finalizeReportLeaf(gateVerdict, `verify: ${leaf.title ?? leaf.id}`);
-  };
 
   // --- G2 EPIC BASE GATE ---------------------------------------------------------
   // A red base is the most important fact on a branch: EVERY leaf built on it inherits
@@ -2855,10 +2894,18 @@ export async function runLeaf(
   // shapes — force-fitting either into blueprint→implement→tsc is exactly the build123d T14
   // failure (vacuous "TSC: CLEAN") and the reviewer-strands-the-epic failure this dispatch fixes.
   if (leafExecutionMode(leaf) === 'verify') {
-    return await runVerifyPipeline();
+    const ctx: LeafRunContext = { project, leaf, deps, epicId, epicBranch, sessionKey,
+      state, budgetState, escalatedKinds, checkBudget, runNode, parkBlocked,
+      parkNodeStartFailure, pausedResult, pausedForWorktreeAddFault, finalizeReportLeaf,
+      buildVerifySpec, nodeModel, nodeEffort, untrackedAtStart };
+    return await runVerifyPipeline(ctx);
   }
   if (leafExecutionMode(leaf) === 'review') {
-    return await runReviewPipeline();
+    const ctx: LeafRunContext = { project, leaf, deps, epicId, epicBranch, sessionKey,
+      state, budgetState, escalatedKinds, checkBudget, runNode, parkBlocked,
+      parkNodeStartFailure, pausedResult, pausedForWorktreeAddFault, finalizeReportLeaf,
+      buildVerifySpec, nodeModel, nodeEffort, untrackedAtStart };
+    return await runReviewPipeline(ctx);
   }
 
   // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this
@@ -3302,9 +3349,9 @@ export async function runLeaf(
       // it, the leaf runs at whatever budget it already has and the normal budget-exhaustion
       // path (checkBudget) takes over, rather than the leaf raising its own runaway ceiling
       // without bound across repeated declines.
-      if (shouldRaiseBudget(budgetRaises)) {
-        budget = Math.max(budget, raisedNodeBudget(deps.nodeBudget ?? NODE_BUDGET));
-        budgetRaises += 1;
+      if (shouldRaiseBudget(budgetState.raises)) {
+        budgetState.value = Math.max(budgetState.value, raisedNodeBudget(deps.nodeBudget ?? NODE_BUDGET));
+        budgetState.raises += 1;
       }
       return 'linear';
     };
@@ -3390,7 +3437,7 @@ export async function runLeaf(
       ? hashPinnedFiles(cwd, declaredFiles.filter(isTestPinnedPath))
       : {};
 
-    pathTaken = 'floor';
+    state.pathTaken = 'floor';
     // IMPLEMENT (byte-identical to the prior FLOOR path):
     let impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
     if (impl.startFailure) {
