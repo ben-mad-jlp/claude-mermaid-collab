@@ -10,7 +10,8 @@
  * SINGLE red in this panel is the auth-mode alarm band (subscription-only invariant). A slow
  * bounded poll (15s) runs only while the panel is mounted (the tab gates visibility).
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLeafDaemon, type DaemonStatus, fmtDuration } from '@/lib/leafDaemon';
 import { getWebSocketClient } from '@/lib/websocket';
 
 interface FleetStats {
@@ -25,59 +26,9 @@ interface FleetStats {
   wallClock: { p50: number; p90: number; max: number };
 }
 
-interface DaemonStatus {
-  now: number;
-  inflight: Array<{
-    leafId: string;
-    epicId: string | null;
-    nodeKind: string | null;
-    model: string | null;
-    attempt: number | null;
-    startedAt: number;
-    elapsedMs: number;
-    stale: boolean;
-  }>;
-  breaker: { open: boolean; openUntil: number };
-  paused: Array<{
-    todoId: string;
-    project: string;
-    firstTrippedAt: number | null;
-  }>;
-  recentSpawns: Array<{
-    id?: string;
-    ts?: number;
-    project?: string;
-    session?: string;
-    detail?: string | null;
-    serverId?: string;
-  }>;
-  failures: Array<{
-    leafId: string;
-    finalOutcome: string | null;
-    reason: string | null;
-    pathTaken?: string | null;
-    nodesSpent?: number;
-  }>;
-  // Fire-and-track concurrency caps + live in-flight counts (the in-process limiter).
-  // `active` is the authoritative reserved-slot count the cap gates against.
-  limits?: {
-    global: { max: number; active: number };
-    project?: { max: number; active: number };
-  };
-}
-
 // Slow bounded poll — this is evidence, not a live tail. ws nudge is the primary refresh.
 const POLL_MS = 15000;
 const LIVE_POLL_MS = 4000;
-
-function fmtDuration(ms: number | null | undefined): string {
-  if (ms == null) return '';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60000);
-  const s = Math.round((ms % 60000) / 1000);
-  return `${m}m${s}s`;
-}
 
 /** One concurrency-pool row: "active / max" with a FULL badge at the ceiling, plus
  *  optional −/+ steppers to change the max (the canonical in-flight cap control). */
@@ -130,11 +81,11 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
     }).then(() => onCapsChanged?.()).catch(() => {});
   };
   if (!daemon) return null;
-  const hasBreaker = daemon.breaker.open;
-  const hasInflight = daemon.inflight.length > 0;
-  const hasPaused = daemon.paused.length > 0;
-  const hasSpawns = daemon.recentSpawns.length > 0;
-  const hasFailures = daemon.failures.length > 0;
+  const hasBreaker = !!daemon.breaker?.open;
+  const hasInflight = (daemon.inflight?.length ?? 0) > 0;
+  const hasPaused = (daemon.paused?.length ?? 0) > 0;
+  const hasSpawns = (daemon.recentSpawns?.length ?? 0) > 0;
+  const hasFailures = (daemon.failures?.length ?? 0) > 0;
   const hasLimits = !!daemon.limits;
   if (!hasBreaker && !hasInflight && !hasPaused && !hasSpawns && !hasFailures && !hasLimits) return null;
   return (
@@ -185,8 +136,8 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
               )}
             </div>
             <div className="mt-1 font-normal tabular-nums">
-              until {new Date(daemon.breaker.openUntil).toLocaleTimeString()} ·{' '}
-              {fmtDuration(daemon.breaker.openUntil - daemon.now)} remaining
+              until {new Date(daemon.breaker!.openUntil).toLocaleTimeString()} ·{' '}
+              {fmtDuration(daemon.breaker!.openUntil - daemon.now)} remaining
             </div>
           </>
         ) : (
@@ -198,9 +149,9 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
       {hasInflight && (
         <div data-testid="daemon-inflight">
           <div className="text-2xs uppercase tracking-wide text-gray-400 mb-1">
-            running now ({daemon.inflight.length})
+            running now ({(daemon.inflight ?? []).length})
           </div>
-          {daemon.inflight.map((r) => (
+          {(daemon.inflight ?? []).map((r) => (
             <div key={r.leafId} className="flex items-center gap-2 py-0.5">
               <span
                 className={`h-2 w-2 rounded-full shrink-0 animate-pulse ${
@@ -228,9 +179,9 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
       {/* Sub-block 3: Paused queue */}
       {hasPaused && (
         <div data-testid="daemon-paused" className="text-2xs text-gray-500">
-          paused on cap ({daemon.paused.length}):{' '}
+          paused on cap ({(daemon.paused ?? []).length}):{' '}
           <span className="tabular-nums">
-            {daemon.paused.map((p) => p.todoId.slice(0, 8)).join(' · ')}
+            {(daemon.paused ?? []).map((p) => p.todoId.slice(0, 8)).join(' · ')}
           </span>
         </div>
       )}
@@ -239,7 +190,7 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
       {hasSpawns && (
         <div data-testid="daemon-spawns">
           <div className="text-2xs uppercase tracking-wide text-gray-400 mb-1">recent spawns</div>
-          {daemon.recentSpawns.slice(0, 5).map((s, i) => {
+          {(daemon.recentSpawns ?? []).slice(0, 5).map((s, i) => {
             let parsed: { suppressed?: boolean; outcome?: string } | null = null;
             try {
               parsed = s.detail ? JSON.parse(s.detail) : null;
@@ -263,7 +214,7 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
       {hasFailures && (
         <div data-testid="daemon-failures">
           <div className="text-2xs uppercase tracking-wide text-gray-400 mb-1">recent failures</div>
-          {daemon.failures.slice(0, 5).map((f) => {
+          {(daemon.failures ?? []).slice(0, 5).map((f) => {
             const isRed = f.finalOutcome === 'rejected' || f.finalOutcome === 'blocked';
             const isYellow = f.finalOutcome === 'pending';
             return (
@@ -292,12 +243,12 @@ export const ExecutorStatsPanel: React.FC<{
   project?: string;
   epicId?: string;
   serverScope?: string;
-}> = ({ project, epicId }) => {
+}> = ({ project, epicId, serverScope = '' }) => {
   const [data, setData] = useState<FleetStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refetchNonce, setRefetchNonce] = useState(0);
-  const [daemon, setDaemon] = useState<DaemonStatus | null>(null);
   const [tick, setTick] = useState(0);
+  const { daemon } = useLeafDaemon(project ?? '', serverScope, { epicId, nonce: refetchNonce });
 
   // Fetch (mirrors WorkerRunStrip's cancelled-flag shape). The response is the raw
   // FleetStats — there is NO `ran` envelope — so setData(d) directly.
@@ -318,26 +269,6 @@ export const ExecutorStatsPanel: React.FC<{
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [project, epicId, refetchNonce]);
-
-  // Daemon fetch — same nonce dep so it rides the ws nudge and bounded poll.
-  useEffect(() => {
-    let cancelled = false;
-    const params = new URLSearchParams();
-    if (project) params.set('project', project);
-    if (epicId) params.set('epicId', epicId);
-    const qs = params.toString();
-    fetch(`/api/leaf-executor/daemon${qs ? `?${qs}` : ''}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: DaemonStatus | null) => {
-        if (!cancelled) setDaemon(d);
-      })
-      .catch(() => {
-        if (!cancelled) setDaemon(null);
       });
     return () => {
       cancelled = true;

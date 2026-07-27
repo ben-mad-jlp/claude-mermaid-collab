@@ -16,6 +16,12 @@ vi.mock('@/lib/websocket', () => ({
   }),
 }));
 
+// Mock apiFetch to serve the /daemon route (used by useLeafDaemon hook).
+let daemonResponse: unknown = null;
+vi.mock('@/lib/api', () => ({
+  apiFetch: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(daemonResponse) })),
+}));
+
 function mockFetchRouter(routes: Record<string, unknown>) {
   return vi.fn().mockImplementation((url: string) => {
     const match = Object.entries(routes).find(([key]) => url.includes(key));
@@ -92,7 +98,8 @@ afterEach(() => {
 
 describe('ExecutorStatsPanel', () => {
   it('renders hero tiles from mocked stats', async () => {
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_IDLE }) as any;
+    daemonResponse = DAEMON_IDLE;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('stat-leafcount')).toBeTruthy());
     expect(screen.getByTestId('stat-leafcount').textContent).toBe('5');
@@ -104,7 +111,8 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('shows a GREEN auth audit (no alarm) when healthy', async () => {
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_IDLE }) as any;
+    daemonResponse = DAEMON_IDLE;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('authmode-audit')).toBeTruthy());
     const band = screen.getByTestId('authmode-audit');
@@ -114,7 +122,8 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('shows a LOUD RED auth alarm when authModeAlarm is true', async () => {
-    global.fetch = mockFetchRouter({ '/stats': ALARM, '/daemon': DAEMON_IDLE }) as any;
+    daemonResponse = DAEMON_IDLE;
+    global.fetch = mockFetchRouter({ '/stats': ALARM }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('authmode-audit')).toBeTruthy());
     const band = screen.getByTestId('authmode-audit');
@@ -127,7 +136,8 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('renders the empty state on leafCount 0 — no tiles, no audit band', async () => {
-    global.fetch = mockFetchRouter({ '/stats': EMPTY, '/daemon': DAEMON_IDLE }) as any;
+    daemonResponse = DAEMON_IDLE;
+    global.fetch = mockFetchRouter({ '/stats': EMPTY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByText('No headless runs yet.')).toBeTruthy());
     expect(screen.queryByTestId('stat-leafcount')).toBeNull();
@@ -135,7 +145,8 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('shows open breaker band when daemon breaker is open', async () => {
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
+    daemonResponse = DAEMON_ACTIVE;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('daemon-breaker')).toBeTruthy());
     const band = screen.getByTestId('daemon-breaker');
@@ -147,7 +158,8 @@ describe('ExecutorStatsPanel', () => {
       ...DAEMON_IDLE,
       limits: { global: { max: 4, active: 3 }, project: { max: 2, active: 2 } },
     };
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_POOLS }) as any;
+    daemonResponse = DAEMON_POOLS;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="/Users/me/Code/build123d-ocp-mcp" />);
     await waitFor(() => expect(screen.getByTestId('daemon-pools')).toBeTruthy());
     const pools = screen.getByTestId('daemon-pools');
@@ -164,10 +176,10 @@ describe('ExecutorStatsPanel', () => {
       limits: { global: { max: 4, active: 1 }, project: { max: 2, active: 0 } },
     };
     const posts: any[] = [];
+    daemonResponse = DAEMON_POOLS;
     global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
       if (url.includes('/inflight-caps') && init?.method === 'POST') { posts.push(JSON.parse(init.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }); }
       if (url.includes('/stats')) return Promise.resolve({ ok: true, json: () => Promise.resolve(HEALTHY) });
-      if (url.includes('/daemon')) return Promise.resolve({ ok: true, json: () => Promise.resolve(DAEMON_POOLS) });
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     }) as any;
     render(<ExecutorStatsPanel project="/Users/me/Code/proj" />);
@@ -177,14 +189,16 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('shows running inflight leaf in daemon-inflight section', async () => {
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
+    daemonResponse = DAEMON_ACTIVE;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('daemon-inflight')).toBeTruthy());
     expect(screen.getByTestId('daemon-inflight').textContent).toContain('implement');
   });
 
   it('shows rejected failure in daemon-failures section', async () => {
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
+    daemonResponse = DAEMON_ACTIVE;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('daemon-failures')).toBeTruthy());
     const section = screen.getByTestId('daemon-failures');
@@ -193,7 +207,8 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('daemon section absent when daemon is idle', async () => {
-    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_IDLE }) as any;
+    daemonResponse = DAEMON_IDLE;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('stat-leafcount')).toBeTruthy());
     expect(screen.queryByTestId('daemon-inflight')).toBeNull();

@@ -13,50 +13,10 @@
  * Click a row to open its detail tab for the full headless run strip (per-node cost,
  * outcome, review verdict, expandable output).
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
-import { getWebSocketClient } from '@/lib/websocket';
-import { apiFetch } from '@/lib/api';
+import { useLeafDaemon, NODE_LABEL, fmtElapsedPadded as fmtDuration, type InflightLeaf } from '@/lib/leafDaemon';
 import { excludeEpics, bucketTodo } from './funnel';
-
-interface InflightLeaf {
-  leafId: string;
-  project: string;
-  epicId: string | null;
-  nodeKind: string | null;
-  model: string | null;
-  attempt: number | null;
-  startedAt: number;
-  elapsedMs: number;
-  stale: boolean;
-}
-
-interface DaemonResponse {
-  now: number;
-  inflight?: InflightLeaf[];
-  breaker?: { open: boolean; openUntil: number | null };
-  paused?: Array<{ todoId: string; project: string; firstTrippedAt: number | null }>;
-}
-
-const NODE_LABEL: Record<string, string> = {
-  blueprint: 'Blueprint',
-  implement: 'Implement',
-  wimplement: 'Implement',
-  review: 'Review',
-  research: 'Research',
-  verify: 'Verify',
-  fix: 'Fix',
-};
-
-const POLL_MS = 2500;
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(0)}s`;
-  const m = Math.floor(ms / 60000);
-  const s = Math.round((ms % 60000) / 1000);
-  return `${m}m${s.toString().padStart(2, '0')}s`;
-}
 
 export interface InflightPanelProps {
   todos: SessionTodo[];
@@ -73,8 +33,7 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
   serverScope,
   onSelectTodo,
 }) => {
-  const [daemon, setDaemon] = useState<DaemonResponse | null>(null);
-  const [nonce, setNonce] = useState(0);
+  const { daemon } = useLeafDaemon(project, serverScope);
   // Tick so elapsed counters advance between polls.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -90,41 +49,6 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
     },
     [todos],
   );
-
-  // Live daemon read (headless leaf-executor). Server-aware so it hits the per-server
-  // backend that owns the ledger (desktop/multi-server).
-  useEffect(() => {
-    let cancelled = false;
-    const qs = project ? `?project=${encodeURIComponent(project)}` : '';
-    apiFetch(serverScope, `/api/leaf-executor/daemon${qs}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: DaemonResponse | null) => {
-        if (!cancelled) setDaemon(d);
-      })
-      .catch(() => {
-        if (!cancelled) setDaemon(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [project, serverScope, nonce]);
-
-  // ws nudge + bounded poll while anything is in flight (no new ws event).
-  useEffect(() => {
-    const client = getWebSocketClient();
-    const sub = client.onMessage((msg: any) => {
-      if (msg?.type === 'session_todos_updated' || msg?.type === 'worker_phase') setNonce((n) => n + 1);
-    });
-    return () => sub.unsubscribe();
-  }, []);
-  const shouldPoll = inflightTodos.length > 0 || (daemon?.inflight?.length ?? 0) > 0;
-  const pollRef = useRef(shouldPoll);
-  pollRef.current = shouldPoll;
-  useEffect(() => {
-    if (!shouldPoll) return;
-    const id = setInterval(() => { if (pollRef.current) setNonce((n) => n + 1); }, POLL_MS);
-    return () => clearInterval(id);
-  }, [shouldPoll]);
 
   const pausedSet = useMemo(
     () => new Set((daemon?.paused ?? []).map((p) => p.todoId)),
