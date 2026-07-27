@@ -48,7 +48,6 @@ import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
 import * as supervisorStore from '../services/supervisor-store.js';
-import { recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { listSessionRuntimes } from '../services/session-runtime.js';
 import { getFleetStatus } from '../services/fleet-status.js';
@@ -59,10 +58,8 @@ import { listObjects, listTypes } from '../services/system-object-store.js';
 import { bom } from '../services/system-object-bom.js';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.js';
 import { specHealth, syncShortlist } from '../services/cartographer.js';
-import { lastAssistantTurn } from '../services/transcript-reader.js';
-import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
+import { getTodo, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
 import type { TodoKind } from '../services/todo-kind.js';
-import { isGate } from '../services/todo-kind.js';
 import { MISSION_TOOL_DEFS, handleMissionTool } from './mission-tools.js';
 import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from './workgraph-tools.js';
 import { SNIPPET_TOOL_DEFS, handleSnippetTool } from './snippet-tools.js';
@@ -80,11 +77,11 @@ import {
   listDiagrams, getDiagram, createDiagram,
 } from './diagram-tools.js';
 import { DESIGN_TOOL_DEFS, handleDesignTool } from './design-tools.js';
+import { SUPERVISOR_TOOL_DEFS, handleSupervisorTool } from './supervisor-tools.js';
+import { EPIC_TOOL_DEFS, handleEpicTool } from './epic-tools.js';
 // Design service handlers still called directly by non-design flows (clear-artifacts,
 // session summary); the design tool group itself lives in ./design-tools.ts.
 import { handleCreateDesign, handleGetDesign, handleListDesigns, handleDeleteDesign } from './tools/design.js';
-import { checkInvariants } from '../services/invariant-check.js';
-import { gateStatus } from '../services/gate-status.js';
 import { instanceTopology } from '../services/instance-topology.js';
 import { systemStatus } from '../services/system-status.js';
 // BUG 7fb16985: orchestrator_status and system_status MUST derive running/level/
@@ -97,21 +94,15 @@ import { systemStatus } from '../services/system-status.js';
 // running:true/level). Import the IDENTICAL specifier statically so both read the
 // same module instance (same `timer`, same level rows).
 import { getOrchestratorHealth as getOrchestratorHealthSST } from '../services/orchestrator-live.js';
-import { getEpicBranchStatus } from '../services/epic-branch-status.js';
-import { verifyEpic } from '../services/verify-epic.js';
-import { getLeafRun, listLeafRuns } from '../services/ledger-stats.js';
-import { listLeafInflight, editLeafRequirement, editContractField } from '../services/worker-ledger.js';
+import { listLeafInflight } from '../services/worker-ledger.js';
 import { breakerOpen } from '../services/headless-breaker.js';
 import { frictionTrends } from '../services/friction-trends.js';
 import { runtimeConfig } from '../services/runtime-config.js';
 import { getConfig, getSecret } from '../services/config-service.js';
 import { consultCodex } from '../services/consult-openai.js';
 import { recordSpend } from '../services/spend-ledger.js';
-import { handleWorkerComplete } from '../services/coordinator-daemon.js';
-import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression, resolveEpicId } from '../services/coordinator-live.js';
-import { checkOwnership, landedByTrailer, type LandActor } from '../services/land-authority.js';
+import { diagnoseClaimSuppression } from '../services/coordinator-live.js';
 import { requestSelfDeploy } from '../services/deploy-service.js';
-import { awaitHumanDecision } from '../services/decision-relay.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import { syncTasksFromTaskGraph, getTaskGraphTasks } from './workflow/task-sync.js';
 import { checkGraphDrift, type DriftNode } from '../services/graph-drift.js';
@@ -151,7 +142,6 @@ import {
   sessionTodoToolDefs,
   type SessionTodoLink,
 } from './tools/session-todos.js';
-import { settleDupOfLandedToolDef, settleDupOfLandedHandler } from './tools/settle-dup-of-landed.js';
 import {
   handleCreateSnippet,
   handleUpdateSnippet,
@@ -222,19 +212,6 @@ async function withDesktopRetry<T>(op: () => Promise<T>): Promise<T> {
     return await op();
   }
 }
-async function peerFetch(serverId: string | undefined, path: string, init?: { method?: string; body?: any }): Promise<any> {
-  if (!serverId) throw new Error('peerFetch requires serverId');
-  const peer = supervisorStore.getPeer(serverId);
-  if (!peer) throw new Error('unknown peer ' + serverId);
-  // Tokenless direct call (P1 §2): peers carry no token. A peer that enforces
-  // auth will 401 here, and the caller degrades to desktop-brokered routing.
-  const res = await fetch(peer.baseUrl + path, {
-    method: init?.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    body: init?.body ? JSON.stringify(init.body) : undefined,
-  });
-  return await res.json();
-}
 const { defs: desktopDefs, handlers: desktopHandlers }: { defs: any[]; handlers: Record<string, (args: any) => Promise<any>> } =
   _bridge ? _bridge.createDesktopTools(getDesktopDriver) : { defs: [], handlers: {} };
 // desktop_screenshot is overridden below to accept optional project/session for saving.
@@ -280,41 +257,13 @@ function generateSessionName(): string {
 
 /** Append a supervisor decision/action to the durable audit log AND broadcast a
  *  supervisor_decision WS event (for live UI + the System Map / observability). */
-function recordSupervisorDecision(kind: string, project: string, session: string, detail?: string | null, serverId?: string): void {
+export function recordSupervisorDecision(kind: string, project: string, session: string, detail?: string | null, serverId?: string): void {
   try {
     const entry = supervisorStore.recordSupervisorAudit({ kind, project, session, detail, serverId });
     getWebSocketHandler()?.broadcast({ type: 'supervisor_decision', project, session, kind, detail: entry.detail, ts: entry.ts });
   } catch { /* audit must never break the action it records */ }
 }
 
-
-/**
- * Single-writer fence for mutating supervisor tools. Returns a structured
- * `superseded` payload (string) when the caller's epoch is no longer current —
- * the caller must then perform NO write and return this payload. Returns null
- * when the caller is the current owner OR did not supply an epoch at all.
- *
- * Enforced-WHEN-PRESENT by design: escalation_create is also called by ordinary
- * workers (which never carry a supervisor epoch), so the fence only bites when a
- * supervisor-context caller supplies `supervisorEpoch`. A superseded supervisor
- * still carries its (now stale) epoch and is correctly rejected.
- */
-function supervisorFence(supervisorEpoch: number | undefined): string | null {
-  if (supervisorEpoch == null) return null;
-  try {
-    supervisorStore.assertSupervisorOwner(supervisorEpoch);
-    return null;
-  } catch (e) {
-    if (e instanceof supervisorStore.SupersededError) {
-      return JSON.stringify(
-        { superseded: true, currentEpoch: e.currentEpoch, currentSession: e.currentSession, message: e.message },
-        null,
-        2,
-      );
-    }
-    throw e;
-  }
-}
 
 
 
@@ -931,45 +880,17 @@ export async function setupMCPServer(): Promise<Server> {
         description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
         inputSchema: assignSessionTodoSchema,
       },
-      { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
-      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: { supervisorEpoch: { type: 'number', description: 'Ownership epoch; a superseded supervisor is rejected.' } } } },
-      { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
-      { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'escalation_history', description: "Read-only escalation history — OPEN and RESOLVED escalations with how each was triaged and resolved (escalation_list shows OPEN only). The store is GLOBAL, so an unfiltered call spans all projects and defaults to the recent-N newest-first. FILTERS (all optional): epicId (resolves escalation.todoId → parentId chain → [EPIC] ancestor), project, todoId, session, status, kind, routedTo ('steward'=ai-resolved | 'human'=escalated-to-human), since/until (createdAt ms range), limit (default 50). PER-ROW: kind, status, createdAt/resolvedAt, timeToResolutionMs, routedTo, stewardAttempts, suggestedAction (Grok bucket+confidence+rationale), the human decision (optionId/note/decidedBy), resolutionActor (decider handle | 'daemon-auto'), recurrenceCount (how many escalations share project+session+questionText). With epicId, folds in that epic's decision records. summary:true returns aggregate counts (auto-resolved vs escalated-to-human), avg stewardAttempts, median timeToResolution, grouped by epic/project — answers 'is drive-level Grok triage resolving escalations or just bouncing them to the human?'.", inputSchema: { type: 'object', properties: { epicId: { type: 'string' }, project: { type: 'string' }, todoId: { type: 'string' }, session: { type: 'string' }, status: { type: 'string' }, kind: { type: 'string' }, routedTo: { type: 'string', enum: ['steward', 'human'] }, since: { type: 'number', description: 'Lower bound on createdAt (ms epoch).' }, until: { type: 'number', description: 'Upper bound on createdAt (ms epoch).' }, limit: { type: 'number', description: 'Recent-N cap, newest-first (default 50).' }, summary: { type: 'boolean', description: 'Return the aggregate breakdown instead of rows.' } } } },
-      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status. When status is "acknowledged", routes to acknowledgeEscalation instead of resolveEscalation.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
-      { name: 'land_epic', description: "LAND an epic onto master (FBPE P4 — human-gated, irreversible). Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at click time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the work-graph + escalation live).' }, escalationId: { type: 'string', description: "The open 'epic-ready-to-land' escalation id to land." }, allowDirty: { type: 'boolean', description: "Bypass the clean-tree guard: land even though the main checkout has uncommitted/untracked changes. The dirty paths are still printed, an `Allow-Dirty: <paths>` trailer is added to the land commit, and an orchestration friction note is recorded. Per-call only — NOT a persistent flag." }, actor: { type: 'string', enum: ['human', 'conductor', 'daemon'], description: "Who is taking this irreversible action. Defaults to 'human'. 'conductor' additionally requires `session` and is gated on OWNERSHIP: the epic must be a descendant of that session's ACTIVE mission, and must not be a bucket root." }, session: { type: 'string', description: "Conductor session id. Required when actor='conductor'." } }, required: ['project', 'escalationId'] } },
+      ...SUPERVISOR_TOOL_DEFS.slice(0, 7),
+      ...EPIC_TOOL_DEFS.slice(0, 1),
       { name: 'deploy_self', description: "DEPLOY the running sidecar from its own repo (human-gated, STRICTLY SEPARATE from land). After a self-project epic lands, the live :9002 binary is stale against master; this rebuilds sidecar+UI and restarts the app. Server hard-gates self-project (project must equal the sidecar's MERMAID_PROJECT) AND macOS AND the presence of scripts/deploy-desktop.sh — never deploys another repo. Spawned DETACHED, so it survives killing this very process; returns immediately with a logPath to tail. Reasons: ok | not-self-project | unsupported-platform | deploy-script-missing | spawn-failed.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: "The project to deploy — must be the sidecar's own repo (MERMAID_PROJECT)." } }, required: ['project'] } },
-      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch. Workers escalating omit this; a superseded supervisor that passes its stale epoch is rejected (superseded).' } }, required: ['project', 'session', 'kind', 'questionText'] } },
-      { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
-      { name: 'supervisor_next_decision', description: 'On-demand supervisor LLM poll: return the oldest PENDING ambiguous-stop decision request (id, workerSession, signal, snapshot) the watchdog daemon enqueued, or null when the queue is empty. Read the snapshot, JUDGE, then call supervisor_resolve_decision. The LLM never loops or acts — it only judges; the daemon acts on the verdict.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional project scope; omit for all watched projects.' } } } },
-      { name: 'supervisor_resolve_decision', description: 'Write a verdict for a pending decision request (the supervisor LLM\'s one judgment). verdict: escalate (surface to the human), nudge/resume (push the worker to continue), or wait (leave it). EPOCH-GATED: pass supervisorEpoch; a superseded supervisor is rejected and performs no write. The daemon acts on the verdict on its next tick.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, verdict: { type: 'string', enum: ['escalate', 'nudge', 'resume', 'wait'] }, reason: { type: 'string', description: 'Short rationale for the verdict (recorded for provenance).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected (superseded).' } }, required: ['id', 'verdict'] } },
-      { name: 'subscribe', description: 'Subscribe THIS registered collab session to notifications about a todo, an epic, a mission (every epic/leaf under it, including epics created in later iterations), or a whole project (nudge-to-pull). The notification router enqueues coalesced updates; a tiny tmux nudge then wakes the idle session, which drains them via the `inbox` tool and acts — so a steward session need not /loop or poll. scope=project omits targetId. Idempotent.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'The collab session subscribing (must be registered).' }, scope: { type: 'string', enum: ['todo', 'epic', 'mission', 'project'] }, targetId: { type: 'string', description: 'Todo, epic, or mission id (required for scope todo/epic/mission; omit for project).' } }, required: ['project', 'session', 'scope'] } },
-      { name: 'unsubscribe', description: 'Remove a subscription for THIS session. Pass scope (+ targetId for todo/epic/mission) to drop one, or all:true to drop every subscription for the session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, scope: { type: 'string', enum: ['todo', 'epic', 'mission', 'project'] }, targetId: { type: 'string' }, all: { type: 'boolean', description: 'Drop ALL of this session\'s subscriptions (ignores scope/targetId).' } }, required: ['project', 'session'] } },
-      { name: 'update_zen_summary', description: "Push THIS session's OWN Zen summary (self-report — the session knows its real state, no external pane-scrape/interpret needed). Folds straight into the Zen card as FRESH. `structured` = { paragraph: string (the glance: the GOAL first, then a blank line, then what we're doing now), status: 'working'|'idle'|'stuck'|'needs-input', detail?: string, question?: string (ONLY if WE asked the human something and are awaiting their reply), options?: [{label,valueToSend}], recommended?: int, multiSelect?: bool, suggestedAnswers?: string[], aiOption?: string } — the SAME schema the interpreter emits. Rejected if paragraph or a valid status is missing.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, structured: { type: 'object' } }, required: ['project', 'session', 'structured'] } },
-      { name: 'list_subscriptions', description: 'List what THIS session is subscribed to (the nudge-to-pull subscriptions): every {scope, targetId, createdAt} for the session. Use it to SEE your subscriptions before dropping one (`unsubscribe` scope+targetId) or clearing all (`unsubscribe` all:true).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
-      { name: 'inbox', description: 'Drain THIS session\'s pending subscription notifications (the PULL half of nudge-to-pull). Returns + marks-seen every unseen update [{ scope, targetId, event, summary, payload, ts, tsLocal }] plus a top-level `servedAt` (epochMs/iso/local) stamping when you pulled. `tsLocal` is the human-readable wall-clock of each event; `ts` is its epoch ms. The FULL drain means a missed nudge self-heals on the next one. Call this when woken by a nudge (or any time) to see what changed on your subscribed todos/epics/projects, then act.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
-      { name: 'get_todo', description: "Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). `status`/`derivedStatus` are the live-DERIVED state and `storedStatus` is the raw persisted value (an approved todo derives 'ready' while storedStatus stays 'planned'); also returns isClaimable + claimReason. Used by a worker to read its claimed todo.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
-      { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] }, claimToken: { type: 'string', description: 'The claim token of the run reporting completion; omit only for human/steward completions.' } }, required: ['project','todoId','acceptance'] } },
-      { name: 'gate_status', description: "Read-only per-project acceptance-gate status. Returns the CONFIGURED gate command (the project's .collab/project.json `gateCommand`, the tsc/test invocation the completion gate runs) — or null + `gateConfigured:false` when the project uses the default worker change-set-scoped tsc+tests — plus the last N gate results per todo (from the durable supervisor audit trail): each carries { todoId, title, passed, acceptance, acceptanceStatus, ts, reason }. Lets the steward answer 'why is this todo blocked / how is the gate set up?' without spelunking the DB or manifest.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose gate config + recent results to report.' }, limit: { type: 'number', description: 'Max recent gate results to return (default 20, capped 200).' } }, required: ['project'] } },
-      { name: 'invariant_check', description: "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no epic (kind='epic') ancestor), stranded-epic (an epic with no land leaf (kind='land') beneath it), epic-planned-ready-child (epic still 'planned' with a 'ready' child), broken-depends-on (dependsOn points at a missing/dropped todo), blocked-on-nothing ('blocked' but every dep is done). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose work-graph to check.' } }, required: ['project'] } },
-      { name: 'epic_branch_status', description: "Read-only git landing status per epic (kind='epic'). For each epic, reports its collab/epic/<id8> accumulation branch: exists?, ahead (unlanded commits vs master), behind (master commits the branch lacks), mergeable (trial merge has no conflicts), and landLeafDone (its land leaf (kind='land') is done). Flags `stranded` epics — the epic branch EXISTS and is ahead>0 of the base (git-derived, independent of the land-leaf stamp), i.e. 'unlanded commits on master'. A `corrupt` sub-flag additionally marks a FALSELY-STAMPED land: the land leaf is done yet the branch is still ahead>0 (work claimed landed that git says is not). Pure git reads (rev-list/merge-tree), no mutation. Returns { project, baseRef, epics[], strandedCount, corrupt, corruptCount }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose epics to check.' }, baseRef: { type: 'string', description: "Base branch to compare against (default 'master')." } }, required: ['project'] } },
-      { name: 'epic_land_readiness', description: "Read-only land-presence check for one epic (kind='epic'). For the epic's FULL descendant set, every descendant that is accepted/done and is a CODE leaf must have a commit whose `Collab-Todo: <id>` trailer is reachable from collab/epic/<id8>. Containers (>=1 non-dropped child), [GATE] decision nodes, the land leaf (kind='land') and nested epics are exempt and reported as exemptions. A code leaf with a commit on a stray ref is 'stranded'; one with no commit anywhere is 'missing' (accepted nothing) — both BLOCK the land. Also counts DUPLICATE trailer commits per leaf (informational only; duplicate dispatch is safe recovery, never auto-fixed). Proves work LANDED, says nothing about whether it is CORRECT. Pure git reads; reports, never fixes. Returns { epicId, epicBranch, checked, findings[], exemptions[], duplicateCommits[], blocking }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project.' }, epicId: { type: 'string', description: 'The epic todo id (full uuid or leading-8 prefix).' } }, required: ['project', 'epicId'] } },
-      { name: 'land_telemetry_report', description: "Read-only windowed rollup over recorded land cycles (epic_land_record) for `project`. Per cycle reports landPath ('epic-tip' vs 'merge-sha-fallback', derived from whether the epic tip sha was captured), a live re-derived non-terminal serving-leaf count/ids (work still open under that epic's descendants at REPORT time — not a historical capture), and postLandStatusClean/postLandResidue (a report-time `git status --porcelain` snapshot of the main checkout, not a historical post-land capture). Also counts `main-checkout-residue` escalations raised in the same window. Defaults sinceMs to 24h before untilMs (untilMs default now). Pure reads — never mutates any store.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project.' }, sinceMs: { type: 'number', description: 'Window lower bound (epoch ms). Default untilMs - 24h.' }, untilMs: { type: 'number', description: 'Window upper bound (epoch ms). Default now.' } }, required: ['project'] } },
-      { name: 'verify_epic', description: "Read-only differential suite verdict for one epic (kind='epic'). Runs the project's own suite command(s) (resolved from .collab/project.json gateCommand/frontendGateCommand — never hard-coded) SEQUENTIALLY against a detached scratch worktree of the epic branch and a detached scratch worktree of base. Per suite returns { suite, branchFailing[], baseFailing[], newFailures[], subsetHolds } where newFailures = branch failing NAMES minus base failing NAMES (names, never counts); subsetHolds ⇔ no net-new failures. Top-level passed = every suite ran AND every subsetHolds; a suite that could not RUN (worktree/spawn failure) is a non-passing INCIDENT distinct from a suite that ran and failed. Reports only — never merges, lands, or mutates the work-graph. Returns { project, epicId, base, passed, suites[] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project.' }, epicId: { type: 'string', description: 'The epic todo id (full uuid or leading-8 prefix).' }, base: { type: 'string', description: "Base ref to compare against (default 'master')." } }, required: ['project', 'epicId'] } },
-      { name: 'forward_integrate_epic', description: "Bring an epic's collab/epic/<id8> accumulation branch UP TO DATE with trunk by MERGING trunk into it (--no-ff, NEVER rebase). Returns before/after branch sha, ahead/behind after the merge, and whether it conflicted. On conflict the merge is ABORTED and the branch is left exactly as it was — the conflicted paths are returned for a human to resolve. Integrates only; never lands.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project.' }, epicId: { type: 'string', description: 'The epic todo id (full uuid or leading-8 prefix).' }, baseRef: { type: 'string', description: "Trunk to merge in (default 'master')." } }, required: ['project', 'epicId'] } },
+      ...SUPERVISOR_TOOL_DEFS.slice(7, 15),
+      ...EPIC_TOOL_DEFS.slice(1, 11),
       { name: 'instance_topology', description: "Read-only map of every live mermaid-collab server this machine knows about, each tagged CANONICAL vs STALE SHADOW. Joins the on-disk instance records (~/.mermaid-collab/instances: port, project/session, pid, version, startedAt), the canonical :9002 ownership lockfile + a live /api/health probe (together identifying the ONE process that actually owns the canonical port), and the in-memory remote-peer registry. The live :9002 owner is tagged `canonical`; any OTHER instance also claiming :9002 is a `shadow` (the 'deploy went cosmetic because a stale source server shadows the desktop sidecar' footgun); a server on its own port is a plain `instance`. `hasShadow:true` is the warning flag. Takes no args.", inputSchema: { type: 'object', properties: {} } },
       { name: 'launch_remote_server', description: "Start a collab server on a REMOTE machine over SSH — the same detect→launch flow the desktop 'Launch' button runs (POST /api/server/detect then /api/server/launch), exposed as one tool so it can be driven/tested headlessly. Runs on THIS sidecar (which owns the system `ssh`). Two phases: (1) DETECT — SSH into the host, probe for bun / a global mermaid-collab / the newest plugin-cache version dir, adopt the server's existing config.json token (or mint one), and synthesize a start command that binds 0.0.0.0 AND sets MERMAID_AUTH_TOKEN (a 0.0.0.0 bind is always auth-required — never an open LAN hole). (2) LAUNCH — SSH again, detach the server (setsid/nohup), and poll the remote /api/health. Pass `command` to skip detect and launch a specific command; pass `detectOnly:true` to only probe+synthesize and NOT launch. `password` is used once for the SSH prompt and never persisted; omit it to use keys/agent (BatchMode). Returns { detect?, launch?, token? } — the token is what a client must present to reach the launched (auth-required) server. NOTE: the host must be a bare host/IP; the SSH user goes in `user`, not baked into `host`.", inputSchema: { type: 'object', properties: { host: { type: 'string', description: 'Bare remote host or IP (NOT user@host). The SSH user goes in `user`.' }, port: { type: 'number', description: 'Port the server should listen on / be probed at (default 9002).' }, user: { type: 'string', description: 'SSH user (blank = ssh default / ~/.ssh/config).' }, password: { type: 'string', description: 'One-time SSH password. Never persisted. Omit to use keys/agent (BatchMode, fails fast).' }, command: { type: 'string', description: 'Explicit start command to launch. If omitted, detect synthesizes one. Ignored when detectOnly is true.' }, token: { type: 'string', description: "Existing bearer token to thread through so detect REUSES it (avoids diverging from the server's config-authoritative token)." }, detectOnly: { type: 'boolean', description: 'Only run the SSH probe + synthesize a command; do NOT launch. Returns { detect }.' } }, required: ['host'] } },
       { name: 'orchestrator_off', description: "STEWARD KILL-SWITCH (one-way): force a project's Orchestrator autonomy level to 'off', stopping the daemon from driving todos. This is the steward's ONLY autonomy control — it can ALWAYS brake but can NEVER raise the level (decision 3bf1292b). It takes no level argument; raising autonomy stays human-only on the Bridge ladder. Reuses the server-side 'off' transition. Optional project (defaults to the server's cwd). Returns the resulting level for confirmation.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Project to brake (defaults to the current working directory).' } } } },
       { name: 'friction_trends', description: "Read-only recurrence rollup over the friction store. Groups the most-recent friction notes by LAYER (orchestration vs domain vs operational) with counts, and within each layer by retryReason, so a repeating problem (e.g. tmux-pane accumulation showing up as repeated orchestration friction) surfaces as a high-count reason instead of being buried in list_friction's flat newest-first list. Returns { total, considered, byLayer:[{ layer, count, reasons:[{ retryReason, count, sessions[], lastAt }] }], recurring:[{ layer, retryReason, count }] } — `recurring` is the cross-layer 'what keeps going wrong' shortlist (reasons seen >1, most-recurring first).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose friction to roll up.' }, layer: { type: 'string', enum: ['orchestration', 'domain', 'operational'], description: 'Optional: restrict to one layer.' }, limit: { type: 'number', description: 'Max most-recent notes to consider (default 100, capped 1000).' } }, required: ['project'] } },
-      { name: 'reset_todo', description: "Unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db. Reset authority: a human, the conductor node, or this explicit MCP call.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready'). Use 'blocked' to PARK a repeatedly-failing todo (a HOLD — not claimable, so the daemon stops re-dispatching it)." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, escalationId: { type: 'string', description: 'Open escalation this reset resolves (marks it resolved).' } }, required: ['project','todoId'] } },
-      { name: 'override_accept_todo', description: 'Force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'operator')." }, escalationId: { type: 'string', description: 'Open escalation this override resolves (marks it resolved).' } }, required: ['project','todoId'] } },
-      settleDupOfLandedToolDef,
-      { name: 'edit_contract_field', description: "Append a file path to a leaf's editable v2 diff-contract (leaf_blueprint.specJson): either the top-level filesToEdit array or one task's files array. Use to legalize an incidental file the diff already touches without touching worker_ledger.outputText (append-only telemetry). Bumps specRev.", inputSchema: { type: 'object', properties: { leafId: { type: 'string' }, mutation: { type: 'object', properties: { target: { type: 'string', enum: ['filesToEdit', 'task'] }, file: { type: 'string' }, taskId: { type: 'string', description: "Required when target='task' — the task id whose files array to append to." } }, required: ['target', 'file'] } }, required: ['leafId', 'mutation'] } },
-      { name: 'edit_leaf_requirement', description: "Replace one entry in a leaf's editable v2 diff-contract requirements[] at the given index (e.g. flip a mis-cited requirement to a different kind/target). `replacement` is a full DiffRequirement: kind:'symbol-present'|'named-test'|'threshold' plus that kind's fields. Bumps specRev.", inputSchema: { type: 'object', properties: { leafId: { type: 'string' }, index: { type: 'number' }, replacement: { type: 'object', description: "A DiffRequirement — { kind: 'symbol-present' | 'named-test' | 'threshold', ... kind-specific fields }.", properties: { kind: { type: 'string', enum: ['symbol-present', 'named-test', 'threshold'] } }, required: ['kind'] } }, required: ['leafId', 'index', 'replacement'] } },
-      { name: 'create_gate', description: "READINESS GATE: attach a HUMAN gate to a work-todo so it can't be claimed until a human clears the gate. Creates a '[GATE]' human todo (assigneeKind:'human', ready) and appends it to the work-todo's dependsOn, parking the work-todo 'blocked'. The coordinator never claims the gate (human) nor the blocked work-todo; completing the gate auto-promotes the work-todo to 'ready' on the same tick — no reset_todo, no new status. Use to hold a design-gated/needs-review todo until a human signs off.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, workTodoId: { type: 'string', description: 'The agent work-todo to gate.' }, title: { type: 'string', description: "Gate title (auto-prefixed '[GATE]' if absent)." }, description: { type: 'string', description: 'What the human must confirm/decide.' }, gateKind: { type: 'string', description: "Optional label folded into the title, e.g. 'spec-review' → '[GATE:spec-review]'." }, parentId: { type: 'string', description: 'Optional human-gate epic to parent the gate under (e.g. the [EPIC] human-gates id).' }, decisionRef: { type: 'string', description: 'Optional decision-record id: approving that record (approve_decision_record) auto-completes this gate — for design/decision gates that clear when the design lands.' } }, required: ['project', 'workTodoId', 'title'] } },
-      { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointDocId (preferred — vibe-checkpoint writes the checkpoint into the vibe.vibeinstructions document’s ## Checkpoint section) OR checkpointTodoId (legacy — older flows wrote into the in_progress todo description; the claimability model no longer keeps an interactive in_progress todo, so prefer the doc). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (preferred — e.g. vibe.vibeinstructions / vibe-vibeinstructions).' }, checkpointTodoId: { type: 'string', description: 'Legacy: todo id the checkpoint updated. Older flows wrote the checkpoint into the in_progress todo description; prefer checkpointDocId.' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
-      { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected.' } }, required: ['project', 'session'] } },
+      ...EPIC_TOOL_DEFS.slice(11, 17),
+      ...SUPERVISOR_TOOL_DEFS.slice(15, 17),
       { name: 'submit_reconcile_result', description: 'A reconcile session reports its merged plan graph back to the waiting reconciliation request. Call this at the END of the reconcile skill with the id you were given.', inputSchema: { type: 'object', properties: { reconcileId: { type: 'string' }, mergedGraph: { type: 'array', description: 'The merged PlanNode[] ({id, dependsOn[], parentId?, title?}).', items: { type: 'object' } }, newConstraints: { type: 'array', description: 'Optional new constraints surfaced by the merge ({title, rationale?}).', items: { type: 'object' } } }, required: ['reconcileId', 'mergedGraph'] } },
       { name: 'create_decision_record', description: 'Record a planning decision/constraint/assumption/requirement (PCS #9). decisions/assumptions are auto-active; constraints & requirements start "proposed" and need approval. requirements carry a machine-checkable spec {metric,op,target}. epicId null = project-level.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string', enum: ['decision', 'constraint', 'assumption', 'requirement'] }, title: { type: 'string' }, rationale: { type: 'string' }, alternatives: { type: 'array', items: { type: 'string' } }, spec: { type: 'object', description: 'Requirement spec {metric, op, target} — only for kind="requirement".', properties: { metric: { type: 'string' }, op: { type: 'string' }, target: {} } }, linkedTodos: { type: 'array', items: { type: 'string' } }, epicId: { type: 'string', description: 'Epic id, or omit for project-level.' }, authorSession: { type: 'string' } }, required: ['project', 'kind', 'title'] } },
       { name: 'list_decision_records', description: 'List decision records for a project, filterable by epicId / kind / status.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' }, kind: { type: 'string', enum: ['decision', 'constraint', 'assumption', 'requirement'] }, status: { type: 'string', enum: ['proposed', 'approved', 'active', 'superseded'] } }, required: ['project'] } },
@@ -983,20 +904,17 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'list_system_objects', description: 'List the durable system-object tree (instances) + the type registry for a project — the data the Spec Sheet renders.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'system_object_bom', description: 'Rolled-up bill-of-materials beneath a root object (derived recursive-CTE; never stored): total qty per child type.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, rootId: { type: 'string' } }, required: ['project', 'rootId'] } },
       { name: 'decide_requirement', description: 'Sign/reject/re-sign a requirement promise (reuses the decision-record approve/supersede path). decision: "approve" → active; "reject" → superseded (no replacement); "edit" → creates a fresh proposed requirement carrying the new spec and supersedes the old (the re-sign DIFF). edit requires spec.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string', enum: ['approve', 'reject', 'edit'] }, approvedBy: { type: 'string' }, spec: { type: 'object', description: 'New requirement spec {metric, op, target} — required for decision="edit".', properties: { metric: { type: 'string' }, op: { type: 'string' }, target: {} } }, title: { type: 'string' } }, required: ['project', 'id', 'decision'] } },
-      { name: 'supervisor_pause', description: 'EMERGENCY OVERRIDE: pause supervisor driving-actions (nudge/clear/watchdog) — globally or for one project. Use when the supervisor is misbehaving. Resume with supervisor_resume.', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
-      { name: 'supervisor_resume', description: 'Lift a supervisor pause (the scope you paused: "global" or a project path).', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
-      { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
+      ...SUPERVISOR_TOOL_DEFS.slice(17, 20),
       { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
-      { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
+      ...SUPERVISOR_TOOL_DEFS.slice(20, 21),
       { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns, recentAutonomousMutations:[{kind,actor,reason,project?,detail?,at}] }. `recentAutonomousMutations` (B6) is the in-memory newest-first log of self-driven mutations — reserve-leaf re-cuts, deploy-gate refusals, and terminal-mission self-heals — scoped to `project` when given (global entries always included), else all. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Scope recentAutonomousMutations to this project (global entries are always included). Omit for all.' } } } },
       { name: 'system_status', description: "THE one-call steward rollup — call this FIRST to ground a decision instead of a stale checkpoint + N bash probes. COMPOSES the four foundational read-models (orchestrator_status: daemon running/level + pool occupancy + cold-starts · fleet_status: worker occupancy + proc-headroom early-warning · invariant_check: work-graph violation count · instance_topology: canonical :9002 confirmation vs stale shadows) PLUS inline: deploy/version drift (live sidecar pid+version+startedAt vs repo package.json version + git HEAD + uncommitted WIP — the 'did the deploy land or go cosmetic?' read), open-escalation + pending-decision counts, and steward/supervisor pause state. Returns a COMPACT summary with `pointers` to the focused tool for full detail behind any field. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project to roll up (work-graph + deploy/git lives here).' } }, required: ['project'] } },
       { name: 'daemon_status', description: "LIVE leaf-executor activity — the piece fleet_status/orchestrator_status are blind to (a leaf run makes no tmux). Returns the leaves RUNNING RIGHT NOW (leafId, current nodeKind, model, attempt, elapsedMs, and a `stale` flag for rows older than 15m = a likely crashed run) + the headless circuit-breaker state (open/closed) + a `state` field (working | blocked-on-decision | claims-suppressed | claimable | idle). When scoped to a project, `state` is one of: working (leaves in flight), blocked-on-decision (a split parent has unapproved children — see `claimSuppression.blockedSplits`), claims-suppressed (ready leaves held by probes/budget/breaker), claimable (leaves ready to claim), or idle (no work). Use this to answer 'what is the daemon doing this second'; pair with orchestrator_status (level/pool/recentSpawns) and leaf_failures (what broke). Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Filter in-flight leaves to this project.' } } } },
-      { name: 'leaf_inspect', description: "Per-leaf HEADLESS run view from the worker-ledger — how you watch/diagnose a leaf-executor run (it leaves NO tmux, so fleet_status/orchestrator_status are blind to it). Returns the node timeline (kind, model, input/output tokens, durationMs, exitCode, parseError [the kill/timeout reason a failed node carries — explains a blocked leaf], verdict, output EXCERPT) + the ATOMIC terminal record (effectiveOutcome incl. 'pending', reviewVerdict, pathTaken floor/waves, reason, pendingReason, gateReasons, attempts, nodesSpent) + budget/cost rollup + resumeDecisions (per-claim resume mode/reason/anomaly, ASC by decidedAt). leafId === the todoId (pass either). Node output is excerpted (~600 chars) by default since node outputs run 10-30k tokens; pass fullOutput=true for complete text. Read-only.", inputSchema: { type: 'object', properties: { leafId: { type: 'string', description: 'Leaf/todo id or prefix is NOT accepted — pass the full id (same value as todoId).' }, todoId: { type: 'string', description: 'Alias for leafId (the leaf-executor sets both to the todo id).' }, fullOutput: { type: 'boolean', description: "Return each node's FULL output text instead of a ~600-char excerpt." } } } },
-      { name: 'leaf_failures', description: "Triage list of recent leaf-executor runs that did NOT end cleanly — finalOutcome in {rejected, blocked, pending} — newest-first, each with the terminal reason/pendingReason, path (floor/waves), nodesSpent and cost. The entry point for 'what headless runs broke and why'. Filter by project and/or epicId. Pass includeAll=true to list EVERY recent run regardless of outcome. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Filter to this tracking project.' }, epicId: { type: 'string', description: 'Filter to one epic.' }, limit: { type: 'number', description: 'Max runs (default 50).' }, includeAll: { type: 'boolean', description: 'Include accepted/clean runs too.' } } } },
+      ...EPIC_TOOL_DEFS.slice(17, 19),
       { name: 'runtime_config', description: "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose per-project overrides (watchdog threshold, supervisor pause, orchestrator level) to resolve.' } }, required: ['project'] } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'set_context_recycle', description: "Set a project's context-auto-recycle mode — the deterministic server-side driver that keeps a low-context WATCHED session alive by injecting /vibe-checkpoint → /clear → /collab (no LLM supervisor in the loop). 'off' (default) = inert; 'notify' = at the watchdog threshold, inject an advisory nudge and only auto-clear+reload once the session itself saves a fresh checkpoint (assisted); 'force' = server injects the checkpoint too, then clears+reloads (for an unattended autonomous-loop session).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, mode: { type: 'string', enum: ['off', 'notify', 'force'], description: "off | notify | force" } }, required: ['project', 'mode'] } },
-      { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
+      ...SUPERVISOR_TOOL_DEFS.slice(21, 22),
       ...MISSION_TOOL_DEFS,
       ...WORKGRAPH_TOOL_DEFS,
       { name: 'context_usage', description: "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose sessions to report.' }, thresholdPercent: { type: 'number', description: 'Override the checkpoint threshold % (default: per-project config → 80).' } }, required: ['project'] } },
@@ -1108,6 +1026,14 @@ export async function setupMCPServer(): Promise<Server> {
         // Design tool group lives in ./design-tools.ts; delegate by name.
         const designResult = await handleDesignTool(name, args);
         if (designResult !== null) return designResult;
+
+        // Supervisor tool group lives in ./supervisor-tools.ts; delegate by name.
+        const supervisorResult = await handleSupervisorTool(name, args);
+        if (supervisorResult !== null) return supervisorResult;
+
+        // Epic-lifecycle tool group lives in ./epic-tools.ts; delegate by name.
+        const epicResult = await handleEpicTool(name, args);
+        if (epicResult !== null) return epicResult;
         switch (name) {
           case 'generate_session_name':
             return JSON.stringify({ name: generateSessionName() }, null, 2);
@@ -1787,278 +1713,11 @@ export async function setupMCPServer(): Promise<Server> {
             return JSON.stringify({ ...deriveTodoViews(project, [result])[0], previousAssigneeSession: result.previousAssigneeSession ?? undefined }, null, 2);
           }
 
-          case 'supervisor_list_supervised': {
-            return JSON.stringify(supervisorStore.listSupervised(), null, 2);
-          }
-          case 'supervisor_nudge': {
-            const { project, session, serverId, text, supervisorEpoch } = args as { project: string; session: string; serverId?: string; text: string; supervisorEpoch?: number };
-            if (!project || !session || !text) throw new Error('Missing required: project, session, text');
-            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
-            if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ sent: false, skipped: 'paused' }, null, 2);
-            let result: any;
-            let sent: boolean;
-            if (serverId && supervisorStore.getPeer(serverId)) {
-              result = await peerFetch(serverId, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text } });
-              sent = !!(result?.tmux ?? result?.success);
-            } else {
-              result = { sent: false, reason: 'local tmux delivery removed' };
-              sent = false;
-            }
-            // Surface the nudge in the UI: a toast lets the user SEE that the
-            // supervisor actually pushed a session to continue (and whether it
-            // landed in a live tmux pane). Broadcast on the supervisor's own
-            // server — that's where the user is watching.
-            getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
-            recordSupervisorDecision('nudge', project, session, JSON.stringify({ text, sent }), serverId);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'supervisor_reconcile': {
-            { const fenced = supervisorFence((args as { supervisorEpoch?: number }).supervisorEpoch); if (fenced) return fenced; }
-            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; serverId: string }> = [];
-            for (const wp of supervisorStore.listWatchedProjects()) {
-              // Unified read model owns the status/liveness join; the supervisor
-              // overlay (supervised + open-todo count) stays a supervisor concern.
-              for (const rt of listSessionRuntimes(wp.project)) {
-                const supervised = supervisorStore.isSupervised(wp.project, rt.session);
-                const openTodos = supervised ? listTodos(wp.project, { session: rt.session, includeCompleted: false }).length : 0;
-                out.push({ project: wp.project, session: rt.session, status: rt.status, updatedAt: rt.updatedAt, openTodos, supervised, serverId: '' });
-              }
-            }
-            // Remote supervised sessions: fetch each peer's session-status once per (serverId, project).
-            const remotePairs = new Map<string, { serverId: string; project: string }>();
-            for (const sup of supervisorStore.listSupervised()) {
-              if (sup.serverId && supervisorStore.getPeer(sup.serverId)) remotePairs.set(sup.serverId + '|' + sup.project, { serverId: sup.serverId, project: sup.project });
-            }
-            const supervisedRemote = new Set(supervisorStore.listSupervised().filter(s => s.serverId).map(s => s.serverId + '|' + s.project + '|' + s.session));
-            for (const { serverId: sid, project: proj } of remotePairs.values()) {
-              try {
-                const resp = await peerFetch(sid, '/api/session-status?project=' + encodeURIComponent(proj), { method: 'GET' });
-                for (const s of (resp.statuses ?? [])) {
-                  if (!supervisedRemote.has(sid + '|' + proj + '|' + s.session)) continue;
-                  // openTodos:0 for remote — todos not locally queryable.
-                  out.push({ project: proj, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos: 0, supervised: true, serverId: sid });
-                }
-              } catch {
-                out.push({ project: proj, session: '(peer unreachable)', status: 'unreachable', updatedAt: null, openTodos: 0, supervised: true, serverId: sid });
-              }
-            }
-            return JSON.stringify(out, null, 2);
-          }
-          case 'read_last_assistant_turn': {
-            const { claudeSessionId, serverId } = args as { claudeSessionId: string; serverId?: string };
-            if (!claudeSessionId) throw new Error('Missing required: claudeSessionId');
-            if (serverId && supervisorStore.getPeer(serverId)) {
-              return JSON.stringify(await peerFetch(serverId, '/api/transcript/last-turn?claudeSessionId=' + encodeURIComponent(claudeSessionId), { method: 'GET' }), null, 2);
-            }
-            return JSON.stringify(await lastAssistantTurn(claudeSessionId), null, 2);
-          }
-          case 'escalation_list': {
-            return JSON.stringify(supervisorStore.listOpenEscalations(), null, 2);
-          }
-          case 'escalation_history': {
-            const { getEscalationHistory } = await import('../services/escalation-history.js');
-            const f = args as {
-              epicId?: string; project?: string; todoId?: string; session?: string;
-              status?: string; kind?: string; routedTo?: string;
-              since?: number; until?: number; limit?: number; summary?: boolean;
-            };
-            return JSON.stringify(getEscalationHistory(f), null, 2);
-          }
-          case 'escalation_resolve': {
-            const { id, status, supervisorEpoch } = args as { id: string; status: string; supervisorEpoch?: number };
-            if (!id || !status) throw new Error('Missing required: id, status');
-            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
-            if (status === 'acknowledged') {
-              supervisorStore.acknowledgeEscalation(id, 'human');
-            } else {
-              supervisorStore.resolveEscalation(id, status);
-            }
-            return JSON.stringify({ success: true, id, status }, null, 2);
-          }
-          case 'land_epic': {
-            const { project, escalationId, allowDirty, actor: actorKind, session } = args as { project: string; escalationId: string; allowDirty?: boolean; actor?: string; session?: string };
-            if (!project || !escalationId) throw new Error('Missing required: project, escalationId');
-
-            // Build the actor (default human, so every existing caller is byte-for-byte unchanged)
-            let actor: LandActor = { kind: 'human' };
-            if (actorKind === 'conductor') {
-              if (!session) throw new Error("Missing required: session (required when actor='conductor')");
-              actor = { kind: 'conductor', session };
-            } else if (actorKind === 'daemon') {
-              actor = { kind: 'daemon', level: 'auto' };
-            }
-
-            // Ownership gate — conductor only.
-            if (actor.kind === 'conductor') {
-              const esc = supervisorStore.getEscalation(escalationId);
-              if (!esc || esc.kind !== 'epic-ready-to-land' || !esc.todoId) {
-                return JSON.stringify({ ok: false, landed: false, reason: 'not-a-land-escalation' }, null, 2);
-              }
-              const child = getTodo(project, esc.todoId);
-              if (!child) return JSON.stringify({ ok: false, landed: false, reason: 'todo-not-found' }, null, 2);
-              const epicId = resolveEpicId(child, project);
-              const own = checkOwnership(project, epicId, actor);
-              if (!own.ok) {
-                recordSupervisorDecision('reconcile', project, session!, JSON.stringify({ escalationId, epicId, land: 'refused', reason: own.blocker?.code, ownership: own.ownership }));
-                return JSON.stringify({
-                  ok: false, landed: false, epicId,
-                  reason: own.blocker?.code ?? 'unauthorized',
-                  ownership: own.ownership,
-                  message: own.blocker?.message,
-                  instruction: 'ESCALATE TO THE HUMAN. A conductor may only land epics under its own ACTIVE mission. Never land another mission\'s epic, and never land a bucket root.',
-                }, null, 2);
-              }
-            }
-
-            const result = await landEpic(project, escalationId, { allowDirty });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-
-            // Attach the actor and trailer to the result
-            const trailer = landedByTrailer(actor);
-            const payload = result.reason === 'dirty-tree'
-              ? { ...result, instruction: 'Main checkout is dirty. File a todo for the daemon, or EnterWorktree to hand-code, or commit / discard the changes — then re-land. To override for this call, pass allowDirty:true.', landedBy: trailer, actor: actor.kind }
-              : { ...result, landedBy: trailer, actor: actor.kind };
-
-            // Record audit on successful land
-            if (result.landed === true && result.epicId) {
-              recordSupervisorDecision('reconcile', project, actor.kind === 'conductor' ? session! : actor.kind, JSON.stringify({ escalationId, epicId: result.epicId, land: 'landed', trailer }));
-            }
-
-            return JSON.stringify(payload, null, 2);
-          }
           case 'deploy_self': {
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
             const result = await requestSelfDeploy(project);
             return JSON.stringify(result, null, 2);
-          }
-          case 'escalation_create': {
-            const { project, session, kind, questionText, todoId, options, recommended, ui, operatorGated, supervisorEpoch } = args as { project: string; session: string; kind: string; questionText: string; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown; operatorGated?: boolean; supervisorEpoch?: number };
-            if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
-            // Fence only bites a supervisor-context caller (one that carries an
-            // epoch). Ordinary workers escalate without an epoch — never fenced.
-            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
-            // Use the store's authoritative new-vs-dedup signal (no separate
-            // pre-check → no TOCTOU): broadcast/record only for new escalations.
-            // `ui` (BR-4) is server-validated inside createEscalation against the
-            // closed catalog; an invalid spec is dropped, never throws.
-            const coercedOptions = coerceArrayArg(options, 'options') as Array<{ id: string; label: string; detail?: string }> | undefined;
-            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId, options: coercedOptions, recommended, ui, operatorGated });
-            if (isNew) {
-              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo, escalation: esc });
-              recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
-              // P3 (readiness ergonomics): a needs-design / operator-gated escalation
-              // linked to a work-todo gets a durable, self-clearing human [GATE] (P1
-              // createGate) instead of the steward's manual re-park to 'planned'. It
-              // surfaces in the human inbox ("waiting on you: provision env / land
-              // design") and auto-promotes the work-todo when the human clears it.
-              // Best-effort: never let a gate failure break escalation creation; skip
-              // when the work-todo is itself human, missing, or already gated (idempotent).
-              if (todoId && supervisorStore.shouldAutoGate(kind, Boolean(operatorGated))) {
-                try {
-                  const work = getTodo(project, todoId);
-                  const alreadyGated = work?.dependsOn?.some((d) => {
-                    const dep = getTodo(project, d);
-                    return !!dep && isGate(dep);
-                  });
-                  if (work && work.assigneeKind !== 'human' && !alreadyGated) {
-                    await createGate(project, { workTodoId: todoId, title: questionText, gateKind: kind });
-                  }
-                } catch (e) {
-                  console.warn('[escalation_create] auto-gate failed:', e instanceof Error ? e.message : String(e));
-                }
-              }
-            }
-            return JSON.stringify(esc, null, 2);
-          }
-          case 'await_human_decision': {
-            const { escalationId, timeoutMs } = args as { escalationId: string; timeoutMs?: number };
-            if (!escalationId) throw new Error('Missing required: escalationId');
-            const result = await awaitHumanDecision(escalationId, { timeoutMs });
-            return JSON.stringify(result, null, 2);
-          }
-          case 'subscribe': {
-            const { project, session, scope, targetId } = args as { project?: string; session?: string; scope?: string; targetId?: string };
-            if (!project || !session || !scope) throw new Error('Missing required: project, session, scope');
-            if (!['todo', 'epic', 'mission', 'project'].includes(scope)) throw new Error(`Invalid scope "${scope}" (todo|epic|mission|project)`);
-            const subs = await import('../services/session-subscriptions');
-            const sub = subs.addSubscription(project, session, scope as any, targetId);
-            return JSON.stringify({ ok: true, subscription: sub }, null, 2);
-          }
-          case 'unsubscribe': {
-            const { project, session, scope, targetId, all } = args as { project?: string; session?: string; scope?: string; targetId?: string; all?: boolean };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const subs = await import('../services/session-subscriptions');
-            if (all) return JSON.stringify({ ok: true, removed: subs.dropSubscriptionsForSession(project, session) }, null, 2);
-            if (!scope) throw new Error('Missing required: scope (or all:true)');
-            return JSON.stringify({ ok: true, removed: subs.removeSubscription(project, session, scope as any, targetId) }, null, 2);
-          }
-          case 'update_zen_summary': {
-            const { project, session, structured } = args as { project?: string; session?: string; structured?: unknown };
-            if (!project || !session || !structured) throw new Error('Missing required: project, session, structured');
-            const ss = await import('../services/session-summary-loop.ts');
-            const wsh = getWebSocketHandler();
-            const r = ss.pushSessionSummary(project, session, structured, (m) => wsh?.broadcast(m as never));
-            if (!r.ok) throw new Error(`update_zen_summary rejected: ${r.reason}`);
-            return JSON.stringify({ ok: true, pushed: { project, session } }, null, 2);
-          }
-          case 'list_subscriptions': {
-            const { project, session } = args as { project?: string; session?: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const subs = await import('../services/session-subscriptions');
-            const list = subs.listSubscriptionsForSession(project, session);
-            return JSON.stringify({ session, count: list.length, subscriptions: list }, null, 2);
-          }
-          case 'inbox': {
-            const { project, session } = args as { project?: string; session?: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const subs = await import('../services/session-subscriptions');
-            const items = subs.drainInbox(project, session);
-            // Wall-clock stamps (matches get_datetime's style): servedAt = when this drain
-            // ran; per-item tsLocal = human-readable form of each event's epoch `ts`. So a
-            // subscriber reading the response knows WHEN it pulled and WHEN each update fired
-            // without converting epochs by hand.
-            const fmt = (ms: number) => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' });
-            const now = Date.now();
-            return JSON.stringify({
-              count: items.length,
-              servedAt: { epochMs: now, iso: new Date(now).toISOString(), local: fmt(now) },
-              items: items.map((it) => ({ ...it, tsLocal: fmt(it.ts) })),
-            }, null, 2);
-          }
-          case 'supervisor_next_decision': {
-            // The on-demand supervisor LLM polls the oldest pending ambiguous-stop
-            // request. Read-only; null when the queue is empty (nothing to judge).
-            const { project } = args as { project?: string };
-            return JSON.stringify(supervisorStore.getNextPendingDecision(project), null, 2);
-          }
-          case 'supervisor_resolve_decision': {
-            const { id, verdict, reason, supervisorEpoch } = args as { id: string; verdict: string; reason?: string; supervisorEpoch?: number };
-            if (!id || !verdict) throw new Error('Missing required: id, verdict');
-            if (!supervisorStore.DECISION_VERDICTS.includes(verdict as supervisorStore.DecisionVerdict)) {
-              throw new Error(`Invalid verdict "${verdict}" (expected one of ${supervisorStore.DECISION_VERDICTS.join(', ')})`);
-            }
-            // EPOCH-GATED (2dd13c65): resolveDecision calls assertSupervisorOwner and
-            // throws SupersededError for a stale supervisor — catch it and return the
-            // structured superseded payload, performing NO write (mirrors supervisorFence).
-            const owner = supervisorStore.getSupervisorIdentity();
-            try {
-              const resolved = supervisorStore.resolveDecision({
-                id,
-                verdict: verdict as supervisorStore.DecisionVerdict,
-                reason,
-                resolvedBy: owner ? `${owner.session}@${owner.epoch}` : null,
-                epoch: supervisorEpoch,
-              });
-              if (!resolved) return JSON.stringify({ success: false, reason: 'not-pending', id }, null, 2);
-              recordSupervisorDecision('decide', resolved.project, resolved.workerSession, JSON.stringify({ decisionId: id, verdict, reason: reason ?? null }));
-              return JSON.stringify({ success: true, decision: resolved }, null, 2);
-            } catch (e) {
-              if (e instanceof supervisorStore.SupersededError) {
-                return JSON.stringify({ superseded: true, currentEpoch: e.currentEpoch, currentSession: e.currentSession, message: e.message }, null, 2);
-              }
-              throw e;
-            }
           }
           case 'complete_linked_todos': {
             const { project, session, blueprintId, taskId } = args as {
@@ -2130,25 +1789,6 @@ export async function setupMCPServer(): Promise<Server> {
             return await withDesktopRetry(() => handler(args ?? {}));
           }
 
-          case 'get_todo': {
-            const { project, todoId } = args as { project: string; todoId: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            const todo = getTodo(project, todoId);
-            if (!todo) throw new Error(`todo not found: ${todoId}`);
-            return JSON.stringify(deriveTodoViews(project, [todo])[0], null, 2);
-          }
-          case 'invariant_check': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const violations = await checkInvariants(project);
-            return JSON.stringify({ violations, count: violations.length }, null, 2);
-          }
-          case 'gate_status': {
-            const { project, limit } = args as { project: string; limit?: number };
-            if (!project) throw new Error('Missing required: project');
-            const status = gateStatus(project, typeof limit === 'number' ? limit : 20);
-            return JSON.stringify(status, null, 2);
-          }
           case 'instance_topology': {
             const topology = await instanceTopology();
             return JSON.stringify(topology, null, 2);
@@ -2222,74 +1862,6 @@ export async function setupMCPServer(): Promise<Server> {
                   : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : 'idle';
             return JSON.stringify({ now, state, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}) }, null, 2);
           }
-          case 'leaf_inspect': {
-            const { leafId, todoId, fullOutput } = args as { leafId?: string; todoId?: string; fullOutput?: boolean };
-            const id = leafId ?? todoId;
-            if (!id) throw new Error('Missing required: leafId (or todoId)');
-            const run = getLeafRun(id);
-            if (!run) return JSON.stringify({ ran: false, leafId: id }, null, 2);
-            // Excerpt node output by default (node outputs run 10-30k tokens → context
-            // bloat); fullOutput=true returns the complete text for deliberate drill-in.
-            const EXCERPT = 600;
-            const nodes = run.nodes.map((n) => ({
-              ...n,
-              outputText: n.outputText == null
-                ? null
-                : fullOutput || n.outputText.length <= EXCERPT
-                  ? n.outputText
-                  : `${n.outputText.slice(0, EXCERPT)}\n…[+${n.outputText.length - EXCERPT} chars — pass fullOutput=true]`,
-            }));
-            return JSON.stringify({ ran: true, ...run, nodes }, null, 2);
-          }
-          case 'leaf_failures': {
-            const { project, epicId, limit, includeAll } = args as { project?: string; epicId?: string; limit?: number; includeAll?: boolean };
-            const all = listLeafRuns({ project, epicId, limit: limit ?? 50 });
-            const runs = includeAll ? all : all.filter((r) => r.finalOutcome != null && r.finalOutcome !== 'accepted');
-            return JSON.stringify({ count: runs.length, runs }, null, 2);
-          }
-          case 'epic_branch_status': {
-            const { project, baseRef } = args as { project: string; baseRef?: string };
-            if (!project) throw new Error('Missing required: project');
-            const report = await getEpicBranchStatus(project, baseRef || 'master');
-            return JSON.stringify(report, null, 2);
-          }
-          case 'epic_land_readiness': {
-            const { project, epicId: epicIdArg } = args as { project: string; epicId: string };
-            if (!project) throw new Error('Missing required: project');
-            if (!epicIdArg) throw new Error('Missing required: epicId');
-            const { getEpicLandReadiness } = await import('../services/epic-land-readiness.js');
-            // Resolve short-id prefix via getTodo (the standard short-id convention).
-            const resolved = getTodo(project, epicIdArg);
-            const epicId = resolved?.id ?? epicIdArg;
-            const report = await getEpicLandReadiness(project, epicId);
-            return JSON.stringify(report, null, 2);
-          }
-          case 'land_telemetry_report': {
-            const { project, sinceMs, untilMs } = args as { project: string; sinceMs?: number; untilMs?: number };
-            if (!project) throw new Error('Missing required: project');
-            const { reportLandCycles } = await import('../services/land-telemetry-report.js');
-            const resolvedUntilMs = untilMs ?? Date.now();
-            const resolvedSinceMs = sinceMs ?? resolvedUntilMs - 24 * 60 * 60 * 1000;
-            const report = await reportLandCycles(project, { sinceMs: resolvedSinceMs, untilMs: resolvedUntilMs });
-            return JSON.stringify(report, null, 2);
-          }
-          case 'verify_epic': {
-            const { project, epicId: epicIdArg, base } = args as { project: string; epicId: string; base?: string };
-            if (!project) throw new Error('Missing required: project');
-            if (!epicIdArg) throw new Error('Missing required: epicId');
-            const resolved = getTodo(project, epicIdArg);
-            const epicId = resolved?.id ?? epicIdArg;
-            const result = await verifyEpic(project, epicId, { base });
-            return JSON.stringify(result, null, 2);
-          }
-          case 'forward_integrate_epic': {
-            const { project, epicId, baseRef } = args as { project: string; epicId: string; baseRef?: string };
-            if (!project) throw new Error('Missing required: project');
-            if (!epicId) throw new Error('Missing required: epicId');
-            const { forwardIntegrateEpicTool } = await import('../services/forward-integrate-epic.js');
-            const result = await forwardIntegrateEpicTool(project, epicId, { baseRef });
-            return JSON.stringify(result, null, 2);
-          }
           case 'friction_trends': {
             const { project, layer, limit } = args as { project: string; layer?: import('../services/friction-store.js').FrictionLayer; limit?: number };
             if (!project) throw new Error('Missing required: project');
@@ -2316,132 +1888,6 @@ export async function setupMCPServer(): Promise<Server> {
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
             return JSON.stringify(runtimeConfig(project), null, 2);
-          }
-          case 'complete_todo': {
-            const { project, todoId, acceptance, claimToken } = args as { project: string; todoId: string; acceptance: 'accepted' | 'rejected'; claimToken?: string };
-            if (!project || !todoId || !acceptance) throw new Error('Missing required: project, todoId, acceptance');
-            const result = await handleWorkerComplete(makeCoordinatorDeps(), project, todoId, acceptance, claimToken);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            return JSON.stringify(result, null, 2);
-          }
-          case 'reset_todo': {
-            const { project, todoId, status, targetProject, escalationId } = args as { project: string; todoId: string; status?: import('../services/todo-store.js').TodoStatus; targetProject?: string | null; escalationId?: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            // Explicit operator/MCP reset — the manual undo. resetTodo also auto-resolves
-            // the todo's stale escalations; resolve the linked one explicitly when supplied.
-            const result = await resetTodo(project, todoId, status ?? 'ready', targetProject);
-            if (escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            return JSON.stringify(deriveTodoViews(project, [result])[0], null, 2);
-          }
-          case 'create_gate': {
-            const { project, workTodoId, title, description, gateKind, parentId, decisionRef } = args as { project: string; workTodoId: string; title: string; description?: string | null; gateKind?: string; parentId?: string | null; decisionRef?: string | null };
-            if (!project || !workTodoId || !title) throw new Error('Missing required: project, workTodoId, title');
-            const result = await createGate(project, { workTodoId, title, description, gateKind, parentId, decisionRef });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            return JSON.stringify(result, null, 2);
-          }
-          case 'override_accept_todo': {
-            const { project, todoId, completedBy, escalationId } = args as { project: string; todoId: string; completedBy?: string; escalationId?: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            // Explicit operator/MCP force-accept.
-            const result = await overrideAcceptTodo(project, todoId, completedBy ?? 'operator');
-            if (escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            return JSON.stringify({ ...result, completed: deriveTodoViews(project, [result.completed])[0] }, null, 2);
-          }
-          case 'settle_dup_of_landed': return await settleDupOfLandedHandler(args as any);
-          case 'edit_contract_field': {
-            const { leafId, mutation } = args as { leafId: string; mutation: { target: 'filesToEdit' | 'task'; file: string; taskId?: string } };
-            if (!leafId || !mutation?.target || !mutation?.file) throw new Error('Missing required: leafId, mutation.target, mutation.file');
-            const contractMutation = mutation.target === 'task'
-              ? { target: 'task' as const, taskId: mutation.taskId!, file: mutation.file }
-              : { target: 'filesToEdit' as const, file: mutation.file };
-            const ok = editContractField(leafId, contractMutation);
-            return JSON.stringify({ ok, leafId }, null, 2);
-          }
-          case 'edit_leaf_requirement': {
-            const { leafId, index, replacement } = args as { leafId: string; index: number; replacement: import('../services/diff-contract.js').DiffRequirement };
-            if (!leafId || typeof index !== 'number' || !replacement?.kind) throw new Error('Missing required: leafId, index, replacement');
-            const ok = editLeafRequirement(leafId, index, replacement);
-            return JSON.stringify({ ok, leafId }, null, 2);
-          }
-          case 'checkpoint_ready': {
-            const { project, session, checkpointTodoId, checkpointDocId, maxWriteAgeMs } = args as { project: string; session: string; checkpointTodoId?: string; checkpointDocId?: string; maxWriteAgeMs?: number };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            if (!checkpointTodoId && !checkpointDocId) throw new Error('Provide checkpointTodoId or checkpointDocId');
-            const maxAge = maxWriteAgeMs ?? 120_000;
-            // HARD GATE: verify the artifact was ACTUALLY just written — a
-            // self-report alone is not trusted (clear-before-persist = data loss).
-            let writtenAtMs: number | undefined;
-            let artifact: string;
-            if (checkpointTodoId) {
-              artifact = `todo:${checkpointTodoId}`;
-              const todo = getTodo(project, checkpointTodoId);
-              if (!todo) return JSON.stringify({ persisted: false, reason: 'checkpoint-todo-not-found', checkpointTodoId }, null, 2);
-              writtenAtMs = new Date(todo.updatedAt).getTime();
-            } else {
-              artifact = `doc:${checkpointDocId}`;
-              let lastModified: unknown;
-              try {
-                lastModified = JSON.parse(await getDocument(project, session, checkpointDocId!))?.lastModified;
-              } catch {
-                return JSON.stringify({ persisted: false, reason: 'checkpoint-doc-not-found', checkpointDocId }, null, 2);
-              }
-              if (typeof lastModified !== 'number') {
-                return JSON.stringify({ persisted: false, reason: 'no-lastModified', checkpointDocId }, null, 2);
-              }
-              writtenAtMs = lastModified;
-            }
-            if (writtenAtMs === undefined || Number.isNaN(writtenAtMs)) {
-              return JSON.stringify({ persisted: false, reason: 'no-write-timestamp', artifact }, null, 2);
-            }
-            const ageMs = Date.now() - writtenAtMs;
-            if (ageMs > maxAge) {
-              return JSON.stringify({ persisted: false, reason: 'checkpoint-stale', ageMs, maxWriteAgeMs: maxAge, artifact }, null, 2);
-            }
-            recordCheckpointReady(project, session);
-            getWebSocketHandler()?.broadcast({ type: 'claude_session_checkpoint_ready', project, session, persistedAt: Date.now() });
-            recordSupervisorDecision('checkpoint', project, session, JSON.stringify({ artifact, ageMs }));
-            return JSON.stringify({ persisted: true, artifact, ageMs }, null, 2);
-          }
-          case 'supervisor_clear_session': {
-            const { project, session, serverId, maxAgeMs, supervisorEpoch } = args as { project: string; session: string; serverId?: string; maxAgeMs?: number; supervisorEpoch?: number };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
-            if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ cleared: false, reason: 'paused' }, null, 2);
-            // Gate: only clear if a recent persisted checkpoint exists. For a peer
-            // session the marker lives on its home server, so check there.
-            let ready: boolean;
-            const isPeer = !!(serverId && supervisorStore.getPeer(serverId));
-            if (isPeer) {
-              const maxAge = maxAgeMs ?? 600_000;
-              try {
-                const peer = await peerFetch(serverId!, `/api/session-status?project=${encodeURIComponent(project)}`, { method: 'GET' });
-                const row = (peer?.statuses ?? []).find((s: any) => s.session === session);
-                ready = !!(row?.checkpointReadyAt && Date.now() - row.checkpointReadyAt <= maxAge);
-              } catch {
-                return JSON.stringify({ cleared: false, reason: 'peer-status-unreachable' }, null, 2);
-              }
-            } else {
-              ready = isCheckpointReady(project, session, maxAgeMs);
-            }
-            if (!ready) {
-              return JSON.stringify({ cleared: false, reason: 'checkpoint-not-ready' }, null, 2);
-            }
-            let result: any;
-            let sent: boolean;
-            if (isPeer) {
-              result = await peerFetch(serverId!, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text: '/clear' } });
-              sent = !!(result?.tmux ?? result?.success);
-            } else {
-              result = { sent: false, reason: 'local tmux delivery removed' };
-              sent = false;
-            }
-            if (sent && !isPeer) { clearCheckpointReady(project, session); resetWatchdogDebounce(project, session); }
-            getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });
-            recordSupervisorDecision('clear', project, session, JSON.stringify({ sent, isPeer }), serverId);
-            return JSON.stringify({ cleared: sent, reason: sent ? undefined : (result?.reason ?? 'send-failed') }, null, 2);
           }
           case 'submit_reconcile_result': {
             const { reconcileId, mergedGraph, newConstraints } = args as { reconcileId: string; mergedGraph: unknown[]; newConstraints?: unknown[] };
@@ -2524,23 +1970,6 @@ export async function setupMCPServer(): Promise<Server> {
             if (!project || !id || !decision) throw new Error('Missing required: project, id, decision');
             return JSON.stringify(decideRequirement(project, { id, decision, approvedBy, spec, title }), null, 2);
           }
-          case 'supervisor_pause': {
-            const { scope } = args as { scope?: string };
-            const s = scope || supervisorStore.GLOBAL_PAUSE_SCOPE;
-            supervisorStore.setSupervisorPause(s, true);
-            recordSupervisorDecision('override', s, '', JSON.stringify({ action: 'pause' }));
-            return JSON.stringify({ paused: true, scope: s }, null, 2);
-          }
-          case 'supervisor_resume': {
-            const { scope } = args as { scope?: string };
-            const s = scope || supervisorStore.GLOBAL_PAUSE_SCOPE;
-            supervisorStore.setSupervisorPause(s, false);
-            recordSupervisorDecision('override', s, '', JSON.stringify({ action: 'resume' }));
-            return JSON.stringify({ paused: false, scope: s }, null, 2);
-          }
-          case 'supervisor_pause_status': {
-            return JSON.stringify({ pauses: supervisorStore.listSupervisorPauses() }, null, 2);
-          }
           case 'check_graph_drift': {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
@@ -2548,11 +1977,6 @@ export async function setupMCPServer(): Promise<Server> {
             const nodes: DriftNode[] = tasks.map((t) => ({ id: t.id, dependsOn: t['depends-on'] ?? [], files: t.files ?? [], title: t.id }));
             const findings = checkGraphDrift(project, nodes);
             return JSON.stringify({ findings, tasksScanned: nodes.length }, null, 2);
-          }
-          case 'supervisor_audit_list': {
-            const { project, kind, limit } = args as { project?: string; kind?: string; limit?: number };
-            const entries = supervisorStore.listSupervisorAudit({ project, kind, limit });
-            return JSON.stringify({ entries }, null, 2);
           }
           case 'orchestrator_status': {
             // Live daemon runtime snapshot. Thin wrapper over the worker pool +
@@ -2629,31 +2053,6 @@ export async function setupMCPServer(): Promise<Server> {
             }
             supervisorStore.setContextRecycleMode(project, mode);
             return JSON.stringify({ project, mode }, null, 2);
-          }
-          case 'supervisor_watchdog_scan': {
-            const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };
-            if (!project) throw new Error('Missing required: project');
-            if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ actions: [], suppressed: 0, paused: true }, null, 2);
-            // Precedence: explicit arg → per-project config → built-in default.
-            const effectiveThreshold = thresholdPercent ?? supervisorStore.getWatchdogThreshold(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent;
-            const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: effectiveThreshold };
-            const now = Date.now();
-            const cooldown = checkpointCooldownMs ?? 10 * 60 * 1000;
-            // The supervisor's OWN session (if it lives in this project) is tagged
-            // self=true so the loop self-checkpoints/clears instead of trying to
-            // drive itself via supervisor_clear_session (which targets a PEER).
-            const identity = supervisorStore.getSupervisorIdentity();
-            const selfSession = identity && identity.project === project ? identity.session : undefined;
-            // Feed the watchdog selector from the unified read model (a structural
-            // superset of SessionStatusRow) rather than stitching getStatuses here.
-            const all = selectWatchdogActions(listSessionRuntimes(project, now), now, cfg, selfSession);
-            // Durable debounce on the repeatable 'checkpoint' nudge only. 'clear' is
-            // self-limiting: its marker is consumed on a successful clear, and a
-            // failed clear SHOULD retry — so it passes through every tick.
-            const actions = all.filter((a) =>
-              a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
-            );
-            return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold }, null, 2);
           }
           case 'context_usage': {
             // Read-only per-session context-window report. Built from the SAME

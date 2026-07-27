@@ -23,6 +23,8 @@ import { BROWSER_TOOL_DEFS, handleBrowserTool } from '../browser-tools.js';
 import { SPREADSHEET_TOOL_DEFS, handleSpreadsheetTool } from '../spreadsheet-tools.js';
 import { DIAGRAM_TOOL_DEFS, handleDiagramTool } from '../diagram-tools.js';
 import { DESIGN_TOOL_DEFS, handleDesignTool } from '../design-tools.js';
+import { SUPERVISOR_TOOL_DEFS, handleSupervisorTool } from '../supervisor-tools.js';
+import { EPIC_TOOL_DEFS, handleEpicTool } from '../epic-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -180,5 +182,27 @@ describe('tool dispatch coverage', () => {
 
   it('handleDesignTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleDesignTool('definitely_not_a_design_tool', {})).toBeNull();
+  });
+
+  it('every SUPERVISOR_TOOL_DEFS name is wired in handleSupervisorTool', async () => {
+    expect(SUPERVISOR_TOOL_DEFS.length).toBe(22);
+    for (const def of SUPERVISOR_TOOL_DEFS) {
+      expect(await isRecognized(handleSupervisorTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleSupervisorTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleSupervisorTool('definitely_not_a_supervisor_tool', {})).toBeNull();
+  });
+
+  it('every EPIC_TOOL_DEFS name is wired in handleEpicTool', async () => {
+    expect(EPIC_TOOL_DEFS.length).toBe(19);
+    for (const def of EPIC_TOOL_DEFS) {
+      expect(await isRecognized(handleEpicTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleEpicTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleEpicTool('definitely_not_an_epic_tool', {})).toBeNull();
   });
 });
