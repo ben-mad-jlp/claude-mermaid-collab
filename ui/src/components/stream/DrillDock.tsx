@@ -3,7 +3,7 @@
  *
  * A stream row, a KPI tile, a worker card, or a funnel segment opens the
  * matching EXISTING panel here while the stream keeps flowing on the left:
- *   escalation → EscalationInbox
+ *   escalation → BridgeEscalationInbox
  *   todo       → TodoDetailView
  *   worker     → WorkerDetail
  *   funnel     → the segment's filtered todo list
@@ -13,7 +13,9 @@
 
 import React, { useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
-import { EscalationInbox } from '@/components/supervisor/EscalationInbox';
+import { BridgeEscalationInbox } from '@/components/supervisor/bridge/BridgeEscalationInbox';
+import type { Escalation } from '@/stores/supervisorStore';
+import { selectOpenEscalations } from '@/lib/statusSelectors';
 import TodoDetailView from '@/components/editors/TodoDetailView';
 import TracePanel from '@/components/supervisor/TracePanel';
 import { WorkerDetail } from './WorkerDetail';
@@ -42,6 +44,7 @@ export interface DrillDockProps {
   project: string;
   subscriptions: SubLike[];
   todos: SessionTodo[];
+  escalations: Escalation[];
   onJump?: (project: string, session: string) => void;
   onClose: () => void;
 }
@@ -63,10 +66,12 @@ function focusTitle(target: DrillTarget | null): string {
 const FocusView: React.FC<{
   target: DrillTarget | null;
   serverScope: string;
+  project: string;
   subscriptions: SubLike[];
   todos: SessionTodo[];
+  escalations: Escalation[];
   onJump?: (project: string, session: string) => void;
-}> = ({ target, serverScope, subscriptions, todos, onJump }) => {
+}> = ({ target, serverScope, project, subscriptions, todos, escalations, onJump }) => {
   if (!target) {
     return (
       <p className="p-3 text-2xs text-gray-400 dark:text-gray-500 italic">
@@ -75,8 +80,10 @@ const FocusView: React.FC<{
     );
   }
   switch (target.kind) {
-    case 'escalation':
-      return <EscalationInbox serverId={serverScope} onJump={onJump} />;
+    case 'escalation': {
+      const open = selectOpenEscalations(escalations, { kind: 'project', project });
+      return <BridgeEscalationInbox escalations={open} serverScope={serverScope} bare onJump={onJump} project={project} />;
+    }
     case 'todo':
       return <TodoDetailView todoId={target.todoId} />;
     case 'worker':
@@ -116,6 +123,7 @@ export const DrillDock: React.FC<DrillDockProps> = ({
   project,
   subscriptions,
   todos,
+  escalations,
   onJump,
   onClose,
 }) => {
@@ -169,8 +177,10 @@ export const DrillDock: React.FC<DrillDockProps> = ({
           <FocusView
             target={target}
             serverScope={serverScope}
+            project={project}
             subscriptions={subscriptions}
             todos={todos}
+            escalations={escalations}
             onJump={onJump}
           />
         )}
