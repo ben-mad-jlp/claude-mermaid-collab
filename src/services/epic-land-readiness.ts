@@ -19,6 +19,7 @@ import type { Todo } from './todo-store';
 import { listTodos } from './todo-store';
 import { isEpicTodo, isLandTodo } from './invariant-check';
 import { epicBranchName } from './epic-branch-status';
+import { criterionEdgesOf } from './criterion-edges';
 
 /** [GATE] / [GATE:<kind>] — a decision node that authors no code. */
 export function isGateTodo(t: Todo): boolean {
@@ -149,10 +150,7 @@ export async function buildLandReadiness(
     return { project, epicId, epicBranch, checked: 0, findings, exemptions, duplicateCommits, blocking: false };
   }
 
-  const epicCriteria = new Set<string>([
-    ...(epic.servesCriterionIds ?? []),
-    ...(epic.servesCriterionId ? [epic.servesCriterionId] : []),
-  ]);
+  const epicCriteria = new Set(criterionEdgesOf(epic));
 
   for (const desc of descendantsOf(epic)) {
     // Skip dropped descendants.
@@ -170,10 +168,7 @@ export async function buildLandReadiness(
         continue;
       }
 
-      const descCriteria = new Set<string>([
-        ...(desc.servesCriterionIds ?? []),
-        ...(desc.servesCriterionId ? [desc.servesCriterionId] : []),
-      ]);
+      const descCriteria = new Set(criterionEdgesOf(desc));
       const hit = new Set<string>([...descCriteria].filter((c) => epicCriteria.has(c)));
       if (hit.size === 0) continue;
 

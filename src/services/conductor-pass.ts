@@ -46,6 +46,7 @@ export { conductorFingerprint, type ConductorActionRow } from './conductor-signa
 import { buildWakeContextBlock, type WakeContextInput } from './conductor-wake-context.js';
 import { collectVerifyStakesInput } from './criterion-verify-facts.js';
 import { classifyVerifyStakes } from './criterion-verify-stakes.js';
+import { todoServesCriterion } from './criterion-edges.js';
 export { buildWakeContextBlock, WAKE_CARD_RENDER_CAP, WAKE_CARD_EXCERPT_CHARS } from './conductor-wake-context.js';
 
 /** The kind stamped on a serve-cap escalation. One OPEN card per (mission, criterion) at a
@@ -391,9 +392,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
     for (const c of escalated) {
       const matching = allTodos.filter(
-        (t) => t.parentId === missionId && t.kind === 'epic' && (
-          t.servesCriterionId === c.id || (t.servesCriterionIds ?? []).includes(c.id)
-        ),
+        (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
       );
       servingEpicsByComp.set(c.id, matching.map((t) => t.id));
     }
