@@ -16,13 +16,12 @@ const cov = (o: Partial<CoverageRollup> = {}): CoverageRollup => ({
 describe('ProjectFooter', () => {
   it('renders nothing when there are no unlanded epics and no spec objects', () => {
     const { container: a } = render(
-      <ProjectFooter unlandedEpics={[]} coverage={undefined} />
+      <ProjectFooter coverage={undefined} />
     );
     expect(a.querySelector('[data-testid="project-footer"]')).toBeNull();
 
     const { container: b } = render(
       <ProjectFooter
-        unlandedEpics={[]}
         coverage={cov({ total: 0, covered: 0, partial: 0, uncovered: 0 })}
       />
     );
@@ -56,7 +55,6 @@ describe('ProjectFooter', () => {
   it('footer renders coverage alone when there are no unlanded epics', () => {
     render(
       <ProjectFooter
-        unlandedEpics={[]}
         coverage={cov()}
       />
     );

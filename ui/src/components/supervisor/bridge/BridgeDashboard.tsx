@@ -578,7 +578,6 @@ export const BridgeDashboard: React.FC = () => {
             }}
             footer={
               <ProjectFooter
-                unlandedEpics={unlandedEpicsByProject[project]}
                 coverage={coverageByProject[project]}
                 onSelectPanel={setRailPanel}
               />
