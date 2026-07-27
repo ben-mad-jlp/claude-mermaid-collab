@@ -26,6 +26,7 @@ import { recordAutonomousMutation } from './autonomy-log.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS, CONDUCTOR_LEADER_STALE_TICKS, CONDUCTOR_BEAT_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
+import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -1472,7 +1473,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     hasBuildingLeaf: ledgerUnavailable
       ? liveEpicIds.size > 0
       : liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused') || hasBuildingChildLeaf,
-    hasLandedEpic: epics.some((e) => e.status === 'done'),
+    hasLandedEpic: epics.some((e) => isEpicStatusDone(e)), // Deliberately narrow: widening to landedAt-stamped epics would flip missions to needs-verify/converged earlier than today
     hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
     // In-memory lookup (mission-stall.ts) — no scan, no I/O, and TTL'd so a project whose
     // mission-loop stopped running cannot latch a mission at 'stalled' forever.
@@ -1484,7 +1485,6 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // LANDED-ness is `status === 'done'` OR a stamped landedAt: the land paths can leave an
       // epic landed while its status lags at 'todo' (observed on 7 build123d epics, 2026-07-24),
       // and such an epic could never satisfy a status-only test — masking its criterion forever.
-      const isLandedEpic = (e: Todo) => e.status === 'done' || e.landedAt != null;
       // Live = the serving open epic has actual motion: a pending/paused ledger run, or a
       // ready/in_progress child leaf (covers approve→claim gap AND a ready land leaf).
       // A filed-but-unapproved epic is NOT live — its criterion stays 'discover'.
@@ -1494,9 +1494,9 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // is actually mid-build and cause the conductor to re-file a duplicate serving epic (real
       // spend). Treat any open serving epic as live until the ledger is readable again.
       const servingEpicLive = ledgerUnavailable
-        ? serving.some((e) => !isLandedEpic(e))
+        ? serving.some((e) => !isLanded(e))
         : serving.some((e) =>
-          !isLandedEpic(e) && (
+          !isLanded(e) && (
             runs.some((r) => r.epicId === e.id && (r.finalOutcome === 'pending' || r.finalOutcome === 'paused')) ||
             allTodos.some((t) => t.parentId === e.id && !isEpic(t) &&
               (derivedStatus(t, byId) === 'ready' || derivedStatus(t, byId) === 'in_progress')) ||
@@ -1522,7 +1522,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // conductor re-serves a real proof instead of the gate being handed an unproven criterion to
       // (maybe) rubber-stamp.
       const landedProvesC = serving.some((e) => {
-        if (!isLandedEpic(e)) return false;
+        if (!isLanded(e)) return false;
         const pf = proofForEpic(e.id);
         return pf.proven.has(c.id) || (!pf.tagsAnyLeaf && !pf.hasUnfinishedLeaf);
       });
