@@ -2006,26 +2006,54 @@ describe('`kind` column — stage C of title-prefix migration (decision e852fb0c
     expect(row.n).toBe(0);
   });
 
-  test('the backfill is idempotent: a NULL row derives on re-run, and re-running touches zero rows', async () => {
+  test('the backfill is gated by user_version: at current version, NULL kind stays NULL; at lower version, it derives', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x', kind: 'epic' });
     const dbPath = join(project, '.collab', 'todos.db');
-    const db = new Database(dbPath);
-    db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
-    db.close();
-    _closeProject(project);
 
-    // Reopening the store re-runs the backfill (openDb runs it unconditionally,
-    // guarded only by `WHERE kind IS NULL`).
-    const after = await getTodo(project, t.id);
-    expect(after!.kind).toBe('epic');
+    // Part 1: DB at current version does NOT re-run backfill.
+    // Set kind=NULL and reopen; it should stay NULL (backfill gated out since ver >= TODO_CLAIM_KIND_V7).
+    {
+      const db = new Database(dbPath);
+      db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
+      db.close();
+      _closeProject(project);
 
-    const db2 = new Database(dbPath);
-    const before = db2.query(`SELECT kind FROM todos WHERE id='${t.id}'`).get() as { kind: string };
-    const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
-    const changes = db2.query('SELECT changes() AS c').get() as { c: number };
-    db2.close();
-    expect(before.kind).toBe('epic');
-    expect(changes.c).toBe(0);
+      // Reopen via getTodo. At current version, backfillClaimAndKindV7 is gated out
+      // (ver >= TODO_CLAIM_KIND_V7), so NULL kind stays NULL, no re-derivation happens.
+      const after = await getTodo(project, t.id);
+      expect(after!.kind).toBeNull(); // Stays NULL, not re-derived
+
+      // Verify the gate prevented backfill: kind is still NULL, so manual UPDATE touches it (1 row).
+      const db2 = new Database(dbPath);
+      const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+      const changes = db2.query('SELECT changes() AS c').get() as { c: number };
+      db2.close();
+      expect(changes.c).toBe(1); // Backfill didn't run, so NULL is still there; UPDATE touches 1 row
+      _closeProject(project);
+    }
+
+    // Part 2: DB manually reset to lower version DOES re-run backfill.
+    // Set kind=NULL and user_version < TODO_CLAIM_KIND_V7, then reopen.
+    {
+      const db = new Database(dbPath);
+      // Set version to 6 (below V7) so backfill gate activates
+      db.exec(`PRAGMA user_version = 6`);
+      db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
+      db.close();
+      _closeProject(project);
+
+      // Reopen via getTodo. At version 6, backfillClaimAndKindV7 runs (ver < TODO_CLAIM_KIND_V7),
+      // so NULL kind is derived to 'epic' from the '[EPIC]' prefix.
+      const after = await getTodo(project, t.id);
+      expect(after!.kind).toBe('epic'); // Re-derived from title prefix by backfill
+
+      // Verify backfill ran: kind is now 'epic', so manual UPDATE touches zero rows (WHERE kind IS NULL matches nothing).
+      const db2 = new Database(dbPath);
+      const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+      const changes = db2.query('SELECT changes() AS c').get() as { c: number };
+      db2.close();
+      expect(changes.c).toBe(0); // Backfill already fixed it, so UPDATE touches 0 rows
+    }
   });
 });
 
