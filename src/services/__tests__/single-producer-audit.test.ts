@@ -141,7 +141,11 @@ describe('single-producer-audit', () => {
     it('does not include mission-store.ts:49 (isMissionTerminal declaration)', () => {
       const result = findTerminalPrefixProducers(corpus);
       const locs = locations(result);
-      expect(locs).toEqual(['src/services/mission-store.ts:1255']);
+      // De-pinned from the exact line (was :1255) — line numbers shift as the file is
+      // refactored; the invariant is ONE producer, in mission-store.ts, NOT the :49
+      // isMissionTerminal declaration. (File pinned at line 130; call sites at 148-154.)
+      expect(locs.length).toBe(1);
+      expect(locs[0]).toMatch(/^src\/services\/mission-store\.ts:\d+$/);
       expect(locs.includes('src/services/mission-store.ts:49')).toBe(false);
     });
 
