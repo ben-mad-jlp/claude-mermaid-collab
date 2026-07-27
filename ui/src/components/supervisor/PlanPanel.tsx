@@ -11,6 +11,7 @@ import { useInflightLeafIds } from './bridge/useInflightLeafIds';
 import { derivedStatus, buildById } from '@/lib/claimability';
 import { isEpic } from '@/lib/todoKind';
 import { buildTodoHierarchy, descendantsOf } from '@/lib/todoHierarchy';
+import { selectHumanActionableEscalations } from '@/lib/statusSelectors';
 import { api } from '@/lib/api';
 
 /**
@@ -132,6 +133,14 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const deleteTodo = useSupervisorStore((s) => s.deleteTodo);
+  const openEscalations = useSupervisorStore((s) => s.openEscalations);
+
+  // Bridge P1 invariant (escalationSelectors.ts:8): the FleetGraph danger ring
+  // must derive from the same human-actionable set as the badge/NeedsYouZone.
+  const dangerEscalations = useMemo(
+    () => selectHumanActionableEscalations(openEscalations, { kind: 'project', project }),
+    [openEscalations, project],
+  );
 
   const todos: SessionTodo[] = excludeLandLeaves(excludeMissions(todosByProject[project] ?? []));
   const inflightLeafIds = useInflightLeafIds(project);
@@ -383,7 +392,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
                   </div>
                 )}
                 <div className="flex-1 min-h-0">
-                  <FleetGraph todos={active.todos} subs={[]} project={project} onSelectTodo={onSelectTodo} onSelectEpic={onSelectEpic} />
+                  <FleetGraph todos={active.todos} subs={[]} openEscalations={dangerEscalations} project={project} onSelectTodo={onSelectTodo} onSelectEpic={onSelectEpic} />
                 </div>
               </div>
             );
