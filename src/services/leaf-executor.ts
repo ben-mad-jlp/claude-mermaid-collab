@@ -45,15 +45,15 @@ import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { collectDiffRisk, routeReviewDepth, type ReviewDepth, type DiffRisk } from './review-depth-router';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
 import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
-import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
-import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
+import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
+export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
 import { validateReviewGrounding, checkConstraintCitations, extractCitations } from './review-citations';
 import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind } from './diff-contract';
@@ -61,7 +61,7 @@ import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from 
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
-import { loadManifestSource, type ManifestSource, type ProjectManifest } from '../config/project-manifest';
+import { loadManifestSource, type ManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope, trackedDirtyPaths, stageAndCommitScoped } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
 import { sameReviewWall, isHardWall, type WallReasonClass, type LeafWallHistory, getLeafWallHistory } from './leaf-wall-history';
@@ -1765,71 +1765,6 @@ export function joinReviewReports(passes: ReviewPassResult[]): { verdict: 'pass'
   };
 }
 
-/** A base-gate verdict is a durable BASE FACT only when the gate actually RAN.
- *  status==='error' means the gate could not run (missing npx, OOM, signal kill) — an
- *  INCIDENT, not a fact about the base. Caching it under the tip-less epicId key would
- *  silently block every later leaf on the epic (they read fresh:false ⇒ no escalation).
- *  Re-check on the next leaf instead. */
-export function isCacheableBaseGateStatus(
-  status: 'pass' | 'fail' | 'error',
-): status is 'pass' | 'fail' {
-  return status !== 'error';
-}
-
-/** Injectable core of `ensureBaseGreen`: read the epic_base_gate cache, honour it via
- *  {@link shouldHonourCachedBaseGate} (a cached `pass` is terminal for its sha; a cached
- *  `fail` is re-verified until the attempt/TTL bounds are exhausted), and otherwise
- *  actually run the base gate and record the result. Extracted so the policy is
- *  unit-testable without a live worktree/git (see `defaultEpicBaseProbe` in
- *  conductor-infra-arm.ts for the sibling seam). */
-export async function resolveBaseGreen(io: {
-  epicId: string;
-  project: string;
-  targetProject: string;
-  epicBaseSha: string | null | undefined;
-  gateCfg: LeafGateConfig | null;
-  ensureEpicWorktree: () => Promise<{ path: string } | null>;
-  runGate: (cwd: string) => Promise<LeafGateResult>;
-  now?: () => number;
-}): Promise<(LeafGateResult & { fresh: boolean }) | null> {
-  const { epicId, project, epicBaseSha, gateCfg } = io;
-  if (!gateCfg) return null; // absent → abstain (unchanged)
-  const cached = getEpicBaseGate(epicId, epicBaseSha);
-  if (cached && shouldHonourCachedBaseGate(cached, io.now?.()) === 'honour') {
-    return {
-      status: cached.status,
-      command: cached.command ?? undefined,
-      output: cached.output ?? '',
-      reasons: [],
-      declared: true,
-      baselineFailures: cached.baselineFailures ?? undefined,
-      fresh: false,
-    };
-  }
-  const wt = await io.ensureEpicWorktree();
-  if (!wt) return null; // non-git fallback ⇒ no base gate
-  const r = await runBaseGateShared(
-    baseGateKey(io.targetProject, epicBaseSha, gateCfg),
-    () => io.runGate(wt.path),
-  );
-  if (isCacheableBaseGateStatus(r.status)) {
-    // Stamp checkedAt from the SAME clock the TTL is later measured against
-    // (shouldHonourCachedBaseGate above). Letting the write default to real Date.now()
-    // while the read uses io.now() makes the TTL window depend on how long the gate
-    // took to run — the window silently shrinks by that elapsed time.
-    recordEpicBaseGate({
-      epicId,
-      project,
-      baseSha: epicBaseSha ?? null,
-      status: r.status,
-      command: r.command ?? null,
-      output: r.output || null,
-      baselineFailures: r.baselineFailures ?? null,
-    }, io.now?.());
-  }
-  return { ...r, fresh: true };
-}
-
 /** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
  *  deterministic verb's raw JSON result. Three outcomes:
  *  - 'pass'  — gate(s) actually ran and all passed.
@@ -1951,44 +1886,6 @@ function warnGateUnwired(project: string, epicId: string): void {
     `[leaf-gate] runGate DEP UNWIRED for project ${project} (epic ${epicId.slice(0, 8)}): the executor ` +
     `has no mechanical gate seam. Leaves will be accepted on the reviewer's verdict ALONE.`,
   );
-}
-
-const LEGACY_GATE_KEYS = ['gateCommand', 'frontendGateCommand', 'changeSetTestCommand',
-  'changeSetTestCwd', 'frontendBaselineFailures'] as const;
-
-function findResidualLegacyGateKeys(m: ProjectManifest): string[] {
-  return LEGACY_GATE_KEYS.filter((k) => {
-    const v = (m as Record<string, unknown>)[k];
-    return typeof v === 'string' ? v.trim().length > 0 : Array.isArray(v) && v.length > 0;
-  });
-}
-
-const escalatedLegacyGateResidual = new Set<string>();
-export function escalateLegacyGateResidual(
-  project: string, targetProject: string, leaf: Pick<Todo, 'id'>, manifestSource: ManifestSource,
-): void {
-  if (escalatedLegacyGateResidual.has(targetProject)) return;
-  const manifest = manifestSource.manifest;
-  if (!manifest) return;
-  const keys = findResidualLegacyGateKeys(manifest);
-  if (keys.length === 0) return;
-  escalatedLegacyGateResidual.add(targetProject);
-  try {
-    createEscalation({
-      project,
-      session: `legacy-gate-migration::${targetProject}`,
-      kind: 'operator-gated',
-      operatorGated: true,
-      todoId: leaf.id,
-      questionText:
-        `Project ${targetProject} sets legacy gate key(s) [${keys.join(', ')}] in ` +
-        `${manifestSource.path} but no mechanical gate resolves — leaves run gateless. ` +
-        `Migrate to gate:{}: gateCommand/frontendGateCommand -> gate.suites[] ` +
-        `({match,command,cwd}); changeSetTestCommand+changeSetTestCwd -> gate.tests[] ` +
-        `({match,command,cwd}); frontendBaselineFailures has no gate:{} equivalent and ` +
-        `should be dropped once frontendGateCommand becomes a suites[] lane.`,
-    });
-  } catch { /* best-effort: never let escalation failure block the leaf */ }
 }
 
 /**
@@ -2184,18 +2081,6 @@ export function resolveInheritedSlice(
   const text = restore(from);
   if (!sliceCoversFiles(text, files)) return null;
   return { from, files, text: text as string };
-}
-
-/** Compose the terminal reason for a gate that could not run (mech.status==='error').
- *  The misconfigured-declaration path (leaf-gate.gateResultForDeclaration) puts its whole
- *  explanation in `reasons`, with NO `command` and an empty `output` — so formatting from
- *  command+output alone produced the opaque `gate-could-not-run: gate — ` that stranded leaf
- *  41718cf0 with nothing recorded. Include `reasons` when present; otherwise fall back to the
- *  exact command+output shape (do not regress the legible messages). */
-export function formatGateErrorReason(mech: LeafGateResult): string {
-  const head = `gate-could-not-run: ${mech.command ?? 'gate'} — ${lastLines(mech.output, 5)}`;
-  const reasons = (mech.reasons ?? []).filter((r) => r && r.trim());
-  return reasons.length ? `${head} [${reasons.join('; ')}]` : head;
 }
 
 export async function runLeaf(
