@@ -1,239 +1,204 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Todo } from '../todo-store';
-import { landEpic, type LandStageDeps, defaultLandStageDeps } from '../coordinator-land';
+/**
+ * Drives landEpic end-to-end against a real seeded todo/escalation, stubbing every
+ * LandStageDeps stage to record callOrder — proving the actual sequencer order
+ * (coordinator-land.ts:1200-1252), not just that the interface shape exists.
+ */
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-describe('landEpic stage ordering', () => {
-  let order: string[];
-  const mockTodo = {
-    id: 'child-1',
-    parentId: 'epic-1',
-    targetProject: '/test/project',
-    status: 'ready' as const,
-  } as Todo;
+// Isolate the global supervisor.db BEFORE any store module is imported.
+const supervisorDir = mkdtempSync(join(tmpdir(), 'land-order-'));
+process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
-  const mockEscalation = {
-    id: 'esc-1',
-    kind: 'epic-ready-to-land' as const,
-    todoId: 'child-1',
-    session: 'test-session',
-    conditionKey: 'test-key',
-    conditionTuple: ['test-tuple'],
-    questionText: 'test',
-  };
+import { landEpic, type LandStageDeps } from '../coordinator-land';
+import { createTodo, _closeProject, type Todo } from '../todo-store';
+import { createEscalation, addWatchedProject, setProjectDigestEnabled, _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import type { EpicLandGateResult } from '../epic-land-gate';
 
-  const mockLand = {
-    landed: true,
-    masterSha: 'abc123',
-    reason: 'ok',
-    conflict: false,
-    baseRef: 'master',
-  };
+beforeAll(() => { _closeSupervisorDb(); });
+afterAll(() => {
+  _closeSupervisorDb();
+  rmSync(supervisorDir, { recursive: true, force: true });
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+});
 
-  const mockEpicGateResult = {
-    status: 'pass' as const,
-    declared: true,
-    manifestPath: '',
-    units: [] as never[],
-    regressions: [] as never[],
-    inherited: [] as never[],
-    incidents: [] as never[],
-    reasons: [] as string[],
-    specFiles: [] as string[],
-    epicTipSha: 'abc123',
-    baseSha: 'def456',
-  };
+const mockLand = {
+  landed: true,
+  masterSha: 'abc123',
+  reason: 'ok',
+  conflict: false,
+  baseRef: 'master',
+};
 
-  beforeEach(() => {
-    order = [];
-    vi.resetAllMocks();
+const mockEpicGateResult: EpicLandGateResult = {
+  status: 'pass',
+  declared: true,
+  manifestPath: '',
+  units: [],
+  regressions: [],
+  inherited: [],
+  incidents: [],
+  reasons: [],
+  specFiles: [],
+  epicTipSha: 'abc123',
+  baseSha: 'def456',
+};
+
+function makeStubDeps(callOrder: string[], overrides?: Partial<LandStageDeps>): LandStageDeps {
+  return {
+    checkDirtyTree: async () => {
+      callOrder.push('checkDirtyTree');
+      return { ok: true, dirty: [] };
+    },
+    runStewardPrecheck: async () => {
+      callOrder.push('runStewardPrecheck');
+      return { ok: true, epic: null, epicChildIds: [] };
+    },
+    checkStaleness: async () => {
+      callOrder.push('checkStaleness');
+      return { ok: true };
+    },
+    runProofStage: async () => {
+      callOrder.push('runProofStage');
+      return { ok: true, proof: { ok: true, reason: 'ok', gate: mockEpicGateResult } };
+    },
+    checkOpenChildren: async () => {
+      callOrder.push('checkOpenChildren');
+      return { ok: true };
+    },
+    runMerge: async () => {
+      callOrder.push('runMerge');
+      return { ok: true, land: mockLand };
+    },
+    finalizeLandRecord: async () => {
+      callOrder.push('finalizeLandRecord');
+    },
+    teardownEpic: async () => {
+      callOrder.push('teardownEpic');
+    },
+    runPostLandGuard: async () => {
+      callOrder.push('runPostLandGuard');
+      return { ok: true, treeRestored: false };
+    },
+    ...(overrides ?? {}),
+  } as LandStageDeps;
+}
+
+describe('landEpic stage ordering — driven against real seeded todos', () => {
+  let project: string;
+  let epic: Todo;
+  let child: Todo;
+  let escalationId: string;
+  let callOrder: string[];
+
+  beforeEach(async () => {
+    project = mkdtempSync(join(tmpdir(), 'land-order-repo-'));
+    execFileSync('git', ['init'], { cwd: project });
+    _closeProject(project);
+
+    // Avoid a real (network-bound) digest regeneration firing off the tail of a
+    // successful landEpic — refreshProjectDigestOnLand defaults digest-enabled
+    // to true for an unwatched project.
+    addWatchedProject(project);
+    setProjectDigestEnabled(project, false);
+
+    epic = (await createTodo(project, {
+      allowOrphan: true,
+      title: '[EPIC] land-order',
+      kind: 'epic',
+      ownerSession: 'test-session',
+    })) as Todo;
+
+    child = (await createTodo(project, {
+      title: 'child work',
+      parentId: epic.id,
+      ownerSession: 'test-session',
+    })) as Todo;
+
+    const { escalation } = createEscalation({
+      project,
+      session: 'test-session',
+      kind: 'epic-ready-to-land',
+      todoId: child.id,
+      questionText: 'ready',
+    });
+    escalationId = escalation.id;
+
+    callOrder = [];
   });
 
   afterEach(() => {
-    vi.resetAllMocks();
+    _closeProject(project);
+    rmSync(project, { recursive: true, force: true });
   });
 
-  describe('full happy path', () => {
-    it('all stage functions are defined in LandStageDeps', () => {
-      const stubDeps: LandStageDeps = {
-        checkDirtyTree: async () => ({ ok: true, dirty: [] }),
-        runStewardPrecheck: async () => ({ ok: true, epic: null, epicChildIds: ['child-1'] }),
-        checkStaleness: async () => ({ ok: true }),
-        runProofStage: async () => ({
-          ok: true,
-          proof: {
-            ok: true,
-            reason: 'ok',
-            gate: mockEpicGateResult,
-          },
-        }),
-        checkOpenChildren: async () => ({ ok: true }),
-        runMerge: async () => ({ ok: true, land: mockLand }),
-        finalizeLandRecord: async () => {},
-        teardownEpic: async () => {},
-        runPostLandGuard: async () => ({ ok: true, treeRestored: false }),
-      };
+  it('happy path calls every stage exactly once, in the sequencer order', async () => {
+    const stubDeps = makeStubDeps(callOrder);
+    const outcome = await landEpic(project, escalationId, undefined, stubDeps);
 
-      expect(stubDeps.checkDirtyTree).toBeDefined();
-      expect(stubDeps.runStewardPrecheck).toBeDefined();
-      expect(stubDeps.checkStaleness).toBeDefined();
-      expect(stubDeps.runProofStage).toBeDefined();
-      expect(stubDeps.checkOpenChildren).toBeDefined();
-      expect(stubDeps.runMerge).toBeDefined();
-      expect(stubDeps.finalizeLandRecord).toBeDefined();
-      expect(stubDeps.teardownEpic).toBeDefined();
-      expect(stubDeps.runPostLandGuard).toBeDefined();
-    });
+    expect(callOrder).toEqual([
+      'checkDirtyTree',
+      'runStewardPrecheck',
+      'checkStaleness',
+      'runProofStage',
+      'checkOpenChildren',
+      'runMerge',
+      'finalizeLandRecord',
+      'teardownEpic',
+      'runPostLandGuard',
+    ]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.landed).toBe(true);
   });
 
-  describe('proof-stage short-circuit', () => {
-    it('defines LandStageDeps interface supporting short-circuit returns', () => {
-      const callCounts = {
-        runMerge: 0,
-        finalizeLandRecord: 0,
-        teardownEpic: 0,
-      };
+  it('finalizeLandRecord always precedes teardownEpic', async () => {
+    const stubDeps = makeStubDeps(callOrder);
+    await landEpic(project, escalationId, undefined, stubDeps);
 
-      const stubDeps: LandStageDeps = {
-        checkDirtyTree: async () => ({ ok: true, dirty: [] }),
-        runStewardPrecheck: async () => ({
-          ok: true,
-          epic: null,
-          epicChildIds: ['child-1'],
-        }),
-        checkStaleness: async () => ({ ok: true }),
-        runProofStage: async () => ({
-          ok: false,
-          landed: false,
-          reason: 'proof-failed',
-        } as any), // Can return LandEpicOutcome to short-circuit
-        checkOpenChildren: async () => ({ ok: true }),
-        runMerge: async () => {
-          callCounts.runMerge++;
-          return { ok: true, land: mockLand };
-        },
-        finalizeLandRecord: async () => {
-          callCounts.finalizeLandRecord++;
-        },
-        teardownEpic: async () => {
-          callCounts.teardownEpic++;
-        },
-        runPostLandGuard: async () => ({
-          ok: true,
-          treeRestored: false,
-        }),
-      };
-
-      // Verify that these are callable and typed correctly
-      expect(typeof stubDeps.checkDirtyTree).toBe('function');
-      expect(typeof stubDeps.runProofStage).toBe('function');
-      expect(typeof stubDeps.runMerge).toBe('function');
-    });
+    expect(callOrder.indexOf('finalizeLandRecord')).toBeLessThan(callOrder.indexOf('teardownEpic'));
   });
 
-  describe('finalizeLandRecord before teardownEpic', () => {
-    it('stage functions can be tracked for call ordering', async () => {
-      const callOrder: string[] = [];
+  it('runPostLandGuard is the terminal stage', async () => {
+    const stubDeps = makeStubDeps(callOrder);
+    await landEpic(project, escalationId, undefined, stubDeps);
 
-      const stubDeps: LandStageDeps = {
-        checkDirtyTree: async () => ({ ok: true, dirty: [] }),
-        runStewardPrecheck: async () => ({
-          ok: true,
-          epic: null,
-          epicChildIds: ['child-1'],
-        }),
-        checkStaleness: async () => ({ ok: true }),
-        runProofStage: async () => ({
-          ok: true,
-          proof: {
-            ok: true,
-            reason: 'ok',
-            gate: mockEpicGateResult,
-          },
-        }),
-        checkOpenChildren: async () => ({ ok: true }),
-        runMerge: async () => ({ ok: true, land: mockLand }),
-        finalizeLandRecord: async () => {
-          callOrder.push('finalizeLandRecord');
-        },
-        teardownEpic: async () => {
-          callOrder.push('teardownEpic');
-        },
-        runPostLandGuard: async () => ({
-          ok: true,
-          treeRestored: false,
-        }),
-      };
-
-      // Verify that the interface supports the required ordering constraints
-      // (finalizeLandRecord before teardownEpic is enforced in landEpic sequencer)
-      expect(typeof stubDeps.finalizeLandRecord).toBe('function');
-      expect(typeof stubDeps.teardownEpic).toBe('function');
-    });
+    expect(callOrder[callOrder.length - 1]).toBe('runPostLandGuard');
   });
 
-  describe('default stage deps are properly exported', () => {
-    it('exports defaultLandStageDeps with all stage functions', () => {
-      expect(defaultLandStageDeps.checkDirtyTree).toBeDefined();
-      expect(defaultLandStageDeps.runStewardPrecheck).toBeDefined();
-      expect(defaultLandStageDeps.checkStaleness).toBeDefined();
-      expect(defaultLandStageDeps.runProofStage).toBeDefined();
-      expect(defaultLandStageDeps.checkOpenChildren).toBeDefined();
-      expect(defaultLandStageDeps.runMerge).toBeDefined();
-      expect(defaultLandStageDeps.finalizeLandRecord).toBeDefined();
-      expect(defaultLandStageDeps.teardownEpic).toBeDefined();
-      expect(defaultLandStageDeps.runPostLandGuard).toBeDefined();
+  it('a not-ok runProofStage short-circuits before runMerge/finalize/teardown', async () => {
+    const stubDeps = makeStubDeps(callOrder, {
+      runProofStage: async () => {
+        callOrder.push('runProofStage');
+        return { ok: false, landed: false, reason: 'proof-failed', epicId: 'x', epicBranch: 'y' } as any;
+      },
     });
+    const outcome = await landEpic(project, escalationId, undefined, stubDeps);
 
-    it('exports LandStageDeps interface that landEpic accepts', () => {
-      const customDeps: LandStageDeps = defaultLandStageDeps;
-      expect(customDeps).toBeDefined();
-    });
+    expect(callOrder).toEqual(['checkDirtyTree', 'runStewardPrecheck', 'checkStaleness', 'runProofStage']);
+    expect(callOrder).not.toContain('runMerge');
+    expect(callOrder).not.toContain('finalizeLandRecord');
+    expect(callOrder).not.toContain('teardownEpic');
+    expect(outcome.reason).toBe('proof-failed');
   });
 
-  describe('stage functions have correct signatures', () => {
-    it('checkDirtyTree accepts wm, opts, and ctx', () => {
-      const fn = defaultLandStageDeps.checkDirtyTree;
-      expect(fn.length).toBeGreaterThanOrEqual(3); // at least 3 params
+  it('a not-ok checkStaleness short-circuits before the proof and merge stages', async () => {
+    const stubDeps = makeStubDeps(callOrder, {
+      checkStaleness: async () => {
+        callOrder.push('checkStaleness');
+        return { ok: false, landed: false, reason: 'stale', epicId: 'x', epicBranch: 'y' } as any;
+      },
     });
+    await landEpic(project, escalationId, undefined, stubDeps);
 
-    it('runStewardPrecheck accepts project, epicId, epicBranch, targetProject, todos, and ctx', () => {
-      const fn = defaultLandStageDeps.runStewardPrecheck;
-      expect(fn.length).toBeGreaterThanOrEqual(6);
-    });
-
-    it('checkStaleness accepts wm, targetProject, epicId, epicBranch, and ctx', () => {
-      const fn = defaultLandStageDeps.checkStaleness;
-      expect(fn.length).toBeGreaterThanOrEqual(5);
-    });
-
-    it('runProofStage accepts project, targetProject, epicId, epicBranch, todos, epic, and ctx', () => {
-      const fn = defaultLandStageDeps.runProofStage;
-      expect(fn.length).toBeGreaterThanOrEqual(7);
-    });
-
-    it('checkOpenChildren accepts project, epicId, and ctx', () => {
-      const fn = defaultLandStageDeps.checkOpenChildren;
-      expect(fn.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it('runMerge accepts wm, epicId, dirty, opts, proof, and ctx', () => {
-      const fn = defaultLandStageDeps.runMerge;
-      expect(fn.length).toBeGreaterThanOrEqual(6);
-    });
-
-    it('finalizeLandRecord accepts targetProject, epicId, land, freshTodos, and ctx', () => {
-      const fn = defaultLandStageDeps.finalizeLandRecord;
-      expect(fn.length).toBeGreaterThanOrEqual(5);
-    });
-
-    it('teardownEpic accepts wm, epicId, targetProject, and ctx', () => {
-      const fn = defaultLandStageDeps.teardownEpic;
-      expect(fn.length).toBeGreaterThanOrEqual(4);
-    });
-
-    it('runPostLandGuard accepts targetProject, land, wm, dirty, and ctx', () => {
-      const fn = defaultLandStageDeps.runPostLandGuard;
-      expect(fn.length).toBeGreaterThanOrEqual(5);
-    });
+    expect(callOrder).toEqual(['checkDirtyTree', 'runStewardPrecheck', 'checkStaleness']);
+    expect(callOrder).not.toContain('runProofStage');
+    expect(callOrder).not.toContain('checkOpenChildren');
+    expect(callOrder).not.toContain('runMerge');
+    expect(callOrder).not.toContain('finalizeLandRecord');
+    expect(callOrder).not.toContain('teardownEpic');
+    expect(callOrder).not.toContain('runPostLandGuard');
   });
 });
