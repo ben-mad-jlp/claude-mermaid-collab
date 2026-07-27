@@ -29,6 +29,7 @@ import { loadProjectManifest, type ProjectManifest } from '../config/project-man
 import { runRegistryGate } from './gate-runner';
 import { findOwningMission } from './land-authority';
 import { getMission, isMissionTerminal, clearCriterionVerdict, missionIdOfCriterion, enqueueRecheck } from './mission-store';
+import { criterionEdgesOf } from './criterion-edges';
 // Landing subsystem (extracted to coordinator-land.ts). surfaceEpicLand is the one
 // moved function this file still calls directly (makeCoordinatorDeps' completeTodo
 // continuation); the rest are re-exported below for back-compat only.
@@ -1238,7 +1239,7 @@ export async function sweepCorruptEpics(
       const reopenedCriterionIds: string[] = [];
       const skippedCriterionIds: string[] = [];
       if (shouldReopenCriteria) {
-        // Collect the union of servesCriterionIds over the epic's accepted descendants
+        // Collect the union of criterion edges over the epic's accepted descendants
         const allTodos = listTodos(project, { includeCompleted: true });
         const descendants: (typeof allTodos)[number][] = [];
         const collectDescendants = (parentId: string) => {
@@ -1253,8 +1254,8 @@ export async function sweepCorruptEpics(
 
         const criterionIdSet = new Set<string>();
         for (const desc of descendants) {
-          if (desc.acceptanceStatus === 'accepted' && desc.servesCriterionIds && desc.servesCriterionIds.length > 0) {
-            desc.servesCriterionIds.forEach((id) => criterionIdSet.add(id));
+          if (desc.acceptanceStatus === 'accepted') {
+            for (const id of criterionEdgesOf(desc)) criterionIdSet.add(id);
           }
         }
 

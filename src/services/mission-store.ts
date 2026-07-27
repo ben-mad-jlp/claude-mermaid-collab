@@ -27,6 +27,7 @@ import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS, C
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
+import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -1434,9 +1435,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     const walk = (parentId: string) => {
       for (const t of childrenByParent.get(parentId) ?? []) {
         if (!isEpic(t)) {
-          const tags = t.servesCriterionIds && t.servesCriterionIds.length > 0
-            ? t.servesCriterionIds
-            : (t.servesCriterionId ? [t.servesCriterionId] : []);
+          const tags = criterionEdgesOf(t);
           if (tags.length > 0) {
             tagsAnyLeaf = true;
             if (t.status === 'done' && t.acceptanceStatus !== 'rejected') tags.forEach((id) => proven.add(id));
@@ -1481,7 +1480,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     criteria: criteria.map((c) => {
       // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
       // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
-      const serving = epics.filter((e) => e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id));
+      const serving = epics.filter((e) => todoServesCriterion(e, c.id));
       // LANDED-ness is `status === 'done'` OR a stamped landedAt: the land paths can leave an
       // epic landed while its status lags at 'todo' (observed on 7 build123d epics, 2026-07-24),
       // and such an epic could never satisfy a status-only test — masking its criterion forever.
@@ -1564,7 +1563,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         ));
       };
       const servedEpicCount = allEpicsEver.filter(
-        (e) => (e.servesCriterionId === c.id || (e.servesCriterionIds ?? []).includes(c.id)) &&
+        (e) => todoServesCriterion(e, c.id) &&
           !isHollowDone(e) && countsTowardServeCap(e),
       ).length;
       const servingEpicIds = new Set(serving.map((e) => e.id));

@@ -697,83 +697,6 @@ export function openDb(project: string): Database {
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'todos', 'archivedAt', 'archivedAt INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
-  // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
-  // status==='in_progress') on rows written before the invariant was enforced.
-  db.exec(
-    `UPDATE todos SET ${CLAIM_CLEAR_SQL}, claim=NULL
-     WHERE status != 'in_progress' AND (claimedBy IS NOT NULL OR claimToken IS NOT NULL OR claimedAt IS NOT NULL OR claimLeaseMs IS NOT NULL OR claim IS NOT NULL)`
-  );
-  // One-shot backfill: targetProject is now a TOTAL field — every todo belongs to
-  // exactly one project. Legacy rows left it NULL (the old "same as tracking
-  // project" override convention), which made the Bridge fall back to "whichever
-  // DB it lives in" and combine cross-project todos into one diagram. Stamp every
-  // NULL with this db's tracking project so the UI can partition by targetProject.
-  db.prepare(`UPDATE todos SET targetProject = ? WHERE targetProject IS NULL`).run(project);
-  // One-shot-per-row, idempotent backfill of `kind` from the legacy role prefix.
-  // `WHERE kind IS NULL` makes a second run touch zero rows. Titles are NOT modified
-  // (prefix stripping is stage C). SQLite LIKE is case-insensitive for ASCII, which
-  // matches the /i on the title regexes.
-  db.exec(`UPDATE todos SET kind='mission' WHERE kind IS NULL AND TRIM(title) LIKE '[MISSION]%'`);
-  db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
-  db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
-  db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
-  // One-shot backfill (W3): every epic that already has a done land-leaf child but no
-  // landedAt (pre-column landed epics) gets landedAt stamped from the leaf's completedAt.
-  // WHERE landedAt IS NULL makes a re-run touch zero rows. This is what makes the live
-  // equivalence sweep converge to zero divergence instead of flagging every historical land.
-  db.exec(`
-    UPDATE todos SET landedAt = (
-      SELECT l.completedAt FROM todos l
-      WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
-      ORDER BY l.completedAt ASC LIMIT 1
-    )
-    WHERE kind = 'epic' AND landedAt IS NULL AND EXISTS (
-      SELECT 1 FROM todos l WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
-    )
-  `);
-  // One-shot backfill (W3b): done epics that landed WITHOUT a [LAND] leaf (direct
-  // master commits, incremental lands, pre-stamping accept-time paths) never got
-  // landedAt, so unlanded-epic counters report them as stranded forever. A rolled-up
-  // 'done' epic predating per-land stamping is terminal history, not pending work —
-  // stamp landedAt from its own completion time. WHERE landedAt IS NULL keeps re-runs
-  // zero-row; epics landing today are stamped at land time and never reach this.
-  db.exec(`
-    UPDATE todos SET landedAt = COALESCE(completedAt, updatedAt)
-    WHERE kind = 'epic' AND status = 'done' AND landedAt IS NULL
-  `);
-  // One-shot backfill (W4 cutover): create_epic no longer mints a [LAND] leaf and
-  // checkLandDeps/missionLandLeafPromotion no longer require one — drop (never
-  // hard-delete) any still-open land-leaf row under a still-open epic. A `done`
-  // land leaf stays inert (c34e15c4: the terminal record for an already-landed
-  // legacy epic; already backfilled into landedAt above).
-  db.prepare(`
-    UPDATE todos SET status = 'dropped'
-    WHERE kind = 'land' AND status != 'done' AND status != 'dropped'
-      AND parentId IN (SELECT id FROM todos WHERE kind = 'epic' AND status NOT IN ('done','dropped'))
-  `).run();
-  // EPIC 532c48fb GAP 1 (step 1, DATA FIRST): [GATE] rows carry no role prefix, so the
-  // leaf catch-all above stamped them kind='leaf'. Re-stamp them kind='gate'. Covers BOTH
-  // forms create_gate emits (todo-store.ts:1499): the bare '[GATE] …' and the labelled
-  // '[GATE:<gateKind>] …'. Idempotent (kind!='gate' guard). Titles are NOT modified — the
-  // [GATE] title predicates (coordinator-live.ts / epic-land-readiness.ts) still read them
-  // until leaf 2 of this epic deletes them.
-  db.exec(
-    `UPDATE todos SET kind='gate'
-     WHERE (kind IS NULL OR kind != 'gate')
-       AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
-  );
-  // Stage C (decision e852fb0c): the role prefix is now redundant with `kind`.
-  // Strip EXACTLY the three role prefixes, keyed on the already-backfilled `kind`
-  // column, never on a generic `title LIKE '[%]%'` — most bracketed titles are
-  // human-authored TOPIC tags ([UI], [BUG], [kind C]) and must survive verbatim.
-  // Idempotent: the LIKE guard matches zero rows on a second run.
-  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), 10)) WHERE kind='mission' AND TRIM(title) LIKE '[MISSION]%'`);
-  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='epic'    AND TRIM(title) LIKE '[EPIC]%'`);
-  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='land'    AND TRIM(title) LIKE '[LAND]%'`);
-  // EPIC 532c48fb GAP 3 (Part B residual): strip [GATE]/[GATE:…] titles keyed on
-  // kind='gate' so topic tags survive. Idempotent via the LIKE guard. INSTR…']'
-  // handles both [GATE] and the labelled [GATE:<kind>] form.
-  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), INSTR(title, ']') + 1)) WHERE kind='gate' AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`);
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -830,6 +753,18 @@ export function openDb(project: string): Database {
     backfillTriageTagV6(db);
     db.exec(`PRAGMA user_version = ${TODO_TRIAGE_TAG_V6}`);
   }
+  if (ver < TODO_CLAIM_KIND_V7) {
+    backfillClaimAndKindV7(db, project);
+    db.exec(`PRAGMA user_version = ${TODO_CLAIM_KIND_V7}`);
+  }
+  if (ver < TODO_LANDED_GATE_V8) {
+    backfillLandedAtAndGateV8(db);
+    db.exec(`PRAGMA user_version = ${TODO_LANDED_GATE_V8}`);
+  }
+  if (ver < TODO_TITLE_PREFIX_V9) {
+    backfillTitlePrefixV9(db);
+    db.exec(`PRAGMA user_version = ${TODO_TITLE_PREFIX_V9}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -883,6 +818,15 @@ export const TODO_BUCKET_TYPE_V5 = 5;
 
 /** user_version marker for the R2 triageTag backfill (stamp from layer suffix + bugfix dedup). */
 export const TODO_TRIAGE_TAG_V6 = 6;
+
+/** user_version marker for the claim invariant + targetProject + kind backfill. */
+export const TODO_CLAIM_KIND_V7 = 7;
+
+/** user_version marker for the landedAt + land-leaf gate re-stamp backfill. */
+export const TODO_LANDED_GATE_V8 = 8;
+
+/** user_version marker for the title-prefix strip backfill. */
+export const TODO_TITLE_PREFIX_V9 = 9;
 
 /**
  * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
@@ -1007,6 +951,105 @@ export function backfillTriageTagV6(db: Database): void {
                         AND m.targetProject = todos.targetProject
                         AND m.bucketType    = todos.bucketType)`
   );
+}
+
+/**
+ * V7 one-shot, idempotent backfill: enforce the claim invariant (claim fields non-null IFF
+ * status==='in_progress') and total-field backfill of targetProject and kind.
+ * Runs ONCE (gated by user_version).
+ */
+export function backfillClaimAndKindV7(db: Database, project: string): void {
+  // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
+  // status==='in_progress') on rows written before the invariant was enforced.
+  db.exec(
+    `UPDATE todos SET ${CLAIM_CLEAR_SQL}, claim=NULL
+     WHERE status != 'in_progress' AND (claimedBy IS NOT NULL OR claimToken IS NOT NULL OR claimedAt IS NOT NULL OR claimLeaseMs IS NOT NULL OR claim IS NOT NULL)`
+  );
+  // One-shot backfill: targetProject is now a TOTAL field — every todo belongs to
+  // exactly one project. Legacy rows left it NULL (the old "same as tracking
+  // project" override convention), which made the Bridge fall back to "whichever
+  // DB it lives in" and combine cross-project todos into one diagram. Stamp every
+  // NULL with this db's tracking project so the UI can partition by targetProject.
+  db.prepare(`UPDATE todos SET targetProject = ? WHERE targetProject IS NULL`).run(project);
+  // One-shot-per-row, idempotent backfill of `kind` from the legacy role prefix.
+  // `WHERE kind IS NULL` makes a second run touch zero rows. Titles are NOT modified
+  // (prefix stripping is stage C). SQLite LIKE is case-insensitive for ASCII, which
+  // matches the /i on the title regexes.
+  db.exec(`UPDATE todos SET kind='mission' WHERE kind IS NULL AND TRIM(title) LIKE '[MISSION]%'`);
+  db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+  db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
+  db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
+}
+
+/**
+ * V8 one-shot, idempotent backfill: landedAt stamping (W3/W3b) and open land-leaf drop (W4).
+ * Runs ONCE (gated by user_version).
+ */
+export function backfillLandedAtAndGateV8(db: Database): void {
+  // One-shot backfill (W3): every epic that already has a done land-leaf child but no
+  // landedAt (pre-column landed epics) gets landedAt stamped from the leaf's completedAt.
+  // WHERE landedAt IS NULL makes a re-run touch zero rows. This is what makes the live
+  // equivalence sweep converge to zero divergence instead of flagging every historical land.
+  db.exec(`
+    UPDATE todos SET landedAt = (
+      SELECT l.completedAt FROM todos l
+      WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
+      ORDER BY l.completedAt ASC LIMIT 1
+    )
+    WHERE kind = 'epic' AND landedAt IS NULL AND EXISTS (
+      SELECT 1 FROM todos l WHERE l.parentId = todos.id AND l.kind = 'land' AND l.status = 'done'
+    )
+  `);
+  // One-shot backfill (W3b): done epics that landed WITHOUT a [LAND] leaf (direct
+  // master commits, incremental lands, pre-stamping accept-time paths) never got
+  // landedAt, so unlanded-epic counters report them as stranded forever. A rolled-up
+  // 'done' epic predating per-land stamping is terminal history, not pending work —
+  // stamp landedAt from its own completion time. WHERE landedAt IS NULL keeps re-runs
+  // zero-row; epics landing today are stamped at land time and never reach this.
+  db.exec(`
+    UPDATE todos SET landedAt = COALESCE(completedAt, updatedAt)
+    WHERE kind = 'epic' AND status = 'done' AND landedAt IS NULL
+  `);
+  // One-shot backfill (W4 cutover): create_epic no longer mints a [LAND] leaf and
+  // checkLandDeps/missionLandLeafPromotion no longer require one — drop (never
+  // hard-delete) any still-open land-leaf row under a still-open epic. A `done`
+  // land leaf stays inert (c34e15c4: the terminal record for an already-landed
+  // legacy epic; already backfilled into landedAt above).
+  db.prepare(`
+    UPDATE todos SET status = 'dropped'
+    WHERE kind = 'land' AND status != 'done' AND status != 'dropped'
+      AND parentId IN (SELECT id FROM todos WHERE kind = 'epic' AND status NOT IN ('done','dropped'))
+  `).run();
+  // EPIC 532c48fb GAP 1 (step 1, DATA FIRST): [GATE] rows carry no role prefix, so the
+  // leaf catch-all above stamped them kind='leaf'. Re-stamp them kind='gate'. Covers BOTH
+  // forms create_gate emits (todo-store.ts:1499): the bare '[GATE] …' and the labelled
+  // '[GATE:<gateKind>] …'. Idempotent (kind!='gate' guard). Titles are NOT modified — the
+  // [GATE] title predicates (coordinator-live.ts / epic-land-readiness.ts) still read them
+  // until leaf 2 of this epic deletes them.
+  db.exec(
+    `UPDATE todos SET kind='gate'
+     WHERE (kind IS NULL OR kind != 'gate')
+       AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
+  );
+}
+
+/**
+ * V9 one-shot, idempotent backfill: title-prefix stripping (stage C, decision e852fb0c).
+ * Runs ONCE (gated by user_version).
+ */
+export function backfillTitlePrefixV9(db: Database): void {
+  // Stage C (decision e852fb0c): the role prefix is now redundant with `kind`.
+  // Strip EXACTLY the three role prefixes, keyed on the already-backfilled `kind`
+  // column, never on a generic `title LIKE '[%]%'` — most bracketed titles are
+  // human-authored TOPIC tags ([UI], [BUG], [kind C]) and must survive verbatim.
+  // Idempotent: the LIKE guard matches zero rows on a second run.
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), 10)) WHERE kind='mission' AND TRIM(title) LIKE '[MISSION]%'`);
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='epic'    AND TRIM(title) LIKE '[EPIC]%'`);
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='land'    AND TRIM(title) LIKE '[LAND]%'`);
+  // EPIC 532c48fb GAP 3 (Part B residual): strip [GATE]/[GATE:…] titles keyed on
+  // kind='gate' so topic tags survive. Idempotent via the LIKE guard. INSTR…']'
+  // handles both [GATE] and the labelled [GATE:<kind>] form.
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), INSTR(title, ']') + 1)) WHERE kind='gate' AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`);
 }
 
 /**

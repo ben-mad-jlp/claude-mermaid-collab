@@ -21,6 +21,7 @@ import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { detectEpicChurn, buildTighterDecompositionHint } from './epic-churn.js';
 import { hasAttemptedRung, recordApproachAttempt } from './criterion-approach-store.js';
+import { todoServesCriterion } from './criterion-edges.js';
 
 export type RedecomposeSkipReason =
   | 'no-serving-epic'
@@ -51,7 +52,7 @@ export interface RedecomposeArmResult {
 
 /**
  * Find the newest serving epic for a criterion that is not dropped and not done.
- * Matches on servesCriterionId or servesCriterionIds array.
+ * Matches using the shared criterion-edges helper.
  */
 export function findServingEpicForCriterion(
   todos: Todo[],
@@ -64,8 +65,7 @@ export function findServingEpicForCriterion(
       t.parentId === missionId &&
       t.status !== 'dropped' &&
       t.status !== 'done' &&
-      (t.servesCriterionId === criterionId ||
-        (t.servesCriterionIds ?? []).includes(criterionId)),
+      todoServesCriterion(t, criterionId),
   );
 
   if (candidates.length === 0) return undefined;
