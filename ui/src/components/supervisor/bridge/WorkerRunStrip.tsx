@@ -15,6 +15,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
 import { apiFetch } from '@/lib/api';
+import { useLeafDaemon, NODE_LABEL, fmtDuration } from '@/lib/leafDaemon';
 
 interface LeafNode {
   nodeKind: string | null; // 'blueprint'|'implement'|'review'|null
@@ -56,36 +57,7 @@ interface LeafRunResponse {
   reviewVerdict?: 'pass' | 'fail' | null;
 }
 
-interface InflightLeaf {
-  leafId: string;
-  nodeKind: string | null;
-  model: string | null;
-  attempt: number | null;
-  startedAt: number;
-  elapsedMs: number;
-  stale: boolean;
-}
-
 const POLL_MS = 2500;
-
-const NODE_LABEL: Record<string, string> = {
-  blueprint: 'Blueprint',
-  implement: 'Implement',
-  review: 'Review',
-  research: 'Research',
-  wimplement: 'Implement',
-  verify: 'Verify',
-  fix: 'Fix',
-};
-
-function fmtDuration(ms: number | null | undefined): string {
-  if (ms == null) return '';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60000);
-  const s = Math.round((ms % 60000) / 1000);
-  return `${m}m${s}s`;
-}
 
 function outcomeBadge(outcome: LeafRunResponse['finalOutcome']): { text: string; cls: string } {
   switch (outcome) {
@@ -131,8 +103,9 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; proje
   const [loading, setLoading] = useState(true);
   const [refetchNonce, setRefetchNonce] = useState(0);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [inflight, setInflight] = useState<InflightLeaf | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const { daemon: allInflightData } = useLeafDaemon(project ?? '', serverId, { nonce: refetchNonce });
+  const inflight = allInflightData?.inflight?.find((r) => r.leafId === leafId) ?? null;
 
   // Fetch (mirrors WorkerRunSummary's cancelled-flag shape). Re-runs on leafId change and
   // on any nonce bump (ws nudge or gated poll).
@@ -154,23 +127,6 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; proje
       cancelled = true;
     };
   }, [leafId, serverId, refetchNonce]);
-
-  // Inflight fetch — rides the same refetchNonce so it shares the gated poll and ws nudge.
-  useEffect(() => {
-    let cancelled = false;
-    const qs = project ? `?project=${encodeURIComponent(project)}` : '';
-    apiFetch(serverId, `/api/leaf-executor/daemon${qs}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { inflight?: InflightLeaf[] } | null) => {
-        if (!cancelled) setInflight(d?.inflight?.find((r) => r.leafId === leafId) ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setInflight(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [leafId, project, serverId, refetchNonce]);
 
   // Ticking elapsed: compute from startedAt each second so the counter advances between polls.
   useEffect(() => {
