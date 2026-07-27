@@ -17,6 +17,7 @@
  */
 
 import type { Escalation } from '@/stores/supervisorStore';
+import { classifyEscalationLifecycle } from '@/lib/escalationLifecycle';
 
 /**
  * The canonical display scope. Both surfaces operate over the aggregated union of
@@ -106,6 +107,21 @@ function sessionInScope(s: SessionStatus, scope: StatusScope): boolean {
 }
 
 /**
+ * Escalation kinds that are machine-generated triage/infrastructure noise
+ * and should be hidden from the human-actionable list. Mirrors server originals:
+ * 'epic-sweep-triage' (reconcile-pass.ts:54), 'infra-park' / 'leaf-infra-rejected'
+ * (orchestrator.ts:133 / leaf-wall-history.ts:48), 'split-proposal', 'base-moved'
+ * (conductor-signature.ts:21). Redeclared locally — keep both copies in sync.
+ */
+const MACHINE_HYGIENE_KINDS = new Set<string>([
+  'epic-sweep-triage',
+  'infra-park',
+  'leaf-infra-rejected',
+  'split-proposal',
+  'base-moved',
+]);
+
+/**
  * The open escalations inside `scope` — the one true "needs you" set, consumed
  * identically by the left card badge and the Bridge NeedsYouZone. Tolerant of a
  * non-array input (returns []) so a not-yet-hydrated slice never throws.
@@ -125,6 +141,44 @@ export function selectOpenEscalationCount(open: Escalation[], scope: StatusScope
   if (!Array.isArray(open)) return 0;
   let n = 0;
   for (const e of open) if (isOpen(e) && escalationInScope(e, scope)) n++;
+  return n;
+}
+
+/**
+ * Open escalations inside `scope` that require human attention — excludes
+ * machine-hygiene noise and AI-handling/AI-suggested states. Sorted:
+ * operator-gated rows first, then by createdAt (stable).
+ */
+export function selectHumanActionableEscalations(open: Escalation[], scope: StatusScope): Escalation[] {
+  if (!Array.isArray(open)) return [];
+  const filtered = open
+    .filter((e) => isOpen(e) && escalationInScope(e, scope))
+    .filter((e) => !MACHINE_HYGIENE_KINDS.has(e.kind))
+    .filter((e) => {
+      const lifecycle = classifyEscalationLifecycle(e);
+      return lifecycle !== 'ai-handling' && lifecycle !== 'ai-suggested';
+    })
+    .filter((e) => !e.triageInFlight);
+  filtered.sort((a, b) => {
+    const aGated = !!a.operatorGated;
+    const bGated = !!b.operatorGated;
+    if (aGated !== bGated) return aGated ? -1 : 1;
+    return a.createdAt - b.createdAt;
+  });
+  return filtered;
+}
+
+/**
+ * Count of open escalations inside `scope` that are machine-handled
+ * (hygiene-kind exclusions only) — the "excluded-but-open" count. Does not
+ * apply lifecycle or triageInFlight filters.
+ */
+export function selectMachineHandledCount(open: Escalation[], scope: StatusScope): number {
+  if (!Array.isArray(open)) return 0;
+  let n = 0;
+  for (const e of open) {
+    if (isOpen(e) && escalationInScope(e, scope) && MACHINE_HYGIENE_KINDS.has(e.kind)) n++;
+  }
   return n;
 }
 
