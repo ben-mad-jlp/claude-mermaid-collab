@@ -1405,8 +1405,7 @@ export function stampEpicLandedAt(project: string, epicId: string, whenIso: stri
     db.prepare(`UPDATE todos SET landedAt = COALESCE(landedAt, ?) WHERE id = ? AND kind = 'epic'`)
       .run(whenIso, epicId);
     if (hollow) {
-      db.prepare(`UPDATE todos SET hollowLandedAt = COALESCE(hollowLandedAt, ?) WHERE id = ?`)
-        .run(whenIso, epicId);
+      stampHollowLandedAtIfNeeded(db, epicId, whenIso);
     }
     fireConductorKick(`epic-landed:${epicId.slice(0, 8)}`);
     return true;
@@ -1450,6 +1449,68 @@ export function stampMissionNodeApprovedIfNull(project: string, todoId: string, 
  *  Vacuously hollow when leafChildren is empty (consistent with "none acceptanceStatus='accepted'"). */
 export function isHollowLand(epic: Pick<Todo, 'kind'>, leafChildren: Pick<Todo, 'acceptanceStatus'>[]): boolean {
   return isEpic(epic) && !leafChildren.some((t) => t.acceptanceStatus === 'accepted');
+}
+
+/** Internal: stamp hollowLandedAt on an epic if it is hollow. One COALESCE(hollowLandedAt, ?)
+ *  UPDATE statement consolidated from three separate inline writes. */
+function stampHollowLandedAtIfNeeded(db: Database, epicId: string, whenIso: string): void {
+  db.prepare(`UPDATE todos SET hollowLandedAt = COALESCE(hollowLandedAt, ?) WHERE id = ?`)
+    .run(whenIso, epicId);
+}
+
+/** Close an epic (mark done+accepted) if all its non-dropped children are settled.
+ *  Returns true iff the container-close UPDATE statement ran. Returns false if any guard
+ *  prevents closure (terminal status, held, mission) or if the settled predicate fails.
+ *
+ *  opts.requireAccepted: if true, all non-dropped children must be done+accepted; if false,
+ *    all non-dropped children must be done (acceptanceStatus != 'rejected' is sufficient).
+ *  opts.allowZeroChildren: if true, proceed with closure even if there are zero non-dropped
+ *    children (used by sweep landed-leftover-drop after dropping all leftovers); if false
+ *    (default), return false when live.length === 0. */
+export function closeEpicIfChildrenSettled(
+  project: string,
+  db: Database,
+  epic: Todo,
+  opts: { ts: string; requireAccepted: boolean; allowZeroChildren?: boolean },
+): boolean {
+  // Guard: do not close terminal or held epics, or mission roots.
+  if (epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) {
+    return false;
+  }
+  if (isMission(epic)) {
+    return false;
+  }
+
+  // Collect all children, then filter to non-dropped (live).
+  const allChildren = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === epic.id);
+  const live = allChildren.filter((t) => t.status !== 'dropped');
+
+  if (live.length === 0 && opts.allowZeroChildren !== true) {
+    return false;
+  }
+
+  // Check settled predicate over live children.
+  const settled = opts.requireAccepted
+    ? live.every((c) => c.status === 'done' && c.acceptanceStatus === 'accepted')
+    : live.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
+
+  if (!settled) {
+    return false;
+  }
+
+  // Container-close: mark epic done+accepted, clear claim/hold, set updatedAt.
+  db.prepare(
+    `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
+      ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+  ).run(opts.ts, opts.ts, epic.id);
+
+  // Stamp hollowLandedAt if the epic is hollow (including dropped children in the check).
+  const leafChildren = allChildren.filter((t) => !isEpic(t));
+  if (isEpic(epic) && isHollowLand(epic, leafChildren)) {
+    stampHollowLandedAtIfNeeded(db, epic.id, opts.ts);
+  }
+
+  return true;
 }
 
 /** Resolve a short (leading-8-hex prefix) todo id to its unique full id via `LIKE`
@@ -2608,20 +2669,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // must never auto-close when its iteration's epics all complete — the mission
       // outlives them.
       if (isMission(parent)) break;
-      const allChildren = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId);
-      const children = allChildren.filter((t) => t.status !== 'dropped');
-      if (children.length === 0) break;
-      const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
-      if (!allChildrenDone) break;
-      db.prepare(
-        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
-      ).run(ts, 'accepted', nowIso(), parentId);
-      const leafChildren = allChildren.filter((t) => !isEpic(t));
-      if (isEpic(parent) && isHollowLand(parent, leafChildren)) {
-        db.prepare(`UPDATE todos SET hollowLandedAt = COALESCE(hollowLandedAt, ?) WHERE id = ?`)
-          .run(ts, parentId);
-      }
+      const closed = closeEpicIfChildrenSettled(project, db, parent, { ts, requireAccepted: false });
+      if (!closed) break;
       rolledUp.push(parentId);
       parentId = parent.parentId;
     }
@@ -3047,12 +3096,15 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
               settledChildIds[epic.id] = leftover.map((c) => c.id);
 
               // Close the epic with the standard done+accepted update.
-              db.prepare(
-                `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
-                  ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
-              ).run(ts, ts, epic.id);
-              rolledUp.push(epic.id);
-              closedThisPass++;
+              const closed = closeEpicIfChildrenSettled(project, db, epic, {
+                ts,
+                requireAccepted: true,
+                allowZeroChildren: true,
+              });
+              if (closed) {
+                rolledUp.push(epic.id);
+                closedThisPass++;
+              }
             }
           } else {
             // Motionless check: non-landed epic with no recent child updates.
@@ -3075,12 +3127,14 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
           if (unaccepted.length === 0) {
             // All children done + accepted → roll the epic up (mirrors the event path).
             const ts = nowIso();
-            db.prepare(
-              `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
-                ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
-            ).run(ts, ts, epic.id);
-            rolledUp.push(epic.id);
-            closedThisPass++;
+            const closed = closeEpicIfChildrenSettled(project, db, epic, {
+              ts,
+              requireAccepted: true,
+            });
+            if (closed) {
+              rolledUp.push(epic.id);
+              closedThisPass++;
+            }
           } else if (!flaggedSeen.has(epic.id)) {
             // Policy (b): done-but-unaccepted children → flag, never auto-close.
             flagged.push({
