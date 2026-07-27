@@ -22,14 +22,25 @@ export async function apiPost(path: string, body: unknown): Promise<any> {
   }
 }
 
+/** The conductor's last-pass heartbeat (supervisor-store getConductorLastPass). `reason` is
+ *  'pass-ran' while a pass is IN-FLIGHT (stamped just before the node runs) and a terminal
+ *  reason once it settles; `tickAt` is the epoch-ms of that stamp. */
+export interface ConductorLastPass {
+  missionId?: string | null;
+  reason?: string | null;
+  tickAt?: number | null;
+}
+
 export interface UseConductorEnabledResult {
   enabled: boolean | null;
+  lastPass: ConductorLastPass | null;
   busy: boolean;
   setEnabled: (next: boolean) => Promise<void>;
 }
 
 export function useConductorEnabled(project: string): UseConductorEnabledResult {
   const [enabled, setEnabledState] = useState<boolean | null>(null);
+  const [lastPass, setLastPass] = useState<ConductorLastPass | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -37,7 +48,9 @@ export function useConductorEnabled(project: string): UseConductorEnabledResult 
     let cancelled = false;
     const fetchEnabled = async () => {
       const data = await apiGet(`/api/supervisor/conductor?project=${encodeURIComponent(project)}`);
-      if (!cancelled && typeof data.enabled === 'boolean') setEnabledState(data.enabled);
+      if (cancelled) return;
+      if (typeof data.enabled === 'boolean') setEnabledState(data.enabled);
+      if (data.lastPass && typeof data.lastPass === 'object') setLastPass(data.lastPass as ConductorLastPass);
     };
     void fetchEnabled().catch(() => {});
     const id = setInterval(() => { void fetchEnabled().catch(() => {}); }, 10_000);
@@ -55,5 +68,5 @@ export function useConductorEnabled(project: string): UseConductorEnabledResult 
     setBusy(false);
   }, [project, enabled]);
 
-  return { enabled, busy, setEnabled };
+  return { enabled, lastPass, busy, setEnabled };
 }
