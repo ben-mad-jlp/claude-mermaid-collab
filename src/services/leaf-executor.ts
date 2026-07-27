@@ -30,9 +30,10 @@ import { type OrchestrationNodeKind, ORCHESTRATION_NODE_KINDS } from './node-kin
 import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
 import {
   parseVerdict, parseVerifyGate, parseSizeManifest, joinReviewReports,
+  VERIFY_GATE_MCP_SERVER, verbMcpTool, VERIFY_GATE_MCP_TOOL, resolveVerifyGate,
 } from './leaf-parsing';
 import type {
-  ReviewLens, LeafSizeManifest, LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict,
+  ReviewLens, LeafSizeManifest, LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict, VerifyGateConfig,
 } from './leaf-parsing';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
@@ -60,10 +61,12 @@ import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
-export { parseVerdict, parseVerifyGate, parseSizeManifest, joinReviewReports };
+export { parseVerdict, parseVerifyGate, parseSizeManifest, joinReviewReports, VERIFY_GATE_MCP_SERVER, verbMcpTool, VERIFY_GATE_MCP_TOOL, resolveVerifyGate };
 export type {
-  LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict, LeafSizeManifest, ReviewLens,
+  LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict, LeafSizeManifest, ReviewLens, VerifyGateConfig,
 } from './leaf-parsing';
+export { NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey };
+export type { LeafNodeGroup } from './leaf-prompts';
 import { validateReviewGrounding, checkConstraintCitations, extractCitations } from './review-citations';
 import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind } from './diff-contract';
@@ -793,19 +796,6 @@ export { VERIFY_GATE_VERB } from './leaf-prompts';
  *  geometry/DOF/clearance gates) legitimately runs longer, and the L4 dogfood hit the 600s
  *  kill mid-build. 20min gives heavy assemblies room while still bounding a true runaway. */
 export const VERIFY_EXEC_TIMEOUT_MS = 1_200_000;
-/** The build123d MCP server key (its FastMCP name — `FastMCP("bsync-cad")`, registered in
- *  build123d-ocp-mcp/.mcp.json). A Claude Code node addresses its tools as
- *  `mcp__bsync-cad__<verb>`. Confirmed against the live MCP in L4. */
-export const VERIFY_GATE_MCP_SERVER = 'bsync-cad';
-/** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. Kept as one
- *  function so every call site generalizes together. */
-export function verbMcpTool(verb: string): string {
-  return `mcp__${VERIFY_GATE_MCP_SERVER}__${verb}`;
-}
-/** The default verb's MCP tool — NODE_PROFILE.driveexec's static allowlist fallback. The
- *  pipeline recomputes the allowlist per-leaf from the resolved config (so a non-default verb
- *  is allowlisted correctly); this keeps the profile table total. */
-export const VERIFY_GATE_MCP_TOOL = verbMcpTool(VERIFY_GATE_VERB);
 
 /** Per-node model + tool allowlist (blueprint §3). Bash is read-only by prompt
  *  convention (the CLI has no RO-bash flag). The space-separated list is passed
@@ -820,65 +810,6 @@ export const LEAF_NODE_KINDS: LeafNodeKind[] = [
   'research', 'wimplement', 'verify', 'fix',
   'driveplan', 'driveexec', 'report',
   'summary',
-];
-
-/** One-line description of what each node kind does — surfaced in the matrix editor. */
-export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
-  blueprint: 'Floor: plans the leaf — authors the implementation blueprint the later nodes follow.',
-  implement: 'Floor: writes the code per the blueprint (single-shot).',
-  review: 'Floor: reviews the implementation against the blueprint; failure drives a retry.',
-  research: 'Waves: read-only investigation per task before any edits.',
-  wimplement: 'Waves: implements one file/target (read + edit).',
-  verify: 'Waves: checks one file (e.g. runs tsc) and reports pass/fail.',
-  fix: 'Waves: fixes a file that failed verify (same error twice ⇒ stuck).',
-  driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
-  driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
-  report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
-  summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
-};
-
-/** Pipeline grouping for the node-kind matrix editor (UI: DaemonNodesMatrix).
- *  The single source of truth for which kinds belong to which pipeline + when
- *  each pipeline actually fires. Ordered; Floor first. `defaultCollapsed` drives
- *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
- *  ORCHESTRATION_NODE_KINDS. */
-export interface LeafNodeGroup {
-  key: 'floor' | 'verify-cad' | 'orchestration';
-  label: string;
-  firesWhen: string;
-  kinds: (LeafNodeKind | OrchestrationNodeKind)[];
-  defaultCollapsed: boolean;
-}
-
-/** Node kinds that are NOT shown in the daemon-nodes settings matrix — kept as valid LeafNodeKinds
- *  (historical ledger rows, resume, NODE_PROFILE defaults) but deliberately hidden from the config UI:
- *   - the RETIRED wave kinds (research/wimplement/verify/fix): the fan-out path no longer runs
- *     (2026-07-08) — every leaf runs linear (FLOOR) and oversized leaves auto-split, so there is
- *     nothing to configure.
- *   - 'summary' (the Zen session-summary interpret model): configured by the summary loop, never run
- *     via runNode — it was only ever a non-configurable placeholder in the matrix.
- *  The route excludes these from the served rows and there is no group for them, so the matrix does
- *  not render an empty "Waves"/"Zen" section. */
-export const MATRIX_HIDDEN_NODE_KINDS: LeafNodeKind[] = ['research', 'wimplement', 'verify', 'fix', 'summary'];
-
-export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
-  {
-    key: 'floor', label: 'Floor', defaultCollapsed: false,
-    firesWhen: 'Always — the default code-leaf path (blueprint → implement → review).',
-    kinds: ['blueprint', 'implement', 'review'],
-  },
-  {
-    key: 'verify-cad', label: 'Verify / CAD', defaultCollapsed: true,
-    firesWhen: 'Only when leaf.type ∈ verify | cad-dogfood | dogfood (build-assembly geometry gate) — never for ordinary backend/ui leaves.',
-    kinds: ['driveplan', 'driveexec', 'report'],
-  },
-  {
-    key: 'orchestration', label: 'Orchestration', defaultCollapsed: false,
-    firesWhen: 'Runs ABOVE the per-leaf pipeline, not per-leaf: mission forge (doc → mission), '
-      + 'the autonomous conductor (drives a mission tick), and the criterion planner (decomposes '
-      + 'a criterion into an epic).',
-    kinds: ORCHESTRATION_NODE_KINDS,
-  },
 ];
 
 /** Wall-clock cap for nodes that DO the build (implement-class). The invoker default
@@ -953,12 +884,13 @@ const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
   return e && (['low', 'medium', 'high', 'xhigh', 'max'] as string[]).includes(e) ? (e as EffortLevel) : undefined;
 })();
 
-import type { LeafNodeKind } from './leaf-prompts';
+import type { LeafNodeKind, LeafNodeGroup } from './leaf-prompts';
 import {
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
+  NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey,
 } from './leaf-prompts';
 
 /**
@@ -1005,36 +937,6 @@ export function leafRunKinds(leaf: Todo): LeafNodeKind[] {
     case 'review': return ['review'];
     default: return ['blueprint', 'implement', 'review']; // floor
   }
-}
-
-/** The verify pipeline's domain gate, made PLUGGABLE in L3 (epic f5c7fc46 e9ce8693). A gate
- *  is a deterministic VERB (an MCP tool the execute node calls — its returned geometry/DOF/
- *  clearance verdicts are parsed by {@link parseVerifyGate}) and/or an optional COMMAND (a
- *  shell gate, e.g. `pytest -q`, composed AFTER the verb gate). This is the single seam other
- *  verify configs extend through: cartographer spec-sync (verb: check_graph_drift), asset-gen
- *  fitness, a pure-pytest dogfood — each lands as a CONFIG here with ZERO new dispatch in
- *  runVerifyPipeline (the hygiene that keeps a future recipe-registry extraction cheap). */
-export interface VerifyGateConfig {
-  /** The deterministic MCP verb the execute node invokes. Defaults to {@link VERIFY_GATE_VERB}. */
-  verb: string;
-  /** Optional shell command gate run in the worktree AFTER the verb gate; its non-zero exit is
-   *  a FINDING (not an executor failure), composed into the report alongside the verb verdicts. */
-  command?: string;
-}
-
-/** Resolve a verify leaf's gate config. L3 keys off `leaf.type`; today every verify type maps
- *  to the build_assembly_plan verb (no command), so this is behavior-identical to L2 — the
- *  POINT is the extension seam, not new routing. Add a case here (not new pipeline code) to
- *  introduce a new verify gate. Pure + unit-testable. */
-export function resolveVerifyGate(leaf: Todo): VerifyGateConfig {
-  // (future) switch on (leaf.type ?? '').toLowerCase() to pick verb/command per domain.
-  return { verb: VERIFY_GATE_VERB };
-}
-
-/** Stable per-leaf lane name. WorktreeManager keys records on this; `fresh:true`
- *  tears down the prior dir+branch so every attempt is a NEW branch off the tip. */
-export function leafSessionKey(leaf: Todo): string {
-  return `leaf-exec-${leaf.id.slice(0, 8)}`;
 }
 
 /** One warning per (project, epic): an undeclared gate is a legitimate config, but its absence must

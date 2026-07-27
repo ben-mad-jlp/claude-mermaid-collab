@@ -11,6 +11,8 @@
 
 import type { Todo } from './todo-store';
 import type { ReviewLens } from './leaf-parsing';
+import type { OrchestrationNodeKind } from './node-kinds';
+import { ORCHESTRATION_NODE_KINDS } from './node-kinds';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
@@ -28,6 +30,65 @@ export type LeafNodeKind =
  *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
  *  (see {@link resolveVerifyGate}); this is just the fallback verb. */
 export const VERIFY_GATE_VERB = 'build_assembly_plan';
+
+/** One-line description of what each node kind does — surfaced in the matrix editor. */
+export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
+  blueprint: 'Floor: plans the leaf — authors the implementation blueprint the later nodes follow.',
+  implement: 'Floor: writes the code per the blueprint (single-shot).',
+  review: 'Floor: reviews the implementation against the blueprint; failure drives a retry.',
+  research: 'Waves: read-only investigation per task before any edits.',
+  wimplement: 'Waves: implements one file/target (read + edit).',
+  verify: 'Waves: checks one file (e.g. runs tsc) and reports pass/fail.',
+  fix: 'Waves: fixes a file that failed verify (same error twice ⇒ stuck).',
+  driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
+  driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
+  report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
+  summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
+};
+
+/** Pipeline grouping for the node-kind matrix editor (UI: DaemonNodesMatrix).
+ *  The single source of truth for which kinds belong to which pipeline + when
+ *  each pipeline actually fires. Ordered; Floor first. `defaultCollapsed` drives
+ *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
+ *  ORCHESTRATION_NODE_KINDS. */
+export interface LeafNodeGroup {
+  key: 'floor' | 'verify-cad' | 'orchestration';
+  label: string;
+  firesWhen: string;
+  kinds: (LeafNodeKind | OrchestrationNodeKind)[];
+  defaultCollapsed: boolean;
+}
+
+/** Node kinds that are NOT shown in the daemon-nodes settings matrix — kept as valid LeafNodeKinds
+ *  (historical ledger rows, resume, NODE_PROFILE defaults) but deliberately hidden from the config UI:
+ *   - the RETIRED wave kinds (research/wimplement/verify/fix): the fan-out path no longer runs
+ *     (2026-07-08) — every leaf runs linear (FLOOR) and oversized leaves auto-split, so there is
+ *     nothing to configure.
+ *   - 'summary' (the Zen session-summary interpret model): configured by the summary loop, never run
+ *     via runNode — it was only ever a non-configurable placeholder in the matrix.
+ *  The route excludes these from the served rows and there is no group for them, so the matrix does
+ *  not render an empty "Waves"/"Zen" section. */
+export const MATRIX_HIDDEN_NODE_KINDS: LeafNodeKind[] = ['research', 'wimplement', 'verify', 'fix', 'summary'];
+
+export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
+  {
+    key: 'floor', label: 'Floor', defaultCollapsed: false,
+    firesWhen: 'Always — the default code-leaf path (blueprint → implement → review).',
+    kinds: ['blueprint', 'implement', 'review'],
+  },
+  {
+    key: 'verify-cad', label: 'Verify / CAD', defaultCollapsed: true,
+    firesWhen: 'Only when leaf.type ∈ verify | cad-dogfood | dogfood (build-assembly geometry gate) — never for ordinary backend/ui leaves.',
+    kinds: ['driveplan', 'driveexec', 'report'],
+  },
+  {
+    key: 'orchestration', label: 'Orchestration', defaultCollapsed: false,
+    firesWhen: 'Runs ABOVE the per-leaf pipeline, not per-leaf: mission forge (doc → mission), '
+      + 'the autonomous conductor (drives a mission tick), and the criterion planner (decomposes '
+      + 'a criterion into an epic).',
+    kinds: ORCHESTRATION_NODE_KINDS,
+  },
+];
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 export function blueprintPath(leaf: Todo): string {
@@ -54,6 +115,12 @@ export function verifyReportPath(leaf: Todo): string {
  *  completion gate's work-committed re-verify sees real work. */
 export function reviewReportPath(leaf: Todo): string {
   return `docs/review/${leaf.id}.report.md`;
+}
+
+/** Stable per-leaf lane name. WorktreeManager keys records on this; `fresh:true`
+ *  tears down the prior dir+branch so every attempt is a NEW branch off the tip. */
+export function leafSessionKey(leaf: Todo): string {
+  return `leaf-exec-${leaf.id.slice(0, 8)}`;
 }
 
 /** The FINISH-with-trailing-json-fence instruction + the size-manifest schema itself,
