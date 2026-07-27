@@ -1247,15 +1247,27 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   return 'discover';
 }
 
+/** Shared terminal-prefix deriver for both mission-status paths.
+ *  Reads only terminal stored columns — exact on both facts-backed and cheap paths.
+ *  Post-prefix arms deliberately differ: deriveMissionStatus is a facts-backed capability
+ *  gauge; deriveCheapMissionStatus is a list-badge proxy. Precedence: closed > abandoned > unapproved. */
+export function deriveTerminalMissionPrefix(
+  t: { closedAt?: number | null; abandonedAt?: number | null; awaitingApproval: boolean },
+): MissionStatus | null {
+  if (t.closedAt != null) return 'closed';
+  if (t.abandonedAt != null) return 'abandoned';
+  if (t.awaitingApproval) return 'unapproved';
+  return null;
+}
+
 /** First-match-wins. PER-CRITERION since decision mission-discovery-per-criterion (f9bc952f)
  *  (supersedes the A2 brief's global `!hasOpenEpic` clause and its building>discovery
  *  precedence): one epic building no longer masks discovery for OTHER criteria, so a
  *  conductor can serve every open gap concurrently. 'building' is now the QUIETEST
  *  non-terminal state — it only surfaces when nothing is left to discover or verify. */
 export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
-  if (f.closedAt != null) return 'closed';
-  if (f.abandonedAt != null) return 'abandoned';
-  if (f.awaitingApproval) return 'unapproved'; // forged, not yet human-approved — never driven
+  const terminal = deriveTerminalMissionPrefix({ ...f, awaitingApproval: f.awaitingApproval === true });
+  if (terminal != null) return terminal;
   const actions = f.criteria.map(deriveCriterionAction);
   // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
   // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
@@ -1287,7 +1299,6 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
  * Uses only the stored mission columns plus the epic-status slice the list path has already
  * read — no collectMissionStatusFacts, so no project-wide todo scan and no ledger scan.
  *
- * The terminal flags (abandoned/unapproved) are EXACT because they read stored columns.
  * The 'converged' arm is a PROXY (all epics done) — good enough for a list badge, but not
  * the real capability gauge, which needs criteria verdicts. Anything else reads 'building'.
  * A caller that needs the true status must ask for it: getMission, or listMissions with
@@ -1299,9 +1310,8 @@ export function deriveCheapMissionStatus(
   criteria: readonly { met: boolean }[] = [],
   stalled: boolean = false,
 ): MissionStatus {
-  if (m.closedAt != null) return 'closed';
-  if (m.abandonedAt != null) return 'abandoned';
-  if (m.awaitingApprovalSince != null) return 'unapproved';
+  const terminal = deriveTerminalMissionPrefix({ closedAt: m.closedAt, abandonedAt: m.abandonedAt, awaitingApproval: m.awaitingApprovalSince != null });
+  if (terminal != null) return terminal;
   // Converged = the CAPABILITY gauge: every acceptance criterion met (stored verdicts — cheap, no
   // facts scan), NOT "all epics done". Keying off epics gave the wrong badge both ways: a
   // criteria-converged mission with zero epics read 'building' (aad41fd5), and an all-epics-done
