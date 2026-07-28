@@ -40,6 +40,8 @@
 	<array>
 		<string>_mermaidcollab._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Zen uses the camera only to scan the pairing QR code shown by the desktop app.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Zen finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network.</string>
 	<key>UIApplicationSceneManifest</key>
