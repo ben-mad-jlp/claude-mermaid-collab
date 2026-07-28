@@ -417,6 +417,18 @@ export class ContainerHasOpenChildrenError extends Error {
   }
 }
 
+/** A dropped container still has live (non-terminal) descendants. The drop cascade
+ *  must leave no live child under a dropped container — the cascade ensures this on
+ *  the initial drop, but a re-parent path or a second drop can introduce a live child
+ *  back under an already-dropped container. This is always a data-integrity failure. */
+export class DroppedEpicHasLiveChildrenError extends Error {
+  constructor(public readonly id: string, public readonly liveCount: number) {
+    super(`todo ${id.slice(0, 8)} is dropped but still has ${liveCount} live (non-terminal) ` +
+      `descendant(s) under it — the drop cascade must leave no live child under a dropped container.`);
+    this.name = 'DroppedEpicHasLiveChildrenError';
+  }
+}
+
 export class TerminalParentApproveError extends Error {
   readonly code = 'terminal-parent-approve';
   constructor(todoId: string, terminalEpicId: string) {
@@ -2004,6 +2016,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // R5: bucket depth invariant when re-parenting
     if (patch.parentId !== undefined) {
       assertBucketDepthInvariant(project, { parentId: next.parentId, child: existing, childId: id });
+      // Guard against re-parenting a live todo under an already-dropped container
+      if (next.parentId && status !== 'done' && status !== 'dropped') {
+        const parent = getTodo(project, next.parentId);
+        if (parent && parent.status === 'dropped') {
+          throw new DroppedEpicHasLiveChildrenError(next.parentId, 1);
+        }
+      }
     }
 
     const db = openDb(project);
@@ -2053,13 +2072,25 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       //
       // Not best-effort: a cascade that exists to prevent orphaned claimable work must fail
       // LOUDLY. A throw here rolls back the status write above.
-      if (status === 'dropped' && !wasTerminal && isContainerKind({ kind: existing.kind })) {
-        db.prepare(
-          `${DESCENDANTS_CTE}
-           UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
-             heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+      if (status === 'dropped' && isContainerKind({ kind: existing.kind })) {
+        if (!wasTerminal) {
+          db.prepare(
+            `${DESCENDANTS_CTE}
+             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
+               heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+          ).run(fullId, nowIso());
+        }
+        // Guard, not best-effort: covers both the just-ran cascade above and the
+        // already-terminal re-drop case (item 3) where no cascade ran this call but a
+        // prior re-parent may have introduced a live child. Pre-cutover data fixes
+        // (:739/:888/:947/:1019) are exempt by construction — they run once, before
+        // any live traffic, and re-home children before tombstoning.
+        const { n: liveCount } = db.prepare(
+          `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
            WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-        ).run(fullId, nowIso());
+        ).get(fullId) as { n: number };
+        if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
       }
     })();
 
