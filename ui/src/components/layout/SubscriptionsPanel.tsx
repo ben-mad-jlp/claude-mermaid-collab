@@ -18,7 +18,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { ServerIcon } from '@/components/ServerIcon';
-import { SessionCard, capsCache, type SessionCardData } from '@/components/layout/SessionCard';
+import { SessionCard, type SessionCardData } from '@/components/layout/SessionCard';
 import { isWorkerSession } from '@/lib/liveness';
 import { apiFetch } from '@/lib/api';
 
@@ -74,12 +74,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession, currentSession } = useSessionStore();
   const { servers } = useServers();
-  // Invalidate capsCache entries for servers that no longer exist, so a
-  // re-added server doesn't reuse a stale (possibly wrong) tmux capability.
-  useEffect(() => {
-    const ids = new Set(servers.map((s) => s.id));
-    for (const k of capsCache.keys()) if (!ids.has(k)) capsCache.delete(k);
-  }, [servers]);
   const activeId = currentSession?.serverId ?? null;
   const supervised = useSupervisedSessions();
   const [collapsed, setCollapsed] = useState(false);
@@ -328,8 +322,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       return;
     }
     // Use apiFetch so this works in BOTH the desktop app (Electron bridge) and
-    // the plain web UI (same-origin `/srv/<serverId>/` fetch fallback). The
-    // server-side launch (tmux -> claude) runs on the server host either way.
+    // the plain web UI (same-origin `/srv/<serverId>/` fetch fallback).
     const res = await apiFetch(serverId, '/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -346,14 +339,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     }
     // Auto-subscribe so the new session lands in Watching immediately.
     subscribe(serverId, project, name);
-    // Launch a Claude worker into the new session (tmux -> claude -> /collab).
-    // Creating a session is the "spin one up" action, so it owns the launch;
-    // subscribing to an already-running session does NOT (that's just watching).
-    void apiFetch(serverId, '/api/ide/launch-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, session: name, allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid' }),
-    }).catch(() => {});
     // If this was a pending project, promote it: server now knows about it,
     // so drop from pendingProjects.
     setPendingProjects((p) => {

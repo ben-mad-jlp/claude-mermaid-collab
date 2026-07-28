@@ -90,25 +90,13 @@ function resolveLandActor(raw: unknown): { actor: LandActor } | { error: string 
   return { error: `unknown actor kind: ${kind}` };
 }
 
-/** Deliver a text injection to a watched session (peer-forward or local tmux) and
- *  broadcast a supervisor_nudge so UIs reflect it. Shared by the /nudge and
- *  /approve-push routes — the single owner of the inject+broadcast primitive. */
+/** Broadcast a supervisor_nudge so UIs reflect an attempted text injection.
+ *  Shared by the /nudge and /approve-push routes. The DELIVERY half (tmux
+ *  send-keys) was removed, so nothing is injected into a session — the nudge is
+ *  still surfaced and recorded, and always reports sent:false. */
 async function deliverNudge(project: string, session: string, serverId: string | undefined, text: string): Promise<{ result: any; sent: boolean }> {
-  let result: any;
-  let sent: boolean;
-  if (serverId && getPeer(serverId)) {
-    const peer = getPeer(serverId)!;
-    const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, session, text }),
-    });
-    result = await res.json();
-    sent = !!(result?.sent ?? result?.tmux ?? result?.success);
-  } else {
-    result = { sent: false, reason: 'local tmux delivery removed' };
-    sent = false;
-  }
+  const result = { sent: false, reason: 'nudge delivery removed' };
+  const sent = false;
   getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
   return { result, sent };
 }
@@ -1166,21 +1154,10 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       if (!Array.isArray(numbers) || !numbers.every((n) => typeof n === 'number')) {
         return jsonError('numbers must be an array of option numbers', 400);
       }
-      let result: any;
-      let sent: boolean;
-      if (serverId && getPeer(serverId)) {
-        const peer = getPeer(serverId)!;
-        const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-selection', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project, session, numbers }),
-        });
-        result = await res.json();
-        sent = !!(result?.tmux ?? result?.sent ?? result?.success);
-      } else {
-        result = { sent: false, reason: 'local tmux selection removed' };
-        sent = false;
-      }
+      // Selection DELIVERY is gone (it was tmux send-keys) — surface the intent,
+      // deliver nothing.
+      const result = { sent: false, reason: 'selection delivery removed' };
+      const sent = false;
       getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text: `selected: ${(numbers as number[]).join(', ')}`, sent });
       return Response.json(result);
     } catch (err) {
@@ -1188,37 +1165,10 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
-  // POST /api/supervisor/capture-pane — on-demand raw tmux pane read ("show the
-  // lines it read"). Mirrors the nudge route's peer/local branch but READS instead
-  // of writes (NOT a stream): peer → forward to peer's /api/ide/capture-pane;
-  // local → capturePaneText helper. No WS broadcast (pure read).
-  if (url.pathname === '/api/supervisor/capture-pane' && req.method === 'POST') {
-    try {
-      const { project, session, serverId } = (await req.json()) as {
-        project?: string;
-        session?: string;
-        serverId?: string;
-      };
-      if (!project || !session) return jsonError('project and session are required', 400);
-      if (serverId && getPeer(serverId)) {
-        const peer = getPeer(serverId)!;
-        const res = await fetch(peer.baseUrl + '/api/ide/capture-pane', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project, session }),
-        });
-        return Response.json(await res.json());
-      }
-      return Response.json({ lines: [] });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
   // POST /api/supervisor/refresh-summary — force a fresh out-of-band session summary
   // (Z9 force-proof): re-hash + re-summarize even when the pane hash is unchanged. A
-  // remote session forwards to the peer that owns its tmux + summary cache (like
-  // capture-pane). Best-effort: if the summary-loop service isn't deployed yet, report
+  // remote session forwards to the peer that owns its summary cache. Best-effort:
+  // if the summary-loop service isn't deployed yet, report
   // ok:false rather than 500. The loop helper broadcasts session_summary_updated itself.
   if (url.pathname === '/api/supervisor/refresh-summary' && req.method === 'POST') {
     try {

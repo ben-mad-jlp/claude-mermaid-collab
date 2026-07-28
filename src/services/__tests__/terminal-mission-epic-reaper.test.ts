@@ -23,7 +23,7 @@ import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 
 // Mock claude-launch so coordinator-live can load without starting a real session
 mock.module('../claude-launch', () => ({
-  ensureSession: async () => ({ ready: true, tmux: 'tmux-mock' }),
+  ensureSession: async () => ({ ready: true }),
   runTodoInSession: async () => ({ sent: true }),
 }));
 

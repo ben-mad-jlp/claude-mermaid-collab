@@ -27,7 +27,6 @@ contextBridge.exposeInMainWorld('mc', {
     ipcRenderer.invoke('mc:pickFolder', opts),
   setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),
   listSessionsForServer: (serverId: string) => ipcRenderer.invoke('mc:listSessionsForServer', serverId),
-  getServerCapabilities: (serverId: string) => ipcRenderer.invoke('mc:getServerCapabilities', serverId),
   invokeOnServer: (serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
     ipcRenderer.invoke('mc:invokeOnServer', serverId, opts),
   openExternalTerminal: (tmuxName: string) => ipcRenderer.invoke('mc:openExternalTerminal', tmuxName),

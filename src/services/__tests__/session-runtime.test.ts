@@ -97,7 +97,6 @@ describe('buildSessionRuntime — the join', () => {
       claimedTodoId: 'todo-1',
       claimedAt: '2026-06-05T00:00:00Z',
       retryCount: 2,
-      slotTmux: null,
       idleSince: null,
       escalated: true,
       liveness: 'active',

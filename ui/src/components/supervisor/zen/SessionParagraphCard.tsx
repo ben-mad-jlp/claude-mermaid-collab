@@ -3,7 +3,6 @@ import type { SessionSummary, Escalation, ZenStructured } from '@/stores/supervi
 import { fmtHHMM } from '@/lib/freshnessSelectors';
 import { ageOpacityClass, summaryFreshness } from '@/lib/paragraphStack';
 import { FreshnessPulse } from './FreshnessPulse';
-import { PaneLinesPopover } from './PaneLinesPopover';
 import { useNotificationStore } from '@/stores/notificationStore';
 
 export interface SessionParagraphCardProps {
@@ -16,7 +15,6 @@ export interface SessionParagraphCardProps {
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void;
   onResolve: (serverId: string, id: string, status: string) => void;
   onSnooze: (project: string, session: string) => void;
-  onFetchPane: (project: string, session: string) => Promise<string>;
 }
 
 const STATUS_PILL: Record<ZenStructured['status'], { dot: string; text: string; label: string }> = {
@@ -38,7 +36,6 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
   onAnswerPane,
   onResolve,
   onSnooze,
-  onFetchPane,
 }) => {
   const structured = summary.structured;
 
@@ -259,13 +256,6 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
       >
         {fresh.label}
       </div>
-
-      {/* Pane lines popover */}
-      <PaneLinesPopover
-        project={summary.project}
-        session={summary.session}
-        onFetch={onFetchPane}
-      />
 
       {/* Threshold control */}
       <div className="pt-1">

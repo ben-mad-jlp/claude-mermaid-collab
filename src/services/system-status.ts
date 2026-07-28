@@ -90,7 +90,6 @@ export interface SystemStatus {
     working: number;
     idle: number;
     permission: number;
-    deadOrGone: number;
     overLease: number;
     headroom: FleetStatus['headroom'];
   };
@@ -218,7 +217,6 @@ export function summarizeSystemStatus(inp: SystemStatusInputs): SystemStatus {
       working: inp.fleet.summary.working,
       idle: inp.fleet.summary.idle,
       permission: inp.fleet.summary.permission,
-      deadOrGone: inp.fleet.summary.deadOrGone,
       overLease: inp.fleet.summary.overLease,
       headroom: inp.fleet.headroom,
     },

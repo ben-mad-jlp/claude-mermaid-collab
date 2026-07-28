@@ -180,7 +180,6 @@ function registerIpc(): void {
   // (delete the row; a discovered instance re-appears as pending on next refresh).
   ipcMain.handle('mc:pairServer', (_e, id: string) => { store?.pair(id); return store?.list() ?? []; });
   ipcMain.handle('mc:unpairServer', (_e, id: string) => { store?.unpair(id); return store?.list() ?? []; });
-  ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
   ipcMain.handle('mc:openExternalTerminal', async (_e, tmuxName: string) => {
     // Sanitize: tmux session names here are mc-* alnum+dash; reject anything else to avoid shell injection.
     if (typeof tmuxName !== 'string' || !/^[A-Za-z0-9_-]+$/.test(tmuxName)) {
@@ -249,9 +248,6 @@ async function invokeOnServer(
     const text = await r.text();
     let parsed: unknown = text;
     try { parsed = JSON.parse(text); } catch { /* keep text */ }
-    if (opts.path === '/api/ide/create-terminal' && r.ok && parsed && typeof parsed === 'object' && 'tmux' in (parsed as Record<string, unknown>)) {
-      store.setServerCapabilities(serverId, { tmux: Boolean((parsed as { tmux?: unknown }).tmux) });
-    }
     return { ok: r.ok, status: r.status, body: parsed };
   } catch (err) {
     console.warn(`[mc:invokeOnServer] ${serverId} ${opts.path} failed:`, err);
@@ -273,73 +269,12 @@ function pushPeerRegistry(): void {
   aggregator.broadcast({ type: 'peer_registry', peers });
 }
 
-// --- Cross-machine supervisor notify (REMOTE-ONLY) ---------------------------
-// The collab server already nudges its supervisor for same-host sessions; here
-// we only handle REMOTE servers so we don't double-notify. We resolve the local
-// "home" server (the one whose supervisor identity is set) and, when a remote
-// session it supervises flips to waiting/permission, send a reconcile nudge.
-const supTransition = new Map<string, string>();           // `${serverId} ${project} ${session}` -> last status
-let homeCache: { homeServerId: string; identity: any } | null = null;
-let homeCacheAt = 0;
-async function resolveHome(): Promise<{ homeServerId: string; identity: any } | null> {
-  if (homeCache && Date.now() - homeCacheAt < 10000) return homeCache;
-  if (!store) return null;
-  for (const s of store.list()) {
-    try {
-      const r = await invokeOnServer(s.id, { path: '/api/supervisor/identity' });
-      if (r.ok && r.body && (r.body as any).project && (r.body as any).session) {
-        homeCache = { homeServerId: s.id, identity: r.body };
-        homeCacheAt = Date.now();
-        return homeCache;
-      }
-    } catch { /* ignore */ }
-  }
-  homeCache = null; homeCacheAt = Date.now(); return null;
-}
-let supervisedCache: Set<string> = new Set();              // `${project} ${session}`
-let supervisedAt = 0;
-async function isSupervisedOnHome(homeServerId: string, project: string, session: string): Promise<boolean> {
-  if (Date.now() - supervisedAt > 10000) {
-    try {
-      const r = await invokeOnServer(homeServerId, { path: '/api/supervisor/supervised' });
-      if (r.ok && Array.isArray((r.body as any)?.supervised)) {
-        supervisedCache = new Set((r.body as any).supervised.map((x: any) => `${x.project} ${x.session}`));
-      }
-    } catch { /* keep stale */ }
-    supervisedAt = Date.now();
-  }
-  return supervisedCache.has(`${project} ${session}`);
-}
 async function onWatchEvent(raw: any): Promise<void> {
   // Validate the inbound watch event at the boundary (P2 §6): a malformed/forged
-  // event is DROPPED before it reaches the renderer or the cross-machine nudge.
+  // event is DROPPED before it reaches the renderer.
   const e = validateWatchEvent(raw);
   if (!e) return;
   mainWindow?.webContents.send('mc:watch-event', e);
-  if (e.type !== 'claude_session_status') return;
-  const status = e.status as string | undefined;
-  const key = `${e.serverId} ${e.project} ${e.session}`;
-  const prev = supTransition.get(key);
-  if (status) supTransition.set(key, status);             // update gate for ALL statuses
-  if (status !== 'waiting' && status !== 'permission') return;
-  if (prev === status) return;                            // transition gate
-  const home = await resolveHome();
-  if (!home) return;
-  if (e.serverId === home.homeServerId) return;           // REMOTE-ONLY: same-host handled by server-side push
-  if (home.identity.project === e.project && home.identity.session === e.session) return; // not self
-  if (!(await isSupervisedOnHome(home.homeServerId, e.project, e.session))) return;
-  const base = (e.project || '').split('/').filter(Boolean).pop() || e.project;
-  try {
-    await invokeOnServer(home.homeServerId, {
-      path: '/api/ide/tmux-send-keys',
-      method: 'POST',
-      body: {
-        project: home.identity.project,
-        session: home.identity.session,
-        text: `[mc-supervisor] ${e.serverId}/${base}/${e.session} → ${status}. Reconcile.`,
-      },
-    });
-  } catch { /* best-effort */ }
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack

@@ -38,7 +38,7 @@ describe('makeReconcileDeps (live spawn adapter)', () => {
 
   it('rejects (and clears pending) when the spawn fails to start', async () => {
     const project = tmpProject();
-    const deps = makeReconcileDeps(project, { launch: async () => ({ started: false, reason: 'no-tmux' }) });
+    const deps = makeReconcileDeps(project, { launch: async () => ({ started: false, reason: 'undeliverable' }) });
     await expect(deps.llmMerge({ deltaA: [n('x', ['y'])], deltaB: [n('y')], constraints: [] }))
       .rejects.toThrow('failed to start');
   });

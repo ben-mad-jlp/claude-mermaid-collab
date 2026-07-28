@@ -96,19 +96,14 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
             { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
             if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ sent: false, skipped: 'paused' }, null, 2);
-            let result: any;
-            let sent: boolean;
-            if (serverId && supervisorStore.getPeer(serverId)) {
-              result = await peerFetch(serverId, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text } });
-              sent = !!(result?.tmux ?? result?.success);
-            } else {
-              result = { sent: false, reason: 'local tmux delivery removed' };
-              sent = false;
-            }
+            // Nudge DELIVERY is gone (it was tmux send-keys). The nudge is still
+            // surfaced in the UI and recorded as a supervisor decision, so the
+            // decision trail stays intact — nothing is injected into a session.
+            const result = { sent: false, reason: 'nudge delivery removed' };
+            const sent = false;
             // Surface the nudge in the UI: a toast lets the user SEE that the
-            // supervisor actually pushed a session to continue (and whether it
-            // landed in a live tmux pane). Broadcast on the supervisor's own
-            // server — that's where the user is watching.
+            // supervisor tried to push a session to continue. Broadcast on the
+            // supervisor's own server — that's where the user is watching.
             getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
             recordSupervisorDecision('nudge', project, session, JSON.stringify({ text, sent }), serverId);
             return JSON.stringify(result, null, 2);
@@ -350,16 +345,11 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             if (!ready) {
               return JSON.stringify({ cleared: false, reason: 'checkpoint-not-ready' }, null, 2);
             }
-            let result: any;
-            let sent: boolean;
-            if (isPeer) {
-              result = await peerFetch(serverId!, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text: '/clear' } });
-              sent = !!(result?.tmux ?? result?.success);
-            } else {
-              result = { sent: false, reason: 'local tmux delivery removed' };
-              sent = false;
-            }
-            if (sent && !isPeer) { clearCheckpointReady(project, session); resetWatchdogDebounce(project, session); }
+            // /clear DELIVERY is gone (it was tmux send-keys), so a clear can no
+            // longer actually be injected — report it as un-sent rather than
+            // pretending. checkpoint-ready state is left set for the same reason.
+            const result = { sent: false, reason: 'clear delivery removed' };
+            const sent = false;
             getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });
             recordSupervisorDecision('clear', project, session, JSON.stringify({ sent, isPeer }), serverId);
             return JSON.stringify({ cleared: sent, reason: sent ? undefined : (result?.reason ?? 'send-failed') }, null, 2);

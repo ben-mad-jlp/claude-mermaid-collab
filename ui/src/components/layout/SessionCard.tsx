@@ -18,18 +18,6 @@ import { ServerIcon } from '@/components/ServerIcon';
 
 const CLAUDE_PIX_BASE = '/claudepix';
 
-export const capsCache = new Map<string, { tmux: boolean }>();
-export async function fetchCapabilities(serverId: string): Promise<{ tmux: boolean }> {
-  if (capsCache.has(serverId)) return capsCache.get(serverId)!;
-  const mc = (window as any).mc;
-  if (!mc?.getServerCapabilities) return { tmux: true }; // browser fallback: same-origin to its own server
-  // Optimistic on failure/nullish: let the call happen — the server response
-  // will flip caps off if tmux truly isn't available.
-  const caps = (await mc.getServerCapabilities(serverId).catch(() => null)) ?? { tmux: true };
-  capsCache.set(serverId, caps);
-  return caps;
-}
-
 const ANIMATIONS: Record<string, string[]> = {
   active:     ['work_coding.html', 'dance_bounce_dj.html', 'dance_sway_dj.html', 'dance_djmix.html', 'work_think.html', 'dance_sway.html'],
   // conductor mid-pass — a thinking pose, so the grounding latency reads as deliberation.
@@ -158,30 +146,12 @@ export interface SessionCardData {
 }
 
 /**
- * Fire the click side-effects for a card: create a terminal on the row's
- * server (if it supports tmux) and focus its browser tab. Per-server IPC
- * keeps the "active server" unchanged when clicking an off-active row.
- * Shared so Watching and Supervisor behave identically.
+ * Fire the click side-effects for a card: focus the row's browser tab.
+ * Per-server IPC keeps the "active server" unchanged when clicking an
+ * off-active row. Shared so Watching and Supervisor behave identically.
  */
 export async function activateSessionCard(sub: SessionCardData, serverLabel?: string): Promise<void> {
   const mc = (window as any).mc;
-  const caps = await fetchCapabilities(sub.serverId);
-  if (caps.tmux) {
-    if (mc?.invokeOnServer) {
-      void mc.invokeOnServer(sub.serverId, {
-        path: '/api/ide/create-terminal',
-        method: 'POST',
-        body: { session: sub.session, project: sub.project },
-      });
-    } else {
-      fetch('/api/ide/create-terminal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: sub.session, project: sub.project }),
-      }).catch(() => {});
-    }
-  }
-  // Always fire browser focus — not gated by tmux capability.
   if (mc?.invokeOnServer) {
     void mc.invokeOnServer(sub.serverId, {
       path: '/api/browser/focus-tab',

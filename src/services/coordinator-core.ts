@@ -23,8 +23,8 @@ export interface OrphanReapCandidate {
   sessionName: string | null;
   /** Case B (a claim PAST its lease): the caller MUST confirm the worker's tmux is
    *  actually gone before reaping. Case A (claimedBy NULL) has no live claim by
-   *  definition, so it is reaped outright (needsTmuxProbe=false). */
-  needsTmuxProbe: boolean;
+   *  definition, so it is reaped outright (needsLivenessProbe=false). */
+  needsLivenessProbe: boolean;
 }
 
 /**
@@ -37,7 +37,7 @@ export interface OrphanReapCandidate {
  *
  * Age is measured off the PERSISTED `updatedAt` (survives daemon restarts — no
  * in-memory timer). Epics (parentId NULL) are containers and are NEVER reaped.
- * A candidate with needsTmuxProbe must be confirmed tmux-dead by the caller (the
+ * A candidate with needsLivenessProbe must be confirmed dead by the caller (the
  * tmux probe is injected there so this stays pure + clock-injectable).
  */
 export function planOrphanReap(todos: Todo[], now: string, graceMs: number): OrphanReapCandidate[] {
@@ -50,13 +50,13 @@ export function planOrphanReap(todos: Todo[], now: string, graceMs: number): Orp
     if (nowMs - new Date(t.updatedAt).getTime() <= graceMs) continue; // within grace
     if (t.claimedBy == null) {
       // Case A: no claim at all → orphaned, reap outright (no worker to probe).
-      out.push({ id: t.id, sessionName: t.sessionName, needsTmuxProbe: false });
+      out.push({ id: t.id, sessionName: t.sessionName, needsLivenessProbe: false });
     } else if (
       t.claimedAt != null && t.claimLeaseMs != null &&
       new Date(t.claimedAt).getTime() + t.claimLeaseMs < nowMs
     ) {
       // Case B: a claim past its lease → reap only if its worker tmux is gone.
-      out.push({ id: t.id, sessionName: t.sessionName, needsTmuxProbe: true });
+      out.push({ id: t.id, sessionName: t.sessionName, needsLivenessProbe: true });
     }
   }
   return out;

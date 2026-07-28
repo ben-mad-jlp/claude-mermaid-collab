@@ -140,7 +140,7 @@ describe('planOrphanReap', () => {
   test('ACCEPTANCE: in_progress leaf, claimedBy NULL, older than grace → reaped outright', () => {
     const out = planOrphanReap([leaf({ id: 'a' })], NOW, GRACE);
     expect(out.map((c) => c.id)).toEqual(['a']);
-    expect(out[0].needsTmuxProbe).toBe(false); // case A: no claim → no probe needed
+    expect(out[0].needsLivenessProbe).toBe(false); // case A: no claim → no probe needed
   });
 
   test('ACCEPTANCE: epic (parentId NULL) is never reaped', () => {
@@ -167,7 +167,7 @@ describe('planOrphanReap', () => {
     expect(planOrphanReap([leaf({ id: 'a', updatedAt: RECENT })], NOW, GRACE)).toHaveLength(0);
   });
 
-  test('case B: claim PAST lease → candidate flagged needsTmuxProbe (caller confirms dead)', () => {
+  test('case B: claim PAST lease → candidate flagged needsLivenessProbe (caller confirms dead)', () => {
     const expired = leaf({
       id: 'a', claimedBy: 'coordinator',
       claimedAt: '2024-06-01T11:00:00.000Z', claimLeaseMs: 30 * 60 * 1000, // expired 30 min ago
@@ -175,7 +175,7 @@ describe('planOrphanReap', () => {
     });
     const out = planOrphanReap([expired], NOW, GRACE);
     expect(out.map((c) => c.id)).toEqual(['a']);
-    expect(out[0].needsTmuxProbe).toBe(true);
+    expect(out[0].needsLivenessProbe).toBe(true);
     expect(out[0].sessionName).toBe('backend-1');
   });
 

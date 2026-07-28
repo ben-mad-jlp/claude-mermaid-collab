@@ -37,7 +37,6 @@ export interface SessionRuntime {
   claimedTodoId: string | null;
   claimedAt: string | null;
   retryCount: number;
-  slotTmux: string | null;
   idleSince: number | null;
   escalated: boolean;
   liveness: Liveness;

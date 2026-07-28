@@ -289,7 +289,6 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       return {
         provider: this.id,
         ready: true,
-        tmux: spec.session,
         sent: undefined,
         injectFollowup: (text: string) => this.injectFollowup(spec.session, text),
       };
@@ -317,7 +316,6 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     return {
       provider: this.id,
       ready: true,
-      tmux: spec.session,
       sent: true,
       injectFollowup: (text: string) => this.injectFollowup(spec.session, text),
     };

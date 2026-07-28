@@ -23,7 +23,7 @@ import { diffTodos, planNotifications, snapshotTodos } from '../session-notifica
 // same ordering as coordinator-live.test.ts. `../todo-store` is deliberately NOT mocked
 // here: resolveEpicId needs the real store.
 mock.module('../claude-launch', () => ({
-  ensureSession: async () => ({ ready: true, tmux: 'tmux-mock' }),
+  ensureSession: async () => ({ ready: true }),
   runTodoInSession: async () => ({ sent: true }),
 }));
 import { resolveEpicId } from '../coordinator-live';

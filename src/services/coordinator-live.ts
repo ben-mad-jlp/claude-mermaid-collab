@@ -1748,7 +1748,7 @@ async function coordinatorLaunchWorker(project: string, todo: Todo): Promise<boo
   // If this is left until after a successful spawn (and swallowed best-effort),
   // any race/failure leaves sessionName null → those sites fall back to a
   // fabricated `worker-<id8>` name that can NEVER match the real `<type>-<slot>`
-  // tmux → the worker shows no_tmux and can't be attached/viewed. Setting it here
+  // lane → the worker can't be identified or viewed. Setting it here
   // pins the identity even if the spawn later fails (a released todo leaves
   // in_progress, so it won't linger as a phantom worker in the fleet view).
   if (todo.sessionName !== poolName) {
@@ -1905,7 +1905,7 @@ async function coordinatorLaunchWorker(project: string, todo: Todo): Promise<boo
       kind: 'blocker',
       todoId: todo.id,
       questionText:
-        `No worker lane for "${displayTitle(todo)}": the tmux worker lane was retired (P7) and ` +
+        `No worker lane for "${displayTitle(todo)}": the interactive worker lane was retired (P7) and ` +
         `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
         `Re-scope it as a headless work leaf, split it under an epic, or handle it manually.`,
       conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.noWorkerLane, exclReason).conditionKey,

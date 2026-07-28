@@ -15,7 +15,7 @@ import {
 // Must be registered before the static import of coordinator-live so its module-load
 // side effects resolve to the mock, not a real launch.
 mock.module('../claude-launch', () => ({
-  ensureSession: async () => ({ ready: true, tmux: 'tmux-mock' }),
+  ensureSession: async () => ({ ready: true }),
   runTodoInSession: async () => ({ sent: true }),
 }));
 

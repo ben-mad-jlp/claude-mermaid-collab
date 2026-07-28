@@ -647,7 +647,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         <button
           onClick={() => setCleanupOpen(true)}
           className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          title="Clean up stale sessions & orphan tmuxes"
+          title="Clean up stale sessions"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6" />
