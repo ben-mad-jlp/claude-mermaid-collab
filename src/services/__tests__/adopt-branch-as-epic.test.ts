@@ -96,16 +96,24 @@ describe('adoptBranchAsEpic', () => {
   });
 
   it('throws when source has no commits ahead of master', async () => {
-    // Setup: commit an initial file on master
+    // Setup: commit an initial file on master, branch a topic OFF it, then advance
+    // master past the topic. The topic is now a NON-master ref with a DISTINCT sha and
+    // zero commits ahead of master — the only way to reach the "no commits ahead" guard
+    // (source='master' would trip refuseIfMasterSource first, and a topic AT master's sha
+    // trips its sha-equality arm).
     writeFileSync(join(project, 'initial.txt'), 'initial content\n');
     execFileSync('git', ['add', 'initial.txt'], { cwd: project });
     execFileSync('git', ['commit', '-m', 'initial'], { cwd: project });
+    execFileSync('git', ['branch', 'behind-master'], { cwd: project }); // at initial
+    writeFileSync(join(project, 'second.txt'), 'second content\n');
+    execFileSync('git', ['add', 'second.txt'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'second'], { cwd: project }); // master now ahead
 
-    // Adopt master (which has no commits ahead of itself)
+    // Adopt the behind-master topic branch (no commits ahead of master)
     let error: Error | null = null;
     try {
       await adoptBranchAsEpic(project, 'test-session', {
-        source: 'master',
+        source: 'behind-master',
         title: 'empty adoption',
       });
     } catch (e) {
