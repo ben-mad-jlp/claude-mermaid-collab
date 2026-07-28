@@ -9,7 +9,7 @@
  * the badge to the kanban's honest set.
  */
 import { describe, it, expect } from 'vitest';
-import { projectPlanStats } from '../SupervisorPanel';
+import { projectPlanStats, projectHeaderBg } from '../SupervisorPanel';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { TodoKind } from '@/lib/todoKind';
 
@@ -38,5 +38,17 @@ describe('projectPlanStats — open count', () => {
       mk('mission-1', 'mission', 'todo'),
     ];
     expect(projectPlanStats(todos).open).toBe(1);
+  });
+});
+
+describe('projectHeaderBg — conductor status', () => {
+  it('maps conducting to the blue pulse (distinct from amber building)', () => {
+    expect(projectHeaderBg('conducting')).toContain('card-pulse-blue');
+    expect(projectHeaderBg('conducting')).not.toContain('card-pulse-amber');
+  });
+  it('keeps building amber and permission red distinct from conducting', () => {
+    expect(projectHeaderBg('active')).toContain('card-pulse-amber');
+    expect(projectHeaderBg('permission')).toContain('danger');
+    expect(projectHeaderBg('conducting')).toContain('info');
   });
 });

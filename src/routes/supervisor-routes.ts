@@ -1048,6 +1048,24 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       intervalMs: CONDUCTOR_INTERVAL_MS,
     });
   }
+  // GET /api/supervisor/conductor-running — the set of projects whose conductor is
+  // mid-pass RIGHT NOW (enabled + lastPass reason 'pass-ran' within the freshness
+  // window). One batch read so the project cards can flip BLUE ("conducting") during
+  // the conductor's multi-minute grounding latency, mirroring /leaf-executor/inflight-
+  // projects for the daemon's AMBER "building" signal. Freshness matches the Bridge's
+  // ConductorLadder RUNNING_FRESH_MS (5 min).
+  if (url.pathname === '/api/supervisor/conductor-running' && req.method === 'GET') {
+    const RUNNING_FRESH_MS = 5 * 60 * 1000;
+    const nowMs = Date.now();
+    const projects = listWatchedProjects()
+      .map((wp) => wp.project)
+      .filter((p) => {
+        if (!getConductorEnabled(p)) return false;
+        const lp = getConductorLastPass(p);
+        return !!lp && lp.reason === 'pass-ran' && typeof lp.tickAt === 'number' && nowMs - lp.tickAt < RUNNING_FRESH_MS;
+      });
+    return Response.json({ projects });
+  }
   // POST /api/supervisor/conductor — toggle it and/or pin a target mission.
   // body { project, enabled?: boolean, targetMissionId?: string | null }. UPDATE-only
   // (the project must be watched), like the injection-flag setters.

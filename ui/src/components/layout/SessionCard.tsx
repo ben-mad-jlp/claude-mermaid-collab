@@ -32,6 +32,8 @@ export async function fetchCapabilities(serverId: string): Promise<{ tmux: boole
 
 const ANIMATIONS: Record<string, string[]> = {
   active:     ['work_coding.html', 'dance_bounce_dj.html', 'dance_sway_dj.html', 'dance_djmix.html', 'work_think.html', 'dance_sway.html'],
+  // conductor mid-pass — a thinking pose, so the grounding latency reads as deliberation.
+  conducting: ['work_think.html'],
   waiting:    ['expression_wink.html', 'expression_sleep.html', 'idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
   permission: ['expression_surprise.html', 'dance_bounce.html'],
   unknown:    ['idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
@@ -141,7 +143,7 @@ export interface SessionCardData {
   project: string;
   session: string;
   claudeSessionId?: string;
-  status: 'active' | 'waiting' | 'permission' | 'unknown';
+  status: 'active' | 'conducting' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
   /** For a WORKER lane: when it claimed its current todo (ms epoch). When set, the
    *  card timer shows TIME-ON-TASK (elapsed since claim) instead of last-activity —

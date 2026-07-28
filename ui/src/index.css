@@ -356,6 +356,17 @@ body {
   animation: card-pulse-amber 4s infinite ease-in-out;
 }
 
+/* Conductor is mid-pass (thinking/grounding) — blue pulse so the multi-minute
+   conductor latency reads as WORKING, not stalled. Slower/gentler than amber
+   (building) since the conductor is deliberating, not executing. */
+@keyframes card-pulse-blue {
+  0%, 100% { background-color: rgb(191 219 254); }
+  50% { background-color: rgb(96 165 250); }
+}
+.card-pulse-blue {
+  animation: card-pulse-blue 3s infinite ease-in-out;
+}
+
 /* Permission / waiting — static, scaled up */
 .status-scaled {
   transform: scale(1.7);

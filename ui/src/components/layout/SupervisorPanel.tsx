@@ -82,6 +82,8 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
       return 'bg-danger-300 hover:bg-danger-400 border border-danger-500';
     case 'active':
       return 'card-pulse-amber border border-warning-400';
+    case 'conducting':
+      return 'card-pulse-blue border border-info-400';
     case 'waiting':
       return 'bg-success-300 hover:bg-success-400 border border-success-500';
     default:
@@ -247,6 +249,30 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     };
     void poll();
     const id = setInterval(() => { void poll(); }, 4_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Projects whose CONDUCTOR is mid-pass right now (reason 'pass-ran' + fresh, all
+  // projects in one batch). The conductor is a Claude node with multi-minute
+  // grounding latency: nothing is inflight yet, so the card otherwise reads idle
+  // (GREEN/gray) while the conductor is actually thinking. One poll lets the card
+  // flip BLUE ("conducting") during that gap — same shape as inflightProjects above.
+  const [conductingProjects, setConductingProjects] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/supervisor/conductor-running');
+        if (!res.ok || cancelled) return;
+        const d = await res.json();
+        const next: string[] = Array.isArray(d?.projects) ? d.projects : [];
+        setConductingProjects((prev) =>
+          prev.size === next.length && next.every((p) => prev.has(p)) ? prev : new Set(next),
+        );
+      } catch { /* best-effort; keep last good */ }
+    };
+    void poll();
+    const id = setInterval(() => { void poll(); }, 10_000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -667,14 +693,21 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               // for this project (inflightProjects) is the daemon-authoritative
               // "building" signal — fold it in so the card reads AMBER, not green.
               const hasHeadlessInflight = inflightProjects.has(project);
+              // The conductor thinking (mid-pass) reads BLUE — but only when nothing
+              // more concrete is happening: an actual build (AMBER) or a blocker that
+              // needs a human (RED) both outrank "conductor is deliberating". This
+              // fills the grounding-latency gap where the card would otherwise look idle.
+              const isConducting = conductingProjects.has(project);
               const daemonStatus: SessionCardData['status'] =
                 stats.inProgress > 0 || hasHeadlessInflight
                   ? 'active'
                   : blockerCount > 0
                     ? 'permission'
-                    : stats.idleWithWork
-                      ? 'waiting'
-                      : combined;
+                    : isConducting
+                      ? 'conducting'
+                      : stats.idleWithWork
+                        ? 'waiting'
+                        : combined;
               // Full hover legend — spells out every indicator (symbol + label + total)
               // so the card is legible to someone who hasn't memorised the glyphs.
               const legend = [
