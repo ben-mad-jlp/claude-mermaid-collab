@@ -109,6 +109,17 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
 
 ## Safety rituals (each one paid for in incidents)
 
+- **Do ALL hand-work in a throwaway git worktree, never the daemon-driven main
+  checkout.** Hand-builds, hotfixes, and any commit you author: create an isolated
+  worktree off master first (`git worktree add ../wt-fix master`), work + commit
+  there, then merge/land from there — and remove it when done. WHY (paid for): the
+  main checkout is the daemon's staging area — its INDEX carries whatever a
+  forward-integrate/land left staged. A commit there inherits that: a conducting-UI
+  commit authored in the main checkout swept a forward-integrate's staged REVERT of
+  a just-landed epic's reaper into itself, redding master and wedging the mission on
+  its own base. A worktree has its own clean index, so your commit can only ever
+  contain your files. This is the primary defense; the `git status` check below is
+  the fallback for the rare case you must touch the main checkout directly.
 - **Trust nothing about the main checkout's git state.** The daemon's land and
   forward-integrate paths drive the MAIN checkout: branches get switched under
   you and uncommitted working-tree edits can be silently clobbered by a restore.
@@ -152,3 +163,6 @@ Every intervention produces a durable artifact, in the moment, not at the end:
 - Resolving informational cards to zero the queue → re-raise loop.
 - Fixing the same class twice by hand without filing the mechanical fix.
 - Committing while the index carries a land-clobber rollback.
+- Authoring ANY commit in the daemon-driven main checkout instead of a throwaway
+  worktree — the main-checkout index inherits a forward-integrate's staging and your
+  commit sweeps it in (reverts a just-landed epic, reds master).
