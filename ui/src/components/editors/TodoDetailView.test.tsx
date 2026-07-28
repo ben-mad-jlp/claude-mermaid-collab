@@ -47,9 +47,10 @@ describe('TodoDetailView header layout', () => {
 
   it('shows the derived state as a single read-only badge (no raw lifecycle select)', () => {
     render(<TodoDetailView todoId="T1" />);
-    // default todo: stored status 'ready' but approvedAt unset → derives 'planned'
+    // default todo: stored status 'ready' but approvedAt unset → funnel bucket
+    // 'backlog' (the badge reads liveBucketTodo, not derivedStatus — 0bef000e)
     const status = screen.getByTestId('todo-detail-status');
-    expect(status.textContent?.toLowerCase()).toContain('planned');
+    expect(status.textContent?.toLowerCase()).toContain('backlog');
     // menu is closed until the badge is clicked
     expect(screen.queryByTestId('todo-detail-status-menu')).toBeNull();
     // the old raw lifecycle select is gone
