@@ -22,6 +22,7 @@ import { isMission, stripLabel } from './todo-kind.ts';
 import { getMission, isMissionTerminal } from './mission-store';
 import { realRunners } from './steward-proof';
 import { hasLandStamp } from './epic-landedness';
+import { epicGatingChildren } from './coordinator-live';
 
 /** Actor types for land authority checking */
 export type LandActor =
@@ -41,7 +42,8 @@ export type LandBlockCode =
   | 'gate-error'
   | 'gate-failed'
   | 'tsc-failed'
-  | 'merge-conflict';
+  | 'merge-conflict'
+  | 'open-children';
 
 /** A single blocker with code, message, and optional detail */
 export interface LandBlocker {
@@ -323,6 +325,30 @@ export function checkLandDeps(todos: Todo[], epicId: string, opts?: { now?: stri
   return null;
 }
 
+/**
+ * Check that the epic's direct build children are all done+accepted.
+ * Returns null if none are open, or a LandBlocker naming every open child.
+ */
+export function checkOpenChildren(todos: Todo[], epicId: string): LandBlocker | null {
+  const { buildChildren } = epicGatingChildren(todos, epicId, '');
+  const openChildren = buildChildren.filter(
+    (c) => !isLandTodo(c) && c.status !== 'done' && c.status !== 'dropped',
+  );
+
+  if (openChildren.length === 0) {
+    return null;
+  }
+
+  const ids8 = openChildren.map((c) => c.id.slice(0, 8));
+  const n = openChildren.length;
+
+  return {
+    code: 'open-children',
+    message: `Epic has ${n} open child leaf/leaves: ${ids8.join(', ')}`,
+    detail: openChildren.map((c) => `${c.id.slice(0, 8)}: ${c.title}`).join('; '),
+  };
+}
+
 /** Sanitize a value for use in a git trailer (no CR/LF, trimmed) */
 function sanitizeTrailerValue(value: string): string {
   return value.replace(/[\r\n]/g, '').trim();
@@ -376,6 +402,11 @@ export async function landReadiness(
   const depBlocker = checkLandDeps(allTodos, epicId);
   if (depBlocker) {
     blockers.push(depBlocker);
+  }
+
+  const openChildrenBlocker = checkOpenChildren(allTodos, epicId);
+  if (openChildrenBlocker) {
+    blockers.push(openChildrenBlocker);
   }
 
   // Resolve the epic worktree cwd for merge and tsc probes
