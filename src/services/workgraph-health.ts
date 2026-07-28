@@ -1,6 +1,7 @@
 import type { Todo, TodoStatus } from './todo-store';
 import { isEpic, isMission } from './todo-kind';
 import { isTerminalStatus, isTerminalEpic } from './invariant-check';
+import { hasLandStamp } from './epic-landedness';
 
 /** Workgraph health report — pure facts about epics, orphans, and structural issues. */
 export interface WorkgraphHealth {
@@ -69,7 +70,7 @@ export function computeWorkgraphHealth(todos: Todo[]): WorkgraphHealth {
     epicChildCounts.push({
       epicId: t.id,
       title: t.title ?? '',
-      landed: t.landedAt != null,
+      landed: hasLandStamp(t),
       terminal: isTerminalEpic(t),
       counts,
       total: children.length,
