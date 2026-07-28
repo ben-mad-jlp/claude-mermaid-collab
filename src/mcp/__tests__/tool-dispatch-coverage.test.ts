@@ -190,7 +190,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every SUPERVISOR_TOOL_DEFS name is wired in handleSupervisorTool', async () => {
-    expect(SUPERVISOR_TOOL_DEFS.length).toBe(22);
+    expect(SUPERVISOR_TOOL_DEFS.length).toBe(24);
     for (const def of SUPERVISOR_TOOL_DEFS) {
       expect(await isRecognized(handleSupervisorTool, def.name)).toBe(true);
     }

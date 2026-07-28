@@ -5997,6 +5997,67 @@
       }
     },
     {
+      "name": "set_conductor_target",
+      "description": "Pin (or clear) which mission the conductor drives for a project. Pass missionId to pin, or clear:true to unpin (falls back to first-active behavior).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "missionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clear": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "set_node_profile_override",
+      "description": "Set (or clear, by passing model/effort/provider all null) a per-project, per-node-kind model/effort/provider override.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "project",
+          "kind"
+        ]
+      }
+    },
+    {
       "name": "create_mission",
       "description": "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.",
       "inputSchema": {
