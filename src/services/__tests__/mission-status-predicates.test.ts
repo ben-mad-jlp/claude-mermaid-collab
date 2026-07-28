@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap } from '../mission-status-predicates.ts';
+import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap, servingLandIsNewerThanVerdict } from '../mission-status-predicates.ts';
 import type { Todo } from '../todo-store.ts';
 import type { LeafRunSummary } from '../ledger-stats.ts';
 
@@ -349,6 +349,115 @@ describe('mission-status-predicates', () => {
       });
 
       const result = countsTowardServeCap(epic, [leaf], [], false);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('servingLandIsNewerThanVerdict', () => {
+    it('returns true when all fields present and fresh: different sha and newer timestamp', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: 'old111',
+        servingEpicLandSha: 'new222',
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(true);
+    });
+
+    it('returns false when verifiedAt is null', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: null,
+        verifiedAtSha: 'old111',
+        servingEpicLandSha: 'new222',
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when verifiedAtSha is null', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: null,
+        servingEpicLandSha: 'new222',
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicLandSha is null', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: 'old111',
+        servingEpicLandSha: null,
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicLandSha equals verifiedAtSha (same commit)', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: 'same111',
+        servingEpicLandSha: 'same111',
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicLandedAt is null', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: 'old111',
+        servingEpicLandSha: 'new222',
+        servingEpicLandedAt: null,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicLandedAt is older than verifiedAt (stale land timestamp)', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 200,
+        verifiedAtSha: 'old111',
+        servingEpicLandSha: 'new222',
+        servingEpicLandedAt: 100,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when verifiedAtSha is undefined', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        servingEpicLandSha: 'new222',
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicLandSha is undefined', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: 'old111',
+        servingEpicLandedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicLandedAt is undefined', () => {
+      const result = servingLandIsNewerThanVerdict({
+        verifiedAt: 100,
+        verifiedAtSha: 'old111',
+        servingEpicLandSha: 'new222',
+      });
 
       expect(result).toBe(false);
     });

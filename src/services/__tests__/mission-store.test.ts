@@ -676,6 +676,55 @@ describe('per-criterion discovery', () => {
     expect(deriveCriterionAction(crit({ servingEpicState: 'landed', verifiedAt: null, servedEpicCount: over }))).toBe('verify');
   });
 
+  // ── Freshness check: re-verify on fresh landing ──
+  test('fresh land pre-empts escalate: a served-at-cap criterion with a newly-landed commit → verify', () => {
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'landed',
+      met: false,
+      verifiedAt: 100,
+      verifiedAtSha: 'old111',
+      servedEpicCount: CRITERION_SERVE_CAP,
+      servingEpicLandSha: 'new222',
+      servingEpicLandedAt: 200,
+    }))).toBe('verify');
+  });
+
+  test('fail-closed, missing servingEpicLandSha: land-sha absent → escalate (not verify)', () => {
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'landed',
+      met: false,
+      verifiedAt: 100,
+      verifiedAtSha: 'old111',
+      servedEpicCount: CRITERION_SERVE_CAP,
+      servingEpicLandedAt: 200,
+      // servingEpicLandSha omitted
+    }))).toBe('escalate');
+  });
+
+  test('fail-closed, same sha: verifiedAtSha === servingEpicLandSha → escalate (not verify)', () => {
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'landed',
+      met: false,
+      verifiedAt: 100,
+      verifiedAtSha: 'old111',
+      servedEpicCount: CRITERION_SERVE_CAP,
+      servingEpicLandSha: 'old111',
+      servingEpicLandedAt: 200,
+    }))).toBe('escalate');
+  });
+
+  test('fail-closed, stale landedAt: servingEpicLandedAt < verifiedAt → escalate (not verify)', () => {
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'landed',
+      met: false,
+      verifiedAt: 100,
+      verifiedAtSha: 'old111',
+      servedEpicCount: CRITERION_SERVE_CAP,
+      servingEpicLandSha: 'new222',
+      servingEpicLandedAt: 50,
+    }))).toBe('escalate');
+  });
+
   test('collectMissionStatusFacts.servedEpicCount counts DROPPED serving epics (the thrash history the non-dropped list misses)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mission-servecap-'));
     const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
