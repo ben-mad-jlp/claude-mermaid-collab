@@ -120,6 +120,15 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
   its own base. A worktree has its own clean index, so your commit can only ever
   contain your files. This is the primary defense; the `git status` check below is
   the fallback for the rare case you must touch the main checkout directly.
+- **Never mutate `.collab/*.db` with raw SQL — and treat every raw-SQL reach as a
+  missing-tool signal.** A raw `UPDATE`/`DELETE` bypasses the invariants the store
+  enforces: a raw `UPDATE todos SET status='dropped'` on an epic SKIPS todo-store's
+  drop-cascade and orphans its children (a whole "No epic" lane, paid for in an
+  incident). Every mutation must route through an MCP tool or the store's choke point
+  (`updateTodo`, `setConductorTargetMission`, …) so the cascade/guard runs. If no tool
+  exists for what you need, that gap IS the finding: `file_to_bucket` the tool, and
+  only then reach for SQL as a stopgap — never as the resting solution. Raw `SELECT`
+  for diagnosis is fine, but a recurring read is also a missing read-tool.
 - **Trust nothing about the main checkout's git state.** The daemon's land and
   forward-integrate paths drive the MAIN checkout: branches get switched under
   you and uncommitted working-tree edits can be silently clobbered by a restore.
