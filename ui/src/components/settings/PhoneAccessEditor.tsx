@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PairingQr } from '../../utils/qr';
 
 /** Shape of GET /api/pair / POST /api/pair/rotate (src/routes/pair-routes.ts). */
 interface HostCandidate {
@@ -22,8 +23,8 @@ interface PairPayload {
  * 401s on its next call → re-pair).
  *
  * The iOS app's primary path is manual host+token entry, so we surface both as
- * copyable fields plus the mermaidcollab:// deep link. (A scannable QR image
- * needs a renderer dependency — tracked as a follow-up.)
+ * copyable fields plus the mermaidcollab:// deep link. A scannable QR (via
+ * PairingQr) renders above the Host field when available as the fastest entry point.
  */
 export function PhoneAccessEditor() {
   const [data, setData] = useState<PairPayload | null>(null);
@@ -80,6 +81,12 @@ export function PhoneAccessEditor() {
           {data.warning && (
             <div className="rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
               {data.warning}
+            </div>
+          )}
+
+          {data.qr && (
+            <div data-testid="pair-qr" data-value={data.qr} title={data.qr} className="flex justify-center py-2">
+              <PairingQr value={data.qr} />
             </div>
           )}
 
