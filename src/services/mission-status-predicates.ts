@@ -107,3 +107,25 @@ export function countsTowardServeCap(
     r.finalOutcome === 'accepted' || r.finalOutcome === 'rejected' || (r.nodesSpent ?? 0) > 0
   ));
 }
+
+/**
+ * Fail-closed freshness check: has the serving epic landed a DIFFERENT, NEWER commit
+ * than the one the last verdict was measured against? Sha strings aren't orderable, so
+ * the land RECORD timestamp is the ordering signal and sha inequality is the
+ * 'different commit' signal. Any missing input ⇒ false (today's behaviour).
+ */
+export function servingLandIsNewerThanVerdict(c: {
+  verifiedAt: number | null;
+  verifiedAtSha?: string | null;
+  servingEpicLandSha?: string | null;
+  servingEpicLandedAt?: number | null;
+}): boolean {
+  return (
+    c.verifiedAt != null &&
+    c.verifiedAtSha != null &&
+    c.servingEpicLandSha != null &&
+    c.servingEpicLandSha !== c.verifiedAtSha &&
+    c.servingEpicLandedAt != null &&
+    c.servingEpicLandedAt > c.verifiedAt
+  );
+}
