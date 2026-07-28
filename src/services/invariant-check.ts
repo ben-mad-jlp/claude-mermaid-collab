@@ -31,7 +31,8 @@ export type InvariantKind =
   | 'orphan'
   | 'stranded-epic'
   | 'broken-depends-on'
-  | 'landed-at-divergence';
+  | 'landed-at-divergence'
+  | 'live-child-under-terminal-epic';
 
 export interface InvariantViolation {
   kind: InvariantKind;
@@ -143,6 +144,25 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
     // 4. (S4, epic b2c858d4) blocked-on-nothing — REMOVED. 'blocked' is no longer a
     // materialized readiness state; readiness is derived by claimability, so a 'blocked' enum
     // value whose deps are all done is just legacy noise the predicate ignores, not a violation.
+  }
+
+  // Check: no live child under terminal epic. Independent loop, not nested in the
+  // `isTerminal(t.status) continue` guard above, because a terminal epic must not
+  // retain any live children regardless of how it became terminal.
+  for (const t of todos) {
+    if (!isEpicTodo(t)) continue;
+    const terminalEpic = isTerminal(t.status) || hasLandStamp(t);
+    if (!terminalEpic) continue;
+    for (const c of childrenOf.get(t.id) ?? []) {
+      if (!isTerminal(c.status)) {
+        violations.push({
+          kind: 'live-child-under-terminal-epic',
+          todoId: c.id,
+          title: c.title,
+          reason: `child of terminal epic ${t.id} (status='${t.status}', landedAt=${t.landedAt ?? 'null'}) is not done/dropped (status='${c.status}')`,
+        });
+      }
+    }
   }
 
   return violations;
