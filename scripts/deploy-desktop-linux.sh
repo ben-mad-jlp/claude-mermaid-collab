@@ -27,6 +27,7 @@
 #   bash scripts/deploy-desktop-linux.sh --no-build       # install already-built .deb
 #   bash scripts/deploy-desktop-linux.sh --with-server    # also rebuild+install the server .deb
 #   bash scripts/deploy-desktop-linux.sh --kill-running   # also kill stale running instances
+#   bash scripts/deploy-desktop-linux.sh --no-deps        # skip the pre-build `bun install`
 #
 # Env overrides:
 #   MC_PORT   sidecar health port used by --kill-running   (default: 9002)
@@ -38,14 +39,16 @@ PORT="${MC_PORT:-9002}"
 APP_BIN="${APP_BIN:-/opt/Mermaid Collab/mermaid-collab-desktop}"
 DESKTOP_ENTRY="/usr/share/applications/mermaid-collab-desktop.desktop"
 DO_BUILD=1
+DO_DEPS=1
 KILL_RUNNING=0
 WITH_SERVER=0
 for arg in "$@"; do
   case "$arg" in
     --no-build)     DO_BUILD=0 ;;
+    --no-deps)      DO_DEPS=0 ;;
     --kill-running) KILL_RUNNING=1 ;;
     --with-server)  WITH_SERVER=1 ;;
-    -h|--help)      sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help)      sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
@@ -59,7 +62,20 @@ VERSION="$(node -p "require('$REPO/package.json').version" 2>/dev/null)" || die 
 
 # ── 1. build ──────────────────────────────────────────────────────────────────
 if [ "$DO_BUILD" = 1 ]; then
-  log "1/4 building desktop .deb (npm run dist) — v$VERSION…"
+  # Sync deps FIRST. After a `git pull` the lockfile/package.json can reference a
+  # new dependency (e.g. qrcode-generator) that isn't in a stale node_modules — the
+  # vite/rollup build then dies with "failed to resolve import". Install in each
+  # workspace the build touches: root (src/ → the sidecar), ui (vite bundle), and
+  # desktop (electron-vite main). Skip with --no-deps if you know they're current.
+  if [ "$DO_DEPS" = 1 ]; then
+    log "1/4 syncing deps (bun install: root, ui, desktop)…"
+    ( cd "$REPO" && bun install ) || die "bun install failed in repo root"
+    ( cd "$REPO/ui" && bun install ) || die "bun install failed in ui/"
+    ( cd "$REPO/desktop" && bun install ) || die "bun install failed in desktop/"
+  else
+    log "1/4 --no-deps: skipping dependency sync"
+  fi
+  log "     building desktop .deb (npm run dist) — v$VERSION…"
   # electron-builder expands linux.publish's ${env.MC_UPDATE_FEED_URL} at config-parse
   # time and hard-fails when it's unset — even for a purely local build. Give it a
   # harmless placeholder (we never actually publish here) so packaging proceeds.
