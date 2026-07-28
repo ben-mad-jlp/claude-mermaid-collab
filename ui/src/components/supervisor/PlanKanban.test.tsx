@@ -237,4 +237,27 @@ describe('PlanKanban', () => {
     expect(arg.id).toBe('i1');
     expect(arg.title).toBe('promote me');
   });
+
+  it('renders criterion tag in swimlane header when criterionTagIndex is provided', () => {
+    const todos = [
+      todo({ id: 'A', title: 'Epic A', kind: 'epic', servesCriterionIds: ['critX'] }),
+      todo({ id: 'A1', status: 'ready', parentId: 'A' }),
+      todo({ id: 'B', title: 'Epic B', kind: 'epic', servesCriterionIds: [] }),
+      todo({ id: 'B1', status: 'ready', parentId: 'B' }),
+    ];
+    const index = new Map([
+      ['critX', { missionTitle: 'Mission M', criterionOrder: 1, criterionText: 'Criterion Text' }],
+    ]);
+    render(<PlanKanban todos={todos} showCompleted={false} criterionTagIndex={index} />);
+
+    const laneA = screen.getByTestId('epic-lane-A');
+    const laneB = screen.getByTestId('epic-lane-B');
+
+    const tagInA = within(laneA).getByTestId('epic-criterion-tag');
+    expect(tagInA).toBeInTheDocument();
+    expect(tagInA.textContent).toContain('Mission M');
+    expect(tagInA.textContent).toContain('C1');
+
+    expect(within(laneB).queryByTestId('epic-criterion-tag')).toBeNull();
+  });
 });
