@@ -1460,3 +1460,114 @@ describe('stampConductorRun — pass clock + self-issued key columns', () => {
     expect(m.lastConductorPassAt as number).toBeGreaterThanOrEqual(1234);
   });
 });
+
+describe('queued missions derive waiting', () => {
+  const live = { abandonedAt: null, awaitingApprovalSince: null };
+  const met = (n: number) => Array.from({ length: n }, () => ({ met: true }));
+  const mixed = (m: number, u: number) => [...met(m), ...Array.from({ length: u }, () => ({ met: false }))];
+
+  // queued + unmet criteria → 'waiting'
+  test('deriveMissionStatus: queued + unmet criteria → waiting', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts,
+      queued: true,
+      criteria: [crit({ id: 'c1' })],
+    })).toBe('waiting');
+  });
+
+  test('deriveCheapMissionStatus: queued + unmet criteria → waiting', () => {
+    expect(deriveCheapMissionStatus(
+      { ...live, active: 0, queuePos: 2 },
+      [],
+      [{ met: false }],
+    )).toBe('waiting');
+  });
+
+  // active mission (active: true/1, queuePos: null) still derives ordinary work-status ladder
+  test('deriveMissionStatus: active mission (queued: false) → needs-discovery', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts,
+      queued: false,
+      criteria: [crit({ id: 'c1' })],
+    })).toBe('needs-discovery');
+  });
+
+  test('deriveCheapMissionStatus: active mission (active: 1, queuePos: null) → building', () => {
+    expect(deriveCheapMissionStatus(
+      { ...live, active: 1, queuePos: null },
+      [],
+      [{ met: false }],
+    )).toBe('building');
+  });
+
+  // converged wins over waiting
+  test('deriveMissionStatus: converged + queued → converged', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts,
+      queued: true,
+      criteria: [crit({ id: 'c1', met: true })],
+    })).toBe('converged');
+  });
+
+  test('deriveCheapMissionStatus: converged + queued → converged', () => {
+    expect(deriveCheapMissionStatus(
+      { ...live, active: 0, queuePos: 1 },
+      [],
+      met(3),
+    )).toBe('converged');
+  });
+
+  // abandoned wins over waiting
+  test('deriveMissionStatus: abandoned + queued → abandoned', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts,
+      abandonedAt: 1000,
+      queued: true,
+      criteria: [crit({ id: 'c1' })],
+    })).toBe('abandoned');
+  });
+
+  test('deriveCheapMissionStatus: abandoned + queued → abandoned', () => {
+    expect(deriveCheapMissionStatus(
+      { abandonedAt: 1000, awaitingApprovalSince: null, active: 0, queuePos: 1 },
+      [],
+      [{ met: false }],
+    )).toBe('abandoned');
+  });
+
+  // closed wins over waiting
+  test('deriveMissionStatus: closed + queued → closed', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts,
+      closedAt: 2000,
+      queued: true,
+      criteria: [crit({ id: 'c1' })],
+    })).toBe('closed');
+  });
+
+  test('deriveCheapMissionStatus: closed + queued → closed', () => {
+    expect(deriveCheapMissionStatus(
+      { ...live, closedAt: 2000, active: 0, queuePos: 1 },
+      [],
+      [{ met: false }],
+    )).toBe('closed');
+  });
+
+  // unapproved wins over waiting
+  test('deriveMissionStatus: unapproved + queued → unapproved', () => {
+    expect(deriveMissionStatus({
+      ...baseFacts,
+      awaitingApproval: true,
+      queued: true,
+      criteria: [crit({ id: 'c1' })],
+    })).toBe('unapproved');
+  });
+
+  test('deriveCheapMissionStatus: unapproved + queued → unapproved', () => {
+    expect(deriveCheapMissionStatus(
+      { abandonedAt: null, awaitingApprovalSince: 1500, active: 0, queuePos: 1 },
+      [],
+      [{ met: false }],
+    )).toBe('unapproved');
+  });
+});
