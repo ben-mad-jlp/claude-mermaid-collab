@@ -34,6 +34,7 @@ import { recordSelfLand, isSelfProject } from './deploy-service';
 // bp1FilterStrandedFoundations) ALSO consumes epicAutoLandAuthority — see the "shared with
 // coordinator-land" markers in coordinator-live.ts.
 import { getWorktreeManager, resolveEpicId, execAsync, epicAutoLandAuthority, isMissionEpic, MISSION_AUTOLAND_ARMED } from './coordinator-live';
+import { teardownEpic } from './epic-teardown';
 
 // --- durable condition identity for the land escalations --------------------------
 // createEscalation's keyed dedup (supervisor-store.ts) bumps an OPEN row with the same
@@ -1036,25 +1037,6 @@ async function finalizeLandRecord(
     postLandClean: cycle.postLandClean,
     landPath: 'escalation-land',
   });
-}
-
-async function teardownEpic(
-  wm: ReturnType<typeof getWorktreeManager>,
-  epicId: string,
-  targetProject: string,
-  ctx: { epicBranch: string },
-): Promise<void> {
-  try {
-    await wm.removeEpic(epicId, targetProject);
-  } catch (err) {
-    await recordFrictionOnce(targetProject, {
-      layer: 'operational',
-      retryReason: 'landed-epic-teardown-failed',
-      todoId: epicId,
-      detail: `removeEpic(${epicId}) failed after a successful land of ${ctx.epicBranch}: ${err instanceof Error ? err.message : String(err)}`,
-    }).catch(() => {});
-  }
-  try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
 }
 
 async function runPostLandGuard(
