@@ -178,7 +178,7 @@ describe('selectConductorOwnedTodoIds', () => {
     expect(result).toEqual([]);
   });
 
-  it('returns the single active mission epic children (2 live epics, 1 dropped, 1 non-epic)', () => {
+  it('returns the single active mission live descendants (2 live epics, 1 dropped, 1 live leaf)', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
@@ -198,7 +198,7 @@ describe('selectConductorOwnedTodoIds', () => {
     };
 
     const result = selectConductorOwnedTodoIds('proj', Date.now(), deps);
-    expect(result).toEqual(['epic1', 'epic2']);
+    expect(result).toEqual(['epic1', 'epic2', 'leaf1']);
   });
 
   it('returns single active non-terminal mission epic children when no pin', () => {
@@ -297,5 +297,69 @@ describe('selectConductorOwnedTodoIds', () => {
 
     const result = selectConductorOwnedTodoIds('proj', Date.now(), deps);
     expect(result).toEqual([]);
+  });
+
+  it('returns two-level descendants (epic with live leaf child)', () => {
+    const missionId = 'mission1';
+    const deps: ConductorOwnedTodosDeps = {
+      getConductorEnabled: () => true,
+      getConductorLastPass: () => ({
+        missionId,
+        reason: 'pass-ran',
+        tickAt: Date.now(),
+      }),
+      listTodos: () => [
+        makeTodo('epic1', missionId, 'epic', 'ready'),
+        makeTodo('leaf1', 'epic1', 'leaf', 'ready'),
+      ],
+      listMissions: () => [makeMission(missionId, true)],
+    };
+
+    const result = selectConductorOwnedTodoIds('proj', Date.now(), deps);
+    expect(result).toEqual(['epic1', 'leaf1']);
+  });
+
+  it('prunes dropped leaf while keeping its live siblings', () => {
+    const missionId = 'mission1';
+    const deps: ConductorOwnedTodosDeps = {
+      getConductorEnabled: () => true,
+      getConductorLastPass: () => ({
+        missionId,
+        reason: 'pass-ran',
+        tickAt: Date.now(),
+      }),
+      listTodos: () => [
+        makeTodo('epic1', missionId, 'epic', 'ready'),
+        makeTodo('leaf1', 'epic1', 'leaf', 'ready'),
+        makeTodo('leaf2', 'epic1', 'leaf', 'dropped'),
+      ],
+      listMissions: () => [makeMission(missionId, true)],
+    };
+
+    const result = selectConductorOwnedTodoIds('proj', Date.now(), deps);
+    expect(result).toEqual(['epic1', 'leaf1']);
+  });
+
+  it('prunes dropped epic and its entire subtree including live descendants', () => {
+    const missionId = 'mission1';
+    const deps: ConductorOwnedTodosDeps = {
+      getConductorEnabled: () => true,
+      getConductorLastPass: () => ({
+        missionId,
+        reason: 'pass-ran',
+        tickAt: Date.now(),
+      }),
+      listTodos: () => [
+        makeTodo('epic1', missionId, 'epic', 'ready'),
+        makeTodo('epicDropped', missionId, 'epic', 'dropped'),
+        makeTodo('liveLeafUnderDropped', 'epicDropped', 'leaf', 'ready'),
+      ],
+      listMissions: () => [makeMission(missionId, true)],
+    };
+
+    const result = selectConductorOwnedTodoIds('proj', Date.now(), deps);
+    // epic1 is included; epicDropped is not (dropped), and liveLeafUnderDropped
+    // is also not included because its ancestor is dropped.
+    expect(result).toEqual(['epic1']);
   });
 });
