@@ -125,7 +125,7 @@ describe('selectEscalationKindCounts', () => {
 
   it('splits land-ready from blockers and ignores resolved + out-of-scope', () => {
     const c = selectEscalationKindCounts(KINDS, PROJ_A);
-    expect(c).toEqual({ blockers: 2, landReady: 2, total: 4 });
+    expect(c).toEqual({ blockers: 2, landReady: 2, machineHandled: 0, total: 4 });
   });
 
   it('total stays in parity with selectOpenEscalationCount', () => {
@@ -134,7 +134,51 @@ describe('selectEscalationKindCounts', () => {
   });
 
   it('tolerates a non-array slice', () => {
-    expect(selectEscalationKindCounts(undefined as unknown as Escalation[], FLEET)).toEqual({ blockers: 0, landReady: 0, total: 0 });
+    expect(selectEscalationKindCounts(undefined as unknown as Escalation[], FLEET)).toEqual({ blockers: 0, landReady: 0, machineHandled: 0, total: 0 });
+  });
+
+  it('excludes hygiene-kind escalations into machineHandled', () => {
+    const withHygiene: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'k1'), kind: 'blocker' } as Escalation,
+      { ...esc('projA', 'a2', 'open', 'k2'), kind: 'epic-sweep-triage' } as Escalation,
+    ];
+    const c = selectEscalationKindCounts(withHygiene, PROJ_A);
+    expect(c).toEqual({ blockers: 1, landReady: 0, machineHandled: 1, total: 2 });
+  });
+
+  it('excludes ai-suggested lifecycle into machineHandled', () => {
+    const withAiSuggested: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'k1'), kind: 'blocker' } as Escalation,
+      {
+        ...esc('projA', 'a2', 'open', 'k2'),
+        kind: 'decision',
+        suggestedAction: { actionType: 'approve' },
+      } as Escalation,
+    ];
+    const c = selectEscalationKindCounts(withAiSuggested, PROJ_A);
+    expect(c).toEqual({ blockers: 1, landReady: 0, machineHandled: 1, total: 2 });
+  });
+
+  it('excludes triageInFlight into machineHandled', () => {
+    const withTriage: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'k1'), kind: 'blocker' } as Escalation,
+      {
+        ...esc('projA', 'a2', 'open', 'k2'),
+        kind: 'decision',
+        triageInFlight: true,
+      } as Escalation,
+    ];
+    const c = selectEscalationKindCounts(withTriage, PROJ_A);
+    expect(c).toEqual({ blockers: 1, landReady: 0, machineHandled: 1, total: 2 });
+  });
+
+  it('counts operatorGated blocker-kind as blocker, not machineHandled', () => {
+    const withGated: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'k1'), kind: 'blocker', operatorGated: true } as Escalation,
+      { ...esc('projA', 'a2', 'open', 'k2'), kind: 'decision' } as Escalation,
+    ];
+    const c = selectEscalationKindCounts(withGated, PROJ_A);
+    expect(c).toEqual({ blockers: 2, landReady: 0, machineHandled: 0, total: 2 });
   });
 });
 

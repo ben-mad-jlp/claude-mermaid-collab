@@ -122,6 +122,20 @@ const MACHINE_HYGIENE_KINDS = new Set<string>([
 ]);
 
 /**
+ * True when an escalation should be excluded from human-actionable view because
+ * it is being handled by the machine. Combines hygiene-kind (infrastructure noise),
+ * AI-handling lifecycle states (active-work), and triageInFlight (batch-dismissal).
+ * Intentionally BROADER than selectMachineHandledCount, which checks hygiene-kinds only.
+ */
+function isMachineHandledEscalation(e: Escalation): boolean {
+  if (MACHINE_HYGIENE_KINDS.has(e.kind)) return true;
+  const lifecycle = classifyEscalationLifecycle(e);
+  if (lifecycle === 'ai-handling' || lifecycle === 'ai-suggested') return true;
+  if (e.triageInFlight) return true;
+  return false;
+}
+
+/**
  * The open escalations inside `scope` — the one true "needs you" set, consumed
  * identically by the left card badge and the Bridge NeedsYouZone. Tolerant of a
  * non-array input (returns []) so a not-yet-hydrated slice never throws.
@@ -153,12 +167,7 @@ export function selectHumanActionableEscalations(open: Escalation[], scope: Stat
   if (!Array.isArray(open)) return [];
   const filtered = open
     .filter((e) => isOpen(e) && escalationInScope(e, scope))
-    .filter((e) => !MACHINE_HYGIENE_KINDS.has(e.kind))
-    .filter((e) => {
-      const lifecycle = classifyEscalationLifecycle(e);
-      return lifecycle !== 'ai-handling' && lifecycle !== 'ai-suggested';
-    })
-    .filter((e) => !e.triageInFlight);
+    .filter((e) => !isMachineHandledEscalation(e));
   filtered.sort((a, b) => {
     const aGated = !!a.operatorGated;
     const bGated = !!b.operatorGated;
@@ -183,28 +192,33 @@ export function selectMachineHandledCount(open: Escalation[], scope: StatusScope
 }
 
 /**
- * Split the open escalations inside `scope` into the two display buckets the project
+ * Split the open escalations inside `scope` into three display buckets the project
  * status surfaces treat DIFFERENTLY:
  *   - `landReady`: kind `'epic-ready-to-land'` — a POSITIVE "ready to ship" prompt. It
  *     never means the project is stuck, so it is shown with a download glyph, NOT red.
+ *   - `machineHandled`: escalations excluded by `isMachineHandledEscalation` — machine-
+ *     generated triage, AI-handling, or pending batch-triage. Counted but not surfaced
+ *     as blockers.
  *   - `blockers`: everything else (blocker / decision / assumption-invalidated / …) — a
  *     genuine "paused on a human" item → red.
- * `total === blockers + landReady === selectOpenEscalationCount(open, scope)` (parity).
+ * `total === blockers + landReady + machineHandled === selectOpenEscalationCount(open, scope)` (parity).
  */
 export function selectEscalationKindCounts(
   open: Escalation[],
   scope: StatusScope,
-): { blockers: number; landReady: number; total: number } {
+): { blockers: number; landReady: number; machineHandled: number; total: number } {
   let blockers = 0;
   let landReady = 0;
+  let machineHandled = 0;
   if (Array.isArray(open)) {
     for (const e of open) {
       if (!isOpen(e) || !escalationInScope(e, scope)) continue;
       if (e.kind === 'epic-ready-to-land') landReady++;
+      else if (isMachineHandledEscalation(e)) machineHandled++;
       else blockers++;
     }
   }
-  return { blockers, landReady, total: blockers + landReady };
+  return { blockers, landReady, machineHandled, total: blockers + landReady + machineHandled };
 }
 
 /**
