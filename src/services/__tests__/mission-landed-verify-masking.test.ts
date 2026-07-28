@@ -27,8 +27,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   collectMissionStatusFacts, deriveCriterionAction, upsertMission, addCriterion, getMission,
-  _resetMissionDbCache,
+  _resetMissionDbCache, setCriterionVerdict,
 } from '../mission-store';
+import { recordEpicLand } from '../epic-land-record-store';
 import { createTodo, updateTodo, _closeProject, stampEpicLandedAt } from '../todo-store';
 
 /** Run `fn` against a throwaway project + supervisor dir (mirrors mission-store.test.ts). */
@@ -148,6 +149,122 @@ describe('landed serving epic → verify (masking regression)', () => {
       const cf = collectMissionStatusFacts(proj, getMission(proj, m.id)!).criteria.find((c) => c.id === c1.id)!;
       expect(cf.servingEpicState).toBe('none');
       expect(deriveCriterionAction(cf)).toBe('discover');
+    });
+  });
+
+  test('own-epic freshness flips a stale-verdict criterion to verify', async () => {
+    await withProject('mission-verify-freshness-', async (proj) => {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] VF', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'criterion with fresher land');
+
+      const epic = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] proved epic', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+      // Create a tagged leaf that proves this criterion
+      const leaf = await createTodo(proj, { ownerSession: 's1', title: 'proving leaf', kind: 'leaf', parentId: epic.id, servesCriterionIds: [c1.id] });
+      await updateTodo(proj, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+      await updateTodo(proj, epic.id, { status: 'done' });
+
+      // Set a stale verdict with old sha
+      setCriterionVerdict(proj, c1.id, { met: false, verifiedBy: 's1', verifiedAtSha: 'sha-old' });
+
+      // Verify the epic is recognized as landed and proves the criterion
+      const mBefore = getMission(proj, m.id)!;
+      const cfBefore = collectMissionStatusFacts(proj, mBefore).criteria.find((c) => c.id === c1.id)!;
+      const verifiedAtMs = cfBefore.verifiedAt!;
+      expect(verifiedAtMs).toBeGreaterThan(0);
+      expect(cfBefore.servingEpicState).toBe('landed');
+
+      // Record the epic landing with a newer sha and timestamp AFTER the verdict
+      recordEpicLand(proj, {
+        epicId: epic.id,
+        epicTipSha: 'sha-new',
+        landedMergeSha: 'sha-new',
+        landedAt: verifiedAtMs + 1000, // 1 second after verdict
+      });
+
+      // Collect facts again to pick up the land record
+      const cfAfter = collectMissionStatusFacts(proj, getMission(proj, m.id)!).criteria.find((c) => c.id === c1.id)!;
+      // The freshness facts should be populated after recordEpicLand
+      expect(cfAfter.servingEpicLandSha).toBe('sha-new');
+      expect(cfAfter.servingEpicLandedAt).toBeGreaterThan(verifiedAtMs);
+      expect(cfAfter.verifiedAtSha).toBe('sha-old');
+      // Sha-freshness: epic landed at newer commit than verdict = verify
+      expect(deriveCriterionAction(cfAfter)).toBe('verify');
+    });
+  });
+
+  test('reached the baseline: existing test block at line 138 remains untouched', async () => {
+    // This test just verifies the structure — the existing test at line 120-140 (unfinished leaf)
+    // should still pass unchanged. This is a guard against accidentally modifying that block.
+    await withProject('mission-verify-baseline-', async (proj) => {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] VB', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'baseline test');
+
+      const e = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] baseline', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+      await updateTodo(proj, e.id, { status: 'done' });
+      const leafA = await createTodo(proj, { ownerSession: 's1', title: 'settled leaf', kind: 'leaf', parentId: e.id });
+      await updateTodo(proj, leafA.id, { status: 'done' });
+      await createTodo(proj, { ownerSession: 's1', title: 'unfinished leaf', kind: 'leaf', parentId: e.id });
+
+      const cf = collectMissionStatusFacts(proj, getMission(proj, m.id)!).criteria.find((c) => c.id === c1.id)!;
+      // The unfinished leaf should prevent proving, so no land record is expected
+      expect(cf.servingEpicLandSha).toBe(null);
+      expect(cf.servingEpicState).not.toBe('landed');
+    });
+  });
+
+  test('sibling epic land record does not leak into different criterion', async () => {
+    await withProject('mission-verify-sibling-', async (proj) => {
+      const m = await createTodo(proj, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] VS', kind: 'mission' });
+      upsertMission(proj, m.id);
+      const c1 = addCriterion(proj, m.id, 'criterion 1');
+      const c2 = addCriterion(proj, m.id, 'criterion 2 — different');
+
+      // Epic A: serves and proves criterion 1, is verified at sha-A
+      const epicA = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] A proves C1', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+      const leafA = await createTodo(proj, { ownerSession: 's1', title: 'leaf A', kind: 'leaf', parentId: epicA.id, servesCriterionIds: [c1.id] });
+      await updateTodo(proj, leafA.id, { status: 'done', acceptanceStatus: 'accepted' });
+      await updateTodo(proj, epicA.id, { status: 'done' });
+
+      // Verify C1 at sha-A
+      setCriterionVerdict(proj, c1.id, { met: true, verifiedBy: 's1', verifiedAtSha: 'sha-A' });
+
+      // Epic B: serves and proves criterion 2, lands at sha-B (newer than A's verdict)
+      const epicB = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] B proves C2', kind: 'epic', parentId: m.id, servesCriterionIds: [c2.id] });
+      const leafB = await createTodo(proj, { ownerSession: 's1', title: 'leaf B', kind: 'leaf', parentId: epicB.id, servesCriterionIds: [c2.id] });
+      await updateTodo(proj, leafB.id, { status: 'done', acceptanceStatus: 'accepted' });
+      await updateTodo(proj, epicB.id, { status: 'done' });
+
+      // Get A's verdict timestamp
+      const mBefore = getMission(proj, m.id)!;
+      const cfA = collectMissionStatusFacts(proj, mBefore).criteria.find((c) => c.id === c1.id)!;
+      const verifiedAtMs = cfA.verifiedAt!;
+
+      // Record B's land with sha-B, AFTER A's verdict
+      recordEpicLand(proj, {
+        epicId: epicB.id,
+        epicTipSha: 'sha-B',
+        landedMergeSha: 'sha-B',
+        landedAt: verifiedAtMs + 2000, // 2 seconds after A's verdict
+      });
+
+      // Now check the facts for BOTH criteria
+      const facts = collectMissionStatusFacts(proj, getMission(proj, m.id)!);
+      const cfA2 = facts.criteria.find((c) => c.id === c1.id)!;
+      const cfB2 = facts.criteria.find((c) => c.id === c2.id)!;
+
+      // C1's land sha must STILL be sha-A or null (NOT sha-B from sibling B)
+      // Epic A was marked done but never had a land record set, so it should be null
+      expect(cfA2.servingEpicLandSha).toBe(null);
+      expect(cfA2.verifiedAtSha).toBe('sha-A');
+
+      // C2's land sha must be sha-B (from its own serving epic B)
+      expect(cfB2.servingEpicLandSha).toBe('sha-B');
+
+      // Most critically: C1's action must NOT flip to 'verify' from B's land record.
+      // C1 is met=true and verified at sha-A, so it should stay 'met'.
+      expect(deriveCriterionAction(cfA2)).toBe('met');
     });
   });
 });

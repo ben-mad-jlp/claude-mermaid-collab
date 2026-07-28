@@ -28,6 +28,7 @@ import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
+import { getEpicLandRecord } from './epic-land-record-store.ts';
 import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
@@ -1490,14 +1491,14 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // untagged legacy proof-leaf is still unfinished, falls to 'open'→not-live→'discover', so the
       // conductor re-serves a real proof instead of the gate being handed an unproven criterion to
       // (maybe) rubber-stamp.
-      const landedProvesC = serving.some((e) => {
+      const provingLanded = serving.filter((e) => {
         if (!isLanded(e)) return false;
         const pf = proofForEpic(e.id);
         return pf.proven.has(c.id) || (!pf.tagsAnyLeaf && !pf.hasUnfinishedLeaf);
       });
       const servingEpicState: 'landed' | 'open' | 'none' =
         servingEpicLive ? 'open'
-        : landedProvesC ? 'landed'
+        : provingLanded.length > 0 ? 'landed'
         : serving.length > 0 ? 'open'
         : 'none';
       // Lifetime serve count — dropped/done included, so a criterion re-served every tick
@@ -1524,7 +1525,19 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
           (r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
       ).length;
-      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount };
+      let servingEpicLandSha: string | null = null;
+      let servingEpicLandedAt: number | null = null;
+      try {
+        let best: { sha: string; at: number } | null = null;
+        for (const e of provingLanded) {
+          const rec = getEpicLandRecord(project, e.id);
+          if (rec && (best == null || rec.landedAt > best.at)) {
+            best = { sha: rec.landedMergeSha, at: rec.landedAt };
+          }
+        }
+        if (best) { servingEpicLandSha = best.sha; servingEpicLandedAt = best.at; }
+      } catch { /* fail closed to null, same as a missing record */ }
+      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt };
     }),
   };
 }
