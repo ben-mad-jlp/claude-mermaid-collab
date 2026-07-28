@@ -282,296 +282,46 @@ async function listSessions(project?: string): Promise<string> {
 }
 
 export const SESSION_TOOL_DEFS = [
-  {
-    name: 'generate_session_name',
-    description: 'Generate a memorable session name (adjective-adjective-noun format). Use this when creating a new collab session.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_datetime',
-    description: "Get the current date and time on the server. Returns ISO-8601 UTC, a human-readable local string, the IANA timezone, and epoch milliseconds. Use this to timestamp observations while monitoring a long-running process — so when fired events are reviewed later (e.g. overnight) the wall-clock time of each is visible.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'list_sessions',
-    description: 'List registered collab sessions. Pass `project` to list only sessions in that project (e.g. to pick an assignee for cross-session todos); omit for all projects.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path to filter sessions by (optional).' } } },
-  },
-  {
-    name: 'recommend_session_cleanup',
-    description: 'Recommend stale collab sessions for cleanup (read-only). Returns sessions idle longer than `days` (default 30) — excluding any that are live-bound to a running Claude PID or hold in-progress work. Each item carries an age + reason. Clean up a recommended session with archive_session (it copies artifacts to docs/designs/ then optionally deletes). This NEVER deletes anything itself.',
-    inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'Staleness window in days (default 30).' } } },
-  },
-  {
-    name: 'list_projects',
-    description: 'List all registered projects',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'register_project',
-    description: 'Register a new project',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-  },
-  {
-    name: 'unregister_project',
-    description: 'Unregister a project (does not delete files)',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-  },
-  {
-    name: 'generate_session_summary',
-    description: 'Generate a markdown document summarizing all artifacts (diagrams, documents, designs, spreadsheets) in the current session.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path to the project root directory' },
-        session: { type: 'string', description: 'Session name (e.g., "bright-calm-river").' },
-        documentName: { type: 'string', description: 'Name for the summary document (default: "Session Summary")' },
-      },
-      required: ['project'],
-    },
-  },
-  {
-    name: 'validate_session_links',
-    description: 'Scan all documents in a session for artifact references ({{diagram:id}}, {{design:id}}, {{spreadsheet:id}}) and validate that referenced artifacts exist.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path to the project root directory' },
-        session: { type: 'string', description: 'Session name (e.g., "bright-calm-river").' },
-      },
-      required: ['project'],
-    },
-  },
-  {
-    name: 'render_ui',
-    description: 'Push UI to browser. Renders JSON UI definitions to the browser and manages user interactions. Can optionally block until user action is received.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, ui: { type: 'object' }, blocking: { type: 'boolean' } }, required: ['project', 'session', 'ui'] },
-  },
-  {
-    name: 'update_ui',
-    description: 'Update the currently displayed UI without full re-render by applying a partial patch to the current UI.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, patch: { type: 'object' } }, required: ['project', 'session', 'patch'] },
-  },
-  {
-    name: 'dismiss_ui',
-    description: 'Dismiss the currently displayed UI in the browser. Called when user responds in terminal to clear the question panel.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] },
-  },
-  {
-    name: 'get_ui_response',
-    description: 'Poll for UI response status. Use after render_ui with blocking=false to check if user has responded.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path to the project root directory' },
-        session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
-        uiId: { type: 'string', description: 'UI ID returned from render_ui' },
-      },
-      required: ['project', 'session', 'uiId'],
-    },
-  },
-  {
-    name: 'register_claude_session',
-    description: 'Register the current Claude Code session with a collab session for notifications. Before calling this tool, run Bash with command "echo $PPID" to discover the Claude Code process PID, then pass that value as claudePid. The tool reads /tmp/.claude-session-id-<claudePid> (written by the SessionStart hook) to resolve the Claude session ID, writes a binding file, and triggers the initial WebSocket broadcast. Returns { success, claudeSessionId, sessionRole } — sessionRole is the durable role this session resumes into ("conductor" if it owns an active mission, otherwise null); the caller must load the named skill.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        project: { type: 'string', description: 'Project path' },
-        session: { type: 'string', description: 'Collab session name' },
-        claudePid: { type: 'string', description: 'Claude Code process PID discovered via Bash "echo $PPID" (passed as string or number)' },
-      },
-      required: ['project', 'session', 'claudePid'],
-    },
-  },
-  {
-    name: 'get_install_path',
-    description: 'Get the installation path of the mermaid-collab plugin. Use this to run CLI commands like server start/stop.',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'clear_session_artifacts',
-    description: 'Delete all artifacts (documents, diagrams, designs, snippets) from a session. Session state and the session folder are preserved.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path to project root' },
-        session: { type: 'string', description: 'Session name' },
-      },
-      required: ['project', 'session'],
-    },
-  },
-  {
-    name: 'archive_session',
-    description: 'Archive a collab session by copying documents, diagrams, designs, and spreadsheets to docs/designs/[session]/ and optionally deleting the session folder.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path to project root' },
-        session: { type: 'string', description: 'Session name to archive' },
-        delete_session: { type: 'boolean', description: 'Delete the session after archiving (default: true)' },
-        timestamp: { type: 'boolean', description: 'Add timestamp to archive folder name (default: false)' },
-      },
-      required: ['project', 'session'],
-    },
-  },
-  {
-    name: 'archive_by_prefix',
-    description: 'Archive (copy + deprecate) all artifacts whose name begins with a given prefix. Scans documents, diagrams, designs, and snippets. Each match is copied to "Archive/{slug}/{rest-of-name}" and the original is deprecated. Returns the list of archived items. Useful for clearing out previous "Implementing/" work before generating a new blueprint.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path to project root' },
-        session: { type: 'string', description: 'Session name' },
-        prefix: { type: 'string', description: 'Name prefix to match (e.g. "Implementing/")' },
-        exclude_prefixes: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Prefixes to exclude even if they start with `prefix` (e.g. ["Implementing/Ad-hoc/"])',
-        },
-        extra_names: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Additional artifact names or IDs to include (e.g. ["task-graph"])',
-        },
-        archive_slug: {
-          type: 'string',
-          description: 'Slug for the archive folder; auto-derived from blueprint doc name if omitted.',
-        },
-      },
-      required: ['project', 'session', 'prefix'],
-    },
-  },
-  {
-    name: 'deprecate_artifact',
-    description: 'Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Project path' },
-        session: { type: 'string', description: 'Session name' },
-        id: { type: 'string', description: 'Artifact ID' },
-        deprecated: { type: 'boolean', description: 'true to deprecate, false to restore' },
-      },
-      required: ['project', 'session', 'id', 'deprecated'],
-    },
-  },
-  {
-    name: 'set_artifact_metadata',
-    description: 'Set metadata flags on an artifact. Use to mark documents as blueprint (locked, shown in Blueprint section), pin/unpin, or set any combination of metadata flags.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Project path' },
-        session: { type: 'string', description: 'Session name' },
-        id: { type: 'string', description: 'Artifact ID' },
-        blueprint: { type: 'boolean', description: 'Mark as blueprint (read-only plan document shown in Blueprint section). Also sets locked: true.' },
-        locked: { type: 'boolean', description: 'Lock the artifact to prevent editing' },
-        pinned: { type: 'boolean', description: 'Pin to top of sidebar list' },
-        deprecated: { type: 'boolean', description: 'Hide from default view' },
-      },
-      required: ['project', 'session', 'id'],
-    },
-  },
-  {
-    name: 'consult_grok',
-    description: 'Ask Grok (xAI) a question. Pass prompt + optional system prompt. Tracks API costs.',
-    inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, system: { type: 'string' }, model: { type: 'string', description: 'Model (default grok-4.5)' }, project: { type: 'string', description: 'Project for spend tracking (optional)' } }, required: ['prompt'] },
-  },
-  {
-    name: 'consult_codex',
-    description: 'Ask Claude (via OpenAI Codex endpoint) a question. Pass prompt + optional system prompt. Tracks API costs.',
-    inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, system: { type: 'string' }, model: { type: 'string' }, project: { type: 'string' } }, required: ['prompt'] },
-  },
-  {
-    name: 'update_task_status',
-    description: 'Update the status of a single task in the task graph.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, taskId: { type: 'string' }, status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'failed'] }, minimal: { type: 'boolean' } }, required: ['project', 'session', 'taskId', 'status'] },
-  },
-  {
-    name: 'update_tasks_status',
-    description: 'Update the status of multiple tasks in the task graph.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, updates: { type: 'array', items: { type: 'object', properties: { taskId: { type: 'string' }, status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'failed'] } } } }, minimal: { type: 'boolean' } }, required: ['project', 'session', 'updates'] },
-  },
-  {
-    name: 'get_task_graph',
-    description: 'Get the current task graph for a session.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] },
-  },
-  {
-    name: 'sync_task_graph',
-    description: 'Sync the task graph from a blueprint into the session todos.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] },
-  },
-  {
-    name: 'add_lesson',
-    description: 'Record a lesson learned (categ: universal/codebase/workflow/gotcha).',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, lesson: { type: 'string' }, category: { type: 'string', enum: ['universal', 'codebase', 'workflow', 'gotcha'] } }, required: ['project', 'session', 'lesson'] },
-  },
-  {
-    name: 'list_lessons',
-    description: 'List lessons learned in a session.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] },
-  },
-  {
-    name: 'record_friction',
-    description: 'Record a friction event (retry, gate rejection, escalation).',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, layer: { type: 'string' }, retryReason: { type: 'string' }, todoId: { type: 'string' }, session: { type: 'string' }, attempt: { type: 'number' }, detail: { type: 'string' } }, required: ['project', 'layer', 'retryReason'] },
-  },
-  {
-    name: 'report_dogfood',
-    description: 'Report a dogfood observation (user-facing issue with the daemon/orchestrator).',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, reason: { type: 'string' }, detail: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'reason'] },
-  },
-  {
-    name: 'list_friction',
-    description: 'List friction events for a project.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, session: { type: 'string' }, layer: { type: 'string' } }, required: ['project'] },
-  },
-  {
-    name: 'list_session_todos',
-    description: 'List session todos (cross-session work items, blocked/waiting items, etc).',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, includeCompleted: { type: 'boolean' }, assigneeSession: { type: 'string' }, status: { type: 'string' }, compact: { type: 'boolean' }, descriptionLimit: { type: 'number' } }, required: ['project', 'session'] },
-  },
-  {
-    name: 'add_session_todo',
-    description: 'DEPRECATED. Use create_epic/add_leaves/create_mission/file_to_bucket instead.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'update_session_todo',
-    description: 'Update a session todo (title, status, assignment, etc).',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, id: { type: 'string' } }, required: ['project', 'session', 'id'] },
-  },
-  {
-    name: 'toggle_session_todo',
-    description: 'Toggle a session todo completed/pending.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, id: { type: 'string' }, completed: { type: 'boolean' } }, required: ['project', 'session', 'id'] },
-  },
-  {
-    name: 'remove_session_todo',
-    description: 'Remove a session todo.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, id: { type: 'string' } }, required: ['project', 'session', 'id'] },
-  },
-  {
-    name: 'clear_completed_session_todos',
-    description: 'Clear all completed session todos.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] },
-  },
-  {
-    name: 'reorder_session_todos',
-    description: 'Reorder session todos.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, orderedIds: { type: 'array', items: { type: 'string' } } }, required: ['project', 'session', 'orderedIds'] },
-  },
-  {
-    name: 'assign_session_todo',
-    description: 'Assign a session todo to a session.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, id: { type: 'string' }, assigneeSession: { type: ['string', 'null'] } }, required: ['project', 'session', 'id'] },
-  },
-  {
-    name: 'complete_linked_todos',
-    description: 'Complete all session todos linked to a blueprint task.',
-    inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, blueprintId: { type: 'string' }, taskId: { type: 'string' } }, required: ['project', 'session', 'blueprintId'] },
-  },
+  {"name":"generate_session_name","description":"Generate a memorable session name (adjective-adjective-noun format). Use this when creating a new collab session.","inputSchema":{"properties":{},"type":"object"}},
+  {"name":"get_datetime","description":"Get the current date and time on the server. Returns ISO-8601 UTC, a human-readable local string, the IANA timezone, and epoch milliseconds. Use this to timestamp observations while monitoring a long-running process — so when fired events are reviewed later (e.g. overnight) the wall-clock time of each is visible.","inputSchema":{"properties":{},"type":"object"}},
+  {"name":"list_sessions","description":"List registered collab sessions. Pass `project` to list only sessions in that project (e.g. to pick an assignee for cross-session todos); omit for all projects.","inputSchema":{"properties":{"project":{"description":"Absolute project path to filter sessions by (optional).","type":"string"}},"type":"object"}},
+  {"name":"recommend_session_cleanup","description":"Recommend stale collab sessions for cleanup (read-only). Returns sessions idle longer than `days` (default 30) — excluding any that are live-bound to a running Claude PID or hold in-progress work. Each item carries an age + reason. Clean up a recommended session with archive_session (it copies artifacts to docs/designs/ then optionally deletes). This NEVER deletes anything itself.","inputSchema":{"properties":{"days":{"description":"Staleness window in days (default 30).","type":"number"}},"type":"object"}},
+  {"name":"list_projects","description":"List all registered projects","inputSchema":{"properties":{},"required":[],"type":"object"}},
+  {"name":"register_project","description":"Register a new project","inputSchema":{"properties":{"path":{"description":"Absolute path to project root","type":"string"}},"required":["path"],"type":"object"}},
+  {"name":"unregister_project","description":"Unregister a project (does not delete files)","inputSchema":{"properties":{"path":{"description":"Absolute path to project","type":"string"}},"required":["path"],"type":"object"}},
+  {"name":"generate_session_summary","description":"Generate a markdown document summarizing all artifacts (diagrams, documents, designs, spreadsheets) in the current session.","inputSchema":{"properties":{"documentName":{"description":"Name for the summary document (default: \"Session Summary\")","type":"string"},"project":{"description":"Absolute path to the project root directory","type":"string"},"session":{"description":"Session name (e.g., \"bright-calm-river\").","type":"string"}},"required":["project"],"type":"object"}},
+  {"name":"validate_session_links","description":"Scan all documents in a session for artifact references ({{diagram:id}}, {{design:id}}, {{spreadsheet:id}}) and validate that referenced artifacts exist.","inputSchema":{"properties":{"project":{"description":"Absolute path to the project root directory","type":"string"},"session":{"description":"Session name (e.g., \"bright-calm-river\").","type":"string"}},"required":["project"],"type":"object"}},
+  {"name":"render_ui","description":"Push UI to browser. Renders JSON UI definitions to the browser and manages user interactions. Can optionally block until user action is received.","inputSchema":{"properties":{"blocking":{"default":true,"description":"Whether to wait for user action (default: true)","type":"boolean"},"project":{"description":"Absolute path to the project root directory","type":"string"},"session":{"description":"Session name (e.g., \"bright-calm-river\")","type":"string"},"ui":{"additionalProperties":true,"description":"JSON UI component definition. \n## Available Components (32)\n\n### Display (8)\n- Table: { columns: [{key, header}], rows: [{key: value}] }\n- CodeBlock: { code, language?, showLineNumbers? }\n- DiffView: { oldCode, newCode, language? }\n- JsonViewer: { data, collapsed? }\n- Markdown: { content }\n- Image: { src, alt, width?, height?, caption?, objectFit? }\n- Spinner: { size?, label? }\n- Badge: { text, variant?, size? }\n\n### Layout (6)\n- Card: { title?, subtitle?, footer?, elevation? }\n- Section: { title, collapsible? }\n- Columns: { columns: number }\n- Accordion: { items: [{title, content}] }\n- Alert: { type, title?, message }\n- Divider: { orientation?, label? }\n\n### Interactive (6)\n- Wizard: { steps: [{title, content}], currentStep }\n- Checklist: { items: [{label, checked}] }\n- ApprovalButtons: { actions: [{id, label, primary?}] }\n- ProgressBar: { value, max?, label? }\n- Tabs: { tabs: [{id, label, content}] }\n- Link: { href?, label, onClick?, variant?, external? }\n\n### Inputs (10) - form data collected on action\n- MultipleChoice: { options: [{value, label}], name, label? }\n- TextInput: { name, label?, placeholder?, type? }\n- TextArea: { name, label?, placeholder?, rows? }\n- Checkbox: { options: [{value, label}], name, label? }\n- Confirmation: { message, confirmLabel?, cancelLabel? }\n- RadioGroup: { options: [{value, label}], name, label?, orientation? }\n- Toggle: { name, label?, checked?, size? }\n- NumberInput: { name, label?, min?, max?, step? }\n- Slider: { name, label?, min?, max?, step?, showValue? }\n- FileUpload: { name, accept?, multiple?, maxSize? }\n\n### Mermaid (2)\n- DiagramEmbed: { diagramId }\n- WireframeEmbed: { wireframeId }\n","type":"object"}},"required":["project","session","ui"],"type":"object"}},
+  {"name":"update_ui","description":"Update the currently displayed UI without full re-render by applying a partial patch to the current UI.","inputSchema":{"properties":{"patch":{"additionalProperties":true,"description":"Partial UI component patch to apply to current UI","type":"object"},"project":{"description":"Absolute path to the project root directory","type":"string"},"session":{"description":"Session name (e.g., \"bright-calm-river\")","type":"string"}},"required":["project","session","patch"],"type":"object"}},
+  {"name":"dismiss_ui","description":"Dismiss the currently displayed UI in the browser. Called when user responds in terminal to clear the question panel.","inputSchema":{"properties":{"project":{"description":"Absolute path to the project root directory","type":"string"},"session":{"description":"Session name (e.g., \"bright-calm-river\")","type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"get_ui_response","description":"Poll for UI response status. Use after render_ui with blocking=false to check if user has responded.","inputSchema":{"properties":{"project":{"description":"Absolute path to the project root directory","type":"string"},"session":{"description":"Session name (e.g., \"bright-calm-river\")","type":"string"},"uiId":{"description":"UI ID returned from render_ui","type":"string"}},"required":["project","session","uiId"],"type":"object"}},
+  {"name":"register_claude_session","description":"Register the current Claude Code session with a collab session for notifications. Before calling this tool, run Bash with command \"echo $PPID\" to discover the Claude Code process PID, then pass that value as claudePid. The tool reads /tmp/.claude-session-id-<claudePid> (written by the SessionStart hook) to resolve the Claude session ID, writes a binding file, and triggers the initial WebSocket broadcast. Returns { success, claudeSessionId, sessionRole } — sessionRole is the durable role this session resumes into (\"conductor\" if it owns an active mission, otherwise null); the caller must load the named skill.","inputSchema":{"properties":{"claudePid":{"description":"Claude Code process PID discovered via Bash \"echo $PPID\" (passed as string or number)","type":"string"},"project":{"description":"Project path","type":"string"},"session":{"description":"Collab session name","type":"string"}},"required":["project","session","claudePid"],"type":"object"}},
+  {"name":"get_install_path","description":"Get the installation path of the mermaid-collab plugin. Use this to run CLI commands like server start/stop.","inputSchema":{"properties":{},"required":[],"type":"object"}},
+  {"name":"clear_session_artifacts","description":"Delete all artifacts (documents, diagrams, designs, snippets) from a session. Session state and the session folder are preserved.","inputSchema":{"properties":{"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"archive_session","description":"Archive a collab session by copying documents, diagrams, designs, and spreadsheets to docs/designs/[session]/ and optionally deleting the session folder.","inputSchema":{"properties":{"delete_session":{"description":"Delete the session after archiving (default: true)","type":"boolean"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name to archive","type":"string"},"timestamp":{"description":"Add timestamp to archive folder name (default: false)","type":"boolean"}},"required":["project","session"],"type":"object"}},
+  {"name":"archive_by_prefix","description":"Archive (copy + deprecate) all artifacts whose name begins with a given prefix. Scans documents, diagrams, designs, and snippets. Each match is copied to \"Archive/{slug}/{rest-of-name}\" and the original is deprecated. Returns the list of archived items. Useful for clearing out previous \"Implementing/\" work before generating a new blueprint.","inputSchema":{"properties":{"archive_slug":{"description":"Slug to use for the Archive/{slug}/ destination. If omitted, derived from the first blueprint:true doc under prefix, or a timestamp.","type":"string"},"exclude_prefixes":{"description":"Prefixes to exclude even if they start with `prefix` (e.g. [\"Implementing/Ad-hoc/\"])","items":{"type":"string"},"type":"array"},"extra_names":{"description":"Additional artifact names or IDs to include (e.g. [\"task-graph\"])","items":{"type":"string"},"type":"array"},"prefix":{"description":"Name prefix to match (e.g. \"Implementing/\")","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","prefix"],"type":"object"}},
+  {"name":"deprecate_artifact","description":"Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.","inputSchema":{"properties":{"deprecated":{"description":"true to deprecate, false to restore","type":"boolean"},"id":{"description":"Artifact ID","type":"string"},"project":{"description":"Project path","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","id","deprecated"],"type":"object"}},
+  {"name":"set_artifact_metadata","description":"Set metadata flags on an artifact. Use to mark documents as blueprint (locked, shown in Blueprint section), pin/unpin, or set any combination of metadata flags.","inputSchema":{"properties":{"blueprint":{"description":"Mark as blueprint (read-only plan document shown in Blueprint section). Also sets locked: true.","type":"boolean"},"deprecated":{"description":"Hide from default view","type":"boolean"},"id":{"description":"Artifact ID","type":"string"},"locked":{"description":"Lock the artifact to prevent editing","type":"boolean"},"pinned":{"description":"Pin to top of sidebar list","type":"boolean"},"project":{"description":"Project path","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","id"],"type":"object"}},
+  {"name":"consult_grok","description":"Consult Grok (xAI) with a question or prompt. Useful for a second opinion, cross-checking reasoning, or exploring an idea with a different AI model. Requires XAI_API_KEY env var.","inputSchema":{"properties":{"model":{"description":"Grok model to use. Default: grok-build-0.1.","type":"string"},"prompt":{"description":"The question or prompt to send to Grok","type":"string"},"system":{"description":"Optional system prompt to set context for Grok","type":"string"}},"required":["prompt"],"type":"object"}},
+  {"name":"consult_codex","description":"Consult Codex (OpenAI) with a question or prompt. A second, independent opinion at design time — the OpenAI-backed peer of consult_grok. Consult both when pressure-testing a design: they are different models with different failure modes. Requires OPENAI_API_KEY (Settings → Secrets).","inputSchema":{"properties":{"model":{"description":"OpenAI model to use. Default: gpt-5-codex.","type":"string"},"prompt":{"description":"The question or prompt to send to Codex","type":"string"},"system":{"description":"Optional system prompt to set context","type":"string"}},"required":["prompt"],"type":"object"}},
+  {"name":"update_task_status","description":"Update a task's status and regenerate the task graph. Broadcasts updates via WebSocket.","inputSchema":{"properties":{"minimal":{"description":"If true, return minimal response (just success) to reduce context size. Default: false","type":"boolean"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"},"status":{"description":"New status for the task","enum":["pending","in_progress","completed","failed"],"type":"string"},"taskId":{"description":"Task ID to update","type":"string"}},"required":["project","session","taskId","status"],"type":"object"}},
+  {"name":"update_tasks_status","description":"Update multiple tasks' statuses in a single call. More efficient than multiple update_task_status calls.","inputSchema":{"properties":{"minimal":{"description":"If true, return minimal response (just success and count) to reduce context size. Default: false","type":"boolean"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"},"updates":{"description":"Array of task updates to apply","items":{"properties":{"status":{"description":"New status for the task","enum":["pending","in_progress","completed","failed"],"type":"string"},"taskId":{"description":"Task ID to update","type":"string"}},"required":["taskId","status"],"type":"object"},"type":"array"}},"required":["project","session","updates"],"type":"object"}},
+  {"name":"get_task_graph","description":"Get the current task graph state without modifications.","inputSchema":{"properties":{"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"sync_task_graph","description":"Parse blueprint documents in the session and initialize the task graph. Reads blueprint-item-N documents (or task-graph.md if present), performs topological sort into execution waves, and writes batches to session state. Call this after creating blueprint documents to make the task graph available for execution.","inputSchema":{"properties":{"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"add_lesson","description":"Record a lesson learned during the session. Creates LESSONS.md if it doesn't exist.","inputSchema":{"properties":{"category":{"description":"Type of lesson (default: universal)","enum":["universal","codebase","workflow","gotcha"],"type":"string"},"lesson":{"description":"The lesson content","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","lesson"],"type":"object"}},
+  {"name":"list_lessons","description":"Get all lessons from a session.","inputSchema":{"properties":{"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"record_friction","description":"Record a structured friction note: the retry reason + LAYER (orchestration = collab harness friction like gate format / wrong test command; domain = the project code/API the worker was editing; operational = systemic/dogfood friction any agent can log without a leaf scope). todoId is now optional — operational notes are not leaf-scoped. Persisted per-project to .collab/friction.db so failure attribution is queryable instead of lost in the worker transcript.","inputSchema":{"properties":{"attempt":{"description":"1-based attempt number — the worker's own count, not the lease retryCount (optional, default 1)","type":"number"},"detail":{"description":"Optional free-text elaboration","type":"string"},"layer":{"description":"Where the friction came from: orchestration (collab harness — gate format, wrong test cmd, profile/tooling), domain (the project code/API the worker was editing), or operational (systemic/dogfood friction any agent can emit without a leaf scope)","enum":["orchestration","domain","operational"],"type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"retryReason":{"description":"Short reason tag, e.g. \"gate-format\", \"wrong-test-cmd\", \"cad-api-rederived\", \"missing-domain-model\"","type":"string"},"session":{"description":"Worker/pool session that emitted it (optional)","type":"string"},"todoId":{"description":"The work-graph todo this attempt was against (optional for operational notes not scoped to a single leaf)","type":"string"}},"required":["project","layer","retryReason"],"type":"object"}},
+  {"name":"report_dogfood","description":"Convenience: log a systemic dogfood/operational friction note that ANY agent (worker/daemon/watcher/human) can emit — records an operational-LAYER friction note. Thin wrapper over record_friction with layer=\"operational\" and retryReason=reason; todoId optional (operational notes are not leaf-scoped). Surfaces in list_friction / friction_trends alongside orchestration & domain.","inputSchema":{"properties":{"detail":{"description":"Optional free-text elaboration","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"reason":{"description":"Short reason tag for the systemic dogfood friction, e.g. \"tmux-pane-leak\", \"stale-shadow-server\", \"nudge-not-delivered\"","type":"string"},"todoId":{"description":"Optional work-graph todo this friction relates to (operational notes are usually NOT leaf-scoped)","type":"string"}},"required":["project","reason"],"type":"object"}},
+  {"name":"list_friction","description":"Query persisted friction notes (newest first). Filter by todoId / session / layer — e.g. layer=\"domain\" answers \"which todos hit domain-layer friction and why\" without opening each worker's private transcript.","inputSchema":{"properties":{"layer":{"description":"Filter by layer, e.g. \"domain\" to answer \"which todos hit domain-layer friction and why\" (optional)","enum":["orchestration","domain","operational"],"type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Filter to one session (optional)","type":"string"},"todoId":{"description":"Filter to one todo (optional)","type":"string"}},"required":["project"],"type":"object"}},
+  {"name":"list_session_todos","description":"List per-session todos (checkable list attached to a collab session). Each todo carries a DERIVED claimability view: `status`/`derivedStatus` = the live state (planned/ready/blocked/in_progress/done/dropped), `storedStatus` = the raw persisted value, plus `isClaimable` + `claimReason`. An approved todo reads derivedStatus:'ready' even though storedStatus stays 'planned'. Set includeCompleted=false to filter out completed items. For long-lived sessions with many todos, pass compact=true (slim projection, omits descriptions) to stay under the token cap, or descriptionLimit=N to truncate descriptions. Results are sorted by order ascending.","inputSchema":{"properties":{"assigneeSession":{"description":"Filter todos assigned to this session","type":"string"},"compact":{"description":"Return a slim projection (id, title, status, assignee, priority, dependsOn, parentId, type, acceptanceStatus, claimedBy, targetProject) — omits `description` and bulky timestamp/claim fields. Use this for long-lived sessions with many richly-described todos to stay under the token cap; fetch a single full description with get_todo.","type":"boolean"},"descriptionLimit":{"description":"When NOT compact, truncate each description to this many characters (a marker is appended when truncated). Ignored if compact=true.","type":"number"},"includeCompleted":{"description":"Include completed todos in the result (default: true)","type":"boolean"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"},"status":{"description":"Filter by status. ready/blocked/in_progress are DERIVED (computed live), so this filters on each todo's derivedStatus, not the raw stored value.","enum":["backlog","planned","todo","ready","in_progress","blocked","done","dropped"],"type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"add_session_todo","description":"DEPRECATED. Use create_epic/add_leaves/create_mission/file_to_bucket instead.","inputSchema":{"type":"object","properties":{}}},
+  {"name":"update_session_todo","description":"Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.","inputSchema":{"properties":{"assigneeKind":{"description":"Set assignee kind: agent (default) or human. Attribution, not auth (optional).","enum":["agent","human"],"type":"string"},"assigneeSession":{"description":"Reassign to this session (optional)","type":"string"},"completed":{"description":"New completed state (optional)","type":"boolean"},"completedBy":{"description":"Actor handle to record as the completer (e.g. 'local:host'). Normally omitted — a human todo auto-stamps on completion; pass null to clear (optional).","type":["string","null"]},"dependsOn":{"description":"List of todo ids this todo depends on","items":{"type":"string"},"type":"array"},"description":{"description":"New description (optional)","type":"string"},"dueDate":{"description":"New due date ISO string (optional)","type":"string"},"id":{"description":"Todo id to update","type":"string"},"link":{"description":"Set or clear the blueprint link. Provide null to clear, or an object to set.","properties":{"blueprintId":{"description":"Blueprint id","type":"string"},"taskId":{"description":"Task id within the blueprint (optional)","type":"string"}},"required":["blueprintId"],"type":"object"},"parentId":{"description":"Parent todo id (for subtasks)","type":"string"},"priority":{"description":"New priority 0-4 (optional)","type":"number"},"project":{"description":"Absolute path to project root","type":"string"},"servesCriterionId":{"description":"A3 epic→criterion edge: the acceptance criterion this epic serves. Set this on a mission-homed epic before approving it. Pass null to clear.","type":["string","null"]},"servesCriterionIds":{"description":"MULTI-EDGE: set ALL criteria this epic serves in one call (wins over servesCriterionId).","items":{"type":"string"},"type":"array"},"session":{"description":"Session name","type":"string"},"sessionName":{"description":"Session name to associate with this todo","type":"string"},"status":{"description":"New status (optional). ready/blocked/in_progress are DERIVED, never stored: writing 'ready' APPROVES the todo (stamps approvedAt) — the raw stored `status` intentionally stays 'planned' while `derivedStatus`/`status` in the response become 'ready'. Writing 'blocked' = hold. 'in_progress' is rejected (claims are daemon-only). Do NOT retry if the stored status reads 'planned' after approving — check derivedStatus/isClaimable instead.","enum":["backlog","planned","todo","ready","in_progress","blocked","done","dropped"],"type":"string"},"targetProject":{"description":"Absolute path to the repo where this todo is IMPLEMENTED, when different from the tracking project (the worker spawns with cwd=targetProject and its gate runs there). Pass null to clear. Steward use: reroute a cross-project todo (e.g. a yolox/build123d todo) that was created without it.","type":["string","null"]},"text":{"description":"New text/title (optional)","type":"string"},"tier":{"description":"Set the executor recipe tier (full|small|test-pinned). Settable alongside status:'ready' to pin the tier at approve time.","enum":["full","small","test-pinned"],"type":"string"},"title":{"description":"New title (optional, alias for text)","type":"string"}},"required":["project","session","id"],"type":"object"}},
+  {"name":"toggle_session_todo","description":"Toggle the completed state of a per-session todo. If completed is omitted, the current value is flipped.","inputSchema":{"properties":{"completed":{"description":"Explicit state; when omitted the current value is flipped","type":"boolean"},"id":{"description":"Todo id to toggle","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","id"],"type":"object"}},
+  {"name":"remove_session_todo","description":"Remove a per-session todo by id.","inputSchema":{"properties":{"id":{"description":"Todo id to remove","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","id"],"type":"object"}},
+  {"name":"clear_completed_session_todos","description":"Remove all completed per-session todos for a session. Returns the number of todos removed.","inputSchema":{"properties":{"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session"],"type":"object"}},
+  {"name":"reorder_session_todos","description":"Reorder per-session todos by providing a full permutation of existing todo ids. Assigns new order values (10, 20, 30, ...) in the provided sequence.","inputSchema":{"properties":{"orderedIds":{"description":"Full permutation of existing todo ids in desired order","items":{"type":"string"},"type":"array"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","orderedIds"],"type":"object"}},
+  {"name":"assign_session_todo","description":"Assign a session todo to a specific session (assigneeSession). Pass null to unassign.","inputSchema":{"properties":{"assigneeSession":{"description":"Session to assign the todo to, or null to unassign","type":["string","null"]},"id":{"description":"Todo id to assign","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","id","assigneeSession"],"type":"object"}},
+  {"name":"complete_linked_todos","description":"Mark completed all session todos linked to a blueprint (and optional taskId). Used to sync linked todos when a Go task finishes.","inputSchema":{"properties":{"blueprintId":{"description":"Blueprint id to match","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"},"taskId":{"description":"Task id to match (optional; matches all tasks in blueprint when omitted)","type":"string"}},"required":["project","session","blueprintId"],"type":"object"}},
 ];
 
 export async function handleSessionTool(name: string, args: any): Promise<string | null> {
