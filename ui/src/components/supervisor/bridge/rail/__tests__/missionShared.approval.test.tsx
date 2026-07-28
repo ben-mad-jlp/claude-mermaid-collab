@@ -13,8 +13,6 @@ const actions = {
   addMissionCriterion: vi.fn(async () => missions),
   updateMissionCriterion: vi.fn(async () => missions),
   removeMissionCriterion: vi.fn(async () => missions),
-  fetchConductorTarget: vi.fn(async () => null as string | null),
-  setConductorTarget: vi.fn(async (_s: string, _p: string, id: string | null) => id),
 };
 
 let missions: any[] = [];
@@ -40,7 +38,6 @@ function makeMission(over: Partial<any> = {}) {
 
 beforeEach(() => {
   Object.values(actions).forEach((f) => f.mockClear());
-  actions.fetchConductorTarget.mockImplementation(async () => null);
   missions = [makeMission()];
 });
 
@@ -48,8 +45,6 @@ describe('MissionCard unapproved rendering', () => {
   it('renders Unapproved status pill and suppresses active indicators when status is unapproved', async () => {
     const m = makeMission({ mission: { active: true }, rollup: { status: 'unapproved' } });
     render(<MissionCard m={m} serverId="local" project="/proj" onChanged={() => {}} />);
-
-    await waitFor(() => expect(actions.fetchConductorTarget).toHaveBeenCalled());
 
     expect(screen.getByTestId('mission-status-pill').textContent).toBe('Unapproved');
     expect(screen.queryByText('● active')).toBeNull();
@@ -62,8 +57,6 @@ describe('MissionCard approve action', () => {
     const m = makeMission({ mission: { active: true }, rollup: { status: 'unapproved' } });
     render(<MissionCard m={m} serverId="local" project="/proj" onChanged={() => {}} />);
 
-    await waitFor(() => expect(actions.fetchConductorTarget).toHaveBeenCalled());
-
     fireEvent.click(screen.getByTestId('mission-approve-btn'));
 
     await waitFor(() => expect(actions.approveMission).toHaveBeenCalledWith('local', '/proj', 'm1'));
@@ -74,8 +67,6 @@ describe('MissionCard authoring-only boundary', () => {
   it('does not render verdict-set or phase-advance buttons', async () => {
     const m = makeMission();
     render(<MissionCard m={m} serverId="local" project="/proj" onChanged={() => {}} />);
-
-    await waitFor(() => expect(actions.fetchConductorTarget).toHaveBeenCalled());
 
     expect(screen.queryByTestId('mission-verdict-set-btn')).toBeNull();
     expect(screen.queryByTestId('mission-phase-advance-btn')).toBeNull();

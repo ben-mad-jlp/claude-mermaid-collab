@@ -9,8 +9,8 @@ const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis } from '../conductor-pass';
-import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorTargetMission, setConductorTargetMission, getConductorLastPass, type Escalation } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck } from '../mission-store';
+import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorLastPass, type Escalation } from '../supervisor-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
 import { REBET_KIND, rebetConditionKey } from '../rebet-briefing';
 import { forgeMission } from '../../mcp/tools/mission-forge';
@@ -29,13 +29,10 @@ let invokeCalls: number;
  *  (A bare ok with no epic is the LLM-no-op WEDGE — see emptyServeInvoke.) */
 const okInvoke = async () => {
   invokeCalls++;
-  // Mirror the pass's own target selection (pin → active) so the mock serves the SAME mission the
-  // pass drives.
-  const pin = getConductorTargetMission(project);
+  // Mirror the pass's own target selection (the project's single active mission) so the mock serves
+  // the SAME mission the pass drives.
   const missions = listMissions(project);
-  const m = pin
-    ? missions.find((x) => x.node.id === pin)
-    : missions.find((x) => x.mission.active && !isMissionTerminal(x.mission));
+  const m = missions.find((x) => x.mission.active && !isMissionTerminal(x.mission));
   if (m) {
     for (const c of listCriteriaWithActions(project, m.node.id).filter((x) => x.action === 'discover')) {
       await createTodo(project, { ownerSession: 's1', title: `[EPIC] served ${c.id}`, kind: 'epic', parentId: m.node.id, servesCriterionIds: [c.id] });
@@ -458,24 +455,37 @@ describe('runConductorPass — over-budget re-bet (mission a6ab522b)', () => {
   });
 });
 
-describe('runConductorPass — target pin', () => {
-  test('pin swaps which mission is driven', async () => {
+describe('runConductorPass — active mission selection', () => {
+  test("conductor-pass drives the project's single active mission", async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const first = await forgeApprovedActive();
-    const second = await forgeMission(project, { session: 's1', title: 'Second mission to drive', criteria: ['a second correct leaf is accepted'] });
+    const active = await forgeApprovedActive();
+    // A second mission — enqueued (one-active-per-project), so it is NOT driven.
+    await forgeMission(project, { session: 's1', title: 'Queued mission', criteria: ['a queued criterion'] });
 
-    setConductorTargetMission(project, second.missionId);
-    const r1 = await runConductorPass(project, { invoke: okInvoke });
-    expect(r1.ran).toBe(true);
-    expect(r1.reason).toBe('conducted');
-    expect(r1.missionId).toBe(second.missionId);
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted');
+    // The single ACTIVE mission is driven directly — no pin lookup, no rival advisory.
+    expect(r.missionId).toBe(active.missionId);
+  });
 
-    setConductorTargetMission(project, first.missionId);
-    const r2 = await runConductorPass(project, { invoke: okInvoke });
-    expect(r2.ran).toBe(true);
-    expect(r2.reason).toBe('conducted');
-    expect(r2.missionId).toBe(first.missionId);
+  test('set_active_mission swaps which mission conductor-pass drives', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const a = await forgeApprovedActive();
+    const b = await forgeMission(project, { session: 's1', title: 'Second mission to drive', criteria: ['a second correct leaf is accepted'] });
+
+    // Activating B (the set_active_mission override) makes B the active mission and re-queues A.
+    activateMission(project, b.missionId);
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted');
+    expect(r.missionId).toBe(b.missionId);
+    // The displaced A is re-queued (queuePos != null), not orphaned.
+    const aRow = getMission(project, a.missionId);
+    expect(aRow!.active).toBe(false);
+    expect(aRow!.queuePos).not.toBeNull();
   });
 
   test('EMPTY SERVE self-heals: node returns ok but files no epic → retries (bounded), never debounces', async () => {
@@ -509,7 +519,7 @@ describe('runConductorPass — target pin', () => {
     expect(r1.reason).toBe('conducted'); // served a real gap → productive
   });
 
-  test('unpinned single mission still uses first-active', async () => {
+  test('single active mission is driven directly', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
     const forged = await forgeApprovedActive();
@@ -519,70 +529,10 @@ describe('runConductorPass — target pin', () => {
     expect(r.missionId).toBe(forged.missionId);
   });
 
-  test('pin an awaiting-approval mission while another actionable mission exists ⇒ target-not-actionable, never falls back', async () => {
-    addWatchedProject(project);
-    setConductorEnabled(project, true);
-    await forgeApprovedActive();
-    const unapproved = await forgeMission(project, { session: 's1', title: 'pending pin target', criteria: ['c'], approved: false });
-
-    setConductorTargetMission(project, unapproved.missionId);
-    const r = await runConductorPass(project, { invoke: okInvoke });
-    expect(r.ran).toBe(false);
-    expect(r.reason).toBe('target-not-actionable');
-    expect(r.missionId).toBe(unapproved.missionId);
-    expect(invokeCalls).toBe(0);
-  });
-
-  test('pin a missing mission clears it lazily', async () => {
-    addWatchedProject(project);
-    setConductorEnabled(project, true);
-    await forgeApprovedActive();
-
-    setConductorTargetMission(project, 'deadbeef-0000-0000-0000-000000000000');
-    const r = await runConductorPass(project, { invoke: okInvoke });
-    expect(r.ran).toBe(false);
-    expect(r.reason).toBe('target-cleared');
-    expect(invokeCalls).toBe(0);
-    expect(getConductorTargetMission(project)).toBe(null);
-  });
-
-  // Convergence now freezes the mission into the terminal 'closed' state, so the
-  // observable status differs from the case label; the pin must clear on EITHER.
-  test.each([
-    ['converged', 'closed'],
-    ['abandoned', 'abandoned'],
-  ] as const)(
-    'pinning a %s mission clears the pin and drives nothing (not even the other actionable mission)',
-    async (terminalStatus, expectedStatus) => {
-      addWatchedProject(project);
-      setConductorEnabled(project, true);
-      // A second, actionable mission that MUST NOT be driven as a fallback.
-      const fallback = await forgeApprovedActive();
-      const target = await forgeMission(project, { session: 's1', title: 'Pin target going terminal', criteria: ['a terminal-status criterion'] });
-
-      if (terminalStatus === 'converged') {
-        const crit = listCriteria(project, target.missionId)[0];
-        setCriterionMet(project, crit.id, true);
-      } else {
-        setMissionAbandoned(project, target.missionId, 1);
-      }
-      expect(getMission(project, target.missionId)?.status).toBe(expectedStatus);
-
-      setConductorTargetMission(project, target.missionId);
-      const r = await runConductorPass(project, { invoke: okInvoke });
-      expect(r.ran).toBe(false);
-      expect(r.reason).toBe('target-cleared');
-      expect(invokeCalls).toBe(0);
-      expect(getConductorTargetMission(project)).toBe(null);
-      void fallback;
-    },
-  );
-
-  test('records lastPass reason "conducted" for the pinned mission id', async () => {
+  test('records lastPass reason "conducted" for the active mission id', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
     const forged = await forgeApprovedActive();
-    setConductorTargetMission(project, forged.missionId);
 
     const r = await runConductorPass(project, { invoke: okInvoke });
     expect(r.reason).toBe('conducted');
@@ -594,34 +544,31 @@ describe('runConductorPass — target pin', () => {
     expect(typeof lastPass!.tickAt).toBe('number');
   });
 
-  test('an unrelated actionable mission never appears in lastPass.missionId', async () => {
+  test('a queued (non-active) mission never appears in lastPass.missionId', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const pinned = await forgeApprovedActive();
-    const unrelated = await forgeMission(project, { session: 's1', title: 'Unrelated actionable mission', criteria: ['an unrelated criterion'] });
+    const active = await forgeApprovedActive();
+    // Enqueued behind the active mission (one-active-per-project) — must never be driven.
+    const queued = await forgeMission(project, { session: 's1', title: 'Queued actionable mission', criteria: ['a queued criterion'] });
 
-    setConductorTargetMission(project, pinned.missionId);
     const r = await runConductorPass(project, { invoke: okInvoke });
     expect(r.reason).toBe('conducted');
 
     const lastPass = getConductorLastPass(project);
-    expect(lastPass!.missionId).toBe(pinned.missionId);
-    expect(lastPass!.missionId).not.toBe(unrelated.missionId);
+    expect(lastPass!.missionId).toBe(active.missionId);
+    expect(lastPass!.missionId).not.toBe(queued.missionId);
   });
 
-  test('records lastPass reason "target-cleared" once the pinned mission goes terminal', async () => {
+  test('an abandoned active mission is not actionable ⇒ no-actionable-mission', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
     const target = await forgeApprovedActive();
     setMissionAbandoned(project, target.missionId, 1);
 
-    setConductorTargetMission(project, target.missionId);
     const r = await runConductorPass(project, { invoke: okInvoke });
-    expect(r.reason).toBe('target-cleared');
-
-    const lastPass = getConductorLastPass(project);
-    expect(lastPass).toEqual({ missionId: null, reason: 'target-cleared', tickAt: lastPass!.tickAt });
-    expect(typeof lastPass!.tickAt).toBe('number');
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('no-actionable-mission');
+    expect(invokeCalls).toBe(0);
   });
 });
 
@@ -1100,7 +1047,7 @@ describe('runConductorPass — lastPass refreshes every beat', () => {
     expect(staleLast!.reason).toBe('conducted');
 
     const second = await forgeMission(project, { session: 's1', title: 'Fresh mission to error', criteria: ['error criterion'] });
-    setConductorTargetMission(project, second.missionId);
+    activateMission(project, second.missionId);
 
     const throwInvoke = async () => { throw new Error('boom'); };
     await expect(runConductorPass(project, { invoke: throwInvoke })).rejects.toThrow('boom');

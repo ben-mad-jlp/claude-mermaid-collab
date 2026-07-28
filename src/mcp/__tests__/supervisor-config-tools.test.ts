@@ -1,6 +1,6 @@
-// Unit tests for the set_conductor_target / set_node_profile_override MCP tools
+// Unit tests for the set_node_profile_override MCP tool
 // in src/mcp/supervisor-tools.ts. Isolates the supervisor-store DB via
-// MERMAID_SUPERVISOR_DIR before import, per src/routes/__tests__/conductor-target-route.test.ts.
+// MERMAID_SUPERVISOR_DIR before import.
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,10 +10,8 @@ const dir = mkdtempSync(join(tmpdir(), 'supervisor-config-tools-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleSupervisorTool } from '../supervisor-tools.js';
-import { addWatchedProject, getConductorTargetMission, _closeDb } from '../../services/supervisor-store.js';
+import { addWatchedProject, _closeDb } from '../../services/supervisor-store.js';
 import { listNodeProfileOverrides } from '../../services/orchestrator-config.js';
-import { createTodo } from '../../services/todo-store.js';
-import { upsertMission } from '../../services/mission-store.js';
 
 const PROJECT = '/tmp/supervisor-config-tools-proj';
 
@@ -25,27 +23,6 @@ afterAll(() => {
   _closeDb();
   rmSync(dir, { recursive: true, force: true });
   delete process.env.MERMAID_SUPERVISOR_DIR;
-});
-
-describe('set_conductor_target', () => {
-  it('pins a real mission id, then clear:true unpins it', async () => {
-    const node = await createTodo(PROJECT, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] m1', kind: 'mission' });
-    upsertMission(PROJECT, node.id);
-
-    const pinned = await handleSupervisorTool('set_conductor_target', { project: PROJECT, missionId: node.id });
-    expect(JSON.parse(pinned!).targetMissionId).toBe(node.id);
-    expect(getConductorTargetMission(PROJECT)).toBe(node.id);
-
-    const cleared = await handleSupervisorTool('set_conductor_target', { project: PROJECT, clear: true });
-    expect(JSON.parse(cleared!).targetMissionId).toBeNull();
-    expect(getConductorTargetMission(PROJECT)).toBeNull();
-  });
-
-  it('rejects an unknown mission id', async () => {
-    await expect(
-      handleSupervisorTool('set_conductor_target', { project: PROJECT, missionId: 'does-not-exist' }),
-    ).rejects.toThrow(/mission not found/);
-  });
 });
 
 describe('set_node_profile_override', () => {

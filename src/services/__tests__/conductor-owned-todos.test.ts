@@ -62,7 +62,6 @@ describe('selectConductorOwnedTodoIds', () => {
   it('returns empty array when conductor is disabled', () => {
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => false,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => null,
       listTodos: () => [
         makeTodo('epic1', 'mission1', 'epic', 'ready'),
@@ -77,7 +76,6 @@ describe('selectConductorOwnedTodoIds', () => {
   it('returns empty array when lastPass is null', () => {
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => null,
       listTodos: () => [
         makeTodo('epic1', 'mission1', 'epic', 'ready'),
@@ -92,7 +90,6 @@ describe('selectConductorOwnedTodoIds', () => {
   it('returns empty array when lastPass.reason is not pass-ran', () => {
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId: 'mission1',
         reason: 'conducted',
@@ -111,7 +108,6 @@ describe('selectConductorOwnedTodoIds', () => {
   it('returns empty array when lastPass.tickAt is not a number', () => {
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId: 'mission1',
         reason: 'pass-ran',
@@ -132,7 +128,6 @@ describe('selectConductorOwnedTodoIds', () => {
     const staleTickAt = nowMs - RUNNING_FRESH_MS; // exactly at the edge, should be stale
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId: 'mission1',
         reason: 'pass-ran',
@@ -151,7 +146,6 @@ describe('selectConductorOwnedTodoIds', () => {
   it('returns empty array when no pin and listMissions has no active non-terminal missions', () => {
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId: null,
         reason: 'pass-ran',
@@ -168,7 +162,6 @@ describe('selectConductorOwnedTodoIds', () => {
   it('returns empty array when no pin and listMissions has > 1 active non-terminal missions (ambiguous)', () => {
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId: null,
         reason: 'pass-ran',
@@ -185,11 +178,10 @@ describe('selectConductorOwnedTodoIds', () => {
     expect(result).toEqual([]);
   });
 
-  it('returns pinned mission epic children (2 live epics, 1 dropped, 1 non-epic)', () => {
+  it('returns the single active mission epic children (2 live epics, 1 dropped, 1 non-epic)', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => missionId,
       getConductorLastPass: () => ({
         missionId,
         reason: 'pass-ran',
@@ -213,7 +205,6 @@ describe('selectConductorOwnedTodoIds', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId,
         reason: 'pass-ran',
@@ -234,7 +225,6 @@ describe('selectConductorOwnedTodoIds', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId,
         reason: 'pass-ran',
@@ -254,7 +244,6 @@ describe('selectConductorOwnedTodoIds', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId,
         reason: 'pass-ran',
@@ -276,7 +265,6 @@ describe('selectConductorOwnedTodoIds', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId,
         reason: 'pass-ran',
@@ -296,7 +284,6 @@ describe('selectConductorOwnedTodoIds', () => {
     const missionId = 'mission1';
     const deps: ConductorOwnedTodosDeps = {
       getConductorEnabled: () => true,
-      getConductorTargetMission: () => null,
       getConductorLastPass: () => ({
         missionId,
         reason: 'pass-ran',

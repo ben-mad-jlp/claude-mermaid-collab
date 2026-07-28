@@ -31,8 +31,6 @@ import {
   setPromptInjectActiveConstraints,
   getConductorEnabled,
   setConductorEnabled,
-  getConductorTargetMission,
-  setConductorTargetMission,
   getConductorLastPass,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
@@ -1034,7 +1032,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     return Response.json({
       project,
       enabled: getConductorEnabled(project),
-      targetMissionId: getConductorTargetMission(project),
       lastPass: getConductorLastPass(project),
       intervalMs: CONDUCTOR_INTERVAL_MS,
     });
@@ -1058,7 +1055,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     for (const p of projects) {
       ownedTodoIds[p] = selectConductorOwnedTodoIds(p, nowMs, {
         getConductorEnabled,
-        getConductorTargetMission,
         getConductorLastPass,
         listTodos,
         listMissions,
@@ -1066,34 +1062,28 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
     return Response.json({ projects, ownedTodoIds });
   }
-  // POST /api/supervisor/conductor — toggle it and/or pin a target mission.
-  // body { project, enabled?: boolean, targetMissionId?: string | null }. UPDATE-only
-  // (the project must be watched), like the injection-flag setters.
+  // POST /api/supervisor/conductor — toggle the per-project autonomous conductor.
+  // body { project, enabled: boolean }. UPDATE-only (the project must be watched),
+  // like the injection-flag setters.
   if (url.pathname === '/api/supervisor/conductor' && req.method === 'POST') {
     try {
       const body = (await req.json()) as {
-        project?: string; enabled?: boolean; targetMissionId?: string | null;
+        project?: string; enabled?: boolean;
       };
       const { project, enabled } = body;
       if (!project) return jsonError('project is required', 400);
       const hasEnabled = 'enabled' in body;
-      const hasTarget = 'targetMissionId' in body;
-      if (!hasEnabled && !hasTarget) {
-        return jsonError('enabled or targetMissionId is required', 400);
+      if (!hasEnabled) {
+        return jsonError('enabled is required', 400);
       }
-      if (hasEnabled && typeof enabled !== 'boolean') {
+      if (typeof enabled !== 'boolean') {
         return jsonError('enabled must be a boolean', 400);
       }
-      if (hasTarget && body.targetMissionId !== null && typeof body.targetMissionId !== 'string') {
-        return jsonError('targetMissionId must be a string or null', 400);
-      }
-      if (hasEnabled) setConductorEnabled(project, enabled as boolean);
-      if (hasTarget) setConductorTargetMission(project, body.targetMissionId ?? null);
+      setConductorEnabled(project, enabled);
       return Response.json({
         ok: true,
         project,
         enabled: getConductorEnabled(project),
-        targetMissionId: getConductorTargetMission(project),
       });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

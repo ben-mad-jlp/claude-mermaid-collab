@@ -44,11 +44,9 @@ export const EPIC_CHURN_REJECT_THRESHOLD = 2;
  *  Origin: src/services/conductor-pass.ts (runConductorPass fail-retry counter). */
 export const CONDUCTOR_SERVE_RETRY_CAP = 3;
 
-/** How many conductor beats a SELECTED leader may go without a new pass stamp
- *  (lastConductorPassAt) before deterministic-select treats it as stalled and lets an
- *  actionable rival take the turn. A leader whose fingerprint debounce keeps returning
- *  "no change" would otherwise hold the turn forever and every rival starves.
- *  Origin: src/services/mission-store.ts (selectConductorMission leader-yield). */
+/** How many conductor beats a driven mission may go without a new pass stamp
+ *  (lastConductorPassAt) before its progress clock is treated as stale. Retained as a
+ *  shared cap for the conductor progress-clock diagnostics. */
 export const CONDUCTOR_LEADER_STALE_TICKS = 4;
 
 /** The conductor heartbeat period, so the stale-leader bound above is expressed in

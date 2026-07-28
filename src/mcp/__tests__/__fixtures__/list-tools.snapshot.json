@@ -5997,30 +5997,6 @@
       }
     },
     {
-      "name": "set_conductor_target",
-      "description": "Pin (or clear) which mission the conductor drives for a project. Pass missionId to pin, or clear:true to unpin (falls back to first-active behavior).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": "string"
-          },
-          "missionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "clear": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "project"
-        ]
-      }
-    },
-    {
       "name": "set_node_profile_override",
       "description": "Set (or clear, by passing model/effort/provider all null) a per-project, per-node-kind model/effort/provider override.",
       "inputSchema": {

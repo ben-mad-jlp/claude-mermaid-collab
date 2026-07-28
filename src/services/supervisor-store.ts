@@ -511,23 +511,6 @@ export function setIntakeEnabled(project: string, on: boolean): void {
     .run(on ? 1 : 0, project);
 }
 
-/** Per-project conductor target mission. The mission the conductor pass drives for this
- *  project when the conductor is on — an EXPLICIT pin, distinct from mission.active (which
- *  cannot disambiguate: multiple missions can be active at once). Unset (null) preserves
- *  today's first-active-mission behavior. UPDATE-only (like the other per-project setters —
- *  never auto-watch a project); a project must be watched first. */
-export function getConductorTargetMission(project: string): string | null {
-  const d = openDb();
-  const row = d.query('SELECT conductorTargetMissionId FROM watched_project WHERE project = ?')
-    .get(project) as { conductorTargetMissionId: string | null } | undefined;
-  return row?.conductorTargetMissionId ?? null;
-}
-export function setConductorTargetMission(project: string, missionId: string | null): void {
-  const d = openDb();
-  d.prepare('UPDATE watched_project SET conductorTargetMissionId = ? WHERE project = ?')
-    .run(missionId, project);
-}
-
 export type ConductorPassReason =
   | 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable'
   | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed'
@@ -545,8 +528,7 @@ export interface ConductorLastPass {
 }
 
 /** Per-project OBSERVABLE outcome of the last runConductorPass tick — which mission (if any) it
- *  actually drove, the reason code, and when. Distinct from conductorTargetMissionId (the pin,
- *  an input) — this is the pass's OUTPUT, so a live observer can confirm 'drove exactly that
+ *  actually drove, the reason code, and when. This is the pass's OUTPUT, so a live observer can confirm 'drove exactly that
  *  mission' directly instead of inferring it from unchanged debounce timestamps. UPDATE-only
  *  (like the other per-project setters — never auto-watch a project). */
 export function getConductorLastPass(project: string): ConductorLastPass | null {

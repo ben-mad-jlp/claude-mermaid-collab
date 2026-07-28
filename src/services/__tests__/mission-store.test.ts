@@ -15,7 +15,6 @@ import {
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { claimReason } from '../claimability';
-import { CONDUCTOR_LEADER_STALE_TICKS } from '../harness-caps';
 import Database from 'bun:sqlite';
 
 let project: string;
@@ -463,131 +462,6 @@ describe('mission meta-fixes', () => {
     expect(getMission(project, a)!.active).toBe(true);
     listMissions(project);                        // the read-path sweep clears terminal-active rows
     expect(getMission(project, a)!.active).toBe(false);
-  });
-});
-
-describe('selectConductorMission — deterministic total order (B4, replaces first-wins)', () => {
-  test('picks a STABLE winner + lists the rest as rivals; two calls agree', async () => {
-    const { selectConductorMission } = await import('../mission-store');
-    const ids: string[] = [];
-    for (const t of ['a', 'b', 'c']) {
-      const id = (await createTodo(project, { ownerSession: 'design', title: `[MISSION] ${t}`, kind: 'mission' })).id;
-      upsertMission(project, id);
-      addCriterion(project, id, 'gap'); // needs-discovery → actionable
-      ids.push(id);
-    }
-    const s1 = selectConductorMission(project);
-    const s2 = selectConductorMission(project);
-    expect(s1.target).toBeDefined();
-    expect(s1.target!.node.id).toBe(s2.target!.node.id);              // deterministic across calls
-    expect(s1.rivals).toHaveLength(2);                                // the other two are rivals
-    expect(new Set([s1.target!.node.id, ...s1.rivals])).toEqual(new Set(ids));
-  });
-
-  test('H4 invariant: selection NEVER mutates any mission active flag', async () => {
-    const { selectConductorMission } = await import('../mission-store');
-    const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
-    const b = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] b', kind: 'mission' })).id;
-    upsertMission(project, a); addCriterion(project, a, 'g');
-    upsertMission(project, b); addCriterion(project, b, 'g');
-    expect([getMission(project, a)!.active, getMission(project, b)!.active]).toEqual([true, true]);
-    selectConductorMission(project);
-    selectConductorMission(project);
-    expect([getMission(project, a)!.active, getMission(project, b)!.active]).toEqual([true, true]); // untouched
-  });
-
-  test('excludes non-actionable (abandoned/terminal) missions from target AND rivals', async () => {
-    const { selectConductorMission } = await import('../mission-store');
-    const live = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] live', kind: 'mission' })).id;
-    const gone = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] gone', kind: 'mission' })).id;
-    upsertMission(project, live); addCriterion(project, live, 'g');
-    upsertMission(project, gone); addCriterion(project, gone, 'g');
-    setMissionAbandoned(project, gone, Date.now()); // terminal → excluded
-    const s = selectConductorMission(project);
-    expect(s.target!.node.id).toBe(live);
-    expect(s.rivals).toEqual([]); // the abandoned mission is neither driven nor a rival
-  });
-
-  test('no actionable missions → no target, no rivals', async () => {
-    const { selectConductorMission } = await import('../mission-store');
-    expect(selectConductorMission(project)).toEqual({ rivals: [] });
-  });
-
-  test('a leader whose lastConductorPassAt is older than the stale bound and still has a discover gap yields to the next actionable rival', async () => {
-    const { selectConductorMission } = await import('../mission-store');
-    const leader = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] leader', kind: 'mission' })).id;
-    const rival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] rival', kind: 'mission' })).id;
-    upsertMission(project, leader); addCriterion(project, leader, 'gap'); // no serving epic → discover gap
-    upsertMission(project, rival); addCriterion(project, rival, 'gap');
-
-    const now = 10_000_000;
-    const beatMs = 1_000;
-    stampConductorRun(project, leader, 'k', { at: now - (CONDUCTOR_LEADER_STALE_TICKS * beatMs + 1) });
-    stampConductorRun(project, rival, 'k', { at: now });
-
-    const selection = selectConductorMission(project, { now, beatMs });
-    expect(selection.target!.node.id).toBe(rival);
-    expect(selection.rivals).toContain(leader);
-  });
-
-  test('a fresh leader, or a stale leader with no discover/verify gap, still wins', async () => {
-    const { selectConductorMission } = await import('../mission-store');
-    const now = 10_000_000;
-    const beatMs = 1_000;
-
-    // (a) both stamped fresh → head of the existing total order (createdAt tie-break) wins.
-    const freshLeader = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] fresh-leader', kind: 'mission' })).id;
-    const freshRival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] fresh-rival', kind: 'mission' })).id;
-    upsertMission(project, freshLeader); addCriterion(project, freshLeader, 'gap');
-    upsertMission(project, freshRival); addCriterion(project, freshRival, 'gap');
-    // Deterministic total-order head: force distinct mission.createdAt so the comparator decides on
-    // createdAt (leader first). Without this the two upsertMission calls can land in the SAME
-    // millisecond, and the comparator's createdAt tie then falls to the RANDOM-uuid node-id
-    // tiebreak (mission-store.ts:852-853) — a ~50% flake on which mission is "the leader" that
-    // surfaced only under cross-file load (mission-store.ts:448).
-    const setMissionCreatedAt = (id: string, ts: number) => {
-      const mdb = new Database(join(project, '.collab', 'mission.db'));
-      mdb.exec(`UPDATE mission SET createdAt = ${ts} WHERE todoId = '${id}'`);
-      mdb.close();
-    };
-    setMissionCreatedAt(freshLeader, 1);
-    setMissionCreatedAt(freshRival, 2);
-    stampConductorRun(project, freshLeader, 'k', { at: now });
-    stampConductorRun(project, freshRival, 'k', { at: now });
-    const freshSelection = selectConductorMission(project, { now, beatMs });
-    expect(freshSelection.target!.node.id).toBe(freshLeader);
-    // Remove the (a) pair from the actionable set before (b) — otherwise both scenarios'
-    // missions would compete in the same total order.
-    setMissionAbandoned(project, freshLeader, Date.now());
-    setMissionAbandoned(project, freshRival, Date.now());
-
-    // (b) leader stale by clock but every criterion is 'building' (a live serving epic, no
-    // discover/verify gap) → order unchanged, the stale leader still wins.
-    const staleLeader = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] stale-leader', kind: 'mission' })).id;
-    const staleRival = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] stale-rival', kind: 'mission' })).id;
-    upsertMission(project, staleLeader);
-    const leaderCrit = addCriterion(project, staleLeader, 'gap');
-    const leaderEpic = await makeEpicChild(staleLeader, '[EPIC] build A');
-    await updateTodo(project, leaderEpic, { servesCriterionId: leaderCrit.id, status: 'ready' });
-    const leaderLeaf = await createTodo(project, { ownerSession: 's1', title: 'leaf under A', kind: 'leaf', parentId: leaderEpic });
-    await updateTodo(project, leaderLeaf.id, { status: 'ready' });
-
-    upsertMission(project, staleRival);
-    const rivalCrit = addCriterion(project, staleRival, 'gap');
-    const rivalEpic = await makeEpicChild(staleRival, '[EPIC] build B');
-    await updateTodo(project, rivalEpic, { servesCriterionId: rivalCrit.id, status: 'ready' });
-    const rivalLeaf = await createTodo(project, { ownerSession: 's1', title: 'leaf under B', kind: 'leaf', parentId: rivalEpic });
-    await updateTodo(project, rivalLeaf.id, { status: 'ready' });
-    // Same determinism for (b): staleLeader must be the total-order head, not a coin-flip on a
-    // same-ms createdAt tie.
-    setMissionCreatedAt(staleLeader, 3);
-    setMissionCreatedAt(staleRival, 4);
-
-    stampConductorRun(project, staleLeader, 'k', { at: now - (CONDUCTOR_LEADER_STALE_TICKS * beatMs + 1) });
-    stampConductorRun(project, staleRival, 'k', { at: now });
-
-    const staleSelection = selectConductorMission(project, { now, beatMs });
-    expect(staleSelection.target!.node.id).toBe(staleLeader);
   });
 });
 

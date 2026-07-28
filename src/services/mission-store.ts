@@ -23,7 +23,7 @@ import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
-import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS, CONDUCTOR_LEADER_STALE_TICKS, CONDUCTOR_BEAT_MS } from './harness-caps.ts';
+import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
@@ -762,83 +762,6 @@ export function promoteQueuedMissions(project: string): string[] {
     .prepare('UPDATE mission SET active = 1, queuePos = NULL, updatedAt = ? WHERE todoId = ?')
     .run(nowMs(), winner.node.id);
   return [winner.node.id];
-}
-
-export interface ConductorSelection {
-  /** The mission the conductor should drive, or undefined when none is actionable. */
-  target?: MissionSummary;
-  /** Ids of the OTHER actionable missions — parked purely by NON-selection (never mutated); drives
-   *  the caller's fail-open ">1 rival" advisory. */
-  rivals: string[];
-}
-
-/** Status precedence for unpinned selection: a verify gap is most urgent (a landed epic awaiting its
- *  verdict), then discovery, then a building mission (quietest — work already in flight). Lower first. */
-function missionStatusRank(status: string | null | undefined): number {
-  switch (status) {
-    case 'needs-verify': return 0;
-    case 'needs-discovery': return 1;
-    case 'building': return 2;
-    default: return 3; // blocked / over-budget / any other still-actionable state
-  }
-}
-
-/** True iff `m` was selected as the conductor's leader (by the total order below) too long
- *  ago to still be trusted: its pass clock (lastConductorPassAt, falling back to createdAt
- *  for a never-run mission) is older than CONDUCTOR_LEADER_STALE_TICKS beats AND it still
- *  has a 'discover' or 'verify' gap (a fresh 'building' leader is legitimately quiet, not
- *  stalled). The listCriteriaWithActions call is only paid for clock-stale candidates —
- *  it re-derives the full status facts and is not cheap. Fails OPEN (returns false) if the
- *  mission can't be read (listCriteriaWithActions throws 'mission not found') — an
- *  unreadable mission keeps the turn rather than being skipped. */
-function isStalledLeader(project: string, m: MissionSummary, now: number, beatMs: number): boolean {
-  const last = m.mission.lastConductorPassAt ?? m.mission.createdAt;
-  if (now - last <= CONDUCTOR_LEADER_STALE_TICKS * beatMs) return false;
-  try {
-    const withActions = listCriteriaWithActions(project, m.node.id);
-    return withActions.some((c) => c.action === 'discover' || c.action === 'verify');
-  } catch {
-    return false;
-  }
-}
-
-/** B4 — deterministic TOTAL-ORDER selection of the mission the (unpinned) conductor drives, replacing
- *  first-wins. Filters to the SAME set the old loop considered (active + approved + non-terminal), then
- *  orders by status-rank (verify>discover>building) → oldest createdAt → id. Pure over the store read
- *  (listMissions self-heals terminal-active rows first, so a converged mission can never win); it NEVER
- *  writes a mission's active flag — rivals are parked purely by not being selected (the H4 invariant).
- *
- *  LEADER-YIELD: the head of the total order does not win unconditionally. If it was selected long ago
- *  (its lastConductorPassAt is stale by CONDUCTOR_LEADER_STALE_TICKS beats) and still has an actionable
- *  discover/verify gap, it is treated as stalled and the first non-stalled entry of the SAME order wins
- *  instead — a leader whose fingerprint debounce keeps returning "no change" no longer starves every
- *  rival forever. If every candidate is stalled, index 0 still wins (the conductor must never go idle).
- *  This is still read-only selection: a skipped stale leader remains in `rivals`, never has `active`
- *  written, and the H4 invariant (rivals parked purely by non-selection) holds unchanged. */
-export function selectConductorMission(
-  project: string,
-  opts: { now?: number; beatMs?: number } = {},
-): ConductorSelection {
-  const actionable = listMissions(project).filter((m) =>
-    m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
-    !['unapproved', 'abandoned', 'converged', 'closed'].includes(m.mission.status));
-  if (actionable.length === 0) return { rivals: [] };
-  const sorted = [...actionable].sort((a, b) => {
-    const ra = missionStatusRank(a.mission.status), rb = missionStatusRank(b.mission.status);
-    if (ra !== rb) return ra - rb;
-    if (a.mission.createdAt !== b.mission.createdAt) return a.mission.createdAt - b.mission.createdAt;
-    return a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0;
-  });
-  if (sorted.length === 1) {
-    return { target: sorted[0], rivals: [] };
-  }
-  const now = opts.now ?? nowMs();
-  const beatMs = opts.beatMs ?? CONDUCTOR_BEAT_MS;
-  let winnerIndex = sorted.findIndex((m) => !isStalledLeader(project, m, now, beatMs));
-  if (winnerIndex === -1) winnerIndex = 0;
-  const winner = sorted[winnerIndex];
-  const rivals = sorted.filter((_, i) => i !== winnerIndex).map((m) => m.node.id);
-  return { target: winner, rivals };
 }
 
 /** True iff the project already has an active, NON-TERMINAL mission (ignoring any

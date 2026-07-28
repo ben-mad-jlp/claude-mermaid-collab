@@ -8,13 +8,12 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, getConductorTargetMission, setConductorTargetMission, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation } from './supervisor-store.js';
+import { getConductorEnabled, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
   listCriteriaWithActions,
   stampConductorRun,
-  selectConductorMission,
   CRITERION_SERVE_CAP,
   promoteQueuedMissions,
   type MissionRecheck,
@@ -311,39 +310,21 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     /* fail-open — promotion must never block a conductor pass */
   }
 
-  // The approved + active, non-terminal, actionable mission. (One active mission per session; drive
-  // the first that qualifies.) getMission gives the authoritative derived status + awaitingApprovalSince.
-  const pin = getConductorTargetMission(project);
-  let target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } | undefined;
-
-  if (pin == null) {
-    // No pin: deterministic TOTAL-ORDER selection (B4) — replaces first-wins so which mission drives
-    // is stable and never depends on listMissions order. Rivals are parked by non-selection only.
-    const selection = selectConductorMission(project);
-    if (!selection.target) return { ran: false, reason: 'no-actionable-mission' };
-    if (selection.rivals.length > 0) {
-      // Fail-open advisory: >1 actionable mission and no pin. We drove the deterministic winner; the
-      // human can pin one to override. NEVER touches the rivals' active flag (H4 invariant).
-      console.warn(`[conductor] ${project}: ${selection.rivals.length} actionable rival mission(s); drove ${selection.target.node.id} by deterministic order — pin one to override.`);
-    }
-    target = { summary: selection.target, row: selection.target.mission };
-  } else {
-    // Pinned: resolve EXACTLY that mission (getMission handles short-id resolution). Never fall
-    // back to a different mission — ambiguity is the bug the pin exists to kill.
-    const row = getMission(project, pin);
-    const summary = row ? listMissions(project).find((m) => m.node.id === row.todoId) : undefined;
-    if (!row || !summary || row.status == null || ['converged', 'abandoned', 'closed'].includes(row.status)) {
-      // Pin points at a mission that no longer exists or is terminal — clear it lazily so the next
-      // tick falls back to unpinned selection instead of permanently no-op'ing.
-      setConductorTargetMission(project, null);
-      return { ran: false, reason: 'target-cleared' };
-    }
-    if (row.awaitingApprovalSince != null || row.status === 'unapproved') {
-      // Not yet actionable — hold the pin, do NOT select any other mission.
-      return { ran: false, reason: 'target-not-actionable', missionId: row.todoId };
-    }
-    target = { summary, row };
-  }
+  // The approved + active, non-terminal, actionable mission — the project's SINGLE active mission is
+  // what the conductor drives. No pin: the human "drive this one instead" override lives in
+  // set_active_mission, which swaps the active flag (auto-enqueueing the displaced mission), so there
+  // is exactly one active mission to resolve here. listMissions self-heals terminal-active rows, so a
+  // converged mission can never survive this filter; mission.status/awaitingApprovalSince carry the
+  // authoritative derived status.
+  const actionable = listMissions(project).filter((m) =>
+    m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
+    !['unapproved', 'abandoned', 'converged', 'closed'].includes(m.mission.status));
+  if (actionable.length === 0) return { ran: false, reason: 'no-actionable-mission' };
+  // If >1 survive (should not happen — one active mission per project is the invariant), drive the
+  // first in listMissions order. No rival advisory, total order, or replacement pin.
+  const selected = actionable[0];
+  const target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } =
+    { summary: selected, row: selected.mission };
   const missionId = target.row.todoId;
   const status = target.row.status!;
   const session = 'conductor';

@@ -83,7 +83,6 @@ export const SUPERVISOR_TOOL_DEFS = [
       { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
-      { name: 'set_conductor_target', description: 'Pin (or clear) which mission the conductor drives for a project. Pass missionId to pin, or clear:true to unpin (falls back to first-active behavior).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, missionId: { type: ['string', 'null'] }, clear: { type: 'boolean' } }, required: ['project'] } },
       { name: 'set_node_profile_override', description: 'Set (or clear, by passing model/effort/provider all null) a per-project, per-node-kind model/effort/provider override.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, model: { type: ['string', 'null'] }, effort: { type: ['string', 'null'] }, provider: { type: ['string', 'null'] } }, required: ['project', 'kind'] } },
 ];
 
@@ -411,20 +410,6 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
               a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
             );
             return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold }, null, 2);
-          }
-          case 'set_conductor_target': {
-            const { project, missionId, clear } = args as { project: string; missionId?: string | null; clear?: boolean };
-            if (!project) throw new Error('Missing required: project');
-            if (missionId === undefined && !clear) throw new Error('Missing required: missionId or clear');
-            if (clear || missionId === null) {
-              supervisorStore.setConductorTargetMission(project, null);
-            } else {
-              const { getMission } = await import('../services/mission-store.js');
-              const mission = getMission(project, missionId!);
-              if (!mission) throw new Error(`mission not found: ${missionId}`);
-              supervisorStore.setConductorTargetMission(project, mission.todoId);
-            }
-            return JSON.stringify({ project, targetMissionId: supervisorStore.getConductorTargetMission(project) }, null, 2);
           }
           case 'set_node_profile_override': {
             const { project, kind, model, effort, provider } = args as { project: string; kind: string; model?: string | null; effort?: string | null; provider?: string | null };
