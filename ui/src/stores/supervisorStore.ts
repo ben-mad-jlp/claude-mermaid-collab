@@ -352,7 +352,7 @@ export interface MissionSummary {
     stopReason?: string | null;
     status?: MissionStatus;
   };
-  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[] }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }> }>;
   /** This mission's `kind:'epic'` children, as classified server-side — no client predicate needed. */
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
 }
