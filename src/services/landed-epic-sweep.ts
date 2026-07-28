@@ -4,12 +4,14 @@
  * leaf — completing it if it isn't already done. Idempotent: a second pass over an
  * already-reconciled epic makes zero writes.
  */
-import { listTodos, completeTodo, type Todo } from './todo-store.js';
+import { listTodos, completeTodo, updateTodo, type Todo } from './todo-store.js';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, effectiveNewCount, type BranchLister, type GitProbe } from './epic-branch-status.js';
 import { rescueOrphanedLeafCommitsForBranch } from './rescue-ref.js';
+import { teardownEpic } from './epic-teardown.js';
+import { getWorktreeManager } from './coordinator-live.js';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
@@ -292,9 +294,92 @@ export async function gcEpicBranches(
   return { deleted, flagged, skipped };
 }
 
+export interface ReapTerminalMissionEpicsResult {
+  reaped: string[];
+  skipped: number;
+}
+
+export async function reapTerminalMissionEpics(
+  project: string,
+  opts: {
+    teardown?: (wm: ReturnType<typeof getWorktreeManager>, epicId: string, targetProject: string, ctx: { epicBranch: string }) => Promise<void>;
+    wm?: ReturnType<typeof getWorktreeManager>;
+  } = {},
+): Promise<ReapTerminalMissionEpicsResult> {
+  const teardown = opts.teardown ?? teardownEpic;
+  const wm = opts.wm ?? getWorktreeManager(project);
+
+  const missions = listMissions(project, { includeArchived: true });
+  const todos = listTodos(project, { includeCompleted: true });
+
+  const reaped: string[] = [];
+  let skipped = 0;
+
+  for (const m of missions) {
+    // Filter to terminal missions: closed or abandoned
+    if (m.mission.closedAt == null && m.mission.abandonedAt == null) {
+      skipped++;
+      continue;
+    }
+
+    // Get the mission node (should exist if listMissions returned it)
+    const missionNode = todos.find((t) => t.id === m.node.id);
+    if (!missionNode) {
+      skipped++;
+      continue;
+    }
+
+    // Collect non-landed, non-terminal epic children of this mission
+    const epicChildren = todos.filter(
+      (t) => t.parentId === missionNode.id && isEpic(t) && t.status !== 'done' && t.status !== 'dropped',
+    );
+
+    for (const epic of epicChildren) {
+      // Guard: skip if already landed (reconcileLandedEpics owns these)
+      if (hasLandStamp(epic)) {
+        skipped++;
+        continue;
+      }
+
+      // Guard: skip if any child leaf is in-flight (not dropped and not terminal)
+      const childLeaves = todos.filter(
+        (t) => t.parentId === epic.id && t.status !== 'dropped',
+      );
+      const hasInflightChild = childLeaves.some((leaf) => {
+        const isTerminal = leaf.status === 'done' || leaf.status === 'dropped';
+        const isClaimable = leaf.claim != null || leaf.claimedBy != null;
+        return !isTerminal || isClaimable;
+      });
+
+      if (hasInflightChild) {
+        skipped++;
+        continue;
+      }
+
+      // Reap this epic: call teardown, then mark as dropped
+      try {
+        await teardown(wm, epic.id, project, { epicBranch: epicBranchName(epic.id) });
+      } catch (err) {
+        // teardownEpic swallows removeEpic failures into a friction note and never throws,
+        // but if a custom teardown does throw, log it and continue
+        console.warn(
+          `[reapTerminalMissionEpics] teardown failed for ${epic.id}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      await updateTodo(project, epic.id, { status: 'dropped' });
+      reaped.push(epic.id);
+    }
+  }
+
+  return { reaped, skipped };
+}
+
 export interface RunLandedEpicSweepResult {
   reconcile: LandedEpicSweepResult;
   gc: GcEpicBranchesResult;
+  reap: ReapTerminalMissionEpicsResult;
   promoted: string[];
 }
 
@@ -322,13 +407,16 @@ export async function runLandedEpicSweep(
 ): Promise<RunLandedEpicSweepResult> {
   const now = opts.now ?? Date.now();
   if (!opts.force && !shouldRunLandedEpicSweep(project, now)) {
-    return { reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, promoted: [] };
+    return { reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
   }
   const doYield = opts.yieldFn ?? yieldToLoop;
 
   const reconcile = await reconcileLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
   await doYield();
   const gc = await gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
+
+  await doYield();
+  const reap = await reapTerminalMissionEpics(project, {});
 
   await doYield();
   let promoted: string[] = [];
@@ -348,5 +436,5 @@ export async function runLandedEpicSweep(
     );
   }
 
-  return { reconcile, gc, promoted };
+  return { reconcile, gc, reap, promoted };
 }
