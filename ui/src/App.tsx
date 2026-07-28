@@ -1861,7 +1861,14 @@ const App: React.FC = () => {
                     ? specOpen
                     : p === 'browser'
                       ? browserVisible
-                      : viewerVisible && !!currentSession,
+                      : p === 'studio'
+                        ? viewerVisible && !!currentSession
+                        // Unknown/stale key (a since-removed pane like 'ops'/'terminal'
+                        // still in a persisted paneOrder) must NEVER get a slot — the
+                        // catch-all else used to route it through the studio-visible
+                        // branch, rendering an untoggleable BLANK pane (the Header
+                        // already drops its toggle via `if (!t) return null`).
+                        : false,
               );
               if (open.length === 0) {
                 return (
