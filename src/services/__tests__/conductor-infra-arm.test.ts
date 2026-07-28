@@ -22,7 +22,7 @@ import { buildPassSignature } from '../conductor-signature';
 import { addWatchedProject, setConductorEnabled, listEscalations, resolveEscalation } from '../supervisor-store';
 import { _resetMissionDbCache, listCriteria, listCriteriaWithActions, getMission, stampConductorRun } from '../mission-store';
 import { forgeMission } from '../../mcp/tools/mission-forge';
-import { createTodo, updateTodo, getTodo, deriveTodoViews } from '../todo-store';
+import { createTodo, updateTodo, getTodo, deriveTodoViews, listTodos } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import {
   recordNode,
@@ -221,6 +221,102 @@ describe('runInfraRejectionArm', () => {
     expect(r.reason).not.toBe('debounced');
     expect(r.infraCards).toBe(1);
     expect(invoked).toBe(1);
+  });
+
+  test('fail ⇒ one baseRepair epic + one child leaf + the card still raised', async () => {
+    const { forged, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: failProbe,
+      laneSignature: async () => 'sig-repair-a:trunk-a',
+    });
+
+    expect(r.cardsRaised).toBe(1);
+    expect(r.baseRepairEpics.length).toBe(1);
+
+    const repairEpic = getTodo(project, r.baseRepairEpics[0])!;
+    expect(repairEpic.baseRepair).toBe(1);
+
+    const children = listTodos(project, { includeCompleted: true }).filter(t => t.parentId === repairEpic.id);
+    expect(children.length).toBe(1);
+  });
+
+  test('second pass with repair epic still open ⇒ no additional epic', async () => {
+    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+
+    const firstPass = await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: failProbe,
+      laneSignature: async () => 'sig-repair-a:trunk-a',
+    });
+    expect(firstPass.baseRepairEpics.length).toBe(1);
+
+    const secondPass = await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: failProbe,
+      laneSignature: async () => 'sig-repair-a:trunk-a',
+    });
+
+    expect(secondPass.baseRepairEpics).toEqual([]);
+
+    const allRepairEpics = listTodos(project, { includeCompleted: true })
+      .filter(t => t.baseRepair === 1);
+    expect(allRepairEpics.length).toBe(1);
+  });
+
+  test('pass ⇒ leaf reset, no repair epic', async () => {
+    const { forged, leaf } = await seedRejectedLeaf(BASE_RED_REASON);
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: passProbe,
+    });
+
+    expect(r.reset).toEqual([leaf.id]);
+    expect(r.baseRepairEpics).toEqual([]);
+  });
+
+  test('repair leaf spec carries both directives', async () => {
+    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', {
+      probe: failProbe,
+      laneSignature: async () => 'sig-repair-a:trunk-a',
+    });
+
+    expect(r.baseRepairEpics.length).toBe(1);
+    const repairEpic = getTodo(project, r.baseRepairEpics[0])!;
+
+    const children = listTodos(project, { includeCompleted: true }).filter(t => t.parentId === repairEpic.id);
+    expect(children.length).toBe(1);
+
+    const repairLeaf = children[0];
+    expect(repairLeaf.description).toContain('do NOT weaken, skip or delete a test that catches a real gap — park and escalate instead');
+    expect(repairLeaf.description).toContain('fixing the net-new failing test');
+  });
+
+  test('error and unknown verdicts stay card-only', async () => {
+    const errorProbe: EpicBaseProbe = async () => 'error';
+    const unknownProbe: EpicBaseProbe = async () => 'unknown';
+
+    const { forged: forged1 } = await seedRejectedLeaf(BASE_RED_REASON);
+    const r1 = await runInfraRejectionArm(project, forged1.missionId, 's1', {
+      probe: errorProbe,
+      laneSignature: async () => 'sig-repair-b:trunk-b',
+    });
+    expect(r1.cardsRaised).toBe(1);
+    expect(r1.baseRepairEpics).toEqual([]);
+
+    project = mkdtempSync(join(tmpdir(), 'conductor-infra-'));
+    _resetMissionDbCache(project);
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    setOrchestratorLevel(project, 'on');
+
+    const { forged: forged2 } = await seedRejectedLeaf(BASE_RED_REASON);
+    const r2 = await runInfraRejectionArm(project, forged2.missionId, 's1', {
+      probe: unknownProbe,
+      laneSignature: async () => 'sig-repair-c:trunk-c',
+    });
+    expect(r2.cardsRaised).toBe(1);
+    expect(r2.baseRepairEpics).toEqual([]);
   });
 });
 
