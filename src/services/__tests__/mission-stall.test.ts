@@ -155,7 +155,7 @@ describe('stall clock', () => {
     expect(text).toContain('m1');
     expect(text).toContain('no-owner-session');
     expect(text).toContain('1h45m');
-    expect(text).toContain('set_mission_owner');
+    expect(text).toContain('set_active_mission');
   });
 });
 

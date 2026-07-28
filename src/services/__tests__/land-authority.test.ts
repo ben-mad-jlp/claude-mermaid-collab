@@ -407,17 +407,14 @@ describe('checkOwnership — the ownership rule', () => {
     expect(result.blocker?.code).toBe('bucket-epic');
   });
 
-  it('conductor, foreign mission: names the owner and the caller', () => {
-    const m1 = todo({ id: 'm1', title: '[MISSION] converge', ownerSession: 'conductor-B' });
+  it('conductor with different ownerSession is still authorized (ownership is project-scoped)', () => {
+    const m1 = todo({ id: 'm1', title: '[MISSION] converge', ownerSession: 'other-conductor' });
     const e1 = todo({ id: 'e1', title: '[EPIC] the work', parentId: 'm1' });
     missions.set('m1', { status: 'needs-discovery', active: true, abandonedAt: null });
     const conductorActor = { kind: 'conductor', session: SESSION } as const;
     const result = checkOwnership(PROJECT, 'e1', conductorActor, [m1, e1]);
-    expect(result.ok).toBe(false);
-    expect(result.ownership).toBe('foreign');
-    expect(result.blocker?.code).toBe('foreign-mission');
-    expect(result.blocker?.message).toMatch(/conductor-B/);
-    expect(result.blocker?.message).toMatch(/conductor-A/);
+    expect(result.ok).toBe(true);
+    expect(result.ownership).toBe('owned');
   });
 
   it('conductor, no mission ancestor → ok: false, ownership: unowned, code: no-active-mission', () => {
@@ -709,8 +706,8 @@ describe('landAuthority — three actors, one proof', () => {
     expect(verdict.blockers).toHaveLength(0);
   });
 
-  it('conductor + foreign mission + green proof → authorized: false, ownership blocker first', async () => {
-    const m1 = todo({ id: 'm1', title: '[MISSION] converge', ownerSession: 'conductor-B' });
+  it('conductor with different ownerSession is still authorized with green proof', async () => {
+    const m1 = todo({ id: 'm1', title: '[MISSION] converge', ownerSession: 'other-conductor' });
     const e1 = todo({ id: 'e1', title: '[EPIC] the work', parentId: 'm1' });
     const l1 = todo({
       id: 'l1',
@@ -733,8 +730,8 @@ describe('landAuthority — three actors, one proof', () => {
       probes: probes(),
       todos: [m1, e1, l1, d1],
     });
-    expect(verdict.authorized).toBe(false);
-    expect(verdict.blockers[0].code).toBe('foreign-mission');
+    expect(verdict.authorized).toBe(true);
+    expect(verdict.ownership).toBe('owned');
   });
 
   it('conductor + owned + red proof (gate regression) → authorized: false, ownership: owned', async () => {

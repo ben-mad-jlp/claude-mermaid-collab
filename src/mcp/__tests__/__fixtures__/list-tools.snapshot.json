@@ -6421,31 +6421,6 @@
       }
     },
     {
-      "name": "set_mission_owner",
-      "description": "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (criteria, verdicts). todoId must be a mission node (kind='mission').",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": "string"
-          },
-          "todoId": {
-            "type": "string",
-            "description": "The mission node id."
-          },
-          "session": {
-            "type": "string",
-            "description": "The session to own/drive the mission (e.g. the live board session)."
-          }
-        },
-        "required": [
-          "project",
-          "todoId",
-          "session"
-        ]
-      }
-    },
-    {
       "name": "list_missions",
       "description": "List a project's MISSIONS as compact summaries — the counterpart to get_mission (which needs a mission id you may not have yet). DEFAULT returns only OPEN missions: it EXCLUDES terminal (converged/abandoned) and archived missions, so you see just what is still in play. Filters: `activeOnly` = only the mission(s) currently being DRIVEN (active=true — at most one per session); `session` = scope to missions owned by / assigned to that session (the mission↔session tie); `includeTerminal` = also include converged/abandoned; `includeArchived` = also include archived. Each row: id, shortId, title, status, active, awaitingApproval, ownerSession/assigneeSession, capability {met,total}, mechanical {done,total}, gaps, awaitingVerify, converged. Rows are sorted active-first. Use this to find the id, then call get_mission for full per-criterion actions.",
       "inputSchema": {

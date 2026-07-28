@@ -19,7 +19,6 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__create_decision_record
   - mcp__plugin_mermaid-collab_mermaid__approve_decision_record
   - mcp__plugin_mermaid-collab_mermaid__create_mission
-  - mcp__plugin_mermaid-collab_mermaid__set_mission_owner
   - mcp__plugin_mermaid-collab_mermaid__set_active_mission
   - mcp__plugin_mermaid-collab_mermaid__get_mission
 ---
@@ -100,7 +99,7 @@ decoration to the builder who never sees it; `forge_mission` makes reaching the 
 Then confirm it landed: `get_mission` returns `constitutionHealth` — a `constitution-not-injected`
 flag means the mission carries a handoff but no active constraint records reached the builders (you
 forged with an empty `constraints[]`, or created the mission the old way). `ok` means the builders
-see the rules. (`set_active_mission` / `set_mission_owner` still apply if you re-home later.)
+see the rules. (`set_active_mission` still applies if needed later.)
 
 ## Anti-patterns
 

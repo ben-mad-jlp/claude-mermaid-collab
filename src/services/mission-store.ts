@@ -1144,7 +1144,7 @@ export function unverifyCriteriaForLandedPaths(
     for (const c of listCriteria(project, m.node.id)) {
       if (!c.met) continue;
       if (!c.evidencePaths.some((p) => landed.has(p))) continue;
-      const session = m.ownerSession ?? m.assigneeSession ?? 'mission-loop';
+      const session = 'mission-loop';
       const reopenCount = clearCriterionVerdict(project, c.id, {
         countReopen: true, reopenSha: opts.landedSha ?? null, reason: 'land-diff-intersects-evidence',
       });

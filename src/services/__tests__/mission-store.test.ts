@@ -606,21 +606,6 @@ describe('updateCriterionText', () => {
   });
 });
 
-describe('reassignOwnerSession (set_mission_owner backing)', () => {
-  test('re-homes a mission node to a new session (owner + assignee)', async () => {
-    const { reassignOwnerSession } = await import('../todo-store');
-    const id = (await createTodo(project, { ownerSession: 'yolox-local', assigneeSession: 'yolox-local', title: '[MISSION] m', kind: 'mission' })).id;
-    upsertMission(project, id);
-    addCriterion(project, id, 'keep me');
-    const updated = await reassignOwnerSession(project, id, 'design');
-    expect(updated.ownerSession).toBe('design');
-    expect(updated.assigneeSession).toBe('design');
-    // mission state preserved (criteria untouched by the re-home).
-    expect(listCriteria(project, id).map((c) => c.text)).toEqual(['keep me']);
-    expect(getMission(project, id)!.status).toBeDefined();
-  });
-});
-
 describe('[MISSION] is a legitimate top-level root', () => {
   test('a [MISSION] title creates parentless WITHOUT allowOrphan/inbox (resolveTodoParent exemption)', async () => {
     // A plain non-epic top-level create throws OrphanTodoError; a [MISSION] must not.
