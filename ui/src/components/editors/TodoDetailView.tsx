@@ -14,7 +14,7 @@ import { api } from '@/lib/api';
 import { CopyId } from '@/components/CopyId';
 import { MarkdownPreview } from './MarkdownPreview';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
-import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
+import { bucketTodo, liveBucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 import { derivedStatus, buildById } from '@/lib/claimability';
 import { WorkerRunStrip } from '@/components/supervisor/bridge/WorkerRunStrip';
 import { LeafTranscript } from '@/components/supervisor/bridge/LeafTranscript';
@@ -42,6 +42,30 @@ const STATUS_LABEL: Record<TodoStatus, string> = {
 function statusDot(status: TodoStatus): string {
   const key = bucketTodo({ status } as SessionTodo);
   return key ? STATUS_STYLE[key].dot : 'bg-gray-300';
+}
+
+export type BadgeKey = 'backlog' | 'ready' | 'inflight' | 'blocked' | 'done' | 'dropped';
+
+export const BADGE_LABEL: Record<BadgeKey, string> = {
+  backlog: 'backlog',
+  ready: 'ready',
+  inflight: 'in progress',
+  blocked: 'blocked',
+  done: 'done',
+  dropped: 'dropped',
+};
+
+export function badgeState(
+  todo: SessionTodo,
+  byId: Map<string, SessionTodo>,
+  held: boolean,
+): { key: BadgeKey; label: string } {
+  if (todo.status === 'done') return { key: 'done', label: 'done' };
+  if (todo.status === 'dropped') return { key: 'dropped', label: 'dropped' };
+  const bucket = liveBucketTodo(todo, byId) ?? 'backlog';
+  const bucketKey = bucket as BadgeKey;
+  if (bucketKey === 'blocked' && held) return { key: 'blocked', label: 'on hold' };
+  return { key: bucketKey, label: BADGE_LABEL[bucketKey] };
 }
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
@@ -233,32 +257,27 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
   // READ-ONLY derived fact (epic b2c858d4) — rendered VERBATIM from the single
   // predicate, never re-derived here. e.g. "ready" / "blocked" / "in_progress".
   const derived = derivedStatus(todo, buildById(allTodos));
-  const derivedReadable: Record<string, string> = {
-    ready: 'ready',
-    blocked: held ? 'on hold' : 'blocked',
-    in_progress: 'in progress',
-    planned: 'planned',
-    done: 'done',
-    dropped: 'dropped',
-  };
-  // One status control (epic b2c858d4): the badge shows the DERIVED state (the
-  // read-only truth); its menu holds every WRITE — approve/un-approve (intent),
-  // mark-done/drop/reopen (lifecycle) — all routed through `changeStatus`.
-  // ready/blocked/in_progress are never set raw; planned/done/dropped are the
-  // only stored values a human moves to.
   const isTerminal = status === 'done' || status === 'dropped';
-  // Derived-state → badge + dot colors (keyed by the derivedStatus value).
-  const DERIVED_BADGE: Record<string, string> = {
+
+  // Badge state from the funnel classifier
+  const badge = badgeState(todo, buildById(allTodos), held);
+
+  // Color maps keyed by badge key (funnel bucket + terminal states)
+  const DERIVED_BADGE: Record<BadgeKey, string> = {
+    backlog: 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800',
     ready: 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30',
-    in_progress: 'border-info-400 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/30',
+    inflight: 'border-info-400 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/30',
     blocked: 'border-warning-400 text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/30',
-    planned: 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800',
     done: 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800',
     dropped: 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 line-through',
   };
-  const DERIVED_DOT: Record<string, string> = {
-    ready: 'bg-success-500', in_progress: 'bg-info-500', blocked: 'bg-warning-500',
-    planned: 'bg-gray-400', done: 'bg-gray-400', dropped: 'bg-gray-300',
+  const DERIVED_DOT: Record<BadgeKey, string> = {
+    backlog: 'bg-gray-400',
+    ready: 'bg-success-500',
+    inflight: 'bg-info-500',
+    blocked: 'bg-warning-500',
+    done: 'bg-gray-400',
+    dropped: 'bg-gray-300',
   };
 
   // Shared chrome-less control styling so status/assignee read as plain text.
@@ -288,10 +307,10 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
             aria-expanded={statusMenuOpen}
             onClick={() => setStatusMenuOpen((o) => !o)}
             title="Status — click to approve, mark done, drop, or reopen"
-            className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded border ${DERIVED_BADGE[derived] ?? DERIVED_BADGE.planned}`}
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded border ${DERIVED_BADGE[badge.key]}`}
           >
-            <span className={`w-2 h-2 rounded-full ${DERIVED_DOT[derived] ?? 'bg-gray-400'}`} aria-hidden="true" />
-            {(derivedReadable[derived] ?? derived).toUpperCase()}
+            <span className={`w-2 h-2 rounded-full ${DERIVED_DOT[badge.key]}`} aria-hidden="true" />
+            {badge.label.toUpperCase()}
             <span aria-hidden="true" className="opacity-60">▾</span>
           </button>
           {statusMenuOpen && (
