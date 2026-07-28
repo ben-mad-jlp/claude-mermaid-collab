@@ -32,7 +32,7 @@ export interface AdoptBranchAsEpicResult {
 }
 
 /** Run git in `gitRoot` ASYNC, returning { code, stdout }. Never throws; never hangs. */
-async function runGit(
+export async function runGit(
   gitRoot: string,
   gitArgs: string[],
 ): Promise<{ code: number; stdout: string }> {
@@ -52,15 +52,79 @@ async function runGit(
   }
 }
 
+export interface AdoptBranchAsEpicDeps {
+  runGit: typeof runGit;
+}
+
+export const defaultAdoptBranchAsEpicDeps: AdoptBranchAsEpicDeps = { runGit };
+
+function assertEpicRefWrite(ref: string): void {
+  if (!ref.startsWith('collab/epic/')) {
+    throw new Error(`adopt_branch_as_epic: refusing non-epic ref write "${ref}"`);
+  }
+}
+
+async function writeEpicRef(
+  deps: AdoptBranchAsEpicDeps,
+  gitRoot: string,
+  gitArgs: string[],
+  refBeingWritten: string,
+): Promise<{ code: number; stdout: string }> {
+  assertEpicRefWrite(refBeingWritten);
+  return deps.runGit(gitRoot, gitArgs);
+}
+
+async function refuseIfMasterSource(
+  gitRoot: string,
+  source: string,
+  sourceSha: string,
+  deps: AdoptBranchAsEpicDeps,
+): Promise<void> {
+  if (source === 'master' || source === 'refs/heads/master') {
+    throw new Error(
+      `adopt_branch_as_epic: refusing source "${source}" — cannot adopt master itself; adopt a topic branch, not master`,
+    );
+  }
+
+  const masterResolve = await deps.runGit(gitRoot, ['rev-parse', '--verify', 'master']);
+  if (masterResolve.code === 0) {
+    const masterSha = masterResolve.stdout.trim();
+    if (masterSha === sourceSha) {
+      throw new Error(
+        `adopt_branch_as_epic: refusing source "${source}" — cannot adopt master itself; adopt a topic branch, not master`,
+      );
+    }
+  }
+}
+
+async function refuseIfDirtyMainCheckout(gitRoot: string, deps: AdoptBranchAsEpicDeps): Promise<void> {
+  const statusResult = await deps.runGit(gitRoot, ['status', '--porcelain']);
+  const dirtyLines = statusResult.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (dirtyLines.length > 0) {
+    const dirtyPaths = dirtyLines.map((line) => {
+      const parts = line.split(/\s+/);
+      return parts.slice(1).join(' ');
+    });
+    throw new Error(
+      `adopt_branch_as_epic: main checkout at "${gitRoot}" is dirty — commit or stash ${dirtyPaths.join(', ')}, then re-run`,
+    );
+  }
+}
+
 export async function adoptBranchAsEpic(
   project: string,
   session: string,
   opts: AdoptBranchAsEpicOpts,
+  deps: AdoptBranchAsEpicDeps = defaultAdoptBranchAsEpicDeps,
 ): Promise<AdoptBranchAsEpicResult> {
   const gitRoot = opts.targetProject ?? project;
 
   // 1. Resolve source to SHA
-  const revParseResult = await runGit(gitRoot, ['rev-parse', '--verify', opts.source]);
+  const revParseResult = await deps.runGit(gitRoot, ['rev-parse', '--verify', opts.source]);
   if (revParseResult.code !== 0) {
     throw new Error(`adopt_branch_as_epic: failed to resolve source "${opts.source}" (git rev-parse failed)`);
   }
@@ -69,8 +133,14 @@ export async function adoptBranchAsEpic(
     throw new Error(`adopt_branch_as_epic: source "${opts.source}" resolved to empty SHA`);
   }
 
+  // Guard: refuse master as source
+  await refuseIfMasterSource(gitRoot, opts.source, sourceSha, deps);
+
+  // Guard: refuse if main checkout is dirty
+  await refuseIfDirtyMainCheckout(gitRoot, deps);
+
   // 2. Enumerate commits ahead of master (oldest first)
-  const revListResult = await runGit(gitRoot, [
+  const revListResult = await deps.runGit(gitRoot, [
     'rev-list',
     '--reverse',
     `master..${sourceSha}`,
@@ -116,7 +186,7 @@ export async function adoptBranchAsEpic(
 
   // 6. Create a branch at the source SHA (plumbing — no checkout, no merge)
   const branch = epicBranchName(epic.id);
-  const branchCreateResult = await runGit(gitRoot, ['branch', branch, sourceSha]);
+  const branchCreateResult = await writeEpicRef(deps, gitRoot, ['branch', branch, sourceSha], branch);
   if (branchCreateResult.code !== 0) {
     throw new Error(
       `adopt_branch_as_epic: failed to create branch "${branch}" at ${sourceSha} (git branch failed)`,
