@@ -621,7 +621,14 @@ describe('landReadiness — the one proof', () => {
 
     const codes = new Set(verdict.blockers.map((b) => b.code));
     expect(codes).toEqual(
-      new Set(['land-deps-unsatisfied', 'tsc-failed', 'merge-conflict', 'presence-findings', 'gate-regression']),
+      new Set([
+        'land-deps-unsatisfied',
+        'open-children',
+        'tsc-failed',
+        'merge-conflict',
+        'presence-findings',
+        'gate-regression',
+      ]),
     );
   });
 
