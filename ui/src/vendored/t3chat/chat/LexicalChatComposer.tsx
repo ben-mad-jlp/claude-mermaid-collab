@@ -27,7 +27,6 @@ import {
 import type { ChatComposerProps } from './ChatComposer';
 import { HistorySearchPopover } from '@/components/agent-chat/HistorySearchPopover';
 import { ShortcutsDialog } from '@/components/agent-chat/ShortcutsDialog';
-import { triggerEditorRoundTrip } from '@/components/agent-chat/EditorRoundTrip';
 import { pushHistory, getHistory, type ComposerHistoryEntry } from '@/stores/composerDraftStore';
 import { $isComposerAttachmentNode } from '@/components/agent-chat/ComposerAttachmentNode';
 import { useNotificationStore } from '@/stores/notificationStore';
@@ -202,9 +201,6 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
       if (e.ctrlKey && e.key === 'r') {
         e.preventDefault();
         setShowHistorySearch(true);
-      } else if (e.ctrlKey && e.key === 'e') {
-        e.preventDefault();
-        triggerEditorRoundTrip(editor, sessionId ?? '');
       } else if (e.key === 'Escape') {
         const now = Date.now();
         if (now - lastEscTime < 500) {

@@ -1,6 +1,5 @@
 import type { ServerWebSocket } from 'bun';
 import type { AgentCommand, AgentEvent, EffortLevel } from '../agent/contracts.ts';
-import { ideState } from '../services/ide-state.ts';
 import { getStatuses } from '../services/session-status-store.ts';
 import { setPeerRegistry } from '../services/supervisor-store.ts';
 
@@ -100,18 +99,12 @@ export type WSMessage =
   | { type: 'mcp_tool_details_loaded'; serverName: string; toolName: string; inputSchema: unknown; project?: string }
   | { type: 'mcp_elicitation_requested'; elicitationId: string; serverName: string; toolName: string; schema: unknown; deadlineMs: number; sessionId?: string }
   | { type: 'mcp_token_cost_updated'; serverName: string; toolName: string; inputTokens: number; outputTokens: number; costUsd?: number }
-  | { type: 'ide_focus_terminal'; claudePid: number; claudeSessionId: string; project: string; session: string }
-  | { type: 'ide_open_diff'; filePath: string }
-  | { type: 'ide_open_terminal'; session: string; project: string; tmuxSession: string }
-  | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string; workspaceFolders?: string[] }
   // Browser/desktop UI handshake. Sent by the collab UI client immediately after
   // its /ws socket opens (and on every reconnect) so the server can tell a
   // human-facing UI socket apart from other /ws clients (IDE, peers). This is the
   // ONLY reliable signal that a UI is reachable in a networked deploy, where the
   // UI runs on a different machine and the local dev/dist probe is a false negative.
   | { type: 'ui_connected'; href?: string; userAgent?: string }
-  | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }
-  | { type: 'ide_disconnected'; reason?: string }
   | { type: 'browser_tab_update'; session: string; active: boolean }
   | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
   | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
@@ -239,8 +232,6 @@ export class WebSocketHandler {
     this.connections.delete(ws);
     this.uiConnections.delete(ws);
     this.fireConnectionsChanged();
-    ideState.ideDisconnected(ws);
-    this.broadcastToChannel('ide', { type: 'ide_status', connected: false } as unknown as WSMessage);
   }
 
   handleMessage(ws: ServerWebSocket<{ subscriptions: Set<string> }>, message: string): void {
@@ -255,10 +246,6 @@ export class WebSocketHandler {
           // General channel subscription (new)
           ws.data.subscriptions.add(`channel:${data.channel}`);
           this.onChannelSubscriptionChange?.(data.channel, this.countChannelSubscribers(data.channel));
-          // Send current state immediately so client doesn't wait for the next change
-          if (data.channel === 'ide') {
-            ws.send(JSON.stringify({ type: 'ide_status', connected: ideState.getStatus().connected }));
-          }
           // Replay last-known Claude session statuses so a fresh subscriber sees current state.
           // NOTE: session-status-store is per-PROJECT and getStatuses() requires a project path.
           // The subscribe message currently carries only a channel (no project), so we can only
@@ -306,12 +293,6 @@ export class WebSocketHandler {
         } else {
           console.error('Agent command received but no dispatcher registered:', data.type);
         }
-      } else if (data.type === 'ide_connected') {
-        const d = data as { type: 'ide_connected'; workspaceFolders?: string[]; platform?: string; arch?: string; pid?: number };
-        console.log('[ide] connected — platform:', d.platform, 'arch:', d.arch, 'pid:', d.pid, 'folders:', d.workspaceFolders);
-        ideState.ideConnected(ws, d.workspaceFolders ?? []).then(() => {
-          this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
-        });
       } else if (data.type === 'ui_connected') {
         // Mark this socket as a human-facing UI client so the health check can
         // report a reachable UI even when it lives on another machine.

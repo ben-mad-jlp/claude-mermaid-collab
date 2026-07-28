@@ -7,7 +7,7 @@ import { join } from 'node:path';
  * Server-side Chrome ownership for "owned-chrome" mode (Phase 7): when the
  * collab server runs on a remote/headless machine, it spawns and supervises its
  * own Chrome on CDP_PORT so the browser_* tools (which target 127.0.0.1:CDP_PORT)
- * work without any cross-network CDP. Logic is lifted from the VSCode extension's
+ * work without any cross-network CDP. Logic is lifted from the former IDE bridge's
  * proven spawn flags + cross-platform binary discovery.
  */
 

@@ -88,7 +88,6 @@ function toTabDescriptor(node: TreeNode) {
 
 interface ArtifactTreeProps {
   className?: string;
-  vsCodeMode?: boolean;
   /**
    * Studio mode (Control-UI vision §3): the tree is strictly scoped to the
    * current session's own buckets — the cross-project "Other sessions" expander
@@ -129,7 +128,7 @@ function toArtifactNode(
   };
 }
 
-export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProps) {
+export function ArtifactTree({ className, studio }: ArtifactTreeProps) {
   const currentSession = useSessionStore((s) => s.currentSession);
   const diagrams = useSessionStore((s) => s.diagrams);
   const documents = useSessionStore((s) => s.documents);
@@ -683,17 +682,6 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         return;
       }
       setSelection([node.id], node.id);
-      if (vsCodeMode) {
-        const tabDescriptor = toTabDescriptor(node);
-        if (tabDescriptor) {
-          const artifactType = node.artifactType ?? 'documents';
-          window.parent.postMessage(
-            { type: 'openArtifact', id: node.id, artifactType },
-            '*'
-          );
-        }
-        return;
-      }
       openNode(node);
       const d = toTabDescriptor(node);
       if (d) {
@@ -703,7 +691,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         useUIStore.getState().setViewerVisible(true);
       }
     },
-    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode, vsCodeMode],
+    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode],
   );
 
   const isSelected = (node: TreeNode): boolean => {
