@@ -459,6 +459,64 @@ export async function performHandshake(deps: HandshakeDeps = {}): Promise<Handsh
   }
 }
 
+/** A handshake result annotated with the port the caller should actually use. */
+export interface ResolvedPort extends HandshakeResult {
+  /** Port to bind/spawn on. Equal to the canonical port on 'proceed'/'defer';
+   *  a per-user fallback when the canonical port was refused because another
+   *  user (or a foreign process) holds it. */
+  port: number;
+}
+
+/**
+ * Deterministic per-user *starting* port for the coexistence fallback ladder.
+ * Mirrors deriveCdpPort's hash-into-a-band idea but keyed by uid, so each OS
+ * user gets a stable home port (predictable across restarts) rather than a
+ * random one. The ladder in resolveOwnPort scans forward from here to the first
+ * bindable port, so two uids hashing to the same start just cost one extra probe.
+ */
+export function deriveUserPort(basePort: number, uid: number | null, band = 400): number {
+  if (uid == null || !Number.isFinite(uid)) return basePort + 1;
+  return basePort + 1 + (Math.abs(uid) % band);
+}
+
+/**
+ * Per-user-coexistence wrapper around {@link performHandshake}. Runs the
+ * canonical handshake first; 'proceed' (port is ours) and 'defer' (our own
+ * server already holds it) keep the canonical port. Only a 'refuse' — the
+ * canonical port is held by ANOTHER user or a foreign process — triggers the
+ * fallback ladder: walk a deterministic per-user port sequence and return the
+ * first port we may bind ('proceed') or that our own server already owns
+ * ('defer'). This is what lets a second OS user start their own collab server on
+ * the same machine instead of being blocked on :9002. Pass allowFallback:false
+ * to keep strict refuse-on-conflict (e.g. a user who pinned an explicit port).
+ */
+export async function resolveOwnPort(
+  deps: HandshakeDeps & { allowFallback?: boolean; fallbackAttempts?: number } = {},
+): Promise<ResolvedPort> {
+  const canonical = deps.port ?? getConfiguredPort();
+  const first = await performHandshake({ ...deps, port: canonical });
+  if (first.action !== 'refuse' || deps.allowFallback === false) {
+    return { ...first, port: canonical };
+  }
+  const uid = deps.self?.uid ?? (typeof process.getuid === 'function' ? process.getuid() : null);
+  const attempts = deps.fallbackAttempts ?? 128;
+  const start = deriveUserPort(canonical, uid);
+  for (let i = 0; i < attempts; i++) {
+    const candidate = start + i;
+    if (candidate === canonical || candidate > 65535) continue;
+    const r = await performHandshake({ ...deps, port: candidate });
+    if (r.action === 'proceed' || r.action === 'defer') {
+      return {
+        ...r,
+        port: candidate,
+        reason: `coexist-fallback :${canonical}→:${candidate} (${first.reason}); ${r.reason}`,
+      };
+    }
+  }
+  // Ladder exhausted — surface the original refusal on the canonical port.
+  return { ...first, port: canonical };
+}
+
 /** Outcome of an eviction attempt. `foreign-process-eperm` means the holder pid
  * belongs to another user and cannot be signaled — the caller must refuse rather
  * than keep polling for a death that will never happen. */
