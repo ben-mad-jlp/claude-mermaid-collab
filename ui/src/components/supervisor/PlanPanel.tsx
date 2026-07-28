@@ -6,9 +6,9 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
 import { PlanTotalsBar } from './PlanTotals';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
-import { liveBucketTodo, STATUS_STYLE, excludeMissions, excludeLandLeaves } from './bridge/funnel';
+import { liveBucketTodo, STATUS_STYLE, excludeMissions, excludeLandLeaves, excludeEpics } from './bridge/funnel';
 import { useInflightLeafIds } from './bridge/useInflightLeafIds';
-import { derivedStatus, buildById } from '@/lib/claimability';
+import { buildById } from '@/lib/claimability';
 import { isEpic } from '@/lib/todoKind';
 import { buildTodoHierarchy, descendantsOf } from '@/lib/todoHierarchy';
 import { selectHumanActionableEscalations } from '@/lib/statusSelectors';
@@ -166,8 +166,9 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
 
   // Derived via the single predicate (epic b2c858d4), not the shadow enum.
   const byIdAll = useMemo(() => buildById(todos), [todos]);
-  const inProgress = todos.filter((t) => derivedStatus(t, byIdAll) === 'in_progress').length;
-  const blocked = todos.filter((t) => t.heldAt != null || derivedStatus(t, byIdAll) === 'blocked').length;
+  const survivors = excludeEpics(todos);
+  const inProgress = survivors.filter((t) => liveBucketTodo(t, byIdAll) === 'inflight').length;
+  const blocked = survivors.filter((t) => liveBucketTodo(t, byIdAll) === 'blocked').length;
 
   // Epic-grouped, sorted tree for list mode: top-level items (no parent in set)
   // sorted by the plan order, each followed by its children (also sorted).

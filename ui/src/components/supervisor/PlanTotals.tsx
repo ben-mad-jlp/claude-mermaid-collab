@@ -9,7 +9,7 @@
  */
 import React, { useMemo } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
-import { bucketTodo, FUNNEL_SEGMENTS, STATUS_STYLE, type FunnelKey } from './bridge/funnel';
+import { bucketTodo, FUNNEL_SEGMENTS, STATUS_STYLE, excludeMissions, excludeLandLeaves, type FunnelKey } from './bridge/funnel';
 
 const TERMINAL = new Set(['done', 'dropped']);
 
@@ -42,7 +42,8 @@ export function computePlanTotals(todos: SessionTodo[]): PlanTotals {
 
   for (const epicId of epicIds) addLane(childrenByEpic.get(epicId) ?? []);
   const orphans = todos.filter((t) => !epicIds.has(t.id) && !(t.parentId != null && byId.has(t.parentId)));
-  addLane(orphans);
+  const filteredOrphans = excludeLandLeaves(excludeMissions(orphans)).filter((t) => t.kind !== 'epic');
+  addLane(filteredOrphans);
 
   return { counts, total };
 }
