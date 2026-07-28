@@ -92,6 +92,31 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
 }
 
 /**
+ * Resolve the daemon status for a project, accounting for in-progress work,
+ * headless inflight leaves, blockers, conductor mid-pass, and idle-with-work.
+ * Precedence: working (AMBER) > permission (RED) > conducting (BLUE) > waiting (GREEN) > fallback.
+ */
+export function resolveDaemonStatus(args: {
+  inProgress: number;
+  hasHeadlessInflight: boolean;
+  blockerCount: number;
+  isConducting: boolean;
+  idleWithWork: boolean;
+  combined: SessionCardData['status'];
+}): SessionCardData['status'] {
+  const { inProgress, hasHeadlessInflight, blockerCount, isConducting, idleWithWork, combined } = args;
+  return inProgress > 0 || hasHeadlessInflight
+    ? 'active'
+    : blockerCount > 0
+      ? 'permission'
+      : isConducting
+        ? 'conducting'
+        : idleWithWork
+          ? 'waiting'
+          : combined;
+}
+
+/**
  * The supervised-session card list for ONE project group. Lives in its own
  * component so it can call useFleetStatus(project) — a hook can't run per-iteration
  * inside the parent's byProject.map — and stamp each WORKER card with its
@@ -711,16 +736,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               // needs a human (RED) both outrank "conductor is deliberating". This
               // fills the grounding-latency gap where the card would otherwise look idle.
               const isConducting = conductingProjects.has(project);
-              const daemonStatus: SessionCardData['status'] =
-                stats.inProgress > 0 || hasHeadlessInflight
-                  ? 'active'
-                  : blockerCount > 0
-                    ? 'permission'
-                    : isConducting
-                      ? 'conducting'
-                      : stats.idleWithWork
-                        ? 'waiting'
-                        : combined;
+              const daemonStatus: SessionCardData['status'] = resolveDaemonStatus({
+                inProgress: stats.inProgress,
+                hasHeadlessInflight,
+                blockerCount,
+                isConducting,
+                idleWithWork: stats.idleWithWork,
+                combined,
+              });
               // Full hover legend — spells out every indicator (symbol + label + total)
               // so the card is legible to someone who hasn't memorised the glyphs.
               const legend = [
