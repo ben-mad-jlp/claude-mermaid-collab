@@ -88,12 +88,11 @@ describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_in
     }
   });
 
-  it("reports 'idle' (not 'no_tmux') when no leaf is currently in-flight", async () => {
+  it("reports 'idle' when no leaf is currently in-flight", async () => {
     heartbeat = HEARTBEAT;
     clearLeafInflight('todo-1'); // ensure no in-flight row
     const status = await getFleetStatus('/repo', HEARTBEAT + 1_000);
     expect(status.entries[0].state).toBe('idle');
-    expect(status.summary.deadOrGone).toBe(0); // headless lanes never read as dead/no_tmux
   });
 });
 
@@ -108,7 +107,6 @@ describe('getFleetStatus headroom (fork-EAGAIN early warning)', () => {
     expect(status.headroom).toBeDefined();
     expect(isNumOrNull(status.headroom.liveProcs)).toBe(true);
     expect(isNumOrNull(status.headroom.perUidCap)).toBe(true);
-    expect(isNumOrNull(status.headroom.tmuxSessions)).toBe(true);
     expect(typeof status.headroom.idleSessions).toBe('number');
 
     // …and idleSessions mirrors the rollup's idle-at-prompt count (same source).

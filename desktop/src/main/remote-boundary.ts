@@ -75,8 +75,6 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
       supervised: z.array(z.object({ project: z.string(), session: z.string() }).catchall(z.unknown())),
     })
     .catchall(z.unknown()),
-  '/api/ide/tmux-send-keys': z.object({}).catchall(z.unknown()),
-  '/api/ide/create-terminal': z.object({}).catchall(z.unknown()),
 };
 
 /** Validate a successful response body for a KNOWN route. Returns the (parsed)

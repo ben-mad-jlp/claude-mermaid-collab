@@ -286,7 +286,7 @@ describe('reapDeadWorkers — grace rule: isRunLive guard on the same-epoch recl
     assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
     claimedBy: null, claimedAt: null, claimLeaseMs: null,
     // older than DEFAULT_ORPHAN_GRACE_MS so planOrphanReap's grace-fallback loop
-    // includes it as a Case-A (no-claim) candidate — needsTmuxProbe stays false so
+    // includes it as a Case-A (no-claim) candidate — needsLivenessProbe stays false so
     // no tmux probe is required.
     updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
   } as unknown as Todo);

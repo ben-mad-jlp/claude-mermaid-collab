@@ -13,7 +13,7 @@ const todo = (id: string, over: Partial<Todo> & { kind: TodoKind }): Todo =>
   mkTodo({ id, title: `Todo ${id}`, ...over });
 
 let nudges: Array<{ session: string; text: string }>;
-let nudgeResult: 'sent' | 'busy' | 'no-tmux';
+let nudgeResult: 'sent' | 'busy' | 'undeliverable';
 
 beforeEach(() => {
   process.env.MERMAID_DATA_DIR = mkdtempSync(join(tmpdir(), 'mc-backoff-'));

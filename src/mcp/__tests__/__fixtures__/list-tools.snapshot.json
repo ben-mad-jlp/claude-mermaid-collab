@@ -2679,7 +2679,7 @@
     },
     {
       "name": "fleet_status",
-      "description": "Live fleet read-model for a project: per in-progress lane its worker, derived liveness state (working/idle/permission/dead_shell/no_tmux), elapsed time and lease headroom — PLUS a process-headroom block {liveProcs, perUidCap, tmuxSessions, idleSessions} that surfaces the fork-EAGAIN wedge before it hits (uid live procs vs the kern.maxprocperuid cap). Read-only; one ps snapshot per call.",
+      "description": "Live fleet read-model for a project: per in-progress lane its worker, derived liveness state (working/idle/unknown), elapsed time and lease headroom — PLUS a process-headroom block {liveProcs, perUidCap, idleSessions} that surfaces the fork-EAGAIN wedge before it hits (uid live procs vs the kern.maxprocperuid cap). Read-only; one ps snapshot per call.",
       "inputSchema": {
         "properties": {
           "project": {

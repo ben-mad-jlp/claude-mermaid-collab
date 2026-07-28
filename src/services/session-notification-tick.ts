@@ -69,7 +69,7 @@ export const REANNOUNCE_BASE_MS = MIN_NUDGE_INTERVAL_MS * 5;
 
 export interface NotificationTickDeps {
   loadTodos?: (project: string) => Todo[];
-  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
+  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   now?: () => number;
 }
 
@@ -91,7 +91,7 @@ export async function runNotificationTick(
   deps: NotificationTickDeps = {},
 ): Promise<{ enqueued: number; nudged: string[] }> {
   const load = deps.loadTodos ?? ((p) => listTodos(p, { includeCompleted: true }));
-  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'undeliverable' as const);
   const now = deps.now ?? Date.now;
 
   // Reap dead-session subscriptions before matching: without this, every session that
@@ -123,7 +123,7 @@ export async function runNotificationTick(
     }
   }
 
-  // 4. Nudge subscribers with pending items, throttled. 'busy'/'no-tmux' → leave queued.
+  // 4. Nudge subscribers with pending items, throttled. 'busy'/'undeliverable' → leave queued.
   const nudged: string[] = [];
   for (const session of [...new Set(subs.map((s) => s.session))]) {
     const count = pendingCount(project, session);

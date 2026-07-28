@@ -285,21 +285,19 @@ export const BridgeDashboard: React.FC = () => {
   // lastActivity carries `lastUpdate: null` (the roster shows '—').
   //
   // Per decision 5d54e01e (ANY-ALIVE-IS-PRESENT): working → bright, idle → dimmed
-  // but listed, dead_shell/no_tmux → hidden. Orchestrator/role sessions
+  // but listed. Orchestrator/role sessions
   // (supervisor/steward/planner) drive the work-graph, not workers — excluded.
   const sessionStatuses = useSessionStatuses(serverScope, project || undefined, statusRefreshNonce);
   const fleet = useFleetStatus(serverScope, project || undefined);
   const workerSubs = useMemo(() => {
     const subBySession = new Map(projectSubs.map((s) => [s.session, s]));
-    // fleet WorkerState → the roster's coarse status. dead_shell/no_tmux map to a
-    // 'dead' sentinel that the filter below drops (hidden, per 5d54e01e).
+    // fleet WorkerState → the roster's coarse status. The 'dead' sentinel the
+    // filter below drops (hidden, per 5d54e01e) is no longer produced.
     const fleetToStatus = (st: FleetWorkerState): 'active' | 'waiting' | 'permission' | 'unknown' | 'dead' => {
       switch (st) {
         case 'working': return 'active';
         case 'idle': return 'waiting';
         case 'permission': return 'permission';
-        case 'dead_shell':
-        case 'no_tmux': return 'dead';
         default: return 'unknown';
       }
     };
@@ -367,7 +365,7 @@ export const BridgeDashboard: React.FC = () => {
           contextPercent: undefined as number | undefined,
         };
       });
-    // Hide DEAD lanes (dead_shell/no_tmux) and GRAY lanes (status 'unknown' — stale
+    // Hide GRAY lanes (status 'unknown' — stale
     // past the liveness window / never reported). A still-known status
     // (active/waiting/permission, even if dimmed) stays.
     return [...fromSupervised, ...extra, ...fromFleet]

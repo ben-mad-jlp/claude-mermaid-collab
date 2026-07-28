@@ -17,7 +17,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import { tmuxBaseName } from './tmux-naming.js';
 import { hasWebSocketHandler } from './ws-handler-manager.js';
 
 // ---------------------------------------------------------------------------
@@ -49,7 +48,6 @@ export type RefreshState = 'fresh' | 'stale-failing';
 export interface SessionSummaryEntry {
   project: string;
   session: string;
-  tmux: string;
   paneHash: string;
   paneSeenAt: number;
   quietWindows: number;
@@ -157,7 +155,6 @@ export function pushSessionSummary(
   const entry: SessionSummaryEntry = {
     project,
     session,
-    tmux: prev?.tmux ?? tmuxBaseName(project, session),
     paneHash,
     paneSeenAt: now,
     quietWindows: prev?.quietWindows ?? 0,

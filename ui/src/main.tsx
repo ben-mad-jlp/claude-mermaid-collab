@@ -17,7 +17,6 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
 import { ServerProvider } from './contexts/ServerContext';
-import { SidebarView } from './views/SidebarView';
 import './index.css';
 import './styles/diagram.css';
 
@@ -63,9 +62,6 @@ ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Sidebar View */}
-        <Route path="/sidebar" element={<SidebarView />} />
-
         {/* Main Collab App - catch all other routes */}
         <Route
           path="/*"

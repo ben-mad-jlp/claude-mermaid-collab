@@ -600,9 +600,10 @@ interface SupervisorState {
   /** Hard-delete a work-graph todo (DELETE /api/supervisor/roadmap). Does NOT
    *  reload the plan — callers batch-deleting should reload once at the end. */
   deleteTodo: (serverId: string, project: string, id: string) => Promise<boolean>;
-  /** Start the supervisor LLM role via /api/ide/launch-session — the ON half of
-   *  the Bridge role switch. `remoteControl` launches with Claude Code Remote
-   *  Control so the session is drivable from the Claude app. */
+  /** Was the ON half of the Bridge role switch. Session launch has been removed
+   *  along with the tmux integration, so this always reports started:false;
+   *  start the supervisor session yourself. stopRole and the liveness poll still
+   *  work against an externally-started session. */
   startRole: (
     serverId: string,
     role: 'supervisor',
@@ -610,7 +611,7 @@ interface SupervisorState {
     session: string,
     remoteControl?: boolean,
   ) => Promise<{ started: boolean; reason?: string }>;
-  /** Stop the supervisor LLM role: kill its tmux + clear identity (Bridge switch OFF). */
+  /** Stop the supervisor LLM role: clear its durable identity (Bridge switch OFF). */
   stopRole: (serverId: string, role: 'supervisor') => Promise<void>;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   /** L3 bootstrap/reconnect hydrate (design-ui-status-coherence §2 + §2.1).
@@ -655,10 +656,6 @@ interface SupervisorState {
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   /** Answer a Claude Code multi-select question: toggle the chosen 1-based option numbers then submit. */
   answerPaneMulti: (serverId: string, project: string, session: string, numbers: number[]) => Promise<boolean>;
-  /** Z8: fetch the raw tmux capture-pane text for a session ON DEMAND (not a
-   *  stream) — backs the PaneLinesPopover "show the lines it read". Returns the
-   *  raw pane string, or '' on failure (keep-prior-on-failure convention). */
-  capturePane: (serverId: string, project: string, session: string) => Promise<string>;
   loadConfig: (serverId: string) => Promise<void>;
   saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
   // SPEC API surface (design-system-object-ui §8). Coverage/objects/bom are live
@@ -1006,18 +1003,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     return !!res?.ok;
   },
 
-  startRole: async (serverId, role, project, session, remoteControl) => {
-    const body = {
-      project,
-      session,
-      role,
-      invokeSkill: '/supervisor',
-      allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
-      remoteControl: !!remoteControl,
-    };
-    const res = await invoke(serverId, '/api/ide/launch-session', 'POST', body);
-    if (!res?.ok) return { started: false, reason: res?.body?.error ?? 'request failed' };
-    return { started: res.body?.started !== false, reason: res.body?.reason };
+  startRole: async () => {
+    // Role LAUNCH is gone (it spawned a Claude worker into a tmux session).
+    // stopRole and the liveness poll still work against an externally-started
+    // session; only the spawn half was removed.
+    return { started: false, reason: 'role launch removed' };
   },
 
   stopRole: async (serverId, role) => {
@@ -1126,13 +1116,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   answerPaneMulti: async (serverId, project, session, numbers) => {
     const res = await invoke(serverId, '/api/supervisor/answer-multi', 'POST', { project, session, serverId, numbers });
     return !!res?.ok;
-  },
-
-  capturePane: async (serverId, project, session) => {
-    const res = await invoke(serverId, '/api/supervisor/capture-pane', 'POST', { project, session });
-    if (!res?.ok) return '';
-    const lines = res.body?.lines;
-    return typeof lines === 'string' ? lines : '';
   },
 
   loadConfig: async (serverId) => {

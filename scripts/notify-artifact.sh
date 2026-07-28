@@ -2,7 +2,14 @@
 set -euo pipefail
 
 FILE_PATH="${1:-}"
-PORT="${COLLAB_API_PORT:-9002}"
+# Port resolution: explicit override, else the port file the server writes on bind
+# (same source hooks/server-check.sh reads). Falling back to a guessed 9002 makes
+# every POST here a silent no-op whenever the server lands on another port.
+PORT="${COLLAB_API_PORT:-}"
+if [[ -z "$PORT" ]]; then
+  PORT=$({ tr -d '[:space:]' < "${MERMAID_DATA_DIR:-$HOME/.mermaid-collab}/port"; } 2>/dev/null || true)
+fi
+[[ "$PORT" =~ ^[0-9]+$ ]] || exit 0
 BASE_URL="http://localhost:${PORT}"
 
 # Only process files inside .collab/sessions/

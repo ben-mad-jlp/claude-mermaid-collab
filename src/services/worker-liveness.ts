@@ -326,7 +326,7 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
       kind: 'reconcile',
       project,
       session: c.sessionName ?? 'orphan-reap',
-      detail: JSON.stringify({ source: 'orphan-reap', todoId: c.id, outcome: next, hadClaim: c.needsTmuxProbe }),
+      detail: JSON.stringify({ source: 'orphan-reap', todoId: c.id, outcome: next, hadClaim: c.needsLivenessProbe }),
     });
   }
 

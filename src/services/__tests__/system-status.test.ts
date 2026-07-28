@@ -17,11 +17,10 @@ function fleet(overrides: Partial<FleetStatus['summary']> = {}): FleetStatus {
       working: 2,
       idle: 1,
       permission: 0,
-      deadOrGone: 0,
       overLease: 0,
       ...overrides,
     },
-    headroom: { liveProcs: 120, perUidCap: 6000, tmuxSessions: 4, idleSessions: 1 },
+    headroom: { liveProcs: 120, perUidCap: 6000, idleSessions: 1 },
   };
 }
 

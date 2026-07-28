@@ -28,7 +28,18 @@ import { createTodo, getTodo, listReadyTodos } from '../src/services/todo-store'
 import { makeCoordinatorDeps } from '../src/services/coordinator-live';
 import { handleWorkerComplete } from '../src/services/coordinator-daemon';
 import { listPool, resetPool } from '../src/services/worker-pool';
-import { tmuxBaseName } from '../src/services/tmux-naming';
+import { trackingProjectRoot } from '../src/services/project-registry';
+
+/** Project-scoped, tmux-safe session name. Inlined here (was src/services/tmux-naming.ts)
+ *  because tmux is no longer part of the product — only this live smoke check still
+ *  asserts against real tmux sessions. */
+function tmuxBaseName(project: string, session: string): string {
+  const slug = (x: string): string =>
+    x.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'x';
+  const root = trackingProjectRoot(project);
+  const basename = root.split('/').filter(Boolean).pop() ?? 'project';
+  return `mc-${slug(basename)}-${slug(session)}`;
+}
 import { listSupervised } from '../src/services/supervisor-store';
 
 const log = (s: string) => console.log(s);

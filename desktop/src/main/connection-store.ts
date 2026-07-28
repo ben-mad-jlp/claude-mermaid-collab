@@ -16,10 +16,6 @@ interface Instance {
   serverVersion: string;
 }
 
-export interface ServerCapabilities {
-  tmux: boolean;
-}
-
 /** Pairing state (design §2, P4a — optional defense-in-depth). A freshly
  *  DISCOVERED instance is `pending` (no longer auto-trusted); the user must
  *  explicitly Pair it before cross-server calls to it are allowed. A manually
@@ -146,10 +142,6 @@ interface PersistedEntry extends Omit<ServerEntry, 'token'> {
  */
 export class ConnectionStore {
   private entries = new Map<string, ServerEntry>();
-  // Runtime-learned server capabilities (e.g. tmux support). NOT persisted —
-  // re-detected on each app launch since features may be enabled/disabled
-  // server-side between sessions.
-  private capabilities = new Map<string, ServerCapabilities>();
   // host:port of local servers the user explicitly forgot, so refreshLocal
   // doesn't auto-re-add them while the instance is still alive.
   private forgotten = new Set<string>();
@@ -290,7 +282,6 @@ export class ConnectionStore {
    *  unpairing genuinely revokes trust without permanently hiding the instance. */
   unpair(id: string): void {
     this.entries.delete(id);
-    this.capabilities.delete(id);
     void this.persist().catch(() => {});
   }
 
@@ -318,17 +309,8 @@ export class ConnectionStore {
     // re-adds it from the live registry. Manual servers just delete (no rediscovery).
     if (e?.source === 'local') this.forgotten.add(`${e.host}:${e.port}`);
     this.entries.delete(id);
-    this.capabilities.delete(id);
     // Fire-and-forget for UI responsiveness; before-quit awaits flush() for durability.
     void this.persist().catch(() => {});
-  }
-
-  getServerCapabilities(id: string): ServerCapabilities {
-    // Optimistic default: assume tmux is available until the server's
-    // create-terminal handler tells us otherwise via setServerCapabilities.
-    // Returning false here caused a deadlock — the client gates create-terminal
-    // on caps.tmux, so caps would never get learned.
-    return this.capabilities.get(id) ?? { tmux: true };
   }
 
   /** Resolve the entry matching a host:port (first match), or null. Used by the
@@ -356,12 +338,6 @@ export class ConnectionStore {
         return;
       }
     }
-  }
-
-  setServerCapabilities(id: string, caps: Partial<ServerCapabilities>): void {
-    if (!this.entries.has(id)) return;
-    const current = this.capabilities.get(id) ?? { tmux: false };
-    this.capabilities.set(id, { ...current, ...caps });
   }
 
   /** Sync the `source:'local'` entries with the live instance registry. */
@@ -444,7 +420,6 @@ export class ConnectionStore {
     for (const [id, e] of this.entries) {
       if (e.source === 'local' && !liveKeys.has(`${e.host}:${e.port}`)) {
         this.entries.delete(id);
-        this.capabilities.delete(id);
       }
     }
   }

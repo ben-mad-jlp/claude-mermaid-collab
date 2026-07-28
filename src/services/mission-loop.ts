@@ -224,7 +224,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
 export interface MissionLoopDeps {
   list?: (project: string) => MissionSummary[];
   isIdle?: (project: string, session: string) => boolean;
-  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
+  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   stampNudge?: (project: string, todoId: string, key?: string) => void;
   now?: number;
   cooldownMs?: number;
@@ -315,7 +315,7 @@ function handleNoneReason(
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
   const list = deps.list ?? listMissions;
   const isIdle = deps.isIdle ?? ((p: string, s: string) => getStatus(p, s)?.status === 'waiting');
-  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'undeliverable' as const);
   const stampNudge = deps.stampNudge ?? stampMissionNudge;
   const now = deps.now ?? Date.now();
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;

@@ -14,7 +14,6 @@ Mermaid Collab gives Claude Code a persistent collaboration layer — a browser 
 - **Browser Automation** — Drive real Chrome on Windows via CDP tunnel (27 tools)
 - **Pseudocode System** — File-level documentation with call graphs and coverage
 - **30 Skills** — Orchestrated workflow patterns for vibe sessions, planning, debugging, and review
-- **VSCode Extension** — Status bar integration with one-click Chrome CDP toggle
 
 ---
 
@@ -99,11 +98,11 @@ A canvas-based design tool for creating UI mockups and design systems.
 
 ## Browser Automation (CDP)
 
-Claude can drive a real Chrome browser on your Windows machine via SSH tunnel. The VSCode extension manages Chrome launch and tunnel setup with one button.
+Claude can drive a real Chrome browser on your Windows machine via SSH tunnel. The desktop app manages Chrome launch and tunnel setup.
 
 **Setup:**
-1. Install the VSCode extension (`mermaid-collab-vscode`)
-2. Click the CDP button in the status bar — Chrome launches with remote debugging on port 9333, tunneled to the Linux dev server
+1. Launch Chrome with remote debugging on port 9333
+2. Tunnel that port back to the Linux dev server (the desktop app does both for you)
 
 **27 browser tools:**
 
@@ -241,16 +240,6 @@ Skills are markdown instruction files loaded on-demand by Claude Code.
     │       └── embeds/
     └── pseudo/          # Pseudocode SQLite DB
 ```
-
----
-
-## VSCode Extension
-
-The `mermaid-collab-vscode` extension adds:
-- Status bar showing collab server connection state
-- CDP toggle button — launches Chrome with `--remote-debugging-port=9333` and creates an SSH reverse tunnel so the Linux dev server can reach Windows Chrome
-
-Install the `.vsix` from `extensions/vscode/`.
 
 ---
 

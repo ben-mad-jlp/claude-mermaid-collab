@@ -3,10 +3,6 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useTabsStore } from '@/stores/tabsStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
 
-interface VibeInstructionsProps {
-  vsCodeMode?: boolean;
-}
-
 function stripMarkdown(text: string): string {
   return text
     .replace(/^#{1,6}\s+.+$/gm, '')
@@ -15,7 +11,7 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-export function VibeInstructions({ vsCodeMode }: VibeInstructionsProps) {
+export function VibeInstructions() {
   const { documents, currentSession } = useSessionStore(
     useShallow((s) => ({ documents: s.documents, currentSession: s.currentSession }))
   );
@@ -30,18 +26,14 @@ export function VibeInstructions({ vsCodeMode }: VibeInstructionsProps) {
 
   function handleClick() {
     if (!doc || !currentSession) return;
-    if (vsCodeMode) {
-      window.parent.postMessage({ type: 'openArtifact', id: doc.id, artifactType: 'documents' }, '*');
-    } else {
-      openPreview({
-        id: doc.id,
-        kind: 'artifact',
-        artifactType: 'document',
-        artifactId: doc.id,
-        name: doc.name,
-      });
-      selectDocumentWithContent(currentSession.serverId, currentSession.project, currentSession.name, doc.id);
-    }
+    openPreview({
+      id: doc.id,
+      kind: 'artifact',
+      artifactType: 'document',
+      artifactId: doc.id,
+      name: doc.name,
+    });
+    selectDocumentWithContent(currentSession.serverId, currentSession.project, currentSession.name, doc.id);
   }
 
   return (

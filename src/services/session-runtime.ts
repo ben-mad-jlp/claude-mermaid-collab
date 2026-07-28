@@ -54,8 +54,6 @@ export interface SessionRuntime {
   claimedTodoId: string | null;
   claimedAt: string | null;
   retryCount: number;
-  /** tmux base name of the worker-pool slot backing this session, if any. */
-  slotTmux: string | null;
   /** Best-effort: when the session went idle (= its last heartbeat) while not
    *  active; null while active. Increment 2 replaces this with durable tracking. */
   idleSince: number | null;
@@ -130,7 +128,6 @@ export function buildSessionRuntime(
     claimedTodoId: claim?.id ?? null,
     claimedAt: claim?.claimedAt ?? null,
     retryCount: claim?.retryCount ?? 0,
-    slotTmux: null,
     idleSince: status.status === 'active' ? null : status.updatedAt,
     escalated: src.escalatedSessions.has(status.session),
     liveness,

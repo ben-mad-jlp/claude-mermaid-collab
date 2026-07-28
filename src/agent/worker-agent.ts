@@ -53,8 +53,6 @@ export interface WorkerHandle {
   provider: ProviderId;
   /** Session was ensured interactive + bound. */
   ready: boolean;
-  /** Backing tmux base name (when known). */
-  tmux?: string;
   /** Worker skill was dispatched into the session. Undefined when no invokeSkill. */
   sent?: boolean;
   /** First failure cause (ensure or dispatch), or undefined on full success. */

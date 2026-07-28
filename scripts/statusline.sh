@@ -24,20 +24,34 @@ if [ -z "$CLAUDE_PID" ]; then
   CLAUDE_PID=$PPID
 fi
 
-curl -s --connect-timeout 2 --max-time 3 -X POST http://localhost:9002/api/session/context-update \
-  -H 'Content-Type: application/json' \
-  -d "{\"claudePid\":$CLAUDE_PID,\"contextPercent\":$PCT}" \
-  >/dev/null 2>&1 &
+# Resolve the collab API port the same way hooks/server-check.sh does: the server
+# writes its actually-bound port to $MERMAID_DATA_DIR/port. Hardcoding 9002 makes
+# every POST below a silent no-op whenever the server lands on another port.
+# No port file and no override → skip the POSTs rather than spray at a wrong port.
+COLLAB_PORT="${COLLAB_API_PORT:-}"
+if [ -z "$COLLAB_PORT" ]; then
+  COLLAB_PORT=$({ tr -d '[:space:]' < "${MERMAID_DATA_DIR:-$HOME/.mermaid-collab}/port"; } 2>/dev/null)
+fi
+case "$COLLAB_PORT" in ''|*[!0-9]*) COLLAB_PORT="" ;; esac
+
+if [ -n "$COLLAB_PORT" ]; then
+  curl -s --connect-timeout 2 --max-time 3 -X POST "http://localhost:$COLLAB_PORT/api/session/context-update" \
+    -H 'Content-Type: application/json' \
+    -d "{\"claudePid\":$CLAUDE_PID,\"contextPercent\":$PCT}" \
+    >/dev/null 2>&1 &
+fi
 COST=$(echo "$input"    | jq -r '.cost.total_cost_usd // 0')
 FIVE_H=$(echo "$input"  | jq -r '.rate_limits.five_hour.used_percentage // 0' | cut -d. -f1)
 SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // 0' | cut -d. -f1)
 
 # Report account-wide rate-limit usage to the collab server (drives the Zen top bars),
 # mirroring the contextPercent post above. Account-global → no claudePid needed.
-curl -s --connect-timeout 2 --max-time 3 -X POST http://localhost:9002/api/usage-update \
-  -H 'Content-Type: application/json' \
-  -d "{\"fiveHourPercent\":$FIVE_H,\"sevenDayPercent\":$SEVEN_D}" \
-  >/dev/null 2>&1 &
+if [ -n "$COLLAB_PORT" ]; then
+  curl -s --connect-timeout 2 --max-time 3 -X POST "http://localhost:$COLLAB_PORT/api/usage-update" \
+    -H 'Content-Type: application/json' \
+    -d "{\"fiveHourPercent\":$FIVE_H,\"sevenDayPercent\":$SEVEN_D}" \
+    >/dev/null 2>&1 &
+fi
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // ""')
 EFFORT=$(echo "$input" | jq -r '.effort.level // ""')

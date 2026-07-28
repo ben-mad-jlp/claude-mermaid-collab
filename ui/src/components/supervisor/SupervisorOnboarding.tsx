@@ -39,27 +39,9 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
     setStarting(true);
     try {
       await saveConfig(serverId, supervisorProject, supervisorSession);
-      const launchBody = {
-        project: supervisorProject,
-        session: supervisorSession,
-        role: 'supervisor',
-        invokeSkill: '/supervisor',
-        allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
-      };
-      const mc = (window as any).mc;
-      if (mc?.invokeOnServer) {
-        await mc.invokeOnServer(serverId, {
-          path: '/api/ide/launch-session',
-          method: 'POST',
-          body: launchBody,
-        });
-      } else {
-        await fetch('/api/ide/launch-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(launchBody),
-        });
-      }
+      // Session LAUNCH is gone (it spawned a Claude worker into a tmux session).
+      // Onboarding now only records which project/session plays the supervisor
+      // role — starting that session is the user's job.
       onStarted?.();
     } catch {
       /* best-effort */

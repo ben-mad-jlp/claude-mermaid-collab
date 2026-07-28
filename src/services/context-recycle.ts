@@ -105,7 +105,7 @@ export function advisoryText(row: Pick<SessionStatusRow, 'contextPercent'>, now:
 /** Injectable seams so the runner is unit-testable without a real tmux/DB. */
 export interface RecycleDeps {
   now?: number;
-  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
+  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   getStatuses?: (project: string) => SessionStatusRow[];
   getMode?: (project: string) => ContextRecycleMode;
   getThreshold?: (project: string) => number | null;
@@ -132,7 +132,7 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
   if (isPaused()) return;
 
   const now = deps.now ?? Date.now();
-  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'no-tmux' as const);
+  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'undeliverable' as const);
   const rows = (deps.getStatuses ?? getStatuses)(project);
   const threshold = (deps.getThreshold ?? getWatchdogThreshold)(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent;
   const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: threshold };
@@ -145,7 +145,7 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
       switch (step) {
         case 'inject-checkpoint':
           if (tryEmitWatchdogAction(project, row.session, 'checkpoint', RECYCLE_CHECKPOINT_COOLDOWN_MS, now)) {
-            // Don't let a failed inject (busy/no-tmux) hold the 10-min cooldown —
+            // Don't let a failed inject (busy/undeliverable) hold the 10-min cooldown —
             // reset the debounce so the next tick retries instead of going silent.
             if ((await nudge(project, row.session, '/vibe-checkpoint')) !== 'sent') {
               resetWatchdogDebounce(project, row.session);
@@ -178,7 +178,7 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
             setRecycleState(project, row.session, null);
             recordSupervisorAudit({ kind: 'clear', project, session: row.session, detail: 'context-recycle:reloaded' });
           }
-          // 'busy'/'no-tmux' → leave state 'recovering'; retried next tick until timeout.
+          // 'busy'/'undeliverable' → leave state 'recovering'; retried next tick until timeout.
           break;
         }
         case 'recover-timeout':

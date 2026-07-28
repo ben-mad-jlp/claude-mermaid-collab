@@ -50,7 +50,7 @@ mock.module('../supervisor-store', () => ({
 
 // ── mock claude-launch (no tmux) ──────────────────────────────────────────────
 mock.module('../claude-launch', () => ({
-  ensureSession: async () => ({ ready: true, tmux: 'mock-tmux' }),
+  ensureSession: async () => ({ ready: true }),
   runTodoInSession: async () => ({ sent: true }),
 }));
 

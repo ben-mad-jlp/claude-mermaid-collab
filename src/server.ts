@@ -34,12 +34,10 @@ import { initializeAgentRegistry } from './agent/agent-registry-manager';
 import { handleAPI } from './routes/api';
 import { handleFileContentAPI } from './routes/file-content.js';
 import { handleAttachments } from './routes/agent-attachments';
-import { handleEditorRoundtrip } from './routes/editor-roundtrip';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
 import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { handleArtifactAPI } from './routes/artifact-api.js';
-import { handleIdeRoutes } from './routes/ide-routes.js';
 import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
 import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
 import { touchSupervisorIdentity, SUPERVISOR_HEARTBEAT_INTERVAL_MS } from './services/supervisor-store.js';
@@ -370,68 +368,6 @@ sweeper.start();
 const bindingReconciler = new BindingReconciler();
 bindingReconciler.start();
 
-// Periodically clean stale VS Code Server pid files so SSH reconnects don't hang.
-// VS Code leaves a stale pid.txt when the server process dies ungracefully.
-(async function cleanVscodeServerPids() {
-  const { promises: fsp } = await import('node:fs');
-  const { existsSync: fsExists } = await import('node:fs');
-  const { join: pathJoin } = await import('node:path');
-  const oldBase = pathJoin(homedir(), '.vscode-server', 'cli', 'servers');
-  const newBase = pathJoin(homedir(), '.vscode', 'cli', 'servers');
-
-  // Ensure agent-host (newer VS Code) can find servers installed under ~/.vscode-server
-  try {
-    await fsp.mkdir(newBase, { recursive: true });
-    const entries = await fsp.readdir(oldBase).catch(() => [] as string[]);
-    for (const entry of entries) {
-      if (!entry.startsWith('Stable-')) continue;
-      const link = pathJoin(newBase, entry);
-      if (!fsExists(link)) {
-        await fsp.symlink(pathJoin(oldBase, entry), link).catch(() => {});
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Ensure old-format Remote SSH (bin/<hash>/) symlinks exist for each cli/servers/Stable-<hash>/server/
-  // VS Code Remote SSH bootstrap checks ~/.vscode-server/bin/<hash>/ — without this it downloads fresh.
-  try {
-    const binBase = pathJoin(homedir(), '.vscode-server', 'bin');
-    await fsp.mkdir(binBase, { recursive: true });
-    const entries = await fsp.readdir(oldBase).catch(() => [] as string[]);
-    for (const entry of entries) {
-      if (!entry.startsWith('Stable-')) continue;
-      const hash = entry.replace(/^Stable-/, '');
-      const link = pathJoin(binBase, hash);
-      const target = pathJoin(oldBase, entry, 'server');
-      if (!fsExists(link)) {
-        await fsp.symlink(target, link).catch(() => {});
-        console.log(`[vscode-cleaner] Created bin symlink for ${hash}`);
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Clean stale pid.txt in both locations
-  for (const base of [oldBase, newBase]) {
-    try {
-      const entries = await fsp.readdir(base).catch(() => [] as string[]);
-      for (const entry of entries) {
-        const pidFile = pathJoin(base, entry, 'pid.txt');
-        try {
-          const pid = parseInt(await fsp.readFile(pidFile, 'utf-8'), 10);
-          if (!isNaN(pid)) {
-            try { process.kill(pid, 0); } catch {
-              await fsp.unlink(pidFile);
-              console.log(`[vscode-cleaner] Removed stale pid.txt for dead PID ${pid}`);
-            }
-          }
-        } catch { /* pid.txt missing or unreadable — skip */ }
-      }
-    } catch { /* base dir missing — skip */ }
-  }
-
-  setTimeout(cleanVscodeServerPids, 5 * 60 * 1000);
-})();
-
 // Initialize status manager with WebSocket handler
 statusManager.setWebSocketHandler(wsHandler);
 
@@ -528,10 +464,6 @@ const server = Bun.serve<WsData>({
       const res = await handleAttachments(req, url, { registry: agentRegistry });
       if (res) return res;
     }
-    if (url.pathname.startsWith('/api/agent/editor-')) {
-      const res = await handleEditorRoundtrip(req, url);
-      if (res) return res;
-    }
     if (url.pathname.startsWith('/api/agent/sessions')) {
       return handleAgentSessionsAPI(req);
     }
@@ -544,11 +476,6 @@ const server = Bun.serve<WsData>({
 
     if (url.pathname.startsWith('/api/artifact')) {
       return handleArtifactAPI(req);
-    }
-
-    if (url.pathname.startsWith('/api/ide')) {
-      const res = await handleIdeRoutes(req, url, wsHandler);
-      if (res) return res;
     }
 
     // Phone pairing (loopback-only) + the gated auth liveness probe. Mounted
@@ -572,18 +499,6 @@ const server = Bun.serve<WsData>({
     if (url.pathname.startsWith('/api/browser')) {
       const res = await handleBrowserRoutes(req, url, wsHandler);
       if (res) return res;
-    }
-
-    // Serve compiled extension JS for in-place updates
-    if (url.pathname === '/api/extension/js' && req.method === 'GET') {
-      // Resolve relative to this module (src/server.ts → repo root) so it works
-      // on any host, not just the original author's deploy path.
-      const extJsPath = join(import.meta.dir, '..', 'extensions', 'vscode', 'out', 'extension.js');
-      const extJs = Bun.file(extJsPath);
-      if (await extJs.exists()) {
-        return new Response(extJs, { headers: { 'Content-Type': 'application/javascript' } });
-      }
-      return Response.json({ error: 'Extension JS not found' }, { status: 404 });
     }
 
     // API routes

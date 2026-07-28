@@ -480,11 +480,6 @@ const App: React.FC = () => {
   // WebSocket for real-time updates
   const { isConnected, isConnecting, error: wsError } = useWebSocket();
 
-  const [isVscodeConnected, setIsVscodeConnected] = React.useState(false);
-  useEffect(() => {
-    fetch('/api/ide/status').then(r => r.json()).then((s: { connected: boolean }) => setIsVscodeConnected(s.connected)).catch(() => {});
-  }, []);
-
   // Session polling for fallback status sync (dual-channel with WebSocket)
   useSessionPolling(
     currentSession?.project ?? null,
@@ -547,7 +542,7 @@ const App: React.FC = () => {
         useNotificationStore.getState().addToast({
           type: sent ? 'info' : 'warning',
           title: sent ? `Supervisor nudged ${session}` : `Nudge to ${session} not delivered`,
-          message: sent ? text : 'No live tmux session received the nudge',
+          message: sent ? text : 'Nudge delivery has been removed — nothing was sent',
           duration: 6000,
         });
         return;
@@ -1047,12 +1042,6 @@ const App: React.FC = () => {
         case 'claude_usage_update': {
           const { fiveHourPercent, sevenDayPercent, updatedAt } = message as any;
           useUsageStore.getState().setUsage({ fiveHourPercent, sevenDayPercent, updatedAt });
-          break;
-        }
-
-        case 'ide_status': {
-          const { connected } = message as any;
-          setIsVscodeConnected(!!connected);
           break;
         }
 
@@ -1837,7 +1826,6 @@ const App: React.FC = () => {
           onDeleteSession={handleDeleteSession}
           isConnected={isConnected}
           isConnecting={isConnecting}
-          isVscodeConnected={isVscodeConnected}
         />
 
         {/* Main Content Area with Sidebar, Content, and ChatPanel. Wrapped in a

@@ -2,7 +2,7 @@
  * Fleet status read-model — "what is each worker doing, on which slot, for how
  * long, and is it healthy?" A single join over the in-progress todos + their
  * claim metadata + live worker liveness (headless leaf_inflight / grok harness —
- * no tmux, Phase 4), so a human (or the Bridge UI / an MCP tool) can SEE the
+ * Phase 4), so a human (or the Bridge UI / an MCP tool) can SEE the
  * pipeline instead of guessing why it feels slow.
  *
  * Read-only + side-effect-free: it never mutates claims, kills sessions, or
@@ -16,14 +16,10 @@ import type { ProviderId } from '../agent/worker-agent';
 import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
 
 /** Coarse worker state. P7: daemon workers are HEADLESS leaf-executor lanes (in-process
- *  `claude -p`, no tmux), so liveness is the `leaf_inflight` signal — a row per leaf
- *  actively running a node — NOT a tmux pane. The tmux-derived states (no_tmux/
- *  dead_shell/permission) are retained in the union for back-compat but no longer
- *  produced for the worker fleet now that the tmux worker lane is retired. */
+ *  `claude -p`), so liveness is the `leaf_inflight` signal — a row per leaf actively
+ *  running a node. */
 export type WorkerState =
-  | 'no_tmux' // legacy (tmux worker lane retired) — no longer produced
-  | 'dead_shell' // legacy (tmux worker lane retired) — no longer produced
-  | 'permission' // legacy (tmux worker lane retired) — no longer produced
+  | 'permission' // legacy — no longer produced
   | 'working' // actively running a node (leaf_inflight row present, or grok harness alive)
   | 'idle' // claimed lane with no in-flight node right now (between nodes / not executing)
   | 'unknown'; // liveness couldn't be determined
@@ -74,10 +70,10 @@ export interface FleetEntry {
 /**
  * Process-headroom summary — the highest-signal early warning for the
  * fork-EAGAIN wedge: once the uid's live process count approaches
- * `kern.maxprocperuid` (the 6000 cap), new `tmux`/`claude` spawns start failing
+ * `kern.maxprocperuid` (the 6000 cap), new `claude` spawns start failing
  * with EAGAIN and the fleet silently stalls. Surfacing `liveProcs` vs
  * `perUidCap` BEFORE it hits lets a human (or a daemon) back off. All fields are
- * null when their probe couldn't run (no ps / no sysctl / no tmux), never a
+ * null when their probe couldn't run (no ps / no sysctl), never a
  * fabricated value.
  */
 export interface HeadroomInfo {
@@ -85,8 +81,6 @@ export interface HeadroomInfo {
   liveProcs: number | null;
   /** kern.maxprocperuid — the per-uid hard process cap (~6000 on macOS). */
   perUidCap: number | null;
-  /** Live `mc-*` tmux sessions (the fleet's worker panes). */
-  tmuxSessions: number | null;
   /** Workers alive at their prompt but not visibly working (idle-at-prompt). */
   idleSessions: number;
 }
@@ -102,7 +96,6 @@ export interface FleetStatus {
     working: number;
     idle: number;
     permission: number;
-    deadOrGone: number; // dead_shell + no_tmux
     overLease: number;
   };
   /** Process-headroom vs the per-uid cap — surfaces the fork-EAGAIN wedge early. */
@@ -176,12 +169,6 @@ async function perUidProcCap(): Promise<number | null> {
   }
 }
 
-/** Live `mc-*` tmux sessions (the fleet's worker panes) — always 0 now that the
- *  tmux/terminal stack has been removed (Phase 4); no worker lane ever holds one. */
-function mcTmuxSessionCount(): number | null {
-  return 0;
-}
-
 /** Snapshot the live fleet for a project: every in-progress todo with its worker,
  *  elapsed time, lease headroom, and derived health state. */
 export async function getFleetStatus(project: string, now: number = Date.now()): Promise<FleetStatus> {
@@ -194,9 +181,8 @@ export async function getFleetStatus(project: string, now: number = Date.now()):
     // Epics/containers have no worker — skip rows that were never claimed.
     if (!t.claimedAt && !t.sessionName && !t.claimedBy) continue;
     // The worker's identity is its persisted pool lane (e.g. `backend-3`). Without
-    // it there is no attachable tmux: a fabricated `worker-<id8>` name derives a
-    // session that doesn't exist, and the UI card's create-terminal would spawn an
-    // empty shell under the wrong name instead of attaching. Skip such rows — the
+    // a fabricated `worker-<id8>` name derives a session that doesn't exist.
+    // Skip such rows — the
     // Coordinator persists sessionName when it commits the lane, so a real worker
     // always carries one.
     const worker = t.sessionName;
@@ -220,7 +206,7 @@ export async function getFleetStatus(project: string, now: number = Date.now()):
 
     // LANE LIVENESS (P7): every daemon worker lane is now IN-PROCESS — a headless
     // leaf-executor lane (claude -p) or, for a grok-pinned lane, the GrokOwnHarness
-    // loop. Neither has a tmux pane to scrape, so liveness comes from the in-process
+    // loop. Liveness comes from the in-process
     // signals: leaf_inflight (a row while a leaf runs a node) and the grok harness.
     // A lane actively running a node → 'working' (surface the node); otherwise 'idle'
     // (between nodes / not currently executing — a genuinely dead lane ages out via
@@ -264,14 +250,12 @@ export async function getFleetStatus(project: string, now: number = Date.now()):
     working: entries.filter((e) => e.state === 'working').length,
     idle: entries.filter((e) => e.state === 'idle').length,
     permission: entries.filter((e) => e.state === 'permission').length,
-    deadOrGone: entries.filter((e) => e.state === 'dead_shell' || e.state === 'no_tmux').length,
     overLease: entries.filter((e) => e.overLease).length,
   };
 
   const headroom: HeadroomInfo = {
     liveProcs: snap?.liveProcsForUid ?? null,
     perUidCap,
-    tmuxSessions: mcTmuxSessionCount(),
     idleSessions: summary.idle,
   };
 

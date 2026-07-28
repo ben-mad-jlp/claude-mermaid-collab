@@ -42,8 +42,6 @@ export interface HeaderProps {
   isConnected?: boolean;
   /** Whether WebSocket is connecting */
   isConnecting?: boolean;
-  /** Whether VS Code extension is connected */
-  isVscodeConnected?: boolean;
   /** Optional custom class name */
   className?: string;
 }
@@ -62,7 +60,6 @@ export const Header: React.FC<HeaderProps> = ({
   onDeleteSession,
   isConnected = false,
   isConnecting = false,
-  isVscodeConnected = false,
   className = '',
 }) => {
   const { theme, toggleTheme } = useTheme();
@@ -303,23 +300,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               );
             })()}
-          </div>
-
-          {/* VS Code Connection Badge */}
-          <div
-            data-testid="vscode-badge"
-            className={`
-              flex items-center gap-1.5
-              px-2 py-1
-              text-xs font-medium
-              rounded-full
-              ${isVscodeConnected
-                ? 'bg-success-300 text-black'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
-            `}
-          >
-            <span className={`w-2 h-2 rounded-full ${isVscodeConnected ? 'bg-success-500' : 'bg-gray-400'}`} />
-            <span>VSCode {isVscodeConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
 
           {/* Live (WebSocket) connection badge — surfaces socket drops so the
