@@ -30,7 +30,8 @@ import { ServerIcon } from '@/components/ServerIcon';
 import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
 import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 import { isOrchestratorSession } from '@/lib/liveness';
-import { derivedStatus, buildById } from '@/lib/claimability';
+import { buildById } from '@/lib/claimability';
+import { liveBucketTodo, excludeEpics, excludeMissions, excludeLandLeaves } from '@/components/supervisor/bridge/funnel';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { SessionCleanup } from '@/components/supervisor/SessionCleanup';
@@ -127,34 +128,29 @@ export function resolveDaemonStatus(args: {
  */
 /** At-a-glance plan stats for a project's work-graph todos (open work only). */
 const TERMINAL_TODO = new Set(['done', 'dropped']);
-// inProgress/blocked/ready are DERIVED via the single predicate (epic b2c858d4),
-// read VERBATIM from derivedStatus — never off the shadow `status` enum.
+// Defers to funnel.ts: liveBucketTodo for bucketing + excludeEpics/excludeMissions/excludeLandLeaves for filtering.
 export function projectPlanStats(todos: SessionTodo[]): {
   open: number;
   inProgress: number;
   blocked: number;
   ready: number;
+  backlog: number;
   idleWithWork: boolean;
 } {
+  const survivors = excludeEpics(excludeMissions(excludeLandLeaves(todos)));
   const byId = buildById(todos);
-  let open = 0, inProgress = 0, blocked = 0, ready = 0;
-  for (const t of todos) {
+  let open = 0, inProgress = 0, blocked = 0, ready = 0, backlog = 0;
+  for (const t of survivors) {
     if (TERMINAL_TODO.has(t.status)) continue;
-    // Mission + [LAND] nodes are containers/ghosts, NOT open work. A mission node's
-    // status is permanently 'todo' (terminality lives in mission.db, never on the node),
-    // so counting them inflated "N open" by every converged mission — e.g. 41 mission
-    // nodes turned a real ~31-leaf backlog into a "77 open" badge the Plan kanban never
-    // shows. Mirror PlanPanel's excludeMissions()/excludeLandLeaves() so this stat matches
-    // the kanban (funnel.ts: kind==='mission' / kind==='land', column-only, never kindOf()).
-    if (t.kind === 'mission' || t.kind === 'land') continue;
     open += 1;
-    const d = derivedStatus(t, byId);
-    if (d === 'in_progress') inProgress += 1;
-    else if (d === 'blocked') blocked += 1;
-    else if (d === 'ready') ready += 1;
+    const bucket = liveBucketTodo(t, byId);
+    if (bucket === 'inflight') inProgress += 1;
+    else if (bucket === 'blocked') blocked += 1;
+    else if (bucket === 'ready') ready += 1;
+    else if (bucket === 'backlog') backlog += 1;
   }
   // Ready work queued but nothing actively running it → "parked".
-  return { open, inProgress, blocked, ready, idleWithWork: ready > 0 && inProgress === 0 };
+  return { open, inProgress, blocked, ready, backlog, idleWithWork: ready > 0 && inProgress === 0 };
 }
 
 /** Compact relative age, e.g. 45s / 12m / 3h / 6d. Empty for unknown. */

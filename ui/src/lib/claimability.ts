@@ -111,6 +111,8 @@ export const isClaimable = (t: SessionTodo, byId: Map<string, SessionTodo>): boo
 /** Legacy-shaped DERIVED label for UI chips. NOT a stored value — recomputed on read.
  *  A 'dep-dropped' todo falls through to 'blocked' here — no distinct legacy label.
  *  The distinct rendering is claimReason's job, surfaced by the Bridge. */
+/** LABEL-ONLY predicate for detail-view chips (TodoDetailView.tsx:235); no count/badge-total
+ *  path may consume it — funnel.bucketTodo/liveBucketTodo is the classifier for counts. */
 export function derivedStatus(t: SessionTodo, byId: Map<string, SessionTodo>): string {
   if (t.status === 'done' || t.status === 'dropped') return t.status;
   if (t.claim != null) return 'in_progress';
