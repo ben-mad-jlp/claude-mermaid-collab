@@ -250,7 +250,7 @@ export async function setupMCPServer(): Promise<Server> {
       ...EPIC_TOOL_DEFS.slice(17, 19),          // leaf_inspect, leaf_failures
       SYSTEM_TOOL_DEFS[9],                      // runtime_config
       ...SYSTEM_TOOL_DEFS.slice(11, 13),        // set_watchdog_threshold, set_context_recycle
-      ...SUPERVISOR_TOOL_DEFS.slice(21, 22),    // supervisor_watchdog_scan
+      ...SUPERVISOR_TOOL_DEFS.slice(21, 24),    // supervisor_watchdog_scan, set_conductor_target, set_node_profile_override
       ...MISSION_TOOL_DEFS,
       ...WORKGRAPH_TOOL_DEFS,
       SYSTEM_TOOL_DEFS[13],                     // context_usage
