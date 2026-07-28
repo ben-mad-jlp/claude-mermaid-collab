@@ -258,6 +258,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // (GREEN/gray) while the conductor is actually thinking. One poll lets the card
   // flip BLUE ("conducting") during that gap — same shape as inflightProjects above.
   const [conductingProjects, setConductingProjects] = useState<Set<string>>(() => new Set());
+  const [ownedTodoIds, setOwnedTodoIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
@@ -268,6 +269,18 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         const next: string[] = Array.isArray(d?.projects) ? d.projects : [];
         setConductingProjects((prev) =>
           prev.size === next.length && next.every((p) => prev.has(p)) ? prev : new Set(next),
+        );
+        const owned = d?.ownedTodoIds as Record<string, string[]> | undefined;
+        const nextOwned = new Set<string>();
+        if (owned && typeof owned === 'object') {
+          for (const ids of Object.values(owned)) {
+            if (Array.isArray(ids)) {
+              for (const id of ids) nextOwned.add(id);
+            }
+          }
+        }
+        setOwnedTodoIds((prev) =>
+          prev.size === nextOwned.size && Array.from(prev).every((id) => nextOwned.has(id)) ? prev : nextOwned,
         );
       } catch { /* best-effort; keep last good */ }
     };
@@ -404,7 +417,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     for (const p of m.keys()) add(activeScope, p);
     return Array.from(rows.values())
       .map(({ serverId, project }) => {
-        const esc = selectEscalationKindCounts(openEscalations, { kind: 'project', project });
+        const esc = selectEscalationKindCounts(openEscalations, { kind: 'project', project }, { ownedTodoIds });
         return {
           serverId,
           project,
@@ -424,7 +437,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         if (a.blockerCount !== b.blockerCount) return b.blockerCount - a.blockerCount;
         return a.project.localeCompare(b.project);
       });
-  }, [supervised, projectsByServer, openEscalations, activeId]);
+  }, [supervised, projectsByServer, openEscalations, activeId, ownedTodoIds]);
 
   // Manual project order (drag-reorder; option 1 — fully wins over the urgency
   // sort). Also drives the Ctrl+Shift+F# project mapping. New projects append.

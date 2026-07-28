@@ -31,6 +31,14 @@ export type StatusScope =
   | { kind: 'session'; project: string; session: string };
 
 /**
+ * Context passed to escalation bucket classifiers. Carries the set of conductor-owned
+ * todo ids so ownership can be checked at classification time.
+ */
+export interface EscalationBucketCtx {
+  ownedTodoIds?: ReadonlySet<string>;
+}
+
+/**
  * The liveness fact for one session, as held by `subscriptionStore` (the single
  * source of worker liveness — WS-native, composite-keyed `${serverId}:${project}:${session}`).
  * Declared structurally here so this pure module has no store dependency at runtime.
@@ -192,13 +200,32 @@ export function selectMachineHandledCount(open: Escalation[], scope: StatusScope
 }
 
 /**
+ * Classify an open escalation into one of three display buckets: 'landReady'
+ * (positive "ready to ship"), 'machineHandled' (machine-generated or conductor-owned),
+ * or 'blocker' (genuine "paused on a human").
+ *
+ * Ownership check precedes the general isMachineHandledEscalation check, so
+ * conductor-owned todos (e.g. land-failed that the conductor is handling) are
+ * classified as machineHandled even if their kind would otherwise be a blocker.
+ */
+export function classifyEscalationBucket(
+  e: Escalation,
+  ctx?: EscalationBucketCtx,
+): 'landReady' | 'machineHandled' | 'blocker' {
+  if (e.kind === 'epic-ready-to-land') return 'landReady';
+  if (e.todoId && ctx?.ownedTodoIds?.has(e.todoId)) return 'machineHandled';
+  if (isMachineHandledEscalation(e)) return 'machineHandled';
+  return 'blocker';
+}
+
+/**
  * Split the open escalations inside `scope` into three display buckets the project
  * status surfaces treat DIFFERENTLY:
  *   - `landReady`: kind `'epic-ready-to-land'` — a POSITIVE "ready to ship" prompt. It
  *     never means the project is stuck, so it is shown with a download glyph, NOT red.
- *   - `machineHandled`: escalations excluded by `isMachineHandledEscalation` — machine-
- *     generated triage, AI-handling, or pending batch-triage. Counted but not surfaced
- *     as blockers.
+ *   - `machineHandled`: escalations excluded by `isMachineHandledEscalation` or owned by
+ *     the conductor — machine-generated triage, AI-handling, pending batch-triage, or
+ *     conductor-owned work. Counted but not surfaced as blockers.
  *   - `blockers`: everything else (blocker / decision / assumption-invalidated / …) — a
  *     genuine "paused on a human" item → red.
  * `total === blockers + landReady + machineHandled === selectOpenEscalationCount(open, scope)` (parity).
@@ -206,6 +233,7 @@ export function selectMachineHandledCount(open: Escalation[], scope: StatusScope
 export function selectEscalationKindCounts(
   open: Escalation[],
   scope: StatusScope,
+  ctx?: EscalationBucketCtx,
 ): { blockers: number; landReady: number; machineHandled: number; total: number } {
   let blockers = 0;
   let landReady = 0;
@@ -213,8 +241,9 @@ export function selectEscalationKindCounts(
   if (Array.isArray(open)) {
     for (const e of open) {
       if (!isOpen(e) || !escalationInScope(e, scope)) continue;
-      if (e.kind === 'epic-ready-to-land') landReady++;
-      else if (isMachineHandledEscalation(e)) machineHandled++;
+      const bucket = classifyEscalationBucket(e, ctx);
+      if (bucket === 'landReady') landReady++;
+      else if (bucket === 'machineHandled') machineHandled++;
       else blockers++;
     }
   }

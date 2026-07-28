@@ -3,6 +3,7 @@ import type { Escalation } from '@/stores/supervisorStore';
 import {
   selectOpenEscalations,
   selectOpenEscalationCount,
+  classifyEscalationBucket,
   selectEscalationKindCounts,
   selectLiveness,
   selectSessionStatus,
@@ -179,6 +180,64 @@ describe('selectEscalationKindCounts', () => {
     ];
     const c = selectEscalationKindCounts(withGated, PROJ_A);
     expect(c).toEqual({ blockers: 2, landReady: 0, machineHandled: 0, total: 2 });
+  });
+
+  it('with ownedTodoIds ctx, an escalation with matching todoId classifies as machineHandled', () => {
+    const withOwned: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'k1'), kind: 'land-failed', todoId: 'todo-1' } as Escalation,
+      { ...esc('projA', 'a2', 'open', 'k2'), kind: 'blocker' } as Escalation,
+    ];
+    const ctx = { ownedTodoIds: new Set(['todo-1']) };
+    const c = selectEscalationKindCounts(withOwned, PROJ_A, ctx);
+    expect(c).toEqual({ blockers: 1, landReady: 0, machineHandled: 1, total: 2 });
+  });
+
+  it('land-failed escalation without ownedTodoIds context classifies as blocker', () => {
+    const withUnowned: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'k1'), kind: 'land-failed', todoId: 'todo-1' } as Escalation,
+    ];
+    const c = selectEscalationKindCounts(withUnowned, PROJ_A);
+    expect(c).toEqual({ blockers: 1, landReady: 0, machineHandled: 0, total: 1 });
+  });
+});
+
+// ── classifyEscalationBucket — ownership-aware bucketing ───────────────────────
+
+describe('classifyEscalationBucket', () => {
+  it('epic-ready-to-land always classifies as landReady', () => {
+    const e = { kind: 'epic-ready-to-land', todoId: 'todo-1' } as Escalation;
+    expect(classifyEscalationBucket(e)).toBe('landReady');
+    expect(classifyEscalationBucket(e, { ownedTodoIds: new Set() })).toBe('landReady');
+  });
+
+  it('conductor-owned escalation (any kind except land-ready) classifies as machineHandled', () => {
+    const e = { kind: 'land-failed', todoId: 'todo-1' } as Escalation;
+    const ctx = { ownedTodoIds: new Set(['todo-1']) };
+    expect(classifyEscalationBucket(e, ctx)).toBe('machineHandled');
+  });
+
+  it('conductor-owned check fires before isMachineHandledEscalation', () => {
+    // land-failed is not a hygiene-kind and has no ai-handling lifecycle, so it would
+    // be a blocker without the ownership check.
+    const e = { kind: 'land-failed', todoId: 'todo-1' } as Escalation;
+    expect(classifyEscalationBucket(e)).toBe('blocker');
+    expect(classifyEscalationBucket(e, { ownedTodoIds: new Set(['todo-1']) })).toBe('machineHandled');
+  });
+
+  it('hygiene-kind escalation classifies as machineHandled when no ownership', () => {
+    const e = { kind: 'epic-sweep-triage', todoId: 'todo-1' } as Escalation;
+    expect(classifyEscalationBucket(e)).toBe('machineHandled');
+  });
+
+  it('unowned escalation (no todoId or not in ownedTodoIds) uses standard isMachineHandledEscalation', () => {
+    const e = { kind: 'decision' } as Escalation;
+    expect(classifyEscalationBucket(e)).toBe('blocker');
+    expect(classifyEscalationBucket(e, { ownedTodoIds: new Set() })).toBe('blocker');
+  });
+
+  it('undefined ctx produces byte-identical behavior to no ctx', () => {
+    const e = { kind: 'blocker', todoId: 'todo-1' } as Escalation;
+    expect(classifyEscalationBucket(e)).toBe(classifyEscalationBucket(e, undefined));
   });
 });
 
