@@ -73,5 +73,7 @@ Thumbs.db
 
 # Stray mis-rooted .collab artifacts (a process ran with cwd=proj/)
 /proj/
+/test-proj/
+/test-project/
 /unwired-test-proj-*/
 /.collab/pruned-branches-recovery.md
