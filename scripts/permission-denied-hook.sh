@@ -50,8 +50,18 @@ LOCK_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.lock"
 
 echo "$NOTIFY_STATUS" > "$STATUS_FILE"
 
+# Resolve the collab API port the same way hooks/server-check.sh does: the server
+# writes its actually-bound port to $MERMAID_DATA_DIR/port on bind. Hardcoding 9002
+# makes this POST a silent no-op whenever the server lands on another port.
+COLLAB_PORT="${COLLAB_API_PORT:-}"
+if [ -z "$COLLAB_PORT" ]; then
+  COLLAB_PORT=$({ tr -d '[:space:]' < "${MERMAID_DATA_DIR:-$HOME/.mermaid-collab}/port"; } 2>/dev/null)
+fi
+case "$COLLAB_PORT" in ''|*[!0-9]*) COLLAB_PORT="" ;; esac
+
 (
   flock -n 9 || exit 0
+  [ -n "$COLLAB_PORT" ] || exit 0
   sleep 0.2
   FINAL_STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "$NOTIFY_STATUS")
   PAYLOAD=$(jq -nc \
@@ -60,7 +70,7 @@ echo "$NOTIFY_STATUS" > "$STATUS_FILE"
     --arg session "$SESSION" \
     --arg status "$FINAL_STATUS" \
     '{claudeSessionId: $sid, project: $project, session: $session, status: $status}')
-  curl -s --max-time 3 -X POST http://localhost:9002/api/session-notify \
+  curl -s --max-time 3 -X POST "http://localhost:$COLLAB_PORT/api/session-notify" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD" \
     > /dev/null 2>&1
