@@ -24,6 +24,7 @@ import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
 import { isBucketEpicUI, bucketTypeOfTodo, TRIAGE_TAGS, BUCKET_LANE_LABEL, BUCKET_TYPE_ORDER, type BucketType, type TriageTag } from '@/lib/bucketRegistry';
+import { criterionTagFor } from '@/lib/criterionTag';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
@@ -35,6 +36,7 @@ export interface PlanKanbanProps {
   onClearCompleted?: (epicId: string | null) => void;
   inflightLeafIds?: Set<string>;
   onPromoteToEpic?: (todo: SessionTodo) => void;
+  criterionTagIndex?: Map<string, { missionTitle: string; criterionOrder: number; criterionText: string }>;
 }
 
 /**
@@ -188,7 +190,7 @@ interface Lane {
   rank: number; // min child wave, for lane ordering
 }
 
-export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted, inflightLeafIds, onPromoteToEpic }) => {
+export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted, inflightLeafIds, onPromoteToEpic, criterionTagIndex }) => {
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
@@ -314,7 +316,9 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       {/* Vertical stack of swimlanes (epics as rows). */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
         {/* Epic swimlanes. */}
-        {visibleLanes.map((lane) => (
+        {visibleLanes.map((lane) => {
+          const tag = criterionTagIndex && lane.epic ? criterionTagFor(lane.epic, criterionTagIndex) : null;
+          return (
           <section
             key={lane.key}
             data-testid={
@@ -367,6 +371,15 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                     LANDED
                   </span>
                 )}
+                {tag && (
+                  <span
+                    data-testid="epic-criterion-tag"
+                    className="text-3xs text-gray-500 dark:text-gray-400"
+                    title={`${lane.epic?.id} — mission/criterion`}
+                  >
+                    {tag.mission} · {tag.crit}
+                  </span>
+                )}
               </span>
               {/* Housekeeping: clear finished ad-hoc items from bucket (Inbox) epics and
                   the synthetic orphan ("No epic") lane. Cohesive epics are not clearable. */}
@@ -397,7 +410,8 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
               </div>
             </div>
           </section>
-        ))}
+          );
+        })}
 
         {triageLanes.length > 0 && (
           <section data-testid="triage-section" className="rounded-lg border bg-gray-50/60 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700">
