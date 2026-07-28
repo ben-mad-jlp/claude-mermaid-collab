@@ -53,8 +53,13 @@ export function isLandTodo(t: Todo): boolean {
 }
 
 /** Terminal states excluded from "active" health checks. */
-function isTerminal(status: TodoStatus): boolean {
+export function isTerminalStatus(status: TodoStatus): boolean {
   return status === 'done' || status === 'dropped';
+}
+
+/** True when an epic is terminal (via status or landedAt stamp). */
+export function isTerminalEpic(t: Todo): boolean {
+  return isTerminalStatus(t.status) || hasLandStamp(t);
 }
 
 /**
@@ -89,7 +94,7 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   };
 
   for (const t of todos) {
-    if (isTerminal(t.status)) continue;
+    if (isTerminalStatus(t.status)) continue;
 
     // 1. orphan — a non-epic active todo with no epic ancestor. A mission is EXEMPT: it is a
     //    work-graph root by design (epics hang beneath it), so it can have no epic ancestor.
@@ -147,14 +152,14 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   }
 
   // Check: no live child under terminal epic. Independent loop, not nested in the
-  // `isTerminal(t.status) continue` guard above, because a terminal epic must not
+  // `isTerminalStatus(t.status) continue` guard above, because a terminal epic must not
   // retain any live children regardless of how it became terminal.
   for (const t of todos) {
     if (!isEpicTodo(t)) continue;
-    const terminalEpic = isTerminal(t.status) || hasLandStamp(t);
+    const terminalEpic = isTerminalEpic(t);
     if (!terminalEpic) continue;
     for (const c of childrenOf.get(t.id) ?? []) {
-      if (!isTerminal(c.status)) {
+      if (!isTerminalStatus(c.status)) {
         violations.push({
           kind: 'live-child-under-terminal-epic',
           todoId: c.id,
@@ -289,7 +294,7 @@ export function findClaimInvariantViolations(todos: Todo[]): ClaimInvariantViola
   }
 
   for (const t of todos) {
-    const terminal = isTerminal(t.status);
+    const terminal = isTerminalStatus(t.status);
     const hasClaim = t.claim != null;
 
     // claim ⟺ in-flight, asserted from both directions.
