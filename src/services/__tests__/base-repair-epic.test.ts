@@ -1,0 +1,302 @@
+import { describe, test, expect } from 'bun:test';
+
+import {
+  baseRepairMarker,
+  BASE_REPAIR_ATTEMPT_CAP,
+  BASE_REPAIR_WINDOW_MS,
+  findBaseRepairEpics,
+  buildRepairLeafSpec,
+  raiseBaseRepairEpic,
+  type RaiseBaseRepairArgs,
+  type RaiseBaseRepairIo,
+} from '../base-repair-epic';
+import { type Todo } from '../todo-store';
+
+describe('baseRepairMarker', () => {
+  test('formats as [base-repair:epicId8:laneSig8]', () => {
+    const marker = baseRepairMarker('abcd1234efgh5678', 'xyz9876510111213');
+    expect(marker).toBe('[base-repair:abcd1234:xyz98765]');
+  });
+});
+
+describe('BASE_REPAIR_ATTEMPT_CAP', () => {
+  test('is 2', () => {
+    expect(BASE_REPAIR_ATTEMPT_CAP).toBe(2);
+  });
+});
+
+describe('BASE_REPAIR_WINDOW_MS', () => {
+  test('is a positive number (reprobe TTL)', () => {
+    expect(BASE_REPAIR_WINDOW_MS).toBeGreaterThan(0);
+  });
+});
+
+describe('buildRepairLeafSpec', () => {
+  test('includes the marker and exact prohibition string', () => {
+    const marker = '[base-repair:12345678:abcdef12]';
+    const spec = buildRepairLeafSpec({
+      marker,
+      cause: 'epic-base-red',
+      reasonTail: 'tsc error in src/foo.ts',
+      epicBranch: 'epic-fix-foo-bug',
+    });
+
+    expect(spec).toContain(marker);
+    expect(spec).toContain('do NOT weaken, skip or delete a test that catches a real gap — park and escalate instead');
+    expect(spec).toContain('fixing the net-new failing test');
+  });
+
+  test('includes epicBranch, cause, and reasonTail truncated to ~2000 chars', () => {
+    const reasonTail = 'x'.repeat(3000);
+    const spec = buildRepairLeafSpec({
+      marker: '[base-repair:12345678:abcdef12]',
+      cause: 'epic-base-red',
+      reasonTail,
+      epicBranch: 'my-epic-branch',
+    });
+
+    expect(spec).toContain('my-epic-branch');
+    expect(spec).toContain('epic-base-red');
+    // Verify tail is truncated: spec has ~2000 chars of the 3000
+    expect(spec.length).toBeLessThan(reasonTail.length);
+  });
+});
+
+describe('findBaseRepairEpics', () => {
+  const marker = '[base-repair:12345678:abcdef12]';
+
+  test('partitions open vs attempts-in-window by status and age', () => {
+    const now = Date.now();
+    const todos: Todo[] = [
+      {
+        id: 'open-epic',
+        kind: 'epic',
+        title: 'Open repair',
+        status: 'ready',
+        description: 'prefix ' + marker,
+        baseRepair: 1,
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as Todo,
+      {
+        id: 'done-recent',
+        kind: 'epic',
+        title: 'Done recent',
+        status: 'done',
+        description: marker,
+        baseRepair: 1,
+        createdAt: now - BASE_REPAIR_WINDOW_MS / 2,
+        updatedAt: now - BASE_REPAIR_WINDOW_MS / 2,
+        completedAt: now - BASE_REPAIR_WINDOW_MS / 2,
+      } as unknown as Todo,
+      {
+        id: 'done-old',
+        kind: 'epic',
+        title: 'Done old',
+        status: 'done',
+        description: marker,
+        baseRepair: 1,
+        createdAt: now - BASE_REPAIR_WINDOW_MS * 2,
+        updatedAt: now - BASE_REPAIR_WINDOW_MS * 2,
+        completedAt: now - BASE_REPAIR_WINDOW_MS * 2,
+      } as unknown as Todo,
+      {
+        id: 'not-repair-epic',
+        kind: 'epic',
+        title: 'Regular epic',
+        status: 'ready',
+        description: marker,
+        baseRepair: 0,
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as Todo,
+      {
+        id: 'no-marker',
+        kind: 'epic',
+        title: 'No marker',
+        status: 'ready',
+        description: 'some other description',
+        baseRepair: 1,
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as Todo,
+    ];
+
+    const result = findBaseRepairEpics(todos, marker, now);
+
+    expect(result.open).toEqual(
+      todos.filter((t) => t.id === 'open-epic'),
+    );
+    expect(result.attemptsInWindow).toEqual(
+      todos.filter((t) => t.id === 'done-recent'),
+    );
+  });
+
+  test('uses updatedAt when completedAt is missing', () => {
+    const now = Date.now();
+    const todos: Todo[] = [
+      {
+        id: 'done-no-completed-at',
+        kind: 'epic',
+        title: 'Done',
+        status: 'done',
+        description: marker,
+        baseRepair: 1,
+        createdAt: now,
+        updatedAt: now - BASE_REPAIR_WINDOW_MS / 2,
+        completedAt: undefined,
+      } as unknown as Todo,
+    ];
+
+    const result = findBaseRepairEpics(todos, marker, now);
+    expect(result.attemptsInWindow).toHaveLength(1);
+  });
+});
+
+describe('raiseBaseRepairEpic', () => {
+  test('returns already-in-flight when an open marked epic exists', async () => {
+    const epicId = 'epic1234567890ab';
+    const laneSig = 'abc123456def7890'; // 16 chars for the lane signature
+    const marker = baseRepairMarker(epicId, laneSig);
+    const todos: Todo[] = [
+      {
+        id: 'open-repair',
+        kind: 'epic',
+        title: 'Open repair',
+        status: 'ready',
+        description: marker,
+        baseRepair: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as unknown as Todo,
+    ];
+
+    const io: RaiseBaseRepairIo = {
+      listTodos: () => todos,
+    };
+
+    const result = await raiseBaseRepairEpic(
+      {
+        project: 'p1',
+        session: 's1',
+        epicId,
+        targetProject: 'p1',
+        laneSignature: laneSig,
+        cause: 'epic-base-red',
+        reasonTail: 'reason',
+        epicBranch: 'branch',
+      },
+      io,
+    );
+
+    expect(result).toEqual({ created: false, reason: 'already-in-flight' });
+  });
+
+  test('returns cap-reached when attempt cap is hit in the window', async () => {
+    const now = Date.now();
+    const epicId = 'epic1234567890ab';
+    const laneSig = 'abc123456def7890';
+    const marker = baseRepairMarker(epicId, laneSig);
+    const todos: Todo[] = [
+      {
+        id: 'done1',
+        kind: 'epic',
+        title: 'Done 1',
+        status: 'done',
+        description: marker,
+        baseRepair: 1,
+        createdAt: new Date(now - BASE_REPAIR_WINDOW_MS / 2).toISOString(),
+        updatedAt: new Date(now - BASE_REPAIR_WINDOW_MS / 2).toISOString(),
+        completedAt: new Date(now - BASE_REPAIR_WINDOW_MS / 2).toISOString(),
+      } as unknown as Todo,
+      {
+        id: 'done2',
+        kind: 'epic',
+        title: 'Done 2',
+        status: 'done',
+        description: marker,
+        baseRepair: 1,
+        createdAt: new Date(now - BASE_REPAIR_WINDOW_MS / 3).toISOString(),
+        updatedAt: new Date(now - BASE_REPAIR_WINDOW_MS / 3).toISOString(),
+        completedAt: new Date(now - BASE_REPAIR_WINDOW_MS / 3).toISOString(),
+      } as unknown as Todo,
+    ];
+
+    const io: RaiseBaseRepairIo = {
+      listTodos: () => todos,
+      now: () => now,
+    };
+
+    const result = await raiseBaseRepairEpic(
+      {
+        project: 'p1',
+        session: 's1',
+        epicId,
+        targetProject: 'p1',
+        laneSignature: laneSig,
+        cause: 'epic-base-red',
+        reasonTail: 'reason',
+        epicBranch: 'branch',
+      },
+      io,
+    );
+
+    expect(result).toEqual({ created: false, reason: 'cap-reached' });
+  });
+
+  test('creates and returns epic id when all conditions are clear', async () => {
+    const todos: Todo[] = [];
+    let createdEpic: { title: string; home: any; homeProvided: any; baseRepair: any; description: any } | null = null;
+    let createdLeaves: any = null;
+
+    const io: RaiseBaseRepairIo = {
+      listTodos: () => todos,
+      createEpic: async (_project, _session, opts) => {
+        createdEpic = opts as any;
+        return { epic: { id: 'new-epic-id', kind: 'epic' } as any };
+      },
+      addLeaves: async (_project, _session, epicId, leaves) => {
+        createdLeaves = { epicId, leaves };
+        return { epicId, createdIds: ['leaf-id'] };
+      },
+    };
+
+    const epicId = 'epic1234567890ab';
+    const laneSig = 'abc123456def7890';
+    const expectedMarker = baseRepairMarker(epicId, laneSig);
+
+    const args: RaiseBaseRepairArgs = {
+      project: 'p1',
+      session: 's1',
+      epicId,
+      targetProject: 'p1',
+      laneSignature: laneSig,
+      cause: 'epic-base-red',
+      reasonTail: 'detailed reason here',
+      epicBranch: 'epic-my-feature',
+      files: ['src/foo.ts'],
+    };
+
+    const result = await raiseBaseRepairEpic(args, io);
+
+    expect(result).toEqual({ created: true, epicId: 'new-epic-id' });
+
+    // Verify epic creation call
+    expect(createdEpic).not.toBeNull();
+    expect(createdEpic!.title).toBe('Base repair: epic-my-feature');
+    expect(createdEpic!.home).toBeNull();
+    expect(createdEpic!.homeProvided).toBe(true);
+    expect(createdEpic!.baseRepair).toBe(true);
+    expect(createdEpic!.description).toContain(expectedMarker);
+
+    // Verify leaf creation call
+    expect(createdLeaves).not.toBeNull();
+    expect(createdLeaves!.epicId).toBe('new-epic-id');
+    expect(createdLeaves!.leaves).toHaveLength(1);
+    const leaf = createdLeaves!.leaves[0];
+    expect(leaf.title).toBe('Repair red base');
+    expect(leaf.status).toBe('ready');
+    expect(leaf.files).toEqual(['src/foo.ts']);
+    expect(leaf.description).toContain('do NOT weaken, skip or delete a test that catches a real gap — park and escalate instead');
+  });
+});

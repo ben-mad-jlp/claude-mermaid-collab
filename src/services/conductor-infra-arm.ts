@@ -31,6 +31,7 @@ import { createEscalation, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHonourCachedBaseGate } from './worker-ledger.js';
 import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
+import { raiseBaseRepairEpic, type RaiseBaseRepairArgs } from './base-repair-epic.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
@@ -213,6 +214,7 @@ export interface InfraArmDeps {
   shouldReprobe?: typeof shouldReprobeEpicBase;
   recordSignature?: typeof recordEpicProbeSignature;
   now?: () => number;
+  raiseBaseRepair?: typeof raiseBaseRepairEpic;
 }
 
 export interface InfraArmResult {
@@ -226,6 +228,8 @@ export interface InfraArmResult {
    *  conductor's fingerprint debounce holds. Observable telemetry only — never a semantics
    *  channel. */
   skipped: string[];
+  /** Epic ids of base-repair epics raised this pass. */
+  baseRepairEpics: string[];
 }
 
 /**
@@ -242,7 +246,7 @@ export async function runInfraRejectionArm(
   deps: InfraArmDeps = {},
 ): Promise<InfraArmResult> {
   const candidates = collectInfraRejectedLeaves(project, missionId);
-  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0, skipped: [] };
+  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [] };
   if (candidates.length === 0) return result;
 
   const probe = deps.probe ?? defaultEpicBaseProbe;
@@ -252,6 +256,7 @@ export async function runInfraRejectionArm(
   const shouldReprobe = deps.shouldReprobe ?? shouldReprobeEpicBase;
   const recordSignature = deps.recordSignature ?? recordEpicProbeSignature;
   const nowFn = deps.now;
+  const raiseRepair = deps.raiseBaseRepair ?? raiseBaseRepairEpic;
 
   const todos = listTodos(project, { includeCompleted: true });
   const byId = new Map<string, Todo>(todos.map((t) => [t.id, t]));
@@ -332,6 +337,32 @@ export async function runInfraRejectionArm(
           `pass re-probes and releases the leaf automatically.`,
       });
       if (res && res.isNew) result.cardsRaised++;
+
+      // Base-repair epic: raised only when a known lane stays red (verdict !== 'pass')
+      // and the cause is actually infrastructure (not mis-homed).
+      if (c.cause !== 'mis-homed-target' && verdict === 'fail') {
+        const sig = signatureByEpic.get(c.epicId);
+        if (sig && sig !== UNKNOWN_LANE_SIGNATURE) {
+          try {
+            const repairResult = await raiseRepair({
+              project,
+              session,
+              epicId: c.epicId,
+              targetProject,
+              laneSignature: sig,
+              cause: c.cause,
+              reasonTail: c.reason,
+              epicBranch: epicBranchName(c.epicId),
+            });
+            if (repairResult.created && repairResult.epicId) {
+              result.baseRepairEpics.push(repairResult.epicId);
+            }
+          } catch {
+            // fail-open — a failed raise must never sink the pass or skip the card that was
+            // already raised above.
+          }
+        }
+      }
     } catch {
       // fail-open per candidate — one bad probe/card must not sink the pass.
     }
