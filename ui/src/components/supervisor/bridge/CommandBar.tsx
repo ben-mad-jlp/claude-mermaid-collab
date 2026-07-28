@@ -4,8 +4,8 @@
  * It absorbs the deleted AlertRibbon: instead of a separate banner, the
  * at-a-glance FLEET pulse lives inline here — `● N live · M in-flight ·
  * ▲ K needs you` (fleet-summed). The "needs you" count is the single earned red;
- * everything else stays calm. Project switching moved to the ProjectRail
- * (design-tabbed-bridge §3b) — the dropdown that used to live here is gone.
+ * everything else stays calm. Project switching lives in the left project tree
+ * — the dropdown that used to live here is gone.
  *
  * Design feedback 2026-07-13: the header is a clean, well-spaced STATUS line only.
  * The per-project daemon controls (⚙ nodes matrix, concurrency, autonomy ladder)

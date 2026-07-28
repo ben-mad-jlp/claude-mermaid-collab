@@ -15,7 +15,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
 import { apiFetch } from '@/lib/api';
-import { useLeafDaemon, NODE_LABEL, fmtDuration } from '@/lib/leafDaemon';
+import { useLeafDaemon, NODE_LABEL, fmtDuration } from './leafDaemon';
 
 interface LeafNode {
   nodeKind: string | null; // 'blueprint'|'implement'|'review'|null

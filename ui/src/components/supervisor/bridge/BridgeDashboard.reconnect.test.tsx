@@ -37,7 +37,6 @@ vi.mock('@/lib/websocket', () => ({
 vi.mock('./SplitDeck', () => ({ SplitDeck: () => <div data-testid="split-deck" /> }));
 vi.mock('./CommandBar', () => ({ CommandBar: () => null }));
 vi.mock('./NeedsYouZone', () => ({ NeedsYouZone: () => null }));
-vi.mock('./FleetVitals', () => ({ FleetVitals: () => null }));
 vi.mock('./WorkerRoster', () => ({ WorkerRoster: () => null }));
 vi.mock('./StreamTicker', () => ({ StreamTicker: () => null }));
 vi.mock('./fleet/FleetGraph', () => ({ FleetGraph: () => null }));

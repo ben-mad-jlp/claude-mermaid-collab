@@ -15,14 +15,13 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
-import { useLeafDaemon, NODE_LABEL, fmtElapsedPadded as fmtDuration, type InflightLeaf } from '@/lib/leafDaemon';
+import { useLeafDaemon, NODE_LABEL, fmtElapsedPadded as fmtDuration, type InflightLeaf } from './leafDaemon';
 import { excludeEpics, bucketTodo } from './funnel';
 
 export interface InflightPanelProps {
   todos: SessionTodo[];
   project: string;
   serverScope: string;
-  onJump?: (project: string, session: string) => void;
   onSelectTodo?: (todo: SessionTodo) => void;
   embedded?: boolean;
 }

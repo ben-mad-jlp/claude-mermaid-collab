@@ -4,7 +4,7 @@
  * The old KPI grid is gone. The Bridge is now a SplitDeck: a CommandBar on top
  * (identity + project selector + the glanceable pulse that absorbed the deleted
  * AlertRibbon), a LEFT instrument panel in strict hierarchy
- * (NeedsYouZone ▸ FleetVitals ▸ WorkerRoster ▸ StreamTicker), and a RIGHT stage
+ * (NeedsYouZone ▸ WorkerRoster ▸ StreamTicker), and a RIGHT stage
  * (MissionsStrip over PlanPanel). This component owns the data scoping; the panel
  * pieces are pure presentational cards.
  *
@@ -486,7 +486,7 @@ export const BridgeDashboard: React.FC = () => {
     () => ({
       escalations: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={nonLandOpenEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
       land: <div className="h-full min-h-0 overflow-y-auto p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
-      work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
+      work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onSelectTodo={handleSelectTodo} />,
       stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
       stream: <div className="h-full min-h-0 overflow-y-auto p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
       executor: <div className="h-full min-h-0 overflow-y-auto p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,

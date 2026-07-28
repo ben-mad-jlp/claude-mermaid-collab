@@ -10,7 +10,6 @@ export interface WorkPanelProps {
   project: string;
   serverScope: string;
   claimableIds?: string[] | null;
-  onJump?: (project: string, session: string) => void;
   onSelectTodo?: (todo: SessionTodo) => void;
   /** Uncontrolled default; controlled `tab`/`onTabChange` optional. */
   defaultTab?: WorkTab;
@@ -23,7 +22,6 @@ export const WorkPanel: React.FC<WorkPanelProps> = ({
   project,
   serverScope,
   claimableIds,
-  onJump,
   onSelectTodo,
   defaultTab = 'inflight',
   tab: controlledTab,
@@ -63,7 +61,6 @@ export const WorkPanel: React.FC<WorkPanelProps> = ({
               todos={todos}
               project={project}
               serverScope={serverScope}
-              onJump={onJump}
               onSelectTodo={onSelectTodo}
             />
           </div>

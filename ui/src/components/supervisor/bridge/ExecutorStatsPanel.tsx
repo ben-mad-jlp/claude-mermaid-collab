@@ -11,7 +11,7 @@
  * bounded poll (15s) runs only while the panel is mounted (the tab gates visibility).
  */
 import React, { useEffect, useState } from 'react';
-import { useLeafDaemon, type DaemonStatus, fmtDuration } from '@/lib/leafDaemon';
+import { useLeafDaemon, type DaemonStatus, fmtDuration } from './leafDaemon';
 import { getWebSocketClient } from '@/lib/websocket';
 
 interface FleetStats {
@@ -135,10 +135,12 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
                 </button>
               )}
             </div>
-            <div className="mt-1 font-normal tabular-nums">
-              until {new Date(daemon.breaker!.openUntil).toLocaleTimeString()} ·{' '}
-              {fmtDuration(daemon.breaker!.openUntil - daemon.now)} remaining
-            </div>
+            {daemon.breaker?.openUntil != null && (
+              <div className="mt-1 font-normal tabular-nums">
+                until {new Date(daemon.breaker.openUntil).toLocaleTimeString()} ·{' '}
+                {fmtDuration(daemon.breaker.openUntil - daemon.now)} remaining
+              </div>
+            )}
           </>
         ) : (
           <div>breaker: closed ✓</div>
