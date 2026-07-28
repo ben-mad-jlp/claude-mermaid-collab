@@ -43,6 +43,8 @@ import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo, resetTodo, overrideAcceptTodo, deriveTodoViews } from '../services/todo-store.ts';
+import { listMissions } from '../services/mission-store.ts';
+import { selectConductorOwnedTodoIds, RUNNING_FRESH_MS } from '../services/conductor-owned-todos.ts';
 import { isInboxEpic } from '../services/claimability.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
@@ -1055,7 +1057,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // projects for the daemon's AMBER "building" signal. Freshness matches the Bridge's
   // ConductorLadder RUNNING_FRESH_MS (5 min).
   if (url.pathname === '/api/supervisor/conductor-running' && req.method === 'GET') {
-    const RUNNING_FRESH_MS = 5 * 60 * 1000;
     const nowMs = Date.now();
     const projects = listWatchedProjects()
       .map((wp) => wp.project)
@@ -1064,7 +1065,17 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         const lp = getConductorLastPass(p);
         return !!lp && lp.reason === 'pass-ran' && typeof lp.tickAt === 'number' && nowMs - lp.tickAt < RUNNING_FRESH_MS;
       });
-    return Response.json({ projects });
+    const ownedTodoIds: Record<string, string[]> = {};
+    for (const p of projects) {
+      ownedTodoIds[p] = selectConductorOwnedTodoIds(p, nowMs, {
+        getConductorEnabled,
+        getConductorTargetMission,
+        getConductorLastPass,
+        listTodos,
+        listMissions,
+      });
+    }
+    return Response.json({ projects, ownedTodoIds });
   }
   // POST /api/supervisor/conductor — toggle it and/or pin a target mission.
   // body { project, enabled?: boolean, targetMissionId?: string | null }. UPDATE-only
