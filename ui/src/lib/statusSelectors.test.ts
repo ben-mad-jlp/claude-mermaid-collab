@@ -241,6 +241,72 @@ describe('classifyEscalationBucket', () => {
   });
 });
 
+// ── classifyEscalationBucket / selectEscalationKindCounts — leaf-scoped ownership parity ──
+
+describe('classifyEscalationBucket / selectEscalationKindCounts — leaf-scoped ownership parity', () => {
+  const parentEpicId = 'epic-parent-1';
+  const leafId = 'leaf-child-1';
+  const ownedTodoIds = new Set([parentEpicId, leafId]);
+
+  it('classifies owned leaf escalation as machineHandled', () => {
+    const leafEsc = {
+      ...esc('projA', 'a1', 'open', 'k1'),
+      kind: 'blocker',
+      todoId: leafId,
+      questionText: 'epic-base-red: base failed',
+    } as Escalation;
+
+    expect(classifyEscalationBucket(leafEsc, { ownedTodoIds })).toBe('machineHandled');
+    expect(selectEscalationKindCounts([leafEsc], PROJ_A, { ownedTodoIds })).toEqual({
+      blockers: 0,
+      landReady: 0,
+      machineHandled: 1,
+      total: 1,
+    });
+  });
+
+  it('classifies unowned escalation as blocker', () => {
+    const unownedEsc = {
+      ...esc('projA', 'a1', 'open', 'k1'),
+      kind: 'blocker',
+      todoId: 'leaf-other-1',
+      questionText: 'epic-base-red: base failed',
+    } as Escalation;
+
+    expect(classifyEscalationBucket(unownedEsc, { ownedTodoIds })).toBe('blocker');
+    const counts = selectEscalationKindCounts([unownedEsc], PROJ_A, { ownedTodoIds });
+    expect(counts.blockers).toBe(1);
+    expect(counts.machineHandled).toBe(0);
+  });
+
+  it('maintains count parity for both owned and unowned fixtures', () => {
+    const leafEsc = {
+      ...esc('projA', 'a1', 'open', 'k1'),
+      kind: 'blocker',
+      todoId: leafId,
+      questionText: 'epic-base-red: base failed',
+    } as Escalation;
+    const unownedEsc = {
+      ...esc('projA', 'a1', 'open', 'k1'),
+      kind: 'blocker',
+      todoId: 'leaf-other-1',
+      questionText: 'epic-base-red: base failed',
+    } as Escalation;
+
+    const ownedCounts = selectEscalationKindCounts([leafEsc], PROJ_A, { ownedTodoIds });
+    expect(ownedCounts.blockers + ownedCounts.landReady + ownedCounts.machineHandled).toBe(
+      ownedCounts.total,
+    );
+    expect(ownedCounts.total).toBe(1);
+
+    const unownedCounts = selectEscalationKindCounts([unownedEsc], PROJ_A, { ownedTodoIds });
+    expect(unownedCounts.blockers + unownedCounts.landReady + unownedCounts.machineHandled).toBe(
+      unownedCounts.total,
+    );
+    expect(unownedCounts.total).toBe(1);
+  });
+});
+
 // ── selectLiveness — scope narrowing + roll-up ─────────────────────────────────
 
 describe('selectLiveness', () => {
