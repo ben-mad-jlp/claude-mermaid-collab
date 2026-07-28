@@ -28,7 +28,7 @@ import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
-import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap } from './mission-status-predicates.ts';
+import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -1199,6 +1199,12 @@ export interface MissionCriterionFacts {
    *  'blocked'. Feeds the conductor debounce fingerprint so a leaf flipping to rejected/parked
    *  breaks debounce even when the derived action is unchanged (still 'building'). */
   rejectedParkedCount: number;
+  /** Sha the last recorded verdict was measured against. Optional — absent ⇒ freshness check fails closed. */
+  verifiedAtSha?: string | null;
+  /** Sha the CURRENT serving epic landed at. */
+  servingEpicLandSha?: string | null;
+  /** Timestamp the current serving epic's land record was stamped. */
+  servingEpicLandedAt?: number | null;
 }
 
 export interface MissionStatusFacts {
@@ -1237,9 +1243,10 @@ export type CriterionAction =
 export { CRITERION_SERVE_CAP };
 
 export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction {
-  // verify BEFORE met: a met-but-unverified criterion still owes the independent gate a
-  // verdict (verification-as-event — `met` alone is a self-grade until verifiedAt stamps it).
-  if (c.servingEpicState === 'landed' && c.verifiedAt == null) return 'verify';
+  // verify BEFORE met: a met-but-unverified criterion, OR one whose serving epic has landed
+  // a newer commit than the last verdict, still owes the independent gate a fresh verdict
+  // (verification-as-event — `met` alone is a self-grade until verifiedAt stamps it).
+  if (c.servingEpicState === 'landed' && (c.verifiedAt == null || predServingLandIsNewerThanVerdict(c))) return 'verify';
   if (c.met) return 'met';
   if (c.servingEpicState === 'open' && c.servingEpicLive) return 'building';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
