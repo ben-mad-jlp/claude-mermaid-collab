@@ -2110,42 +2110,6 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
 }
 
 /**
- * Re-home a todo to a different session — reassign its `ownerSession` (and, by
- * default, `assigneeSession`). `ownerSession` is otherwise creation-only; this is
- * the supported way to move a MISSION to a live session so its card AND the
- * mission-loop nudge (both read ownerSession first) target the right session,
- * instead of hand-editing todos.db. Returns the updated todo.
- */
-export function reassignOwnerSession(
-  project: string,
-  id: string,
-  session: string,
-  opts: { alsoAssignee?: boolean } = {},
-): Promise<Todo> {
-  return withLock(project, () => {
-    assertProjectLocal(project);
-    const existing = getTodo(project, id);
-    if (!existing) throw new Error(`todo not found: ${id}`);
-    const fullId = resolveFullId(project, id);
-    const s = session.trim();
-    if (!s) throw new Error('session is empty');
-    const alsoAssignee = opts.alsoAssignee !== false; // default true
-    const sql = alsoAssignee
-      ? 'UPDATE todos SET ownerSession=?, assigneeSession=?, updatedAt=? WHERE id=?'
-      : 'UPDATE todos SET ownerSession=?, updatedAt=? WHERE id=?';
-    const db = openDb(project);
-    if (alsoAssignee) {
-      const res = db.prepare(sql).run(s, s, nowIso(), fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
-    } else {
-      const res = db.prepare(sql).run(s, nowIso(), fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
-    }
-    return getTodo(project, id)!;
-  });
-}
-
-/**
  * Promote a bucket ITEM into a real deliverable epic: mint a NEW epic (root or
  * mission-parented) and stamp the item done + promotedTo → epic.id, WITHOUT changing
  * the item's kind. missionId: omit → active-mission default; null → root; string → that mission.

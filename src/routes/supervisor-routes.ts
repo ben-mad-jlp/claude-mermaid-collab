@@ -349,17 +349,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
       }
     }
-    // Re-home a mission to a different session.
-    if (url.pathname === '/api/supervisor/missions/owner' && req.method === 'POST') {
-      try {
-        const body = (await req.json()) as Record<string, unknown>;
-        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
-        const out = await handleMissionTool('set_mission_owner', body);
-        return Response.json(out ? JSON.parse(out) : {});
-      } catch (err) {
-        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-      }
-    }
     // Criteria authoring — add / edit-text / remove. TEXT only; verdicts stay MCP-only.
     if (url.pathname === '/api/supervisor/missions/criteria' && req.method === 'POST') {
       try {

@@ -211,18 +211,6 @@ export function checkOwnership(
     };
   }
 
-  // Rule 5: Mission must be owned by this conductor session
-  if (missionRow && actor.kind === 'conductor' && mission.ownerSession !== actor.session) {
-    return {
-      ok: false,
-      ownership: 'foreign',
-      blocker: {
-        code: 'foreign-mission',
-        message: `Epic ${epic.title} belongs to mission ${mission.title} owned by session ${mission.ownerSession}; you are ${actor.session}. Ask that conductor to land it, or escalate to the human.`,
-      },
-    };
-  }
-
   return { ok: true, ownership: 'owned' };
 }
 

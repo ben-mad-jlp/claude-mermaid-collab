@@ -346,7 +346,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   }
   const missionId = target.row.todoId;
   const status = target.row.status!;
-  const session = target.summary.ownerSession ?? target.summary.assigneeSession ?? 'conductor';
+  const session = 'conductor';
 
   let rechecksDrained = 0;
   let pendingRechecks: MissionRecheck[] = [];
