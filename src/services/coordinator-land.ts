@@ -53,6 +53,7 @@ export type LandReasonClass =
   | 'merge-conflict'
   | 'deps-open'
   | 'presence-findings'
+  | 'open-children'
   | 'not-ready'
   | 'other';
 
@@ -67,6 +68,7 @@ const LAND_REASON_CLASSES: Record<string, LandReasonClass> = {
   'gate-error': 'gate-error',
   'land-deps-unsatisfied': 'deps-open',
   'presence-findings': 'presence-findings',
+  'open-children': 'open-children',
   'not-an-epic': 'not-ready',
   'bucket-epic': 'not-ready',
   'no-active-mission': 'not-ready',
