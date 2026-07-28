@@ -6793,6 +6793,25 @@
       }
     },
     {
+      "name": "inspect_workgraph",
+      "description": "READ-ONLY. Returns structured workgraph-health rows (epicChildCounts, orphanLeaves, terminalEpicsWithOpenChildren) for `project`, optionally scoped to one epic via `epicId`. Never returns prose, never mutates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "epicId": {
+            "type": "string",
+            "description": "Optional — scope the report to this one epic (its own row plus any of its direct children that are orphans/open)."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
       "name": "context_usage",
       "description": "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.",
       "inputSchema": {
