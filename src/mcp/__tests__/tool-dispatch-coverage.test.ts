@@ -260,12 +260,16 @@ describe('tool dispatch coverage', () => {
     );
   });
 
+  // Drives all 14 real system-tool handlers sequentially (health probes, fleet/daemon
+  // status, topology), so it sits right at bun's 5s default and intermittently timed out
+  // at ~5001ms — which reds the epic BASE gate project-wide, blocking every leaf. Give it
+  // headroom explicitly rather than let a slow-but-passing check wedge the daemon.
   it('every SYSTEM_TOOL_DEFS name is wired in handleSystemTool', async () => {
     expect(SYSTEM_TOOL_DEFS.length).toBe(14);
     for (const def of SYSTEM_TOOL_DEFS) {
       expect(await isRecognized(handleSystemTool, def.name)).toBe(true);
     }
-  });
+  }, 30_000);
 
   it('handleSystemTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleSystemTool('definitely_not_a_system_tool', {})).toBeNull();
