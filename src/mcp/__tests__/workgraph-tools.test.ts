@@ -24,7 +24,7 @@ test('tool defs are handler-less (dispatch is centralized)', () => {
   for (const def of WORKGRAPH_TOOL_DEFS) {
     expect((def as Record<string, unknown>).handler).toBeUndefined();
   }
-  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_to_bucket']);
+  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_to_bucket', 'inspect_workgraph']);
 });
 
 async function call(name: string, args: Record<string, unknown>): Promise<any> {
@@ -148,6 +148,100 @@ describe('file_to_bucket', () => {
     const bugfixParent = getTodo(project, bugfix.leaf.id)!.parentId!;
     expect(bugfixParent).not.toBe(inboxParent);
     expect(getTodo(project, bugfixParent)!.bucketType).toBe('bugfix');
+  });
+});
+
+describe('inspect_workgraph', () => {
+  test('returns health data including orphan leaves and terminal epics with open children', async () => {
+    const epic = await call('create_epic', { title: 'Healthy epic', home: null });
+    const { createdIds: leafIds } = await call('add_leaves', {
+      epicId: epic.epicId,
+      leaves: [{ title: 'open leaf' }],
+    });
+
+    const orphanLeafId = leafIds[0]!;
+    await updateTodo(project, orphanLeafId, { parentId: 'bogus-parent-id' });
+
+    const terminalEpic = await call('create_epic', { title: 'Terminal epic', home: null });
+    const { createdIds: terminalLeafIds } = await call('add_leaves', {
+      epicId: terminalEpic.epicId,
+      leaves: [{ title: 'orphaned by landing' }],
+    });
+    stampEpicLandedAt(project, terminalEpic.epicId, new Date().toISOString());
+
+    const result = await call('inspect_workgraph', {});
+    expect(result.project).toBe(project);
+    expect(result.epicChildCounts).toBeTruthy();
+    expect(result.orphanLeaves).toBeTruthy();
+    expect(result.terminalEpicsWithOpenChildren).toBeTruthy();
+    expect(result.counts).toBeTruthy();
+
+    const orphanIds = result.orphanLeaves.map((o: any) => o.todoId);
+    expect(orphanIds).toContain(orphanLeafId);
+
+    const terminalWithOpenIds = result.terminalEpicsWithOpenChildren.map((t: any) => t.epicId);
+    expect(terminalWithOpenIds).toContain(terminalEpic.epicId);
+
+    expect(result.counts.orphanLeaves).toBe(result.orphanLeaves.length);
+    expect(result.counts.terminalEpicsWithOpenChildren).toBe(result.terminalEpicsWithOpenChildren.length);
+  });
+
+  test('filters epicChildCounts and terminalEpicsWithOpenChildren when epicId is provided', async () => {
+    const epic1 = await call('create_epic', { title: 'Epic 1', home: null });
+    const epic2 = await call('create_epic', { title: 'Epic 2', home: null });
+
+    const { createdIds: leaf1Ids } = await call('add_leaves', {
+      epicId: epic1.epicId,
+      leaves: [{ title: 'leaf in epic 1' }],
+    });
+
+    const { createdIds: leaf2Ids } = await call('add_leaves', {
+      epicId: epic2.epicId,
+      leaves: [{ title: 'leaf in epic 2' }],
+    });
+
+    stampEpicLandedAt(project, epic1.epicId, new Date().toISOString());
+
+    const result = await call('inspect_workgraph', { epicId: epic1.epicId });
+    const epicIds = result.epicChildCounts.map((e: any) => e.epicId);
+    expect(epicIds).toContain(epic1.epicId);
+    expect(epicIds).not.toContain(epic2.epicId);
+
+    const terminalWithOpenIds = result.terminalEpicsWithOpenChildren.map((t: any) => t.epicId);
+    expect(terminalWithOpenIds).toContain(epic1.epicId);
+  });
+
+  test('filters orphanLeaves to direct children of the specified epic', async () => {
+    const epic1 = await call('create_epic', { title: 'Epic 1', home: null });
+    const epic2 = await call('create_epic', { title: 'Epic 2', home: null });
+
+    const { createdIds: leaf1Ids } = await call('add_leaves', {
+      epicId: epic1.epicId,
+      leaves: [{ title: 'leaf in epic 1' }],
+    });
+
+    const { createdIds: leaf2Ids } = await call('add_leaves', {
+      epicId: epic2.epicId,
+      leaves: [{ title: 'leaf in epic 2' }],
+    });
+
+    stampEpicLandedAt(project, epic1.epicId, new Date().toISOString());
+
+    const result = await call('inspect_workgraph', { epicId: epic1.epicId });
+    const orphanIds = result.orphanLeaves.map((o: any) => o.todoId);
+    expect(orphanIds).toContain(leaf1Ids[0]);
+    expect(orphanIds).not.toContain(leaf2Ids[0]);
+  });
+
+  test('throws when project is missing', async () => {
+    let caught: any;
+    try {
+      await handleWorkgraphTool('inspect_workgraph', {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeTruthy();
+    expect(String(caught.message)).toMatch(/Missing required: project/);
   });
 });
 

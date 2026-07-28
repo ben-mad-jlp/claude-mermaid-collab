@@ -9,7 +9,8 @@
 // plain functions (createEpicWithLandLeaf / addLeavesToEpic / fileToBucketLeaf) so
 // the REST routes in api.ts are thin wrappers over the identical logic.
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
-import { getTodo, updateTodo, removeTodo, deriveTodoViews, isBucketEpicTitle, type Todo, type TodoStatus, type TodoLink, type LeafTier } from '../services/todo-store.js';
+import { getTodo, updateTodo, removeTodo, deriveTodoViews, isBucketEpicTitle, listTodos, type Todo, type TodoStatus, type TodoLink, type LeafTier } from '../services/todo-store.js';
+import { computeWorkgraphHealth } from '../services/workgraph-health.js';
 import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
 import { addSessionTodo } from './tools/session-todos.js';
@@ -430,6 +431,18 @@ export const WORKGRAPH_TOOL_DEFS = [
       required: ['project', 'session', 'title'],
     },
   },
+  {
+    name: 'inspect_workgraph',
+    description: 'READ-ONLY. Returns structured workgraph-health rows (epicChildCounts, orphanLeaves, terminalEpicsWithOpenChildren) for `project`, optionally scoped to one epic via `epicId`. Never returns prose, never mutates.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        epicId: { type: 'string', description: 'Optional — scope the report to this one epic (its own row plus any of its direct children that are orphans/open).' },
+      },
+      required: ['project'],
+    },
+  },
 ];
 
 /**
@@ -500,6 +513,40 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [created])[0] }, null, 2);
+    }
+    case 'inspect_workgraph': {
+      const { project, epicId } = args as { project: string; epicId?: string };
+      if (!project) throw new Error('Missing required: project');
+      const todos = listTodos(project, { includeCompleted: true });
+      const health = computeWorkgraphHealth(todos);
+
+      let epicChildCounts = health.epicChildCounts;
+      let orphanLeaves = health.orphanLeaves;
+      let terminalEpicsWithOpenChildren = health.terminalEpicsWithOpenChildren;
+
+      if (epicId) {
+        epicChildCounts = epicChildCounts.filter((row) => row.epicId === epicId);
+        orphanLeaves = orphanLeaves.filter((row) => {
+          const leaf = todos.find((t) => t.id === row.todoId);
+          return leaf?.parentId === epicId;
+        });
+        terminalEpicsWithOpenChildren = terminalEpicsWithOpenChildren.filter((row) => row.epicId === epicId);
+      }
+
+      return JSON.stringify(
+        {
+          project,
+          epicChildCounts,
+          orphanLeaves,
+          terminalEpicsWithOpenChildren,
+          counts: {
+            orphanLeaves: orphanLeaves.length,
+            terminalEpicsWithOpenChildren: terminalEpicsWithOpenChildren.length,
+          },
+        },
+        null,
+        2,
+      );
     }
     default:
       return null;
