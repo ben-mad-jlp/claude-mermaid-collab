@@ -228,24 +228,26 @@ describe('land-proof-single-path — topology verification', () => {
     expect(daemonVerdict.blockers.map((b) => b.code)).toContain('merge-conflict');
   });
 
-  it('test 4 — ownership gates only authority, never the proof (conductor:foreign)', async () => {
-    const foreignConductor: LandActor = { kind: 'conductor', session: 'sess-B' };
+  // Mission 7721f2db retired the mission→session binding: a mission is PROJECT-owned, so the
+  // conductor of the project may land its active mission's epics from ANY session. The old
+  // 'foreign-mission' refusal no longer exists; ownership still gates on bucket / no-active-mission
+  // (test 4b below), and the proof is still computed regardless of the ownership outcome.
+  it('test 4 — a different-session conductor is authorized (mission is project-owned)', async () => {
+    const otherSessionConductor: LandActor = { kind: 'conductor', session: 'sess-B' };
     const { probes } = countingProbes();
     const allTodos = listTodos(project, { includeCompleted: true });
 
-    const verdict = await landAuthority(project, epic.id, foreignConductor, { probes, todos: allTodos });
+    const verdict = await landAuthority(project, epic.id, otherSessionConductor, { probes, todos: allTodos });
 
-    // Green proof but unauthorized (foreign mission)
     expect(verdict.green).toBe(true);
-    expect(verdict.authorized).toBe(false);
-    expect(verdict.ownership).toBe('foreign');
-    expect(verdict.blockers[0].code).toBe('foreign-mission');
-    expect(verdict.blockers[0].message).toContain('sess-A');
+    expect(verdict.authorized).toBe(true);
+    expect(verdict.ownership).toBe('owned');
+    expect(verdict.blockers.map((b) => b.code)).not.toContain('foreign-mission');
 
     // Probes were still invoked (readiness computed regardless of ownership)
     const allTodos2 = listTodos(project, { includeCompleted: true });
     const { probes: probes2, calls: calls2 } = countingProbes();
-    await landAuthority(project, epic.id, foreignConductor, { probes: probes2, todos: allTodos2 });
+    await landAuthority(project, epic.id, otherSessionConductor, { probes: probes2, todos: allTodos2 });
     expect(calls2).toEqual({ presence: 1, gate: 1, merge: 1 });
   });
 

@@ -171,7 +171,14 @@ describe('conductor progress clock — incident replays', () => {
     expect(invokeCalls).toBe(cappedInvokeCalls + 1);
   });
 
-  test('rival starvation (07b5d3c0): a stale, still-gapped leader yields to its rival within the stale-tick bound', async () => {
+  // SKIPPED under mission 7721f2db (one-active-per-project): this incident replay REQUIRES two
+  // simultaneously-active rival missions, which is no longer constructible — a second forge is now
+  // enqueued behind the first (project-scoped activateMission, landed in c0facdb8), so there is no
+  // rival to starve and no rival-selection to rotate. Criterion #3 of 7721f2db retires the rival/
+  // pin selection outright; that epic must remove BOTH the rival-selection code and this replay
+  // together (and decide the separate question of whether a STALE single-active mission should yield
+  // the conductor to a queued one — deliberately not prejudged here). See friction for the follow-up.
+  test.skip('rival starvation (07b5d3c0): a stale, still-gapped leader yields to its rival within the stale-tick bound', async () => {
     const leader = await forgeMission(project, {
       session: 's1',
       title: 'Leader mission holds a discover gap forever',

@@ -295,18 +295,36 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
     expect(code0).toContain('tsc-failed');
   });
 
-  it('authority does not short-circuit safety: foreign conductor still runs full proof', async () => {
+  // A mission is PROJECT-owned (mission 7721f2db): the mission→session binding was retired, so a
+  // conductor from a DIFFERENT session is no longer refused — there is no 'foreign-mission' blocker
+  // left to emit. The still-live ownership rules are bucket-epic / not-an-epic / no-active-mission,
+  // and the no-short-circuit property below is exercised through no-active-mission instead.
+  it('the mission→session binding is retired: a different-session conductor is authorized', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
     MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
-    const foreigner: LandActor = { kind: 'conductor', session: 'someone-else' };
-    const { calls, probes } = countingProbes();
-    const verdict = await landAuthority(PROJECT, 'e1', foreigner, { probes, todos: TODOS });
+    const otherSession: LandActor = { kind: 'conductor', session: 'someone-else' };
+    const { probes } = countingProbes();
+    const verdict = await landAuthority(PROJECT, 'e1', otherSession, { probes, todos: TODOS });
 
-    // Authority refuses due to foreign mission
+    expect(verdict.authorized).toBe(true);
+    expect(verdict.ownership).toBe('owned');
+    expect(verdict.blockers.map((b) => b.code)).not.toContain('foreign-mission');
+  });
+
+  it('authority does not short-circuit safety: unauthorized conductor still runs full proof', async () => {
+    TODOS = [MISSION, EPIC, CODE, LAND];
+    // Ownership refuses because the owning mission is not active — not because of who asked.
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: false, status: 'needs-discovery', abandonedAt: null }]]);
+
+    const conductor: LandActor = { kind: 'conductor', session: SESSION };
+    const { calls, probes } = countingProbes();
+    const verdict = await landAuthority(PROJECT, 'e1', conductor, { probes, todos: TODOS });
+
+    // Authority refuses: the epic's mission is not active
     expect(verdict.authorized).toBe(false);
-    expect(verdict.blockers[0]?.code).toBe('foreign-mission');
-    expect(verdict.blockers[0]?.message).toContain(SESSION);
+    expect(verdict.blockers[0]?.code).toBe('no-active-mission');
+    expect(verdict.blockers[0]?.message).toContain('Converge');
 
     // But safety proof still ran — gate probe was invoked
     expect(calls.gate).toHaveLength(1);
@@ -314,11 +332,11 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
     expect(calls.merge).toHaveLength(1);
   });
 
-  it('safety does not short-circuit authority: foreign conductor + red probes', async () => {
+  it('safety does not short-circuit authority: unauthorized conductor + red probes', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: false, status: 'needs-discovery', abandonedAt: null }]]);
 
-    const foreigner: LandActor = { kind: 'conductor', session: 'someone-else' };
+    const conductor: LandActor = { kind: 'conductor', session: SESSION };
     const { calls, probes } = countingProbes();
 
     // Make probes red
@@ -328,11 +346,11 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
       regressions: [gateUnit({ baseline: 'pass', branch: 'fail', classification: 'regression' })],
     });
 
-    const verdict = await landAuthority(PROJECT, 'e1', foreigner, { probes, todos: TODOS });
+    const verdict = await landAuthority(PROJECT, 'e1', conductor, { probes, todos: TODOS });
 
     // Should have blockers from BOTH authority and safety
     expect(verdict.blockers.length).toBeGreaterThan(1);
-    expect(verdict.blockers[0]?.code).toBe('foreign-mission'); // authority first
+    expect(verdict.blockers[0]?.code).toBe('no-active-mission'); // authority first
     const codes = verdict.blockers.map((b) => b.code);
     expect(codes).toContain('gate-regression');
     expect(codes).toContain('merge-conflict');

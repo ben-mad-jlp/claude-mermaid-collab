@@ -82,7 +82,12 @@ describe('resolveActiveMissionDigest', () => {
     void r;
   });
 
-  test('two active missions (ambiguous) falls back to the project digest', async () => {
+  test('a second forge enqueues rather than creating a second active — the single active mission digest resolves (7721f2db)', async () => {
+    // One-active-per-project (mission 7721f2db): forging a second mission does NOT create a
+    // rival active mission — it is enqueued behind the first, which stays active. So the digest
+    // resolves unambiguously to the single active mission's digest, never the project fallback.
+    // (This replaces the old 'two active missions → ambiguous → project digest' case: two
+    // active missions are no longer constructible.)
     await forgeMission(project, {
       session: 's1',
       title: 'First active mission',
@@ -91,14 +96,14 @@ describe('resolveActiveMissionDigest', () => {
     });
     await forgeMission(project, {
       session: 's2',
-      title: 'Second active mission',
+      title: 'Second mission (enqueued, not a second active)',
       criteria: ['it works'],
       digest: '# second',
     });
     await writeProjectDigest(project);
     expect(existsSync(join(project, '.collab', 'project-digest.md'))).toBe(true);
     const resolved = resolveActiveMissionDigest(project);
-    expect(resolved).not.toContain('# first');
+    expect(resolved).toContain('# first');
     expect(resolved).not.toContain('# second');
   });
 

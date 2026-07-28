@@ -139,7 +139,11 @@ describe('land-epic-actor — authority gating', () => {
     expect(result.blocker?.code).toBe('bucket-epic');
   });
 
-  it("test 8 — conductor + epic under different session's active mission → refuses with foreign-mission code", async () => {
+  // Mission 7721f2db retired the mission→session binding: a mission is PROJECT-owned, so the
+  // conductor may land the project's active mission's epics from ANY session. The old
+  // 'foreign-mission' refusal is gone; ownership still gates on bucket-epic (test 7),
+  // not-an-epic, and no-active-mission.
+  it("test 8 — conductor + epic under a mission registered by another session → authorized (project-owned)", async () => {
     // Create a mission owned by conductor-2
     const mission = await createTodo(repo, {
       allowOrphan: true,
@@ -162,10 +166,9 @@ describe('land-epic-actor — authority gating', () => {
     const todos = listTodos(repo, { includeCompleted: true });
     const result = checkOwnership(repo, epic.id, actor, todos);
 
-    expect(result.ok).toBe(false);
-    expect(result.ownership).toBe('foreign');
-    expect(result.blocker?.code).toBe('foreign-mission');
-    expect(result.blocker?.message).toContain('conductor-2'); // ownership record names the owner
+    expect(result.ok).toBe(true);
+    expect(result.ownership).toBe('owned');
+    expect(result.blocker).toBeUndefined();
   });
 
   it("test 9 — conductor + epic under its own active mission → authorized with owned status", async () => {
