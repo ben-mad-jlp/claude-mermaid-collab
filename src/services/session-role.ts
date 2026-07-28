@@ -25,11 +25,10 @@ export interface SessionRoleDeps {
 export function resolveSessionRole(project: string, session: string, deps: SessionRoleDeps = {}): SessionRole | null {
   try {
     const list = (deps.listMissions ?? listMissions)(project);
-    const owns = list.some(
-      (m) => m.mission.active && !isMissionTerminal(m.mission) &&
-        (m.ownerSession === session || m.assigneeSession === session),
+    const isConductor = list.some(
+      (m) => m.mission.active && !isMissionTerminal(m.mission),
     );
-    return owns ? 'conductor' : null;
+    return isConductor ? 'conductor' : null;
   } catch {
     return null;
   }

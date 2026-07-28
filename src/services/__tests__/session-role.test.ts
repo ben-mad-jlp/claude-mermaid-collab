@@ -4,12 +4,12 @@ import { resolveSessionRole, type SessionRoleDeps } from '../session-role';
 import type { MissionSummary } from '../mission-store';
 
 describe('session-role: resolveSessionRole', () => {
-  test('owner of an active non-terminal mission → "conductor"', () => {
+  test('project has an active non-terminal mission → "conductor" (session-independent)', () => {
     const deps: SessionRoleDeps = {
       listMissions: () => [
         {
           node: { id: 'm1', title: '[MISSION] Test', status: 'in_progress' },
-          ownerSession: 'sess1',
+          ownerSession: 'other-session',
           assigneeSession: null,
           mission: { active: true, phase: 'execute' } as any,
           rollup: {} as any,
@@ -21,21 +21,21 @@ describe('session-role: resolveSessionRole', () => {
     expect(resolveSessionRole('proj', 'sess1', deps)).toBe('conductor');
   });
 
-  test('assignee (not owner) of an active non-terminal mission → "conductor"', () => {
+  test('no active mission on project → null', () => {
     const deps: SessionRoleDeps = {
       listMissions: () => [
         {
           node: { id: 'm1', title: '[MISSION] Test', status: 'in_progress' },
-          ownerSession: 'other',
-          assigneeSession: 'sess2',
-          mission: { active: true, phase: 'discover' } as any,
+          ownerSession: 'other-session',
+          assigneeSession: null,
+          mission: { active: false, phase: 'discover' } as any,
           rollup: {} as any,
           criteria: [],
           epics: [],
         } as MissionSummary,
       ],
     };
-    expect(resolveSessionRole('proj', 'sess2', deps)).toBe('conductor');
+    expect(resolveSessionRole('proj', 'sess1', deps)).toBeNull();
   });
 
   test('active: false mission → null', () => {
@@ -82,23 +82,6 @@ describe('session-role: resolveSessionRole', () => {
           ownerSession: 'sess1',
           assigneeSession: null,
           mission: { active: true, abandonedAt: 1 } as any,
-          rollup: {} as any,
-          criteria: [],
-          epics: [],
-        } as MissionSummary,
-      ],
-    };
-    expect(resolveSessionRole('proj', 'sess1', deps)).toBeNull();
-  });
-
-  test('mission owned by different session → null', () => {
-    const deps: SessionRoleDeps = {
-      listMissions: () => [
-        {
-          node: { id: 'm1', title: '[MISSION] Test', status: 'in_progress' },
-          ownerSession: 'other-session',
-          assigneeSession: null,
-          mission: { active: true, phase: 'execute' } as any,
           rollup: {} as any,
           criteria: [],
           epics: [],

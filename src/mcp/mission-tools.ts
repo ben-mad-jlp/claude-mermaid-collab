@@ -5,7 +5,7 @@
 // identical to the original inline setup.ts implementation — this is a pure move.
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import {
-  getTodo, deriveTodoViews, reassignOwnerSession, updateTodo as updateTodoStore,
+  getTodo, deriveTodoViews, updateTodo as updateTodoStore,
 } from '../services/todo-store.js';
 import {
   upsertMission, getMission,
@@ -37,7 +37,6 @@ export const MISSION_TOOL_DEFS = [
       { name: 'update_mission', description: "Edit a mission's node — its title (goal), description, and/or budgetUsd (per-mission USD budget ceiling). The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' }, budgetUsd: { type: ['number', 'null'], description: 'Per-mission USD budget ceiling; null clears it to the project default. The ONLY supported mutation surface — do not UPDATE the mission row by hand.' }, actor: { type: 'string', description: 'WHO is changing the budget (required for a budgetUsd change; recorded to the autonomy audit log).' }, reason: { type: 'string', description: 'WHY the budget is changing (recorded to the autonomy audit log).' } }, required: ['project', 'todoId'] } },
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'criterionId', 'text'] } },
-      { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (criteria, verdicts). todoId must be a mission node (kind='mission').", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
       { name: 'list_missions', description: "List a project's MISSIONS as compact summaries — the counterpart to get_mission (which needs a mission id you may not have yet). DEFAULT returns only OPEN missions: it EXCLUDES terminal (converged/abandoned) and archived missions, so you see just what is still in play. Filters: `activeOnly` = only the mission(s) currently being DRIVEN (active=true — at most one per session); `session` = scope to missions owned by / assigned to that session (the mission↔session tie); `includeTerminal` = also include converged/abandoned; `includeArchived` = also include archived. Each row: id, shortId, title, status, active, awaitingApproval, ownerSession/assigneeSession, capability {met,total}, mechanical {done,total}, gaps, awaitingVerify, converged. Rows are sorted active-first. Use this to find the id, then call get_mission for full per-criterion actions.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'Optional — return only missions owned by / assigned to this session.' }, activeOnly: { type: 'boolean', description: 'Only missions with active=true (the driven one). Default false.' }, includeTerminal: { type: 'boolean', description: 'Include converged/abandoned missions. Default false (open only).' }, includeArchived: { type: 'boolean', description: 'Include archived missions. Default false.' } }, required: ['project'] } },
       { name: 'get_mission', description: 'Read a mission\'s full state: control state, acceptance criteria (each with a DERIVED per-criterion `action`: met|building|verify|discover — serve EVERY discover gap in one pass, one epic per criterion), and the convergence rollup — mechanical (direct [EPIC] children done/total) + capability (criteria met/total) + gaps/awaitingVerify + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' } }, required: ['project', 'todoId'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
@@ -171,15 +170,6 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         // rules never became active constraint records the builders see (forge_mission prevents this).
         constitutionHealth: missionConstitutionHealth(project, id),
       }, null, 2);
-    }
-    case 'set_mission_owner': {
-      const { project, todoId, session } = args as { project: string; todoId: string; session: string };
-      if (!project || !todoId || !session) throw new Error('Missing required: project, todoId, session');
-      const node = getTodo(project, todoId);
-      if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMission(node)) throw new Error(`not a mission node (kind='mission'): ${todoId}`);
-      const updated = await reassignOwnerSession(project, todoId, session);
-      return JSON.stringify({ todoId, ownerSession: updated.ownerSession, assigneeSession: updated.assigneeSession }, null, 2);
     }
     case 'set_active_mission': {
       const { project, todoId } = args as { project: string; todoId: string };
