@@ -25,6 +25,7 @@ import { DIAGRAM_TOOL_DEFS, handleDiagramTool } from '../diagram-tools.js';
 import { DESIGN_TOOL_DEFS, handleDesignTool } from '../design-tools.js';
 import { SUPERVISOR_TOOL_DEFS, handleSupervisorTool } from '../supervisor-tools.js';
 import { EPIC_TOOL_DEFS, handleEpicTool } from '../epic-tools.js';
+import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from '../workgraph-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from '../system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from '../session-tools.js';
@@ -208,6 +209,22 @@ describe('tool dispatch coverage', () => {
 
   it('handleEpicTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleEpicTool('definitely_not_an_epic_tool', {})).toBeNull();
+  });
+
+  it('WORKGRAPH_TOOL_DEFS declares exactly the expected workgraph surface', () => {
+    expect(new Set(WORKGRAPH_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set(['create_epic', 'add_leaves', 'file_to_bucket', 'inspect_workgraph']),
+    );
+  });
+
+  it('every WORKGRAPH_TOOL_DEFS name is wired in handleWorkgraphTool', async () => {
+    for (const def of WORKGRAPH_TOOL_DEFS) {
+      expect(await isRecognized(handleWorkgraphTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleWorkgraphTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleWorkgraphTool('definitely_not_a_workgraph_tool', {})).toBeNull();
   });
 
   it('DECISION_TOOL_DEFS declares exactly the expected decision surface', () => {
