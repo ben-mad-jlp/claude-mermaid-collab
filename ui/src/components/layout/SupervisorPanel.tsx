@@ -113,6 +113,13 @@ export function projectPlanStats(todos: SessionTodo[]): {
   let open = 0, inProgress = 0, blocked = 0, ready = 0;
   for (const t of todos) {
     if (TERMINAL_TODO.has(t.status)) continue;
+    // Mission + [LAND] nodes are containers/ghosts, NOT open work. A mission node's
+    // status is permanently 'todo' (terminality lives in mission.db, never on the node),
+    // so counting them inflated "N open" by every converged mission — e.g. 41 mission
+    // nodes turned a real ~31-leaf backlog into a "77 open" badge the Plan kanban never
+    // shows. Mirror PlanPanel's excludeMissions()/excludeLandLeaves() so this stat matches
+    // the kanban (funnel.ts: kind==='mission' / kind==='land', column-only, never kindOf()).
+    if (t.kind === 'mission' || t.kind === 'land') continue;
     open += 1;
     const d = derivedStatus(t, byId);
     if (d === 'in_progress') inProgress += 1;
