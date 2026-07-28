@@ -22,6 +22,24 @@ export type UIMode = 'studio' | 'bridge' | 'plan';
 export type PaneKey = 'bridge' | 'studio' | 'spec' | 'browser';
 export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'studio', 'spec', 'browser'];
 
+/**
+ * Canonicalize a persisted paneOrder: keep only known keys in their saved order,
+ * then append any missing known keys. Drops since-removed keys ('ops'/'terminal'
+ * or any dev-build stray) that would otherwise render an untoggleable blank pane.
+ */
+export function canonicalizePaneOrder(prev: readonly unknown[] | undefined): PaneKey[] {
+  const arr = Array.isArray(prev) ? prev : [];
+  const seen = new Set<PaneKey>();
+  const known: PaneKey[] = [];
+  for (const p of arr) {
+    if ((ALL_PANE_KEYS as string[]).includes(p as string) && !seen.has(p as PaneKey)) {
+      seen.add(p as PaneKey);
+      known.push(p as PaneKey);
+    }
+  }
+  return [...known, ...ALL_PANE_KEYS.filter((k) => !seen.has(k))];
+}
+
 export interface UIState {
   // Theme state
   theme: Theme;
@@ -484,12 +502,20 @@ export const useUIStore = create<UIState>()(
           // ('ops'/'terminal') — which crashed Header's paneToggles lookup on boot.
           // Canonicalize against ALL_PANE_KEYS: drop unknown keys, append missing.
           const old = persistedState as Record<string, unknown>;
-          const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as string[]) : [];
-          const known = prev.filter((p): p is PaneKey => (ALL_PANE_KEYS as string[]).includes(p));
-          const merged = [...known, ...ALL_PANE_KEYS.filter((k) => !known.includes(k))];
-          return { ...old, paneOrder: merged } as UIState;
+          return { ...old, paneOrder: canonicalizePaneOrder(old.paneOrder as unknown[]) } as UIState;
         }
         return persistedState as UIState;
+      },
+      // Runs on EVERY rehydrate, unlike the version-gated migrate above: a store
+      // already at the current version is never re-migrated, so a stray paneOrder
+      // key from a dev build that added/removed a pane without a version bump
+      // would otherwise persist forever and render an untoggleable blank pane.
+      // Replicate zustand's default shallow merge, then canonicalize paneOrder
+      // against ALL_PANE_KEYS (drop unknown keys, append any missing).
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as object) } as UIState;
+        merged.paneOrder = canonicalizePaneOrder(merged.paneOrder);
+        return merged;
       },
     }
   )
