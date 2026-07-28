@@ -45,6 +45,7 @@ export type MissionStatus =
   | 'needs-verify'    // some criterion's serving epic landed, verdict not yet recorded
   | 'needs-discovery' // some criterion has no LIVE serving epic (per-criterion — others may be building)
   | 'converged'       // every criterion met
+  | 'waiting'         // enqueued behind the session's active mission — active=false && queuePos != null; not yet the session's turn to run
   | 'closed';         // closedAt set — frozen converged history
 
 /** A mission is terminal (the loop has stopped) when it converged, a human abandoned it, or it
@@ -1225,6 +1226,10 @@ export interface MissionStatusFacts {
    *  STALLED reason (see mission-stall.ts) longer than MISSION_STALL_GRACE_MS. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
   stalled?: boolean;
+  /** true when the mission is enqueued behind its session's active mission (active===false &&
+   *  queuePos != null); set by collectMissionStatusFacts from the MissionRow. Optional so
+   *  existing fact fixtures need no change. */
+  queued?: boolean;
   criteria: MissionCriterionFacts[];
 }
 
@@ -1288,6 +1293,10 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   // permanently in the cost ledger and the re-bet card history is untouched — only the status
   // stops lying. This also matches deriveCheapMissionStatus, which already ranks converged first.
   if (f.criteria.length > 0 && actions.every((a) => a === 'met')) return 'converged';
+  // WAITING: enqueued behind the session's active mission — deriveTerminalMissionPrefix
+  // already ran (so this is approved and non-terminal) and it hasn't converged, so its
+  // work-ladder status is moot until it's promoted (promoteQueuedMissions).
+  if (f.queued) return 'waiting';
   // over-budget applies only to a mission that has NOT converged: the breaker fired, the loop
   // stopped serving, and a re-bet is genuinely owed — that one belongs in the open list.
   if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
@@ -1316,7 +1325,7 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
  * `withFacts: true`.
  */
 export function deriveCheapMissionStatus(
-  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null },
+  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null; active?: boolean | number; queuePos?: number | null },
   _epics: readonly { status: string }[],
   criteria: readonly { met: boolean }[] = [],
   stalled: boolean = false,
@@ -1330,6 +1339,9 @@ export function deriveCheapMissionStatus(
   // done-signal, so this keeps `status` consistent with the `converged` flag. Non-converged reads
   // 'building' (the list badge; the detail view carries the exact building/needs-discovery status).
   if (criteria.length > 0 && criteria.every((c) => c.met)) return 'converged';
+  // WAITING: same semantics as deriveMissionStatus's waiting arm — active is stored as a
+  // SQLite INTEGER (0/1), so test truthiness (`!m.active`), never `=== false`.
+  if (!m.active && m.queuePos != null) return 'waiting';
   // NO SILENT STOP (mission a6ab522b). This is THE line that read "BUILDING" for 1h45m on a
   // mission that had crossed its budget and would never move again: the cheap path cannot
   // afford a spend scan, so everything non-converged fell through to 'building'. The stall
@@ -1457,6 +1469,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     // In-memory lookup (mission-stall.ts) — no scan, no I/O, and TTL'd so a project whose
     // mission-loop stopped running cannot latch a mission at 'stalled' forever.
     stalled: isMissionStalled(project, m.todoId, now),
+    queued: m.active !== true && m.queuePos != null,
     criteria: criteria.map((c) => {
       // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
       // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
