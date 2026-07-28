@@ -444,7 +444,7 @@ export function stampMissionNodeApproved(project: string, todoId: string, approv
 }
 
 /** Approve a forged mission: clear awaitingApprovalSince (→ status leaves 'unapproved'), then either
- *  activate it for its session (no rival active mission) or enqueue it behind the session's
+ *  activate it (no rival active mission in the project) or enqueue it behind the project's
  *  already-active mission — a rival's active flag is never clobbered. Idempotent. The CALLER
  *  ratifies the constitution separately (approve the mission's proposed constraint records). */
 export function setMissionApproved(project: string, todoId: string, approvedBy?: string | null): MissionRow {
@@ -455,10 +455,7 @@ export function setMissionApproved(project: string, todoId: string, approvedBy?:
     .prepare('UPDATE mission SET awaitingApprovalSince = NULL, updatedAt = ? WHERE todoId = ?')
     .run(nowMs(), id);
   if (approvedBy) stampMissionNodeApproved(project, id, approvedBy);
-  const all = listMissions(project);
-  const self = all.find((x) => x.node.id === id);
-  const session = self?.ownerSession ?? self?.assigneeSession ?? null;
-  if (session && sessionHasActiveMission(project, session, id)) {
+  if (projectHasActiveMission(project, id)) {
     enqueueMission(project, id);
   } else {
     setMissionActive(project, id, true);
@@ -850,16 +847,6 @@ export function selectConductorMission(
 export function projectHasActiveMission(project: string, excludeTodoId?: string): boolean {
   return listMissions(project).some(
     (m) => m.node.id !== excludeTodoId && m.mission.active && !isMissionTerminal(m.mission),
-  );
-}
-
-/** True iff the session already has an active, NON-TERMINAL mission (used to default
- *  a newly created mission inactive only when its session is genuinely driving one).
- *  A converged/abandoned mission still carries active=1 but must NOT block a new one. */
-export function sessionHasActiveMission(project: string, session: string, excludeTodoId?: string): boolean {
-  return listMissions(project).some(
-    (m) => m.node.id !== excludeTodoId && m.mission.active && !isMissionTerminal(m.mission) &&
-      (m.ownerSession === session || m.assigneeSession === session),
   );
 }
 

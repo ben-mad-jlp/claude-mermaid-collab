@@ -400,13 +400,13 @@ describe('active mission (one per project)', () => {
 });
 
 describe('mission meta-fixes', () => {
-  test('sessionHasActiveMission ignores a converged/abandoned mission (does not block a new one)', async () => {
-    const { sessionHasActiveMission } = await import('../mission-store');
+  test('projectHasActiveMission ignores a converged/abandoned mission (does not block a new one)', async () => {
+    const { projectHasActiveMission } = await import('../mission-store');
     const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
     upsertMission(project, a);
-    expect(sessionHasActiveMission(project, 'design')).toBe(true); // active + non-terminal
+    expect(projectHasActiveMission(project)).toBe(true); // active + non-terminal
     setMissionAbandoned(project, a, Date.now()); // terminal
-    expect(sessionHasActiveMission(project, 'design')).toBe(false); // terminal → does not count
+    expect(projectHasActiveMission(project)).toBe(false); // terminal → does not count
   });
 
   test('abandoning a mission clears its active flag (terminal missions are never active=1)', async () => {
@@ -1167,8 +1167,36 @@ describe('mission-store: queueing — rival-preservation, approval gate, idempot
     expect(getMission(project, b)!.queuePos).not.toBeNull();
   });
 
+  test("approving a mission owned by ANOTHER session enqueues it behind the project's active mission", async () => {
+    const { setMissionApproved, activateMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 's1', assigneeSession: 's1', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 's2', assigneeSession: 's2', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a);
+    upsertMission(project, b, { awaitingApprovalSince: Date.now() });
+    activateMission(project, a);
+
+    setMissionApproved(project, b);
+
+    expect(getMission(project, b)!.active).toBe(false);
+    expect(getMission(project, b)!.queuePos).not.toBeNull();
+    expect(getMission(project, a)!.active).toBe(true);
+  });
+
+  test('at most one active mission per project after approval', async () => {
+    const { setMissionApproved, activateMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 's1', assigneeSession: 's1', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 's2', assigneeSession: 's2', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a);
+    upsertMission(project, b, { awaitingApprovalSince: Date.now() });
+    activateMission(project, a);
+
+    setMissionApproved(project, b);
+
+    expect(listMissions(project).filter(m => m.mission.active && !isMissionTerminal(m.mission)).length).toBeLessThanOrEqual(1);
+  });
+
   test('promoteQueuedMissions never activates an unapproved queued mission; awaitingApprovalSince is untouched', async () => {
-    const { enqueueMission, promoteQueuedMissions, sessionHasActiveMission } = await import('../mission-store');
+    const { enqueueMission, promoteQueuedMissions, projectHasActiveMission } = await import('../mission-store');
     const a = (await createTodo(project, { ownerSession: 'q-session', assigneeSession: 'q-session', title: '[MISSION] a', kind: 'mission' })).id;
     const b = (await createTodo(project, { ownerSession: 'q-session', assigneeSession: 'q-session', title: '[MISSION] b', kind: 'mission' })).id;
     upsertMission(project, a);
@@ -1186,13 +1214,13 @@ describe('mission-store: queueing — rival-preservation, approval gate, idempot
     const promoted = promoteQueuedMissions(project);
 
     expect(promoted).not.toContain(b);
-    expect(sessionHasActiveMission(project, 'q-session')).toBe(false);
+    expect(projectHasActiveMission(project)).toBe(false);
     expect(getMission(project, b)!.active).toBe(false);
     expect(getMission(project, b)!.awaitingApprovalSince).toBe(awaitingApprovalSinceBefore);
   });
 
   test('promoteQueuedMissions activates the lowest-queuePos approved candidate and is idempotent on replay', async () => {
-    const { enqueueMission, promoteQueuedMissions, sessionHasActiveMission } = await import('../mission-store');
+    const { enqueueMission, promoteQueuedMissions, projectHasActiveMission } = await import('../mission-store');
     const a = (await createTodo(project, { ownerSession: 'r-session', assigneeSession: 'r-session', title: '[MISSION] a', kind: 'mission' })).id;
     const b = (await createTodo(project, { ownerSession: 'r-session', assigneeSession: 'r-session', title: '[MISSION] b', kind: 'mission' })).id;
     upsertMission(project, a);
@@ -1205,13 +1233,13 @@ describe('mission-store: queueing — rival-preservation, approval gate, idempot
     expect(getMission(project, b)!.active).toBe(false);
     expect(getMission(project, b)!.queuePos).not.toBeNull();
 
-    expect(sessionHasActiveMission(project, 'r-session')).toBe(false);
+    expect(projectHasActiveMission(project)).toBe(false);
 
     const promoted = promoteQueuedMissions(project);
     expect(promoted).toEqual([b]);
     expect(getMission(project, b)!.active).toBe(true);
     expect(getMission(project, b)!.queuePos).toBeNull();
-    expect(sessionHasActiveMission(project, 'r-session')).toBe(true);
+    expect(projectHasActiveMission(project)).toBe(true);
 
     const secondPromoted = promoteQueuedMissions(project);
     expect(secondPromoted).toEqual([]);
