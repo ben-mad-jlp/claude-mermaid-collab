@@ -108,8 +108,8 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
   not authorship. **Integrate the result through the daemon, not by hand:** adopt
   the hand-built branch as an epic and let `land_epic` merge it behind the
   per-project land mutex + base gate — NEVER `git merge`/`git commit` it to master
-  yourself (the ergonomic verb is `adopt_branch_as_epic`, mission `9235721c`; until
-  it ships, assemble it: `create_epic` → put the commits on `epicBranchName(epicId)`
+  yourself (the ergonomic verb is `adopt_branch_as_epic`; until it ships, assemble
+  it: `create_epic` → put the commits on `epicBranchName(epicId)`
   → override-accept the leaf → `land_epic`).
 
 ## Safety rituals (each one paid for in incidents)
