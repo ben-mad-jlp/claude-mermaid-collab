@@ -132,6 +132,8 @@ If `sessionRole` is null, do nothing extra — resume as a plain vibe session.
 
 Interactive collab sessions are **planning-only** by default: plan, supervise the Orchestrator daemon, create docs/diagrams/designs — do **not** hand-edit source on the main checkout.
 
-To hand-code, use the **`EnterWorktree`** opt-in flow (the session moves into an isolated branch off master), make edits, then merge/PR back and `ExitWorktree`. Todos/epics still resolve via `trackingProjectRoot()` (`src/services/todo-store.ts`) even from inside the worktree.
+To hand-code, use the **`EnterWorktree`** opt-in flow (the session moves into an isolated branch off master) and make edits there. Todos/epics still resolve via `trackingProjectRoot()` (`src/services/todo-store.ts`) even from inside the worktree.
+
+**Never hand-merge, `git commit`, or `git push` your worktree back to master while the daemon is live.** The worktree isolates your *editing*, not the *integration* — a hand-merge races the daemon's land / forward-integrate on the main checkout and silently clobbers (or is clobbered by) it. Hand the branch back through the daemon's serialized, base-gated land path instead: adopt it as an epic and let `land_epic` merge it behind the per-project land mutex + base gate (the daemon already lands work it did not author — verification is against HEAD, not authorship). The ergonomic verb is `adopt_branch_as_epic` (mission `9235721c`); until it ships, assemble it — `create_epic` → put the commits on the epic's branch (`epicBranchName`) → `override_accept_todo` the leaf → `land_epic`. Integration is the daemon's job, never yours.
 
 See the **planner** or **vibe-active** skills for the full flow. The L1 land guard is the backstop.

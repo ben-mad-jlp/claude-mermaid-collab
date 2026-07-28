@@ -105,21 +105,32 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
   a subagent. FIRST clear the daemon's runway — drop moot leaves; un-approve
   (status:'planned') anything that must not be claimed yet — so no worktree races
   the hand-build. The conductor keeps verify/land; verification is against HEAD,
-  not authorship.
+  not authorship. **Integrate the result through the daemon, not by hand:** adopt
+  the hand-built branch as an epic and let `land_epic` merge it behind the
+  per-project land mutex + base gate — NEVER `git merge`/`git commit` it to master
+  yourself (the ergonomic verb is `adopt_branch_as_epic`, mission `9235721c`; until
+  it ships, assemble it: `create_epic` → put the commits on `epicBranchName(epicId)`
+  → override-accept the leaf → `land_epic`).
 
 ## Safety rituals (each one paid for in incidents)
 
 - **Do ALL hand-work in a throwaway git worktree, never the daemon-driven main
   checkout.** Hand-builds, hotfixes, and any commit you author: create an isolated
   worktree off master first (`git worktree add ../wt-fix master`), work + commit
-  there, then merge/land from there — and remove it when done. WHY (paid for): the
-  main checkout is the daemon's staging area — its INDEX carries whatever a
-  forward-integrate/land left staged. A commit there inherits that: a conducting-UI
-  commit authored in the main checkout swept a forward-integrate's staged REVERT of
-  a just-landed epic's reaper into itself, redding master and wedging the mission on
-  its own base. A worktree has its own clean index, so your commit can only ever
-  contain your files. This is the primary defense; the `git status` check below is
-  the fallback for the rare case you must touch the main checkout directly.
+  there, then hand the branch back through the daemon's gated land path (adopt-as-epic
+  → `land_epic`, NEVER a hand-merge to master) — and remove the worktree when done.
+  WHY (paid for): the main checkout is the daemon's staging area — its INDEX carries
+  whatever a forward-integrate/land left staged. A commit there inherits that: a
+  conducting-UI commit authored in the main checkout swept a forward-integrate's
+  staged REVERT of a just-landed epic's reaper into itself, redding master and
+  wedging the mission on its own base. A worktree has its own clean index, so your
+  commit can only ever contain your files. **But the worktree isolates only your
+  EDITING, not the INTEGRATION** — merging that branch to master by hand still races
+  the daemon's land/forward-integrate on the main checkout and clobbers (or is
+  clobbered by) it. Integration is the daemon's job: route it through the serialized,
+  base-gated land path (see Hand-build threshold). This is the primary defense; the
+  `git status` check below is the fallback for the rare case you must touch the main
+  checkout directly.
 - **Never mutate `.collab/*.db` with raw SQL — and treat every raw-SQL reach as a
   missing-tool signal.** A raw `UPDATE`/`DELETE` bypasses the invariants the store
   enforces: a raw `UPDATE todos SET status='dropped'` on an epic SKIPS todo-store's
@@ -175,3 +186,6 @@ Every intervention produces a durable artifact, in the moment, not at the end:
 - Authoring ANY commit in the daemon-driven main checkout instead of a throwaway
   worktree — the main-checkout index inherits a forward-integrate's staging and your
   commit sweeps it in (reverts a just-landed epic, reds master).
+- Hand-merging a worktree branch to master while the daemon is live — the merge
+  races land/forward-integrate and clobbers. Adopt the branch as an epic and let
+  `land_epic` integrate it behind the mutex + base gate.
