@@ -286,31 +286,116 @@ describe('mission-store: convergence rollup', () => {
   });
 });
 
-describe('active mission (one per session)', () => {
-  test('activateMission activates one + deactivates same-session siblings only', async () => {
-    const { activateMission, setMissionActive, sessionHasActiveMission } = await import('../mission-store');
-    // two missions owned by 'design', one by 'other'
-    const a = (await createTodo(project, { ownerSession: 'design', assigneeSession: 'design', title: '[MISSION] a', kind: 'mission' })).id;
-    const b = (await createTodo(project, { ownerSession: 'design', assigneeSession: 'design', title: '[MISSION] b', kind: 'mission' })).id;
-    const c = (await createTodo(project, { ownerSession: 'other', assigneeSession: 'other', title: '[MISSION] c', kind: 'mission' })).id;
+describe('active mission (one per project)', () => {
+  test('activateMission activates one + deactivates ALL other active missions in project', async () => {
+    const { activateMission, setMissionActive, enqueueMission } = await import('../mission-store');
+    // three missions across two sessions
+    const a = (await createTodo(project, { ownerSession: 's1', assigneeSession: 's1', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 's1', assigneeSession: 's1', title: '[MISSION] b', kind: 'mission' })).id;
+    const c = (await createTodo(project, { ownerSession: 's2', assigneeSession: 's2', title: '[MISSION] c', kind: 'mission' })).id;
     upsertMission(project, a); upsertMission(project, b); upsertMission(project, c);
     // all default active
     expect(getMission(project, a)!.active).toBe(true);
 
     const deactivated = activateMission(project, a);
-    expect(deactivated).toEqual([b]);                 // only the same-session sibling
+    // b and c are both deactivated (any owner) — they get enqueued instead of bare deactivate
+    expect(new Set(deactivated)).toEqual(new Set([b, c]));
     expect(getMission(project, a)!.active).toBe(true);
     expect(getMission(project, b)!.active).toBe(false);
-    expect(getMission(project, c)!.active).toBe(true); // other session untouched
-    expect(sessionHasActiveMission(project, 'design')).toBe(true);
-    expect(sessionHasActiveMission(project, 'design', a)).toBe(false); // a is the only design-active
+    expect(getMission(project, b)!.queuePos).not.toBeNull(); // deactivated → enqueued
+    expect(getMission(project, c)!.active).toBe(false);
+    expect(getMission(project, c)!.queuePos).not.toBeNull(); // deactivated → enqueued
 
     // switch active to b
-    expect(activateMission(project, b)).toEqual([a]);
+    expect(activateMission(project, b)).toEqual([a]); // a gets deactivated+enqueued
     expect(getMission(project, a)!.active).toBe(false);
     expect(getMission(project, b)!.active).toBe(true);
     setMissionActive(project, a, true); // low-level still works
     expect(getMission(project, a)!.active).toBe(true);
+  });
+
+  test('activating B while A is active in ANOTHER session deactivates A', async () => {
+    const { activateMission } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 's1', title: '[MISSION] a', kind: 'mission' })).id;
+    const b = (await createTodo(project, { ownerSession: 's2', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, a);
+    upsertMission(project, b);
+    expect(getMission(project, a)!.active).toBe(true);
+    expect(getMission(project, b)!.active).toBe(true);
+
+    activateMission(project, b);
+    expect(getMission(project, a)!.active).toBe(false);
+    expect(getMission(project, a)!.queuePos).not.toBeNull(); // enqueued
+    expect(getMission(project, b)!.active).toBe(true);
+  });
+
+  test('a deactivated rival lands at the BACK of the FIFO and is later promoted', async () => {
+    const { activateMission, promoteQueuedMissions, enqueueMission } = await import('../mission-store');
+    // Create q and give it queuePos before we have any activation shenanigans
+    const q = (await createTodo(project, { ownerSession: 's1', title: '[MISSION] q', kind: 'mission' })).id;
+    upsertMission(project, q);
+    enqueueMission(project, q); // q gets queuePos = 1
+
+    const a = (await createTodo(project, { ownerSession: 's1', title: '[MISSION] a', kind: 'mission' })).id;
+    upsertMission(project, a); // a defaults active
+    expect(getMission(project, a)!.active).toBe(true);
+
+    const b = (await createTodo(project, { ownerSession: 's1', title: '[MISSION] b', kind: 'mission' })).id;
+    upsertMission(project, b); // b defaults active
+
+    // Now activate a, deactivating b (and q if it's still active, but it's queued so no-op)
+    activateMission(project, a);
+    const aPos = getMission(project, a)!.queuePos; // a was never queued
+    expect(aPos).toBeNull(); // active mission has no queuePos
+
+    // Deactivate a so we can test promotion
+    const { setMissionActive } = await import('../mission-store');
+    setMissionActive(project, a, false);
+    // Make sure a gets a queuePos if it didn't have one
+    const aMissQueuePos = getMission(project, a)!.queuePos === null;
+    if (aMissQueuePos) {
+      enqueueMission(project, a);
+    }
+
+    // Now both q and a should be queued. a should have a higher queuePos than q.
+    const qPos = getMission(project, q)!.queuePos!;
+    const aPos2 = getMission(project, a)!.queuePos!;
+    expect(aPos2).toBeGreaterThan(qPos);
+
+    // Promote the lowest-queuePos candidate
+    const promoted = promoteQueuedMissions(project);
+    // q should be promoted (lowest queuePos)
+    expect(promoted).toContain(q);
+    expect(getMission(project, q)!.active).toBe(true);
+    expect(getMission(project, q)!.queuePos).toBeNull();
+  });
+
+  test('at most one active mission per project across two owner sessions', async () => {
+    const { activateMission } = await import('../mission-store');
+    const m1 = (await createTodo(project, { ownerSession: 's1', title: '[MISSION] m1', kind: 'mission' })).id;
+    const m2 = (await createTodo(project, { ownerSession: 's2', title: '[MISSION] m2', kind: 'mission' })).id;
+    const m3 = (await createTodo(project, { ownerSession: 's1', title: '[MISSION] m3', kind: 'mission' })).id;
+    upsertMission(project, m1);
+    upsertMission(project, m2);
+    upsertMission(project, m3);
+
+    // Activate m2 from s2
+    activateMission(project, m2);
+    let active = listMissions(project).filter((m) => m.mission.active);
+    expect(active.length).toBe(1);
+    expect(active[0].node.id).toBe(m2);
+
+    // Activate m1 from s1 (should deactivate m2)
+    activateMission(project, m1);
+    active = listMissions(project).filter((m) => m.mission.active);
+    expect(active.length).toBe(1);
+    expect(active[0].node.id).toBe(m1);
+
+    // Activate m3 from s1 (should deactivate m1)
+    activateMission(project, m3);
+    active = listMissions(project).filter((m) => m.mission.active);
+    expect(active.length).toBe(1);
+    expect(active[0].node.id).toBe(m3);
   });
 });
 

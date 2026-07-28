@@ -10,7 +10,7 @@ import {
 import {
   upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
-  activateMission, sessionHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
+  activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
   assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
 } from '../services/mission-store.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
@@ -70,9 +70,9 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         assigneeSession: session, description,
       });
       upsertMission(project, node.id, { budgetUsd: budgetUsd ?? null, handoffDocId: handoffDocId ?? null });
-      // One-active-per-session: if this session is already driving an active mission,
+      // One-active-per-project: if the project is already driving an active mission,
       // enqueue the new one (don't steal focus). Otherwise it stays active.
-      if (sessionHasActiveMission(project, session, node.id)) enqueueMission(project, node.id);
+      if (projectHasActiveMission(project, node.id)) enqueueMission(project, node.id);
       for (const c of criteria ?? []) { if (c.trim()) addCriterion(project, node.id, c); }
       getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: node.ownerSession, assigneeSession: node.assigneeSession ?? undefined });
       return JSON.stringify({

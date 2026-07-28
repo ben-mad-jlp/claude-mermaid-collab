@@ -692,27 +692,21 @@ export function missionIdOfCriterion(project: string, criterionId: string): stri
 }
 
 /**
- * Make ONE mission the active one for its owning session: set it active and
- * deactivate every OTHER mission owned by the same session (a steward drives one
- * mission at a time). Missions owned by a DIFFERENT session are untouched. Returns
- * the set of todoIds that were deactivated.
+ * Make ONE mission the active one for its project: set it active and deactivate
+ * every OTHER mission in the project that is active (a steward drives one mission
+ * at a time, per project). Returns the set of todoIds that were deactivated.
  */
 export function activateMission(project: string, todoId: string): string[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const id = m.todoId; // canonical — a short id must behave identically from here on
   const all = listMissions(project);
-  const self = all.find((x) => x.node.id === id);
-  const session = self?.ownerSession ?? self?.assigneeSession ?? null;
   const deactivated: string[] = [];
-  if (session) {
-    for (const other of all) {
-      if (other.node.id === id) continue;
-      const os = other.ownerSession ?? other.assigneeSession ?? null;
-      if (os === session && other.mission.active) {
-        setMissionActive(project, other.node.id, false);
-        deactivated.push(other.node.id);
-      }
+  for (const other of all) {
+    if (other.node.id === id) continue;
+    if (other.mission.active) {
+      enqueueMission(project, other.node.id);
+      deactivated.push(other.node.id);
     }
   }
   setMissionActive(project, id, true);
@@ -723,26 +717,20 @@ export function activateMission(project: string, todoId: string): string[] {
 }
 
 /**
- * Enqueue a mission for its owning session: set active=0 and assign the next FIFO
- * queuePos (1 + max queuePos over the SAME session's OTHER queued missions). Ordering
- * is per-session — missions owned by a different session are not considered. Does not
- * touch awaitingApprovalSince (approval gate is orthogonal to queueing).
+ * Enqueue a mission for its project: set active=0 and assign the next FIFO queuePos
+ * (1 + max queuePos over every OTHER queued mission in the project, any owner). Ordering
+ * is per project. Does not touch awaitingApprovalSince (approval gate is orthogonal to queueing).
  */
 export function enqueueMission(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const id = m.todoId; // canonical — a short id must behave identically from here on
   const all = listMissions(project);
-  const self = all.find((x) => x.node.id === id);
-  const session = self?.ownerSession ?? self?.assigneeSession ?? null;
   let maxPos = 0;
-  if (session) {
-    for (const other of all) {
-      if (other.node.id === id) continue;
-      const os = other.ownerSession ?? other.assigneeSession ?? null;
-      if (os === session && other.mission.queuePos != null) {
-        maxPos = Math.max(maxPos, other.mission.queuePos);
-      }
+  for (const other of all) {
+    if (other.node.id === id) continue;
+    if (other.mission.queuePos != null) {
+      maxPos = Math.max(maxPos, other.mission.queuePos);
     }
   }
   const nextPos = maxPos + 1;
@@ -753,42 +741,29 @@ export function enqueueMission(project: string, todoId: string): MissionRow {
 }
 
 /**
- * Promote the next queued mission for every session that currently has no active
+ * Promote the next queued mission for the project if it currently has no active
  * non-terminal mission. A candidate is queued (active=0), APPROVED
  * (awaitingApprovalSince == null), non-terminal, and has queuePos set. Never touches
- * a mission whose awaitingApprovalSince is set, and never writes
- * awaitingApprovalSince itself (the approval gate is untouched). No-op for a session
- * that already has an active mission. Returns the todoIds that were promoted.
+ * a mission whose awaitingApprovalSince is set, and never writes awaitingApprovalSince
+ * itself (the approval gate is untouched). No-op if the project already has an active mission.
+ * Returns the todoIds that were promoted (at most one).
  */
 export function promoteQueuedMissions(project: string): string[] {
+  if (projectHasActiveMission(project)) return [];
   const all = listMissions(project);
-  const sessions = new Set<string>();
-  for (const m of all) {
-    const session = m.ownerSession ?? m.assigneeSession ?? null;
-    if (session) sessions.add(session);
-  }
-  const promoted: string[] = [];
-  for (const session of sessions) {
-    if (sessionHasActiveMission(project, session)) continue;
-    const candidates = all.filter((m) => {
-      const os = m.ownerSession ?? m.assigneeSession ?? null;
-      return (
-        os === session &&
-        !m.mission.active &&
-        m.mission.awaitingApprovalSince == null &&
-        m.mission.queuePos != null &&
-        !isMissionTerminal(m.mission)
-      );
-    });
-    if (candidates.length === 0) continue;
-    candidates.sort((a, b) => (a.mission.queuePos! - b.mission.queuePos!));
-    const winner = candidates[0];
-    openDb(project)
-      .prepare('UPDATE mission SET active = 1, queuePos = NULL, updatedAt = ? WHERE todoId = ?')
-      .run(nowMs(), winner.node.id);
-    promoted.push(winner.node.id);
-  }
-  return promoted;
+  const candidates = all.filter((m) =>
+    !m.mission.active &&
+    m.mission.awaitingApprovalSince == null &&
+    m.mission.queuePos != null &&
+    !isMissionTerminal(m.mission)
+  );
+  if (candidates.length === 0) return [];
+  candidates.sort((a, b) => (a.mission.queuePos! - b.mission.queuePos!));
+  const winner = candidates[0];
+  openDb(project)
+    .prepare('UPDATE mission SET active = 1, queuePos = NULL, updatedAt = ? WHERE todoId = ?')
+    .run(nowMs(), winner.node.id);
+  return [winner.node.id];
 }
 
 export interface ConductorSelection {
@@ -866,6 +841,15 @@ export function selectConductorMission(
   const winner = sorted[winnerIndex];
   const rivals = sorted.filter((_, i) => i !== winnerIndex).map((m) => m.node.id);
   return { target: winner, rivals };
+}
+
+/** True iff the project already has an active, NON-TERMINAL mission (ignoring any
+ *  mission with the given excludeTodoId). A converged/abandoned mission still carries
+ *  active=1 but must NOT count as active per this check. */
+export function projectHasActiveMission(project: string, excludeTodoId?: string): boolean {
+  return listMissions(project).some(
+    (m) => m.node.id !== excludeTodoId && m.mission.active && !isMissionTerminal(m.mission),
+  );
 }
 
 /** True iff the session already has an active, NON-TERMINAL mission (used to default
