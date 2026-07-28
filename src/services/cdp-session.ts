@@ -74,8 +74,19 @@ export function selectElectronViewTarget(tabs: Array<{ id: string; type?: string
   return view.id;
 }
 
-function tabsPersistFilePath(port: number): string {
-  return `/tmp/.mermaid-collab-tabs-${port}.json`;
+/** POSIX uid tag for namespacing world-shared /tmp state, or 'nouid' where
+ *  getuid is unavailable. Mirrors port-ownership.ts's runUid(). */
+function runUidTag(): string {
+  return typeof process.getuid === 'function' ? String(process.getuid()) : 'nouid';
+}
+
+/** Per-user path for the persisted tab registry. The CDP port is derived
+ *  per-PROJECT (deriveCdpPort), so two OS users on the SAME project would
+ *  otherwise share one world-writable /tmp file and clobber each other's tab
+ *  map — uid-scoping the filename keeps each user's registry isolated while
+ *  still shared across that user's own processes. */
+export function tabsPersistFilePath(port: number): string {
+  return `/tmp/.mermaid-collab-${runUidTag()}-tabs-${port}.json`;
 }
 
 function persistTabRegistry(port: number): void {

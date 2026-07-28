@@ -15,10 +15,10 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { whereami } from './whereami';
 import {
-  performHandshake,
+  resolveOwnPort,
   currentExePath,
   serverOwner,
-  type HandshakeResult,
+  type ResolvedPort,
 } from '../src/services/port-ownership';
 import { SERVER_VERSION } from '../src/mcp/server';
 import { readPortFile } from '../src/services/config-file';
@@ -155,9 +155,14 @@ async function cleanStaleVscodeServer(): Promise<void> {
  * Run the canonical :9002 take-over-or-refuse handshake (design-ubuntu-native §4).
  * Returns the handshake result; the caller decides whether to bind/spawn.
  */
-async function runHandshake(): Promise<HandshakeResult> {
-  return performHandshake({
-    self: { exePath: currentExePath(), version: SERVER_VERSION, owner: serverOwner() },
+async function runHandshake(): Promise<ResolvedPort> {
+  return resolveOwnPort({
+    self: {
+      exePath: currentExePath(),
+      version: SERVER_VERSION,
+      owner: serverOwner(),
+      uid: typeof process.getuid === 'function' ? process.getuid() : null,
+    },
     port: Number(REQUEST_PORT),
     env: { ...process.env, PORT: String(REQUEST_PORT) },
   });
@@ -169,7 +174,7 @@ async function preflight(): Promise<void> {
   // (a rightful owner already holds it — idempotent no-op) both exit 0; 'refuse'
   // exits non-zero so the launcher surfaces the conflict instead of double-binding.
   const result = await runHandshake();
-  console.log(`preflight: ${result.action} (${result.reason})`);
+  console.log(`preflight: ${result.action} on :${result.port} (${result.reason})`);
   if (result.action === 'refuse') {
     console.error(`Refusing to take over :${REQUEST_PORT} — ${result.reason}.`);
     process.exit(1);
@@ -187,17 +192,21 @@ async function start(): Promise<void> {
     return;
   }
 
-  // Canonical port-ownership handshake: never silently shadow another server.
+  // Canonical port-ownership handshake with per-user coexistence: if :9002 is
+  // held by ANOTHER user, resolveOwnPort falls back to a per-user port instead
+  // of refusing, so a second OS user can run their own server on this machine.
   const handshake = await runHandshake();
+  const boundPort = handshake.port;
   if (handshake.action === 'defer') {
-    console.log(`A rightful server already owns :${REQUEST_PORT} (${handshake.reason}); deferring.`);
+    console.log(`A rightful server already owns :${boundPort} (${handshake.reason}); deferring.`);
     return;
   }
   if (handshake.action === 'refuse') {
     console.error(`Refusing to start on :${REQUEST_PORT} — ${handshake.reason}. Set MERMAID_GUARD_MODE=takeover to evict, or resolve the conflict.`);
     process.exit(1);
   }
-  // action === 'proceed' → the port is ours (was free, or a stale holder was evicted).
+  // action === 'proceed' → boundPort is ours (was free, a stale holder was
+  // evicted, or a per-user fallback when :9002 belonged to another user).
 
   // Check if server script exists
   if (!existsSync(SERVER_SCRIPT)) {
@@ -222,7 +231,7 @@ async function start(): Promise<void> {
   const child = spawn('bun', ['run', SERVER_SCRIPT], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
-    env: { ...process.env, PORT: String(REQUEST_PORT) },
+    env: { ...process.env, PORT: String(boundPort) },
   });
   closeSync(logFd); // child inherited its own dup of the fd
 
@@ -237,7 +246,7 @@ async function start(): Promise<void> {
   const ready = await waitForServer();
 
   if (ready) {
-    console.log(`Server started on http://localhost:${REQUEST_PORT}`);
+    console.log(`Server started on http://localhost:${boundPort}`);
     console.log(`Logs: ${LOG_FILE}`);
   } else {
     console.error(`Server failed to start. Check logs: ${LOG_FILE}`);

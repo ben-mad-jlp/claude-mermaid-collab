@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { performHandshake, serverOwner } from '../../../src/services/port-ownership';
+import { resolveOwnPort, serverOwner } from '../../../src/services/port-ownership';
 import { buildWslSidecarCommand } from '../../../src/services/wsl/sidecar-launch';
 import { winToWslPath } from '../../../src/services/wsl/wsl-path';
 import {
@@ -407,7 +407,11 @@ export class ServerSupervisor {
     // exePath makes the handshake fall back to a version match, so a healthy
     // same-version server attaches; a stale shadow (different binary / older
     // version) is evicted.
-    const handshake = await performHandshake({
+    // Per-user coexistence: if :9002 is held by ANOTHER OS user, resolveOwnPort
+    // falls back to a per-user port instead of refusing, so a second user's
+    // desktop app runs its own sidecar on this machine. boundPort may differ
+    // from the requested `port`.
+    const handshake = await resolveOwnPort({
       host: this.opts.host,
       port,
       env: { ...process.env, PORT: String(port) },
@@ -415,12 +419,13 @@ export class ServerSupervisor {
       fetchImpl: this.fetchImpl,
       portInUseImpl: this.opts.portInUseImpl,
     });
+    const boundPort = handshake.port;
     if (handshake.action === 'defer') {
       // A rightful owner already holds the port — attach to it rather than spawn.
       this.opts.onStartupProgress?.({ phase: 'attached', elapsedMs: 0 });
-      this.port = port;
+      this.port = boundPort;
       this.attached = true;
-      return { port, attached: true };
+      return { port: boundPort, attached: true };
     }
     if (handshake.action === 'refuse') {
       throw new Error(
@@ -428,20 +433,21 @@ export class ServerSupervisor {
           `Another process owns the port and the guard is in refuse mode.`,
       );
     }
-    // action === 'proceed' → the port is ours (was free, or a stale holder was evicted); spawn.
+    // action === 'proceed' → boundPort is ours (was free, a stale holder was
+    // evicted, or a per-user fallback when :9002 belonged to another user); spawn.
     this.stopped = false;
     this.opts.onStartupProgress?.({ phase: 'spawning', elapsedMs: 0 });
-    this.spawnChild(port);
-    await this.waitForHealth(port);
+    this.spawnChild(boundPort);
+    await this.waitForHealth(boundPort);
 
-    this.port = port;
+    this.port = boundPort;
     this.attached = false;
     // Start the health-based liveness watchdog now that the sidecar is up. This is
     // the RECOVERY half of the drive-wedge fix: ServerSupervisor otherwise respawns
     // only on process EXIT, so a pegged-but-ALIVE hang (CPU spin, frozen HTTP/MCP)
     // never exits and sits wedged indefinitely (the 9h23m drive wedge, 2026-06-11).
     this.startHealthWatchdog();
-    return { port, attached: false };
+    return { port: boundPort, attached: false };
   }
 
   /**
