@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { stripKindPrefix } from '@/lib/todoKind';
 import { type MissionSummary, type MissionPhase, type MissionStatus, useSupervisorStore } from '@/stores/supervisorStore';
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog';
+import { CopyId } from '@/components/CopyId';
 
 /** Phase → pill classes. 'converged' is loud green; the rest reuse the board's
  *  neutral/info/violet/amber token families so the strip reads as one system. */
@@ -631,6 +632,13 @@ export const MissionDetail: React.FC<{
             {isRatifiedStatus(view.status) && <RatifiedBadge />}
           </div>
         </div>
+
+        {/* Mission id — copyable so it can be referred to in tools/chat. Copies the FULL id. */}
+        {m.node?.id && (
+          <div className="flex items-center gap-1 text-3xs" title="Mission id — click to copy the full id">
+            <CopyId id={m.node.id} className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
 
         {/* Session/owner line */}
         {view.owner && (
