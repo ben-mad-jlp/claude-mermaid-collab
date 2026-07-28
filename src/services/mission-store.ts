@@ -1101,6 +1101,10 @@ export interface MissionCriterionFacts {
   servingEpicLandSha?: string | null;
   /** Timestamp the current serving epic's land record was stamped. */
   servingEpicLandedAt?: number | null;
+  /** Every epic serving this criterion (primary edge or servesCriterionIds), with its
+   *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
+   *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
+  servingEpics?: { id: string; title: string; landed: boolean }[];
 }
 
 export interface MissionStatusFacts {
@@ -1427,6 +1431,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         (e) => todoServesCriterion(e, c.id) &&
           !isHollowDone(e) && countsTowardServeCap(e),
       ).length;
+      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: isLanded(e) }));
       const servingEpicIds = new Set(serving.map((e) => e.id));
       const rejectedParkedCount = runs.filter(
         (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
@@ -1444,7 +1449,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         }
         if (best) { servingEpicLandSha = best.sha; servingEpicLandedAt = best.at; }
       } catch { /* fail closed to null, same as a missing record */ }
-      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt };
+      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingEpics };
     }),
   };
 }
@@ -1455,7 +1460,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
 export function listCriteriaWithActions(
   project: string,
   todoId: string,
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpics: { id: string; title: string; landed: boolean }[] })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m);
@@ -1470,6 +1475,7 @@ export function listCriteriaWithActions(
       servingEpicState: f?.servingEpicState ?? 'none',
       servedEpicCount: f?.servedEpicCount ?? 0,
       rejectedParkedCount: f?.rejectedParkedCount ?? 0,
+      servingEpics: f?.servingEpics ?? [],
     };
   });
 }
@@ -1494,7 +1500,7 @@ export interface MissionSummary {
   mission: MissionRow;
   rollup: MissionRollup;
   /** Acceptance criteria (the CAPABILITY gauge's underlying items). */
-  criteria: MissionCriterion[];
+  criteria: (MissionCriterion & { servingEpics: { id: string; title: string; landed: boolean }[] })[];
   /** The mission's direct `[EPIC]` children (the MECHANICAL gauge's items). */
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus: string | null }>;
 }
@@ -1533,10 +1539,14 @@ export function listMissions(
   for (const node of roots) {
     // Cheap path: read the stored row only, then layer on a facts-free status derived from
     // the epic slice below. Full path: getMission, which derives from a full facts scan.
-    const epicsForNode = all
-      .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t))
-      .map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
-    const criteriaForNode = listCriteria(project, node.id); // cheap indexed lookup — the capability gauge
+    const epicRows = all.filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t));
+    const epicsForNode = epicRows.map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
+    const criteriaForNode = listCriteria(project, node.id).map((c) => ({
+      ...c,
+      servingEpics: epicRows
+        .filter((e) => todoServesCriterion(e, c.id))
+        .map((e) => ({ id: e.id, title: e.title, landed: e.landedAt != null })),
+    })); // cheap indexed lookup — the capability gauge
     const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
     let mission = raw && !withFacts
       ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode, criteriaForNode, isMissionStalled(project, node.id)) }
