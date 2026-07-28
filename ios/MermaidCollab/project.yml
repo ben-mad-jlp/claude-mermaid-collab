@@ -2,14 +2,19 @@ name: MermaidCollab
 options:
   bundleIdPrefix: com.mermaidcollab
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
   createIntermediateGroups: true
+packages:
+  MermaidCollabCore:
+    path: ../MermaidCollabCore
 targets:
   MermaidCollab:
     type: application
     platform: iOS
     sources:
       - Sources
+    dependencies:
+      - package: MermaidCollabCore
     info:
       path: Sources/Info.plist
       properties:
@@ -29,6 +34,7 @@ targets:
           NSAllowsLocalNetworking: true
         # Bonjour discovery of the desktop server (design §3). NWBrowser on iOS 14+ requires
         # both the usage description (Local Network permission prompt) and the service list.
+        NSCameraUsageDescription: "Zen uses the camera only to scan the pairing QR code shown by the desktop app."
         NSLocalNetworkUsageDescription: "Zen finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network."
         NSBonjourServices:
           - _mermaidcollab._tcp
