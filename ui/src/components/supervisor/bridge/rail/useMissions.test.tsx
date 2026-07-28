@@ -141,4 +141,25 @@ describe('useMissions — key-tag stale-project blanking', () => {
     expect(screen.queryByText('Project A Mission')).toBeNull();
     expect(screen.getByText('Project B Mission')).toBeInTheDocument();
   });
+
+  it('blanks already-rendered project A content synchronously on switch to B', async () => {
+    deferredA = makeDeferredPromise<any[]>();
+    deferredB = makeDeferredPromise<any[]>();
+
+    const { rerender } = render(
+      <MissionStrip serverId="s" project="/projA" onOpenMissions={() => {}} />
+    );
+
+    deferredA.resolve([makeMissionSummary('/projA', 'Project A Mission')]);
+    await waitFor(() => {
+      expect(screen.getByText('Project A Mission')).toBeInTheDocument();
+    });
+
+    rerender(
+      <MissionStrip serverId="s" project="/projB" onOpenMissions={() => {}} />
+    );
+
+    expect(screen.queryByText('Project A Mission')).toBeNull();
+    expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+  });
 });
