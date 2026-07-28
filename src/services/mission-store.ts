@@ -1545,7 +1545,7 @@ export function listMissions(
       ...c,
       servingEpics: epicRows
         .filter((e) => todoServesCriterion(e, c.id))
-        .map((e) => ({ id: e.id, title: e.title, landed: e.landedAt != null })),
+        .map((e) => ({ id: e.id, title: e.title, landed: isLanded(e) })),
     })); // cheap indexed lookup — the capability gauge
     const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
     let mission = raw && !withFacts
