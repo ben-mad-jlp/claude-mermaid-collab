@@ -25,7 +25,7 @@ import {
 import {
   promoteQueuedMissions,
   listMissions,
-  sessionHasActiveMission,
+  projectHasActiveMission,
   isMissionTerminal,
   type MissionSummary,
 } from './mission-store.js';
@@ -128,7 +128,7 @@ export async function runSweepMeasurement(
           m.mission.queuePos != null &&
           !isMissionTerminal(m.mission),
       );
-      if (hasApprovedQueuedCandidate && !sessionHasActiveMission(project, session)) {
+      if (hasApprovedQueuedCandidate && !projectHasActiveMission(project)) {
         flagged.push(session);
       }
     }

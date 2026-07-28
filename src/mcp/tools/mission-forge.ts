@@ -28,7 +28,7 @@ import {
   setMissionApproved,
   stampMissionNodeApproved,
   enqueueMission,
-  sessionHasActiveMission,
+  projectHasActiveMission,
   getMission,
   listCriteria,
   getMissionRollup,
@@ -133,8 +133,8 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   });
   if (approved) stampMissionNodeApproved(project, missionId, session);
   const activate = (input.activate ?? true) && approved; // an unapproved mission is never the active driven one
-  // One-active-per-session: never steal focus unless explicitly told to activate.
-  if (!activate || sessionHasActiveMission(project, session, missionId)) {
+  // One-active-per-project: never steal focus unless explicitly told to activate.
+  if (!activate || projectHasActiveMission(project, missionId)) {
     enqueueMission(project, missionId);
   }
   for (const c of criteria) addCriterion(project, missionId, c);
