@@ -6289,7 +6289,7 @@
     },
     {
       "name": "set_active_mission",
-      "description": "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.",
+      "description": "Make ONE mission the ACTIVE mission for its PROJECT — the human 'drive this one instead' override for which mission the conductor drives. A project has at most one active mission, so this deactivates every OTHER active mission in the same project regardless of which session owns it, and AUTO-ENQUEUES each displaced mission to the back of the project's FIFO queue (active=0 with the next queuePos) — a displaced mission is never orphaned, and stays promotable. Returns the deactivated ids.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6398,7 +6398,7 @@
     },
     {
       "name": "list_missions",
-      "description": "List a project's MISSIONS as compact summaries — the counterpart to get_mission (which needs a mission id you may not have yet). DEFAULT returns only OPEN missions: it EXCLUDES terminal (converged/abandoned) and archived missions, so you see just what is still in play. Filters: `activeOnly` = only the mission(s) currently being DRIVEN (active=true — at most one per session); `session` = scope to missions owned by / assigned to that session (the mission↔session tie); `includeTerminal` = also include converged/abandoned; `includeArchived` = also include archived. Each row: id, shortId, title, status, active, awaitingApproval, ownerSession/assigneeSession, capability {met,total}, mechanical {done,total}, gaps, awaitingVerify, converged. Rows are sorted active-first. Use this to find the id, then call get_mission for full per-criterion actions.",
+      "description": "List a project's MISSIONS as compact summaries — the counterpart to get_mission (which needs a mission id you may not have yet). DEFAULT returns only OPEN missions: it EXCLUDES terminal (converged/abandoned) and archived missions, so you see just what is still in play. Filters: `activeOnly` = only the mission currently being DRIVEN (active=true — at most one per PROJECT); `session` = narrow to missions whose recorded ownerSession/assigneeSession match (a reporting filter only — a mission belongs to its project, not to a session, and queue/active scoping is per-project); `includeTerminal` = also include converged/abandoned; `includeArchived` = also include archived. Each row: id, shortId, title, status, active, awaitingApproval, ownerSession/assigneeSession, capability {met,total}, mechanical {done,total}, gaps, awaitingVerify, converged. Rows are sorted active-first. Use this to find the id, then call get_mission for full per-criterion actions.",
       "inputSchema": {
         "type": "object",
         "properties": {
