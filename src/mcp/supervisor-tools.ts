@@ -83,6 +83,8 @@ export const SUPERVISOR_TOOL_DEFS = [
       { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
+      { name: 'set_conductor_target', description: 'Pin (or clear) which mission the conductor drives for a project. Pass missionId to pin, or clear:true to unpin (falls back to first-active behavior).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, missionId: { type: ['string', 'null'] }, clear: { type: 'boolean' } }, required: ['project'] } },
+      { name: 'set_node_profile_override', description: 'Set (or clear, by passing model/effort/provider all null) a per-project, per-node-kind model/effort/provider override.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, model: { type: ['string', 'null'] }, effort: { type: ['string', 'null'] }, provider: { type: ['string', 'null'] } }, required: ['project', 'kind'] } },
 ];
 
 export async function handleSupervisorTool(name: string, args: any): Promise<string | null> {
@@ -409,6 +411,36 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
               a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
             );
             return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold }, null, 2);
+          }
+          case 'set_conductor_target': {
+            const { project, missionId, clear } = args as { project: string; missionId?: string | null; clear?: boolean };
+            if (!project) throw new Error('Missing required: project');
+            if (missionId === undefined && !clear) throw new Error('Missing required: missionId or clear');
+            if (clear || missionId === null) {
+              supervisorStore.setConductorTargetMission(project, null);
+            } else {
+              const { getMission } = await import('../services/mission-store.js');
+              const mission = getMission(project, missionId!);
+              if (!mission) throw new Error(`mission not found: ${missionId}`);
+              supervisorStore.setConductorTargetMission(project, mission.todoId);
+            }
+            return JSON.stringify({ project, targetMissionId: supervisorStore.getConductorTargetMission(project) }, null, 2);
+          }
+          case 'set_node_profile_override': {
+            const { project, kind, model, effort, provider } = args as { project: string; kind: string; model?: string | null; effort?: string | null; provider?: string | null };
+            if (!project || !kind) throw new Error('Missing required: project, kind');
+            const oc = await import('../services/orchestrator-config.js');
+            const { MATRIX_NODE_KINDS, kindRequiresMcp } = await import('../routes/orchestrator-routes.js');
+            if (!MATRIX_NODE_KINDS.includes(kind)) throw new Error(`kind must be one of: ${MATRIX_NODE_KINDS.join(', ')}`);
+            if (effort != null && !(oc.EFFORT_LEVELS as string[]).includes(effort)) throw new Error(`effort must be null or one of: ${oc.EFFORT_LEVELS.join(', ')}`);
+            if (provider != null && !(oc.NODE_PROVIDERS as readonly string[]).includes(provider)) throw new Error(`provider must be null or one of: ${oc.NODE_PROVIDERS.join(', ')}`);
+            if ((provider === 'grok-build' || provider === 'grok-api') && kindRequiresMcp(kind)) throw new Error(`node kind '${kind}' uses MCP tools and must run on claude`);
+            const effProvider = (provider ?? oc.getProjectNodeProvider(project) ?? 'claude') as import('../services/orchestrator-config.js').NodeProviderId;
+            const { providerModelMismatch } = await import('../services/provider-model.js');
+            const mismatch = providerModelMismatch(effProvider as any, model ?? null);
+            if (mismatch) throw new Error(mismatch);
+            oc.setNodeProfileOverride(project, kind, model ?? null, (effort ?? null) as any, (provider ?? null) as any);
+            return JSON.stringify(oc.listNodeProfileOverrides(project), null, 2);
           }
           default:
             return null;
