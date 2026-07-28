@@ -43,7 +43,7 @@ const GROUPS: Array<{ label: string; defs: Array<{ name: string }> }> = [
 
 // Hardcoded expected counts for non-contiguous-slice groups only
 const EXPECTED_COUNTS: Record<string, number> = {
-  EPIC_TOOL_DEFS: 19,
+  EPIC_TOOL_DEFS: 20,
   SUPERVISOR_TOOL_DEFS: 22,
 };
 

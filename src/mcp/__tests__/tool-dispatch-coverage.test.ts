@@ -201,7 +201,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every EPIC_TOOL_DEFS name is wired in handleEpicTool', async () => {
-    expect(EPIC_TOOL_DEFS.length).toBe(19);
+    expect(EPIC_TOOL_DEFS.length).toBe(20);
     for (const def of EPIC_TOOL_DEFS) {
       expect(await isRecognized(handleEpicTool, def.name)).toBe(true);
     }

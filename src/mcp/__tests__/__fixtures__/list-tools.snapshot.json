@@ -5914,6 +5914,59 @@
       }
     },
     {
+      "name": "adopt_branch_as_epic",
+      "description": "Adopt a git branch or worktree ref as a new epic, capturing its commits (oldest first). Creates an epic, a leaf under it, marks the leaf immediately accepted (no gate), and creates a branch at the source SHA. Returns the epic id, epic branch name (collab/epic/<id8>), leaf id, and the ordered list of commits adopted. Use to claim stray work that was built outside the mission system (e.g. a hotfix branch, a worktree ref). Home defaults to root epic (not mission-scoped) unless explicitly set. The leaf is immediately accepted, so no blueprint/implement/verify cycle runs — use for work that is already proven done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Epic + leaf description (optional)."
+          },
+          "home": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Mission id to home the epic under, or null for a root epic (default)."
+          },
+          "project": {
+            "type": "string",
+            "description": "Tracking project (where the epic and leaf are created)."
+          },
+          "servesCriterionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Criterion ids this epic serves (required if home is a mission)."
+          },
+          "session": {
+            "type": "string",
+            "description": "Session id of the adopter (stamped as assigneeSession)."
+          },
+          "source": {
+            "type": "string",
+            "description": "Git ref or branch name to adopt (any ref rev-parse understands: \"main\", \"HEAD\", a sha, a worktree path, etc.)."
+          },
+          "targetProject": {
+            "type": "string",
+            "description": "Implementation repo (worker cwd + gate location). Default: same as tracking project."
+          },
+          "title": {
+            "type": "string",
+            "description": "Epic + leaf title."
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "source",
+          "title"
+        ]
+      }
+    },
+    {
       "name": "runtime_config",
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {
