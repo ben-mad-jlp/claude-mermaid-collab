@@ -75,7 +75,6 @@ export const Header: React.FC<HeaderProps> = ({
   const browserVisible = useBrowserStore((s) => s.visible);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
-  const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
   const paneOrder = useUIStore((s) => s.paneOrder);
   // The selected/active project — shown next to the Bridge toggle so the Bridge
@@ -289,16 +288,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               );
             })}
-            {/* Ops toggle pill — full-window OpsScreen */}
-            <button
-              data-testid="toggle-zen"
-              onClick={() => useUIStore.getState().toggleZenMode()}
-              aria-label="Toggle Ops screen"
-              title="Ops — full-window operations screen"
-              className={paneToggleClass(zenMode)}
-            >
-              <span className="text-xs font-medium px-0.5">Ops</span>
-            </button>
 
             {/* Selected project, shown next to the Bridge toggle. */}
             {(() => {
