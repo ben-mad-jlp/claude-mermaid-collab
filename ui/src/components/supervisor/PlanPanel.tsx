@@ -8,10 +8,12 @@ import { PlanTotalsBar } from './PlanTotals';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
 import { liveBucketTodo, STATUS_STYLE, excludeMissions, excludeLandLeaves, excludeEpics } from './bridge/funnel';
 import { useInflightLeafIds } from './bridge/useInflightLeafIds';
+import { useMissions } from './bridge/rail/useMissions';
 import { buildById } from '@/lib/claimability';
 import { isEpic } from '@/lib/todoKind';
 import { buildTodoHierarchy, descendantsOf } from '@/lib/todoHierarchy';
 import { selectHumanActionableEscalations } from '@/lib/statusSelectors';
+import { buildCriterionTagIndex } from '@/lib/criterionTag';
 import { api } from '@/lib/api';
 
 /**
@@ -144,6 +146,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
 
   const todos: SessionTodo[] = excludeLandLeaves(excludeMissions(todosByProject[project] ?? []));
   const inflightLeafIds = useInflightLeafIds(project);
+  const { missions } = useMissions(serverId, project);
   const [mode, setMode] = useState<Mode>('kanban');
   const [graphEpicId, setGraphEpicId] = useState<string | null>(null);
   // Graph mode: the epic list is a collapsible LEFT rail (was a top tab bar).
@@ -159,6 +162,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   }, [serverId, project, loadProjectTodos]);
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
+  const criterionTagIndex = useMemo(() => buildCriterionTagIndex(missions), [missions]);
 
   // The ONLY structural derivation in this file. Lanes come from `kind === 'epic'`
   // (a childless epic has a lane; a split leaf never does) — never from has-children.
@@ -406,7 +410,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </div>
         ) : (
           <div className="h-full p-2">
-            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} onPromoteToEpic={handlePromoteToEpic} inflightLeafIds={inflightLeafIds} />
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} onPromoteToEpic={handlePromoteToEpic} inflightLeafIds={inflightLeafIds} criterionTagIndex={criterionTagIndex} />
           </div>
         )}
       </div>

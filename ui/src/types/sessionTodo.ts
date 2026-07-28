@@ -71,6 +71,8 @@ export interface SessionTodo {
    *  (backend dual-write, W3 land-property redesign — src/services/todo-store.ts
    *  rowToTodo). null = not landed. Only ever set on epics. */
   landedAt?: string | null;
+  /** Mission→criterion edge this epic serves (server column, mirrors servesCriterionIds). */
+  servesCriterionIds?: string[];
   /** Friction-triage classification of a bucket item (server column, R2). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
 }
