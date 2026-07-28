@@ -388,7 +388,7 @@ export const Gauge: React.FC<{
 // ── Criteria editor (add / edit-text / remove — verdict stays read-only) ──────
 
 export const CriteriaEditor: React.FC<{
-  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[] }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }> }>;
   onAdd: (text: string) => Promise<void>;
   onEdit: (criterionId: string, text: string) => Promise<void>;
   onRemove: (criterionId: string) => Promise<void>;
@@ -481,6 +481,15 @@ export const CriteriaEditor: React.FC<{
               {c.evidencePaths.map((path, idx) => (
                 <div key={idx} className="truncate" title={path}>
                   {path}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {editingId !== c.id && c.servingEpics?.length ? (
+            <div data-testid="criterion-serving-epics" className="ml-5 mt-0.5 text-3xs text-gray-400 dark:text-gray-500 leading-snug">
+              {c.servingEpics.map((e) => (
+                <div key={e.id} className="truncate">
+                  <span title={e.landed ? 'landed' : 'open'}>{e.landed ? '✓' : '○'}</span> {e.title}
                 </div>
               ))}
             </div>
@@ -774,7 +783,7 @@ export interface MissionView {
   procedure: string | null;
   cap: { met: number; total: number };
   mech: { done: number; total: number };
-  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[] }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }> }>;
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
   owner: string | null;
   active: boolean;
