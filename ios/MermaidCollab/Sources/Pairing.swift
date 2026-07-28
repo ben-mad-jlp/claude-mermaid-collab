@@ -1,4 +1,5 @@
 import SwiftUI
+import MermaidCollabCore
 
 /// The pairing credentials: which sidecar (host:port) + the bearer token.
 /// `certFingerprint` is RESERVED for v2 (self-signed TLS + cert pinning): the app
@@ -46,12 +47,8 @@ final class AppModel: ObservableObject {
     /// Handle a `mermaidcollab://pair?host=<host:port>&token=<tok>` deep link.
     @discardableResult
     func handle(url: URL) -> Bool {
-        guard url.scheme == "mermaidcollab", url.host == "pair",
-              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
-        let q = comps.queryItems ?? []
-        guard let host = q.first(where: { $0.name == "host" })?.value, !host.isEmpty,
-              let token = q.first(where: { $0.name == "token" })?.value, !token.isEmpty else { return false }
-        pair(host: host, token: token)
+        guard let link = PairingLink.parse(url) else { return false }
+        pair(host: link.hostPort, token: link.token)
         return true
     }
 
@@ -85,6 +82,7 @@ struct PairingView: View {
     @State private var host = ""
     @State private var token = ""
     @State private var resolving: String? = nil
+    @State private var showScanner = false
 
     private var canPair: Bool {
         !host.trimmingCharacters(in: .whitespaces).isEmpty &&
@@ -112,6 +110,15 @@ struct PairingView: View {
                     }
 
                     Button {
+                        showScanner = true
+                    } label: {
+                        Text("Scan QR")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
                         app.pair(host: host, token: token)
                     } label: {
                         Text("Pair")
@@ -124,6 +131,12 @@ struct PairingView: View {
                 .padding(20)
             }
             .navigationTitle("Zen")
+        }
+        .sheet(isPresented: $showScanner) {
+            QRScannerView(onScan: { link in
+                app.pair(host: link.hostPort, token: link.token)
+                showScanner = false
+            })
         }
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
