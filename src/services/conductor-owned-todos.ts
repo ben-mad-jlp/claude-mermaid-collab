@@ -20,10 +20,12 @@ export interface ConductorOwnedTodosDeps {
 }
 
 /**
- * Pure function: resolve conductor-owned epic todoIds for a project.
+ * Pure function: resolve conductor-owned descendant todoIds for a project.
  *
  * If the conductor is not enabled or its last pass is stale, returns [].
- * If exactly one active non-terminal mission exists, returns its live epic children.
+ * If exactly one active non-terminal mission exists, returns its live (non-dropped)
+ * descendants transitively — both epics and leaves. A dropped node and its entire
+ * subtree are excluded from the result.
  * Otherwise returns [] (ambiguous or no actionable mission).
  *
  * Pure: all time-dependent predicates use the `nowMs` parameter, not Date.now().
@@ -59,14 +61,39 @@ export function selectConductorOwnedTodoIds(
   }
   const missionId = candidates[0]!.node.id;
 
-  // (4) Return live epic children of this mission.
-  return deps
-    .listTodos(project, { includeCompleted: true })
-    .filter(
-      (t) =>
-        t.parentId === missionId &&
-        t.kind === 'epic' &&
-        t.status !== 'dropped',
-    )
-    .map((t) => t.id);
+  // (4) Return live (non-dropped) descendants of this mission, transitively.
+  // Build a parentId -> Todo[] index for O(n) walk.
+  const all = deps.listTodos(project, { includeCompleted: true });
+  const childrenByParent = new Map<string, Todo[]>();
+  for (const todo of all) {
+    if (todo.parentId) {
+      if (!childrenByParent.has(todo.parentId)) {
+        childrenByParent.set(todo.parentId, []);
+      }
+      childrenByParent.get(todo.parentId)!.push(todo);
+    }
+  }
+
+  // BFS walk from missionId, collecting live descendants and pruning dropped subtrees.
+  const result: string[] = [];
+  const visited = new Set<string>();
+  const queue: string[] = [missionId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+
+    const children = childrenByParent.get(currentId) || [];
+    for (const child of children) {
+      if (child.status === 'dropped') {
+        // Prune: do not add to result, do not enqueue for descent
+        continue;
+      }
+      result.push(child.id);
+      queue.push(child.id);
+    }
+  }
+
+  return result;
 }
