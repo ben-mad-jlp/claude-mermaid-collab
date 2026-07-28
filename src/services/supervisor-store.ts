@@ -334,7 +334,6 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'conductorEnabled', 'conductorEnabled INTEGER');
   addColumnIfMissing(db, 'watched_project', 'intakeEnabled', 'intakeEnabled INTEGER');
-  addColumnIfMissing(db, 'watched_project', 'conductorTargetMissionId', 'conductorTargetMissionId TEXT');
   addColumnIfMissing(db, 'watched_project', 'lastConductorPassMissionId', 'lastConductorPassMissionId TEXT');
   addColumnIfMissing(db, 'watched_project', 'lastConductorPassJson', 'lastConductorPassJson TEXT');
   addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');

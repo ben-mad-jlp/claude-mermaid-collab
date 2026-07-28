@@ -321,7 +321,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     !['unapproved', 'abandoned', 'converged', 'closed'].includes(m.mission.status));
   if (actionable.length === 0) return { ran: false, reason: 'no-actionable-mission' };
   // If >1 survive (should not happen — one active mission per project is the invariant), drive the
-  // first in listMissions order. No rival advisory, total order, or replacement pin.
+  // first in listMissions order. The pin, its total order, and its advisory are all retired.
   const selected = actionable[0];
   const target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } =
     { summary: selected, row: selected.mission };
