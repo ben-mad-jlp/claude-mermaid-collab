@@ -85,7 +85,7 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "build/icon.png",
+      "icon": "build/icons",
       "maintainer": "JLP Engineering <bmaderazo@jlpengineering.com>",
       "publish": {
         "provider": "generic",

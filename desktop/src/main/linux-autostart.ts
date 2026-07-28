@@ -49,13 +49,15 @@ export function autostartFilePath(opts?: AutostartOpts): string {
 export interface DesktopEntryOpts {
   /** Command to launch the app (e.g. process.execPath, or the installed wrapper). */
   exec: string;
-  /** Icon name registered by the package (deb installs `mermaid-collab`). */
+  /** Icon name registered by the package. The deb installs the icon set under
+   *  the executable name `mermaid-collab-desktop` (hicolor apps/), so the entry
+   *  MUST reference that name or the launcher/autostart icon renders blank. */
   icon?: string;
 }
 
 /** Render the freedesktop .desktop entry body. */
 export function desktopEntryContent(opts: DesktopEntryOpts): string {
-  const icon = opts.icon ?? 'mermaid-collab';
+  const icon = opts.icon ?? 'mermaid-collab-desktop';
   return [
     '[Desktop Entry]',
     'Type=Application',
