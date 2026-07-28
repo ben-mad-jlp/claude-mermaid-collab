@@ -37,7 +37,7 @@ import type { NodeProvider } from '../services/node-provider.ts';
  *  three orchestration kinds. Excludes MATRIX_HIDDEN_NODE_KINDS — the RETIRED wave kinds
  *  (research/wimplement/verify/fix) and 'summary' (the Zen interpret-model knob, never run via
  *  runNode) — so no empty "Waves"/"Zen" section renders. */
-const MATRIX_NODE_KINDS: string[] = [
+export const MATRIX_NODE_KINDS: string[] = [
   ...LEAF_NODE_KINDS.filter((k) => !MATRIX_HIDDEN_NODE_KINDS.includes(k)),
   ...ORCHESTRATION_NODE_KINDS,
 ];
@@ -66,7 +66,7 @@ function descFor(kind: string): string {
 }
 
 /** A node kind is MCP-forced to claude when its allowlist carries an mcp__ tool. */
-function kindRequiresMcp(kind: string): boolean {
+export function kindRequiresMcp(kind: string): boolean {
   return profileFor(kind).allowedTools.includes('mcp__');
 }
 import { DEFAULT_SLOTS_PER_TYPE, MAX_POOL_SIZE } from '../services/worker-pool.ts';
