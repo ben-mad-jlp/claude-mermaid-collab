@@ -505,8 +505,9 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       }
       setActiveProject(project);
       setMode('bridge');
+      void loadProjectTodos(serverId, project);
     },
-    [subscriptions, setCurrentSession, setActiveProject, setMode],
+    [subscriptions, setCurrentSession, setActiveProject, setMode, loadProjectTodos],
   );
 
   // watch === supervise (decision B). Adding a project watches it AND supervises
