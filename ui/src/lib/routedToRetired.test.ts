@@ -15,12 +15,6 @@ describe('routedToRetired', () => {
     const uiSrcDir = path.join(__dirname, '..');
     const offenders: string[] = [];
 
-    // Allowlist: files where routedTo may appear in comments or code (non-live usage)
-    const allowlist = [
-      'escalationLifecycle.ts', // module header mentions the problem being fixed
-      'components/supervisor/bridge/BridgeEscalationInbox.tsx', // comment only
-    ];
-
     // Recursively walk all .ts/.tsx files under ui/src, excluding test files and epicHistory.ts
     function walkDir(dir: string) {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -41,19 +35,44 @@ describe('routedToRetired', () => {
           }
 
           const relPath = path.relative(uiSrcDir, fullPath);
-          // Check if this file is in the allowlist
-          const isAllowed = allowlist.some((pattern) => relPath.endsWith(pattern));
-          if (isAllowed) {
-            continue;
-          }
 
           const content = fs.readFileSync(fullPath, 'utf-8');
           const lines = content.split('\n');
+          let inBlockComment = false;
           for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            // Strip single-line comments to check only code
-            const codeBeforeComment = line.split('//')[0];
-            if (codeBeforeComment.includes('routedTo')) {
+            let line = lines[i];
+
+            if (inBlockComment) {
+              const closeIdx = line.indexOf('*/');
+              if (closeIdx === -1) {
+                // Whole line is still inside the block comment.
+                continue;
+              }
+              line = line.slice(closeIdx + 2);
+              inBlockComment = false;
+            }
+
+            const lineCommentIdx = line.indexOf('//');
+            const blockCommentIdx = line.indexOf('/*');
+
+            let codeOnly: string;
+            if (blockCommentIdx !== -1 && (lineCommentIdx === -1 || blockCommentIdx < lineCommentIdx)) {
+              const before = line.slice(0, blockCommentIdx);
+              const rest = line.slice(blockCommentIdx + 2);
+              const closeIdx = rest.indexOf('*/');
+              if (closeIdx !== -1) {
+                codeOnly = before + rest.slice(closeIdx + 2);
+              } else {
+                codeOnly = before;
+                inBlockComment = true;
+              }
+            } else if (lineCommentIdx !== -1) {
+              codeOnly = line.slice(0, lineCommentIdx);
+            } else {
+              codeOnly = line;
+            }
+
+            if (codeOnly.includes('routedTo')) {
               offenders.push(`${relPath}:${i + 1}`);
             }
           }
