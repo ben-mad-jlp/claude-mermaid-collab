@@ -61,7 +61,12 @@ import {
   type InheritedSlice,
 } from '../leaf-executor';
 import { sliceCoversFiles } from '../split-decision';
-import { recordEpicBaseGate, getEpicBaseGate, BASE_GATE_FAIL_TTL_MS } from '../worker-ledger';
+import {
+  recordEpicBaseGate, getEpicBaseGate, BASE_GATE_FAIL_TTL_MS,
+  recordNode, recordLeafBlueprint, getLeafBlueprint, editContractField, editLeafRequirement,
+  restoreEditableBlueprint, getLatestSuccessfulNodeOutput,
+} from '../worker-ledger';
+import { renderContract, type DiffContract } from '../diff-contract';
 import { MAX_BASE_MOVED_REFUNDS, MAX_REDISPATCH } from '../harness-caps';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
@@ -4537,6 +4542,83 @@ describe('crit 8 — bounded blueprint contract repair', () => {
     // Small tier synthesizes blueprint (no node spent).
     const blueprintCalls = spies.invokeSpecs.filter((s) => isBlueprintSpec(s)).length;
     expect(blueprintCalls).toBe(0);
+  });
+});
+
+describe('crit 4 — poison-trap reattach carries the EDITED spec', () => {
+  // No '## Acceptance Criteria' heading ⇒ citability ABSTAINs (crit-8 fixture pattern), so
+  // this fixture never triggers a second blueprint call via the citability-repair path.
+  const baseContract: DiffContract = {
+    schemaVersion: 2,
+    estimatedFiles: 1,
+    estimatedTasks: 1,
+    nonEnumerableFanout: false,
+    filesToCreate: [],
+    filesToEdit: ['src/foo.ts'],
+    tasks: [{ id: 'task-1', files: ['src/foo.ts'], description: 'Add function' }],
+    leafKind: 'feature',
+    requirements: [
+      { kind: 'symbol-present', id: 'req-1', file: 'src/foo.ts', symbol: 'wrongSymbol', description: 'wrong cite' },
+      { kind: 'named-test', id: 'req-2', testFile: 'src/foo.test.ts', testName: 'fooBar works', mechanical: true },
+    ],
+    outOfScope: [],
+  };
+  const baseMd = `# Blueprint for the leaf\n\nSome prose describing the plan.\n\n${renderContract(baseContract)}`;
+
+  it('v2 contract: an edit made after blueprint success survives reattach into the implement dispatch', async () => {
+    const leaf = makeLeaf({ id: 'c4-leaf-v2-edited-0001' });
+    recordNode({ project: 'proj', todoId: leaf.id, session: 'lane-1', leafId: leaf.id, nodeKind: 'blueprint', outputText: baseMd, exitCode: 0 });
+    recordLeafBlueprint({ leafId: leaf.id, project: 'proj', specJson: renderContract(baseContract), specRev: 0 });
+
+    expect(editContractField(leaf.id, { target: 'filesToEdit', file: 'src/incidental.ts' })).toBe(true);
+    expect(editLeafRequirement(leaf.id, 0, {
+      kind: 'symbol-present', id: 'req-1', file: 'src/foo.ts', symbol: 'realSymbol', description: 'corrected cite',
+    })).toBe(true);
+    expect(getLeafBlueprint(leaf.id)!.specRev).toBe(2);
+
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = (leafId) => restoreEditableBlueprint(leafId);
+    const writes: Array<{ rel: string; content: string }> = [];
+    deps.writeArtifact = async (_cwd, rel, content) => { writes.push({ rel, content }); };
+
+    const res = await runLeaf('proj', leaf, deps);
+
+    expect(res.outcome).toBe('accepted');
+    expect(spies.invokeSpecs.some((s) => isBlueprintSpec(s))).toBe(false);
+
+    const written = writes.find((w) => w.content.includes('src/incidental.ts') || w.content.includes('realSymbol'));
+    expect(written).toBeDefined();
+    expect(written!.content).toContain('src/incidental.ts');
+    expect(written!.content).toContain('realSymbol');
+    expect(written!.content).not.toContain('wrongSymbol');
+
+    const implementSpec = spies.invokeSpecs.find((s) => !isBlueprintSpec(s));
+    expect(implementSpec).toBeDefined();
+    expect(implementSpec!.prompt).toContain('src/incidental.ts');
+    expect(implementSpec!.prompt).toContain('realSymbol');
+    expect(implementSpec!.prompt).not.toContain('wrongSymbol');
+
+    expect(getLeafBlueprint(leaf.id)!.specRev).toBe(2);
+    expect(getLatestSuccessfulNodeOutput(leaf.id, 'blueprint')).toBe(baseMd);
+  });
+
+  it('v1 sibling leaf (no leaf_blueprint.specJson row) reattaches with the seeded prose verbatim', async () => {
+    const leaf2 = makeLeaf({ id: 'c4-leaf-v1-sibling-0002' });
+    const v1Prose = '# v1 blueprint\n\nPlain prose plan, no editable contract row.';
+    recordNode({ project: 'proj', todoId: leaf2.id, session: 'lane-1', leafId: leaf2.id, nodeKind: 'blueprint', outputText: v1Prose, exitCode: 0 });
+
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = (leafId) => restoreEditableBlueprint(leafId);
+    const writes: Array<{ rel: string; content: string }> = [];
+    deps.writeArtifact = async (_cwd, rel, content) => { writes.push({ rel, content }); };
+
+    const res = await runLeaf('proj', leaf2, deps);
+
+    expect(res.outcome).toBe('accepted');
+    expect(writes.some((w) => w.content === v1Prose)).toBe(true);
+    expect(getLatestSuccessfulNodeOutput(leaf2.id, 'blueprint')).toBe(v1Prose);
   });
 });
 
