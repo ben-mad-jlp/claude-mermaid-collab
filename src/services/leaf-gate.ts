@@ -13,8 +13,9 @@ import { lastLines, extractFailingTests, SPEC_FILE_RE, netNewFailures } from './
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
-import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate } from './worker-ledger';
+import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
+import { activeQuarantine } from './flaky-quarantine';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
 export interface GateTestLane {
@@ -800,7 +801,10 @@ export function gateFindingsText(r: LeafGateResult): string {
  *  RAN-but-failed lane's normalized failure-fingerprint set into `baselineFailures`. That
  *  map rides the 'pass' (empty on a green base) and 'fail' results; it is absent on 'error'.
  *  Lane order keeps `typecheck` before `baseTest` so existing tests still hold. */
-export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn: GateSpawn): Promise<LeafGateResult> {
+export async function runBaseGate(
+  cwd: string, cfg: LeafGateConfig | null, spawn: GateSpawn,
+  observe?: { project: string; baseSha: string },
+): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: [], declared: false };
 
   const baselineFailures: LaneBaselineMap = {};
@@ -847,17 +851,30 @@ export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn
         declared: true,
       };
     }
+    const fingerprints = lane.kind === 'typecheck'
+      ? (parseTypecheckFiles(r.output) ?? [])
+      : extractFailingTests(r.output);
     if (r.code !== 0) {
       // RAN-but-failed: memoize this lane's fingerprints and CONTINUE — every red lane
       // must be recorded, so no short-circuit.
-      baselineFailures[lane.key] = lane.kind === 'typecheck'
-        ? (parseTypecheckFiles(r.output) ?? [])
-        : extractFailingTests(r.output);
+      baselineFailures[lane.key] = fingerprints;
       if (firstFailCommand === undefined) {
         firstFailCommand = lane.command;
         firstFailOutput = r.output;
         firstFailReason = lane.reason(lane.command);
       }
+    }
+    if (observe) {
+      const WINDOW_MS = 7 * 24 * 60 * 60_000; // matches promoteQuarantineCandidates's default window (flaky-quarantine.ts)
+      const watched = new Set(fingerprints);
+      for (const o of listObservations(observe.project, Date.now() - WINDOW_MS)) {
+        if (o.lane === lane.key) watched.add(o.test);
+      }
+      for (const q of activeQuarantine(observe.project)) watched.add(q.test);
+      recordBaseGateTestRuns({
+        project: observe.project, baseSha: observe.baseSha, lane: lane.key,
+        ranTests: Array.from(watched), failingTests: fingerprints, scope: 'base',
+      });
     }
   }
 
