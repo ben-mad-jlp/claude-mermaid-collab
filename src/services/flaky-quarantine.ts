@@ -122,6 +122,37 @@ export function upsertQuarantine(r: Omit<TestQuarantineRow, 'createdAt'>, now: n
   writeTestQuarantine(r, now);
 }
 
+/**
+ * Seed manifest-declared baseline failures into the quarantine store as
+ * `seededFrom:'manifest'` records. Idempotent AND non-renewing: an entry already
+ * present in the store is left untouched, so re-seeding on every gate run can
+ * never refresh a live record's TTL (which would defeat expiry entirely).
+ */
+export function seedManifestBaseline(
+  project: string,
+  entries: readonly string[],
+  now: number = Date.now(),
+  ttlMs: number = DEFAULT_TTL_MS,
+): void {
+  if (entries.length === 0) return;
+  const existing = new Set(listTestQuarantine(project).map((r) => r.test));
+  for (const entry of entries) {
+    if (existing.has(entry)) continue;
+    upsertQuarantine(
+      {
+        project,
+        test: entry,
+        quarantinedAtSha: 'manifest',
+        evidence: { runs: 0, passRuns: 0, failRuns: 0 },
+        ttlExpiresAt: now + ttlMs,
+        seededFrom: 'manifest',
+      },
+      now,
+    );
+    existing.add(entry);
+  }
+}
+
 type QuarantinePromotionHook = (c: FlakyCandidate & { project: string }) => void;
 let promotionHook: QuarantinePromotionHook = () => {};
 

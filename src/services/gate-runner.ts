@@ -28,6 +28,7 @@ import type { Todo } from './todo-store';
 import type { ProjectManifest } from '../config/project-manifest';
 import type { GateVerdict } from './coordinator-daemon';
 import { resolveLeafGate, resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
+import { activeQuarantine, seedManifestBaseline } from './flaky-quarantine';
 
 /** Resolution tiers, most-specific-LAST in number but resolved core-first. A
  *  core plugin (collab-shipped, domain-free) is considered before a domain plugin
@@ -477,7 +478,11 @@ export const frontendSuiteGatePlugin: GatePlugin = {
       if (structured) return structured;
       if (proc.code === 0) return { passed: true, reasons: [], metrics: { feSuiteGate: true } };
       // FAILED full suite — judge vs the declared baseline, NOT the change-set.
-      const baseline = ctx.manifest?.frontendBaselineFailures ?? [];
+      // The recorded quarantine set is the authoritative baseline; the manifest
+      // array is a one-time seed into it.
+      const manifestBaseline = ctx.manifest?.frontendBaselineFailures ?? [];
+      seedManifestBaseline(ctx.gateProject, manifestBaseline);
+      const baseline = activeQuarantine(ctx.gateProject).map((r) => r.test);
       const failing = extractFailingTests(out);
       const netNew = netNewFailures(failing, baseline);
       // Every parsed failure is a known baseline red → this leaf regressed nothing.
