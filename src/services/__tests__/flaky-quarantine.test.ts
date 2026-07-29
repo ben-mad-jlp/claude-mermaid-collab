@@ -58,18 +58,18 @@ describe('flaky-quarantine classifier', () => {
     });
   });
 
-  it('red-on-branch/green-on-master is never quarantined', () => {
+  it('red-on-branch/green-on-master is never quarantined (base rows alone would qualify as flaky; only the branch veto suppresses it)', () => {
     const now = 1000;
     const observations: BaseGateTestRunRow[] = [
-      // Green on master/base
+      // Base-scope rows alone would qualify as flaky (mixed pass/fail at a fixed sha)
       {
         project: 'test-proj',
         baseSha: 'abc123',
         lane: 'base',
         test: 'branch_red_test.txt',
-        failed: false,
+        failed: true,
         scope: 'base',
-        observedAt: now - 100,
+        observedAt: now - 300,
       },
       {
         project: 'test-proj',
@@ -78,7 +78,16 @@ describe('flaky-quarantine classifier', () => {
         test: 'branch_red_test.txt',
         failed: false,
         scope: 'base',
-        observedAt: now - 50,
+        observedAt: now - 200,
+      },
+      {
+        project: 'test-proj',
+        baseSha: 'abc123',
+        lane: 'base',
+        test: 'branch_red_test.txt',
+        failed: false,
+        scope: 'base',
+        observedAt: now - 100,
       },
       // Red on branch
       {
