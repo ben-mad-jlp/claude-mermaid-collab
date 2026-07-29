@@ -27,7 +27,16 @@ async function defaultHeadSha(project: string): Promise<string | undefined> {
 export interface RunPanelDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
   headSha?: () => string;
-  recordVerdict?: (project: string, criterionId: string, panelVerdicts: PanelVerdict[]) => Promise<string | null>;
+  /** Persist the panel verdict. `extra` carries the derived met flag plus the NON-NULL
+   *  evidence string and preserved evidencePaths so a HOLD can never wipe a previously-met
+   *  criterion's evidence to null (the phantom-gap bug). Extra is appended, so legacy mocks
+   *  taking only (project, criterionId, panelVerdicts) keep working. */
+  recordVerdict?: (
+    project: string,
+    criterionId: string,
+    panelVerdicts: PanelVerdict[],
+    extra: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string },
+  ) => Promise<string | null>;
   now?: () => number;
 }
 
@@ -133,19 +142,36 @@ export async function runCriterionVerifyPanel(
       .join('; ');
   }
 
-  // 6. Record the verdict
-  const recordFn = deps.recordVerdict ?? (async (p, cid, pv) =>
+  // 6. Record the verdict — ALWAYS with a non-null evidence string and the criterion's
+  // existing evidencePaths preserved. A bare HOLD used to record met:false with no evidence,
+  // which nulled a previously-met criterion's evidence and dropped its evidencePaths — a
+  // silent phantom-gap: the criterion flipped to unmet, lost its audit trail, AND lost the
+  // land-reopen linkage. Now a HOLD persists WHY it held (the dissent) and RETAINS the prior
+  // evidence + paths, so a shared-evidence-path reopen is diagnosable and re-verifiable.
+  const panelSummary = verdicts.map((v) => `${v.lens}:${v.met ? 'met' : 'not-met'}`).join(', ');
+  const priorEvidence = criterion.evidence
+    ? `\n\nPRIOR evidence (retained — re-verify against ground truth if this reopen was a shared-evidence-path land, not a real change):\n${criterion.evidence}`
+    : '';
+  const shaLabel = currentHeadSha ?? 'unknown-sha';
+  const evidence = met
+    ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${VERIFY_LENSES.length} distinct-model lenses (${panelSummary}).${priorEvidence}`
+    : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
+  const evidencePaths = criterion.evidencePaths ?? [];
+
+  const recordFn = deps.recordVerdict ?? (async (p, cid, pv, extra) =>
     handleMissionTool('set_mission_criterion', {
       project: p,
       criterionId: cid,
-      met,
+      met: extra.met,
+      evidence: extra.evidence,
+      evidencePaths: extra.evidencePaths,
       verifiedBy: 'panel',
-      verifiedAtSha: currentHeadSha,
+      verifiedAtSha: extra.verifiedAtSha,
       panelVerdicts: pv,
     })
   );
 
-  await recordFn(project, criterionId, verdicts);
+  await recordFn(project, criterionId, verdicts, { met, evidence, evidencePaths, verifiedAtSha: currentHeadSha });
 
   // 7. Return result
   return {

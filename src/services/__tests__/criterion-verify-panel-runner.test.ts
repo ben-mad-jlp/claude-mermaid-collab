@@ -169,6 +169,59 @@ describe('runCriterionVerifyPanel', () => {
     }
   });
 
+  test('a HOLD persists non-null evidence (dissent + retained prior) and preserves evidencePaths — never a silent phantom-gap', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+    // A previously-MET criterion with rich human evidence + evidence-path linkage.
+    setCriterionVerdict(project, criterion.id, {
+      met: true,
+      evidence: 'PRIOR human evidence: proven at sha deadbeef, tests 17/0 green',
+      verifiedBy: 'human',
+      verifiedAtSha: 'deadbeef',
+      evidencePaths: ['src/services/archival-sweep.ts'],
+    });
+
+    // Lenses all FAIL → HOLD. headSha differs from the prior verifiedAtSha so it re-panels.
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
+      ok: true,
+      exitCode: 0,
+      stdout: 'VERDICT: FAIL — could not confirm from the prompt',
+      durationMs: 1000,
+      rateLimited: false,
+      authMode: 'subscription',
+    });
+
+    let extraSeen: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string } | undefined;
+    const mockRecord = async (
+      _p: string,
+      _cid: string,
+      _pv: PanelVerdict[],
+      extra: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string },
+    ): Promise<string | null> => {
+      extraSeen = extra;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      headSha: () => 'newsha01',
+      recordVerdict: mockRecord,
+    });
+
+    expect(result.hold).toBe(true);
+    expect(result.met).toBe(false);
+    expect(extraSeen).toBeTruthy();
+    if (extraSeen) {
+      expect(extraSeen.met).toBe(false);
+      // Evidence is NON-NULL and NON-EMPTY — the core of the phantom-gap fix.
+      expect(extraSeen.evidence.length).toBeGreaterThan(0);
+      expect(extraSeen.evidence).toContain('HOLD');
+      // The prior human evidence is RETAINED, not wiped to null.
+      expect(extraSeen.evidence).toContain('PRIOR human evidence: proven at sha deadbeef');
+      // The evidence-path linkage is PRESERVED so the reopen-on-land mechanism keeps working.
+      expect(extraSeen.evidencePaths).toEqual(['src/services/archival-sweep.ts']);
+    }
+  });
+
   test('unanimous PASS records met via set_mission_criterion', async () => {
     const { criterion } = await setupMissionWithCriterion();
 
