@@ -1,46 +1,57 @@
-I have enough to author the blueprint. This is a greenfield leaf module — the v2 `DiffContract` is a superset of the existing `LeafSizeManifest` (`src/services/leaf-executor.ts:261`), and the fail-safe parser + fenced-block extraction mirror `parseSizeManifest` (`src/services/leaf-executor.ts:1182`) and `parseSplitDecision` (`src/services/split-decision.ts:26`). The `requirements[]` concept (symbol-present/named-test/threshold) is entirely new — nothing exists yet.
+[[PARSE FAILED for 8a2efaf6]]
 
----
+--- extracted text (what parseDiffContract saw) ---
 
-# Blueprint — Create `src/services/diff-contract.ts` (v2 DiffContract type, fail-safe parser, round-trip renderer)
+```json
+{ "schemaVersion": 2, "estimatedFiles": 1, "estimatedTasks": 3,
+  "nonEnumerableFanout": false, "filesToCreate": ["src/services/diff-contract.ts"], "filesToEdit": [],
+  "tasks": [
+    { "id": "define-types", "files": ["src/services/diff-contract.ts"], "description": "Define DiffContractTask, DiffContractRequirement (union), and DiffContract v2 interfaces" },
+    { "id": "parse-fn", "files": ["src/services/diff-contract.ts"], "description": "Implement parseDiffContract fail-safe extractor mirroring parseSizeManifest" },
+    { "id": "render-fn", "files": ["src/services/diff-contract.ts"], "description": "Implement renderContract serializer that round-trips through parseDiffContract" }
+  ],
+  "leafKind": "feature",
+  "requirements": [
+    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "DiffContract", "description": "the v2 typed contract interface matching the schema in the leaf spec (schemaVersion, estimatedFiles, estimatedTasks, nonEnumerableFanout, filesToCreate, filesToEdit, tasks, leafKind, requirements, outOfScope)" },
+    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "DiffContractRequirement", "description": "union type of the three requirement kinds: symbol-present, named-test, threshold" },
+    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "parseDiffContract", "description": "fail-safe parser: extracts LAST ```json fence from given sources, validates schemaVersion===2 and required fields, never throws, returns null on any malformed input" },
+    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "renderContract", "description": "serializes a DiffContract back into a fenced ```json block string such that parseDiffContract(renderContract(c)) deep-equals c" }
+  ],
+  "outOfScope": ["Wiring parseDiffContract into leaf-executor.ts's blueprint/gate flow — that is a separate leaf per the shadow-mode rollout plan (bug e2fc870a); this leaf only creates the standalone module."]
+}
+```
 
-## Context / grounding
-- The current "what a leaf touches" contract is `LeafSizeManifest` (schemaVersion 1) declared at `src/services/leaf-executor.ts:261-274` and parsed by `parseSizeManifest` at `src/services/leaf-executor.ts:1182-1231`. That parser is **fail-safe**: any structural failure → `null`; it extracts the **last** ` ```json ` fence via the regex at `src/services/leaf-executor.ts:1187` and validates types field-by-field.
-- The peer leaf module `src/services/split-decision.ts` is the style template: a standalone module with a `parseX(raw: unknown): X | null` validator that never throws (`src/services/split-decision.ts:26-60`), plus small pure helpers. Kept as a leaf module to avoid circular imports.
-- Tests for these peer modules use **`bun:test`** (`src/services/__tests__/split-decision.test.ts:1`). This is a Bun-tested backend module (per project dual-runner convention).
-- **v2 delta over v1 `LeafSizeManifest`:** `schemaVersion: 2` + three new fields — `leafKind`, `requirements[]`, `outOfScope[]` — while carrying the six v1 fields (`estimatedFiles`, `estimatedTasks`, `nonEnumerableFanout`, `filesToCreate`, `filesToEdit`, `tasks`) unchanged so the type stays a superset (additive-only discipline noted at `src/services/leaf-executor.ts:256-259`).
+**Blueprint for `f7868bfd`: create `src/services/diff-contract.ts`**
 
-This leaf ONLY creates the new module + its test. It does **not** rewire `leaf-executor.ts` to consume the new type (that is a separate downstream leaf) — see Out of scope.
+**Context read:**
+- `src/services/leaf-executor.ts:245-275` — the existing v1 `LeafSizeManifest` interface and its doc comment (additive-only, schemaVersion bump convention).
+- `src/services/leaf-executor.ts:1176-1231` — `parseSizeManifest`, the fail-safe v1 parser this new v2 parser should mirror in *shape* (extract last ```json fence via `matchAll(/```json\s*([\s\S]*?)```/g)`, `JSON.parse` in a `try/catch`, validate field-by-field, `continue` to the next source on any failure, return `null` if all sources fail — never throw).
+- `src/services/split-decision.ts:1-60` — `parseSplitDecision`, a good reference for a hand-rolled fail-safe validator with no external schema library (this repo does not use zod/io-ts for these fence-parsed contracts; stay consistent — no new dependency).
+- Confirmed via grep: no `diff-contract.ts`, no prior `DiffContract`/`leafKind`/`requirements` symbols anywhere in `src/`. This is a **new, standalone module** — do not import it from `leaf-executor.ts` or wire it into the blueprint/gate pipeline. That integration is out of scope for this leaf (tracked separately, per the shadow-rollout plan referenced in the project's own conventions around `LeafSizeManifest.schemaVersion`).
 
-## File to create: `src/services/diff-contract.ts`
+**File to create: `src/services/diff-contract.ts`**
 
-### 1. Types (exported)
+1. **Types** (all exported):
+
 ```ts
-export type LeafKind = 'feature' | 'fix' | 'refactor' | 'test' | 'infra';
+export type DiffContractRequirement =
+  | { kind: 'symbol-present'; file: string; symbol: string; description: string }
+  | { kind: 'named-test'; testFile: string; testName: string; mechanical: true }
+  | { kind: 'threshold'; source: 'gate-output' | 'grep-count'; metric: string;
+      comparison: 'gte' | 'lte' | 'eq'; value: number; mechanical: true };
 
-export interface SymbolPresentRequirement {
-  kind: 'symbol-present';
-  file: string;
-  symbol: string;
+export interface DiffContractTask {
+  id: string;
+  files: string[];
   description: string;
 }
-export interface NamedTestRequirement {
-  kind: 'named-test';
-  testFile: string;
-  testName: string;
-  mechanical: true;
-}
-export interface ThresholdRequirement {
-  kind: 'threshold';
-  source: 'gate-output' | 'grep-count';
-  metric: string;
-  comparison: 'gte' | 'lte' | 'eq';
-  value: number;
-  mechanical: true;
-}
-export type DiffRequirement =
-  | SymbolPresentRequirement | NamedTestRequirement | ThresholdRequirement;
 
+export type LeafKind = 'feature' | 'fix' | 'refactor' | 'test' | 'infra';
+
+/** v2 typed diff contract — the BLUEPRINT node's structured output, superseding
+ *  {@link LeafSizeManifest} (v1) with named leafKind + machine-checkable requirements.
+ *  ADDITIVE-ONLY, same convention as v1: never repurpose a field, bump schemaVersion
+ *  for incompatible shape changes. */
 export interface DiffContract {
   schemaVersion: 2;
   estimatedFiles: number;
@@ -48,81 +59,42 @@ export interface DiffContract {
   nonEnumerableFanout: boolean;
   filesToCreate: string[];
   filesToEdit: string[];
-  tasks: Array<{ id: string; files: string[]; description: string }>;
+  tasks: DiffContractTask[];
   leafKind: LeafKind;
-  requirements: DiffRequirement[];
+  requirements: DiffContractRequirement[];
   outOfScope: string[];
 }
 ```
-- `schemaVersion` is the literal `2` (a v1 manifest — `schemaVersion !== 2` or absent — must NOT parse as a DiffContract; that is what keeps v1 and v2 distinct).
 
-### 2. `parseDiffContract(...sources: Array<string | undefined>): DiffContract | null`
-- Signature and fail-safe posture **mirror `parseSizeManifest`** (`src/services/leaf-executor.ts:1182-1231`): accept multiple sources, iterate, extract the **last** ` ```json ` fence with the identical regex `/```json\s*([\s\S]*?)```/g`, `JSON.parse` inside `try/catch`, and on ANY failure `continue` to the next source, finally returning `null`. **Never throws.**
-- Also accept a source that is itself bare JSON (no fence): if no fence matches, attempt to `JSON.parse` the whole trimmed source as a fallback so `parseDiffContract(JSON.stringify(obj))` works. (This makes the renderer's raw-JSON form round-trip too; keep it inside the same try/catch.)
-- Validation rules (reject → try next source → ultimately `null`):
-  - `schemaVersion === 2` (strict equality; any other value or missing → reject).
-  - `estimatedFiles`, `estimatedTasks`: finite numbers `>= 0` (same checks as `src/services/leaf-executor.ts:1196-1197`).
-  - `nonEnumerableFanout`: boolean.
-  - `leafKind` ∈ the 5 `LeafKind` values; otherwise reject.
-  - `filesToCreate`, `filesToEdit`, `outOfScope`: coerce via a local `toStrArr` (Array → keep only strings), mirroring `src/services/leaf-executor.ts:1202-1203`.
-  - `tasks`: same normalization as `src/services/leaf-executor.ts:1204-1211` (`{ id, files, description }`, defaults `''`/`[]`).
-  - `requirements`: normalize per-entry via a private `parseRequirement(raw: unknown): DiffRequirement | null`; **drop** entries that return `null` (lenient, mirroring how `tasks` filters), so a single bad requirement never nulls the whole contract.
-- `parseRequirement` (private, not exported) validates by discriminant:
-  - `symbol-present`: non-empty `file` and `symbol` strings; `description` string (default `''`).
-  - `named-test`: non-empty `testFile` and `testName` strings; force `mechanical: true`.
-  - `threshold`: `source` ∈ {`gate-output`,`grep-count`}, non-empty `metric`, `comparison` ∈ {`gte`,`lte`,`eq`}, finite numeric `value`; force `mechanical: true`.
-  - Anything else → `null`.
-- Return a fully-normalized `DiffContract` object literal (canonical field order matching the interface).
+2. **`parseDiffContract(...sources: Array<string | undefined>): DiffContract | null`**
+   - Same source-scanning loop as `parseSizeManifest`: for each source, skip falsy, find all ```` ```json ```` fences with `matchAll(/```json\s*([\s\S]*?)```/g)`, skip if none, take the **last** fence, `JSON.parse` inside `try/catch` (catch → `continue` to next source).
+   - Validate strictly (any failure → `continue`, never throw):
+     - `raw.schemaVersion === 2` exactly (this parser is v2-only; a v1 fence with `schemaVersion: 1` must fall through to `null` so callers know to use `parseSizeManifest` instead — do not coerce).
+     - `estimatedFiles`, `estimatedTasks`: finite numbers `>= 0`.
+     - `nonEnumerableFanout`: boolean.
+     - `leafKind`: one of the 5 literal strings above (reject anything else).
+     - `filesToCreate`, `filesToEdit`, `outOfScope`: arrays, filtered to strings only (same `toStrArr` pattern as `parseSizeManifest`).
+     - `tasks`: array of objects, each coerced the same way `parseSizeManifest` coerces `tasks` (missing `id`/`description` → `''`, missing/bad `files` → `[]`) — do not reject the whole contract for one malformed task, mirror the existing lenient-per-task coercion.
+     - `requirements`: array; each entry validated per its `kind` discriminant:
+       - `symbol-present` → require `file`, `symbol`, `description` all non-empty strings; else drop that one requirement (don't fail the whole contract — same lenient-filter posture as tasks).
+       - `named-test` → require `testFile`, `testName` non-empty strings; force `mechanical: true` regardless of input.
+       - `threshold` → require `source` ∈ `{'gate-output','grep-count'}`, `metric` non-empty string, `comparison` ∈ `{'gte','lte','eq'}`, `value` a finite number; force `mechanical: true`.
+       - Any entry with an unrecognized `kind` or missing required fields is dropped from the array (filter, not reject-all) — matches the file's existing "malformed sub-part → drop/flag, don't nuke the whole parse" style (c.f. `splitDecisionMalformed`).
+   - Return the validated `DiffContract` object, or fall through to `return null` after exhausting all sources.
 
-### 3. `renderContract(contract: DiffContract): string`
-- Produce the **canonical fenced serialization**: a string beginning with a ` ```json ` line, the pretty-printed (`JSON.stringify(obj, null, 2)`) canonical object, and a closing ` ``` ` line — so its output is directly parseable by `parseDiffContract` (and by the existing fence-extraction path).
-- Build the object with a **fixed key order** (schemaVersion, estimatedFiles, estimatedTasks, nonEnumerableFanout, filesToCreate, filesToEdit, tasks, leafKind, requirements, outOfScope) and normalize nested entries (tasks, requirements) so the output is deterministic.
-- **Round-trip invariant:** `parseDiffContract(renderContract(c))` deep-equals the normalized `c` for any valid `c`. This is the acceptance-defining behavior and must be covered by a named test.
+3. **`renderContract(contract: DiffContract): string`**
+   - Serialize back into the exact fenced format the blueprint prompt emits: `` "```json\n" + JSON.stringify(contract, null, 2) + "\n```" `` (or equivalent single-line fence — pick one and keep it internally consistent).
+   - Round-trip requirement: for any valid `DiffContract` value `c`, `parseDiffContract(renderContract(c))` must deep-equal `c` (field order doesn't matter; all required fields must survive, including empty arrays for `outOfScope`/`requirements`/`tasks`).
 
-## File to create: `src/services/__tests__/diff-contract.test.ts`
-- `import { describe, it, expect } from 'bun:test';` (matches `src/services/__tests__/split-decision.test.ts:1`).
-- Import `parseDiffContract`, `renderContract`, and the types from `../diff-contract`.
-- Named tests to add:
-  - `it('round-trips a full contract through renderContract → parseDiffContract', ...)` — build a `DiffContract` with all three requirement kinds populated, assert `parseDiffContract(renderContract(c))` `toEqual` the normalized `c`. **This is the round-trip requirement.**
-  - `it('returns null on non-JSON / no fence / malformed input', ...)` — fail-safe: `parseDiffContract(undefined)`, `parseDiffContract('no fence here')`, `parseDiffContract('```json {bad ```')` all `toBeNull()`, and it never throws.
-  - `it('rejects a schemaVersion 1 manifest', ...)` — a v1-shaped object (`schemaVersion: 1`) → `toBeNull()`, proving v1/v2 separation.
-  - `it('drops malformed requirement entries but keeps valid ones', ...)` — a contract whose `requirements` array mixes one valid + one junk entry parses to the contract with only the valid requirement retained.
-  - `it('rejects an out-of-range leafKind', ...)` — `leafKind: 'wat'` → `toBeNull()`.
+**Notes for the implementer:**
+- No new imports needed beyond what's already in-repo style (plain TS, no schema-validation library).
+- Do not touch `leaf-executor.ts` in this leaf — `LeafSizeManifest`/`parseSizeManifest` stay untouched; this is a net-new, currently-unimported module.
+- Keep the doc-comment on `DiffContract` explicit about the additive-only contract, matching the existing convention at `leaf-executor.ts:255-260`.
 
-## Verification (mechanical)
-- `npm run test:ci -- src/services/__tests__/diff-contract.test.ts` passes (all named tests green).
-- Type-checks under the existing backend tsconfig (no new tsc errors introduced by the new module).
+--- raw stdout tail (last 4000 chars) ---
 
-## Acceptance criteria (positive, citable)
-1. `src/services/diff-contract.ts` exports an interface `DiffContract` whose `schemaVersion` field is the literal type `2` and which carries `leafKind`, `requirements`, and `outOfScope` alongside the six v1 fields — a reviewer can point at the interface declaration.
-2. `src/services/diff-contract.ts` exports a union type `DiffRequirement` = `SymbolPresentRequirement | NamedTestRequirement | ThresholdRequirement`, each with its `kind` discriminant literal.
-3. `src/services/diff-contract.ts` exports `parseDiffContract(...sources)` that extracts the last ` ```json ` fence (or falls back to bare-JSON), validates `schemaVersion === 2` and `leafKind` membership, and returns `null` on any failure inside a `try/catch` (never throws).
-4. `parseDiffContract` normalizes `requirements` through a per-entry validator that drops malformed entries while keeping valid ones (citable at the `requirements` map/filter line).
-5. `src/services/diff-contract.ts` exports `renderContract(contract)` that emits a ` ```json ` fenced, `JSON.stringify(_, null, 2)` canonical block with fixed key order.
-6. `src/services/__tests__/diff-contract.test.ts` contains a test named `round-trips a full contract through renderContract → parseDiffContract` asserting `parseDiffContract(renderContract(c))` equals the normalized contract.
-7. `src/services/__tests__/diff-contract.test.ts` contains a test named `rejects a schemaVersion 1 manifest` asserting a v1-shaped object yields `null`.
+rt type LeafKind = 'feature' | 'fix' | 'refactor' | 'test' | 'infra';\n\n/** v2 typed diff contract — the BLUEPRINT node's structured output, superseding\n *  {@link LeafSizeManifest} (v1) with named leafKind + machine-checkable requirements.\n *  ADDITIVE-ONLY, same convention as v1: never repurpose a field, bump schemaVersion\n *  for incompatible shape changes. */\nexport interface DiffContract {\n  schemaVersion: 2;\n  estimatedFiles: number;\n  estimatedTasks: number;\n  nonEnumerableFanout: boolean;\n  filesToCreate: string[];\n  filesToEdit: string[];\n  tasks: DiffContractTask[];\n  leafKind: LeafKind;\n  requirements: DiffContractRequirement[];\n  outOfScope: string[];\n}\n```\n\n2. **`parseDiffContract(...sources: Array<string | undefined>): DiffContract | null`**\n   - Same source-scanning loop as `parseSizeManifest`: for each source, skip falsy, find all ```` ```json ```` fences with `matchAll(/```json\\s*([\\s\\S]*?)```/g)`, skip if none, take the **last** fence, `JSON.parse` inside `try/catch` (catch → `continue` to next source).\n   - Validate strictly (any failure → `continue`, never throw):\n     - `raw.schemaVersion === 2` exactly (this parser is v2-only; a v1 fence with `schemaVersion: 1` must fall through to `null` so callers know to use `parseSizeManifest` instead — do not coerce).\n     - `estimatedFiles`, `estimatedTasks`: finite numbers `>= 0`.\n     - `nonEnumerableFanout`: boolean.\n     - `leafKind`: one of the 5 literal strings above (reject anything else).\n     - `filesToCreate`, `filesToEdit`, `outOfScope`: arrays, filtered to strings only (same `toStrArr` pattern as `parseSizeManifest`).\n     - `tasks`: array of objects, each coerced the same way `parseSizeManifest` coerces `tasks` (missing `id`/`description` → `''`, missing/bad `files` → `[]`) — do not reject the whole contract for one malformed task, mirror the existing lenient-per-task coercion.\n     - `requirements`: array; each entry validated per its `kind` discriminant:\n       - `symbol-present` → require `file`, `symbol`, `description` all non-empty strings; else drop that one requirement (don't fail the whole contract — same lenient-filter posture as tasks).\n       - `named-test` → require `testFile`, `testName` non-empty strings; force `mechanical: true` regardless of input.\n       - `threshold` → require `source` ∈ `{'gate-output','grep-count'}`, `metric` non-empty string, `comparison` ∈ `{'gte','lte','eq'}`, `value` a finite number; force `mechanical: true`.\n       - Any entry with an unrecognized `kind` or missing required fields is dropped from the array (filter, not reject-all) — matches the file's existing \"malformed sub-part → drop/flag, don't nuke the whole parse\" style (c.f. `splitDecisionMalformed`).\n   - Return the validated `DiffContract` object, or fall through to `return null` after exhausting all sources.\n\n3. **`renderContract(contract: DiffContract): string`**\n   - Serialize back into the exact fenced format the blueprint prompt emits: `` \"```json\\n\" + JSON.stringify(contract, null, 2) + \"\\n```\" `` (or equivalent single-line fence — pick one and keep it internally consistent).\n   - Round-trip requirement: for any valid `DiffContract` value `c`, `parseDiffContract(renderContract(c))` must deep-equal `c` (field order doesn't matter; all required fields must survive, including empty arrays for `outOfScope`/`requirements`/`tasks`).\n\n**Notes for the implementer:**\n- No new imports needed beyond what's already in-repo style (plain TS, no schema-validation library).\n- Do not touch `leaf-executor.ts` in this leaf — `LeafSizeManifest`/`parseSizeManifest` stay untouched; this is a net-new, currently-unimported module.\n- Keep the doc-comment on `DiffContract` explicit about the additive-only contract, matching the existing convention at `leaf-executor.ts:255-260`.","ttft_ms":1549,"ttft_stream_ms":1176,"time_to_request_ms":17,"type":"result","duration_ms":60806,"uuid":"5c35a8f0-6f5b-44be-bdbb-5eb0047530b3"}
 
-```json
-{ "schemaVersion": 2, "estimatedFiles": 2, "estimatedTasks": 2,
-  "nonEnumerableFanout": false,
-  "filesToCreate": ["src/services/diff-contract.ts", "src/services/__tests__/diff-contract.test.ts"],
-  "filesToEdit": [],
-  "tasks": [
-    { "id": "module", "files": ["src/services/diff-contract.ts"], "description": "v2 DiffContract type + DiffRequirement union + parseDiffContract (fail-safe) + renderContract (round-trip fenced)" },
-    { "id": "tests", "files": ["src/services/__tests__/diff-contract.test.ts"], "description": "bun:test suite: round-trip, fail-safe null, v1 rejection, requirement drop, bad leafKind" }
-  ],
-  "leafKind": "feature",
-  "requirements": [
-    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "DiffContract", "description": "v2 interface with literal schemaVersion 2 plus leafKind/requirements/outOfScope" },
-    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "DiffRequirement", "description": "union of symbol-present | named-test | threshold requirement types" },
-    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "parseDiffContract", "description": "fail-safe parser extracting last json fence, validating schemaVersion===2, never throws" },
-    { "kind": "symbol-present", "file": "src/services/diff-contract.ts", "symbol": "renderContract", "description": "canonical fenced json serializer enabling round-trip" },
-    { "kind": "named-test", "testFile": "src/services/__tests__/diff-contract.test.ts", "testName": "round-trips a full contract through renderContract → parseDiffContract", "mechanical": true },
-    { "kind": "named-test", "testFile": "src/services/__tests__/diff-contract.test.ts", "testName": "rejects a schemaVersion 1 manifest", "mechanical": true }
-  ],
-  "outOfScope": [
-    "Rewiring leaf-executor.ts / parseSizeManifest to consume DiffContract (separate downstream leaf)",
-    "Actually evaluating/enforcing requirements against a change-set (this leaf only defines + parses the type)",
-    "Migrating existing schemaVersion 1 LeafSizeManifest emitters or blueprint prompt strings"
-  ] }
-```
+
+--- stderr tail (last 4000 chars) ---
+

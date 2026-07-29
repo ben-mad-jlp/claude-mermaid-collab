@@ -1,106 +1,20 @@
-I have everything I need. Here is the implementation blueprint.
+[[PARSE FAILED for b885debd]]
 
-## Blueprint: prune stale post-land worktrees so fully-on-master branches GC
+--- extracted text (what parseDiffContract saw) ---
 
-### Problem
-`gcEpicBranches` (`src/services/landed-epic-sweep.ts`) deletes a fully-on-master branch via `runner.deleteBranch(branch)` → `git branch -D`. That command **fails** when the branch is checked out in a worktree — which is exactly the state of the 9 landed epics: each branch is still bound to a stale `.collab/agent-sessions/worktrees/__epic-*__` worktree. So `deleteBranch` returns false, the branch is counted `skipped`, and it survives every sweep.
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.
 
-### Fix shape
-Add an **optional** `pruneWorktreeFor(branch)` method to `BranchGcRunner` that removes the branch's worktree with plain `git worktree remove` (**no `--force`**). Git refuses to remove a worktree with uncommitted changes, so an active build or an ahead>0 epic is preserved and its branch stays undeleted — only stale, clean, fully-on-master worktrees are freed, after which `git branch -D` succeeds. Call it immediately before `deleteBranch` in **both** the live-epic pass and the orphan pass. Guard with `?.` since injected mocks may omit it.
+--- raw stdout tail (last 4000 chars) ---
 
-### Changes
+,"error_status":529,"error":"overloaded","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"7fdcd103-cac0-441f-aa86-d1ad74a49718"}
+{"type":"system","subtype":"api_retry","attempt":6,"max_retries":10,"retry_delay_ms":16320,"error_status":529,"error":"overloaded","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"e1eb662f-5759-4d9c-bc21-9252b71a0e9c"}
+{"type":"system","subtype":"api_retry","attempt":7,"max_retries":10,"retry_delay_ms":38531,"error_status":529,"error":"overloaded","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"98ce5f67-2b87-4ff0-938a-9432a4def650"}
+{"type":"system","subtype":"api_retry","attempt":8,"max_retries":10,"retry_delay_ms":38513,"error_status":529,"error":"overloaded","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"9930da2e-6a67-4ce8-987a-d970d82d3bd7"}
+{"type":"system","subtype":"api_retry","attempt":9,"max_retries":10,"retry_delay_ms":38986,"error_status":529,"error":"overloaded","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"7e4edbf4-6645-420f-bb31-4a2c62f8b548"}
+{"type":"system","subtype":"api_retry","attempt":10,"max_retries":10,"retry_delay_ms":38411,"error_status":529,"error":"overloaded","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"e26850a6-8b5f-4bd4-9512-44daa0665f34"}
+{"type":"assistant","message":{"id":"1869eda0-1f4b-4469-92ce-255acd71c8d8","container":null,"model":"<synthetic>","role":"assistant","stop_details":null,"stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":null,"cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":null,"iterations":null,"speed":null},"content":[{"type":"text","text":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."}],"context_management":null},"parent_tool_use_id":null,"session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","uuid":"5d683928-b435-4ede-94f3-3f93ce258f0d","timestamp":"2026-07-29T20:06:36.912Z","error":"server_error","request_id":"req_011CdWwsNK8JNzPknPAYfBfA","is_api_error_message":true}
+{"is_error":true,"duration_api_ms":81668,"num_turns":8,"stop_reason":"stop_sequence","session_id":"762897e8-b60a-4ff9-8ba2-f76b0a1b02e1","total_cost_usd":0.3572116,"usage":{"input_tokens":14,"cache_creation_input_tokens":35305,"cache_read_input_tokens":316962,"output_tokens":3253,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":35305,"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","iterations":[{"input_tokens":2,"output_tokens":146,"cache_read_input_tokens":54659,"cache_creation_input_tokens":6036,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6036},"type":"message"}],"speed":"standard"},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":1361,"outputTokens":19,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.001456,"contextWindow":200000,"maxOutputTokens":32000,"canonicalModel":"claude-haiku-4-5","provider":"firstParty"},"claude-sonnet-5":{"inputTokens":14,"outputTokens":3253,"cacheReadInputTokens":316962,"cacheCreationInputTokens":35305,"webSearchRequests":0,"costUSD":0.3557556,"contextWindow":1000000,"maxOutputTokens":64000,"canonicalModel":"claude-sonnet-5","provider":"firstParty"}},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subtype":"success","api_error_status":529,"result":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.","type":"result","duration_ms":285668,"uuid":"133aa71c-4810-4419-b3cd-9520214a1948"}
 
-**1. `src/services/landed-epic-sweep.ts` — extend the `BranchGcRunner` interface** (after `aheadCount`, ~line 98):
-```ts
-  /** Remove the worktree currently holding `branch` via `git worktree remove` WITHOUT
-   *  --force, so a dirty worktree (active build, or an ahead>0 epic) is preserved and its
-   *  branch stays checked-out (and thus undeleted). Best-effort/no-op when no worktree holds
-   *  the branch. Optional: injected test mocks may omit it. */
-  pruneWorktreeFor?(branch: string): void;
-```
 
-**2. `src/services/landed-epic-sweep.ts` — implement it in `makeBranchGcRunner`** (add a method to the returned object, ~after `aheadCount`, line 137):
-```ts
-    pruneWorktreeFor(branch: string): void {
-      const list = runGitLocal(project, ['worktree', 'list', '--porcelain']);
-      if (list.code !== 0) return;
-      let curPath: string | null = null;
-      for (const line of list.stdout.split('\n')) {
-        if (line.startsWith('worktree ')) curPath = line.slice('worktree '.length).trim();
-        else if (line.startsWith('branch ')) {
-          if (line.slice('branch '.length).trim() === `refs/heads/${branch}` && curPath) {
-            runGitLocal(project, ['worktree', 'remove', curPath]); // no --force: dirty worktree preserved
-          }
-        } else if (line === '') curPath = null;
-      }
-    },
-```
-(`git worktree list --porcelain` emits blank-line-separated blocks, each with a `worktree <path>` line and, for a branch-bound tree, a `branch refs/heads/<name>` line — same parse shape already used in `leaf-worktree-reaper.ts:201`.)
+--- stderr tail (last 4000 chars) ---
 
-**3. `src/services/landed-epic-sweep.ts` — call prune before delete in the LIVE-epic loop** (between `revParse` at line 181 and `deleteBranch` at line 183):
-```ts
-    const tip = runner.revParse(e.branch);
-    if (tip == null) { skipped++; continue; }
-    runner.pruneWorktreeFor?.(e.branch);
-    if (runner.deleteBranch(e.branch)) {
-```
-
-**4. `src/services/landed-epic-sweep.ts` — call prune before delete in the ORPHAN loop** (between `revParse` at line 203 and `deleteBranch` at line 204):
-```ts
-    const tip = runner.revParse(branch);
-    if (tip == null) { skipped++; continue; }
-    runner.pruneWorktreeFor?.(branch);
-    if (runner.deleteBranch(branch)) {
-```
-
-**5. `src/services/__tests__/landed-epic-sweep.test.ts` — add prune-before-delete ordering test** inside `describe('gcEpicBranches', …)` (after the existing tests, ~line 169):
-```ts
-  test('worktree is pruned BEFORE the branch is deleted (prune-before-delete ordering)', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] prune me', kind: 'epic', status: 'planned' });
-    const branch = epicBranchName(epic.id);
-    const probe: GitProbe = (b) => (b === branch ? { exists: true, ahead: 0, behind: 0, mergeable: true } : { exists: false, ahead: null, behind: null, mergeable: null });
-    const calls: string[] = [];
-    const runner: BranchGcRunner = {
-      revParse: () => 'abc123',
-      deleteBranch: (b) => { calls.push(`delete:${b}`); return true; },
-      listEpicBranches: () => [],
-      aheadCount: () => 0,
-      pruneWorktreeFor: (b) => { calls.push(`prune:${b}`); },
-    };
-
-    const result = gcEpicBranches(project, { probe, runner });
-
-    expect(result.deleted).toContain(branch);
-    expect(calls).toEqual([`prune:${branch}`, `delete:${branch}`]); // prune strictly precedes delete
-  });
-```
-This lifts the `gcEpicBranches` block from 4 tests to 5; the full file goes 6→7. Existing mocks that omit `pruneWorktreeFor` keep compiling/passing because the field is optional and the calls are `?.`-guarded.
-
-### Notes
-- No change to the fail-closed rule: prune runs only on the ahead===0 path (after the `ahead !== 0` flag-and-continue and after `revParse`), so an ahead>0 or probe-error branch is never touched.
-- Recovery-log semantics unchanged: tip is captured via `revParse` before the prune, and the log is still written only on a successful `deleteBranch`.
-- No worker/coordinator wiring change — `makeBranchGcRunner` is the default runner already threaded through `runLandedEpicSweep`, so the live sweep picks up the new method automatically.
-
-### Acceptance criteria (positive, citable)
-1. `BranchGcRunner` interface in `src/services/landed-epic-sweep.ts` declares `pruneWorktreeFor?(branch: string): void;`.
-2. `makeBranchGcRunner` in `src/services/landed-epic-sweep.ts` returns an object whose `pruneWorktreeFor` runs `git worktree list --porcelain`, matches `refs/heads/<branch>`, and calls `git worktree remove <path>` **without** `--force`.
-3. The live-epic loop in `gcEpicBranches` calls `runner.pruneWorktreeFor?.(e.branch)` on the line directly before `runner.deleteBranch(e.branch)`.
-4. The orphan loop in `gcEpicBranches` calls `runner.pruneWorktreeFor?.(branch)` on the line directly before `runner.deleteBranch(branch)`.
-5. New test `worktree is pruned BEFORE the branch is deleted (prune-before-delete ordering)` in `landed-epic-sweep.test.ts` asserts `calls` equals `['prune:<branch>', 'delete:<branch>']`.
-6. `tsc` is clean and the `landed-epic-sweep.test.ts` suite is 7/7 green.
-
-```json
-{ "schemaVersion": 2, "estimatedFiles": 2, "estimatedTasks": 3,
-  "nonEnumerableFanout": false, "filesToCreate": [], "filesToEdit": ["src/services/landed-epic-sweep.ts", "src/services/__tests__/landed-epic-sweep.test.ts"],
-  "tasks": [
-    { "id": "runner-prune-method", "files": ["src/services/landed-epic-sweep.ts"], "description": "Add optional pruneWorktreeFor to BranchGcRunner interface and implement it in makeBranchGcRunner via `git worktree remove` (no --force)" },
-    { "id": "call-prune-before-delete", "files": ["src/services/landed-epic-sweep.ts"], "description": "Call runner.pruneWorktreeFor?.(branch) immediately before deleteBranch in both the live-epic and orphan loops of gcEpicBranches" },
-    { "id": "ordering-test", "files": ["src/services/__tests__/landed-epic-sweep.test.ts"], "description": "Add prune-before-delete ordering test asserting calls === ['prune:<branch>','delete:<branch>']" }
-  ],
-  "leafKind": "fix",
-  "requirements": [
-    { "kind": "symbol-present", "file": "src/services/landed-epic-sweep.ts", "symbol": "pruneWorktreeFor", "description": "optional worktree-prune method on BranchGcRunner, implemented in makeBranchGcRunner and invoked before each deleteBranch" },
-    { "kind": "named-test", "testFile": "src/services/__tests__/landed-epic-sweep.test.ts", "testName": "worktree is pruned BEFORE the branch is deleted (prune-before-delete ordering)", "mechanical": true }
-  ],
-  "outOfScope": ["changing the ahead>0 / probe-error fail-closed rules", "recovery-log format changes", "coordinator/worker wiring beyond the default runner", "real-repo integration test of git worktree remove"] }
-```
