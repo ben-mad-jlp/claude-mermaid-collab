@@ -216,6 +216,22 @@ function openDb(): Database {
     if (!ebgc.some((c) => c.name === 'baselineFailures')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN baselineFailures TEXT');
     if (!ebgc.some((c) => c.name === 'failAttempts')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN failAttempts INTEGER');
   }
+  // Flaky-test observation ledger: one row per test run (pass or fail) on the base lane,
+  // to classify transient base-lane failures (flakes) against sha-correlated/red-on-branch issues.
+  db.exec(`CREATE TABLE IF NOT EXISTS base_gate_test_run (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL, baseSha TEXT NOT NULL, lane TEXT NOT NULL, test TEXT NOT NULL,
+    failed INTEGER NOT NULL, scope TEXT NOT NULL, observedAt INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_bgtr_project_test ON base_gate_test_run(project, test, observedAt)`);
+  // Quarantine records: one row per test that has been flagged as flaky and is excluded
+  // from the base gate, with evidence and TTL.
+  db.exec(`CREATE TABLE IF NOT EXISTS test_quarantine (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL, test TEXT NOT NULL, quarantinedAtSha TEXT NOT NULL,
+    evidenceJson TEXT NOT NULL, ttlExpiresAt INTEGER NOT NULL, seededFrom TEXT,
+    createdAt INTEGER NOT NULL, UNIQUE(project, test)
+  )`);
   // Conductor wake gate: the last lane signature (epic tip + trunk tip) a base re-probe was
   // taken at. Keyed on epicId ALONE — one probe decision per epic, matching epic_base_gate's
   // grain, so a lane that has not moved does not buy a probe (and, via infraActed, a whole
@@ -1005,6 +1021,86 @@ export function getEpicBaseLane(epicId: string, baseSha: string | null | undefin
     }
     return { ...raw, failures, ran: Boolean(raw.ran) };
   } catch { return null; }
+}
+
+// --- Flaky-test observation ledger (base_gate_test_run + test_quarantine) -----
+export interface BaseGateTestRunRow {
+  project: string;
+  baseSha: string;
+  lane: string;
+  test: string;
+  failed: boolean;
+  scope: 'base' | 'branch';
+  observedAt: number;
+}
+
+/** Record one base-gate test run observation: one row per test that ran, with
+ *  `failed` indicating pass (0) or fail (1). Best-effort: insert failures are
+ *  silently swallowed so test recordings never break a lane. */
+export function recordBaseGateTestRuns(
+  e: { project: string; baseSha: string; lane: string; ranTests: string[]; failingTests: string[]; scope: 'base' | 'branch' },
+  now: number = Date.now(),
+): void {
+  try {
+    const db = openDb();
+    const stmt = db.prepare(
+      'INSERT INTO base_gate_test_run (project, baseSha, lane, test, failed, scope, observedAt) VALUES (?,?,?,?,?,?,?)',
+    );
+    for (const test of e.ranTests) {
+      stmt.run(e.project, e.baseSha, e.lane, test, e.failingTests.includes(test) ? 1 : 0, e.scope, now);
+    }
+  } catch { /* best-effort */ }
+}
+
+/** List all test-run observations for a project since a given timestamp, ordered
+ *  by observedAt ascending. Maps `failed` 0/1 to boolean. Returns [] on any error. */
+export function listObservations(project: string, sinceMs: number): BaseGateTestRunRow[] {
+  try {
+    const raw = openDb().prepare(
+      'SELECT project, baseSha, lane, test, failed, scope, observedAt FROM base_gate_test_run WHERE project=? AND observedAt>=? ORDER BY observedAt ASC',
+    ).all(project, sinceMs) as Array<Omit<BaseGateTestRunRow, 'failed'> & { failed: number }>;
+    return raw.map((r) => ({ ...r, failed: Boolean(r.failed) }));
+  } catch { return []; }
+}
+
+export interface TestQuarantineRow {
+  project: string;
+  test: string;
+  quarantinedAtSha: string;
+  evidence: { runs: number; passRuns: number; failRuns: number };
+  ttlExpiresAt: number;
+  seededFrom: string | null;
+  createdAt: number;
+}
+
+/** List all active (TTL-valid) quarantine records for a project. JSON-parsing is
+ *  throw-safe; malformed evidence returns an empty evidence object. Returns [] on error. */
+export function listTestQuarantine(project: string): TestQuarantineRow[] {
+  try {
+    const raw = openDb().prepare('SELECT * FROM test_quarantine WHERE project=?').all(project) as Array<
+      Omit<TestQuarantineRow, 'evidence'> & { evidenceJson: string }
+    >;
+    return raw.map((r) => {
+      let evidence: TestQuarantineRow['evidence'] = { runs: 0, passRuns: 0, failRuns: 0 };
+      try { evidence = JSON.parse(r.evidenceJson) as TestQuarantineRow['evidence']; } catch { /* use default */ }
+      return { ...r, evidence };
+    });
+  } catch { return []; }
+}
+
+/** Upsert a quarantine record (or refresh an existing one). Idempotent on the
+ *  (project, test) UNIQUE constraint. Best-effort: write failures mean a missing
+ *  or stale record, which is safe (caller re-runs the decision). */
+export function writeTestQuarantine(r: Omit<TestQuarantineRow, 'createdAt'>, now: number = Date.now()): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO test_quarantine (project, test, quarantinedAtSha, evidenceJson, ttlExpiresAt, seededFrom, createdAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(project, test) DO UPDATE SET
+         quarantinedAtSha=excluded.quarantinedAtSha, evidenceJson=excluded.evidenceJson,
+         ttlExpiresAt=excluded.ttlExpiresAt, seededFrom=excluded.seededFrom, createdAt=excluded.createdAt`,
+    ).run(r.project, r.test, r.quarantinedAtSha, JSON.stringify(r.evidence), r.ttlExpiresAt, r.seededFrom ?? null, now);
+  } catch { /* best-effort */ }
 }
 
 // --- G10 land gate cache (epic_land_gate) --------------------------------
