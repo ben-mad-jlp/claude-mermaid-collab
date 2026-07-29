@@ -342,7 +342,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
       const parsed = parseEscalationIntent(intent);
       if (parsed) {
         intents.push(parsed);
-        createEscalation(parsed);
+        createEscalation({ ...parsed, audience: 'human' });
       }
     });
 

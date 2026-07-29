@@ -133,6 +133,7 @@ describe('createEscalation — dedup returns existing open card id', () => {
   it('dedup returns a truthy id equal to the first card', () => {
     const { escalation: first, isNew: firstIsNew } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-1',
       kind: 'epic-ready-to-land',
       questionText: 'Land the epic?',
@@ -144,6 +145,7 @@ describe('createEscalation — dedup returns existing open card id', () => {
 
     const { escalation: second, isNew: secondIsNew } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-1',
       kind: 'epic-ready-to-land',
       questionText: 'Land the epic?',

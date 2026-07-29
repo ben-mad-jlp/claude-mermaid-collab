@@ -324,6 +324,7 @@ export async function runInfraRejectionArm(
         kind: INFRA_REJECTED_KIND,
         todoId: c.leafId,
         operatorGated: true,
+        audience: 'human',
         conditionKey: infraRejectedConditionKey(c.leafId, c.cause),
         conditionTuple: [INFRA_REJECTED_KIND, c.leafId.slice(0, 8), c.cause],
         questionText:

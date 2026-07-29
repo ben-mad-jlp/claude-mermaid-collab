@@ -86,7 +86,7 @@ async function decide(id: string, body: unknown): Promise<Response> {
 
 describe('POST /api/supervisor/escalation/:id/decide', () => {
   it('end-to-end: worker awaits → POST decide → tool returns chosen id → escalation resolved', async () => {
-    const { escalation } = createEscalation({ project: '/p', session: 's', kind: 'decision', questionText: 'A or B?', options: OPTIONS, recommended: 'a' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/p', session: 's', kind: 'decision', questionText: 'A or B?', options: OPTIONS, recommended: 'a' });
     const awaiting = awaitHumanDecision(escalation.id, { timeoutMs: 5000, pollMs: 5 });
     const res = await decide(escalation.id, { optionId: 'b', note: 'faster wins' });
     expect(res.status).toBe(200);
@@ -102,7 +102,7 @@ describe('POST /api/supervisor/escalation/:id/decide', () => {
   });
 
   it('rejects an optionId that is not one of the escalation options (400)', async () => {
-    const { escalation } = createEscalation({ project: '/p', session: 's', kind: 'decision', questionText: 'q', options: OPTIONS });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/p', session: 's', kind: 'decision', questionText: 'q', options: OPTIONS });
     const res = await decide(escalation.id, { optionId: 'zzz' });
     expect(res.status).toBe(400);
     // unchanged: still open, no decision recorded
@@ -111,13 +111,13 @@ describe('POST /api/supervisor/escalation/:id/decide', () => {
   });
 
   it('requires optionId for a structured escalation (400)', async () => {
-    const { escalation } = createEscalation({ project: '/p', session: 's', kind: 'decision', questionText: 'q2', options: OPTIONS });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/p', session: 's', kind: 'decision', questionText: 'q2', options: OPTIONS });
     const res = await decide(escalation.id, { note: 'no option' });
     expect(res.status).toBe(400);
   });
 
   it('allows a note-only answer for a plain escalation (no options)', async () => {
-    const { escalation } = createEscalation({ project: '/p', session: 's', kind: 'question', questionText: 'plain?' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/p', session: 's', kind: 'question', questionText: 'plain?' });
     const res = await decide(escalation.id, { note: 'do the thing' });
     expect(res.status).toBe(200);
     expect(getEscalationDecision(escalation.id)?.note).toBe('do the thing');

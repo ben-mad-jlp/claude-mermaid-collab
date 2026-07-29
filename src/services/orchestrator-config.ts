@@ -400,6 +400,7 @@ export function emitAutoCollapseNotices(): void {
         session: 'orchestrator',
         kind: 'orchestrator-level-collapse',
         project,
+        audience: 'human',
         questionText:
           'Autonomy collapsed to off/on: non-mission epics now need the human land click — give work a mission to restore autonomous landing.',
       });
