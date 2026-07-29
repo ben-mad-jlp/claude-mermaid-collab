@@ -13,6 +13,8 @@ import {
   collectInfraRejectedLeaves,
   runInfraRejectionArm,
   infraRejectedMarker,
+  infraRejectedConditionKey,
+  baseRedProjectConditionKey,
   makeEpicBaseProbe,
   INFRA_REJECTED_KIND,
   type EpicBaseProbe,
@@ -95,6 +97,50 @@ async function seedRejectedLeaf(reason: string) {
   return { forged, crit, epic, leaf };
 }
 
+/** Forge an approved+active mission with `epicCount` serving epics, each carrying
+ *  `leavesPerEpic` rejected leaves with the given base-red-style reason. */
+async function seedMultipleBaseRedLeaves(reason: string, epicCount: number, leavesPerEpic: number) {
+  const forged = await forgeMission(project, {
+    session: 's1',
+    title: 'Base repair drives stuck leaves (multi)',
+    criteria: ['a leaf parked on a red base re-dispatches once the base is green'],
+  });
+  const crit = listCriteria(project, forged.missionId)[0];
+  const leaves: Awaited<ReturnType<typeof createTodo>>[] = [];
+  for (let e = 0; e < epicCount; e++) {
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: `[EPIC] serving epic ${e}`,
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, epic.id, { status: 'ready' });
+    for (let l = 0; l < leavesPerEpic; l++) {
+      const leaf = await createTodo(project, {
+        ownerSession: 's1',
+        title: `the stuck leaf ${e}-${l}`,
+        parentId: epic.id,
+        status: 'ready',
+      });
+      await updateTodo(project, leaf.id, { acceptanceStatus: 'rejected' });
+      recordNode({
+        project,
+        todoId: leaf.id,
+        epicId: epic.id,
+        leafId: leaf.id,
+        session: 's1',
+        nodeKind: 'outcome',
+        nodesSpent: 0,
+        leafOutcome: 'rejected',
+        outcomeDetail: JSON.stringify({ reason }),
+      });
+      leaves.push(leaf);
+    }
+  }
+  return { forged, leaves };
+}
+
 describe('classifyInfraRejection', () => {
   test('maps the three INFRA heads and returns null for a review-findings reason', () => {
     expect(classifyInfraRejection(BASE_RED_REASON)).toBe('epic-base-red');
@@ -136,8 +182,9 @@ describe('runInfraRejectionArm', () => {
     expect(a.cardsRaised).toBe(1);
     const cards = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
     expect(cards.length).toBe(1);
-    expect(cards[0].todoId).toBe(leaf.id);
-    expect(cards[0].questionText).toContain(infraRejectedMarker(leaf.id));
+    expect(cards[0].todoId).toBeNull();
+    expect(cards[0].questionText).toContain(leaf.id.slice(0, 8));
+    expect(cards[0].conditionKey).toBe(baseRedProjectConditionKey(project));
     const afterFirst = listEscalations().length;
     expect(afterFirst).toBe(before + 1);
 
@@ -206,7 +253,10 @@ describe('runInfraRejectionArm', () => {
   });
 
   test('debounce break: an INFRA-rejected leaf reopens a state the conductor already served', async () => {
-    const { forged } = await seedRejectedLeaf(BASE_RED_REASON);
+    // mis-homed-target keeps its per-leaf card (todoId = leaf.id, inside missionTodoIds), which is
+    // what moves hardCardIds and breaks the debounce fingerprint below. A coalesced project-wide
+    // base-red card carries todoId: null by design and is exercised separately.
+    const { forged } = await seedRejectedLeaf('mis-homed target: leaf ran in the tracking repo');
     // Pre-stamp the EXACT fingerprint this state produces, so the pass would otherwise debounce.
     const status = getMission(project, forged.missionId)!.status!;
     const actions = listCriteriaWithActions(project, forged.missionId)
@@ -317,6 +367,80 @@ describe('runInfraRejectionArm', () => {
     });
     expect(r2.cardsRaised).toBe(1);
     expect(r2.baseRepairEpics).toEqual([]);
+  });
+
+  test('coalesces a project-wide base-red across leaves and epics into one card', async () => {
+    const { forged, leaves } = await seedMultipleBaseRedLeaves(BASE_RED_REASON, 2, 2);
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(r.cardsRaised).toBe(1);
+
+    const cards = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cards.length).toBe(1);
+    expect(cards[0].conditionKey).toBe(baseRedProjectConditionKey(project));
+    expect(cards[0].audience).toBe('human');
+    expect(cards[0].operatorGated).toBeTruthy();
+    for (const leaf of leaves) {
+      expect(cards[0].questionText).toContain(leaf.id.slice(0, 8));
+    }
+  });
+
+  test('does not raise a second card on a repeat tick for the same base-red', async () => {
+    const { forged } = await seedMultipleBaseRedLeaves(BASE_RED_REASON, 2, 2);
+
+    const a = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(a.cardsRaised).toBe(1);
+    const afterFirst = listEscalations().length;
+
+    const b = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(b.cardsRaised).toBe(0);
+    expect(listEscalations().length).toBe(afterFirst);
+  });
+
+  test('keeps a per-leaf card for mis-homed-target', async () => {
+    const { forged, leaves } = await seedMultipleBaseRedLeaves(BASE_RED_REASON, 1, 2);
+    const crit = listCriteria(project, forged.missionId)[0];
+    const misHomedEpic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] mis-homed epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    const misHomed = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the mis-homed leaf',
+      parentId: misHomedEpic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, misHomedEpic.id, { status: 'ready' });
+    await updateTodo(project, misHomed.id, { acceptanceStatus: 'rejected' });
+    recordNode({
+      project,
+      todoId: misHomed.id,
+      epicId: misHomedEpic.id,
+      leafId: misHomed.id,
+      session: 's1',
+      nodeKind: 'outcome',
+      nodesSpent: 0,
+      leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'mis-homed target: leaf ran in the tracking repo' }),
+    });
+
+    const r = await runInfraRejectionArm(project, forged.missionId, 's1', { probe: failProbe });
+    expect(r.cardsRaised).toBe(2);
+
+    const cards = listEscalations().filter((e) => e.kind === INFRA_REJECTED_KIND && e.project === project);
+    expect(cards.length).toBe(2);
+    const misHomedCard = cards.find((c) => c.conditionKey === infraRejectedConditionKey(misHomed.id, 'mis-homed-target'));
+    expect(misHomedCard).toBeDefined();
+    expect(misHomedCard!.todoId).toBe(misHomed.id);
+    const coalescedCard = cards.find((c) => c.conditionKey === baseRedProjectConditionKey(project));
+    expect(coalescedCard).toBeDefined();
+    for (const leaf of leaves) {
+      expect(coalescedCard!.questionText).toContain(leaf.id.slice(0, 8));
+    }
+    expect(coalescedCard!.questionText).not.toContain(misHomed.id.slice(0, 8));
   });
 });
 
