@@ -144,13 +144,22 @@ export const MISSION_STALL_GRACE_MS =
 export const MISSION_STALL_FLAG_TTL_MS =
   (Number(process.env.MERMAID_MISSION_STALL_TTL_MIN) || 30) * 60 * 1000;
 
-/** ENFORCED ceiling on blueprint output tokens. Observed from 37 blueprints in live runs:
- *  average 17,175 / max 61,655 output tokens. A blueprint node whose output (token count)
- *  exceeds this ceiling triggers exactly one bounded re-emit via buildBlueprintSummarizePrompt,
- *  not a silent pass-through. The re-emit asks the node to trim the prose while preserving
- *  every criterion, file, and task. Override with MERMAID_BLUEPRINT_OUTPUT_CAP. */
+/** ENFORCED ceiling on blueprint output tokens — a RUNAWAY guard, not a quality gate. A
+ *  blueprint node whose output exceeds this ceiling triggers exactly one bounded re-emit via
+ *  buildBlueprintSummarizePrompt (trim prose, preserve every criterion/file/task), not a silent
+ *  pass-through. Override with MERMAID_BLUEPRINT_OUTPUT_CAP.
+ *
+ *  Raised 20k → 40k (2026-07-29) from a worker-ledger correlation of blueprint size vs terminal
+ *  outcome (max single-blueprint outputTokens per leaf, bucketed):
+ *    <10k 86.2% acc (1.33 bp-nodes) · 10-20k 86.0% (1.33) · 20-30k 81.7% (2.42) ·
+ *    30-40k 80.0% (2.65) · 40-60k 66.7% (2.33, n=12) · 60k+ 100% (n=1).
+ *  Accept rate is FLAT to ~40k, so size does NOT predict rejection below it — the old 20k cap
+ *  (≈1.2× the 17k average) fired on the normal upper tail of hard leaves, ~DOUBLING the blueprint
+ *  node count (1.33 → 2.4+) for a full re-emit re-pay with NO accept-rate benefit, while the
+ *  blueprint is cheap cached-reads downstream. 40k eliminates that tax on the 20-40k band and
+ *  keeps a guard above 40k, where the only (small-sample) quality dip and true-runaway risk sit. */
 export const BLUEPRINT_OUTPUT_TOKEN_CAP =
-  Math.max(1000, Number(process.env.MERMAID_BLUEPRINT_OUTPUT_CAP) || 20000);
+  Math.max(1000, Number(process.env.MERMAID_BLUEPRINT_OUTPUT_CAP) || 40000);
 
 // ── Worker-liveness thresholds ───────────────────────────────────────────────────
 

@@ -3821,10 +3821,10 @@ describe('replay-corpus recording (G3 + citability)', () => {
   it('blueprint-budget gate: oversized blueprint triggers re-emit gate eval', async () => {
     const { deps, spies } = makeDeps({
       reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
-      // First blueprint call outputs 25,000 tokens (exceeds BLUEPRINT_OUTPUT_TOKEN_CAP=20,000)
+      // First blueprint call outputs 45,000 tokens (exceeds BLUEPRINT_OUTPUT_TOKEN_CAP=40,000)
       // Second blueprint call (re-emit) outputs 15,000 tokens (below cap)
       blueprintUsageOverrides: [
-        { outputTokens: 25000 },
+        { outputTokens: 45000 },
         { outputTokens: 15000 },
       ],
       readBlueprintReturns: [
@@ -3841,8 +3841,8 @@ describe('replay-corpus recording (G3 + citability)', () => {
     const budgetEval = spies.gateEvals.find((e) => e.gate === 'blueprint-budget');
     expect(budgetEval).toBeDefined();
     expect(budgetEval?.verdict).toBe('fail');
-    expect(budgetEval?.reasons).toContain('outputTokens=25000');
-    expect(budgetEval?.reasons).toContain('cap=20000');
+    expect(budgetEval?.reasons).toContain('outputTokens=45000');
+    expect(budgetEval?.reasons).toContain('cap=40000');
 
     // Assert exactly 2 blueprint-node calls: original + re-emit
     const blueprintSpecs = spies.invokeSpecs.filter((s) => isBlueprintSpec(s));
@@ -3853,7 +3853,7 @@ describe('replay-corpus recording (G3 + citability)', () => {
     const { deps, spies } = makeDeps({
       reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
       blueprintUsageOverrides: [
-        { outputTokens: 25000 },
+        { outputTokens: 45000 },
         { outputTokens: 15000 }, // re-emit smaller
       ],
       readBlueprintReturns: [
@@ -3876,8 +3876,8 @@ describe('replay-corpus recording (G3 + citability)', () => {
     const { deps, spies } = makeDeps({
       reviewVerdicts: ['- [MET] criterion 1 — src/a.ts:1\n\nVERDICT: PASS'],
       blueprintUsageOverrides: [
-        { outputTokens: 25000 },
-        { outputTokens: 24000 }, // re-emit NOT smaller enough to adopt
+        { outputTokens: 45000 },
+        { outputTokens: 46000 }, // re-emit NOT smaller than original → original kept
       ],
       readBlueprintReturns: [
         undefined, // original
