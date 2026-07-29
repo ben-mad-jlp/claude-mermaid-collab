@@ -122,8 +122,10 @@ export function hasAttemptedRung(project: string, criterionId: string, rung: App
  *  tried = the union of rungs present in attempts + inferredRungs, deduped, in ladder order.
  *  missing = the rungs not in tried.
  *  exhausted = true if 're-decompose' has been attempted (any outcome counts) OR
- *              if servedEpicCount >= CRITERION_SERVE_CAP + 1 (backstop for criteria 1-2
- *              where rungs may never write a row). */
+ *              if servedEpicCount >= CRITERION_SERVE_CAP (backstop for criteria 1-2
+ *              where rungs may never write a row). This threshold MUST stay equal to
+ *              deriveCriterionAction's escalate threshold (mission-store.ts) so a
+ *              criterion never reads 'escalate' while the ladder reads not-exhausted. */
 export function ladderExhausted(input: {
   attempts: ApproachAttempt[];
   servedEpicCount: number;
@@ -137,7 +139,7 @@ export function ladderExhausted(input: {
   const missing = ladderOrder.filter((r) => !allRungsSet.has(r));
 
   const reDecomposeAttempted = tried.includes('re-decompose');
-  const serveCapExhausted = input.servedEpicCount >= CRITERION_SERVE_CAP + 1;
+  const serveCapExhausted = input.servedEpicCount >= CRITERION_SERVE_CAP;
   const exhausted = reDecomposeAttempted || serveCapExhausted;
 
   return { exhausted, tried, missing };
