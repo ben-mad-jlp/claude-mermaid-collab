@@ -3,6 +3,7 @@ import type { Escalation } from '@/stores/supervisorStore';
 import {
   selectOpenEscalations,
   selectOpenEscalationCount,
+  selectHumanActionableEscalations,
   classifyEscalationBucket,
   selectEscalationKindCounts,
   selectLiveness,
@@ -112,6 +113,66 @@ describe('selectOpenEscalationCount — parity with selectOpenEscalations', () =
   });
 });
 
+// ── audience field filtering — human vs internal ───────────────────────────────
+
+describe('isHumanActionable — audience filtering', () => {
+  it('audience:internal, status:open excluded from selectOpenEscalations', () => {
+    const internal = esc('projA', 'a1', 'open', 'e-internal') as Escalation;
+    internal.audience = 'internal';
+    const r = selectOpenEscalations([internal], PROJ_A);
+    expect(r.map((e) => e.id)).not.toContain('e-internal');
+  });
+
+  it('audience:internal, status:open excluded from selectHumanActionableEscalations', () => {
+    const internal = esc('projA', 'a1', 'open', 'e-internal') as Escalation;
+    internal.audience = 'internal';
+    const r = selectHumanActionableEscalations([internal], PROJ_A);
+    expect(r.map((e) => e.id)).not.toContain('e-internal');
+  });
+
+  it('audience:human, status:open present in both lists', () => {
+    const human = esc('projA', 'a1', 'open', 'e-human') as Escalation;
+    human.audience = 'human';
+    const open = selectOpenEscalations([human], PROJ_A);
+    const actionable = selectHumanActionableEscalations([human], PROJ_A);
+    expect(open.map((e) => e.id)).toContain('e-human');
+    expect(actionable.map((e) => e.id)).toContain('e-human');
+  });
+
+  it('audience:human, operatorGated counted by selectOpenEscalationCount', () => {
+    const gated = esc('projA', 'a1', 'open', 'e-gated') as Escalation;
+    gated.audience = 'human';
+    gated.operatorGated = 1;
+    const count = selectOpenEscalationCount([gated], PROJ_A);
+    expect(count).toBe(1);
+    const actionable = selectHumanActionableEscalations([gated], PROJ_A);
+    expect(actionable[0]?.id).toBe('e-gated');
+  });
+
+  it('selectOpenEscalationCount parity with selectOpenEscalations', () => {
+    const all: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'e1'), audience: 'human' } as Escalation,
+      { ...esc('projA', 'a1', 'open', 'e2'), audience: 'internal' } as Escalation,
+      { ...esc('projA', 'a1', 'open', 'e3'), audience: 'human' } as Escalation,
+    ];
+    const count = selectOpenEscalationCount(all, PROJ_A);
+    const list = selectOpenEscalations(all, PROJ_A);
+    expect(count).toBe(list.length);
+    expect(count).toBe(2);
+  });
+
+  it('selectHumanActionableEscalations identity: filter + sort preserves membership', () => {
+    const all: Escalation[] = [
+      { ...esc('projA', 'a1', 'open', 'e1'), audience: 'human' } as Escalation,
+      { ...esc('projA', 'a1', 'open', 'e2'), audience: 'internal' } as Escalation,
+      { ...esc('projA', 'a1', 'open', 'e3'), audience: 'human' } as Escalation,
+    ];
+    const actionable = selectHumanActionableEscalations(all, PROJ_A);
+    const filtered = all.filter((e) => e.audience === 'human');
+    expect(actionable.map((e) => e.id).sort()).toEqual(filtered.map((e) => e.id).sort());
+  });
+});
+
 // ── selectEscalationKindCounts — land-ready split from blockers ────────────────
 
 describe('selectEscalationKindCounts', () => {
@@ -141,7 +202,7 @@ describe('selectEscalationKindCounts', () => {
   it('excludes hygiene-kind escalations into machineHandled', () => {
     const withHygiene: Escalation[] = [
       { ...esc('projA', 'a1', 'open', 'k1'), kind: 'blocker' } as Escalation,
-      { ...esc('projA', 'a2', 'open', 'k2'), kind: 'epic-sweep-triage' } as Escalation,
+      { ...esc('projA', 'a2', 'open', 'k2'), kind: 'epic-sweep-triage', audience: 'internal' } as Escalation,
     ];
     const c = selectEscalationKindCounts(withHygiene, PROJ_A);
     expect(c).toEqual({ blockers: 1, landReady: 0, machineHandled: 1, total: 2 });
@@ -225,7 +286,7 @@ describe('classifyEscalationBucket', () => {
   });
 
   it('hygiene-kind escalation classifies as machineHandled when no ownership', () => {
-    const e = { kind: 'epic-sweep-triage', todoId: 'todo-1' } as Escalation;
+    const e = { kind: 'epic-sweep-triage', todoId: 'todo-1', audience: 'internal' } as Escalation;
     expect(classifyEscalationBucket(e)).toBe('machineHandled');
   });
 
