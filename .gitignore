@@ -42,6 +42,8 @@ Thumbs.db
 # Generated project-digest artifacts (digest + metadata; runtime, not source)
 /.collab/project-digest.md
 /.collab/project-digest.meta.json
+# Generated mission-digest artifacts (per-mission digests + test baselines; runtime, not source)
+/.collab/mission-digests/
 # Desktop app local runtime collab data
 /desktop/.collab/
 # Scheduled-tasks runtime lock

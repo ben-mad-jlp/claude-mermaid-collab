@@ -27,32 +27,32 @@ describe('parseKindFromTranscriptLabel', () => {
 });
 
 describe('resolveGrokModel', () => {
-  it('maps grok-build UI id to CLI id', () => {
+  it('maps the legacy grok-build UI id to the live CLI id', () => {
     expect(resolveGrokModel('grok-build', 'blueprint')).toBe(GROK_MODEL_ALIASES['grok-build']);
-    expect(resolveGrokModel('grok-build', 'blueprint')).toBe('grok-build');
+    expect(resolveGrokModel('grok-build', 'blueprint')).toBe('grok-4.5');
   });
 
-  it('passthrough grok-composer-2.5-fast', () => {
-    expect(resolveGrokModel('grok-composer-2.5-fast', 'implement')).toBe('grok-composer-2.5-fast');
+  it('aliases retired grok-composer-2.5-fast onto the live CLI id', () => {
+    expect(resolveGrokModel('grok-composer-2.5-fast', 'implement')).toBe('grok-4.5');
   });
 
   it('falls back Claude alias to kind default via wave label', () => {
-    expect(resolveGrokModel('sonnet', 'wimplement:src/foo.ts')).toBe('grok-composer-2.5-fast');
-    expect(resolveGrokModel('opus', 'blueprint')).toBe('grok-build');
+    expect(resolveGrokModel('sonnet', 'wimplement:src/foo.ts')).toBe('grok-4.5');
+    expect(resolveGrokModel('opus', 'blueprint')).toBe('grok-4.5');
   });
 
-  it('uses reasoning default when kind hint is reasoning-heavy', () => {
-    expect(resolveGrokModel(undefined, 'review')).toBe('grok-build');
+  it('uses the single live model for reasoning kinds', () => {
+    expect(resolveGrokModel(undefined, 'review')).toBe('grok-4.5');
   });
 
-  it('uses composer default when kind hint is implementation', () => {
-    expect(resolveGrokModel(undefined, 'fix')).toBe('grok-composer-2.5-fast');
+  it('uses the single live model for implementation kinds', () => {
+    expect(resolveGrokModel(undefined, 'fix')).toBe('grok-4.5');
   });
 });
 
 describe('kindDefaultGrokModel', () => {
-  it('classifies blueprint vs implement', () => {
-    expect(kindDefaultGrokModel('blueprint')).toBe('grok-build');
-    expect(kindDefaultGrokModel('implement')).toBe('grok-composer-2.5-fast');
+  it('resolves every kind to the single live CLI model', () => {
+    expect(kindDefaultGrokModel('blueprint')).toBe('grok-4.5');
+    expect(kindDefaultGrokModel('implement')).toBe('grok-4.5');
   });
 });
