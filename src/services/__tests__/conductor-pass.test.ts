@@ -993,6 +993,119 @@ describe('runConductorPass — recovery arms run BEFORE the escalate return (mis
   });
 });
 
+describe('runConductorPass — verify panel arm auto-fire (criterion-verify-panel-arm)', () => {
+  test('a stakes-routed criterion is paneled automatically by the pass', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Paneled verify',
+      criteria: ['high-stakes criterion'],
+    });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    // Trigger high-stakes: enqueue a recheck (reopened-by-land)
+    enqueueRecheck(project, { criterionId: crit.id, todoId: forged.missionId, reason: 'land-diff-intersects-evidence', landedSha: 'abc123' });
+
+    // Create a serving epic so action === 'verify'
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] serving epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, epic.id, { status: 'ready' });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the leaf',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, leaf.id, { status: 'done' });
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      leafOutcome: 'completed',
+    });
+
+    // Mock panel runner returns met verdict
+    let panelCalls = 0;
+    const r = await runConductorPass(project, {
+      invoke: async () => { throw new Error('no node should be spawned'); },
+      verifyPanelArm: async (proj, missionId, session, deps) => {
+        panelCalls++;
+        // Panel run recorded verdicts immediately
+        return { paneled: [crit.id], held: [], skipped: [] };
+      },
+    });
+
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('verify-paneled');
+    expect(r.verifyPaneled).toBe(1);
+    expect(r.verifyHeld).toBe(0);
+    expect(invokeCalls).toBe(0); // node NOT spawned when verify panel arm acts
+    expect(panelCalls).toBe(1);
+  });
+
+  test('an arm fault degrades to a no-op pass (falls through to normal pass logic)', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Fault degradation',
+      criteria: ['high-stakes criterion'],
+    });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    // Trigger high-stakes
+    enqueueRecheck(project, { criterionId: crit.id, todoId: forged.missionId, reason: 'land-diff-intersects-evidence', landedSha: 'abc123' });
+
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] serving epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, epic.id, { status: 'ready' });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the leaf',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, leaf.id, { status: 'done' });
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      leafOutcome: 'completed',
+    });
+
+    // Panel arm throws: fail-open behavior → defaults to all empty arrays → falls through to normal pass logic (conduct node)
+    invokeCalls = 0;
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      verifyPanelArm: async () => {
+        throw new Error('arm fault');
+      },
+    });
+
+    // The pass should not crash; arm fault is caught and execution continues to normal pass logic
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted'); // Falls through to normal path, which serves the verify criterion
+    expect(r.verifyPaneled).toBeUndefined(); // No verify-paneled early return
+    expect(r.verifyHeld).toBeUndefined();
+    expect(invokeCalls).toBe(1); // Node WAS spawned because arm fault defaulted to all empty → no early return
+  });
+});
+
 describe('runConductorPass — lastPass refreshes every beat', () => {
   test('debounced beat still refreshes lastPass', async () => {
     addWatchedProject(project);
@@ -1223,11 +1336,13 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     let prompt = '';
     await runConductorPass(project, {
       invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+      verifyPanelArm: async () => ({ paneled: [], held: [], skipped: [] }), // Mock: panel arm does nothing this pass
     });
     // Assert on the WAKE-CONTEXT panel bullet, not the always-present step-3 instruction text:
     // the per-criterion "trigger: serve-burn" line is emitted ONLY by the rendered section.
     expect(prompt).toContain(`${crit.id}   trigger: serve-burn`);
-    expect(prompt).toContain('verify each of these with 2–3 DISTINCT lenses, NOT one checker');
+    expect(prompt).toContain('HIGH-STAKES VERIFY');
+    expect(prompt).toContain('automatically paneled by the conductor pass');
   });
 
   test('a fresh unserved criterion carries NO HIGH-STAKES VERIFY panel entry', async () => {
@@ -1242,10 +1357,11 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     let prompt = '';
     await runConductorPass(project, {
       invoke: async (spec: any) => { prompt = spec.prompt; return okInvoke(); },
+      verifyPanelArm: async () => ({ paneled: [], held: [], skipped: [] }), // Mock: panel arm does nothing
     });
     // The step-3 instruction always mentions "HIGH-STAKES VERIFY"; the RENDERED panel section (its
-    // distinctive header) must be absent for a fresh, non-high-stakes criterion.
-    expect(prompt).not.toContain('verify each of these with 2–3 DISTINCT lenses, NOT one checker');
+    // distinctive header "automatically paneled by the conductor pass") must be absent for a fresh, non-high-stakes criterion.
+    expect(prompt).not.toContain('automatically paneled by the conductor pass');
   });
 });
 

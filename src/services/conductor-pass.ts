@@ -22,6 +22,7 @@ import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
+import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -236,6 +237,8 @@ export interface ConductorPassDeps {
   infraArm?: typeof runInfraRejectionArm;
   /** Injectable re-decompose churn-breaking arm (test spy). Defaults to runRedecomposeArm. */
   redecomposeArm?: typeof runRedecomposeArm;
+  /** Injectable verify-panel auto-fire arm (test spy). Defaults to runVerifyPanelArm. */
+  verifyPanelArm?: typeof runVerifyPanelArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
   /** Injectable approach attempts read for the serve-cap diagnosis. Defaults to the store fn. */
@@ -248,7 +251,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -259,6 +262,10 @@ export interface ConductorPassResult {
   infraCards?: number;
   /** Criteria re-decomposed this pass (dropped churning epics and re-planned with tighter hints). */
   redecomposed?: number;
+  /** Criteria with high-stakes verify panel run this pass, verdict met. */
+  verifyPaneled?: number;
+  /** Criteria with high-stakes verify panel run this pass, verdict not met. */
+  verifyHeld?: number;
   /** mission_recheck rows GC'd this pass. */
   rechecksDrained?: number;
   missionId?: string;
@@ -650,6 +657,32 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   } catch {
     wakeBlock = undefined;
+  }
+
+  // VERIFY PANEL ARM. Auto-fire the three-lens panel for every high-stakes criterion
+  // (land-reopened, contested-carded, serve-burning) BEFORE the conductor node is spent.
+  // Each criterion's panel run is deterministic and recorded immediately. A criterion
+  // whose panel run completes with unchanged-sha (already verified at this sha) is
+  // skipped and falls through; the pass proceeds as normal (no node spent on already-verified
+  // work). Fail-open: a panel run fault degrades to a no-op pass, never a broken conductor.
+  let verifyPanel: VerifyPanelArmResult = { paneled: [], held: [], skipped: [] };
+  try {
+    verifyPanel = await (deps.verifyPanelArm ?? runVerifyPanelArm)(project, missionId, session, {});
+  } catch {
+    verifyPanel = { paneled: [], held: [], skipped: [] };
+  }
+  if (verifyPanel.paneled.length > 0 || verifyPanel.held.length > 0) {
+    return done({
+      ran: true,
+      reason: 'verify-paneled',
+      missionId,
+      escalationsRaised,
+      serveCapDeferred,
+      infraResets: arm.reset.length,
+      infraCards: arm.cardsRaised,
+      verifyPaneled: verifyPanel.paneled.length,
+      verifyHeld: verifyPanel.held.length,
+    });
   }
 
   const res = await (deps.invoke ?? invokeNode)({
