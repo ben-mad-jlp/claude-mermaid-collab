@@ -518,7 +518,10 @@ export type ConductorPassReason =
   | 'redecomposed'
   // The pass STOPPED on an over-budget mission after raising its re-bet decision card
   // (conductor-pass.ts's final act). Observable, not silent — mission a6ab522b.
-  | 'over-budget-rebet';
+  | 'over-budget-rebet'
+  // The pass AUTO-SPAWNED the 3-lens verify panel for a stakes-routed criterion (no human
+  // verify-skill invocation). Mission 44d8b837.
+  | 'verify-paneled';
 
 export interface ConductorLastPass {
   missionId: string | null;
