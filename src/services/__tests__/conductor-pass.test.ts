@@ -8,7 +8,7 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis } from '../conductor-pass';
+import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
@@ -1368,5 +1368,29 @@ describe('buildServeCapDiagnosis (pure)', () => {
     });
     expect(diagnosis).toContain('re-decompose — attempted, second attempt');
     expect(diagnosis).not.toContain('re-decompose — failed');
+  });
+});
+
+describe('conductorStatusLine', () => {
+  test('maps every settled reason to a non-empty <=60-char status', () => {
+    const reasons = [
+      'conductor-disabled', 'daemon-off', 'no-actionable-mission', 'target-not-actionable',
+      'target-cleared', 'building-wait', 'criteria-escalated', 'debounced', 'conducted',
+      'node-failed', 'infra-leaf-reset', 'redecomposed', 'over-budget-rebet', 'pass-ran', 'pass-error',
+    ] as const;
+    for (const r of reasons) {
+      const s = conductorStatusLine(r);
+      expect(typeof s).toBe('string');
+      expect(s.length).toBeGreaterThan(0);
+      expect(s.length).toBeLessThanOrEqual(60);
+    }
+  });
+
+  test('surfaces counts for a productive conducted pass; stable strings for the common reasons', () => {
+    expect(conductorStatusLine('conducted')).toBe('served a gap');
+    expect(conductorStatusLine('conducted', { escalationsRaised: 2 })).toContain('2 escalated');
+    expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('capped');
+    expect(conductorStatusLine('debounced')).toBe('no change');
+    expect(conductorStatusLine('building-wait')).toBe('building');
   });
 });

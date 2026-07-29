@@ -516,6 +516,10 @@ export interface ConductorLastPass {
   missionId: string | null;
   reason: ConductorPassReason;
   tickAt: number;
+  /** Short (<=60 char) human status for this pass (what it DID), derived from reason + counts and
+   *  set at the end of each pass, so the Bridge readout shows WHY, not just when. Persisted in the
+   *  same JSON blob — no schema change. */
+  status?: string;
 }
 
 /** Per-project OBSERVABLE outcome of the last runConductorPass tick — which mission (if any) it
