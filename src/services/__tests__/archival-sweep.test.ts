@@ -67,31 +67,37 @@ describe('runArchivalSweep', () => {
     });
 
     // 7 leaves total (pageSize 3 below ⇒ pages of 3/3/1, forcing >1 yield across chunks).
+    // Create EVERY leaf before terminalizing any of them: a container epic auto-closes once
+    // all of its children are terminal, and creating/approving a further child under a
+    // now-terminal epic trips TerminalParentApproveError. liveReadyOld + liveBlocked stay
+    // non-terminal throughout, so the epic never auto-closes mid-fixture.
     const doneOldA = await createTodo(project, { ownerSession: 's1', title: 'done old A', kind: 'leaf', parentId: epic.id });
+    const doneOldB = await createTodo(project, { ownerSession: 's1', title: 'done old B', kind: 'leaf', parentId: epic.id });
+    const droppedOldA = await createTodo(project, { ownerSession: 's1', title: 'dropped old A', kind: 'leaf', parentId: epic.id });
+    const droppedOldB = await createTodo(project, { ownerSession: 's1', title: 'dropped old B', kind: 'leaf', parentId: epic.id });
+    const doneRecent = await createTodo(project, { ownerSession: 's1', title: 'done recent', kind: 'leaf', parentId: epic.id });
+    const liveReadyOld = await createTodo(project, { ownerSession: 's1', title: 'live ready old', kind: 'leaf', parentId: epic.id });
+    const liveBlocked = await createTodo(project, { ownerSession: 's1', title: 'live blocked', kind: 'leaf', parentId: epic.id });
+
+    // Terminalize / set states only after all leaves exist (see note above).
     await completeTodo(project, doneOldA.id);
     backdateTodo(project, doneOldA.id, { completedAt: oldIso });
 
-    const doneOldB = await createTodo(project, { ownerSession: 's1', title: 'done old B', kind: 'leaf', parentId: epic.id });
     await completeTodo(project, doneOldB.id);
     backdateTodo(project, doneOldB.id, { completedAt: oldIso });
 
-    const droppedOldA = await createTodo(project, { ownerSession: 's1', title: 'dropped old A', kind: 'leaf', parentId: epic.id });
     await updateTodo(project, droppedOldA.id, { status: 'dropped' });
     backdateTodo(project, droppedOldA.id, { updatedAt: oldIso });
 
-    const droppedOldB = await createTodo(project, { ownerSession: 's1', title: 'dropped old B', kind: 'leaf', parentId: epic.id });
     await updateTodo(project, droppedOldB.id, { status: 'dropped' });
     backdateTodo(project, droppedOldB.id, { updatedAt: oldIso });
 
-    const doneRecent = await createTodo(project, { ownerSession: 's1', title: 'done recent', kind: 'leaf', parentId: epic.id });
     await completeTodo(project, doneRecent.id);
     backdateTodo(project, doneRecent.id, { completedAt: recentIso });
 
-    const liveReadyOld = await createTodo(project, { ownerSession: 's1', title: 'live ready old', kind: 'leaf', parentId: epic.id });
     await updateTodo(project, liveReadyOld.id, { status: 'ready' });
     backdateTodo(project, liveReadyOld.id, { updatedAt: oldIso }); // old but non-terminal ⇒ never archived
 
-    const liveBlocked = await createTodo(project, { ownerSession: 's1', title: 'live blocked', kind: 'leaf', parentId: epic.id });
     await updateTodo(project, liveBlocked.id, { status: 'blocked' });
 
     // Missions: one converged past retention, one abandoned past retention, one converged
