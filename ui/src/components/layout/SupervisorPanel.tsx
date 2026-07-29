@@ -280,6 +280,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // (GREEN/gray) while the conductor is actually thinking. One poll lets the card
   // flip BLUE ("conducting") during that gap — same shape as inflightProjects above.
   const [conductingProjects, setConductingProjects] = useState<Set<string>>(() => new Set());
+  // Projects whose conductor SETTLED into a "— needs you" state (capped/exhausted criteria
+  // or over-budget rebet). Same poll as conductingProjects; folded into the RED card signal
+  // so a "capped — needs you" status can never sit beside a green project card.
+  const [attentionProjects, setAttentionProjects] = useState<Set<string>>(() => new Set());
   const [ownedTodoIds, setOwnedTodoIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     let cancelled = false;
@@ -291,6 +295,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         const next: string[] = Array.isArray(d?.projects) ? d.projects : [];
         setConductingProjects((prev) =>
           prev.size === next.length && next.every((p) => prev.has(p)) ? prev : new Set(next),
+        );
+        const attn: string[] = Array.isArray(d?.attention) ? d.attention : [];
+        setAttentionProjects((prev) =>
+          prev.size === attn.length && attn.every((p) => prev.has(p)) ? prev : new Set(attn),
         );
         const owned = d?.ownedTodoIds as Record<string, string[]> | undefined;
         const nextOwned = new Set<string>();
@@ -440,7 +448,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     return Array.from(rows.values())
       .map(({ serverId, project }) => {
         const esc = selectEscalationKindCounts(openEscalations, { kind: 'project', project }, { ownedTodoIds });
-        const humanRedCount = isScopeRed(openEscalations, { kind: 'project', project }) ? 1 : 0;
+        // A conductor SETTLED in a "— needs you" state is a real paused-on-a-human signal even
+        // when its backing escalation was resolved-then-silenced — treat it as red like a blocker.
+        const conductorAttention = attentionProjects.has(project);
+        const humanRedCount = (isScopeRed(openEscalations, { kind: 'project', project }) || conductorAttention) ? 1 : 0;
         return {
           serverId,
           project,
@@ -449,19 +460,20 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           // 'paused on a human' items (red) vs the positive 'ready to land' prompt (download glyph).
           blockerCount: esc.blockers,
           landReadyCount: esc.landReady,
+          conductorAttention,
           humanRedCount,
         };
       })
       .sort((a, b) => {
-        // Only BLOCKERS sort a project to the top (real "needs you"); a ready-to-land
-        // prompt is positive, not urgent, so it doesn't jump the queue.
-        if ((b.blockerCount > 0 ? 1 : 0) !== (a.blockerCount > 0 ? 1 : 0)) {
-          return (b.blockerCount > 0 ? 1 : 0) - (a.blockerCount > 0 ? 1 : 0);
-        }
+        // BLOCKERS and a needs-you conductor both sort a project to the top (real "needs you");
+        // a ready-to-land prompt is positive, not urgent, so it doesn't jump the queue.
+        const aNeeds = a.blockerCount > 0 || a.conductorAttention ? 1 : 0;
+        const bNeeds = b.blockerCount > 0 || b.conductorAttention ? 1 : 0;
+        if (bNeeds !== aNeeds) return bNeeds - aNeeds;
         if (a.blockerCount !== b.blockerCount) return b.blockerCount - a.blockerCount;
         return a.project.localeCompare(b.project);
       });
-  }, [supervised, projectsByServer, openEscalations, activeId, ownedTodoIds]);
+  }, [supervised, projectsByServer, openEscalations, activeId, ownedTodoIds, attentionProjects]);
 
   // Manual project order (drag-reorder; option 1 — fully wins over the urgency
   // sort). Also drives the Ctrl+Shift+F# project mapping. New projects append.
@@ -693,7 +705,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No projects yet — add one below
             </div>
           ) : (
-            orderedProjects.map(({ serverId: rowServerId, project, sessions: projSessions, escalationCount, blockerCount, landReadyCount, humanRedCount }, i) => {
+            orderedProjects.map(({ serverId: rowServerId, project, sessions: projSessions, escalationCount, blockerCount, landReadyCount, humanRedCount, conductorAttention }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
@@ -749,6 +761,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const legend = [
                 projName,
                 blockerCount > 0 ? `▲${blockerCount}  escalation${blockerCount === 1 ? '' : 's'} need you (paused)` : null,
+                conductorAttention ? `▲ conductor needs you — mission capped / over budget (paused)` : null,
                 landReadyCount > 0 ? `⬇ ${landReadyCount}  epic${landReadyCount === 1 ? '' : 's'} ready to land` : null,
                 visibleCount > 0 ? `${visibleCount}λ  live session${visibleCount === 1 ? '' : 's'}` : null,
                 stats.open > 0 ? `${stats.open}  open todo${stats.open === 1 ? '' : 's'}` : null,

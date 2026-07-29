@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { vi, beforeEach, afterEach, describe, it, expect } from 'vitest';
 
 /**
@@ -128,5 +128,28 @@ describe('SupervisorPanel — per-project collapsible group', () => {
     expect(header.getAttribute('data-combined-status')).toBe('active');
     // The dancing-Claude avatar renders in the header.
     expect(screen.getByTestId('claudepix')).toBeTruthy();
+  });
+
+  it('turns the project card RED when its conductor is in a "— needs you" state', async () => {
+    // A settled "capped — needs you" conductor pass raises no counted escalation
+    // (the serve-cap card can be resolved-then-silenced), so the ONLY signal is the
+    // conductor-running route's `attention` list. The card must still go red rather
+    // than sit green next to a needs-you status. Sessions are waiting+active (no build
+    // running), so the red human signal wins over the combined-session amber.
+    vi.stubGlobal('fetch', vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(
+          typeof url === 'string' && url.includes('/api/supervisor/conductor-running')
+            ? { projects: [], ownedTodoIds: {}, attention: ['/proj'] }
+            : {},
+        ),
+      }) as any,
+    ));
+    render(<SupervisorPanel />);
+    // resolveDaemonStatus maps a red human signal (nothing building) → 'permission'.
+    await waitFor(() => {
+      expect(screen.getByTestId('claudepix').getAttribute('data-status')).toBe('permission');
+    });
   });
 });
