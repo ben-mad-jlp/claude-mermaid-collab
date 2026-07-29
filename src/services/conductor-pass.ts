@@ -272,6 +272,18 @@ export interface ConductorPassResult {
   modelUsed?: string;
 }
 
+/** The SETTLED conductor-pass reasons that mean the mission is stuck on a HUMAN — the pass
+ *  produced a "— needs you" status line (see conductorStatusLine) but has no more autonomous
+ *  move to make. These are the reasons whose status ends in "needs you": a capped criterion
+ *  ladder that's exhausted (`criteria-escalated`) and a mission that blew its rebet budget
+ *  (`over-budget-rebet`). The Bridge keys the RED project-card / "needs you" signal off this so
+ *  a needs-you conductor status can never sit next to a green card (the serve-cap escalation
+ *  that should back it can be resolved-then-silenced — bug filed separately). Single source of
+ *  truth, shared by conductorStatusLine and the /conductor-running route. */
+export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null | undefined): boolean {
+  return reason === 'criteria-escalated' || reason === 'over-budget-rebet';
+}
+
 /** SHORT (<=60 char) human status line for a SETTLED conductor pass — what the pass DID this run,
  *  for the Bridge last-pass readout (so a stopped-looking conductor still says WHY). Pure; the unit
  *  test covers every reason value. Set at the end of each pass in runConductorPass. */
