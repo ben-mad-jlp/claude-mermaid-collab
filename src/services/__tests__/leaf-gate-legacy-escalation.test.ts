@@ -73,6 +73,9 @@ describe('escalateLegacyGateResidual', () => {
     escalateLegacyGateResidual('proj', 'target-b', leaf1, manifestSource);
     expect(createEscalationCalls.length).toBe(1);
     expect(createEscalationCalls[0]!.session).toContain('legacy-gate-migration::target-b');
+    // The migration wording names the quarantine store, not a "no equivalent" dead end.
+    expect(createEscalationCalls[0]!.questionText).toContain('frontendBaselineFailures');
+    expect(createEscalationCalls[0]!.questionText).toContain('quarantine set');
 
     // Second call with different leaf id, same targetProject — should NOT escalate again
     const leaf2 = mockTodo('leaf-4');
@@ -147,6 +150,7 @@ describe('escalateLegacyGateResidual', () => {
     const call = createEscalationCalls[0]!;
     expect(call.questionText).toContain('changeSetTestCwd');
     expect(call.questionText).toContain('frontendBaselineFailures');
+    expect(call.questionText).toContain('quarantine set');
     expect(call.questionText).toContain('/project/.collab/project.json');
     expect(call.questionText).toContain('my-project');
     expect(call.operatorGated).toBe(true);

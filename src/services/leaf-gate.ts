@@ -973,8 +973,10 @@ export function escalateLegacyGateResidual(
         `${manifestSource.path} but no mechanical gate resolves — leaves run gateless. ` +
         `Migrate to gate:{}: gateCommand/frontendGateCommand -> gate.suites[] ` +
         `({match,command,cwd}); changeSetTestCommand+changeSetTestCwd -> gate.tests[] ` +
-        `({match,command,cwd}); frontendBaselineFailures has no gate:{} equivalent and ` +
-        `should be dropped once frontendGateCommand becomes a suites[] lane.`,
+        `({match,command,cwd}); frontendBaselineFailures entries are seeded once into ` +
+        `the project's auto-maintained quarantine set (flaky-quarantine.ts ` +
+        `activeQuarantine, keyed by ctx.gateProject), which is what the gate now judges ` +
+        `against — the manifest array can be deleted once seeded.`,
     });
   } catch { /* best-effort: never let escalation failure block the leaf */ }
 }
