@@ -90,4 +90,13 @@ describe('badge ⟺ ring parity', () => {
     expect(dangerCount).toBe(0);
     expect(needsYou > 0).toBe(dangerCount > 0);
   });
+
+  it('audience:internal open escalation on a worker yields needsYou=0 and dangerCount=0', () => {
+    const todos = [todo({ id: 'T1', claimedBy: 'worker-1' })];
+    const escalations = [esc({ id: 'e1', project: 'P', session: 'worker-1', status: 'open', audience: 'internal' })];
+    const { needsYou, dangerCount } = parity(todos, escalations, 'P');
+    expect(needsYou).toBe(0);
+    expect(dangerCount).toBe(0);
+    expect(needsYou > 0).toBe(dangerCount > 0);
+  });
 });
