@@ -17,22 +17,26 @@
  */
 
 import type { MissionStatus, MissionSummary } from './mission-store.ts';
-import { listMissions, stampMissionNudge, isMissionTerminal } from './mission-store.ts';
+import { listMissions, stampMissionNudge, isMissionTerminal, collectMissionStatusFacts, getMission, listCriteriaWithActions } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { fireStamp } from './nudge-stamp.ts';
 import {
   MISSION_STALLED_KIND,
   buildStallCardText,
-  claimStallCard,
   clearMissionStall,
-  isMissionStalled,
-  isStalledReason,
   noteMissionLoopReason,
-  stallConditionKey,
   type MissionLoopReasonBase,
 } from './mission-stall.ts';
+import {
+  evaluateMissionStall,
+  missionStallConditionKey,
+  noteStallObservation,
+  clearStallObservation,
+  IN_FLIGHT_COUNTER_KEYS,
+  type MissionStallFacts,
+} from './mission-stall-predicate.ts';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.ts';
-import { createEscalation } from './supervisor-store.ts';
+import { createEscalation, listOpenEscalations, resolveEscalation } from './supervisor-store.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
 export const MISSION_NUDGE_ESCALATION_MS = 2 * 60 * 60 * 1000; // 2 hour escalation ceiling
@@ -232,6 +236,80 @@ export interface MissionLoopDeps {
   /** Injectable card surfaces (test spies). Default to the real store / gate. */
   createEscalation?: typeof createEscalation;
   raiseRebetCard?: typeof raiseOverBudgetRebetCard;
+  /** Test seam: override the stall-facts collector so a test can drive every scenario
+   *  purely via injection, without DB fixtures. Defaults to collectMissionStallFacts. */
+  buildStallFacts?: (project: string, m: MissionSummary, now: number) => MissionStallFacts;
+  /** Test seam: override forward-progress resolution of an open stall escalation.
+   *  Defaults to the listOpenEscalations + resolveEscalation lookup below. */
+  resolveStallEscalation?: (project: string, conditionKey: string) => void;
+}
+
+/**
+ * Collect the facts `evaluateMissionStall` needs for one mission, from signals already
+ * available at the mission-loop call site (`m: MissionSummary`) plus one extra
+ * `listCriteriaWithActions` call (the same scan `collectMissionStatusFacts` already does).
+ */
+function collectMissionStallFacts(project: string, m: MissionSummary, now: number): MissionStallFacts {
+  const missionId = m.node.id;
+  const blockedCriterionIds = listCriteriaWithActions(project, missionId)
+    .filter((c) => c.action === 'escalate')
+    .map((c) => c.id);
+  const serveableGaps = m.rollup.gaps ?? 0;
+  const awaitingVerify = m.rollup.awaitingVerify ?? 0;
+  const epicsBuilding = m.epics.filter((e) => e.status === 'in_progress').length;
+  const landInFlight = m.epics.filter((e) => e.status === 'done' && e.acceptanceStatus === 'pending').length;
+
+  let hasBuildingLeaf = false;
+  try {
+    const missionRow = getMission(project, missionId);
+    if (missionRow) hasBuildingLeaf = collectMissionStatusFacts(project, missionRow, now).hasBuildingLeaf;
+  } catch { /* fail closed to false */ }
+
+  let recycling = 0;
+  try {
+    const session = m.ownerSession ?? m.assigneeSession ?? '';
+    if (session && getStatus(project, session)?.recycleState === 'recovering') recycling = 1;
+  } catch { /* fail closed to 0 */ }
+
+  const conditionKey = missionStallConditionKey(missionId, blockedCriterionIds);
+  let hasOpenCardForKey = false;
+  try {
+    hasOpenCardForKey = listOpenEscalations().some((e) => e.project === project && e.conditionKey === conditionKey);
+  } catch { /* fail closed to false */ }
+
+  return {
+    missionActive: m.mission.active !== false,
+    unmetCriteria: m.criteria.filter((c) => !c.met).length,
+    serveableGaps,
+    awaitingVerify,
+    verifyInFlight: awaitingVerify,
+    epicsBuilding,
+    leavesRunning: hasBuildingLeaf ? 1 : 0,
+    landInFlight,
+    integrating: 0,
+    recycling,
+    budgetPaused: m.mission.status === 'over-budget',
+    baseRedCooldown: false,
+    blockedCriterionIds,
+    hasOpenCardForKey,
+  };
+}
+
+/** Resolve an open stall escalation for `project`/`conditionKey`, if one exists. */
+function resolveStallEscalation(project: string, conditionKey: string): void {
+  const open = listOpenEscalations().find((e) => e.project === project && e.conditionKey === conditionKey);
+  if (open) resolveEscalation(open.id, 'resolved', 'ai');
+}
+
+/** Facts recorded at raise time for a mission's currently-open stall card, so a later
+ *  tick can detect genuine forward progress and resolve the card. Keyed like episodeKey
+ *  (`${project} ${missionId}`). */
+const openStallByMission = new Map<string, { conditionKey: string; unmetCriteria: number; blockedCriterionIds: string[] }>();
+
+/** Test seam: clear the open-stall-card tracker (all missions, or one project+missionId). */
+export function _resetOpenStallCards(project?: string, missionId?: string): void {
+  if (project === undefined) { openStallByMission.clear(); return; }
+  openStallByMission.delete(`${project} ${missionId}`);
 }
 
 export interface MissionLoopResult {
@@ -281,11 +359,29 @@ function handleNoneReason(
       return;
     }
 
-    if (!isMissionStalled(project, missionId, now)) return; // inside the grace window
-    // One card per stall EPISODE: claimStallCard is the local bound, the store's
-    // conditionKey dedup is the durable one (a restart re-arms the local flag, and the
-    // keyed lookup then bumps recurrence in place instead of minting a duplicate).
-    if (!claimStallCard(project, missionId)) return;
+    const episodeKey = `${project} ${missionId}`;
+    const facts = (deps.buildStallFacts ?? collectMissionStallFacts)(project, m, now);
+    const { stalled, conditionKey, blockedCriterionIds } = evaluateMissionStall(facts, missionId);
+
+    if (!stalled) {
+      const openEntry = openStallByMission.get(episodeKey);
+      if (openEntry) {
+        const inFlight = IN_FLIGHT_COUNTER_KEYS.some((k) => (facts[k] as number) > 0);
+        const criteriaDropped = facts.unmetCriteria < openEntry.unmetCriteria;
+        const blockedChanged =
+          [...blockedCriterionIds].sort().join('\0') !== [...openEntry.blockedCriterionIds].sort().join('\0');
+        if (inFlight || criteriaDropped || blockedChanged) {
+          clearStallObservation(project, missionId);
+          (deps.resolveStallEscalation ?? resolveStallEscalation)(project, openEntry.conditionKey);
+          openStallByMission.delete(episodeKey);
+        }
+      }
+      return;
+    }
+
+    const count = noteStallObservation(project, missionId, conditionKey!);
+    if (count < 2) return;
+
     (deps.createEscalation ?? createEscalation)({
       project,
       session: m.ownerSession ?? m.assigneeSession ?? 'mission-loop',
@@ -293,8 +389,8 @@ function handleNoneReason(
       todoId: missionId,
       operatorGated: true,
       audience: 'human',
-      conditionKey: stallConditionKey(missionId, episode.reason),
-      conditionTuple: ['mission-stalled', missionId, episode.reason],
+      conditionKey: conditionKey!,
+      conditionTuple: ['mission-stalled', missionId, ...blockedCriterionIds],
       questionText: buildStallCardText({
         missionId,
         missionTitle: m.node.title,
@@ -302,6 +398,7 @@ function handleNoneReason(
         stalledForMs: now - episode.since,
       }),
     });
+    openStallByMission.set(episodeKey, { conditionKey: conditionKey!, unmetCriteria: facts.unmetCriteria, blockedCriterionIds });
     result.stalled.push(missionId);
   } catch {
     /* fail-open — the stall alarm must never break the mission-loop pass */
