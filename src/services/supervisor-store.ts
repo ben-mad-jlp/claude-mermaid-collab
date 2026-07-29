@@ -121,10 +121,10 @@ export interface Escalation {
    *  closed catalog; null when absent or invalid. The options[] / legacy card
    *  remains the fallback, so this never affects answerability. */
   ui: JsonRenderSpec | null;
-  /** Server-routed destination decided at create-time by `routeOf` (design §3):
-   *  'human' or 'steward'. Defaults 'human' (and is forced 'human' while
-   *  MERMAID_STEWARD_AUTO is OFF). */
-  routedTo: string;
+  /** LEGACY/READ-ONLY: historical steward-routing destination. No create/update path
+   *  writes this anymore — `audience` is the sole visibility decision. Present only
+   *  when `mapEscalationRow` surfaces it off an old row. */
+  routedTo?: string;
   /** 1 when this escalation gates an irreversible/outward action — a hard server
    *  floor that always routes to the human, never the steward. */
   operatorGated: number;
@@ -184,7 +184,6 @@ export const ESCALATION_KINDS = [
 export type EscalationKind = typeof ESCALATION_KINDS[number];
 
 /** Where an escalation is routed at create-time (design §3). */
-export type EscalationRoute = 'human' | 'steward';
 
 /** A human's answer to a (structured) escalation, posted via the decide endpoint
  *  and polled by the await_human_decision MCP tool. Keyed 1:1 by escalationId. */
@@ -766,15 +765,6 @@ export function deriveAudience(kind: string, operatorGated: boolean): 'human' | 
   return 'human';
 }
 
-/**
- * Create-time routing: EVERY escalation goes to the human. The AI steward that
- * once triaged/auto-answered a subset has been removed — a human, the conductor
- * node, or an explicit MCP call resolves escalations now.
- */
-export function routeEscalation(_kind: string, _operatorGated: boolean, _now: number = Date.now()): EscalationRoute {
-  return 'human';
-}
-
 export function createEscalation(input: {
   project: string;
   session: string;
@@ -850,11 +840,7 @@ export function createEscalation(input: {
   // terminal-action required, ≤40 elements). Invalid → dropped to null.
   const ui = validateUiSpec(input.ui);
   const uiJson = ui ? JSON.stringify(ui) : null;
-  // Deterministic server-side routing at create-time (design §3) WITH the
-  // pause/liveness fail-open overlay (§4/§5): a paused or stale/dead steward
-  // routes everything to the human.
   const operatorGated = input.operatorGated ? 1 : 0;
-  const routedTo = routeEscalation(input.kind, operatorGated === 1);
   // Validate and compute audience: operatorGated=1 always overrides to 'human'.
   if (input.audience == null) {
     throw new Error(`createEscalation: audience is required`);
@@ -864,8 +850,8 @@ export function createEscalation(input: {
   }
   const audience = operatorGated === 1 ? 'human' : input.audience;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, audience);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, audience);
   return {
     escalation: {
       id,
@@ -881,7 +867,6 @@ export function createEscalation(input: {
       options,
       recommended,
       ui,
-      routedTo,
       operatorGated,
       audience,
       proof: null,
@@ -1047,36 +1032,18 @@ export function reopenEscalation(id: string): Escalation | null {
 }
 
 /**
- * Re-route an open escalation (the steward proof gate flips routedTo='human' when
- * an auto-act lacks valid proof — design §3 "No-proof → flip routedTo='human'").
- * Records the proof string that was cited (for the loud audit panel) when given.
- */
-export function setEscalationRoute(id: string, routedTo: string, proof?: string | null): void {
-  const fullId = resolveFullEscalationId(id);
-  const d = openDb();
-  let info;
-  if (proof !== undefined) {
-    info = d.prepare('UPDATE escalation SET routedTo = ?, proof = ? WHERE id = ?').run(routedTo, proof, fullId);
-  } else {
-    info = d.prepare('UPDATE escalation SET routedTo = ? WHERE id = ?').run(routedTo, fullId);
-  }
-  if (info.changes === 0) throw new Error(`escalation route set matched no row: ${id}`);
-}
-
-/**
  * Operator-gate ('only you') an escalation — the human marking it as theirs alone.
- * Sets/clears the operatorGated column. When SETTING it, force routedTo='human'
- * (the irreversible/outward floor — operator-gated never routes to the steward),
- * matching routeOf()'s create-time invariant. Clearing leaves routedTo untouched
- * (a later re-route is the steward proof gate's job, not an un-mark's). Idempotent;
- * returns the updated escalation (mapped) for broadcast, or null if id is unknown.
+ * Sets/clears the operatorGated column. When SETTING it, forces audience='human'
+ * (the irreversible/outward floor — operator-gated is always human-visible).
+ * Idempotent; returns the updated escalation (mapped) for broadcast, or null if
+ * id is unknown.
  */
 export function setEscalationOperatorGated(id: string, operatorGated: boolean): Escalation | null {
   const fullId = resolveFullEscalationId(id);
   const d = openDb();
   let info;
   if (operatorGated) {
-    info = d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human', audience = 'human' WHERE id = ?").run(fullId);
+    info = d.prepare("UPDATE escalation SET operatorGated = 1, audience = 'human' WHERE id = ?").run(fullId);
   } else {
     info = d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(fullId);
   }
