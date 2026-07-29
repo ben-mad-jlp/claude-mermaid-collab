@@ -30,6 +30,7 @@ function esc(p: Partial<Escalation> & { questionText?: string }): Escalation {
     recommended: null,
     ui: null,
     routedTo: p.routedTo ?? 'human',
+    audience: p.audience ?? 'human',
     operatorGated: 0,
     proof: null,
     stewardAttempts: p.stewardAttempts ?? 0,
