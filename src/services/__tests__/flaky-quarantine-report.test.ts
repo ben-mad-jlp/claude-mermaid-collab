@@ -1,0 +1,99 @@
+// Runs via `bun test`.
+import { describe, it, expect } from 'bun:test';
+import { runQuarantinePromotionReport } from '../flaky-quarantine-report';
+import type { FlakyCandidate } from '../flaky-quarantine';
+
+function makeCandidate(overrides: Partial<FlakyCandidate> = {}): FlakyCandidate & { project: string } {
+  return {
+    project: '/tmp/fake-project',
+    test: overrides.test ?? 'src/foo.test.ts > does the thing',
+    quarantinedAtSha: overrides.quarantinedAtSha ?? 'abc1234',
+    evidence: overrides.evidence ?? { runs: 10, passRuns: 6, failRuns: 4 },
+    ttlExpiresAt: overrides.ttlExpiresAt ?? Date.now() + 86_400_000,
+  };
+}
+
+describe('runQuarantinePromotionReport', () => {
+  it('files exactly one friction call and one createTodo call on promotion', async () => {
+    const frictionCalls: unknown[] = [];
+    const todoCalls: unknown[] = [];
+    const candidate = makeCandidate();
+
+    await runQuarantinePromotionReport(candidate, {
+      recordFrictionOnce: async (project, input) => {
+        frictionCalls.push({ project, input });
+        return true;
+      },
+      ensureBucket: async () => 'bugfix-epic-id',
+      createTodo: async (project, input) => {
+        todoCalls.push({ project, input });
+        return { id: 'todo-1' } as any;
+      },
+    });
+
+    expect(frictionCalls.length).toBe(1);
+    expect(todoCalls.length).toBe(1);
+    const call = todoCalls[0] as { input: { parentId: string; title: string } };
+    expect(call.input.parentId).toBe('bugfix-epic-id');
+    expect(call.input.title).toBe(`[BUG] flaky test quarantined: ${candidate.test}`);
+  });
+
+  it('files createTodo exactly once total across duplicate promotions of the same sha', async () => {
+    let frictionCallCount = 0;
+    let todoCallCount = 0;
+    const candidate = makeCandidate();
+
+    const deps = {
+      recordFrictionOnce: async () => {
+        frictionCallCount += 1;
+        return frictionCallCount === 1;
+      },
+      ensureBucket: async () => 'bugfix-epic-id',
+      createTodo: async () => {
+        todoCallCount += 1;
+        return { id: 'todo-1' } as any;
+      },
+    };
+
+    await runQuarantinePromotionReport(candidate, deps);
+    await runQuarantinePromotionReport(candidate, deps);
+
+    expect(frictionCallCount).toBe(2);
+    expect(todoCallCount).toBe(1);
+  });
+
+  it('detail JSON deep-equals an object carrying test/quarantinedAtSha/evidence/ttlExpiresAt', async () => {
+    const candidate = makeCandidate();
+    let capturedDetail: string | undefined;
+
+    await runQuarantinePromotionReport(candidate, {
+      recordFrictionOnce: async (_project, input) => {
+        capturedDetail = input.detail;
+        return true;
+      },
+      ensureBucket: async () => 'bugfix-epic-id',
+      createTodo: async () => ({ id: 'todo-1' } as any),
+    });
+
+    expect(capturedDetail).toBeDefined();
+    const parsed = JSON.parse(capturedDetail!);
+    expect(parsed.test).toBe(candidate.test);
+    expect(parsed.quarantinedAtSha).toBe(candidate.quarantinedAtSha);
+    expect(parsed.evidence).toEqual(candidate.evidence);
+    expect(parsed.ttlExpiresAt).toBe(candidate.ttlExpiresAt);
+  });
+
+  it('does not propagate a throw from createTodo', async () => {
+    const candidate = makeCandidate();
+
+    await expect(
+      runQuarantinePromotionReport(candidate, {
+        recordFrictionOnce: async () => true,
+        ensureBucket: async () => 'bugfix-epic-id',
+        createTodo: async () => {
+          throw new Error('boom');
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+});
