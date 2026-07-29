@@ -122,6 +122,7 @@ describe('escalation-audience', () => {
       kind: 'epic-sweep-triage',
       questionText: 'test q',
       operatorGated: false,
+      audience: deriveAudience('epic-sweep-triage', false),
     });
     expect(escalation.audience).toBe('internal');
 
