@@ -128,7 +128,7 @@ export type WSMessage =
         multiSelect?: boolean;
         suggestedAnswers?: string[];
       } }
-  | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string; escalation?: unknown }
+  | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; escalation?: unknown }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
   // Drive (level=drive) autonomous-decision narration — observational only, NOT
   // load-bearing: the audit table stays the source of truth, these just let a human
