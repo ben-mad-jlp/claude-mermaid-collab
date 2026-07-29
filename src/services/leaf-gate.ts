@@ -15,7 +15,7 @@ import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { activeQuarantine } from './flaky-quarantine';
+import { activeQuarantine, promoteQuarantineCandidates } from './flaky-quarantine';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
 export interface GateTestLane {
@@ -118,6 +118,12 @@ export interface LeafGateResult {
    *  only when at least one lane was baseline-only; does NOT affect pass/fail/error
    *  semantics for lanes whose baseline is empty (the default). */
   baselineOnly?: string[];
+  /** Base-gate only, resolveBaseGreen fresh-run path: the sorted union of fail-lane
+   *  fingerprints when a 'fail' result was downgraded to 'pass' because every one is
+   *  present in the project's active quarantine (flaky-quarantine.ts activeQuarantine).
+   *  Reporting only — never affects a lane whose failures are not ALL quarantined — and
+   *  present only when a downgrade actually happened. */
+  quarantinedOnlyFailures?: string[];
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -939,7 +945,27 @@ export async function resolveBaseGreen(io: {
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
     () => io.runGate(wt.path),
   );
-  if (isCacheableBaseGateStatus(r.status)) {
+  try {
+    promoteQuarantineCandidates(io.targetProject, io.now?.());
+  } catch { /* best-effort: a promotion failure must never break the gate */ }
+  let result: LeafGateResult = r;
+  if (r.status === 'fail' && r.baselineFailures) {
+    const union = new Set<string>();
+    for (const fps of Object.values(r.baselineFailures)) for (const fp of fps) union.add(fp);
+    if (union.size > 0) {
+      const quarantined = new Set(activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test));
+      if ([...union].every((fp) => quarantined.has(fp))) {
+        const sorted = [...union].sort();
+        result = {
+          ...r,
+          status: 'pass',
+          quarantinedOnlyFailures: sorted,
+          reasons: [`quarantined-only failure(s), gate downgraded to pass: ${sorted.join(', ')}`, ...r.reasons],
+        };
+      }
+    }
+  }
+  if (isCacheableBaseGateStatus(result.status)) {
     // Stamp checkedAt from the SAME clock the TTL is later measured against
     // (shouldHonourCachedBaseGate above). Letting the write default to real Date.now()
     // while the read uses io.now() makes the TTL window depend on how long the gate
@@ -948,13 +974,13 @@ export async function resolveBaseGreen(io: {
       epicId,
       project,
       baseSha: epicBaseSha ?? null,
-      status: r.status,
-      command: r.command ?? null,
-      output: r.output || null,
-      baselineFailures: r.baselineFailures ?? null,
+      status: result.status,
+      command: result.command ?? null,
+      output: result.output || null,
+      baselineFailures: result.baselineFailures ?? null,
     }, io.now?.());
   }
-  return { ...r, fresh: true };
+  return { ...result, fresh: true };
 }
 
 const LEGACY_GATE_KEYS = ['gateCommand', 'frontendGateCommand', 'changeSetTestCommand',
