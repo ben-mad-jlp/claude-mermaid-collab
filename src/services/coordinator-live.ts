@@ -40,6 +40,9 @@ import './cad-gate-plugin';
 // Import for side-effect: registers the iOS Swift gate plugin (domain tier) so a
 // type:'ios' leaf is gated by a strict swift build/test, not the tsc manifest command.
 import './ios-gate-plugin';
+// Import for side-effect: registers the quarantine-promotion friction+[BUG]-todo hook
+// so a newly-promoted flaky test is never silent.
+import './flaky-quarantine-report';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executor';
 import { leafAbortReason } from './leaf-abort';
