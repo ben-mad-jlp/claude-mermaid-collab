@@ -168,7 +168,9 @@ export function buildHistoryRows(
       createdAt: e.createdAt,
       resolvedAt: e.resolvedAt,
       timeToResolutionMs,
-      routedTo: e.routedTo,
+      // `routedTo` is a retired, read-model-only field (audience supersedes it).
+      // The store type made it optional; legacy rows coalesce to 'human'.
+      routedTo: e.routedTo ?? 'human',
       stewardAttempts: e.stewardAttempts ?? 0,
       suggestedAction: e.suggestedAction
         ? {
