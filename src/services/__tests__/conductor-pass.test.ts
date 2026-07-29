@@ -697,7 +697,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(allMatching[0].status).toBe('acknowledged');
   });
 
-  test('serve-cap with unexhausted ladder — defers and raises no card', async () => {
+  test('serve-cap at the exact CRITERION_SERVE_CAP threshold with an empty ladder raises a card', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
     const { forged, crit } = await forgeCappedMission(undefined, { suppressRung: true });
@@ -714,11 +714,10 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
       listOpenEscalations: () => [],
     });
 
-    expect(r.ran).toBe(false);
     expect(r.reason).toBe('criteria-escalated');
-    expect(r.escalationsRaised).toBe(0); // no card raised
-    expect(r.serveCapDeferred).toBe(1); // deferred instead
-    expect(escCalls.length).toBe(0); // no escalation created
+    expect(r.escalationsRaised).toBe(1); // card raised — threshold now aligned with deriveCriterionAction
+    expect(r.serveCapDeferred).toBeFalsy(); // no longer deferred
+    expect(escCalls.length).toBe(1);
     expect(invokeCalls).toBe(0);
   });
 
