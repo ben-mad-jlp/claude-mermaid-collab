@@ -1,106 +1,51 @@
-I now have a complete picture. Here is the implementation blueprint.
+<!-- blueprint-lab-emit model=sonnet effort=medium -->
+## Blueprint: Show and clear the current conductor target in `ProjectSettingsModal`
 
-## Blueprint: Show and clear the current conductor target in ProjectSettingsModal
+### Context
 
-### Context (what already exists)
-- `ProjectSettingsModal.tsx` is the single home for per-project daemon settings. It already renders an **Autonomous conductor** `Section` (`ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx:306-308`) containing `ConductorControl` — a checkbox that fetches/toggles the conductor `enabled` flag.
-- The conductor REST route already surfaces the pin: **GET** `/api/supervisor/conductor?project=` returns `{ project, enabled, targetMissionId }` (`src/routes/supervisor-routes.ts:900-904`), and **POST** accepts `{ project, targetMissionId: string | null }` (unpin with `null`) and echoes back the fresh `{ enabled, targetMissionId }` (`src/routes/supervisor-routes.ts:927-934`).
-- The pin is *set* today only from the mission rail (`MissionCard`/`MissionDetail` in `missionShared.tsx`, `data-testid="mission-pin-conductor-btn"`). The modal has no way to see or clear it. This leaf adds a **read + clear** control, mirroring the existing `WatchdogControl` "clear → default" pattern (`ProjectSettingsModal.tsx:67-76`).
-- The modal talks to routes through `apiGet`/`apiPost` from `./useConductorEnabled` (target `'local'`), not the store's serverId-scoped actions — the new control uses the same helpers.
+`ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx` is the single per-project settings modal. It already has a `ConductorControl` (`ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx:215-232`) that toggles the autonomous-conductor `enabled` flag via `GET/POST /api/supervisor/conductor`. The same endpoint also carries a `targetMissionId` pin, already fully wired server-side and in the store:
 
-### Change 1 — add `ConductorTargetControl` component
-In `ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx`, add a new component immediately after `ConductorControl` (after line 232), modeled on `WatchdogControl`:
+- Backend: `GET /api/supervisor/conductor?project=` returns `{ project, enabled, targetMissionId }` (`src/routes/supervisor-routes.ts:896-905`). `POST /api/supervisor/conductor` accepts `{ project, enabled?, targetMissionId? }` and echoes back the current `{ enabled, targetMissionId }` (`src/routes/supervisor-routes.ts:906-934`).
+- Store: `fetchConductorTarget`/`setConductorTarget` in `ui/src/stores/supervisorStore.ts:985-996` already exercise this same endpoint for the mission-rail Pin/Unpin control (`ui/src/components/supervisor/bridge/rail/missionShared.tsx:561-593, 813-841`).
 
-```tsx
-// ── Conductor target-mission pin (read + clear) ──────────────────────────────
-const ConductorTargetControl: React.FC<{ project: string }> = ({ project }) => {
-  const [target, setTarget] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+But `ProjectSettingsModal` has no visibility into *which* mission is currently pinned, nor a way to clear it from Settings — only the rail's per-card Pin/Unpin button knows. This leaf adds a small read+clear control to the modal itself, following the exact pattern of `WatchdogControl` (`ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx:20-79`), which already does GET-seed + POST-clear via the local `apiGet`/`apiPost` helpers (`ui/src/components/supervisor/bridge/useConductorEnabled.ts:3-15`) — no `serverId` prop needed since those helpers route through `window.mc.invokeOnServer('local', ...)` / same-origin `fetch`.
 
-  useEffect(() => {
-    if (!project) return;
-    let cancelled = false;
-    void (async () => {
-      const data = await apiGet(`/api/supervisor/conductor?project=${encodeURIComponent(project)}`);
-      if (!cancelled) setTarget((data?.targetMissionId as string | null | undefined) ?? null);
-    })();
-    return () => { cancelled = true; };
-  }, [project]);
+### Change shape
 
-  const clear = useCallback(() => {
-    if (busy || !project || !target) return;
-    setBusy(true);
-    void (async () => {
-      const data = await apiPost('/api/supervisor/conductor', { project, targetMissionId: null });
-      setTarget((data?.targetMissionId as string | null | undefined) ?? null);
-      setBusy(false);
-    })();
-  }, [busy, project, target]);
+In `ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx`:
 
-  return (
-    <div data-testid="conductor-target-control" className={`flex items-center gap-2 text-3xs ${busy ? 'opacity-60' : ''}`}>
-      <span className="text-gray-500 dark:text-gray-400">Pinned target:</span>
-      {target ? (
-        <span data-testid="conductor-target-current" className="font-mono text-gray-700 dark:text-gray-200" title={target}>
-          {target.slice(0, 8)}
-        </span>
-      ) : (
-        <span data-testid="conductor-target-current" className="italic text-gray-400 dark:text-gray-500">
-          auto (no pin — the conductor picks its own target)
-        </span>
-      )}
-      <button
-        type="button"
-        data-testid="conductor-target-clear"
-        onClick={clear}
-        disabled={busy || !target}
-        className="px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
-        title="Clear the pin — the conductor picks its own target mission again"
-      >
-        Clear
-      </button>
-    </div>
-  );
-};
-```
+1. **New component** `ConductorTargetControl: React.FC<{ project: string }>`, placed after `ConductorControl` (after line 232). It:
+   - `useState<string | null>` for `targetMissionId`, `useState<boolean>` for `busy`.
+   - On mount/`project` change, `apiGet('/api/supervisor/conductor?project=' + encodeURIComponent(project))` and sets `targetMissionId` from `data?.targetMissionId ?? null` (mirrors `WatchdogControl`'s effect at lines 25-36).
+   - Renders `data-testid="conductor-target-control"`:
+     - If `targetMissionId` is set: a label "Pinned:" + `data-testid="conductor-target-id"` showing `targetMissionId.slice(0, 8)` (per this repo's leading-8-hex short-id convention) with `title={targetMissionId}` for the full id, plus a `data-testid="conductor-target-clear"` button.
+     - Else: `data-testid="conductor-target-none"` italic text, e.g. "No target pinned — the conductor picks its own mission."
+   - `clear` callback: guards on `busy`/`project`, sets `busy(true)`, calls `apiPost('/api/supervisor/conductor', { project, targetMissionId: null })`, sets `targetMissionId` from the response (`data?.targetMissionId ?? null`), `busy(false)` — mirrors `WatchdogControl.commit` (lines 38-48).
 
-Notes:
-- `useCallback`/`useEffect`/`useState` are already imported (`ProjectSettingsModal.tsx:13`); `apiGet`/`apiPost` already imported (`:17`).
-- Short-id display uses **leading** 8 hex (`target.slice(0, 8)`), per the repo's short-id convention.
-- Clear button is disabled when there is no pin (`!target`), exactly like `WatchdogControl`'s clear disables on `value === null`.
+2. **Mount it** inside the existing `Section label="Autonomous conductor"` block (`ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx:306-308`), directly under `<ConductorControl project={project} />`:
+   ```tsx
+   <Section label="Autonomous conductor">
+     <ConductorControl project={project} />
+     <ConductorTargetControl project={project} />
+   </Section>
+   ```
 
-### Change 2 — render it inside the Autonomous conductor section
-In the same file, extend the existing `Section label="Autonomous conductor"` (`ProjectSettingsModal.tsx:306-308`) so it renders both controls:
+No store changes, no backend changes — this is a pure UI read+clear surface reusing the already-shipped route and the modal's existing `apiGet`/`apiPost` pattern.
 
-```tsx
-          <Section label="Autonomous conductor">
-            <ConductorControl project={project} />
-            <ConductorTargetControl project={project} />
-          </Section>
-```
+### Test update
 
-(`Section` already stacks children with `flex flex-col gap-2` — `:236`.)
+`ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx`'s `mockFetch` conductor branch (lines 51-58) currently only echoes `enabled` — extend it to also carry/echo `targetMissionId` (mutable module-level `let conductorTarget: string | null = null`, reset in `afterEach`) so a new test can assert: GET seeds `conductor-target-none` when unset, seeds `conductor-target-id` text when the mock returns a `targetMissionId`, and clicking `conductor-target-clear` POSTs `{ project, targetMissionId: null }` and flips the UI back to the "none" state.
 
-### Change 3 — extend the test mock + add a clear test
-In `ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx`:
+### Acceptance criteria
 
-1. Add mutable target state next to `conductorEnabled` (`:30`):
-   `let conductorTarget: string | null = null;`
-2. Update the `/api/supervisor/conductor` mock branch (`:51-58`) so GET returns `targetMissionId: conductorTarget`, and POST updates `conductorTarget` when `targetMissionId` is present (still handling `enabled`), echoing `{ ok, project, enabled, targetMissionId }`.
-3. Reset `conductorTarget = null;` in `afterEach` (`:62-66`).
-4. Add a test `clears the pinned conductor target and POSTs targetMissionId null`: seed `conductorTarget = 'abcd1234-....'`, render the modal, assert `conductor-target-current` shows `abcd1234`, click `conductor-target-clear`, then assert a POST to `/api/supervisor/conductor` fired with `JSON.parse(init.body).targetMissionId === null`, and the display falls back to the "auto" text.
-
-### Acceptance criteria (positive, citable)
-1. `ConductorTargetControl` is defined in `ProjectSettingsModal.tsx` (a component that GETs `/api/supervisor/conductor` and reads `targetMissionId`).
-2. `ConductorTargetControl` renders a `data-testid="conductor-target-current"` element and a `data-testid="conductor-target-clear"` button inside it.
-3. The clear button's `onClick` POSTs `{ project, targetMissionId: null }` to `/api/supervisor/conductor` and re-seeds local state from the response.
-4. The **Autonomous conductor** `Section` in `ProjectSettingsModal` renders `<ConductorTargetControl project={project} />` alongside `<ConductorControl />`.
-5. A new named test in `ProjectSettingsModal.test.tsx` seeds a target, clicks `conductor-target-clear`, and asserts a POST with `targetMissionId === null` fired.
-
-Run: `npm run test:ci -- ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx`.
+1. `ConductorTargetControl` component exists in `ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx`, rendering `data-testid="conductor-target-control"`.
+2. It fetches `GET /api/supervisor/conductor?project=` via `apiGet` and renders `data-testid="conductor-target-id"` with the pinned mission id when `targetMissionId` is non-null, else `data-testid="conductor-target-none"`.
+3. A `data-testid="conductor-target-clear"` button calls `apiPost('/api/supervisor/conductor', { project, targetMissionId: null })` and updates local state from the response.
+4. `<ConductorTargetControl project={project} />` is rendered inside the `Section label="Autonomous conductor"` block in `ProjectSettingsModal`, alongside `<ConductorControl project={project} />`.
+5. `ProjectSettingsModal.test.tsx` has a passing test asserting the clear button POSTs `targetMissionId: null` and the UI reverts to the unpinned display.
 
 ```json
-{ "schemaVersion": 2, "estimatedFiles": 2, "estimatedTasks": 3,
+{ "schemaVersion": 2, "estimatedFiles": 2, "estimatedTasks": 2,
   "nonEnumerableFanout": false,
   "filesToCreate": [],
   "filesToEdit": [
@@ -108,18 +53,13 @@ Run: `npm run test:ci -- ui/src/components/supervisor/bridge/ProjectSettingsModa
     "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"
   ],
   "tasks": [
-    { "id": "add-conductor-target-control", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"], "description": "Add ConductorTargetControl component that GETs targetMissionId and clears it via POST targetMissionId:null" },
-    { "id": "render-in-conductor-section", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"], "description": "Render ConductorTargetControl inside the Autonomous conductor Section next to ConductorControl" },
-    { "id": "test-show-and-clear", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"], "description": "Extend conductor mock with targetMissionId and add a clear-target test asserting POST targetMissionId null" }
+    { "id": "add-conductor-target-control", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"], "description": "Add ConductorTargetControl (GET-seed + POST-clear) and mount it in the Autonomous conductor section" },
+    { "id": "test-conductor-target-control", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"], "description": "Extend mockFetch conductor branch with targetMissionId and add a show/clear test" }
   ],
   "leafKind": "feature",
   "requirements": [
-    { "kind": "symbol-present", "file": "ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx", "symbol": "ConductorTargetControl", "description": "The read+clear control for the conductor target pin" },
-    { "kind": "named-test", "testFile": "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx", "testName": "clears the pinned conductor target and POSTs targetMissionId null", "mechanical": true }
+    { "kind": "symbol-present", "file": "ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx", "symbol": "ConductorTargetControl", "description": "new control component showing/clearing the pinned conductor target" },
+    { "kind": "named-test", "testFile": "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx", "testName": "clearing conductor-target-clear POSTs targetMissionId null and reverts to unpinned", "mechanical": false }
   ],
-  "outOfScope": [
-    "Setting/pinning a target from the modal (pin lives in the mission rail; this leaf only shows + clears)",
-    "Changing the conductor REST routes or store actions (GET already returns targetMissionId; POST already accepts targetMissionId:null)",
-    "Resolving the target mission id to a human title (short-id display only)"
-  ] }
+  "outOfScope": ["changing the mission-rail Pin/Unpin control", "backend route or store changes (already shipped)"] }
 ```

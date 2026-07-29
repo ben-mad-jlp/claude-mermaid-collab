@@ -1,64 +1,22 @@
-I have everything I need. Here's the blueprint.
+[[PARSE FAILED for fec75a4b]]
 
-## Blueprint — Harden `scripts/live-conductor-pin-evidence.ts` so step (f) never SKIPs
+--- extracted text (what parseDiffContract saw) ---
 
-### Root cause
-The only assertion that can be skipped is the lazy self-clear check in **step (f)** (`scripts/live-conductor-pin-evidence.ts:187-223`). Today it *searches* for a pre-existing `converged`/`abandoned` mission via `GET /api/supervisor/missions` and, finding none (the normal case for a fresh evidence run), pushes a `SKIPPED` note (`:203`) and logs `⏭️ skipped` (`:204`) — so the `target-cleared` sub-assertion never records a `check(...)`.
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.
 
-### The available HTTP lever (in-scope)
-A mission can be driven **terminal over HTTP alone**, no MCP:
-- `PATCH /api/supervisor/missions` accepts `abandonedAt` and forwards it to `update_mission` (`src/routes/supervisor-routes.ts:266-279`).
-- `deriveMissionStatus` returns `'abandoned'` first-match-wins whenever `abandonedAt != null` — ahead of even `unapproved` (`src/services/mission-store.ts:729`), so a freshly-created mission with `abandonedAt` set is terminal regardless of approval.
-- The conductor pass treats a pin at an `abandoned` mission as terminal: it clears the pin and records `lastPass = { missionId: null, reason: 'target-cleared', tickAt }` (`src/services/conductor-pass.ts:126-130`), exactly what the poll predicate at `:216` waits for.
+--- raw stdout tail (last 4000 chars) ---
 
-This keeps the script HTTP-only (its stated contract, header comment `:9-12` and `:194-196`) while removing the SKIP.
+tempt":3,"max_retries":10,"retry_delay_ms":2307,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"218d14cd-b7ab-4d71-bdd0-f45fb4323799"}
+{"type":"system","subtype":"api_retry","attempt":4,"max_retries":10,"retry_delay_ms":4644,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"c2d6d90f-6f89-4af2-9557-ac40112ee21b"}
+{"type":"system","subtype":"api_retry","attempt":5,"max_retries":10,"retry_delay_ms":9713,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"6c147954-5d8d-414b-b24e-bd46d962439e"}
+{"type":"system","subtype":"api_retry","attempt":6,"max_retries":10,"retry_delay_ms":19652,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"d46c4d43-a03e-459c-9cdc-04454ce76c7e"}
+{"type":"system","subtype":"api_retry","attempt":7,"max_retries":10,"retry_delay_ms":39971,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"fcd3bf21-bd00-4009-986e-d1eaa4f457b0"}
+{"type":"system","subtype":"api_retry","attempt":8,"max_retries":10,"retry_delay_ms":32177,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"03356fd1-b5f6-48ba-b4fa-0fc8aa11650b"}
+{"type":"system","subtype":"api_retry","attempt":9,"max_retries":10,"retry_delay_ms":37246,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"45205813-50fb-47da-a973-07f61e14d7d1"}
+{"type":"system","subtype":"api_retry","attempt":10,"max_retries":10,"retry_delay_ms":38514,"error_status":529,"error":"overloaded","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"5c745398-4b63-48ac-b842-32abe1fb3902"}
+{"type":"assistant","message":{"id":"b29e5376-a295-4410-965b-af1b73f9126d","container":null,"model":"<synthetic>","role":"assistant","stop_details":null,"stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":null,"cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":null,"iterations":null,"speed":null},"content":[{"type":"text","text":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."}],"context_management":null},"parent_tool_use_id":null,"session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","uuid":"8cf71371-7c43-4fe4-8e9f-70cbcd146e9f","timestamp":"2026-07-29T20:20:53.439Z","error":"server_error","request_id":"req_011CdWxxfUWPcU7L2eJi2DYm","is_api_error_message":true}
+{"is_error":true,"duration_api_ms":1319,"num_turns":1,"stop_reason":"stop_sequence","session_id":"2d4b96a7-7fc4-4d2c-954c-15ff2184a050","total_cost_usd":0.001162,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":1072,"outputTokens":18,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.001162,"contextWindow":200000,"maxOutputTokens":32000,"canonicalModel":"claude-haiku-4-5","provider":"firstParty"}},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subtype":"success","api_error_status":529,"result":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.","type":"result","duration_ms":203614,"uuid":"844a7b31-519f-4671-8b5b-0bac57048fc3"}
 
-### Change shape (single file: `scripts/live-conductor-pin-evidence.ts`)
 
-1. **Add an HTTP helper** near the other request helpers (after `post`, ~`:85`):
-   ```ts
-   async function abandonMissionOverHttp(todoId: string, abandonedAt: number) {
-     const res = await fetch(`${BASE_URL}/api/supervisor/missions`, {
-       method: 'PATCH',
-       headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({ project, todoId, abandonedAt }),
-     });
-     return { status: res.status, body: await res.json().catch(() => null) };
-   }
-   ```
+--- stderr tail (last 4000 chars) ---
 
-2. **Replace the discover-or-skip block** (`:194-223`, from the `// Lazy self-clear needs...` comment through the closing `}` of the `else`) with an **unconditional force-terminal path**:
-   - Create a dedicated throwaway mission via the existing `createAndApproveMission('Live conductor-pin evidence terminal mission')` (`:127-137`); capture its id as `forcedTerminalId`.
-   - Call `abandonMissionOverHttp(forcedTerminalId, Date.now())`; assert with a new `check('mission forced terminal via HTTP abandon', patch.status === 200 && patch.body?.mission?.status === 'abandoned', ...)` — the PATCH response returns the derived `mission` (`src/routes/supervisor-routes.ts:276`).
-   - `POST /api/supervisor/conductor` with `targetMissionId: forcedTerminalId`, reusing the existing pin assertion pattern (`:151-152`).
-   - Reuse the existing `pollUntil(...)` for `lastPass.reason === 'target-cleared' && targetMissionId === null` (`:210-217`) and keep the terminal `check('lazy self-clear observed ...', satisfiedAt !== null, ...)` (`:218-222`) — now reached on every run, not gated behind an `if`.
-   - Delete the `notes.push('... SKIPPED ...')` (`:203`) and the `⏭️ skipped` log (`:204`); the `if (!terminalMission)` branch is gone.
-
-3. **Update the step header + rationale comments** (`:187`, `:194-196`) to describe forcing a terminal mission via the `PATCH … abandonedAt` HTTP route rather than passively discovering one; keep the "no MCP transport" note (PATCH is a first-class HTTP route, so the HTTP-only contract holds).
-
-4. Add `forcedTerminalId` to the `EvidenceBlob` write (`:229-232`) as an optional field so the artifact records which mission was abandoned (positive, citable evidence-schema addition alongside `missionA`/`missionB` at `interface EvidenceBlob` `:48-59`).
-
-### Out of scope
-- No change to routes, conductor-pass, or mission-store — all levers already exist.
-- Do not add MCP calls; the harness stays HTTP-only.
-- `missionA`/`missionB` pin/poll logic (steps c–e) is unchanged.
-
-```json
-{ "schemaVersion": 2, "estimatedFiles": 1, "estimatedTasks": 1,
-  "nonEnumerableFanout": false, "filesToCreate": [], "filesToEdit": ["scripts/live-conductor-pin-evidence.ts"],
-  "tasks": [
-    { "id": "force-terminal-http", "files": ["scripts/live-conductor-pin-evidence.ts"], "description": "Replace step (f) discover-or-skip with an unconditional force-terminal path that PATCHes abandonedAt over HTTP, pins the abandoned mission, and asserts target-cleared" }
-  ],
-  "leafKind": "test",
-  "requirements": [
-    { "kind": "symbol-present", "file": "scripts/live-conductor-pin-evidence.ts", "symbol": "abandonMissionOverHttp", "description": "New HTTP helper that PATCHes /api/supervisor/missions with abandonedAt to force a mission terminal without MCP" },
-    { "kind": "symbol-present", "file": "scripts/live-conductor-pin-evidence.ts", "symbol": "forcedTerminalId", "description": "Id of the throwaway mission the harness abandons to drive the lazy self-clear assertion unconditionally" },
-    { "kind": "threshold", "source": "grep-count", "metric": "abandonedAt-in-harness", "comparison": "gte", "value": 1, "mechanical": true },
-    { "kind": "threshold", "source": "grep-count", "metric": "skip-emoji-count", "comparison": "eq", "value": 0, "mechanical": true }
-  ],
-  "outOfScope": [
-    "No changes to src/routes, conductor-pass, or mission-store — the PATCH abandonedAt lever already exists",
-    "No MCP transport added; harness stays HTTP-only",
-    "steps (a)-(e) pin/poll logic unchanged"
-  ] }
-```

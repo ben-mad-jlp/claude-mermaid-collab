@@ -1,71 +1,94 @@
-I have everything I need. The backend route `/api/supervisor/conductor` (GET/POST `{ project, enabled }`) already exists (`src/routes/supervisor-routes.ts:880-898`) backed by `getConductorEnabled`/`setConductorEnabled` (`src/services/supervisor-store.ts:465-475`). No UI consumes it yet. This leaf adds the shared hook + the toggle in the modal.
+<!-- blueprint-lab-emit model=sonnet effort=medium -->
+## Blueprint: Conductor toggle in ProjectSettingsModal + shared `useConductorEnabled` hook
 
----
+### Context found
 
-## Implementation Blueprint
+- Backend is already fully wired: `getConductorEnabled`/`setConductorEnabled` in `src/services/supervisor-store.ts:465-475`, and the REST route `GET/POST /api/supervisor/conductor` in `src/routes/supervisor-routes.ts:880-898` (body `{ project, enabled }`, response `{ project, enabled }` for GET, `{ ok, project, enabled }` for POST). Default is OFF (unset ⇒ `false`).
+- **No UI consumer exists yet** — `useConductorEnabled` does not exist anywhere in the repo, and no component currently calls `/api/supervisor/conductor`.
+- `ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx` is the single home for per-project daemon settings; each concern is its own small `React.FC<{project: string}>` control rendered inside a `<Section label="...">` wrapper (see `WatchdogControl`, `ContextRecycleControl`, `InjectionFlags` at lines 33-225, mounted at lines 295-305). The file already has local `apiGet`/`apiPost` helpers (lines 18-30) that go through `window.mc.invokeOnServer` when present, else plain `fetch` — the new control must use the same dual path for desktop-bridge compatibility.
+- Hooks live in `ui/src/hooks/*.ts` (e.g. `useFleetStatus.ts`, `useSettings.ts`). `useFleetStatus.ts:47-90` is the closest precedent for a small per-project polling/mutation hook using the `window.mc.invokeOnServer` / `fetch` fallback pattern.
+- `ProjectSettingsModal.test.tsx` mocks fetch per-URL substring (`mockFetch`, lines 31-51) and is the pattern to extend for the new control's route (`/api/supervisor/conductor`).
 
-### 1. New file — `ui/src/hooks/useConductorEnabled.ts`
+### Change shape
 
-A shared hook wrapping the existing `/api/supervisor/conductor` route, following the self-contained `apiGet`/`apiPost` pattern used by `ProjectSettingsModal.tsx:18-30` and `PoolSizeControl.tsx:22-34` (mc.invokeOnServer with a `fetch` fallback).
+**1. New file `ui/src/hooks/useConductorEnabled.ts`**
 
-Shape:
+Export a hook with this shape (mirroring `useFleetStatus`'s dual-path fetch, but GET+POST like `ProjectSettingsModal`'s local helpers):
+
 ```ts
-export interface UseConductorEnabled {
+export interface UseConductorEnabledReturn {
   enabled: boolean;
-  loaded: boolean;
+  loading: boolean;
   busy: boolean;
   setEnabled: (next: boolean) => void;
 }
-export function useConductorEnabled(project: string): UseConductorEnabled
+
+export function useConductorEnabled(project: string | undefined): UseConductorEnabledReturn
 ```
-Behavior:
-- On mount / `project` change: `GET /api/supervisor/conductor?project=<enc>` → seed `enabled` from `data.enabled` (coerce `!!`), then set `loaded=true`. Use a `cancelled` guard exactly like `PoolSizeControl.tsx:43-56`.
-- `setEnabled(next)`: guard `busy || !project`; set `busy=true`; optimistic `setEnabled(next)`; `POST /api/supervisor/conductor { project, enabled: next }`; reconcile from `data.enabled` if boolean; `finally busy=false`.
-- Default export the hook too (matches `useIsDesktop.ts:33`).
 
-### 2. Edit — `ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx`
+- Internal `apiGet`/`apiPost` helpers identical in shape to `ProjectSettingsModal.tsx:18-30` (through `window.mc.invokeOnServer` else `fetch`), duplicated locally in the hook (do not import from the component file — hooks must not depend on component-local helpers).
+- On mount / `project` change: `GET /api/supervisor/conductor?project=<encoded>`, seed `enabled` from `data.enabled` (`!!data.enabled`), set `loading=false`.
+- `setEnabled(next)`: optimistically set state, set `busy=true`, `POST /api/supervisor/conductor` with `{ project, enabled: next }`, reconcile from the response's `enabled` field, `busy=false`.
+- Guard: no-op if `project` is falsy (mirrors `useFleetStatus`'s `if (!project)` early return).
+- Cancellation flag (`cancelled`) on unmount, same pattern as `useFleetStatus`.
 
-- **Import** the hook: `import { useConductorEnabled } from '@/hooks/useConductorEnabled';`
-- **Add a `ConductorControl` component** (mirrors `InjectionFlags` style, `ProjectSettingsModal.tsx:167-225`): consumes `useConductorEnabled(project)` and renders a checkbox label with `data-testid="conductor-toggle"`, `checked={enabled}`, `disabled={busy || !loaded}`, `onChange={(e) => setEnabled(e.target.checked)}`, plus a hint span ("Let the autonomous conductor drive missions to done for this project."). Opacity dim while `!loaded`.
-- **Add a new `<Section label="Autonomous conductor">`** in the modal body (`ProjectSettingsModal.tsx:281-306`), placed after the Concurrency section, rendering `<ConductorControl project={project} />`.
+**2. Edit `ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx`**
 
-### 3. Edit — `ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx`
+- Add import: `import { useConductorEnabled } from '@/hooks/useConductorEnabled';` (check the alias used elsewhere in this file — `DaemonNodesMatrix`/`DaemonProviderControl` use `@/components/...`, so `@/hooks/useConductorEnabled` matches the existing alias convention).
+- Add a new control component in the same file, following the `WatchdogControl`/`ContextRecycleControl` shape:
 
-- Extend `mockFetch` with a mutable `conductorState` (default `{ enabled: false }`): GET `/api/supervisor/conductor` returns `{ project, enabled }`; POST mutates + echoes `{ ok: true, project, enabled }` (mirrors the `injection-flags` handler at `ProjectSettingsModal.test.tsx:42-49`).
-- Add test **`toggling conductor-toggle POSTs and reflects the new value`**: render open, find `conductor-toggle` (initially unchecked), `fireEvent.click`, `waitFor` checked=true, assert a POST to `/api/supervisor/conductor` with `enabled === true` fired.
+```tsx
+const ConductorToggle: React.FC<{ project: string }> = ({ project }) => {
+  const { enabled, busy, setEnabled } = useConductorEnabled(project);
+  return (
+    <label className="flex items-center gap-2 text-3xs text-gray-700 dark:text-gray-200 cursor-pointer">
+      <input
+        type="checkbox"
+        data-testid="conductor-enabled-toggle"
+        checked={enabled}
+        disabled={busy}
+        onChange={(e) => setEnabled(e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600"
+      />
+      <span className="font-medium">Autonomous conductor</span>
+      <span className="text-gray-400 dark:text-gray-500">Run the conductor pass for this project.</span>
+    </label>
+  );
+};
+```
 
-### 4. New file — `ui/src/hooks/__tests__/useConductorEnabled.test.ts`
+- Mount it in a new `<Section label="Conductor">` block inside the modal body (`ProjectSettingsModal.tsx:281-306`), e.g. right after the "Node models & provider" section and before "Watchdog":
 
-- Test **`useConductorEnabled seeds from GET and POSTs on setEnabled`**: mock `global.fetch`, `renderHook(() => useConductorEnabled('/abs/p'))`, `waitFor(() => result.current.loaded)`, assert `enabled===false`; `act(() => result.current.setEnabled(true))`; `waitFor` `enabled===true`; assert a POST with `enabled:true` fired.
+```tsx
+<Section label="Conductor">
+  <ConductorToggle project={project} />
+</Section>
+```
 
-### Notes
-- Backend route + store already exist — **no `src/` changes**; this is a pure UI wiring leaf.
-- Existing modal tests keep passing: the current `mockFetch` default returns `{}` for the conductor GET, so `enabled` reads `false` and the toggle mounts cleanly.
-- `@/hooks/*` alias is the established import path (`useIsDesktop`, `useSettings`, etc.).
+**3. Edit `ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx`**
 
-### Acceptance criteria (positive, citable)
-1. `ui/src/hooks/useConductorEnabled.ts` exports a `useConductorEnabled(project)` hook that GETs `/api/supervisor/conductor?project=` to seed state and POSTs `{ project, enabled }` on `setEnabled`.
-2. `ProjectSettingsModal.tsx` renders a `ConductorControl` inside a new `<Section label="Autonomous conductor">`, with a checkbox carrying `data-testid="conductor-toggle"` wired to the hook.
-3. `ProjectSettingsModal.test.tsx` contains a test asserting clicking `conductor-toggle` fires a POST to `/api/supervisor/conductor` with `enabled === true` and reflects the checked state.
-4. `ui/src/hooks/__tests__/useConductorEnabled.test.ts` contains a test asserting the hook seeds `enabled` from GET and POSTs `enabled:true` on `setEnabled(true)`.
+- Add a `/api/supervisor/conductor` branch to `mockFetch` (mirrors the `injection-flags` GET/POST branch at lines 42-49): GET returns `{ project: '/abs/p', enabled: false }`; POST reads `{ enabled }` from the body, updates a module-level `conductorState`, returns `{ ok: true, project: '/abs/p', enabled: conductorState }`.
+- Add one test: renders `conductor-enabled-toggle`, clicking it flips `checked` to `true` and asserts a POST to `/api/supervisor/conductor` fired with `enabled: true` (same assertion shape as the existing digest-flag test at lines 75-97).
+
+### Out of scope
+- No changes to `src/routes/supervisor-routes.ts` or `src/services/supervisor-store.ts` — both already implement the full contract.
+- No other consumer of `useConductorEnabled` is wired in this leaf (e.g. `BridgeDashboard.tsx` badges) — the hook is built shared/reusable but only the modal consumes it here.
 
 ```json
-{ "schemaVersion": 2, "estimatedFiles": 4, "estimatedTasks": 4,
+{ "schemaVersion": 2, "estimatedFiles": 3, "estimatedTasks": 3,
   "nonEnumerableFanout": false,
-  "filesToCreate": ["ui/src/hooks/useConductorEnabled.ts", "ui/src/hooks/__tests__/useConductorEnabled.test.ts"],
+  "filesToCreate": ["ui/src/hooks/useConductorEnabled.ts"],
   "filesToEdit": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx", "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"],
   "tasks": [
-    { "id": "hook", "files": ["ui/src/hooks/useConductorEnabled.ts"], "description": "Add shared useConductorEnabled hook over /api/supervisor/conductor GET/POST" },
-    { "id": "modal-toggle", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"], "description": "Add ConductorControl + Autonomous conductor Section using the hook" },
-    { "id": "modal-test", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"], "description": "Mock conductor route + test conductor-toggle POST round-trip" },
-    { "id": "hook-test", "files": ["ui/src/hooks/__tests__/useConductorEnabled.test.ts"], "description": "Test hook GET-seed + POST-on-setEnabled" }
+    { "id": "hook", "files": ["ui/src/hooks/useConductorEnabled.ts"], "description": "Add useConductorEnabled hook wrapping GET/POST /api/supervisor/conductor" },
+    { "id": "modal-toggle", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx"], "description": "Add ConductorToggle control + Conductor Section using the new hook" },
+    { "id": "test", "files": ["ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx"], "description": "Mock /api/supervisor/conductor and assert toggle POSTs enabled:true" }
   ],
   "leafKind": "feature",
   "requirements": [
-    { "kind": "symbol-present", "file": "ui/src/hooks/useConductorEnabled.ts", "symbol": "useConductorEnabled", "description": "Shared hook wrapping the conductor GET/POST route" },
-    { "kind": "symbol-present", "file": "ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx", "symbol": "ConductorControl", "description": "Toggle control rendering data-testid=conductor-toggle in a new Section" },
-    { "kind": "named-test", "testFile": "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx", "testName": "toggling conductor-toggle POSTs and reflects the new value", "mechanical": true },
-    { "kind": "named-test", "testFile": "ui/src/hooks/__tests__/useConductorEnabled.test.ts", "testName": "useConductorEnabled seeds from GET and POSTs on setEnabled", "mechanical": true }
+    { "kind": "symbol-present", "file": "ui/src/hooks/useConductorEnabled.ts", "symbol": "useConductorEnabled", "description": "shared hook must exist and be exported" },
+    { "kind": "symbol-present", "file": "ui/src/components/supervisor/bridge/ProjectSettingsModal.tsx", "symbol": "ConductorToggle", "description": "modal must render a conductor toggle control wired to the hook" },
+    { "kind": "named-test", "testFile": "ui/src/components/supervisor/bridge/ProjectSettingsModal.test.tsx", "testName": "toggling conductor-enabled-toggle POSTs and reflects the new value", "mechanical": true }
   ],
-  "outOfScope": ["Any src/ backend changes — the /api/supervisor/conductor route and get/setConductorEnabled already exist", "Surfacing the conductor toggle anywhere outside ProjectSettingsModal (e.g. CommandBar or MissionDetailPanel)"] }
+  "outOfScope": ["no backend changes (route + store already implemented)", "no other UI surface wired to useConductorEnabled in this leaf"] }
 ```

@@ -1,119 +1,22 @@
-I now have a complete picture of the pattern. Here is the implementation blueprint.
+[[PARSE FAILED for fedfd37c]]
 
----
+--- extracted text (what parseDiffContract saw) ---
 
-## Blueprint: Persist `conductorTargetMissionId` on `watched_project` with get/set accessors
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.
 
-### Goal
-Add a per-project nullable TEXT column `conductorTargetMissionId` to the `watched_project` table in `src/services/supervisor-store.ts`, plus `getConductorTargetMissionId` / `setConductorTargetMissionId` accessors. This gives the conductor a persistent, human-settable "drive THIS mission" override slot. This leaf is **storage + accessors only** — no consumer wiring in `conductor-pass.ts`.
+--- raw stdout tail (last 4000 chars) ---
 
-### Pattern to follow
-Model exactly on the existing **nullable-TEXT** per-project column pattern. The closest analogs are:
-- `contextRecycleMode` (TEXT column) — for the DDL/interface/migration shape.
-- `getWatchdogThreshold` / `setWatchdogThreshold` (`src/services/supervisor-store.ts:415-428`) — for the **nullable get/set** shape where `set(project, null)` clears the slot and `get` returns `null` when unset. Our value type is `string | null` instead of `number | null`.
+"retry_delay_ms":2010,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"c827130f-d589-4fd0-88ac-de64510db679"}
+{"type":"system","subtype":"api_retry","attempt":4,"max_retries":10,"retry_delay_ms":4311,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"90091c80-924e-40d4-838e-9e5f18987c74"}
+{"type":"system","subtype":"api_retry","attempt":5,"max_retries":10,"retry_delay_ms":8593,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"af646727-e5b3-4926-bc08-7d0053cb481a"}
+{"type":"system","subtype":"api_retry","attempt":6,"max_retries":10,"retry_delay_ms":18388,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"9a4dcef1-17b9-45d8-b015-5600fffe3918"}
+{"type":"system","subtype":"api_retry","attempt":7,"max_retries":10,"retry_delay_ms":34055,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"267c94b6-6a8f-422d-954c-e543de8f9f63"}
+{"type":"system","subtype":"api_retry","attempt":8,"max_retries":10,"retry_delay_ms":34358,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"d849a44e-a606-4238-9fda-0d6110a2e2be"}
+{"type":"system","subtype":"api_retry","attempt":9,"max_retries":10,"retry_delay_ms":36118,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"a24edd6f-f3a5-4ee1-b510-0acc5889ba48"}
+{"type":"system","subtype":"api_retry","attempt":10,"max_retries":10,"retry_delay_ms":34265,"error_status":529,"error":"overloaded","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"6c6917d0-a234-41c0-b757-055e862880c5"}
+{"type":"assistant","message":{"id":"5776ae75-4434-49a7-b53f-c4cabfb1c026","container":null,"model":"<synthetic>","role":"assistant","stop_details":null,"stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":null,"cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":null,"iterations":null,"speed":null},"content":[{"type":"text","text":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."}],"context_management":null},"parent_tool_use_id":null,"session_id":"a85e2070-4458-424f-be9b-c1131798ad81","uuid":"46488ab2-55b8-48bc-98e0-af1e17317193","timestamp":"2026-07-29T20:21:50.931Z","error":"server_error","request_id":"req_011CdWy3kZVBkAXuSqsK7bts","is_api_error_message":true}
+{"is_error":true,"duration_api_ms":1495,"num_turns":1,"stop_reason":"stop_sequence","session_id":"a85e2070-4458-424f-be9b-c1131798ad81","total_cost_usd":0.0011740000000000001,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":1069,"outputTokens":21,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.0011740000000000001,"contextWindow":200000,"maxOutputTokens":32000,"canonicalModel":"claude-haiku-4-5","provider":"firstParty"}},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subtype":"success","api_error_status":529,"result":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.","type":"result","duration_ms":191944,"uuid":"d37fd54d-ec92-4630-aee2-9b5f46ec985e"}
 
-All per-project setters are **UPDATE-only** (never `INSERT`/auto-watch) — see the standing invariant tested at `src/services/__tests__/supervisor-store.watchdog.test.ts:31-35` and `52+`.
 
-### Changes
+--- stderr tail (last 4000 chars) ---
 
-**1. Interface field — `src/services/supervisor-store.ts`, `WatchedProject` interface (after line 33, before the closing `}` at line 34):**
-```ts
-  /** Per-project autonomous-conductor target mission override (a mission todoId), or null
-   *  (== no override; the conductor auto-selects the first actionable mission). */
-  conductorTargetMissionId?: string | null;
-```
-
-**2. DDL column — `src/services/supervisor-store.ts`, inside `CREATE TABLE IF NOT EXISTS watched_project` (add a line after `gateShadowMode INTEGER` at line 204):**
-```sql
-  gateShadowMode INTEGER,
-  conductorTargetMissionId TEXT
-```
-
-**3. Migration — `src/services/supervisor-store.ts`, in the `addColumnIfMissing` block (after line 326):**
-```ts
-  addColumnIfMissing(db, 'watched_project', 'conductorTargetMissionId', 'conductorTargetMissionId TEXT');
-```
-
-**4. Accessors — `src/services/supervisor-store.ts`, add after `setGateShadowMode` (after line 521):**
-```ts
-/** Per-project AUTONOMOUS CONDUCTOR target-mission override (a mission todoId), or null if unset
- *  (the conductor auto-selects). UPDATE-only (like the other per-project setters — never auto-watch;
- *  a project must be watched first). Pass null to clear the override. */
-export function getConductorTargetMissionId(project: string): string | null {
-  const d = openDb();
-  const row = d.query('SELECT conductorTargetMissionId FROM watched_project WHERE project = ?')
-    .get(project) as { conductorTargetMissionId: string | null } | undefined;
-  return row?.conductorTargetMissionId ?? null;
-}
-export function setConductorTargetMissionId(project: string, missionId: string | null): void {
-  const d = openDb();
-  d.prepare('UPDATE watched_project SET conductorTargetMissionId = ? WHERE project = ?')
-    .run(missionId, project);
-}
-```
-
-**5. Tests — `src/services/__tests__/supervisor-store.watchdog.test.ts`:**
-Add `getConductorTargetMissionId, setConductorTargetMissionId` to the import from `../supervisor-store` (line 10), and append a new `describe` block modeled on the watchdog block (lines 15-50):
-```ts
-describe('per-project conductor target mission override', () => {
-  it('defaults to null for a freshly watched project', () => {
-    addWatchedProject('/proj/ctm-a');
-    expect(getConductorTargetMissionId('/proj/ctm-a')).toBeNull();
-  });
-  it('null for an unknown project', () => {
-    expect(getConductorTargetMissionId('/proj/ctm-unknown')).toBeNull();
-  });
-  it('set then get round-trips', () => {
-    addWatchedProject('/proj/ctm-b');
-    setConductorTargetMissionId('/proj/ctm-b', 'mission-123');
-    expect(getConductorTargetMissionId('/proj/ctm-b')).toBe('mission-123');
-  });
-  it('setConductorTargetMissionId is UPDATE-only (creates no watched_project row if absent)', () => {
-    setConductorTargetMissionId('/proj/ctm-c', 'mission-x');
-    expect(getConductorTargetMissionId('/proj/ctm-c')).toBeNull();
-    expect(listWatchedProjects().some((p) => p.project === '/proj/ctm-c')).toBe(false);
-  });
-  it('clearing with null reverts to unset', () => {
-    addWatchedProject('/proj/ctm-d');
-    setConductorTargetMissionId('/proj/ctm-d', 'mission-y');
-    setConductorTargetMissionId('/proj/ctm-d', null);
-    expect(getConductorTargetMissionId('/proj/ctm-d')).toBeNull();
-  });
-});
-```
-
-### Notes
-- `listWatchedProjects` (line 412) uses `SELECT *` and casts to `WatchedProject[]`, so the new column is automatically exposed on listed rows once the interface field and DDL/migration are in place — no change needed there.
-- Value stored is a raw mission todoId string; no format validation in this leaf (matches how other TEXT slots store free-form values).
-
-### Acceptance criteria (positive, citable)
-1. `WatchedProject` interface in `src/services/supervisor-store.ts` declares field `conductorTargetMissionId?: string | null;`.
-2. The `CREATE TABLE IF NOT EXISTS watched_project` DDL in `src/services/supervisor-store.ts` includes column `conductorTargetMissionId TEXT`.
-3. `src/services/supervisor-store.ts` calls `addColumnIfMissing(db, 'watched_project', 'conductorTargetMissionId', 'conductorTargetMissionId TEXT')` in the migration block (backfills existing DBs).
-4. `src/services/supervisor-store.ts` exports `getConductorTargetMissionId(project: string): string | null` reading the column and returning `null` when unset.
-5. `src/services/supervisor-store.ts` exports `setConductorTargetMissionId(project: string, missionId: string | null): void` performing an UPDATE-only write.
-6. `src/services/__tests__/supervisor-store.watchdog.test.ts` contains a passing `describe('per-project conductor target mission override', ...)` block covering default-null, round-trip, UPDATE-only, and clear-with-null.
-
-```json
-{ "schemaVersion": 2, "estimatedFiles": 2, "estimatedTasks": 4,
-  "nonEnumerableFanout": false,
-  "filesToCreate": [],
-  "filesToEdit": ["src/services/supervisor-store.ts", "src/services/__tests__/supervisor-store.watchdog.test.ts"],
-  "tasks": [
-    { "id": "interface-field", "files": ["src/services/supervisor-store.ts"], "description": "Add conductorTargetMissionId?: string | null to WatchedProject interface" },
-    { "id": "ddl-and-migration", "files": ["src/services/supervisor-store.ts"], "description": "Add conductorTargetMissionId TEXT to watched_project DDL and addColumnIfMissing migration" },
-    { "id": "accessors", "files": ["src/services/supervisor-store.ts"], "description": "Add getConductorTargetMissionId and setConductorTargetMissionId (UPDATE-only, nullable)" },
-    { "id": "tests", "files": ["src/services/__tests__/supervisor-store.watchdog.test.ts"], "description": "Add per-project conductor target mission override describe block (default/round-trip/update-only/clear)" }
-  ],
-  "leafKind": "feature",
-  "requirements": [
-    { "kind": "symbol-present", "file": "src/services/supervisor-store.ts", "symbol": "getConductorTargetMissionId", "description": "Reader accessor returning string | null" },
-    { "kind": "symbol-present", "file": "src/services/supervisor-store.ts", "symbol": "setConductorTargetMissionId", "description": "UPDATE-only writer accepting string | null" },
-    { "kind": "named-test", "testFile": "src/services/__tests__/supervisor-store.watchdog.test.ts", "testName": "set then get round-trips", "mechanical": true }
-  ],
-  "outOfScope": [
-    "Wiring conductorTargetMissionId into conductor-pass.ts mission selection (separate leaf)",
-    "MCP tool / API route / UI surface for setting the override (separate leaf)",
-    "Validating that missionId references a real mission"
-  ] }
-```

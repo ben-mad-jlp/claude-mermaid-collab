@@ -1,76 +1,22 @@
-I have everything I need. All dependency symbols exist on HEAD (the epic worktree), and master already carries the reference implementation of this exact primitive — so this leaf recreates it on the epic branch, grounded on symbols that are all present.
+[[PARSE FAILED for dabc980d]]
 
-## Implementation Blueprint — Composed convergence+land sweep measurement primitive
+--- extracted text (what parseDiffContract saw) ---
 
-### Context / why this leaf exists
-The epic branch `ea65551e` (current HEAD) lacks `src/services/sweep-measurement.ts`; master already carries the reference (`git show master:src/services/sweep-measurement.ts`). This leaf's job is to **create that one source file** on the epic branch: a single force-run primitive that composes the mission-queue promotion, landed-at divergence check, epic-branch GC, a post-GC re-probe, and a queue-starvation check into one structured, diffable snapshot. Sibling leaves (already landed on master) supply the unit test `src/services/__tests__/sweep-measurement.test.ts` and the live-evidence harness `scripts/landed-epic-sweep-live-evidence.ts` — **both are out of scope here.**
+API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.
 
-### The one file to create
-`src/services/sweep-measurement.ts` (new). No existing files are edited.
+--- raw stdout tail (last 4000 chars) ---
 
-### Exact change shape
-Export three symbols and follow the injectable-seam pattern from `landed-epic-sweep.ts` (`probe`/`runner`/`baseRef` all injectable, defaulting to the real `makeGitProbe(project)` / `makeBranchGcRunner(project)` / `'master'`).
+tempt":3,"max_retries":10,"retry_delay_ms":2438,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"47e1353c-7e56-4bfe-8882-5efd0ef90483"}
+{"type":"system","subtype":"api_retry","attempt":4,"max_retries":10,"retry_delay_ms":4550,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"fe7218ff-29b7-48ac-a9e3-66db04c3ab86"}
+{"type":"system","subtype":"api_retry","attempt":5,"max_retries":10,"retry_delay_ms":8717,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"fcdbf494-7358-47aa-bb04-11d7cd93ed91"}
+{"type":"system","subtype":"api_retry","attempt":6,"max_retries":10,"retry_delay_ms":19587,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"ae07e77e-1c02-4e45-a1fe-ad4db669b84e"}
+{"type":"system","subtype":"api_retry","attempt":7,"max_retries":10,"retry_delay_ms":33708,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"d748e16d-9b47-4587-9071-a8c825c9bdae"}
+{"type":"system","subtype":"api_retry","attempt":8,"max_retries":10,"retry_delay_ms":39597,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"b65b59ec-b24e-45ef-813a-38df603e4dc6"}
+{"type":"system","subtype":"api_retry","attempt":9,"max_retries":10,"retry_delay_ms":32546,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"5738655d-d8d7-4e4a-a2ae-1dc1416cd3ba"}
+{"type":"system","subtype":"api_retry","attempt":10,"max_retries":10,"retry_delay_ms":35118,"error_status":529,"error":"overloaded","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"32aec56f-ee52-4f27-b28e-0bc02b2c1eb3"}
+{"type":"assistant","message":{"id":"9aab307f-2f0b-49b5-8d57-2f5447a79808","container":null,"model":"<synthetic>","role":"assistant","stop_details":null,"stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":null,"cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":null,"iterations":null,"speed":null},"content":[{"type":"text","text":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."}],"context_management":null},"parent_tool_use_id":null,"session_id":"412038ac-862d-4841-a2de-49af2c037e3f","uuid":"57b6ed15-822c-4394-8c55-2a1105e0a37c","timestamp":"2026-07-29T20:14:01.548Z","error":"server_error","request_id":"req_011CdWxSw62CkSj8wEcQQitt","is_api_error_message":true}
+{"is_error":true,"duration_api_ms":2965,"num_turns":1,"stop_reason":"stop_sequence","session_id":"412038ac-862d-4841-a2de-49af2c037e3f","total_cost_usd":0.001142,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":1062,"outputTokens":16,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.001142,"contextWindow":200000,"maxOutputTokens":32000,"canonicalModel":"claude-haiku-4-5","provider":"firstParty"}},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subtype":"success","api_error_status":529,"result":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.","type":"result","duration_ms":194647,"uuid":"78008065-ebf3-463a-b9e7-ab21101f7d19"}
 
-**Imports (all verified present on HEAD):**
-- `listTodos` from `./todo-store.js`
-- `type GitProbe`, `buildEpicBranchStatus`, `makeGitProbe`, `epicBranchName` from `./epic-branch-status.js` (`epic-branch-status.ts:40,90,99,180`)
-- `findLandedAtDivergence`, `type AheadLookup` from `./invariant-check.js` (`invariant-check.ts:150,159`)
-- `gcEpicBranches`, `makeBranchGcRunner`, `type BranchGcRunner`, `type GcEpicBranchesResult` from `./landed-epic-sweep.js` (`landed-epic-sweep.ts:112,144` + result iface at `:94`)
-- `promoteQueuedMissions`, `listMissions`, `sessionHasActiveMission`, `isMissionTerminal`, `type MissionSummary` from `./mission-store.js` (`mission-store.ts:562,1117,636,42,1087`)
 
-**`interface SweepMeasurement`** — the structured snapshot:
-```
-project: string
-promoted: string[]
-landedAtDivergence: { count: number; ids: string[] }
-gcDeleted: string[]
-gcFlagged: string[]
-fullyOnMasterBranchesRemaining: string[]
-sessionsZeroActiveWithQueuedApproved: string[]
-```
+--- stderr tail (last 4000 chars) ---
 
-**`interface RunSweepMeasurementOpts`** — `{ probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string }`.
-
-**`function runSweepMeasurement(project: string, opts: RunSweepMeasurementOpts = {}): SweepMeasurement`** — force-runs 5 steps in strict dependency order, each wrapped in its own `try/catch` that fails open to an empty value (so one axis failing never aborts the snapshot):
-
-1. **Promotion** — `promoted = promoteQueuedMissions(project)` (fail-open → `[]`). Must run first: it changes which missions are active, which step 5 reads.
-2. **Landed-at divergence** — reuse `checkInvariants`'s recipe: `listTodos(project,{includeCompleted:true})` → `buildEpicBranchStatus(todos, probe, baseRef, project)` → build `Map(epicId → ahead)` → wrap as an `AheadLookup` (`(id)=>map.get(id)`) → `findLandedAtDivergence(todos, aheadOf)`; record `{ count: violations.length, ids: violations.map(v=>v.todoId) }`.
-3. **Branch GC** — `gcEpicBranches(project,{probe,runner,baseRef})` (fail-open → `{deleted:[],flagged:[],skipped:0}`); surface `gcDeleted`/`gcFlagged`.
-4. **Post-GC re-probe** — a *fresh* `listTodos` + `buildEpicBranchStatus` (GC in step 3 may have changed `exists`/`ahead`), then `fullyOnMasterBranchesRemaining = epics.filter(e => e.exists && (e.ahead ?? -1) === 0).map(e => epicBranchName(e.epicId))`.
-5. **Queue-starvation** — group `listMissions(project)` by `ownerSession` (skip null); a session is flagged when it has an approved-queued candidate (`!m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.queuePos != null && !isMissionTerminal(m.mission)`) **and** `!sessionHasActiveMission(project, session)`.
-
-Return the assembled `SweepMeasurement`. The result must be diffable/idempotent across two consecutive calls on unchanged state (GC is the only mutation; a second pass finds the branches already gone and re-produces an equivalent snapshot).
-
-### Grounding notes for the reviewer
-- `MissionSummary.ownerSession` and `MissionRow.{active,awaitingApprovalSince,queuePos}` confirmed at `mission-store.ts:1090` and `:63,67,75`.
-- `sessionHasActiveMission(project, session, excludeTodoId?)` — call with two args (`mission-store.ts:636`).
-- The dependency ordering (promotion→step5, GC→re-probe) is load-bearing and must be preserved.
-
-### Acceptance criteria (positive, citable)
-1. `src/services/sweep-measurement.ts` exports `function runSweepMeasurement` taking `(project, opts?)` and returning `SweepMeasurement`.
-2. Same file exports `interface SweepMeasurement` with all seven fields listed above.
-3. Same file exports `interface RunSweepMeasurementOpts` with the three injectable seams (`probe`/`runner`/`baseRef`).
-4. `runSweepMeasurement` calls `promoteQueuedMissions`, `findLandedAtDivergence`, and `gcEpicBranches` — the three composed sub-sweeps — each in the ordered body.
-5. The queue-starvation branch calls `sessionHasActiveMission` and `isMissionTerminal` to compute `sessionsZeroActiveWithQueuedApproved`.
-
-```json
-{ "schemaVersion": 2, "estimatedFiles": 1, "estimatedTasks": 1,
-  "nonEnumerableFanout": false,
-  "filesToCreate": ["src/services/sweep-measurement.ts"],
-  "filesToEdit": [],
-  "tasks": [
-    { "id": "compose-sweep-measurement", "files": ["src/services/sweep-measurement.ts"], "description": "Create runSweepMeasurement composing promotion, landed-at divergence, GC, post-GC re-probe, and queue-starvation into one injectable, idempotent SweepMeasurement snapshot." }
-  ],
-  "leafKind": "feature",
-  "requirements": [
-    { "kind": "symbol-present", "file": "src/services/sweep-measurement.ts", "symbol": "runSweepMeasurement", "description": "The composed force-run measurement primitive returning SweepMeasurement." },
-    { "kind": "symbol-present", "file": "src/services/sweep-measurement.ts", "symbol": "SweepMeasurement", "description": "The structured, diffable snapshot interface with the seven measured fields." },
-    { "kind": "symbol-present", "file": "src/services/sweep-measurement.ts", "symbol": "RunSweepMeasurementOpts", "description": "Injectable-seam opts (probe/runner/baseRef) mirroring landed-epic-sweep.ts." }
-  ],
-  "outOfScope": [
-    "src/services/__tests__/sweep-measurement.test.ts (sibling leaf, already on master)",
-    "scripts/landed-epic-sweep-live-evidence.ts (sibling leaf, already on master)",
-    "Any orchestrator-live.ts wiring — this leaf ships only the standalone primitive",
-    "Modifying convergence-breaker.ts, landed-epic-sweep.ts, mission-store.ts, or invariant-check.ts (all consumed as-is)"
-  ] }
-```

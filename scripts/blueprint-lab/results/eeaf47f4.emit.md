@@ -1,65 +1,93 @@
-I have a complete picture. Here is the implementation blueprint.
-
+<!-- blueprint-lab-emit model=sonnet effort=medium -->
 ## Blueprint: Make the pin's per-tick drive observable rather than inferred
 
-### Problem (grounded)
-The conductor-target-pin feature drives one mission per tick via `runConductorPass` (`src/services/conductor-pass.ts:91`), which returns a rich `ConductorPassResult` (`src/services/conductor-pass.ts:81-86`) naming the exact branch taken each tick (`conductor-disabled | no-actionable-mission | target-not-actionable | target-cleared | building-wait | debounced | conducted | node-failed`) plus `missionId` and `modelUsed`. But that result is **discarded** by the only caller (`runConductorGuarded` at `src/services/orchestrator-live.ts:132-152`) — nothing persists or exposes it. The live-measurement doc (`docs/conductor-target-live-measurement.md:41-42`) had to **infer** per-tick pin behavior from `updatedAt`/`lastNudgeAt` drift and the static `targetMissionId` GET, because the pin's actual per-tick drive (which branch fired, against which mission, when) is not observable. The `GET /api/supervisor/conductor` endpoint (`src/routes/supervisor-routes.ts:897-905`) only returns `enabled` + `targetMissionId` — the *configured* pin, never the *last realized drive*.
+### Context (grounded)
+
+The conductor pin lives in `src/services/conductor-pass.ts`. Every 30s, `runConductorGuarded` (`src/services/orchestrator-live.ts:132-152`) iterates watched projects and calls `runConductorPass(project)` (`conductor-pass.ts:91-164`), which resolves the pin, computes a debounce fingerprint, and returns a fully-formed `ConductorPassResult` (`conductor-pass.ts:81-86`: `{ ran, reason, missionId?, modelUsed? }` — `reason` is one of `conductor-disabled | no-actionable-mission | target-not-actionable | target-cleared | building-wait | debounced | conducted | node-failed`).
+
+Today that result is **discarded** at the call site — `orchestrator-live.ts:142`: `await withPassTimeout(conductor(project), BUILD_PASS_TIMEOUT_MS, ...)`, return value unused. The only externally visible state is the *current* pin value via `GET /api/supervisor/conductor` (`src/routes/supervisor-routes.ts:896-905`, backed by `supervisor-store.ts:483-493`) and `mission.lastConductorKey` (`mission-store.ts:253-258`), both single-value columns with no history. `docs/conductor-target-live-measurement.md` had to reconstruct "what did the conductor do on tick N" by diffing two GET polls across a real 30s interval — proof this is currently *inferred*, not observed.
 
 ### Change shape
 
-**1. `src/services/conductor-pass.ts` — record + expose the last pass observation**
+**1. `src/services/orchestrator-live.ts`**
+- Add an exported type and a capped, in-memory per-process ring buffer next to the existing module state (near `conductorTimer`/`conductorRunning`, `orchestrator-live.ts:43-44`):
+  ```ts
+  export interface ConductorLogEntry {
+    project: string;
+    at: number;
+    ran: boolean;
+    reason: string;
+    missionId?: string;
+    modelUsed?: string;
+  }
+  const CONDUCTOR_LOG_MAX = 50;
+  const conductorLog: ConductorLogEntry[] = [];
+  ```
+- In `runConductorGuarded` (`orchestrator-live.ts:132-152`), capture the awaited result instead of discarding it, push a capped log entry, and broadcast a WS event — mirroring the existing `orchestrator_tick` heartbeat broadcast at `orchestrator-live.ts:165`:
+  ```ts
+  const result = await withPassTimeout(conductor(project), BUILD_PASS_TIMEOUT_MS, `${project}:conductor`);
+  if (result && typeof result === 'object' && 'reason' in result) {
+    const r = result as ConductorPassResult;
+    const entry: ConductorLogEntry = { project, at: Date.now(), ran: r.ran, reason: r.reason, missionId: r.missionId, modelUsed: r.modelUsed };
+    conductorLog.push(entry);
+    if (conductorLog.length > CONDUCTOR_LOG_MAX) conductorLog.shift();
+    try {
+      getWebSocketHandler()?.broadcast({ type: 'conductor_tick', ...entry });
+    } catch { /* best-effort, mirrors orchestrator_tick */ }
+  }
+  ```
+  (`deps.conductor` is typed `Promise<unknown>` in `TickDeps`, so the `'reason' in result` guard keeps test doubles that return something else from polluting the log.)
+- Add an exported reader, same style as `getOrchestratorHealth` (`orchestrator-live.ts:519-546`):
+  ```ts
+  export function getConductorLog(project?: string): ConductorLogEntry[] {
+    const rows = project ? conductorLog.filter((e) => e.project === project) : conductorLog;
+    return rows.slice().reverse(); // most-recent first
+  }
+  ```
+- Import `type { ConductorPassResult } from './conductor-pass.js'` (the file already imports `runConductorPass` from there at line 22).
 
-- Add optional `fingerprint?: string` to the `ConductorPassResult` interface (`:81-86`) so the debounce key that gated a tick is itself observable.
-- In the two branches that compute `fp`, attach it to the returned result: the debounced return (`:141`) → `{ ran: false, reason: 'debounced', missionId, fingerprint: fp }`; the final return (`:163`) → add `fingerprint: fp`.
-- Add a new exported interface `ConductorPassObservation extends ConductorPassResult { at: number }` (wall-clock ms of the pass).
-- Add a module-level `const lastConductorPassByProject = new Map<string, ConductorPassObservation>()`.
-- Add `export function getLastConductorPass(project: string): ConductorPassObservation | undefined { return lastConductorPassByProject.get(project); }`.
-- Add `export function recordConductorPass(project: string, obs: ConductorPassObservation): void { lastConductorPassByProject.set(project, obs); }` (exported so the test can assert/reset behavior directly).
-- Refactor so **every** return path is recorded: rename the current body of `runConductorPass` to an internal `async function computeConductorPass(project, deps): Promise<ConductorPassResult>` (identical body, all existing early returns untouched), and make `runConductorPass` a thin wrapper that calls it, records `recordConductorPass(project, { ...result, at: Date.now() })`, and returns `result`. Signature and every returned `ConductorPassResult` stay identical, so existing callers/tests are unaffected.
+**2. `src/websocket/handler.ts`**
+- Add one member to the `WSMessage` union, next to `orchestrator_tick` (`handler.ts:118`):
+  ```ts
+  | { type: 'conductor_tick'; project: string; at: number; ran: boolean; reason: string; missionId?: string; modelUsed?: string }
+  ```
 
-**2. `src/routes/supervisor-routes.ts` — surface it on the GET endpoint**
+**3. `src/routes/supervisor-routes.ts`**
+- Add `GET /api/supervisor/conductor/log?project=` right after the existing `GET /api/supervisor/conductor` handler (`supervisor-routes.ts:896-905`), following the same param-validation shape:
+  ```ts
+  if (url.pathname === '/api/supervisor/conductor/log' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, entries: getConductorLog(project) });
+  }
+  ```
+- Add `getConductorLog` to the existing import of conductor helpers from `'../services/orchestrator-live.js'` (or the relevant existing import line for `conductor-pass`/`orchestrator-live` symbols in that file — check current import block and extend it).
 
-- Add `import { getLastConductorPass } from '../services/conductor-pass.ts';` (match the `.ts`-extension import style used at `:35`).
-- In the `GET /api/supervisor/conductor` response object (`:900-904`), add a `lastPass: getLastConductorPass(project) ?? null` field alongside `enabled` and `targetMissionId`. A reader can now see, directly, the last tick's `reason`, `missionId`, `fingerprint`, and `at` — the realized per-tick drive, not inferred drift.
+**4. Tests — `src/services/__tests__/orchestrator-live.test.ts`**
+- Extend the existing `runConductorGuarded` describe block (test at line 157, `'runConductorGuarded runs the conductor for every WATCHED project on its own loop'`) with a new case: inject a `conductor` dep that resolves `{ ran: true, reason: 'conducted', missionId: 'abc' }`, call `runConductorGuarded`, then assert `getConductorLog(project)[0]` reflects that exact `reason`/`missionId`/`ran`. Since `conductorLog` is module-level and shared across tests in the file, assert on the head entry (`[0]`, most-recent-first) rather than array length/identity.
 
-**3. `src/services/__tests__/conductor-pass.test.ts` — named test**
-
-- Import `getLastConductorPass` from `../conductor-pass` (`:11`).
-- Add test `records the last pass observation (reason + missionId + timestamp) for each branch`: (a) run with the toggle disabled → assert `getLastConductorPass(project)` returns `{ reason: 'conductor-disabled', at: <number> }`; (b) enable + forge an approved active mission with a discover gap, run → assert the recorded observation has `reason: 'conducted'`, `missionId === forged.missionId`, and a positive `at`; (c) run again immediately (same fingerprint) → assert the recorded observation now reads `reason: 'debounced'` and carries a non-empty `fingerprint`. This proves the drive is observable across distinct branches. Mirrors the existing `okInvoke`/`forgeApprovedActive` harness at `:20-30,50-60`.
-
-### Acceptance criteria (positive, citable)
-1. `ConductorPassResult` in `src/services/conductor-pass.ts` carries a `fingerprint?: string` field, and the debounced + final returns populate it with the computed `fp`.
-2. `src/services/conductor-pass.ts` exports `getLastConductorPass(project)` returning a `ConductorPassObservation` with an `at` timestamp, and `runConductorPass` records an observation on **every** return path (via the wrapper over `computeConductorPass`).
-3. `GET /api/supervisor/conductor` in `src/routes/supervisor-routes.ts` returns a `lastPass` field sourced from `getLastConductorPass(project)`.
-4. `src/services/__tests__/conductor-pass.test.ts` contains a passing test asserting `getLastConductorPass` reflects `reason`/`missionId`/`at` across the disabled, conducted, and debounced branches.
-
-### Out of scope
-- Persisting the observation to SQLite (in-memory latest-per-project is sufficient for observability; survives no restart by design).
-- A ring/history of past passes — only the *latest* pass per project is exposed.
-- Any change to conductor scheduling, debounce, or landing logic — this is purely additive observability.
-- A dedicated MCP tool or UI surface for `lastPass` (REST GET is the observability seam this leaf adds).
+### Non-goals
+- Not persisting the log to SQLite/disk — in-memory, process-lifetime ring buffer is sufficient (mirrors `currentPhase`/`lastTickAt` in `getOrchestratorHealth`, which are also in-memory-only).
+- Not touching `conductor-pass.ts`'s `ConductorPassResult` shape or `runConductorPass` itself — it already carries everything needed; the gap is purely that the caller discards it.
+- Not building any UI surface for this (Phase 5 in `docs/autonomous-conductor.md:83` is separately tracked) — this leaf only makes the data observable via WS + REST.
 
 ```json
-{ "schemaVersion": 2, "estimatedFiles": 3, "estimatedTasks": 3,
+{ "schemaVersion": 2, "estimatedFiles": 3, "estimatedTasks": 4,
   "nonEnumerableFanout": false,
   "filesToCreate": [],
-  "filesToEdit": ["src/services/conductor-pass.ts", "src/routes/supervisor-routes.ts", "src/services/__tests__/conductor-pass.test.ts"],
+  "filesToEdit": ["src/services/orchestrator-live.ts", "src/websocket/handler.ts", "src/routes/supervisor-routes.ts", "src/services/__tests__/orchestrator-live.test.ts"],
   "tasks": [
-    { "id": "record-last-pass", "files": ["src/services/conductor-pass.ts"], "description": "Add fingerprint to ConductorPassResult, ConductorPassObservation + per-project map, getLastConductorPass/recordConductorPass, and wrap runConductorPass to record every branch" },
-    { "id": "expose-on-get", "files": ["src/routes/supervisor-routes.ts"], "description": "Add lastPass field (getLastConductorPass) to GET /api/supervisor/conductor response" },
-    { "id": "test-observability", "files": ["src/services/__tests__/conductor-pass.test.ts"], "description": "Assert getLastConductorPass reflects reason/missionId/at across disabled, conducted, debounced branches" }
+    { "id": "conductor-log-buffer", "files": ["src/services/orchestrator-live.ts"], "description": "Capture runConductorGuarded's per-project ConductorPassResult into a capped in-memory ring buffer and broadcast a conductor_tick WS event" },
+    { "id": "ws-conductor-tick-type", "files": ["src/websocket/handler.ts"], "description": "Add conductor_tick to the WSMessage union alongside orchestrator_tick" },
+    { "id": "conductor-log-route", "files": ["src/routes/supervisor-routes.ts"], "description": "Add GET /api/supervisor/conductor/log?project= returning getConductorLog(project)" },
+    { "id": "conductor-log-test", "files": ["src/services/__tests__/orchestrator-live.test.ts"], "description": "Assert getConductorLog(project) reflects an injected conductor dep's result after runConductorGuarded" }
   ],
   "leafKind": "feature",
   "requirements": [
-    { "kind": "symbol-present", "file": "src/services/conductor-pass.ts", "symbol": "getLastConductorPass", "description": "Exposes the latest realized per-tick conductor drive per project" },
-    { "kind": "symbol-present", "file": "src/services/conductor-pass.ts", "symbol": "ConductorPassObservation", "description": "Observation type = ConductorPassResult + at timestamp" },
-    { "kind": "symbol-present", "file": "src/routes/supervisor-routes.ts", "symbol": "getLastConductorPass", "description": "GET /api/supervisor/conductor surfaces lastPass so drive is observed, not inferred" },
-    { "kind": "named-test", "testFile": "src/services/__tests__/conductor-pass.test.ts", "testName": "records the last pass observation (reason + missionId + timestamp) for each branch", "mechanical": true }
+    { "kind": "symbol-present", "file": "src/services/orchestrator-live.ts", "symbol": "getConductorLog", "description": "Exported reader for the per-tick conductor decision log" },
+    { "kind": "symbol-present", "file": "src/services/orchestrator-live.ts", "symbol": "ConductorLogEntry", "description": "Typed shape of one observable per-tick conductor record" },
+    { "kind": "symbol-present", "file": "src/routes/supervisor-routes.ts", "symbol": "/api/supervisor/conductor/log", "description": "REST surface exposing the per-tick conductor log for a project" },
+    { "kind": "named-test", "testFile": "src/services/__tests__/orchestrator-live.test.ts", "testName": "runConductorGuarded runs the conductor for every WATCHED project on its own loop", "mechanical": false }
   ],
-  "outOfScope": [
-    "Persisting the observation to SQLite (in-memory latest-per-project only)",
-    "A history/ring of past passes (only latest per project)",
-    "Changes to conductor scheduling, debounce, or landing logic",
-    "A dedicated MCP tool or UI surface for lastPass"
-  ] }
+  "outOfScope": ["Persisting the log to SQLite/disk", "Building a UI view over the log", "Changing ConductorPassResult's shape or runConductorPass's behavior"] }
 ```
