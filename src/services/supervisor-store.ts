@@ -790,8 +790,9 @@ export function createEscalation(input: {
    *  condition whose inputs are unchanged stays suppressed. A key with no tuple hashes
    *  to null, so it never matches a resolved row (always re-raises). */
   conditionTuple?: string[] | null;
-  /** Human-vs-machine audience (optional; derived if absent from kind/operatorGated). */
-  audience?: 'human' | 'internal';
+  /** Required: who must act on this escalation. 'human' if a person needs to clear it,
+   *  'internal' if it's daemon/conductor self-talk nothing human-facing consumes. */
+  audience: 'human' | 'internal';
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   // Normalize the worktree cwd → tracking repo root. Under worker isolation a
@@ -850,11 +851,14 @@ export function createEscalation(input: {
   // routes everything to the human.
   const operatorGated = input.operatorGated ? 1 : 0;
   const routedTo = routeEscalation(input.kind, operatorGated === 1);
-  // Validate and compute audience: operatorGated=1 always → 'human'; else derive from kind.
-  if (input.audience != null && input.audience !== 'human' && input.audience !== 'internal') {
+  // Validate and compute audience: operatorGated=1 always overrides to 'human'.
+  if (input.audience == null) {
+    throw new Error(`createEscalation: audience is required`);
+  }
+  if (input.audience !== 'human' && input.audience !== 'internal') {
     throw new Error(`createEscalation: invalid audience "${input.audience}"`);
   }
-  const audience = operatorGated === 1 ? 'human' : (input.audience ?? deriveAudience(input.kind, false));
+  const audience = operatorGated === 1 ? 'human' : input.audience;
   d.prepare(
     'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, audience);

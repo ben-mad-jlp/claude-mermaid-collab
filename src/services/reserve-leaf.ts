@@ -182,6 +182,7 @@ export async function reserveLeaf(
       session: opts.actor,
       kind: 'poison-loop-cap',
       todoId: oldId,
+      audience: 'human',
       questionText:
         `Leaf "${old.title}" (${oldId.slice(0, 8)}) is poison-looped: rejected ≥2 times with an ` +
         `unchanged blueprint, and has already been re-served ${priorReserves} times (cap ${RESERVE_CAP}). ` +
