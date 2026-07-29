@@ -10,7 +10,6 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import {
   MISSION_LOOP_REASON_CLASS,
-  MISSION_STALLED_KIND,
   _resetMissionStallClock,
   baseReason,
   buildStallCardText,
@@ -248,7 +247,13 @@ describe('runMissionLoopPass — no silent stop', () => {
     expect(calls).toHaveLength(0);
   });
 
-  test('a STALLED reason held past the grace window → exactly ONE card; later ticks do not flood', async () => {
+  // A STALLED *reason* is now only the ENTRY condition to the raise site — it no longer
+  // raises on its own. The card requires the full stall conjunction (unmetCriteria>=1,
+  // every in-flight counter zero, a criterion escalate-blocked at servedEpicCount>=3,
+  // stableForTicks>=2); see mission-stall-raise.test.ts for the raise-side contract.
+  // These two tests hold the OTHER half: a bare stalled reason must NEVER false-positive.
+
+  test('a STALLED reason alone never cards — the conjunction is not satisfied', async () => {
     const calls: EscCall[] = [];
     const stuck = () => [summary({ ownerSession: null, assigneeSession: null })]; // → no-owner-session
     const tick = (now: number) => runMissionLoopPass(PROJECT, {
@@ -256,26 +261,24 @@ describe('runMissionLoopPass — no silent stop', () => {
       createEscalation: spyEscalation(calls),
     });
 
-    // Inside the grace window: still silent (a session blip must not card a human).
+    // Inside the grace window: silent (a session blip must not card a human).
     await tick(NOW);
     await tick(NOW + MISSION_STALL_GRACE_MS - 1);
     expect(calls).toHaveLength(0);
 
-    // Past the grace window: exactly one card.
+    // Past the grace window: the EPISODE arms (the stall clock still tracks it)…
     const r = await tick(NOW + MISSION_STALL_GRACE_MS);
-    expect(r.stalled).toEqual(['m1']);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].kind).toBe(MISSION_STALLED_KIND);
-    expect(calls[0].todoId).toBe('m1');
-    expect(calls[0].conditionKey).toBe(stallConditionKey('m1', 'no-owner-session'));
-    expect(calls[0].questionText).toContain('STALLED');
+    expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS)).toBe(true);
+    // …but no card, because this mission has no escalate-blocked criterion.
+    expect(r.stalled).toEqual([]);
+    expect(calls).toHaveLength(0);
 
-    // Ten more ticks on the same stall: no flood.
+    // Ten more ticks on the same stall: still silent, no flood.
     for (let i = 1; i <= 10; i++) await tick(NOW + MISSION_STALL_GRACE_MS + i * 60_000);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(0);
   });
 
-  test('recovery then a NEW stall episode re-arms the card', async () => {
+  test('recovery then a NEW stall episode re-arms the episode clock (still no card)', async () => {
     const calls: EscCall[] = [];
     let owner: string | null = null;
     const tick = (now: number) => runMissionLoopPass(PROJECT, {
@@ -285,20 +288,23 @@ describe('runMissionLoopPass — no silent stop', () => {
     });
     await tick(NOW);
     await tick(NOW + MISSION_STALL_GRACE_MS);
-    expect(calls).toHaveLength(1);
+    expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS)).toBe(true);
 
     // The mission gets an owner and is nudged → the episode ends.
     owner = 'design';
     await tick(NOW + MISSION_STALL_GRACE_MS + 60_000);
     expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS + 60_000)).toBe(false);
 
-    // It loses the owner again → a fresh episode, a fresh card after a fresh grace window.
+    // It loses the owner again → a fresh episode after a fresh grace window.
     owner = null;
     const t2 = NOW + MISSION_STALL_GRACE_MS + 120_000;
     await tick(t2);
-    expect(calls).toHaveLength(1); // still inside the new grace window
+    expect(isMissionStalled(PROJECT, 'm1', t2)).toBe(false); // inside the new grace window
     await tick(t2 + MISSION_STALL_GRACE_MS);
-    expect(calls).toHaveLength(2);
+    expect(isMissionStalled(PROJECT, 'm1', t2 + MISSION_STALL_GRACE_MS)).toBe(true);
+
+    // Throughout: a bare stalled reason never cards a human.
+    expect(calls).toHaveLength(0);
   });
 
   test('FAIL OPEN: a throwing card path still completes the tick', async () => {

@@ -120,6 +120,7 @@ describe('landEpic stage ordering — driven against real seeded todos', () => {
 
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'test-session',
       kind: 'epic-ready-to-land',
       todoId: child.id,

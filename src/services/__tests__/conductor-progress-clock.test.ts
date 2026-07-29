@@ -149,6 +149,7 @@ describe('conductor progress clock — incident replays', () => {
     });
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 's1',
       kind: 'blocker',
       todoId: forged.missionId,

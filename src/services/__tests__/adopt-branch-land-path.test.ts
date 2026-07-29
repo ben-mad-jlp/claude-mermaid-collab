@@ -110,6 +110,7 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
     const adopted = await adoptBranchAsEpic(project, 'test-session', { source: 'scratch', title: 'green land' });
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'test-session',
       kind: 'epic-ready-to-land',
       todoId: adopted.leafId,
@@ -146,6 +147,7 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
     execFileSync('git', ['checkout', 'master'], { cwd: project });
     const adoptedA = await adoptBranchAsEpic(project, 'test-session', { source: 'scratch-a', title: 'mutex land a' });
     const { escalation: escA } = createEscalation({
+      audience: 'internal',
       project, session: 'test-session', kind: 'epic-ready-to-land', todoId: adoptedA.leafId, questionText: `ready:${adoptedA.leafId}`,
     });
 
@@ -154,6 +156,7 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
     execFileSync('git', ['checkout', 'master'], { cwd: project });
     const adoptedB = await adoptBranchAsEpic(project, 'test-session', { source: 'scratch-b', title: 'mutex land b' });
     const { escalation: escB } = createEscalation({
+      audience: 'internal',
       project, session: 'test-session', kind: 'epic-ready-to-land', todoId: adoptedB.leafId, questionText: `ready:${adoptedB.leafId}`,
     });
 
@@ -199,6 +202,7 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
 
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'test-session',
       kind: 'epic-ready-to-land',
       todoId: adopted.leafId,
@@ -230,6 +234,7 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
     const adopted = await adoptBranchAsEpic(project, 'test-session', { source: 'scratch', title: 'red land' });
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'test-session',
       kind: 'epic-ready-to-land',
       todoId: adopted.leafId,

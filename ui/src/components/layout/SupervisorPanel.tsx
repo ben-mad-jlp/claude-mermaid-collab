@@ -37,6 +37,7 @@ import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboardi
 import { SessionCleanup } from '@/components/supervisor/SessionCleanup';
 import { useUIStore } from '@/stores/uiStore';
 import { selectEscalationKindCounts } from '@/lib/statusSelectors';
+import { isScopeRed } from '@/lib/humanRedDerivation';
 import { AddProjectDialog } from '@/components/dialogs';
 import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
 import { useFleetStatus, useFleetStatusByProject, fleetKey, fleetStateToStatus } from '@/hooks/useFleetStatus';
@@ -100,15 +101,15 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
 export function resolveDaemonStatus(args: {
   inProgress: number;
   hasHeadlessInflight: boolean;
-  blockerCount: number;
+  isRed: boolean;
   isConducting: boolean;
   idleWithWork: boolean;
   combined: SessionCardData['status'];
 }): SessionCardData['status'] {
-  const { inProgress, hasHeadlessInflight, blockerCount, isConducting, idleWithWork, combined } = args;
+  const { inProgress, hasHeadlessInflight, isRed, isConducting, idleWithWork, combined } = args;
   return inProgress > 0 || hasHeadlessInflight
     ? 'active'
-    : blockerCount > 0
+    : isRed
       ? 'permission'
       : isConducting
         ? 'conducting'
@@ -439,6 +440,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     return Array.from(rows.values())
       .map(({ serverId, project }) => {
         const esc = selectEscalationKindCounts(openEscalations, { kind: 'project', project }, { ownedTodoIds });
+        const humanRedCount = isScopeRed(openEscalations, { kind: 'project', project }) ? 1 : 0;
         return {
           serverId,
           project,
@@ -447,6 +449,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           // 'paused on a human' items (red) vs the positive 'ready to land' prompt (download glyph).
           blockerCount: esc.blockers,
           landReadyCount: esc.landReady,
+          humanRedCount,
         };
       })
       .sort((a, b) => {
@@ -690,7 +693,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No projects yet — add one below
             </div>
           ) : (
-            orderedProjects.map(({ serverId: rowServerId, project, sessions: projSessions, escalationCount, blockerCount, landReadyCount }, i) => {
+            orderedProjects.map(({ serverId: rowServerId, project, sessions: projSessions, escalationCount, blockerCount, landReadyCount, humanRedCount }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
@@ -736,7 +739,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const daemonStatus: SessionCardData['status'] = resolveDaemonStatus({
                 inProgress: stats.inProgress,
                 hasHeadlessInflight,
-                blockerCount,
+                isRed: humanRedCount > 0,
                 isConducting,
                 idleWithWork: stats.idleWithWork,
                 combined,

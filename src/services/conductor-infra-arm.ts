@@ -117,6 +117,13 @@ export function infraRejectedConditionKey(leafId: string, cause: InfraCause): st
   return `${INFRA_REJECTED_KIND}:${leafId.slice(0, 8)}:${cause}`;
 }
 
+/** The store's durable identity for the ONE project-wide base-red card: shared by every
+ *  leaf/epic whose cause is 'epic-base-red' or 'epic-base-gate-could-not-run' this pass, so a
+ *  base-wide outage never fans out into one card per stuck leaf. */
+export function baseRedProjectConditionKey(project: string): string {
+  return `epic-base-red:${project}`;
+}
+
 /** 'pass' is the ONLY verdict that un-parks a leaf. 'unknown' = we could not even run the
  *  probe (no gate declared, non-git, a throw) — never a fabricated green. */
 export type BaseProbeVerdict = 'pass' | 'fail' | 'error' | 'unknown';
@@ -272,6 +279,9 @@ export async function runInfraRejectionArm(
   /** Recorded at most once per epic per pass, whatever the verdict — recording only on green
    *  would leave a red base probing every beat, i.e. the burn unfixed. */
   const recordedEpics = new Set<string>();
+  /** Base-red / gate-could-not-run candidates that stay stuck this pass, accumulated for the
+   *  single post-loop coalesced card instead of one card per candidate. */
+  const baseRedCandidates: Array<InfraCandidate & { verdict: BaseProbeVerdict }> = [];
 
   for (const c of candidates) {
     try {
@@ -317,26 +327,31 @@ export async function runInfraRejectionArm(
         continue;
       }
 
-      const marker = infraRejectedMarker(c.leafId);
-      const res = createEsc({
-        project,
-        session,
-        kind: INFRA_REJECTED_KIND,
-        todoId: c.leafId,
-        operatorGated: true,
-        conditionKey: infraRejectedConditionKey(c.leafId, c.cause),
-        conditionTuple: [INFRA_REJECTED_KIND, c.leafId.slice(0, 8), c.cause],
-        questionText:
-          `Leaf ${c.leafId.slice(0, 8)} ${marker} is parked on an INFRASTRUCTURE failure ` +
-          `(${c.cause}), not on its content — nothing about its spec or diff is wrong.\n` +
-          `epic branch: ${epicBranchName(c.epicId)}\n` +
-          `re-probe verdict: ${verdict} — the precondition is still not provably green, so the ` +
-          `leaf was NOT un-parked.\n` +
-          `original reason:\n${c.reason.slice(0, 2000)}\n` +
-          `Repair the base on that branch (or re-home the leaf) and commit; the next conductor ` +
-          `pass re-probes and releases the leaf automatically.`,
-      });
-      if (res && res.isNew) result.cardsRaised++;
+      if (c.cause === 'mis-homed-target') {
+        const marker = infraRejectedMarker(c.leafId);
+        const res = createEsc({
+          project,
+          session,
+          kind: INFRA_REJECTED_KIND,
+          todoId: c.leafId,
+          operatorGated: true,
+          audience: 'human',
+          conditionKey: infraRejectedConditionKey(c.leafId, c.cause),
+          conditionTuple: [INFRA_REJECTED_KIND, c.leafId.slice(0, 8), c.cause],
+          questionText:
+            `Leaf ${c.leafId.slice(0, 8)} ${marker} is parked on an INFRASTRUCTURE failure ` +
+            `(${c.cause}), not on its content — nothing about its spec or diff is wrong.\n` +
+            `epic branch: ${epicBranchName(c.epicId)}\n` +
+            `re-probe verdict: ${verdict} — the precondition is still not provably green, so the ` +
+            `leaf was NOT un-parked.\n` +
+            `original reason:\n${c.reason.slice(0, 2000)}\n` +
+            `Repair the base on that branch (or re-home the leaf) and commit; the next conductor ` +
+            `pass re-probes and releases the leaf automatically.`,
+        });
+        if (res && res.isNew) result.cardsRaised++;
+      } else {
+        baseRedCandidates.push({ ...c, verdict });
+      }
 
       // Base-repair epic: raised only when a known lane stays red (verdict !== 'pass')
       // and the cause is actually infrastructure (not mis-homed).
@@ -367,5 +382,32 @@ export async function runInfraRejectionArm(
       // fail-open per candidate — one bad probe/card must not sink the pass.
     }
   }
+
+  if (baseRedCandidates.length > 0) {
+    try {
+      const leafIds = baseRedCandidates.map((c) => c.leafId);
+      const epicIds = [...new Set(baseRedCandidates.map((c) => c.epicId))];
+      const res = createEsc({
+        project,
+        session,
+        kind: INFRA_REJECTED_KIND,
+        todoId: null,
+        operatorGated: true,
+        audience: 'human',
+        conditionKey: baseRedProjectConditionKey(project),
+        conditionTuple: [INFRA_REJECTED_KIND, 'project-base-red', project],
+        questionText:
+          `Project ${project} has ${baseRedCandidates.length} leaf(s) across ${epicIds.length} ` +
+          `epic(s) parked on a project-wide INFRASTRUCTURE base-red, not on content.\n` +
+          `leaves: ${leafIds.map((id) => id.slice(0, 8)).join(', ')}\n` +
+          `Repair the base and commit; the next conductor pass re-probes and releases the leaves ` +
+          `automatically.`,
+      });
+      if (res && res.isNew) result.cardsRaised++;
+    } catch {
+      // fail-open — a card-store hiccup on the coalesced call must not sink the pass.
+    }
+  }
+
   return result;
 }

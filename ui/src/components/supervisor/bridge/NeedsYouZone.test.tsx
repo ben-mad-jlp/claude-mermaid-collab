@@ -49,20 +49,22 @@ describe('NeedsYouZone', () => {
     expect(screen.queryByTestId('bridge-escalation-inbox')).toBeNull();
   });
 
-  it('shows machine-items-handled count for mixed-kind escalations', () => {
+  it('shows machine-items-handled count, split by server audience (not by kind)', () => {
     const escalations = [
       esc({ id: 'e1', project: 'P', status: 'open', kind: 'decision', questionText: 'deploy?' }),
       esc({ id: 'e2', project: 'P', status: 'open', kind: 'blocker', questionText: 'fix leak?' }),
-      esc({ id: 'e3', project: 'P', status: 'open', kind: 'epic-sweep-triage' }),
-      esc({ id: 'e4', project: 'P', status: 'open', kind: 'infra-park' }),
-      esc({ id: 'e5', project: 'P', status: 'open', kind: 'leaf-infra-rejected' }),
+      esc({ id: 'e3', project: 'P', status: 'open', kind: 'epic-sweep-triage', audience: 'internal' }),
+      esc({ id: 'e4', project: 'P', status: 'open', kind: 'infra-park', audience: 'internal' }),
+      // operatorGated base-red wedge card: human-audience, so it stays visible.
+      esc({ id: 'e5', project: 'P', status: 'open', kind: 'leaf-infra-rejected', questionText: 'base red?' }),
     ];
     render(<NeedsYouZone escalations={escalations} project="P" serverScope="local" embedded />);
     const zone = screen.getByTestId('needs-you-zone');
-    expect(zone.getAttribute('data-needs-you')).toBe('2');
+    expect(zone.getAttribute('data-needs-you')).toBe('3');
     expect(screen.getByText('deploy?')).toBeInTheDocument();
     expect(screen.getByText('fix leak?')).toBeInTheDocument();
-    expect(screen.getByTestId('machine-items-handled')).toHaveTextContent('3 machine items handled');
+    expect(screen.getByText('base red?')).toBeInTheDocument();
+    expect(screen.getByTestId('machine-items-handled')).toHaveTextContent('2 machine items handled');
   });
 
   it('hides machine-items-handled when count is zero', () => {

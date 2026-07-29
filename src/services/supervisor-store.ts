@@ -121,13 +121,16 @@ export interface Escalation {
    *  closed catalog; null when absent or invalid. The options[] / legacy card
    *  remains the fallback, so this never affects answerability. */
   ui: JsonRenderSpec | null;
-  /** Server-routed destination decided at create-time by `routeOf` (design §3):
-   *  'human' or 'steward'. Defaults 'human' (and is forced 'human' while
-   *  MERMAID_STEWARD_AUTO is OFF). */
-  routedTo: string;
+  /** LEGACY/READ-ONLY: historical steward-routing destination. No create/update path
+   *  writes this anymore — `audience` is the sole visibility decision. Present only
+   *  when `mapEscalationRow` surfaces it off an old row. */
+  routedTo?: string;
   /** 1 when this escalation gates an irreversible/outward action — a hard server
    *  floor that always routes to the human, never the steward. */
   operatorGated: number;
+  /** Human-vs-machine audience for the escalation UI, derived from kind/operatorGated at
+   *  create-time: 'human' for human-actionable escalations, 'internal' for machine-hygiene. */
+  audience: 'human' | 'internal';
   /** Deterministic, server-re-validated proof string cited on a steward
    *  resolution (Phase 2). Null until resolved by the steward. */
   proof: string | null;
@@ -181,7 +184,6 @@ export const ESCALATION_KINDS = [
 export type EscalationKind = typeof ESCALATION_KINDS[number];
 
 /** Where an escalation is routed at create-time (design §3). */
-export type EscalationRoute = 'human' | 'steward';
 
 /** A human's answer to a (structured) escalation, posted via the decide endpoint
  *  and polled by the await_human_decision MCP tool. Keyed 1:1 by escalationId. */
@@ -237,7 +239,8 @@ CREATE TABLE IF NOT EXISTS escalation (
   suggestedActionJson TEXT,
   briefingMd TEXT,
   briefingModel TEXT,
-  briefingAt INTEGER
+  briefingAt INTEGER,
+  audience TEXT DEFAULT 'human'
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -342,6 +345,11 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'operatorGated', 'operatorGated INTEGER DEFAULT 0');
   addColumnIfMissing(db, 'escalation', 'proof', 'proof TEXT');
   addColumnIfMissing(db, 'escalation', 'stewardAttempts', 'stewardAttempts INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'escalation', 'audience', "audience TEXT");
+  // One-shot backfill: derive audience for existing rows where the column was just added
+  // (new rows already get DEFAULT 'human'; only pre-migration rows need derivation).
+  db.exec(`UPDATE escalation SET audience = 'human' WHERE audience IS NULL AND (operatorGated = 1 OR kind NOT IN ('epic-sweep-triage','infra-park','leaf-infra-rejected','split-proposal','base-moved'))`);
+  db.exec(`UPDATE escalation SET audience = 'internal' WHERE audience IS NULL`);
   // Orch P2: inline Grok-suggested action (level `propose`). Additive, DEFAULT null
   // so existing open escalations carry no suggestion (no behavioural change).
   addColumnIfMissing(db, 'escalation', 'suggestedActionJson', 'suggestedActionJson TEXT');
@@ -516,6 +524,10 @@ export interface ConductorLastPass {
   missionId: string | null;
   reason: ConductorPassReason;
   tickAt: number;
+  /** Short (<=60 char) human status for this pass (what it DID), derived from reason + counts and
+   *  set at the end of each pass, so the Bridge readout shows WHY, not just when. Persisted in the
+   *  same JSON blob — no schema change. */
+  status?: string;
 }
 
 /** Per-project OBSERVABLE outcome of the last runConductorPass tick — which mission (if any) it
@@ -700,6 +712,7 @@ function mapEscalationRow(row: EscalationRow): Escalation {
     conditionHash: row.conditionHash ?? null,
     lastSeenAt: row.lastSeenAt ?? null,
     recurrenceCount: row.recurrenceCount ?? 0,
+    audience: (row.audience as 'human' | 'internal' | null) ?? 'human',
   };
 }
 
@@ -742,11 +755,13 @@ export function shouldAutoGate(kind: string, operatorGated: boolean): boolean {
 }
 
 /**
- * Create-time routing: EVERY escalation goes to the human. The AI steward that
- * once triaged/auto-answered a subset has been removed — a human, the conductor
- * node, or an explicit MCP call resolves escalations now.
+ * Derive the human-vs-machine audience for an escalation at create-time. operatorGated
+ * always wins (→ 'human'); otherwise, certain hygiene kinds default to 'internal';
+ * everything else is 'human'.
  */
-export function routeEscalation(_kind: string, _operatorGated: boolean, _now: number = Date.now()): EscalationRoute {
+export function deriveAudience(kind: string, operatorGated: boolean): 'human' | 'internal' {
+  if (operatorGated) return 'human';
+  if (['epic-sweep-triage', 'infra-park', 'leaf-infra-rejected', 'split-proposal', 'base-moved'].includes(kind)) return 'internal';
   return 'human';
 }
 
@@ -769,6 +784,9 @@ export function createEscalation(input: {
    *  condition whose inputs are unchanged stays suppressed. A key with no tuple hashes
    *  to null, so it never matches a resolved row (always re-raises). */
   conditionTuple?: string[] | null;
+  /** Required: who must act on this escalation. 'human' if a person needs to clear it,
+   *  'internal' if it's daemon/conductor self-talk nothing human-facing consumes. */
+  audience: 'human' | 'internal';
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   // Normalize the worktree cwd → tracking repo root. Under worker isolation a
@@ -822,14 +840,18 @@ export function createEscalation(input: {
   // terminal-action required, ≤40 elements). Invalid → dropped to null.
   const ui = validateUiSpec(input.ui);
   const uiJson = ui ? JSON.stringify(ui) : null;
-  // Deterministic server-side routing at create-time (design §3) WITH the
-  // pause/liveness fail-open overlay (§4/§5): a paused or stale/dead steward
-  // routes everything to the human.
   const operatorGated = input.operatorGated ? 1 : 0;
-  const routedTo = routeEscalation(input.kind, operatorGated === 1);
+  // Validate and compute audience: operatorGated=1 always overrides to 'human'.
+  if (input.audience == null) {
+    throw new Error(`createEscalation: audience is required`);
+  }
+  if (input.audience !== 'human' && input.audience !== 'internal') {
+    throw new Error(`createEscalation: invalid audience "${input.audience}"`);
+  }
+  const audience = operatorGated === 1 ? 'human' : input.audience;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, audience);
   return {
     escalation: {
       id,
@@ -845,8 +867,8 @@ export function createEscalation(input: {
       options,
       recommended,
       ui,
-      routedTo,
       operatorGated,
+      audience,
       proof: null,
       stewardAttempts: 0,
       suggestedAction: null,
@@ -1010,36 +1032,18 @@ export function reopenEscalation(id: string): Escalation | null {
 }
 
 /**
- * Re-route an open escalation (the steward proof gate flips routedTo='human' when
- * an auto-act lacks valid proof — design §3 "No-proof → flip routedTo='human'").
- * Records the proof string that was cited (for the loud audit panel) when given.
- */
-export function setEscalationRoute(id: string, routedTo: string, proof?: string | null): void {
-  const fullId = resolveFullEscalationId(id);
-  const d = openDb();
-  let info;
-  if (proof !== undefined) {
-    info = d.prepare('UPDATE escalation SET routedTo = ?, proof = ? WHERE id = ?').run(routedTo, proof, fullId);
-  } else {
-    info = d.prepare('UPDATE escalation SET routedTo = ? WHERE id = ?').run(routedTo, fullId);
-  }
-  if (info.changes === 0) throw new Error(`escalation route set matched no row: ${id}`);
-}
-
-/**
  * Operator-gate ('only you') an escalation — the human marking it as theirs alone.
- * Sets/clears the operatorGated column. When SETTING it, force routedTo='human'
- * (the irreversible/outward floor — operator-gated never routes to the steward),
- * matching routeOf()'s create-time invariant. Clearing leaves routedTo untouched
- * (a later re-route is the steward proof gate's job, not an un-mark's). Idempotent;
- * returns the updated escalation (mapped) for broadcast, or null if id is unknown.
+ * Sets/clears the operatorGated column. When SETTING it, forces audience='human'
+ * (the irreversible/outward floor — operator-gated is always human-visible).
+ * Idempotent; returns the updated escalation (mapped) for broadcast, or null if
+ * id is unknown.
  */
 export function setEscalationOperatorGated(id: string, operatorGated: boolean): Escalation | null {
   const fullId = resolveFullEscalationId(id);
   const d = openDb();
   let info;
   if (operatorGated) {
-    info = d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human' WHERE id = ?").run(fullId);
+    info = d.prepare("UPDATE escalation SET operatorGated = 1, audience = 'human' WHERE id = ?").run(fullId);
   } else {
     info = d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(fullId);
   }
