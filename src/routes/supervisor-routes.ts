@@ -24,7 +24,6 @@ import {
   setContextRecycleMode,
   CONTEXT_RECYCLE_MODES,
   type ContextRecycleMode,
-  setEscalationRoute,
   setEscalationOperatorGated,
   setProjectDigestEnabled,
   setPromptInjectRetryContext,
@@ -570,7 +569,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
-        id, routedTo: esc?.routedTo ?? 'human', escalation: getEscalation(id),
+        id, escalation: getEscalation(id),
       });
       return Response.json({ ok: true });
     } catch (err) {
@@ -592,7 +591,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
-        id, routedTo: updated.routedTo, escalation: updated,
+        id, escalation: updated,
       });
       return Response.json({ ok: true });
     } catch (err) {
@@ -601,9 +600,10 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   // POST /api/supervisor/escalations/mark — the Z9 operator "only you" pin. Forces the
-  // escalation onto the human floor (deterministic outranking) via setEscalationRoute,
-  // then re-broadcasts the full row (escalation_created upsert convention) so every
-  // client re-sorts. Pass operatorGated:false to clear the operator pin.
+  // escalation onto the human floor (audience='human', deterministic outranking) via
+  // setEscalationOperatorGated, then re-broadcasts the full row (escalation_created
+  // upsert convention) so every client re-sorts. Pass operatorGated:false to clear
+  // the operator pin.
   if (url.pathname === '/api/supervisor/escalations/mark' && req.method === 'POST') {
     try {
       const { id, operatorGated } = (await req.json()) as { id?: string; operatorGated?: boolean };
@@ -611,12 +611,12 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const esc = getEscalation(id);
       if (!esc) return jsonError(`escalation not found: ${id}`, 404);
       const pin = operatorGated !== false; // default mark=on
-      setEscalationRoute(id, 'human', pin ? 'operator-marked: only you' : null);
+      setEscalationOperatorGated(id, pin);
       const updated = getEscalation(id);
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc.project, session: esc.session, kind: esc.kind, id,
-        routedTo: updated?.routedTo ?? 'human', escalation: updated,
+        escalation: updated,
       });
       return Response.json({ escalation: updated });
     } catch (err) {
@@ -827,7 +827,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   // POST /api/supervisor/escalation/:id/operator-gate — operator-gated "only you" mark.
-  // body {on}: setEscalationOperatorGated flips operatorGated AND forces routedTo='human'
+  // body {on}: setEscalationOperatorGated flips operatorGated AND forces audience='human'
   // (deterministic outranking). Broadcasts escalation_created full-row for peer re-sort.
   {
     const gateMatch = url.pathname.match(/^\/api\/supervisor\/escalation\/([^/]+)\/operator-gate$/);
@@ -842,7 +842,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
           getWebSocketHandler()?.broadcast({
             type: 'escalation_created',
             project: updated.project, session: updated.session, kind: updated.kind,
-            id: updated.id, routedTo: updated.routedTo, escalation: updated,
+            id: updated.id, escalation: updated,
           });
         }
         return Response.json({ ok: true, escalation: updated });
@@ -917,7 +917,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc.project, session: esc.session, kind: esc.kind, id,
-        routedTo: esc.routedTo ?? 'human', escalation: getEscalation(id),
+        escalation: getEscalation(id),
       });
       return Response.json({ ok: true });
     } catch (err) {

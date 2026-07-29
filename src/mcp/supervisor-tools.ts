@@ -185,7 +185,7 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             const coercedOptions = coerceArrayArg(options, 'options') as Array<{ id: string; label: string; detail?: string }> | undefined;
             const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, audience, todoId, options: coercedOptions, recommended, ui, operatorGated });
             if (isNew) {
-              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo, escalation: esc });
+              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, escalation: esc });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
               // P3 (readiness ergonomics): a needs-design / operator-gated escalation
               // linked to a work-todo gets a durable, self-clearing human [GATE] (P1
