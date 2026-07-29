@@ -117,11 +117,6 @@ export interface Escalation {
   // catalog). Carried opaquely here; the focal DecisionCard re-validates it via
   // focal/catalog.parseUiSpec before rendering. Absent/null for plain decisions.
   ui?: unknown;
-  // Steward routing (Steward P3): server-decided destination at create-time
-  // ('human' | 'steward'). When 'steward', the steward triaged it and routed it
-  // on to the human — the provenance tag distinguishes triaged-and-deferred from
-  // never-seen. Absent on payloads written before the field existed → 'human'.
-  routedTo?: string;
   /** Server-stamped operator-gate flag (irreversible/outward action). Arrives as
    *  0|1 from mapEscalationRow's column spread; truthy = a hard human floor that
    *  MUST outrank routine approvals in the Zen triage stack (Z3/Z4). */
