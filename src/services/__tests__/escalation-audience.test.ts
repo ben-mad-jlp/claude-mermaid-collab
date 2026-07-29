@@ -66,11 +66,9 @@ describe('escalation-audience', () => {
   it('DB-level backfill derives audience for existing rows missing the column', () => {
     const db = new Database(join(testDir, 'supervisor.db'));
     try {
-      // Pre-migration schema shape: the audience column already exists (so
-      // addColumnIfMissing's ALTER — which would DEFAULT-fill existing rows to
-      // 'human' and short-circuit the backfill — is a no-op) but every row is
-      // still NULL, giving the backfill UPDATEs at supervisor-store.ts:351-352
-      // real work to do.
+      // Pre-migration schema shape: audience column does NOT exist (the real production scenario).
+      // When openDb() runs addColumnIfMissing with no DEFAULT, pre-existing rows will land NULL,
+      // giving the backfill UPDATEs at supervisor-store.ts:351-352 real work to do.
       db.exec(`
         CREATE TABLE IF NOT EXISTS escalation (
           id TEXT PRIMARY KEY,
@@ -99,25 +97,23 @@ describe('escalation-audience', () => {
           conditionKey TEXT,
           conditionHash TEXT,
           lastSeenAt INTEGER,
-          recurrenceCount INTEGER DEFAULT 0,
-          audience TEXT
+          recurrenceCount INTEGER DEFAULT 0
         )
       `);
       const insert = db.prepare(
         `INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, serverId, operatorGated)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      insert.run('backfill-human-gated', 'test-proj', 'test-sess', 'question', 'test q', 'open', Date.now(), '', 1);
-      insert.run('backfill-internal-hygiene', 'test-proj', 'test-sess', 'infra-park', 'test q', 'open', Date.now(), '', 0);
-      insert.run('backfill-human-other', 'test-proj', 'test-sess', 'question', 'test q', 'open', Date.now(), '', 0);
+      insert.run('legacy-hygiene', 'test-proj', 'test-sess', 'epic-sweep-triage', 'test q', 'open', Date.now(), '', 0);
+      insert.run('legacy-non-hygiene', 'test-proj', 'test-sess', 'decision', 'test q', 'open', Date.now(), '', 0);
     } finally {
       db.close();
     }
 
-    // First getEscalation call triggers openDb()'s migration+backfill for this file.
-    expect(getEscalation('backfill-human-gated')!.audience).toBe('human');
-    expect(getEscalation('backfill-internal-hygiene')!.audience).toBe('internal');
-    expect(getEscalation('backfill-human-other')!.audience).toBe('human');
+    // First getEscalation call triggers openDb()'s production migration+backfill for this DB.
+    // The hygiene-kind row should derive audience='internal'; the non-hygiene row should derive 'human'.
+    expect(getEscalation('legacy-hygiene')!.audience).toBe('internal');
+    expect(getEscalation('legacy-non-hygiene')!.audience).toBe('human');
   });
 
   it('createEscalation: operatorGated override wins over audience input', () => {
