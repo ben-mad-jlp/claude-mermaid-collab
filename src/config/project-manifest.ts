@@ -88,11 +88,19 @@ export interface ProjectManifest {
    *  the generic `gateCommand` (today's behavior — no change for projects that
    *  don't declare it). Include `tsc --noEmit` in the command if you want it. */
   frontendGateCommand?: string;
-  /** Known pre-existing test failures on the epic/main baseline (e.g. flaky or
-   *  long-red tests like `ws_bridge.query`). Each entry is a substring matched
-   *  against the FE suite's failing-test descriptors; a failure matching ANY entry
-   *  is treated as a pre-existing baseline red, not a regression this leaf caused.
-   *  Only failures matching NONE of these (net-new) reject the leaf. */
+  /** DEPRECATED — SEED ONLY. Known pre-existing test failures on the epic/main
+   *  baseline (e.g. flaky or long-red tests like `ws_bridge.query`). This array is
+   *  no longer the baseline the gate judges against: `gate-runner.ts`
+   *  `frontendSuiteGatePlugin.run` consults it ONCE per gate run to seed the
+   *  project's quarantine store (`seedManifestBaseline`, as `seededFrom:'manifest'`
+   *  records), then judges failures against the store instead. The authoritative
+   *  baseline is `flaky-quarantine.ts` `activeQuarantine(project)` — TTL-expiring
+   *  records in `test_quarantine`. Each entry is still a substring matched against
+   *  the FE suite's failing-test descriptors; only failures matching NONE of the
+   *  ACTIVE quarantine entries (net-new) reject the leaf. New entries should NOT be
+   *  added here — use the runtime quarantine mechanism (flaky-test auto-detection,
+   *  or a direct `test_quarantine` write via `upsertQuarantine`). The manifest array
+   *  may be deleted once its entries have been seeded. */
   frontendBaselineFailures?: string[];
   /** Acceptance-gate command for FRONTEND/UI leaves that runs ONLY the leaf's OWN
    *  change-set spec files (added/modified `*.test.*` / `*.spec.*`), so a leaf can
