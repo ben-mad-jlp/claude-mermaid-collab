@@ -1,10 +1,11 @@
 /**
  * FleetGraphDangerRing test:
  *
- * When selectHumanActionableEscalations filters out machine-hygiene kinds
- * (like 'epic-sweep-triage'), only the human-actionable escalations should
- * produce danger nodes in the FleetGraph. This proves the danger ring is
- * wired to the same selector as the badge/NeedsYouZone.
+ * When selectHumanActionableEscalations filters out internal-audience cards,
+ * only the human-actionable escalations should produce danger nodes in the
+ * FleetGraph. This proves the danger ring is wired to the same selector as the
+ * badge/NeedsYouZone — and that the split is driven by the server-authoritative
+ * `audience` field, not by a client-side hardcoded list of hygiene kinds.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -59,16 +60,23 @@ describe('FleetGraphDangerRing', () => {
       todo({ id: 'T2', claimedBy: 'worker-hygiene', status: 'in_progress' }),
     ];
 
-    // Two escalations: one human-actionable, one machine-hygiene
+    // Two escalations: one human-audience, one internal-audience
     const allEscalations = [
       esc({ id: 'e1', project: 'P', session: 'worker-decision', kind: 'decision', status: 'open' }),
-      esc({ id: 'e2', project: 'P', session: 'worker-hygiene', kind: 'epic-sweep-triage', status: 'open' }),
+      esc({
+        id: 'e2',
+        project: 'P',
+        session: 'worker-hygiene',
+        kind: 'epic-sweep-triage',
+        status: 'open',
+        audience: 'internal',
+      }),
     ];
 
     // Filter through selectHumanActionableEscalations
     const humanActionable = selectHumanActionableEscalations(allEscalations, { kind: 'project', project: 'P' });
 
-    // Verify the filter worked: epic-sweep-triage should be excluded
+    // Verify the filter worked: the internal-audience card should be excluded
     expect(humanActionable).toHaveLength(1);
     expect(humanActionable[0].kind).toBe('decision');
 
