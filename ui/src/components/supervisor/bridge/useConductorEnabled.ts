@@ -29,6 +29,8 @@ export interface ConductorLastPass {
   missionId?: string | null;
   reason?: string | null;
   tickAt?: number | null;
+  /** Short human status line for the pass (what it did), set server-side at the end of each pass. */
+  status?: string | null;
 }
 
 export interface UseConductorEnabledResult {
