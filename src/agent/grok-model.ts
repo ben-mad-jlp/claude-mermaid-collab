@@ -15,15 +15,18 @@ export const GROK_NODE_KINDS = [
 
 export type GrokNodeKind = (typeof GROK_NODE_KINDS)[number];
 
-const REASONING_KINDS = new Set<GrokNodeKind>(['blueprint', 'review', 'driveplan']);
-
-/** UI / config value → `grok -m` CLI id. The real CLI model id is `grok-build` (verified
- *  via `grok models`); the parent design's assumed `grok-build-0.1` is REJECTED by the CLI
- *  as "unknown model id" — kept here only as a legacy alias mapping to the real id. */
+/** UI / config value → `grok -m` CLI id. As of grok CLI v0.2.93 the whole prior lineup
+ *  (`grok-build`, `grok-composer-2.5-fast`, `grok-build-0.1`) was retired from the CLI; `grok
+ *  models` now serves a single id, `grok-4.5`, which the CLI runs in build/agentic-coding mode
+ *  (telemetry reports it as `grok-4.5-build`). Every legacy slug is aliased onto it so a stored
+ *  override row from the old lineup keeps resolving to a live CLI id. (grok-build-0.1 still
+ *  exists on the api.x.ai developer platform — see xai-api-invoker.ts — but the CLI rejects it.) */
 export const GROK_MODEL_ALIASES: Record<string, string> = {
-  'grok-build': 'grok-build',
-  'grok-build-0.1': 'grok-build', // legacy alias → real CLI id
-  'grok-composer-2.5-fast': 'grok-composer-2.5-fast',
+  'grok-4.5': 'grok-4.5',
+  'grok-build': 'grok-4.5', // legacy → live CLI id
+  'grok-build-0.1': 'grok-4.5', // legacy CLI slug → live CLI id
+  'grok-composer-2.5-fast': 'grok-4.5', // retired → live CLI id
+  'composer-2.5': 'grok-4.5', // retired → live CLI id
 };
 
 const CLAUDE_ALIASES = new Set(['opus', 'sonnet', 'haiku']);
@@ -36,9 +39,10 @@ export function parseKindFromTranscriptLabel(label?: string): GrokNodeKind | und
   return kind as GrokNodeKind;
 }
 
-export function kindDefaultGrokModel(kind?: GrokNodeKind): string {
-  if (kind && REASONING_KINDS.has(kind)) return 'grok-build';
-  return 'grok-composer-2.5-fast';
+export function kindDefaultGrokModel(_kind?: GrokNodeKind): string {
+  // The grok CLI exposes exactly one model now (`grok-4.5`, run in build mode); every kind
+  // resolves to it. The kind arg is retained for signature stability + a future re-split.
+  return 'grok-4.5';
 }
 
 /**

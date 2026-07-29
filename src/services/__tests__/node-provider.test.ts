@@ -52,15 +52,15 @@ describe('resolveNodeProvider — precedence', () => {
     expect(xaiApiLedgerModel('blueprint')).toBe('grok-4.3');
   });
 
-  it('grokModelForKind defaults implement→composer-fast but honors a grok model override', () => {
-    // default: implement is non-reasoning → composer-fast
-    expect(grokModelForKind(P, 'implement')).toBe('grok-composer-2.5-fast');
-    // override implement → grok-build (grok-build-0.1, the agentic coding model)
+  it('grokModelForKind defaults every kind to the live CLI model but honors a grok model override', () => {
+    // default: the grok CLI serves one model now → grok-4.5 (run in build mode)
+    expect(grokModelForKind(P, 'implement')).toBe('grok-4.5');
+    // an explicit legacy-but-valid grok model override is still honored (display value)
     setNodeProfileOverride(P, 'implement', 'grok-build', null, 'grok-build');
     expect(grokModelForKind(P, 'implement')).toBe('grok-build');
     // a claude alias override on a grok row is ignored → kind default
     setNodeProfileOverride(P, 'review', 'opus', null, 'grok-build');
-    expect(grokModelForKind(P, 'review')).toBe('grok-build'); // review's own kind default (reasoning)
+    expect(grokModelForKind(P, 'review')).toBe('grok-4.5'); // falls back to the live CLI default
   });
 
   it('per-kind DB override wins over project DB default and env', () => {
@@ -157,10 +157,10 @@ describe('xaiApiNeededForKinds', () => {
 });
 
 describe('grokLedgerModel', () => {
-  it('reasoning kinds → grok-build; others → composer-fast', () => {
-    expect(grokLedgerModel('blueprint')).toBe('grok-build');
-    expect(grokLedgerModel('review')).toBe('grok-build');
-    expect(grokLedgerModel('implement')).toBe('grok-composer-2.5-fast');
+  it('every kind → the single live CLI model (grok-4.5)', () => {
+    expect(grokLedgerModel('blueprint')).toBe('grok-4.5');
+    expect(grokLedgerModel('review')).toBe('grok-4.5');
+    expect(grokLedgerModel('implement')).toBe('grok-4.5');
   });
 });
 
@@ -170,7 +170,7 @@ describe('resolveNodeModel — defensive override validation', () => {
   });
 
   it('grok-build provider returns default when override is absent', () => {
-    expect(resolveNodeModel(P, 'implement', 'grok-build', 'unused')).toBe('grok-composer-2.5-fast');
+    expect(resolveNodeModel(P, 'implement', 'grok-build', 'unused')).toBe('grok-4.5');
   });
 
   it('grok-api provider returns grok-4.3 default when override is absent', () => {
@@ -210,7 +210,7 @@ describe('resolveNodeModel — defensive override validation', () => {
   it('grok-build provider ignores a mismatched override (claude model) and returns default', () => {
     setNodeProfileOverride(P, 'implement', 'opus', null, null);
     const result = resolveNodeModel(P, 'implement', 'grok-build', 'unused');
-    expect(result).toBe('grok-composer-2.5-fast');
+    expect(result).toBe('grok-4.5');
   });
 
   it('grok-api provider ignores a mismatched override (claude model) and returns default', () => {
@@ -222,6 +222,6 @@ describe('resolveNodeModel — defensive override validation', () => {
   it('returns default when DB access fails (defensive)', () => {
     // This simulates a scenario where DB read fails; the function should fall back gracefully
     const result = resolveNodeModel(undefined, 'implement', 'grok-build', 'unused');
-    expect(result).toBe('grok-composer-2.5-fast');
+    expect(result).toBe('grok-4.5');
   });
 });

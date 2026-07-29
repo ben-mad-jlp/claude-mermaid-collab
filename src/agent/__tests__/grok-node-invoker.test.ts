@@ -54,20 +54,20 @@ describe('buildGrokArgv', () => {
     expect(argv).toEqual(expect.arrayContaining(['--output-format', 'streaming-json']));
   });
 
-  it('resolves grok model from stored value and kind hint', () => {
+  it('aliases a legacy stored grok model onto the live CLI id', () => {
     const argv = buildGrokArgv(
       { ...base, model: 'grok-build', transcriptLabel: 'blueprint' },
       '/tmp/p.txt',
     );
-    expect(argv).toEqual(expect.arrayContaining(['-m', 'grok-build']));
+    expect(argv).toEqual(expect.arrayContaining(['-m', 'grok-4.5']));
   });
 
-  it('maps sonnet + wave label to composer default', () => {
+  it('maps a claude alias + wave label to the live CLI default', () => {
     const argv = buildGrokArgv(
       { ...base, model: 'sonnet', transcriptLabel: 'wimplement:src/a.ts' },
       '/tmp/p.txt',
     );
-    expect(argv).toEqual(expect.arrayContaining(['-m', 'grok-composer-2.5-fast']));
+    expect(argv).toEqual(expect.arrayContaining(['-m', 'grok-4.5']));
   });
 
   it('pushes optional effort, allowedTools, maxTurns', () => {
