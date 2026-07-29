@@ -13,12 +13,12 @@
  * does not score against an "expected contract" (the corpus has none — emission-only).
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { buildNodeArgv } from '../../src/agent/node-invoker';
+import { buildNodeArgv, STDIN_DELIVERY_RE } from '../../src/agent/node-invoker';
 import { parseDiffContract, validateContractForKind, type DiffContract } from '../../src/services/diff-contract';
 import { resolveNodeModel, resolveNodeProvider } from '../../src/services/node-provider';
 import { listNodeProfileOverrides, getProjectEffort } from '../../src/services/orchestrator-config';
@@ -87,7 +87,10 @@ function buildSpec(prompt: string) {
   };
 }
 
-function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: string; stderrTail: string }> {
+/** Bounded respawns on the stdin prompt-delivery race (see below). */
+const STDIN_RETRY_MAX = 3;
+
+function runEmitNode(cwd: string, prompt: string, attempt = 0): Promise<{ text: string; raw: string; stderrTail: string }> {
   const argv = buildNodeArgv(buildSpec(prompt) as any);
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), {
@@ -109,12 +112,33 @@ function runEmitNode(cwd: string, prompt: string): Promise<{ text: string; raw: 
           if (o.type === 'result' && typeof o.result === 'string') text = o.result;
         } catch { /* skip non-json lines */ }
       }
-      if (!text) text = `[[NO RESULT]] stderr=${err.slice(-400)}`;
+      if (!text) {
+        // Stdin prompt-delivery race (node-invoker STDIN_DELIVERY_RE): the claude CLI enforces a
+        // ~3s stdin deadline, and under this harness's concurrency the child can miss its stdin
+        // bytes and die with zero tokens even though the prompt WAS provided. The daemon's real
+        // invokeNode respawns on this fault; the lab hand-rolls its own spawn, so mirror that here
+        // — a bounded respawn instead of a spurious [[PARSE FAILED]] (the observed 3/19 failures).
+        if (STDIN_DELIVERY_RE.test(err) && attempt < STDIN_RETRY_MAX) {
+          resolve(runEmitNode(cwd, prompt, attempt + 1));
+          return;
+        }
+        text = `[[NO RESULT]] stderr=${err.slice(-400)}`;
+      }
       resolve({ text, raw: out, stderrTail: err.slice(-4000) });
     });
     child.stdin.write(prompt);
     child.stdin.end();
   });
+}
+
+/** Model+effort provenance stamp prepended to every emitted `.emit.md`. Resumability reuses a
+ *  prior emission ONLY when its stamp matches the current run, so a partial run can accumulate
+ *  across attempts without ever mixing a stale/other-model emission into the measurement. A
+ *  leading HTML comment does not affect parseDiffContract (last json fence) or score.ts (reads
+ *  run.json, never the .emit.md files). */
+const EMIT_STAMP_PREFIX = '<!-- blueprint-lab-emit';
+function emitStamp(): string {
+  return `${EMIT_STAMP_PREFIX} model=${resolveBlueprintModel()} effort=${resolveBlueprintEffort()} -->`;
 }
 
 type NodeReply = { text: string; raw: string; stderrTail: string };
@@ -171,6 +195,21 @@ interface EmitResult {
 }
 
 async function runOne(c: CorpusCase): Promise<EmitResult> {
+  const outFile = join(OUT, `${c.id}.emit.md`);
+  // RESUMABLE: the 77-case real-node run exceeds a single node/leaf wall-clock budget, so a run
+  // killed partway must NOT lose finished cases. Reuse a prior emission iff it (a) carries THIS
+  // run's model/effort stamp and (b) still parses to a contract — successive attempts then
+  // accumulate toward the full corpus instead of restarting from zero. A stale/other-model or
+  // failed emission has no matching stamp / no contract, so it is re-run fresh.
+  if (existsSync(outFile)) {
+    const prior = readFileSync(outFile, 'utf8');
+    if (prior.startsWith(emitStamp())) {
+      const priorContract = parseDiffContract(prior);
+      if (priorContract !== null) {
+        return { id: c.id, leafKindExpected: c.leafKind, contract: priorContract, rawText: prior };
+      }
+    }
+  }
   const cwd = checkoutBase(c);
   const { contract, reply } = await emitWithRepair(c, (prompt) => runEmitNode(cwd, prompt));
   const { text, raw, stderrTail } = reply;
@@ -184,9 +223,9 @@ async function runOne(c: CorpusCase): Promise<EmitResult> {
       '--- stderr tail (last 4000 chars) ---',
       stderrTail,
     ].join('\n\n');
-    writeFileSync(join(OUT, `${c.id}.emit.md`), diagnostic);
+    writeFileSync(outFile, diagnostic);
   } else {
-    writeFileSync(join(OUT, `${c.id}.emit.md`), text);
+    writeFileSync(outFile, `${emitStamp()}\n${text}`);
   }
   try { execFileSync('git', ['worktree', 'remove', '--force', cwd], { cwd: REPO_ROOT }); } catch {}
   try { rmSync(dirname(cwd), { recursive: true, force: true }); } catch {}
