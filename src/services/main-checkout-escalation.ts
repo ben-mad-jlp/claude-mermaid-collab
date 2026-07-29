@@ -67,6 +67,7 @@ export function escalateMainCheckoutViolation(
       project: err.projectRoot,
       session: 'daemon',
       kind: 'main-checkout-residue',
+      audience: 'human',
       questionText,
       operatorGated: true,
     });

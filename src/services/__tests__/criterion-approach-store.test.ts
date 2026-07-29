@@ -13,6 +13,7 @@ import {
   type ApproachRung,
 } from '../criterion-approach-store';
 import { CRITERION_SERVE_CAP } from '../harness-caps';
+import { deriveCriterionAction, type MissionCriterionFacts } from '../mission-store';
 
 let dir: string;
 beforeEach(() => {
@@ -133,14 +134,40 @@ describe('criterion-approach-store', () => {
     expect(result.missing).toEqual(['tier-bump']);
   });
 
-  test('ladderExhausted backstop: exhausted when servedEpicCount >= CRITERION_SERVE_CAP + 1', () => {
+  test('ladderExhausted backstop: exhausted when servedEpicCount >= CRITERION_SERVE_CAP', () => {
     const result = ladderExhausted({
       attempts: [],
-      servedEpicCount: CRITERION_SERVE_CAP + 1,
+      servedEpicCount: CRITERION_SERVE_CAP,
     });
     expect(result.exhausted).toBe(true);
     expect(result.tried).toEqual([]);
     expect(result.missing).toEqual(['fresh-blueprint', 'tier-bump', 're-decompose']);
+  });
+
+  test('ladderExhausted backstop: NOT exhausted when servedEpicCount === CRITERION_SERVE_CAP - 1', () => {
+    const result = ladderExhausted({
+      attempts: [],
+      servedEpicCount: CRITERION_SERVE_CAP - 1,
+    });
+    expect(result.exhausted).toBe(false);
+  });
+
+  test('invariant: deriveCriterionAction escalate implies ladderExhausted exhausted, across servedEpicCount range', () => {
+    for (let servedEpicCount = 0; servedEpicCount <= CRITERION_SERVE_CAP + 2; servedEpicCount++) {
+      const action = deriveCriterionAction({
+        id: 'c1',
+        met: false,
+        verifiedAt: null,
+        servingEpicState: 'none',
+        servingEpicLive: false,
+        servedEpicCount,
+        rejectedParkedCount: 0,
+      } satisfies MissionCriterionFacts);
+      const { exhausted } = ladderExhausted({ attempts: [], servedEpicCount });
+      if (action === 'escalate') {
+        expect(exhausted).toBe(true);
+      }
+    }
   });
 
   test('degradation: error on openDb returns empty results', () => {

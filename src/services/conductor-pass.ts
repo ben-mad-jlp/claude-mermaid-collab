@@ -477,6 +477,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           kind: CRITERION_SERVE_CAP_KIND,
           todoId: missionId,
           operatorGated: true,
+          audience: 'human',
           conditionKey: serveCapConditionKey(c.id),
           conditionTuple: ['serve-cap', c.id],
           questionText:

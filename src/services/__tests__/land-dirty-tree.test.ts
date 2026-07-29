@@ -84,6 +84,7 @@ describe('landEpic — dirty-tree refusal and allowDirty bypass', () => {
       kind: 'land',
     });
     const { escalation } = createEscalation({
+      audience: 'internal',
       project: repo,
       session: 'sX',
       kind: 'epic-ready-to-land',

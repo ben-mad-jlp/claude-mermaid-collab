@@ -1,10 +1,12 @@
 import type { NodeProvider } from './node-provider';
 
 export const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku'] as const;
-/** grok CLI proxy serves ONLY these coding models (memory: reference_grok_models_cli_vs_api). */
-export const GROK_BUILD_MODELS = ['grok-build', 'grok-build-0.1', 'grok-composer-2.5-fast', 'composer-2.5'] as const;
-/** api.x.ai ids — the CLI rejects these. */
-export const GROK_API_MODELS = ['grok-4.3'] as const;
+/** grok CLI proxy (OIDC lane) serves ONLY `grok-4.5` as of CLI v0.2.93 — run in build/agentic
+ *  mode (telemetry: `grok-4.5-build`). The prior slugs are kept as accepted-but-legacy values so
+ *  a stale override row still validates; grok-model.ts aliases them all onto `grok-4.5` at spawn. */
+export const GROK_BUILD_MODELS = ['grok-4.5', 'grok-build', 'grok-build-0.1', 'grok-composer-2.5-fast', 'composer-2.5'] as const;
+/** api.x.ai ids — the CLI rejects these; reached only via the read-only XaiApiNodeInvoker. */
+export const GROK_API_MODELS = ['grok-4.3', 'grok-4.5', 'grok-build-0.1'] as const;
 
 export const PROVIDER_MODELS: Record<NodeProvider, readonly string[]> = {
   claude: CLAUDE_MODELS,

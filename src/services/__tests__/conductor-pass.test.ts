@@ -321,7 +321,7 @@ describe('runConductorPass — scheduling', () => {
     // An UNRELATED epic-ready-to-land card appears project-wide (landCards 0 → 1). This used to change
     // the fail fingerprint and reset the retry counter, re-spawning CONDUCTOR_SERVE_RETRY_CAP fresh
     // nodes on the same unservable state. The cap now keys on the serve-state alone, so it must HOLD.
-    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: null });
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: null, audience: 'internal' });
     const afterLandCard = await runConductorPass(project, { invoke: emptyServeInvoke });
     expect(afterLandCard.ran).toBe(false);
     expect(afterLandCard.reason).toBe('debounced');
@@ -344,7 +344,7 @@ describe('runConductorPass — scheduling', () => {
     // A build-green epic surfaces an epic-ready-to-land card → the conductor MUST run to land it.
     // (Real land cards carry the epic id, a mission descendant — mirror that with the mission id
     // itself so the card is in-scope for the mission-scoped signature.)
-    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: forged.missionId });
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'ready', todoId: forged.missionId, audience: 'internal' });
     const r = await runConductorPass(project, { invoke: okInvoke });
     expect(r.ran).toBe(true);
     expect(r.reason).toBe('conducted');
@@ -697,7 +697,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(allMatching[0].status).toBe('acknowledged');
   });
 
-  test('serve-cap with unexhausted ladder — defers and raises no card', async () => {
+  test('serve-cap at the exact CRITERION_SERVE_CAP threshold with an empty ladder raises a card', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
     const { forged, crit } = await forgeCappedMission(undefined, { suppressRung: true });
@@ -714,11 +714,10 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
       listOpenEscalations: () => [],
     });
 
-    expect(r.ran).toBe(false);
     expect(r.reason).toBe('criteria-escalated');
-    expect(r.escalationsRaised).toBe(0); // no card raised
-    expect(r.serveCapDeferred).toBe(1); // deferred instead
-    expect(escCalls.length).toBe(0); // no escalation created
+    expect(r.escalationsRaised).toBe(1); // card raised — threshold now aligned with deriveCriterionAction
+    expect(r.serveCapDeferred).toBeFalsy(); // no longer deferred
+    expect(escCalls.length).toBe(1);
     expect(invokeCalls).toBe(0);
   });
 
@@ -820,6 +819,7 @@ describe('runConductorPass — mission-scoped card ids in the signature', () => 
     expect(invokeCalls).toBe(1);
 
     const { escalation } = createEscalation({
+      audience: 'internal',
       project, session: 's1', kind: 'blocker', todoId: forged.missionId, questionText: 'stuck leaf under this mission',
     });
 
@@ -1098,6 +1098,7 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     const forged = await forgeApprovedActive();
     const created = createEscalation({
       project,
+      audience: 'internal',
       session: 's1',
       kind: 'blocker',
       todoId: forged.missionId,

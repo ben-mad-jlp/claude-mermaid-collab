@@ -123,6 +123,7 @@ export function raiseOverBudgetRebetCard(
       kind: OVER_BUDGET_REBET_KIND,
       todoId: missionId,
       operatorGated: true,
+      audience: 'human',
       // One card per (mission, CEILING CROSSED). Raising the ceiling changes the key, so a
       // later crossing of the NEW ceiling is a fresh card rather than a suppressed duplicate.
       conditionKey: rebetConditionKey(missionId, input.budgetUsd),

@@ -128,6 +128,9 @@ export interface Escalation {
   /** 1 when this escalation gates an irreversible/outward action — a hard server
    *  floor that always routes to the human, never the steward. */
   operatorGated: number;
+  /** Human-vs-machine audience for the escalation UI, derived from kind/operatorGated at
+   *  create-time: 'human' for human-actionable escalations, 'internal' for machine-hygiene. */
+  audience: 'human' | 'internal';
   /** Deterministic, server-re-validated proof string cited on a steward
    *  resolution (Phase 2). Null until resolved by the steward. */
   proof: string | null;
@@ -237,7 +240,8 @@ CREATE TABLE IF NOT EXISTS escalation (
   suggestedActionJson TEXT,
   briefingMd TEXT,
   briefingModel TEXT,
-  briefingAt INTEGER
+  briefingAt INTEGER,
+  audience TEXT DEFAULT 'human'
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -342,6 +346,11 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'operatorGated', 'operatorGated INTEGER DEFAULT 0');
   addColumnIfMissing(db, 'escalation', 'proof', 'proof TEXT');
   addColumnIfMissing(db, 'escalation', 'stewardAttempts', 'stewardAttempts INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'escalation', 'audience', "audience TEXT DEFAULT 'human'");
+  // One-shot backfill: derive audience for existing rows where the column was just added
+  // (new rows already get DEFAULT 'human'; only pre-migration rows need derivation).
+  db.exec(`UPDATE escalation SET audience = 'human' WHERE audience IS NULL AND (operatorGated = 1 OR kind NOT IN ('epic-sweep-triage','infra-park','leaf-infra-rejected','split-proposal','base-moved'))`);
+  db.exec(`UPDATE escalation SET audience = 'internal' WHERE audience IS NULL`);
   // Orch P2: inline Grok-suggested action (level `propose`). Additive, DEFAULT null
   // so existing open escalations carry no suggestion (no behavioural change).
   addColumnIfMissing(db, 'escalation', 'suggestedActionJson', 'suggestedActionJson TEXT');
@@ -704,6 +713,7 @@ function mapEscalationRow(row: EscalationRow): Escalation {
     conditionHash: row.conditionHash ?? null,
     lastSeenAt: row.lastSeenAt ?? null,
     recurrenceCount: row.recurrenceCount ?? 0,
+    audience: (row.audience as 'human' | 'internal' | null) ?? 'human',
   };
 }
 
@@ -746,6 +756,17 @@ export function shouldAutoGate(kind: string, operatorGated: boolean): boolean {
 }
 
 /**
+ * Derive the human-vs-machine audience for an escalation at create-time. operatorGated
+ * always wins (→ 'human'); otherwise, certain hygiene kinds default to 'internal';
+ * everything else is 'human'.
+ */
+export function deriveAudience(kind: string, operatorGated: boolean): 'human' | 'internal' {
+  if (operatorGated) return 'human';
+  if (['epic-sweep-triage', 'infra-park', 'leaf-infra-rejected', 'split-proposal', 'base-moved'].includes(kind)) return 'internal';
+  return 'human';
+}
+
+/**
  * Create-time routing: EVERY escalation goes to the human. The AI steward that
  * once triaged/auto-answered a subset has been removed — a human, the conductor
  * node, or an explicit MCP call resolves escalations now.
@@ -773,6 +794,9 @@ export function createEscalation(input: {
    *  condition whose inputs are unchanged stays suppressed. A key with no tuple hashes
    *  to null, so it never matches a resolved row (always re-raises). */
   conditionTuple?: string[] | null;
+  /** Required: who must act on this escalation. 'human' if a person needs to clear it,
+   *  'internal' if it's daemon/conductor self-talk nothing human-facing consumes. */
+  audience: 'human' | 'internal';
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   // Normalize the worktree cwd → tracking repo root. Under worker isolation a
@@ -831,9 +855,17 @@ export function createEscalation(input: {
   // routes everything to the human.
   const operatorGated = input.operatorGated ? 1 : 0;
   const routedTo = routeEscalation(input.kind, operatorGated === 1);
+  // Validate and compute audience: operatorGated=1 always overrides to 'human'.
+  if (input.audience == null) {
+    throw new Error(`createEscalation: audience is required`);
+  }
+  if (input.audience !== 'human' && input.audience !== 'internal') {
+    throw new Error(`createEscalation: invalid audience "${input.audience}"`);
+  }
+  const audience = operatorGated === 1 ? 'human' : input.audience;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, audience);
   return {
     escalation: {
       id,
@@ -851,6 +883,7 @@ export function createEscalation(input: {
       ui,
       routedTo,
       operatorGated,
+      audience,
       proof: null,
       stewardAttempts: 0,
       suggestedAction: null,
@@ -1043,7 +1076,7 @@ export function setEscalationOperatorGated(id: string, operatorGated: boolean): 
   const d = openDb();
   let info;
   if (operatorGated) {
-    info = d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human' WHERE id = ?").run(fullId);
+    info = d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human', audience = 'human' WHERE id = ?").run(fullId);
   } else {
     info = d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(fullId);
   }

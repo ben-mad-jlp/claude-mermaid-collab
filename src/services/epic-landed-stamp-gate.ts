@@ -111,6 +111,7 @@ export async function stampEpicLandedAtGated(
           session,
           kind: 'land-failed',
           todoId: epicId,
+          audience: 'human',
           questionText: `Landing cannot proceed: branch ${branch} exists but git counts unreadable (probe returned null for both newCount and ahead)`,
           ...coordinatorCondition('land-failed', id8),
         });
@@ -160,6 +161,7 @@ export async function stampEpicLandedAtGated(
         session,
         kind: 'land-failed',
         todoId: epicId,
+        audience: 'human',
         questionText: `Landing failed: epic branch ${branch} is still ${newCount} commit${newCount === 1 ? '' : 's'} ahead of ${baseRef} (git ahead: ${ahead})`,
         ...coordinatorCondition('land-failed', id8),
       });
@@ -192,6 +194,7 @@ export async function stampEpicLandedAtGated(
         session: opts?.session ?? 'coordinator',
         kind: 'land-failed',
         todoId: epicId,
+        audience: 'human',
         questionText: `Landing failed: internal gate error: ${errorMsg}`,
         ...coordinatorCondition('land-failed', epicId8(epicId)),
       });

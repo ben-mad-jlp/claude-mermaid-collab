@@ -96,6 +96,7 @@ describe('runReconcilePass — stale escalation auto-close', () => {
     const { escalation: fresh } = createEscalation({
       project,
       session,
+      audience: 'internal',
       kind: 'blocker',
       questionText: 'fresh escalation — should NOT be closed',
     });
@@ -115,6 +116,7 @@ describe('runReconcilePass — stale escalation auto-close', () => {
     const { escalation } = createEscalation({
       project,
       session,
+      audience: 'internal',
       kind: 'question',
       questionText: 'stale question',
     });
@@ -143,12 +145,14 @@ describe('runReconcilePass — BP0 summary escalation is exempt from auto-close'
     // A normal escalation and a BP0 summary, both created "now".
     const { escalation: normal } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-x',
       kind: 'blocker',
       questionText: 'normal blocker — should be staled',
     });
     const { escalation: summary } = createEscalation({
       project,
+      audience: 'internal',
       session: 'bp0-stranded',
       kind: BP0_STRANDED_SUMMARY_KIND,
       questionText: 'BP0 stranded summary — should survive',
@@ -536,6 +540,7 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
     const todo = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'gated work', status: 'ready' });
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-vd',
       kind: 'blocker',
       questionText: 'blocked on gated work',
@@ -556,6 +561,7 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
     const todo = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'abandoned work', status: 'ready' });
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-vd2',
       kind: 'blocker',
       questionText: 'blocked on abandoned work',
@@ -575,6 +581,7 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
     const todo = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'ungated work', status: 'ready' });
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-vd3',
       kind: 'blocker',
       questionText: 'blocked on ungated work',
@@ -591,6 +598,7 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
     const project = freshProject();
     const { escalation } = createEscalation({
       project,
+      audience: 'internal',
       session: 'worker-vd4',
       kind: 'question',
       questionText: 'no todo link',
