@@ -112,6 +112,7 @@ describe('criterion verify-panel enforcement', () => {
     // Create a contested card (decision kind) linked to the criterion.
     createEscalation({
       project,
+      audience: 'internal',
       session: S,
       kind: 'decision',
       questionText: 'Is the criterion still valid?',
@@ -150,6 +151,7 @@ describe('criterion verify-panel enforcement', () => {
     // Create a contested card to trigger the panel.
     createEscalation({
       project,
+      audience: 'internal',
       session: S,
       kind: 'decision',
       questionText: 'Is the criterion still valid?',
@@ -196,6 +198,7 @@ describe('criterion verify-panel enforcement', () => {
     // Create a contested card to trigger the panel.
     createEscalation({
       project,
+      audience: 'internal',
       session: S,
       kind: 'blocker',
       questionText: 'This criterion needs human review',

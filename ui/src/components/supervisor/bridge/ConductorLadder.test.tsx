@@ -114,6 +114,22 @@ describe('ConductorLadder', () => {
     expect(screen.queryByTestId('conductor-last-pass')).toBeNull();
   });
 
+  it('shows the pass status line next to the relative time when idle', async () => {
+    mockConductorWithPass(true, { reason: 'conducted', tickAt: Date.now() - 12_000, status: 'served a gap' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-last-pass')).toBeTruthy());
+    expect(screen.getByTestId('conductor-status-line').textContent).toContain('served a gap');
+    expect(screen.getByTestId('conductor-last-pass').textContent).toContain('12s ago');
+  });
+
+  it('hides the status line while a pass is in-flight (shows running…)', async () => {
+    mockConductorWithPass(true, { reason: 'pass-ran', tickAt: Date.now(), status: 'running…' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-last-pass')).toBeTruthy());
+    expect(screen.queryByTestId('conductor-status-line')).toBeNull();
+    expect(screen.getByTestId('conductor-last-pass').textContent).toContain('running');
+  });
+
   it('does not POST when the already-active stop is clicked', async () => {
     const { post } = mockConductor(true);
     render(<ConductorLadder project="/abs/p" />);

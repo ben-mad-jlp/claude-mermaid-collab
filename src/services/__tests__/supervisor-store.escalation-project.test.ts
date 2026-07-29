@@ -31,6 +31,7 @@ describe('createEscalation — worktree project normalization', () => {
 
   it('stores an isolated-worker escalation under the tracking repo root, not the worktree path', () => {
     const { escalation, isNew } = createEscalation({
+      audience: 'internal',
       project: worktree, // worker cwd under isolation
       session: 'worker-abc',
       kind: 'decision',
@@ -45,8 +46,8 @@ describe('createEscalation — worktree project normalization', () => {
 
   it('dedupes a worktree-path and a repo-root escalation to the same row', () => {
     const q = 'same question, two cwds';
-    const a = createEscalation({ project: worktree, session: 'w', kind: 'blocker', questionText: q });
-    const b = createEscalation({ project: repo, session: 'w', kind: 'blocker', questionText: q });
+    const a = createEscalation({ audience: 'internal', project: worktree, session: 'w', kind: 'blocker', questionText: q });
+    const b = createEscalation({ audience: 'internal', project: repo, session: 'w', kind: 'blocker', questionText: q });
     expect(a.isNew).toBe(true);
     expect(b.isNew).toBe(false); // matched the existing (normalized) row
     expect(b.escalation.id).toBe(a.escalation.id);
@@ -54,6 +55,7 @@ describe('createEscalation — worktree project normalization', () => {
 
   it('same-repo (non-isolated) project is an identity no-op', () => {
     const { escalation } = createEscalation({
+      audience: 'internal',
       project: repo,
       session: 'w2',
       kind: 'blocker',

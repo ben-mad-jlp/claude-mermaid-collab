@@ -117,15 +117,13 @@ export interface Escalation {
   // catalog). Carried opaquely here; the focal DecisionCard re-validates it via
   // focal/catalog.parseUiSpec before rendering. Absent/null for plain decisions.
   ui?: unknown;
-  // Steward routing (Steward P3): server-decided destination at create-time
-  // ('human' | 'steward'). When 'steward', the steward triaged it and routed it
-  // on to the human — the provenance tag distinguishes triaged-and-deferred from
-  // never-seen. Absent on payloads written before the field existed → 'human'.
-  routedTo?: string;
   /** Server-stamped operator-gate flag (irreversible/outward action). Arrives as
    *  0|1 from mapEscalationRow's column spread; truthy = a hard human floor that
    *  MUST outrank routine approvals in the Zen triage stack (Z3/Z4). */
   operatorGated?: boolean | number;
+  /** Server-driven audience selector: 'human' (human-actionable) or 'internal'
+   *  (machine-handled triage/infrastructure noise). Absent on older payloads → 'human'. */
+  audience?: 'human' | 'internal';
   /** How many times the steward auto-attempted this escalation (thrash guard). */
   stewardAttempts?: number;
   /** Orch P2: an inline Grok-suggested action at level `propose` (or null). The
@@ -158,6 +156,10 @@ export interface Escalation {
   /** How many times this condition has recurred while open/acknowledged. Absent on
    *  older payloads → treat as 0. */
   recurrenceCount?: number;
+}
+
+export function normalizeEscalationAudience(e: Escalation): Escalation {
+  return { ...e, audience: e.audience ?? 'human' };
 }
 
 /** Orch P2: a Grok-suggested action attached inline to an escalation (mirrors the
@@ -708,17 +710,18 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   bumpEpoch: () => set((state) => ({ hydrateEpoch: state.hydrateEpoch + 1 })),
   ingestEscalationCreated: (e) =>
     set((state) => {
+      const normalized = normalizeEscalationAudience(e);
       // Upsert by id (server-stamped), newest first; replace an existing card in
       // place so a re-broadcast doesn't duplicate it.
-      if (!isOpen(e)) {
+      if (!isOpen(normalized)) {
         // A now-resolved/decided broadcast (e.g. the steward auto-resolved it):
         // drop it from open and fold it into resolved so the AI-resolved lingering
         // card (fd934fb7) can show its outcome instead of the card just vanishing.
-        const open = state.openEscalations.filter((x) => x.id !== e.id);
-        const resolved = [e, ...state.resolvedEscalations.filter((x) => x.id !== e.id)];
+        const open = state.openEscalations.filter((x) => x.id !== normalized.id);
+        const resolved = [normalized, ...state.resolvedEscalations.filter((x) => x.id !== normalized.id)];
         return { ...writeOpen(open), ...writeResolved(resolved), hydrateEpoch: state.hydrateEpoch + 1 };
       }
-      const open = [e, ...state.openEscalations.filter((x) => x.id !== e.id)];
+      const open = [normalized, ...state.openEscalations.filter((x) => x.id !== normalized.id)];
       return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
     }),
   ingestSessionSummary: (s) =>
@@ -1030,7 +1033,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       : '/api/supervisor/escalations';
     const res = await invoke(serverId, path, 'GET');
     if (!res?.ok) return; // keep prior (cached) state on failure
-    const fetched: Escalation[] = res.body?.escalations ?? [];
+    const fetched: Escalation[] = (res.body?.escalations ?? []).map(normalizeEscalationAudience);
     if (status === 'resolved') {
       set(writeResolved(fetched));
       return;
@@ -1055,7 +1058,8 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     results.forEach((res, i) => {
       for (const e of (res!.body?.escalations ?? []) as Escalation[]) {
         // Server-stamp each item so the union across servers is addressable.
-        fetched.push({ ...e, serverId: (e as Escalation & { serverId?: string }).serverId || ids[i] });
+        const normalized = normalizeEscalationAudience({ ...e, serverId: (e as Escalation & { serverId?: string }).serverId || ids[i] });
+        fetched.push(normalized);
       }
     });
     set((state) => {

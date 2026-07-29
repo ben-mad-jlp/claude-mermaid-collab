@@ -133,24 +133,24 @@ describe('supervisor pause / override', () => {
 
 describe('createEscalation dedup signal (TOCTOU fix)', () => {
   it('first create isNew=true; identical create isNew=false (same row)', () => {
-    const a = createEscalation({ project: '/e', session: 's', kind: 'blocker', questionText: 'stuck?' });
+    const a = createEscalation({ audience: 'internal', project: '/e', session: 's', kind: 'blocker', questionText: 'stuck?' });
     expect(a.isNew).toBe(true);
-    const b = createEscalation({ project: '/e', session: 's', kind: 'blocker', questionText: 'stuck?' });
+    const b = createEscalation({ audience: 'internal', project: '/e', session: 's', kind: 'blocker', questionText: 'stuck?' });
     expect(b.isNew).toBe(false);
     expect(b.escalation.id).toBe(a.escalation.id);
     expect(listOpenEscalations().filter((e) => e.project === '/e').length).toBe(1);
   });
   it('different questionText → new', () => {
-    createEscalation({ project: '/e2', session: 's', kind: 'blocker', questionText: 'q1' });
-    expect(createEscalation({ project: '/e2', session: 's', kind: 'blocker', questionText: 'q2' }).isNew).toBe(true);
+    createEscalation({ audience: 'internal', project: '/e2', session: 's', kind: 'blocker', questionText: 'q1' });
+    expect(createEscalation({ audience: 'internal', project: '/e2', session: 's', kind: 'blocker', questionText: 'q2' }).isNew).toBe(true);
   });
   it('persists and returns the todoId link', () => {
-    const { escalation } = createEscalation({ project: '/etd', session: 's', kind: 'blocker', questionText: 'q', todoId: 'todo-1' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/etd', session: 's', kind: 'blocker', questionText: 'q', todoId: 'todo-1' });
     expect(escalation.todoId).toBe('todo-1');
     expect(listOpenEscalations().find((e) => e.id === escalation.id)?.todoId).toBe('todo-1');
   });
   it('todoId defaults to null when omitted', () => {
-    const { escalation } = createEscalation({ project: '/etd2', session: 's', kind: 'blocker', questionText: 'q' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/etd2', session: 's', kind: 'blocker', questionText: 'q' });
     expect(escalation.todoId).toBeNull();
   });
 });
@@ -161,7 +161,7 @@ describe('createEscalation structured payload (options + recommended)', () => {
     { id: 'b', label: 'Option B' },
   ];
   it('round-trips options[] and recommended through create + list', () => {
-    const { escalation } = createEscalation({ project: '/so1', session: 's', kind: 'decision', questionText: 'A or B?', options: OPTIONS, recommended: 'a' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/so1', session: 's', kind: 'decision', questionText: 'A or B?', options: OPTIONS, recommended: 'a' });
     expect(escalation.options).toEqual(OPTIONS);
     expect(escalation.recommended).toBe('a');
     const listed = listOpenEscalations().find((e) => e.id === escalation.id);
@@ -169,18 +169,18 @@ describe('createEscalation structured payload (options + recommended)', () => {
     expect(listed?.recommended).toBe('a');
   });
   it('backward compatible: a plain escalation has options=null, recommended=null', () => {
-    const { escalation } = createEscalation({ project: '/so2', session: 's', kind: 'question', questionText: 'plain?' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/so2', session: 's', kind: 'question', questionText: 'plain?' });
     expect(escalation.options).toBeNull();
     expect(escalation.recommended).toBeNull();
     expect(listOpenEscalations().find((e) => e.id === escalation.id)?.options).toBeNull();
   });
   it('drops a recommended that does not match any option id', () => {
-    const { escalation } = createEscalation({ project: '/so3', session: 's', kind: 'decision', questionText: 'q', options: OPTIONS, recommended: 'zzz' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/so3', session: 's', kind: 'decision', questionText: 'q', options: OPTIONS, recommended: 'zzz' });
     expect(escalation.recommended).toBeNull();
     expect(escalation.options).toEqual(OPTIONS);
   });
   it('an empty options[] is treated as no options', () => {
-    const { escalation } = createEscalation({ project: '/so4', session: 's', kind: 'decision', questionText: 'q', options: [], recommended: 'a' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/so4', session: 's', kind: 'decision', questionText: 'q', options: [], recommended: 'a' });
     expect(escalation.options).toBeNull();
     expect(escalation.recommended).toBeNull();
   });
@@ -188,25 +188,25 @@ describe('createEscalation structured payload (options + recommended)', () => {
 
 describe('resolveEscalationsForTodo (auto-resolve on todo completion)', () => {
   it('resolves open escalations matched by exact todoId', () => {
-    const { escalation } = createEscalation({ project: '/r1', session: 'worker-abc', kind: 'blocker', questionText: 'exhausted', todoId: 'T1' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/r1', session: 'worker-abc', kind: 'blocker', questionText: 'exhausted', todoId: 'T1' });
     const resolved = resolveEscalationsForTodo('/r1', 'T1');
     expect(resolved.map((e) => e.id)).toContain(escalation.id);
     expect(listOpenEscalations().some((e) => e.id === escalation.id)).toBe(false);
   });
   it('resolves escalations matched by session even without a todoId link', () => {
-    const { escalation } = createEscalation({ project: '/r2', session: 'worker-12345678', kind: 'blocker', questionText: 'self-escalation' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/r2', session: 'worker-12345678', kind: 'blocker', questionText: 'self-escalation' });
     const resolved = resolveEscalationsForTodo('/r2', '12345678-0000-0000-0000-000000000000', ['worker-12345678']);
     expect(resolved.map((e) => e.id)).toContain(escalation.id);
     expect(listOpenEscalations().some((e) => e.id === escalation.id)).toBe(false);
   });
   it('leaves unrelated open escalations untouched and returns [] when nothing matches', () => {
-    const { escalation: keep } = createEscalation({ project: '/r3', session: 'worker-other', kind: 'blocker', questionText: 'unrelated', todoId: 'OTHER' });
+    const { escalation: keep } = createEscalation({ audience: 'internal', project: '/r3', session: 'worker-other', kind: 'blocker', questionText: 'unrelated', todoId: 'OTHER' });
     const resolved = resolveEscalationsForTodo('/r3', 'NOPE', ['worker-nomatch']);
     expect(resolved).toEqual([]);
     expect(listOpenEscalations().some((e) => e.id === keep.id)).toBe(true);
   });
   it('is scoped to the project (does not resolve same todoId in another project)', () => {
-    const { escalation } = createEscalation({ project: '/r4a', session: 's', kind: 'blocker', questionText: 'q', todoId: 'SHARED' });
+    const { escalation } = createEscalation({ audience: 'internal', project: '/r4a', session: 's', kind: 'blocker', questionText: 'q', todoId: 'SHARED' });
     resolveEscalationsForTodo('/r4b', 'SHARED');
     expect(listOpenEscalations().some((e) => e.id === escalation.id)).toBe(true);
   });

@@ -53,10 +53,10 @@ export function classifyEscalationLifecycle(e: Escalation): EscalationLifecycle 
   if (isOpen(e)) {
     // In-flight Grok consult — the visible "AI is handling this" window.
     if (e.triageInFlight) return 'ai-handling';
-    // Grok tried and routed it on to the human (routedTo flip, or it burned a
-    // steward attempt without auto-resolving). This is the "AI couldn't resolve —
-    // needs you" terminal-for-AI but still-open-for-human state.
-    if (e.routedTo === 'steward' || (e.stewardAttempts ?? 0) > 0) return 'escalated-to-human';
+    // Routing (routedTo) is retired and no longer consulted. stewardAttempts alone
+    // signals "Grok tried and didn't auto-resolve," and audience is the sole
+    // visibility authority for open/human-actionable status.
+    if ((e.stewardAttempts ?? 0) > 0) return 'escalated-to-human';
     // Grok classified it (propose): a suggestion awaits the human's confirm.
     if (e.suggestedAction) return 'ai-suggested';
     // Raised, untouched by triage.

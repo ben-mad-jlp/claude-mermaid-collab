@@ -24,7 +24,6 @@ import {
   setContextRecycleMode,
   CONTEXT_RECYCLE_MODES,
   type ContextRecycleMode,
-  setEscalationRoute,
   setEscalationOperatorGated,
   setProjectDigestEnabled,
   setPromptInjectRetryContext,
@@ -222,11 +221,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const project = url.searchParams.get('project');
       if (!project) return jsonError('project is required', 400);
       const session = url.searchParams.get('session') ?? undefined;
-      const { listMissions } = await import('../services/mission-store.ts');
+      const { listMissions, isMissionTerminal } = await import('../services/mission-store.ts');
       // withFacts:false — the list glance must NOT pay collectMissionStatusFacts per
       // mission (a project-wide todo scan + a ledger scan per epic, twice over). A
       // single-mission read that needs true facts goes through get_mission instead.
       const rows = listMissions(project, { session, withFacts: false });
+      // Order the page so the (at most one) ACTIVE mission — and live missions generally —
+      // can never be truncated off page 1 by the default cap. listMissions() returns rows in
+      // creation order; without this a project with more than DEFAULT_MISSIONS_LIST_LIMIT
+      // missions (mostly terminal) pushes a recently-created active mission past the first
+      // page, so the UI's page-1 glance renders "No active mission" while one is live.
+      // Mirrors the MCP list_missions active-first contract (src/mcp/mission-tools.ts) and
+      // adds non-terminal-first so accumulating converged missions can't crowd out the live one.
+      rows.sort((a, b) =>
+        Number(!!b.mission.active) - Number(!!a.mission.active) ||
+        Number(isMissionTerminal(a.mission)) - Number(isMissionTerminal(b.mission)) ||
+        (b.mission.createdAt ?? 0) - (a.mission.createdAt ?? 0));
       const rawLimit = Number(url.searchParams.get('limit'));
       const limit = Number.isFinite(rawLimit) && rawLimit > 0
         ? Math.min(Math.floor(rawLimit), MAX_MISSIONS_LIST_LIMIT)
@@ -570,7 +580,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
-        id, routedTo: esc?.routedTo ?? 'human', escalation: getEscalation(id),
+        id, escalation: getEscalation(id),
       });
       return Response.json({ ok: true });
     } catch (err) {
@@ -592,7 +602,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
-        id, routedTo: updated.routedTo, escalation: updated,
+        id, escalation: updated,
       });
       return Response.json({ ok: true });
     } catch (err) {
@@ -601,9 +611,10 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   // POST /api/supervisor/escalations/mark — the Z9 operator "only you" pin. Forces the
-  // escalation onto the human floor (deterministic outranking) via setEscalationRoute,
-  // then re-broadcasts the full row (escalation_created upsert convention) so every
-  // client re-sorts. Pass operatorGated:false to clear the operator pin.
+  // escalation onto the human floor (audience='human', deterministic outranking) via
+  // setEscalationOperatorGated, then re-broadcasts the full row (escalation_created
+  // upsert convention) so every client re-sorts. Pass operatorGated:false to clear
+  // the operator pin.
   if (url.pathname === '/api/supervisor/escalations/mark' && req.method === 'POST') {
     try {
       const { id, operatorGated } = (await req.json()) as { id?: string; operatorGated?: boolean };
@@ -611,12 +622,12 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const esc = getEscalation(id);
       if (!esc) return jsonError(`escalation not found: ${id}`, 404);
       const pin = operatorGated !== false; // default mark=on
-      setEscalationRoute(id, 'human', pin ? 'operator-marked: only you' : null);
+      setEscalationOperatorGated(id, pin);
       const updated = getEscalation(id);
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc.project, session: esc.session, kind: esc.kind, id,
-        routedTo: updated?.routedTo ?? 'human', escalation: updated,
+        escalation: updated,
       });
       return Response.json({ escalation: updated });
     } catch (err) {
@@ -827,7 +838,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   // POST /api/supervisor/escalation/:id/operator-gate — operator-gated "only you" mark.
-  // body {on}: setEscalationOperatorGated flips operatorGated AND forces routedTo='human'
+  // body {on}: setEscalationOperatorGated flips operatorGated AND forces audience='human'
   // (deterministic outranking). Broadcasts escalation_created full-row for peer re-sort.
   {
     const gateMatch = url.pathname.match(/^\/api\/supervisor\/escalation\/([^/]+)\/operator-gate$/);
@@ -842,7 +853,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
           getWebSocketHandler()?.broadcast({
             type: 'escalation_created',
             project: updated.project, session: updated.session, kind: updated.kind,
-            id: updated.id, routedTo: updated.routedTo, escalation: updated,
+            id: updated.id, escalation: updated,
           });
         }
         return Response.json({ ok: true, escalation: updated });
@@ -917,7 +928,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc.project, session: esc.session, kind: esc.kind, id,
-        routedTo: esc.routedTo ?? 'human', escalation: getEscalation(id),
+        escalation: getEscalation(id),
       });
       return Response.json({ ok: true });
     } catch (err) {

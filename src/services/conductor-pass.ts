@@ -265,6 +265,40 @@ export interface ConductorPassResult {
   modelUsed?: string;
 }
 
+/** SHORT (<=60 char) human status line for a SETTLED conductor pass — what the pass DID this run,
+ *  for the Bridge last-pass readout (so a stopped-looking conductor still says WHY). Pure; the unit
+ *  test covers every reason value. Set at the end of each pass in runConductorPass. */
+export function conductorStatusLine(
+  reason: ConductorPassResult['reason'],
+  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed'> = {},
+): string {
+  const n = (x?: number): number => x ?? 0;
+  switch (reason) {
+    case 'conducted': {
+      const extra: string[] = [];
+      if (n(counts.escalationsRaised)) extra.push(`${n(counts.escalationsRaised)} escalated`);
+      if (n(counts.infraResets)) extra.push(`${n(counts.infraResets)} infra reset`);
+      if (n(counts.redecomposed)) extra.push(`${n(counts.redecomposed)} re-decomposed`);
+      return extra.length ? `served · ${extra.join(', ')}` : 'served a gap';
+    }
+    case 'debounced': return 'no change';
+    case 'building-wait': return 'building';
+    case 'criteria-escalated': return n(counts.serveCapDeferred) ? `capped: ${n(counts.serveCapDeferred)} blocked` : 'capped — needs you';
+    case 'redecomposed': return 're-decomposed';
+    case 'over-budget-rebet': return 'over budget — needs you';
+    case 'node-failed': return 'pass failed — retry';
+    case 'pass-error': return 'pass errored';
+    case 'no-actionable-mission': return 'no active mission';
+    case 'target-not-actionable': return 'mission not actionable';
+    case 'target-cleared': return 'target cleared';
+    case 'infra-leaf-reset': return n(counts.infraResets) ? `infra reset ${n(counts.infraResets)}` : 'infra reset';
+    case 'conductor-disabled': return 'off';
+    case 'daemon-off': return 'daemon off';
+    case 'pass-ran': return 'running…';
+    default: return reason;
+  }
+}
+
 /** One conductor pass for a project. No-op (spends nothing) unless the toggle is on AND there is an
  *  approved+active mission with a NEW actionable state (a discover/verify gap the conductor hasn't
  *  already served at this exact fingerprint). */
@@ -275,6 +309,7 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       missionId: result.missionId ?? null,
       reason: result.reason,
       tickAt: Date.now(),
+      status: conductorStatusLine(result.reason, result),
     });
     return result;
   } catch (err) {
@@ -283,6 +318,7 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       missionId: null,
       reason: 'pass-error',
       tickAt: Date.now(),
+      status: conductorStatusLine('pass-error'),
     });
     throw err;
   }
@@ -441,6 +477,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           kind: CRITERION_SERVE_CAP_KIND,
           todoId: missionId,
           operatorGated: true,
+          audience: 'human',
           conditionKey: serveCapConditionKey(c.id),
           conditionTuple: ['serve-cap', c.id],
           questionText:
@@ -563,7 +600,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
 
   // Interim heartbeat: refreshes liveness while the node is mid-flight; the terminal stamp
   // in runConductorPass records the pass's actual outcome.
-  setConductorLastPass(project, { missionId, reason: 'pass-ran', tickAt: Date.now() });
+  setConductorLastPass(project, { missionId, reason: 'pass-ran', tickAt: Date.now(), status: 'running…' });
 
   // WAKE CONTEXT. The cards + deltas that CAUSED this pass, handed to the node as data instead of
   // being left for it to (not) go fetch. Built ONLY from values already in scope for this pass —

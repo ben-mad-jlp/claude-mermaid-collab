@@ -26,12 +26,12 @@ const esc = (
 const FIXTURE: Escalation[] = [
   esc('projA', 'open', 'gated1', { operatorGated: 1 }),
   esc('projA', 'open', 'plain1'),
-  esc('projA', 'open', 'hygiene_epic_sweep_triage', { kind: 'epic-sweep-triage' }),
-  esc('projA', 'open', 'hygiene_infra_park', { kind: 'infra-park' }),
-  esc('projA', 'open', 'hygiene_leaf_infra_rejected', { kind: 'leaf-infra-rejected' }),
-  esc('projA', 'open', 'hygiene_split_proposal', { kind: 'split-proposal' }),
-  esc('projA', 'open', 'hygiene_base_moved', { kind: 'base-moved' }),
-  esc('projA', 'open', 'handling1', { triageInFlight: true }),
+  esc('projA', 'open', 'hygiene_epic_sweep_triage', { kind: 'epic-sweep-triage', audience: 'internal' }),
+  esc('projA', 'open', 'hygiene_infra_park', { kind: 'infra-park', audience: 'internal' }),
+  esc('projA', 'open', 'hygiene_leaf_infra_rejected', { kind: 'leaf-infra-rejected', audience: 'internal' }),
+  esc('projA', 'open', 'hygiene_split_proposal', { kind: 'split-proposal', audience: 'internal' }),
+  esc('projA', 'open', 'hygiene_base_moved', { kind: 'base-moved', audience: 'internal' }),
+  esc('projA', 'open', 'handling1', { triageInFlight: true, audience: 'internal' }),
   esc('projA', 'open', 'suggested1', {
     suggestedAction: {
       bucket: 'genuine-decision',
@@ -39,6 +39,7 @@ const FIXTURE: Escalation[] = [
       confidence: 0.8,
       rationale: 'Test suggestion',
     } as SuggestedAction,
+    audience: 'internal',
   }),
   esc('projA', 'resolved', 'resolved1'),
 ];
@@ -83,17 +84,40 @@ describe('selectHumanActionableEscalations (bridge module)', () => {
   it('returns empty array for non-array input', () => {
     expect(selectHumanActionableEscalations(null as any, 'projA')).toEqual([]);
   });
+
+  it('audience:internal, status:open escalations are excluded', () => {
+    const internal = esc('projA', 'open', 'internal-1', { audience: 'internal' });
+    const result = selectHumanActionableEscalations([internal], 'projA');
+    expect(result.map((e) => e.id)).not.toContain('internal-1');
+  });
+
+  it('audience:human, status:open escalations are included', () => {
+    const human = esc('projA', 'open', 'human-1', { audience: 'human' });
+    const result = selectHumanActionableEscalations([human], 'projA');
+    expect(result.map((e) => e.id)).toContain('human-1');
+  });
+
+  it('leaf-infra-rejected with audience:human is present as first when operatorGated', () => {
+    const infraRejected = esc('projA', 'open', 'infra-rej-1', {
+      kind: 'leaf-infra-rejected',
+      operatorGated: 1,
+      audience: 'human',
+    });
+    const result = selectHumanActionableEscalations([infraRejected], 'projA');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result[0]?.id).toBe('infra-rej-1');
+  });
 });
 
 describe('selectMachineHandledCount (bridge module)', () => {
-  it('counts only hygiene-kind exclusions', () => {
+  it('counts only audience:internal escalations', () => {
     const count = selectMachineHandledCount(FIXTURE, 'projA');
-    expect(count).toBe(5);
+    expect(count).toBe(7);
   });
 
-  it('does not count triageInFlight or ai-suggested as machine-handled', () => {
+  it('does not count triageInFlight or ai-suggested when audience:human', () => {
     const count = selectMachineHandledCount(FIXTURE, 'projA');
-    expect(count).toBe(5);
+    expect(count).toBe(7);
   });
 
   it('returns 0 for non-array input', () => {

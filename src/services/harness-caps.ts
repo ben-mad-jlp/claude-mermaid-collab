@@ -19,6 +19,10 @@
  *  whose satisfaction structurally needs a HUMAN action (a live measurement, a deploy,
  *  a rescope) the headless daemon cannot do otherwise makes the conductor file a new
  *  serving epic every tick — the overnight thrash this cap kills.
+ *  Consumed by TWO call sites at the SAME `>= CRITERION_SERVE_CAP` comparison:
+ *  criterion-approach-store.ts (ladderExhausted's serve-cap backstop) and
+ *  mission-store.ts (deriveCriterionAction's escalate check). These must never diverge —
+ *  a criterion must never read 'escalate' while the ladder reads not-exhausted.
  *  Origin: src/services/mission-store.ts (deriveCriterionAction). */
 export const CRITERION_SERVE_CAP = 3;
 

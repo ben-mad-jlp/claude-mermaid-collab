@@ -187,8 +187,8 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
     },
 
     escalate: async (p, id, kind, detail) => {
-      const { createEscalation } = await import('../../services/supervisor-store');
-      createEscalation({ project: p, session, todoId: id, kind, questionText: detail });
+      const { createEscalation, deriveAudience } = await import('../../services/supervisor-store');
+      createEscalation({ project: p, session, todoId: id, kind, audience: deriveAudience(kind, false), questionText: detail });
     },
   };
 }

@@ -114,29 +114,19 @@ function sessionInScope(s: SessionStatus, scope: StatusScope): boolean {
   }
 }
 
-/**
- * Escalation kinds that are machine-generated triage/infrastructure noise
- * and should be hidden from the human-actionable list. Mirrors server originals:
- * 'epic-sweep-triage' (reconcile-pass.ts:54), 'infra-park' / 'leaf-infra-rejected'
- * (orchestrator.ts:133 / leaf-wall-history.ts:48), 'split-proposal', 'base-moved'
- * (conductor-signature.ts:21). Redeclared locally — keep both copies in sync.
- */
-const MACHINE_HYGIENE_KINDS = new Set<string>([
-  'epic-sweep-triage',
-  'infra-park',
-  'leaf-infra-rejected',
-  'split-proposal',
-  'base-moved',
-]);
+/** True when escalation requires human attention — opens in scope with audience==='human'. */
+export function isHumanActionable(e: Escalation, scope: StatusScope): boolean {
+  return (e.audience ?? 'human') === 'human' && e.status === 'open' && escalationInScope(e, scope);
+}
 
 /**
  * True when an escalation should be excluded from human-actionable view because
- * it is being handled by the machine. Combines hygiene-kind (infrastructure noise),
- * AI-handling lifecycle states (active-work), and triageInFlight (batch-dismissal).
- * Intentionally BROADER than selectMachineHandledCount, which checks hygiene-kinds only.
+ * it is being handled by the machine. Combines audience (internal), AI-handling
+ * lifecycle states (active-work), and triageInFlight (batch-dismissal).
+ * Intentionally BROADER than selectMachineHandledCount, which checks audience only.
  */
 function isMachineHandledEscalation(e: Escalation): boolean {
-  if (MACHINE_HYGIENE_KINDS.has(e.kind)) return true;
+  if (e.audience === 'internal') return true;
   const lifecycle = classifyEscalationLifecycle(e);
   if (lifecycle === 'ai-handling' || lifecycle === 'ai-suggested') return true;
   if (e.triageInFlight) return true;
@@ -150,7 +140,7 @@ function isMachineHandledEscalation(e: Escalation): boolean {
  */
 export function selectOpenEscalations(open: Escalation[], scope: StatusScope): Escalation[] {
   if (!Array.isArray(open)) return [];
-  return open.filter((e) => isOpen(e) && escalationInScope(e, scope));
+  return open.filter((e) => isHumanActionable(e, scope));
 }
 
 /**
@@ -162,20 +152,18 @@ export function selectOpenEscalations(open: Escalation[], scope: StatusScope): E
 export function selectOpenEscalationCount(open: Escalation[], scope: StatusScope): number {
   if (!Array.isArray(open)) return 0;
   let n = 0;
-  for (const e of open) if (isOpen(e) && escalationInScope(e, scope)) n++;
+  for (const e of open) if (isHumanActionable(e, scope)) n++;
   return n;
 }
 
 /**
- * Open escalations inside `scope` that require human attention — excludes
- * machine-hygiene noise and AI-handling/AI-suggested states. Sorted:
+ * Open escalations inside `scope` that require human attention — filters by
+ * isHumanActionable to exclude internal/machine-handled escalations. Sorted:
  * operator-gated rows first, then by createdAt (stable).
  */
 export function selectHumanActionableEscalations(open: Escalation[], scope: StatusScope): Escalation[] {
   if (!Array.isArray(open)) return [];
-  const filtered = open
-    .filter((e) => isOpen(e) && escalationInScope(e, scope))
-    .filter((e) => !isMachineHandledEscalation(e));
+  const filtered = open.filter((e) => isHumanActionable(e, scope));
   filtered.sort((a, b) => {
     const aGated = !!a.operatorGated;
     const bGated = !!b.operatorGated;
@@ -187,14 +175,14 @@ export function selectHumanActionableEscalations(open: Escalation[], scope: Stat
 
 /**
  * Count of open escalations inside `scope` that are machine-handled
- * (hygiene-kind exclusions only) — the "excluded-but-open" count. Does not
+ * (audience==='internal' only) — the "excluded-but-open" count. Does not
  * apply lifecycle or triageInFlight filters.
  */
 export function selectMachineHandledCount(open: Escalation[], scope: StatusScope): number {
   if (!Array.isArray(open)) return 0;
   let n = 0;
   for (const e of open) {
-    if (isOpen(e) && escalationInScope(e, scope) && MACHINE_HYGIENE_KINDS.has(e.kind)) n++;
+    if (isOpen(e) && escalationInScope(e, scope) && e.audience === 'internal') n++;
   }
   return n;
 }

@@ -144,9 +144,12 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
               ? `${running ? 'Conductor pass running now (started' : 'Last conductor pass'} ${lastRunLabel}${running ? ')' : ''} · ${new Date(tickAt).toLocaleString()}`
               : 'No conductor pass recorded yet'
           }
-          className="shrink-0 px-1.5 py-0.5 tabular-nums whitespace-nowrap border-l border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500"
+          className="shrink-0 px-1.5 py-0.5 tabular-nums whitespace-nowrap border-l border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300"
         >
           {running ? 'running…' : lastRunLabel ?? '—'}
+          {!running && lastPass?.status ? (
+            <span data-testid="conductor-status-line" className="opacity-90"> · {lastPass.status}</span>
+          ) : null}
         </span>
       )}
     </div>

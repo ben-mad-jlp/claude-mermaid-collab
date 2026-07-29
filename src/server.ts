@@ -167,7 +167,7 @@ try {
     }
 
     try {
-      createEscalation(parsed);
+      createEscalation({ ...parsed, audience: 'human' });
     } catch (err) {
       console.warn(`   ↳ escalation intent creation failed: ${err instanceof Error ? err.message : String(err)}`);
     }

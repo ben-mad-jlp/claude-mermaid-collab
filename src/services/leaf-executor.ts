@@ -3507,6 +3507,7 @@ export async function makeLeafExecutorDeps(
             session: leafSessionKey(leaf),
             todoId: leaf.id,
             kind: 'assumption-invalidated',
+            audience: 'human',
             questionText:
               `Forward-integration conflict: could not merge ${baseBranch} into epic branch ${epicBranch} before building ` +
               `"${leaf.title ?? leaf.id}" (conflicts: ${(fi.conflictedPaths ?? []).join(', ') || 'unknown'}). ` +
@@ -3622,7 +3623,7 @@ export async function makeLeafExecutorDeps(
     // Own-prior-work probe: live git read in the TARGET repo (where every branch ref lives).
     ownWorkCommitOnEpicBranch: (input) => findOwnWorkCommitOnEpicBranch(targetProject, input),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
-    escalate: createEscalation,
+    escalate: (input) => createEscalation({ ...input, audience: 'human' }),
     proposeSplit,
     awaitSplitDecision,
     proposeContested,
