@@ -292,6 +292,7 @@ function handleNoneReason(
       kind: MISSION_STALLED_KIND,
       todoId: missionId,
       operatorGated: true,
+      audience: 'human',
       conditionKey: stallConditionKey(missionId, episode.reason),
       conditionTuple: ['mission-stalled', missionId, episode.reason],
       questionText: buildStallCardText({

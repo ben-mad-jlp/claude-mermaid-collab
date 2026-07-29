@@ -30,7 +30,7 @@ afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); dele
  */
 describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
   it('acknowledge blocks re-raise: escalation stays deduplicated', () => {
-    const triple = { project: '/test', session: 'sess-1', kind: TOKEN_BURN_KIND, questionText: 'serve capacity low' };
+    const triple = { project: '/test', session: 'sess-1', kind: TOKEN_BURN_KIND, questionText: 'serve capacity low', audience: 'internal' as const };
 
     // Create the escalation.
     const { escalation: esc1, isNew: isNew1 } = createEscalation(triple);
@@ -52,7 +52,7 @@ describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
   });
 
   it('resolve causes re-raise: escalation is deduplicated until resolved, then new', () => {
-    const triple = { project: '/test', session: 'sess-2', kind: TOKEN_BURN_KIND, questionText: 'burn limit exceeded' };
+    const triple = { project: '/test', session: 'sess-2', kind: TOKEN_BURN_KIND, questionText: 'burn limit exceeded' , audience: 'internal' as const};
 
     // Create the escalation.
     const { escalation: esc1, isNew: isNew1 } = createEscalation(triple);
@@ -70,8 +70,19 @@ describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
     expect(esc2.status).toBe('open'); // New escalation is open.
   });
 
+  it('createEscalation throws when audience is missing', () => {
+    expect(() => {
+      createEscalation({
+        project: '/test',
+        session: 'sess-audience-missing',
+        kind: 'question',
+        questionText: 'test question',
+      } as any);
+    }).toThrow(/audience is required/);
+  });
+
   it('acknowledgeEscalation(id, acknowledgedBy) stamps resolvedBy with resolvedAt null', () => {
-    const triple = { project: '/test', session: 'sess-3', kind: TOKEN_BURN_KIND, questionText: 'serve limit reached' };
+    const triple = { project: '/test', session: 'sess-3', kind: TOKEN_BURN_KIND, questionText: 'serve limit reached' , audience: 'internal' as const};
 
     // Create the escalation.
     const { escalation: esc1, isNew: isNew1 } = createEscalation(triple);
@@ -96,7 +107,7 @@ describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
 
 describe('resolveEscalation / acknowledgeEscalation — short-id parity contract', () => {
   it('short-id resolve path: 8-char prefix routes to resolveFullEscalationId fallback and updates status', () => {
-    const triple = { project: '/test', session: 'sess-4', kind: TOKEN_BURN_KIND, questionText: 'query timeout' };
+    const triple = { project: '/test', session: 'sess-4', kind: TOKEN_BURN_KIND, questionText: 'query timeout' , audience: 'internal' as const};
     const { escalation: esc1 } = createEscalation(triple);
 
     const shortId = esc1.id.slice(0, 8);
@@ -115,7 +126,7 @@ describe('resolveEscalation / acknowledgeEscalation — short-id parity contract
   });
 
   it('full-id path: exact match short-circuits and updates status', () => {
-    const triple = { project: '/test', session: 'sess-5', kind: TOKEN_BURN_KIND, questionText: 'rate limit exceeded' };
+    const triple = { project: '/test', session: 'sess-5', kind: TOKEN_BURN_KIND, questionText: 'rate limit exceeded' , audience: 'internal' as const};
     const { escalation: esc1 } = createEscalation(triple);
 
     resolveEscalation(esc1.id, 'resolved', 'human');
@@ -148,7 +159,7 @@ describe('resolveEscalation / acknowledgeEscalation — short-id parity contract
   });
 
   it('acknowledge via short id: status becomes acknowledged, resolvedAt stays null', () => {
-    const triple = { project: '/test', session: 'sess-6', kind: TOKEN_BURN_KIND, questionText: 'connection refused' };
+    const triple = { project: '/test', session: 'sess-6', kind: TOKEN_BURN_KIND, questionText: 'connection refused' , audience: 'internal' as const};
     const { escalation: esc1 } = createEscalation(triple);
 
     const shortId = esc1.id.slice(0, 8);
@@ -190,6 +201,7 @@ describe('createEscalation — condition-key identity', () => {
     const project = '/test-condition-1';
     const conditionKey = 'blocker:test-condition-1';
     const { escalation: esc1, isNew: isNew1 } = createEscalation({
+      audience: 'internal',
       project, session: 'sess-c1', kind: 'blocker', questionText: 'first wording',
       conditionKey, conditionTuple: ['a'],
     });
@@ -197,6 +209,7 @@ describe('createEscalation — condition-key identity', () => {
     expect(esc1.recurrenceCount).toBe(0);
 
     const { escalation: esc2, isNew: isNew2 } = createEscalation({
+      audience: 'internal',
       project, session: 'sess-c1', kind: 'blocker', questionText: 'refreshed wording',
       conditionKey, conditionTuple: ['a'],
     });
@@ -213,12 +226,14 @@ describe('createEscalation — condition-key identity', () => {
     const project = '/test-condition-2';
     const conditionKey = 'blocker:test-condition-2';
     const { escalation: esc1 } = createEscalation({
+      audience: 'internal',
       project, session: 'sess-c2', kind: 'blocker', questionText: 'condition present',
       conditionKey, conditionTuple: ['x', 'y'],
     });
     resolveEscalation(esc1.id, 'resolved', 'human');
 
     const { escalation: esc2, isNew: isNew2 } = createEscalation({
+      audience: 'internal',
       project, session: 'sess-c2', kind: 'blocker', questionText: 'condition present again',
       conditionKey, conditionTuple: ['x', 'y'],
     });
@@ -231,12 +246,14 @@ describe('createEscalation — condition-key identity', () => {
     const project = '/test-condition-3';
     const conditionKey = 'blocker:test-condition-3';
     const { escalation: esc1 } = createEscalation({
+      audience: 'internal',
       project, session: 'sess-c3', kind: 'blocker', questionText: 'condition present',
       conditionKey, conditionTuple: ['x', 'y'],
     });
     resolveEscalation(esc1.id, 'resolved', 'human');
 
     const { escalation: esc2, isNew: isNew2 } = createEscalation({
+      audience: 'internal',
       project, session: 'sess-c3', kind: 'blocker', questionText: 'condition changed',
       conditionKey, conditionTuple: ['x', 'z'],
     });
@@ -248,7 +265,7 @@ describe('createEscalation — condition-key identity', () => {
 
   it('an unkeyed pair with the same (project, session, questionText) still dedups to one row with conditionKey null', () => {
     const project = '/test-condition-4';
-    const triple = { project, session: 'sess-c4', kind: 'blocker', questionText: 'unkeyed condition' };
+    const triple = { project, session: 'sess-c4', kind: 'blocker', questionText: 'unkeyed condition', audience: 'internal' as const };
     const { escalation: esc1, isNew: isNew1 } = createEscalation(triple);
     expect(isNew1).toBe(true);
     expect(esc1.conditionKey).toBeNull();

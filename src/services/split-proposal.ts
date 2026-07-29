@@ -66,6 +66,7 @@ export function proposeSplit(input: {
     kind: 'decision',
     todoId: input.leaf.id,
     questionText,
+    audience: 'human',
     options: [
       { id: 'split', label: 'Split', detail: 'Create and approve children as the blueprint proposed' },
       { id: 'linear', label: 'Linear', detail: 'Run the leaf as one, with raised budget' },
@@ -172,6 +173,7 @@ export function proposeContested(input: {
     kind: 'decision',
     todoId: input.leaf.id,
     questionText,
+    audience: 'human',
     options: [
       { id: 'accept', label: 'Accept', detail: 'Land the mechanically-green change; file the finding as a follow-up' },
       { id: 'reject', label: 'Reject', detail: 'Park the leaf (today\'s behavior)' },

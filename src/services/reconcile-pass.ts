@@ -261,6 +261,7 @@ export async function runReconcilePass(project: string): Promise<void> {
           kind: EPIC_SWEEP_TRIAGE_KIND,
           todoId: f.epicId,
           questionText,
+          audience: 'internal',
           options: [
             {
               id: 'review',
@@ -436,6 +437,7 @@ export async function runReconcilePass(project: string): Promise<void> {
         session: 'coordinator',
         kind: DANGLING_DEPS_KIND,
         todoId: t.id,
+        audience: 'human',
         questionText:
           `Todo "${t.title ?? shortId}" (${shortId}) is parked deps-pending indefinitely: dependsOn references ` +
           `${dangling.length} dangling id(s) that resolve to no todo: ${depList}. Fix: re-point or remove the bad ` +
@@ -578,6 +580,7 @@ export async function runReconcilePass(project: string): Promise<void> {
           session: 'coordinator',
           kind: DEP_STRAND_DECISION_KIND,
           todoId: t.id,
+          audience: 'human',
           questionText:
             `Leaf ${t.id.slice(0, 8)} (${stateLabel}) strands ${shortIds.length} dependent(s): ${shortIds.join(', ')}. ` +
             `Remediate: re-point those dependsOn edges to the landed/replacement leaf (${repointDependents.name}), ` +

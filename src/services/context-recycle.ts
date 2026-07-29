@@ -187,6 +187,7 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
             project,
             session: row.session,
             kind: 'blocker',
+            audience: 'human',
             questionText: `Context-recycle stalled: cleared "${row.session}" but could not re-inject /collab to reload it. Resume the session manually.`,
           });
           recordSupervisorAudit({ kind: 'escalate', project, session: row.session, detail: 'context-recycle:recover-timeout' });

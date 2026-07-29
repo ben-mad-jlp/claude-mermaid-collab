@@ -64,6 +64,7 @@ describe('coordinatorCondition — 14 coordinator-live raise sites', () => {
 
       it('recurrence: raising twice with an unchanged subject updates one row', () => {
         const { escalation: esc1, isNew: isNew1 } = createEscalation({
+          audience: 'internal',
           project, session: 'sess', kind: d.kind, questionText: 'first wording',
           conditionKey, conditionTuple,
         });
@@ -71,6 +72,7 @@ describe('coordinatorCondition — 14 coordinator-live raise sites', () => {
         expect(esc1.recurrenceCount).toBe(0);
 
         const { escalation: esc2, isNew: isNew2 } = createEscalation({
+          audience: 'internal',
           project, session: 'sess', kind: d.kind, questionText: 'second wording (refreshed)',
           conditionKey, conditionTuple,
         });
@@ -83,12 +85,14 @@ describe('coordinatorCondition — 14 coordinator-live raise sites', () => {
 
       it('resolved-suppression: resolving then re-raising with an unchanged subject stays suppressed', () => {
         const { escalation: esc1 } = createEscalation({
+          audience: 'internal',
           project: `${project}/resolve`, session: 'sess', kind: d.kind, questionText: 'wording',
           conditionKey, conditionTuple,
         });
         resolveEscalation(esc1.id, 'resolved');
 
         const { escalation: esc3, isNew: isNew3 } = createEscalation({
+          audience: 'internal',
           project: `${project}/resolve`, session: 'sess', kind: d.kind, questionText: 'wording after resolve',
           conditionKey, conditionTuple,
         });
@@ -110,10 +114,12 @@ describe('coordinatorCondition — 14 coordinator-live raise sites', () => {
     expect(a.conditionKey).not.toBe(c.conditionKey);
 
     const { escalation: escA } = createEscalation({
+      audience: 'internal',
       project, session: 'sess', kind: 'blocker', questionText: 'a',
       conditionKey: a.conditionKey, conditionTuple: a.conditionTuple,
     });
     const { escalation: escB, isNew: isNewB } = createEscalation({
+      audience: 'internal',
       project, session: 'sess', kind: 'blocker', questionText: 'b',
       conditionKey: b.conditionKey, conditionTuple: b.conditionTuple,
     });

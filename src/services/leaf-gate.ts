@@ -967,6 +967,7 @@ export function escalateLegacyGateResidual(
       kind: 'operator-gated',
       operatorGated: true,
       todoId: leaf.id,
+      audience: 'human',
       questionText:
         `Project ${targetProject} sets legacy gate key(s) [${keys.join(', ')}] in ` +
         `${manifestSource.path} but no mechanical gate resolves — leaves run gateless. ` +

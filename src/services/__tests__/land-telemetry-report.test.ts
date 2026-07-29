@@ -81,12 +81,14 @@ describe('reportLandCycles — windowed land telemetry', () => {
     // Two open escalations of the tracked kind with DISTINCT questionText, one
     // in-window, one raised after untilMs.
     createEscalation({
+      audience: 'internal',
       project, session: 'daemon', kind: MAIN_CHECKOUT_ESCALATION_KIND,
       questionText: 'residue-card-1',
     });
     const untilMs = Date.now();
     await new Promise((r) => setTimeout(r, 25));
     createEscalation({
+      audience: 'internal',
       project, session: 'daemon', kind: MAIN_CHECKOUT_ESCALATION_KIND,
       questionText: 'residue-card-2',
     });

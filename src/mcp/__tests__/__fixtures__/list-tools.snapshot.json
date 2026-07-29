@@ -4598,6 +4598,14 @@
             "type": "string",
             "description": "Human-readable prompt for the decision/question."
           },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "human",
+              "internal"
+            ],
+            "description": "Who must act on this escalation: 'human' if a person needs to clear it, 'internal' if it's daemon/conductor self-talk nothing human-facing consumes."
+          },
           "todoId": {
             "type": "string",
             "description": "Optional work-graph todo id this escalation is about (exact auto-resolve link)."
@@ -4641,7 +4649,8 @@
           "project",
           "session",
           "kind",
-          "questionText"
+          "questionText",
+          "audience"
         ]
       }
     },
@@ -5919,6 +5928,22 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (where the epic and leaf are created)."
+          },
+          "session": {
+            "type": "string",
+            "description": "Session id of the adopter (stamped as assigneeSession)."
+          },
+          "source": {
+            "type": "string",
+            "description": "Git ref or branch name to adopt (any ref rev-parse understands: \"main\", \"HEAD\", a sha, a worktree path, etc.)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Epic + leaf title."
+          },
           "description": {
             "type": "string",
             "description": "Epic + leaf description (optional)."
@@ -5930,10 +5955,6 @@
             ],
             "description": "Mission id to home the epic under, or null for a root epic (default)."
           },
-          "project": {
-            "type": "string",
-            "description": "Tracking project (where the epic and leaf are created)."
-          },
           "servesCriterionIds": {
             "type": "array",
             "items": {
@@ -5941,21 +5962,9 @@
             },
             "description": "Criterion ids this epic serves (required if home is a mission)."
           },
-          "session": {
-            "type": "string",
-            "description": "Session id of the adopter (stamped as assigneeSession)."
-          },
-          "source": {
-            "type": "string",
-            "description": "Git ref or branch name to adopt (any ref rev-parse understands: \"main\", \"HEAD\", a sha, a worktree path, etc.)."
-          },
           "targetProject": {
             "type": "string",
             "description": "Implementation repo (worker cwd + gate location). Default: same as tracking project."
-          },
-          "title": {
-            "type": "string",
-            "description": "Epic + leaf title."
           }
         },
         "required": [
