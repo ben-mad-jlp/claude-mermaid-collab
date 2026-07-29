@@ -345,7 +345,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'operatorGated', 'operatorGated INTEGER DEFAULT 0');
   addColumnIfMissing(db, 'escalation', 'proof', 'proof TEXT');
   addColumnIfMissing(db, 'escalation', 'stewardAttempts', 'stewardAttempts INTEGER DEFAULT 0');
-  addColumnIfMissing(db, 'escalation', 'audience', "audience TEXT DEFAULT 'human'");
+  addColumnIfMissing(db, 'escalation', 'audience', "audience TEXT");
   // One-shot backfill: derive audience for existing rows where the column was just added
   // (new rows already get DEFAULT 'human'; only pre-migration rows need derivation).
   db.exec(`UPDATE escalation SET audience = 'human' WHERE audience IS NULL AND (operatorGated = 1 OR kind NOT IN ('epic-sweep-triage','infra-park','leaf-infra-rejected','split-proposal','base-moved'))`);
