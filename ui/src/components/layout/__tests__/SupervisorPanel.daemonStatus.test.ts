@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { resolveDaemonStatus } from '@/components/layout/SupervisorPanel';
 import type { SessionCardData } from '@/components/layout/SessionCard';
 import { selectEscalationKindCounts } from '@/lib/statusSelectors';
+import { isScopeRed } from '@/lib/humanRedDerivation';
 import type { Escalation } from '@/stores/supervisorStore';
 
 describe('resolveDaemonStatus', () => {
@@ -9,7 +10,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: 0, // only machine-handled escalations (from selectEscalationKindCounts machineHandled bucket)
+      isRed: false, // only machine-handled escalations (from selectEscalationKindCounts machineHandled bucket)
       isConducting: true,
       idleWithWork: false,
       combined: 'unknown',
@@ -21,7 +22,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: 0, // only machine-handled escalations
+      isRed: false, // only machine-handled escalations
       isConducting: false,
       idleWithWork: false,
       combined: 'unknown',
@@ -34,7 +35,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 1,
       hasHeadlessInflight: false,
-      blockerCount: 0, // only machine-handled escalations
+      isRed: false, // only machine-handled escalations
       isConducting: true,
       idleWithWork: false,
       combined: 'unknown',
@@ -46,7 +47,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: true, // daemon leaf-executor inflight
-      blockerCount: 0,
+      isRed: false,
       isConducting: true,
       idleWithWork: false,
       combined: 'unknown',
@@ -58,7 +59,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: 1, // human-actionable blocker
+      isRed: true, // human-actionable blocker
       isConducting: true,
       idleWithWork: false,
       combined: 'unknown',
@@ -70,7 +71,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: 0,
+      isRed: false,
       isConducting: false,
       idleWithWork: true,
       combined: 'unknown',
@@ -82,7 +83,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: 0,
+      isRed: false,
       isConducting: true,
       idleWithWork: true,
       combined: 'unknown',
@@ -94,7 +95,7 @@ describe('resolveDaemonStatus', () => {
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: 0,
+      isRed: false,
       isConducting: false,
       idleWithWork: false,
       combined: 'waiting' as SessionCardData['status'],
@@ -176,7 +177,7 @@ describe('resolveDaemonStatus with derived blockerCount (owned leaf-scoped escal
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: derived.blockers,
+      isRed: derived.blockers > 0,
       isConducting: true,
       idleWithWork: false,
       combined: 'unknown',
@@ -221,7 +222,7 @@ describe('resolveDaemonStatus with derived blockerCount (owned leaf-scoped escal
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: derived.blockers,
+      isRed: derived.blockers > 0,
       isConducting: false,
       idleWithWork: false,
       combined: 'unknown',
@@ -268,7 +269,7 @@ describe('resolveDaemonStatus with derived blockerCount (owned leaf-scoped escal
     const result = resolveDaemonStatus({
       inProgress: 0,
       hasHeadlessInflight: false,
-      blockerCount: derived.blockers,
+      isRed: derived.blockers > 0,
       isConducting: true,
       idleWithWork: false,
       combined: 'unknown',
@@ -347,5 +348,60 @@ describe('resolveDaemonStatus with derived blockerCount (owned leaf-scoped escal
     );
 
     expect(derived.blockers + derived.landReady + derived.machineHandled).toBe(derived.total);
+  });
+});
+
+describe('resolveDaemonStatus with isScopeRed (human-audience derivation)', () => {
+  it('returns "permission" when isRed is derived from a human-audience-only escalation set', () => {
+    const humanOnly: Escalation[] = [
+      {
+        id: 'esc-1',
+        project: 'proj',
+        session: 's1',
+        kind: 'blocker',
+        questionText: 'Needs a human',
+        status: 'open',
+        createdAt: 0,
+        audience: 'human',
+      },
+    ];
+
+    const result = resolveDaemonStatus({
+      inProgress: 0,
+      hasHeadlessInflight: false,
+      isRed: isScopeRed(humanOnly, { kind: 'project', project: 'proj' }),
+      isConducting: false,
+      idleWithWork: false,
+      combined: 'unknown',
+    });
+
+    expect(result).toBe('permission');
+  });
+
+  it('does not return "permission" when isRed is derived from an internal-only escalation set', () => {
+    const internalOnly: Escalation[] = [
+      {
+        id: 'esc-2',
+        project: 'proj',
+        session: 's1',
+        kind: 'blocker',
+        questionText: 'Internal only',
+        status: 'open',
+        createdAt: 0,
+        audience: 'internal',
+      },
+    ];
+
+    const result = resolveDaemonStatus({
+      inProgress: 0,
+      hasHeadlessInflight: false,
+      isRed: isScopeRed(internalOnly, { kind: 'project', project: 'proj' }),
+      isConducting: false,
+      idleWithWork: false,
+      combined: 'unknown',
+    });
+
+    expect(result).not.toBe('permission');
+    expect(result).toBe('unknown');
   });
 });
