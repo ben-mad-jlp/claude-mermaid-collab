@@ -1,6 +1,7 @@
 {
   "generatedAt": "2026-07-22T22:12:30.064Z",
   "failing": [
+    "src/agent/__tests__/grok-worktree-confine.live.test.ts",
     "src/agent/__tests__/node-invoker.test.ts",
     "src/agent/__tests__/worktree-concurrency-lock.test.ts",
     "src/routes/__tests__/orchestrator-routes.test.ts",
