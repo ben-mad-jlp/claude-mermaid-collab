@@ -8,7 +8,7 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine } from '../conductor-pass';
+import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine, conductorNeedsHuman } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
@@ -1509,5 +1509,33 @@ describe('conductorStatusLine', () => {
     expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('capped');
     expect(conductorStatusLine('debounced')).toBe('no change');
     expect(conductorStatusLine('building-wait')).toBe('building');
+  });
+});
+
+describe('conductorNeedsHuman', () => {
+  test('true exactly for the settled "— needs you" reasons', () => {
+    // Parity with conductorStatusLine: every reason whose status ends in "needs you"
+    // must be flagged, and nothing else. Guards the Bridge RED project-card signal.
+    expect(conductorNeedsHuman('criteria-escalated')).toBe(true);
+    expect(conductorNeedsHuman('over-budget-rebet')).toBe(true);
+    for (const r of ['conducted', 'debounced', 'building-wait', 'pass-ran', 'redecomposed',
+      'no-actionable-mission', 'conductor-disabled', 'daemon-off', 'node-failed'] as const) {
+      expect(conductorNeedsHuman(r)).toBe(false);
+    }
+    expect(conductorNeedsHuman(null)).toBe(false);
+    expect(conductorNeedsHuman(undefined)).toBe(false);
+  });
+
+  test('flags every reason whose status line ends in "needs you"', () => {
+    const reasons = [
+      'conductor-disabled', 'daemon-off', 'no-actionable-mission', 'target-not-actionable',
+      'target-cleared', 'building-wait', 'criteria-escalated', 'debounced', 'conducted',
+      'node-failed', 'infra-leaf-reset', 'redecomposed', 'over-budget-rebet', 'pass-ran', 'pass-error',
+    ] as const;
+    for (const r of reasons) {
+      // serveCapDeferred:0 → criteria-escalated renders the bare "capped — needs you" branch.
+      const endsInNeedsYou = conductorStatusLine(r).endsWith('needs you');
+      expect(conductorNeedsHuman(r)).toBe(endsInNeedsYou);
+    }
   });
 });

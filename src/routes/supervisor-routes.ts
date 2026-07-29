@@ -42,6 +42,7 @@ import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo, resetTodo, overrideAcceptTodo, deriveTodoViews } from '../services/todo-store.ts';
 import { listMissions } from '../services/mission-store.ts';
 import { selectConductorOwnedTodoIds, RUNNING_FRESH_MS } from '../services/conductor-owned-todos.ts';
+import { conductorNeedsHuman } from '../services/conductor-pass.ts';
 import { isInboxEpic } from '../services/claimability.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
@@ -1059,7 +1060,16 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         listMissions,
       });
     }
-    return Response.json({ projects, ownedTodoIds });
+    // Projects whose conductor SETTLED into a "— needs you" state (a capped/exhausted
+    // criterion ladder or an over-budget rebet). The status line says "needs you" but the
+    // backing escalation can be resolved-then-silenced, leaving a green card next to a
+    // needs-you status — the Bridge ORs this into the RED project-card signal so the two
+    // surfaces can never contradict. Independent of the mid-pass `projects` (a settled
+    // needs-you pass is by definition NOT reason 'pass-ran').
+    const attention = listWatchedProjects()
+      .map((wp) => wp.project)
+      .filter((p) => getConductorEnabled(p) && conductorNeedsHuman(getConductorLastPass(p)?.reason));
+    return Response.json({ projects, ownedTodoIds, attention });
   }
   // POST /api/supervisor/conductor — toggle the per-project autonomous conductor.
   // body { project, enabled: boolean }. UPDATE-only (the project must be watched),
