@@ -108,6 +108,11 @@ export type EpicTimelineEntry = EscalationTimelineEntry | DecisionTimelineEntry;
  * treated as not-in-flight, correct for a history view. resolvedBy is inferred from
  * routedTo: a resolved steward-routed escalation was the AI's auto-resolve; a
  * resolved human-routed one was a person.
+ *
+ * NOTE: This function's use of row.routedTo (line 116/128) is historical-display-only.
+ * EscalationHistoryRow is a separate wire type from the live Escalation and is
+ * explicitly out of scope for the routedTo retirement. The live classifier in
+ * escalationLifecycle.ts does not consult routedTo.
  */
 export function escalationRowLifecycle(row: EscalationHistoryRow): EscalationLifecycle {
   const open = row.status === 'open';
@@ -116,6 +121,8 @@ export function escalationRowLifecycle(row: EscalationHistoryRow): EscalationLif
     : row.routedTo === 'steward'
       ? 'ai'
       : 'human';
+  // Translate historical routedTo: 'steward' to stewardAttempts signal for the live classifier
+  const stewardAttempts = row.routedTo === 'steward' && row.stewardAttempts === 0 ? 1 : row.stewardAttempts;
   const shim = {
     id: row.id,
     project: row.project,
@@ -125,8 +132,7 @@ export function escalationRowLifecycle(row: EscalationHistoryRow): EscalationLif
     status: row.status,
     createdAt: row.createdAt,
     resolvedAt: row.resolvedAt,
-    routedTo: row.routedTo,
-    stewardAttempts: row.stewardAttempts,
+    stewardAttempts,
     suggestedAction: row.suggestedAction
       ? {
           bucket: 'genuine-decision' as const,

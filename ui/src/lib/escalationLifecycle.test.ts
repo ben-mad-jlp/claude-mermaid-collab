@@ -42,8 +42,8 @@ describe('classifyEscalationLifecycle', () => {
     ).toBe('ai-handling');
   });
 
-  it('escalated-to-human: routedTo steward (Grok tried, deferred) — still open', () => {
-    expect(classifyEscalationLifecycle(esc({ routedTo: 'steward' }))).toBe('escalated-to-human');
+  it('escalated-to-human: stewardAttempts (Grok tried, didn\'t auto-resolve) - still open', () => {
+    expect(classifyEscalationLifecycle(esc({ stewardAttempts: 1 }))).toBe('escalated-to-human');
   });
 
   it('escalated-to-human: a steward attempt was burned without auto-resolving', () => {
@@ -73,9 +73,9 @@ describe('classifyEscalationLifecycle', () => {
   });
 
   it('escalated-to-human takes precedence over a stale suggestion while open', () => {
-    // Grok suggested AND then routed to human → the live state is needs-you.
+    // Grok suggested AND then burned a steward attempt → the live state is needs-you.
     expect(
-      classifyEscalationLifecycle(esc({ suggestedAction: suggestion, routedTo: 'steward' })),
+      classifyEscalationLifecycle(esc({ suggestedAction: suggestion, stewardAttempts: 1 })),
     ).toBe('escalated-to-human');
   });
 });
@@ -83,7 +83,7 @@ describe('classifyEscalationLifecycle', () => {
 describe('lifecycle predicates + presentation', () => {
   it('predicates match the classifier', () => {
     expect(isTriaging(esc({ triageInFlight: true }))).toBe(true);
-    expect(isEscalatedToHuman(esc({ routedTo: 'steward' }))).toBe(true);
+    expect(isEscalatedToHuman(esc({ stewardAttempts: 1 }))).toBe(true);
     expect(isAiResolved(esc({ status: 'resolved', resolvedBy: 'ai' }))).toBe(true);
     expect(isTriaging(esc({}))).toBe(false);
   });
@@ -91,11 +91,11 @@ describe('lifecycle predicates + presentation', () => {
   it('presentation: only ai-handling shows a spinner', () => {
     expect(lifecyclePresentation(esc({ triageInFlight: true })).spinner).toBe(true);
     expect(lifecyclePresentation(esc({})).spinner).toBe(false);
-    expect(lifecyclePresentation(esc({ routedTo: 'steward' })).spinner).toBe(false);
+    expect(lifecyclePresentation(esc({ stewardAttempts: 1 })).spinner).toBe(false);
   });
 
   it('presentation: labels carry the right token', () => {
-    expect(lifecyclePresentation(esc({ routedTo: 'steward' })).token).toBe('escalated-to-human');
+    expect(lifecyclePresentation(esc({ stewardAttempts: 1 })).token).toBe('escalated-to-human');
     expect(lifecyclePresentation(esc({ status: 'resolved', resolvedBy: 'ai' })).label).toBe('AI resolved');
   });
 });
