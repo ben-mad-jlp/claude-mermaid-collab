@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import Database from 'bun:sqlite';
-import { join } from 'node:path';
-import { mkdirSync, rmSync } from 'node:fs';
+import { join, sep } from 'node:path';
+import { mkdirSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
   deriveAudience,
   createEscalation,
   getEscalation,
+  setEscalationOperatorGated,
   _closeDb,
 } from '../supervisor-store';
 
@@ -129,5 +130,56 @@ describe('escalation-audience', () => {
     // Verify persistence
     const refetched = getEscalation(escalation.id);
     expect(refetched!.audience).toBe('internal');
+  });
+
+  it('static scan: no src/ routing decision reads routedTo', () => {
+    const root = join(__dirname, '..', '..');
+    const offenders: string[] = [];
+
+    function walk(dir: string) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.name.endsWith('.ts')) continue;
+        if (full.includes(`${sep}__tests__${sep}`)) continue;
+        if (full.endsWith(`${sep}escalation-history.ts`)) continue;
+        if (full.endsWith(`${sep}supervisor-store.ts`)) continue; // legacy field/column/migration only
+        const isHistoryFilterFile =
+          full.endsWith(`${sep}supervisor-tools.ts`) || full.endsWith(`${sep}supervisor-routes.ts`);
+        const lines = readFileSync(full, 'utf-8').split('\n');
+        lines.forEach((line, idx) => {
+          if (!/routedTo|routeEscalation/.test(line)) return;
+          if (isHistoryFilterFile) {
+            if (line.includes('escalation_history')) return;
+            if (line.includes("routedTo: { type: 'string'")) return;
+            if (line.includes("if (str('routedTo'))")) return;
+            if (line.includes('routedTo?: string')) return;
+          }
+          offenders.push(`${full}:${idx + 1}`);
+        });
+      }
+    }
+
+    walk(root);
+    console.log(offenders);
+    expect(offenders.length).toBe(0);
+  });
+
+  it('audience decides visibility: operator-gate flips audience to human', () => {
+    const { escalation } = createEscalation({
+      project: 'test-proj',
+      session: 'test-sess',
+      kind: 'question',
+      questionText: 'test q',
+      audience: 'internal',
+    });
+    expect(escalation.audience).toBe('internal');
+    expect(getEscalation(escalation.id)!.audience).toBe('internal');
+
+    setEscalationOperatorGated(escalation.id, true);
+    expect(getEscalation(escalation.id)!.audience).toBe('human');
   });
 });
