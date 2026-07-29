@@ -9,6 +9,20 @@ import { planPanelModels, assertDistinctPanel, PANEL_LENS_TIMEOUT_MS } from './c
 import { invokeNode, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { missionIdOfCriterion, listCriteria } from './mission-store.js';
 import { handleMissionTool } from '../mcp/mission-tools.js';
+import { readMainCheckoutHead, type GitRunner } from './main-checkout-invariant.js';
+
+const defaultRunGit: GitRunner = async (cwd, args) => {
+  const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited,
+  ]);
+  return { code: code ?? 1, stdout, stderr };
+};
+
+async function defaultHeadSha(project: string): Promise<string | undefined> {
+  const state = await readMainCheckoutHead(project, defaultRunGit);
+  return state.sha || undefined;
+}
 
 export interface RunPanelDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
@@ -39,7 +53,7 @@ export async function runCriterionVerifyPanel(
     throw new Error(`criterion not found in mission: ${criterionId}`);
   }
 
-  const currentHeadSha = deps.headSha?.();
+  const currentHeadSha = deps.headSha ? deps.headSha() : await defaultHeadSha(project);
   if (
     criterion.verifiedAtSha != null &&
     currentHeadSha != null &&

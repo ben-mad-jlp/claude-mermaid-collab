@@ -242,4 +242,76 @@ describe('runCriterionVerifyPanel', () => {
     expect(result.invocations).toBe(0);
     expect(invokeCallCount.count).toBe(0);
   });
+
+  async function initGitRepo(cwd: string): Promise<string> {
+    const run = async (args: string[]) => {
+      const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+      await p.exited;
+    };
+    await run(['init']);
+    await run(['-c', 'user.email=test@test.com', '-c', 'user.name=test', 'commit', '--allow-empty', '-m', 'init']);
+    const revParse = Bun.spawn(['git', 'rev-parse', 'HEAD'], { cwd, stdout: 'pipe', stderr: 'pipe' });
+    const sha = (await new Response(revParse.stdout).text()).trim();
+    await revParse.exited;
+    return sha;
+  }
+
+  test('unchanged-sha via real HEAD, no headSha dep, uses production default resolver', async () => {
+    const realSha = await initGitRepo(project);
+    const { criterion } = await setupMissionWithCriterion();
+
+    setCriterionVerdict(project, criterion.id, {
+      met: true,
+      evidence: 'prior verdict',
+      verifiedBy: 'test',
+      verifiedAtSha: realSha,
+      evidencePaths: [],
+    });
+
+    const invokeCallCount = { count: 0 };
+    const countingSpy = async (_spec: NodeSpec): Promise<NodeResult> => {
+      invokeCallCount.count++;
+      return {
+        ok: true,
+        exitCode: 0,
+        stdout: 'VERDICT: PASS',
+        durationMs: 1000,
+        rateLimited: false,
+        authMode: 'subscription',
+      };
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, { invoke: countingSpy });
+
+    expect(result.skipped).toBe('unchanged-sha');
+    expect(result.invocations).toBe(0);
+    expect(invokeCallCount.count).toBe(0);
+  });
+
+  test('production recordVerdict records the real HEAD sha via verifiedAtSha', async () => {
+    const realSha = await initGitRepo(project);
+    const { criterion } = await setupMissionWithCriterion();
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
+      return {
+        ok: true,
+        exitCode: 0,
+        stdout: 'VERDICT: PASS',
+        durationMs: 1000,
+        rateLimited: false,
+        authMode: 'subscription',
+      };
+    };
+
+    const firstResult = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+    });
+
+    expect(firstResult.skipped).toBeUndefined();
+    expect(firstResult.invocations).toBe(3);
+
+    const updated = listCriteria(project, criterion.todoId).find((c) => c.id === criterion.id);
+    expect(updated?.verifiedAtSha).toBe(realSha);
+    expect(updated?.verifiedAtSha).toMatch(/^[0-9a-f]{40}$/);
+  });
 });
