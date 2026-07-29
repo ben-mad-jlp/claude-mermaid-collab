@@ -292,6 +292,7 @@ export function surfaceDirtyLandBlocker(
     session,
     todoId: ctx.todoId ?? null,
     kind: 'blocker',
+    audience: 'human',
     questionText,
     conditionKey: cond.conditionKey,
     conditionTuple: cond.conditionTuple,
@@ -355,6 +356,7 @@ export function surfaceStuckAutoLand(
     session,
     todoId: null,
     kind: 'blocker',
+    audience: 'human',
     questionText,
     conditionKey: cond.conditionKey,
     conditionTuple: cond.conditionTuple,
@@ -631,6 +633,7 @@ export async function surfaceEpicLand(
         session,
         todoId: id ?? null,
         kind: 'decision',
+        audience: 'human',
         questionText: `Epic ${epicId.slice(0, 8)} spans repos ${repos.map((p) => path.basename(p)).join(', ')}, but ${ambiguous.length} child todo(s) have no targetProject so they can't be assigned to a repo to land. Assign a targetProject to each, then re-land.`,
         options: [
           { id: 'tracking', label: `Treat as ${path.basename(project)}`, detail: `Land the orphan child(ren) with the tracking repo ${project}.` },
@@ -683,6 +686,7 @@ export async function surfaceEpicLand(
         session,
         todoId: linkTodoId,
         kind: 'epic-ready-to-land',
+        audience: 'human',
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
         conditionKey: cond.conditionKey,
         conditionTuple: cond.conditionTuple,
@@ -903,6 +907,7 @@ async function checkStaleness(
         session: ctx.session,
         todoId: ctx.todoId,
         kind: 'assumption-invalidated',
+        audience: 'human',
         conditionKey: cond.conditionKey,
         conditionTuple: cond.conditionTuple,
         questionText:
@@ -944,6 +949,7 @@ async function runProofStage(
       session: ctx.session,
       todoId: ctx.todoId,
       kind: 'assumption-invalidated',
+      audience: 'human',
       questionText: `Land blocked — ${proof.reason} (tip ${epicBranch.slice(0, 8)}). Master is UNTOUCHED.\n${proof.detail}`,
       conditionKey: cond.conditionKey,
       conditionTuple: cond.conditionTuple,
@@ -988,6 +994,7 @@ async function runMerge(
       session: ctx.session,
       todoId: ctx.todoId,
       kind: 'assumption-invalidated',
+      audience: 'human',
       questionText: `Land conflict: epic ${ctx.epicBranch} did not merge cleanly into master (master untouched). Rebase ${ctx.epicBranch} onto master, resolve conflicts, then re-land.`,
       conditionKey: cond.conditionKey,
       conditionTuple: cond.conditionTuple,
@@ -1061,6 +1068,7 @@ async function runPostLandGuard(
     createEscalation({
       project: ctx.project, session: ctx.session, todoId: ctx.todoId,
       kind: 'blocker',
+      audience: 'human',
       conditionKey: cond.conditionKey,
       conditionTuple: cond.conditionTuple,
       questionText:
@@ -1098,6 +1106,7 @@ async function runPostLandGuard(
       project: ctx.project, session: ctx.session, todoId: ctx.todoId,
       kind: 'assumption-invalidated',
       operatorGated: true,
+      audience: 'human',
       conditionKey: cond.conditionKey,
       conditionTuple: cond.conditionTuple,
       questionText:

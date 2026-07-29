@@ -1027,6 +1027,7 @@ function raiseReopenChurnCard(
   try {
     createEscalation({
       project, session, kind: 'mission-criterion-churn',
+      audience: 'human',
       questionText, todoId: c.todoId, operatorGated: false,
     });
   } catch {

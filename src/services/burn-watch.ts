@@ -126,6 +126,7 @@ export async function runBurnWatchPass(
         session: BURN_WATCH_SESSION,
         kind: TOKEN_BURN_KIND,
         operatorGated: true, // a human decides whether it's a real leak or expected load
+        audience: 'human',
         questionText: burnCardText(leak),
         todoId: null,
       });

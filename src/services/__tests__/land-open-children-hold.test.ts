@@ -253,6 +253,7 @@ describe('landEpic — land-time re-check wiring smoke test', () => {
       kind: 'leaf',
     });
     const { escalation } = createEscalation({
+      audience: 'internal',
       project: repo,
       session: 'sX',
       kind: 'epic-ready-to-land',

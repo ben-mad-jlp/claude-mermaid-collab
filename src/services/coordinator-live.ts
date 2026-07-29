@@ -202,6 +202,7 @@ function overDailyBudget(project: string): boolean {
         session: '',
         kind: 'blocker',
         todoId: '',
+        audience: 'human',
         questionText: `Daily worker budget reached for ${project}: spent $${spent.toFixed(2)} ≥ cap $${cap.toFixed(2)} since midnight. ` +
           `The coordinator has STOPPED claiming new work for this project today (running lanes finish). Raise WORKER_BUDGET_DAILY or wait for the daily reset.`,
         conditionKey: coordinatorCondition('blocker', COORDINATOR_CONDITION_REASONS.dailyBudget, project).conditionKey,
@@ -680,6 +681,7 @@ async function reopenStrandedAccept(
       session,
       todoId,
       kind: 'assumption-invalidated',
+      audience: 'human',
       questionText: `Stranded acceptance reversed: todo "${title}" was marked done+accepted but its work never reached the epic branch ${epicBranch} (no commit, or a lane that never merged). It has been re-surfaced (status=ready) for re-integration${rolledUp.length ? `; ${rolledUp.length} prematurely-rolled-up epic(s) were re-opened` : ''}.`,
       conditionKey: coordinatorCondition('assumption-invalidated', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.strandedAcceptReversed).conditionKey,
               conditionTuple: coordinatorCondition('assumption-invalidated', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.strandedAcceptReversed).conditionTuple,
@@ -742,6 +744,7 @@ async function parkStrandedAccept(
       session,
       todoId,
       kind: 'blocker',
+      audience: 'human',
       questionText: `Stranded acceptance could NOT be integrated after ${reversals} re-attempts: "${title}" keeps being accepted but its commit never becomes reachable from ${intRef}, and the epic→integration land keeps failing. Re-building won't help (the land is structurally stuck — e.g. the work was merged to the integration branch out-of-band). PARKED (held) to stop the re-claim loop. Integrate the epic / mark this todo done by hand, then clear the hold.`,
       conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.parkedHeldReopenCap).conditionKey,
               conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.parkedHeldReopenCap).conditionTuple,
@@ -768,6 +771,7 @@ async function parkRedispatchCap(project: string, todoId: string, title: string,
       session,
       todoId,
       kind: 'blocker',
+      audience: 'human',
       questionText: `Re-dispatch cap: "${title}" has been dispatched ${dispatches}× without reaching done/accepted — each dispatch re-runs (and re-pays) a full blueprint, so this is a LOOP, not progress. PARKED (held) to stop the re-blueprint burn. Investigate the root cause (\`leaf_inspect ${todoId.slice(0, 8)}\` for the failure/parseError), fix the leaf spec / a bad constraint or drop it, then \`reset_todo\` to grant a fresh attempt.`,
       conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.redispatchCap).conditionKey,
               conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.redispatchCap).conditionTuple,
@@ -981,6 +985,7 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
               session: 'bp1-stranded-foundation',
               todoId: depId,
               kind: 'assumption-invalidated',
+              audience: 'human',
               questionText: `Dependents are blocked at \`drive\`: foundation todo ${depId} is done+accepted, but its commit is reachable from NEITHER trunk (${intRef ?? 'unresolved'}) NOR the dependent's epic branch (${tEpicBranch}) — i.e. its work never reached the epic accumulation branch (no Collab-Todo trailer; e.g. landed out-of-band). Its dependents can't be claimed until it's integrated. Fix: re-land/merge the foundation onto ${tEpicBranch} (stamping its trailer), or drop the project to \`build\` to build dependents on the epic branch instead.`,
               conditionKey: coordinatorCondition('assumption-invalidated', depId.slice(0, 8), COORDINATOR_CONDITION_REASONS.bp1StrandedFoundation).conditionKey,
               conditionTuple: coordinatorCondition('assumption-invalidated', depId.slice(0, 8), COORDINATOR_CONDITION_REASONS.bp1StrandedFoundation).conditionTuple,
@@ -1174,6 +1179,7 @@ export async function sweepStrandedAccepted(
       project,
       session: BP0_SUMMARY_SESSION,
       kind: BP0_STRANDED_SUMMARY_KIND,
+      audience: 'human',
       questionText:
         'Stranded acceptances detected in this project: one or more todos are marked done+accepted but their work is NOT on the epic branch (commit stranded on a lane branch, or accepted with no commit). Re-integrate the lane branches onto their epic branch, or re-open the todos. Current flagged ids are in this card and in the supervisor audit (bp0: stranded-accept-sweep).',
       options: [{ id: 'review', label: 'Review flagged todos', detail }],
@@ -1536,6 +1542,7 @@ async function coordinatorCompleteTodo(
           session,
           todoId: id,
           kind: 'assumption-invalidated',
+          audience: 'human',
           questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${displayTitle(r.completed)}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
           conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionKey,
           conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackConflict).conditionTuple,
@@ -1626,6 +1633,7 @@ async function coordinatorCompleteTodo(
               session,
               todoId: id,
               kind: 'assumption-invalidated',
+              audience: 'human',
               questionText: `Stranded leaf: todo "${displayTitle(r.completed)}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
               conditionKey: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionKey,
           conditionTuple: coordinatorCondition('assumption-invalidated', id.slice(0, 8), epicId.slice(0, 8), COORDINATOR_CONDITION_REASONS.mergeBackFailed).conditionTuple,
@@ -1872,7 +1880,7 @@ async function coordinatorLaunchWorker(project: string, todo: Todo): Promise<boo
         // lease-fix guard). Clear it here. Best-effort — telemetry never blocks.
         try { clearLeafInflight(todo.id); } catch { /* best-effort */ }
         try {
-          createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
+          createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id, audience: 'human',
             questionText: `Leaf-executor failed for "${displayTitle(todo)}": ${e instanceof Error ? e.message : String(e)}`,
             conditionKey: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionKey,
             conditionTuple: coordinatorCondition('blocker', todo.id.slice(0, 8), COORDINATOR_CONDITION_REASONS.leafExecutorError).conditionTuple });
@@ -1904,6 +1912,7 @@ async function coordinatorLaunchWorker(project: string, todo: Todo): Promise<boo
       session: poolName,
       kind: 'blocker',
       todoId: todo.id,
+      audience: 'human',
       questionText:
         `No worker lane for "${displayTitle(todo)}": the interactive worker lane was retired (P7) and ` +
         `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
@@ -2037,6 +2046,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // card resolves by todoId, so a neutral label is safe when unspawned).
         session: todo?.sessionName ?? 'unassigned',
         kind: 'blocker',
+        audience: 'human',
         questionText: `Todo "${todo ? displayTitle(todo) : todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
         todoId,
         conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.retryExhausted).conditionKey,
@@ -2083,6 +2093,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           session,
           kind: 'blocker',
           todoId: trip.todoId,
+          audience: 'human',
           questionText:
             `Lane "${todo ? displayTitle(todo) : trip.todoId}" hit a HARD budget cap and was PARKED (blocked, cannot re-spawn). ` +
             `Trip: ${trip.reason}. ` +
@@ -2116,6 +2127,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           project,
           session: todo?.sessionName ?? 'unassigned',
           kind: 'blocker',
+          audience: 'human',
           questionText: `Leaf "${todo ? displayTitle(todo) : entry.todoId}" is RATE-CAP exhausted — the claude.ai account stayed capped for over 2h. Parked blocked; needs a human (wait for the cap to reset, then re-open, or split/drop).`,
           todoId: entry.todoId,
           conditionKey: coordinatorCondition('blocker', entry.todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.rateCapExhausted).conditionKey,
@@ -2132,6 +2144,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // card resolves by todoId, so a neutral label is safe when unspawned).
         session: todo?.sessionName ?? 'unassigned',
         kind: 'blocker',
+        audience: 'human',
         questionText: `Worker REJECTED todo "${todo ? displayTitle(todo) : todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
         todoId,
         conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.gateRejected).conditionKey,

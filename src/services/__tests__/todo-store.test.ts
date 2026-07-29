@@ -1261,9 +1261,9 @@ describe('steward verbs', () => {
   test('resetTodo auto-resolves the todo\'s open escalations (re-promote supersedes stale red)', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected-leaf', status: 'blocked' });
     // A blocker raised against this todo (the 'paused on a human' red signal).
-    const { escalation: e } = createEscalation({ project, session: 'leaf-exec-x', kind: 'blocker', todoId: t.id, questionText: 'rejected — gate failed' });
+    const { escalation: e } = createEscalation({ project, session: 'leaf-exec-x', kind: 'blocker', todoId: t.id, questionText: 'rejected — gate failed', audience: 'human' });
     // An UNRELATED open escalation (different todo) must NOT be touched.
-    const { escalation: other } = createEscalation({ project, session: 's2', kind: 'blocker', todoId: 'someone-else', questionText: 'unrelated' });
+    const { escalation: other } = createEscalation({ project, session: 's2', kind: 'blocker', todoId: 'someone-else', questionText: 'unrelated', audience: 'human' });
     expect(getEscalation(e.id)?.status).toBe('open');
 
     await resetTodo(project, t.id, 'ready');
