@@ -10,6 +10,8 @@
  * This module only builds and exports CORPUS — it does not wire into any harness or gate.
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { DiffLeafKind } from '../../src/services/diff-contract.ts';
 
 /** One historical landed leaf, mined from this repo's own git history: the leaf spec a
@@ -127,7 +129,7 @@ function stripSubjectPrefix(subject: string): string {
   return subject.replace(/^[a-zA-Z]+(\([a-zA-Z_-]+\))?:\s*/, '').trim();
 }
 
-function buildCorpus(): CorpusCase[] {
+function buildCorpusFromHistory(): CorpusCase[] {
   const commits = parseLog();
   const cases: CorpusCase[] = [];
   const seenKinds = new Set<DiffLeafKind>();
@@ -168,4 +170,67 @@ function buildCorpus(): CorpusCase[] {
   return cases;
 }
 
-export const CORPUS: CorpusCase[] = buildCorpus();
+export const CORPUS_DROPPED: { id: string; reason: string }[] = [];
+
+function buildCorpusFromPin(pinnedIds: string[]): CorpusCase[] {
+  const cases: CorpusCase[] = [];
+  const seenKinds = new Set<DiffLeafKind>();
+
+  for (const id of pinnedIds) {
+    let sha: string;
+    try {
+      sha = git(['rev-parse', `${id}^{commit}`]).trim();
+    } catch {
+      CORPUS_DROPPED.push({ id, reason: 'unresolvable' });
+      continue;
+    }
+
+    const parentsOut = git(['log', '-1', '--pretty=%P', sha]).trim();
+    const parents = parentsOut.length > 0 ? parentsOut.split(/\s+/) : [];
+    if (parents.length !== 1) {
+      CORPUS_DROPPED.push({ id, reason: 'not single-parent' });
+      continue;
+    }
+    const parentSha = parents[0];
+
+    const subjectBodyOut = git(['log', '-1', `--pretty=%s${UNIT_SEP}%b`, sha]);
+    const [subjectRaw, bodyRaw = ''] = subjectBodyOut.split(UNIT_SEP);
+    const subject = subjectRaw.trim();
+    const body = bodyRaw.trim();
+
+    const touchedFiles = getTouchedFiles(parentSha, sha);
+    const leafKind = classifyLeafKind(subject, touchedFiles);
+    const changedSymbols = extractChangedSymbols(sha, parentSha, touchedFiles);
+
+    cases.push({
+      id,
+      commitSha: sha,
+      leafKind,
+      spec: {
+        title: stripSubjectPrefix(subject),
+        description: body,
+        files: touchedFiles,
+      },
+      diff: {
+        baseSha: parentSha,
+        touchedFiles,
+        changedSymbols,
+      },
+    });
+    seenKinds.add(leafKind);
+  }
+
+  if (cases.length < MIN_CASES || seenKinds.size < MIN_LEAF_KINDS) {
+    throw new Error(
+      `buildCorpusFromPin produced too few cases: cases=${cases.length} (min ${MIN_CASES}), leafKinds=${seenKinds.size} (min ${MIN_LEAF_KINDS})`,
+    );
+  }
+
+  return cases;
+}
+
+const PIN_PATH = join(import.meta.dir, 'corpus-pin.json');
+
+export const CORPUS: CorpusCase[] = existsSync(PIN_PATH)
+  ? buildCorpusFromPin((JSON.parse(readFileSync(PIN_PATH, 'utf8')) as { ids: string[] }).ids)
+  : buildCorpusFromHistory();

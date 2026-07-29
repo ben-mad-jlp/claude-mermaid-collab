@@ -14,7 +14,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CORPUS, type CorpusCase } from './corpus';
+import { CORPUS, CORPUS_DROPPED, type CorpusCase } from './corpus';
 
 const OUT = join(import.meta.dir, 'results');
 const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
@@ -22,7 +22,13 @@ const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encodi
 const GATE_MIN_ACCEPT_RATE = 0.7;
 const GATE_MIN_MATCH_RATE = 0.6;
 
-interface RunSummary {
+const BASELINE_COMMIT = '7f473bf8';
+const BASELINE_TOTAL = 77;
+const BASELINE_ACCEPT_RATE = 0.481;
+const BASELINE_MEAN_MATCH_RATE = 0.595;
+const BASELINE_VALIDATION_COUNTS: Record<string, number> = { accept: 37, 'missing:named-test': 34, 'parse-null': 6 };
+
+export interface RunSummary {
   total: number;
   parsed: number;
   unparsed: string[];
@@ -56,7 +62,7 @@ export interface AggregateStats {
   leafKindMismatchCount: number;
 }
 
-interface ScoreFile {
+export interface ScoreFile {
   scores: CaseScore[];
   aggregate: AggregateStats;
 }
@@ -124,7 +130,7 @@ export function computeGateVerdict(agg: AggregateStats): GateVerdict {
   };
 }
 
-function buildReport(run: RunSummary, score: ScoreFile, gate: GateVerdict): string {
+export function buildReport(run: RunSummary, score: ScoreFile, gate: GateVerdict): string {
   const corpusById = new Map(CORPUS.map((c: CorpusCase) => [c.id, c]));
   const model = process.env.BLUEPRINT_MODEL || 'sonnet';
   const effort = process.env.BLUEPRINT_EFFORT || 'medium';
@@ -136,6 +142,23 @@ function buildReport(run: RunSummary, score: ScoreFile, gate: GateVerdict): stri
   lines.push(`- parsed: ${run.parsed}`);
   lines.push(`- unparsed: ${run.unparsed.length} (${run.unparsed.join(', ') || 'none'})`);
   lines.push(`- blueprint model=${model} effort=${effort}`);
+  lines.push('');
+
+  lines.push('## Corpus provenance');
+  lines.push('');
+  lines.push(`- total cases: ${run.total}`);
+  lines.push(`- corpus pinned to ${BASELINE_COMMIT}'s case list`);
+  lines.push(`- ${run.total === BASELINE_TOTAL ? 'MATCH' : 'MISMATCH'} against baseline total of ${BASELINE_TOTAL}`);
+  lines.push('');
+  lines.push('| id | reason |');
+  lines.push('| --- | --- |');
+  if (CORPUS_DROPPED.length === 0) {
+    lines.push('| none | none |');
+  } else {
+    for (const d of CORPUS_DROPPED) {
+      lines.push(`| ${d.id} | ${d.reason} |`);
+    }
+  }
   lines.push('');
 
   lines.push('## Acceptance table');
@@ -166,6 +189,29 @@ function buildReport(run: RunSummary, score: ScoreFile, gate: GateVerdict): stri
   lines.push(`- total undeclared-actual: ${score.aggregate.totalUndeclaredActual}`);
   lines.push(`- total declared-but-untouched: ${score.aggregate.totalDeclaredButUntouched}`);
   lines.push(`- leafKind mismatches: ${score.aggregate.leafKindMismatchCount}/${score.aggregate.total}`);
+  lines.push('');
+
+  lines.push('## Baseline comparison (crit 7 @ 7f473bf8)');
+  lines.push('');
+  lines.push('| mode | baseline count | baseline % | this run count | this run % |');
+  lines.push('| --- | --- | --- | --- | --- |');
+  const modeKeys = new Set<string>([
+    ...Object.keys(BASELINE_VALIDATION_COUNTS),
+    ...Object.keys(score.aggregate.validationCounts),
+  ]);
+  for (const key of modeKeys) {
+    const baselineCount = BASELINE_VALIDATION_COUNTS[key] ?? 0;
+    const baselinePct = BASELINE_TOTAL > 0 ? ((baselineCount / BASELINE_TOTAL) * 100).toFixed(1) : '0.0';
+    const thisCount = score.aggregate.validationCounts[key] ?? 0;
+    const thisPct = score.aggregate.total > 0 ? ((thisCount / score.aggregate.total) * 100).toFixed(1) : '0.0';
+    lines.push(`| ${key} | ${baselineCount} | ${baselinePct}% | ${thisCount} | ${thisPct}% |`);
+  }
+  lines.push('');
+  const thisRunAcceptRate = score.aggregate.total > 0 ? (score.aggregate.validationCounts['accept'] ?? 0) / score.aggregate.total : 0;
+  const acceptRateDeltaPp = (thisRunAcceptRate - BASELINE_ACCEPT_RATE) * 100;
+  const acceptRateDeltaStr = `${acceptRateDeltaPp >= 0 ? '+' : ''}${acceptRateDeltaPp.toFixed(1)}pp`;
+  lines.push(`- acceptRate delta: ${acceptRateDeltaStr} (baseline ${(BASELINE_ACCEPT_RATE * 100).toFixed(1)}%, this run ${(thisRunAcceptRate * 100).toFixed(1)}%)`);
+  lines.push(`- baseline meanMatchRate: ${(BASELINE_MEAN_MATCH_RATE * 100).toFixed(1)}%`);
   lines.push('');
 
   lines.push('## GATE verdict');

@@ -4,10 +4,12 @@
  * computeGateVerdict against inline DiffContract/AggregateStats literals — no corpus.ts, no
  * fixture .md files, no spawned node.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'bun:test';
 import { parseDiffContract, validateContractForKind, renderContract, type DiffContract } from '../../../src/services/diff-contract';
 import { classifyValidation, scoreFileMatch, type EmitResult } from '../score';
-import { computeGateVerdict, type AggregateStats } from '../run';
+import { computeGateVerdict, buildReport, type AggregateStats, type RunSummary, type ScoreFile, type GateVerdict } from '../run';
 import { emitWithRepair } from '../emit';
 
 const acceptContract: DiffContract = {
@@ -20,8 +22,8 @@ const acceptContract: DiffContract = {
   tasks: [{ id: 't1', files: ['src/util/time.ts'], description: 'add helper' }],
   leafKind: 'feature',
   requirements: [
-    { kind: 'symbol-present', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
-    { kind: 'named-test', testFile: 'src/util/__tests__/time.test.ts', testName: 'formats ms', mechanical: true },
+    { kind: 'symbol-present', id: 'r1', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
+    { kind: 'named-test', id: 'r2', testFile: 'src/util/__tests__/time.test.ts', testName: 'formats ms', mechanical: true },
   ],
   outOfScope: [],
 };
@@ -35,7 +37,7 @@ describe('parseDiffContract + validateContractForKind classification', () => {
     const contract: DiffContract = {
       ...acceptContract,
       requirements: [
-        { kind: 'named-test', testFile: 'src/util/__tests__/time.test.ts', testName: 'formats ms', mechanical: true },
+        { kind: 'named-test', id: 'r2', testFile: 'src/util/__tests__/time.test.ts', testName: 'formats ms', mechanical: true },
       ],
     };
     expect(validateContractForKind(contract, 'feature')).toEqual({ underspecified: true, missingField: 'symbol-present' });
@@ -45,7 +47,7 @@ describe('parseDiffContract + validateContractForKind classification', () => {
     const contract: DiffContract = {
       ...acceptContract,
       requirements: [
-        { kind: 'symbol-present', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
+        { kind: 'symbol-present', id: 'r1', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
       ],
     };
     expect(validateContractForKind(contract, 'feature')).toEqual({ underspecified: true, missingField: 'named-test' });
@@ -150,7 +152,7 @@ describe('computeGateVerdict', () => {
 const underspecFeature: DiffContract = {
   ...acceptContract,
   requirements: [
-    { kind: 'symbol-present', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
+    { kind: 'symbol-present', id: 'r1', file: 'src/util/time.ts', symbol: 'formatDuration', description: 'new formatter' },
   ], // missing named-test → underspecified for 'feature'
 };
 
@@ -191,5 +193,55 @@ describe('emitWithRepair', () => {
     const out = await emitWithRepair(fakeCase, spawn);
     expect(out.repairSpawns).toBe(1);
     expect(validateContractForKind(out.contract!, out.contract!.leafKind)).toEqual({ underspecified: true, missingField: 'named-test' });
+  });
+});
+
+describe('corpus-pin.json', () => {
+  it('has at least 10 unique ids', () => {
+    const raw = readFileSync(join(import.meta.dir, '../corpus-pin.json'), 'utf8');
+    const pin = JSON.parse(raw) as { baselineCommit: string; ids: string[] };
+    expect(pin.ids.length).toBeGreaterThanOrEqual(10);
+    expect(new Set(pin.ids).size).toBe(pin.ids.length);
+  });
+});
+
+describe('buildReport provenance + baseline sections', () => {
+  it('includes corpus provenance, baseline comparison, and preserves the GATE verdict section', () => {
+    const run: RunSummary = { total: 2, parsed: 2, unparsed: [] };
+    const score: ScoreFile = {
+      scores: [
+        {
+          id: 'c1',
+          leafKindExpected: 'feature',
+          leafKindActual: 'feature',
+          leafKindMismatch: false,
+          validation: 'accept',
+          fileMatch: null,
+        },
+      ],
+      aggregate: {
+        total: 2,
+        validationCounts: { accept: 1, 'parse-null': 1 },
+        meanMatchRate: 0.5,
+        totalMatched: 0,
+        totalUndeclaredActual: 0,
+        totalDeclaredButUntouched: 0,
+        leafKindMismatchCount: 0,
+      },
+    };
+    const gate: GateVerdict = { verdict: 'ESCALATE', reason: 'test' };
+
+    const report = buildReport(run, score, gate);
+
+    expect(report).toContain('## Corpus provenance');
+    expect(report.includes('MATCH') || report.includes('MISMATCH')).toBe(true);
+    expect(report).toContain('## Baseline comparison (crit 7 @ 7f473bf8)');
+    expect(report).toContain('48.1%');
+
+    const gateSectionIdx = report.indexOf('## GATE verdict');
+    expect(gateSectionIdx).toBeGreaterThan(-1);
+    const afterGateHeader = report.slice(gateSectionIdx).split('\n').filter((l) => l.trim().length > 0);
+    // afterGateHeader[0] is the header itself; the first content line follows
+    expect(afterGateHeader[1].startsWith('**')).toBe(true);
   });
 });
