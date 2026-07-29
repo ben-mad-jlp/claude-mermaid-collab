@@ -161,7 +161,7 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
     const { getWorktreeManager } = await import('./coordinator-live.js');
     return getWorktreeManager(targetProject).ensureEpic(epicId, targetProject);
   });
-  const runGate = io?.runGate ?? ((cwd, cfg) => runBaseGate(cwd, cfg, defaultGateSpawn));
+  const injectedRunGate = io?.runGate;
   const forwardIntegrate = io?.forwardIntegrate ?? (async (epicId, targetProject) => {
     const { getWorktreeManager } = await import('./coordinator-live.js');
     const wm = getWorktreeManager(targetProject);
@@ -172,6 +172,8 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
     try {
       try { await forwardIntegrate(epicId, targetProject); } catch { /* best-effort */ }
       const sha = await headSha(epicId, targetProject);
+      const runGate = injectedRunGate ?? ((cwd: string, cfg: LeafGateConfig) =>
+        runBaseGate(cwd, cfg, defaultGateSpawn, sha ? { project: targetProject, baseSha: sha } : undefined));
       const cached = getEpicBaseGate(epicId, sha);
       if (cached && shouldHonourCachedBaseGate(cached, now?.()) === 'honour') {
         return cached.status === 'pass' ? 'pass' : cached.status === 'fail' ? 'fail' : 'error';

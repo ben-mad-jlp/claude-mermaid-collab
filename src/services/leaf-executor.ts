@@ -3876,7 +3876,7 @@ export async function makeLeafExecutorDeps(
         // resolves upward), AFTER forwardIntegrateEpic so we gate the base a leaf will
         // actually fork from.
         ensureEpicWorktree: () => wm.ensureEpic(epicId, targetProject),
-        runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn),
+        runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined),
       });
     },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
