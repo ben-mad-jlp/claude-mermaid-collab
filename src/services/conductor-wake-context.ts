@@ -212,10 +212,10 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
   const panelStakes = (input.stakes ?? []).filter((s) => s.panel === true);
   if (panelStakes.length > 0) {
     const lensNames = VERIFY_LENSES.join(', ');
-    lines.push('HIGH-STAKES VERIFY — verify each of these with 2–3 DISTINCT lenses, NOT one checker:');
+    lines.push('HIGH-STAKES VERIFY — automatically paneled by the conductor pass:');
     lines.push(
-      `  Run the panel — the three lenses are: ${lensNames}. Pass per-lens PASS/FAIL as \`panelVerdicts\`` +
-        ' to `set_mission_criterion`; the code joins by MAJORITY (a split records not-met with dissent).',
+      `  The three lenses (${lensNames}) already ran this pass; verdicts are recorded.` +
+        ' (A criterion below with its verdict unchanged since the last check is informational — already verified.)',
     );
     const shown = panelStakes.slice(0, WAKE_CRITERION_RENDER_CAP);
     for (const s of shown) {
