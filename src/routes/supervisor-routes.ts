@@ -221,11 +221,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const project = url.searchParams.get('project');
       if (!project) return jsonError('project is required', 400);
       const session = url.searchParams.get('session') ?? undefined;
-      const { listMissions } = await import('../services/mission-store.ts');
+      const { listMissions, isMissionTerminal } = await import('../services/mission-store.ts');
       // withFacts:false — the list glance must NOT pay collectMissionStatusFacts per
       // mission (a project-wide todo scan + a ledger scan per epic, twice over). A
       // single-mission read that needs true facts goes through get_mission instead.
       const rows = listMissions(project, { session, withFacts: false });
+      // Order the page so the (at most one) ACTIVE mission — and live missions generally —
+      // can never be truncated off page 1 by the default cap. listMissions() returns rows in
+      // creation order; without this a project with more than DEFAULT_MISSIONS_LIST_LIMIT
+      // missions (mostly terminal) pushes a recently-created active mission past the first
+      // page, so the UI's page-1 glance renders "No active mission" while one is live.
+      // Mirrors the MCP list_missions active-first contract (src/mcp/mission-tools.ts) and
+      // adds non-terminal-first so accumulating converged missions can't crowd out the live one.
+      rows.sort((a, b) =>
+        Number(!!b.mission.active) - Number(!!a.mission.active) ||
+        Number(isMissionTerminal(a.mission)) - Number(isMissionTerminal(b.mission)) ||
+        (b.mission.createdAt ?? 0) - (a.mission.createdAt ?? 0));
       const rawLimit = Number(url.searchParams.get('limit'));
       const limit = Number.isFinite(rawLimit) && rawLimit > 0
         ? Math.min(Math.floor(rawLimit), MAX_MISSIONS_LIST_LIMIT)
