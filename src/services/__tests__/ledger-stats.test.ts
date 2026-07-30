@@ -198,6 +198,7 @@ describe('aggregations are blob-independent', () => {
     expect(runs[0].finalOutcome).toBe('accepted');
     expect(runs[0].reviewVerdict).toBe('pass');
     expect(runs[0].costUsd).toBeCloseTo(0.01); // summed node costUsd
+    expect(runs[0].attempts).toBe(1); // 1 blueprint row
 
     expect(JSON.stringify(runs).includes('BBBB')).toBe(false);
   });

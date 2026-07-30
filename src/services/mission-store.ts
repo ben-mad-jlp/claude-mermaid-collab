@@ -1423,10 +1423,12 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // ATTEMPTED and still failed, not one whose serves never got to run. An epic counts toward the
       // cap iff it made a genuine attempt: it has NO leaf children (a thin re-file — preserved as
       // thrash history, the existing deliberate behaviour), OR at least one descendant leaf settled
-      // (accepted|rejected), OR a ledger node actually spent under it. An epic whose leaves are all
-      // filed-but-unrun (dropped/blocked at attempts=0, zero nodes, none settled) is refunded, so the
-      // conductor can serve once more when the flake clears rather than the cap wedging a solvable
-      // criterion into a human-only 'escalate'.
+      // (accepted|rejected) whose matching ledger record (if any) shows `attempts >= 1` or
+      // `nodesSpent > 0`, OR a ledger record for the epic itself shows a settled outcome with a
+      // genuine attempt. The absence of any ledger record still counts (fail-open); only a record
+      // that POSITIVELY proves zero burn (e.g. an epic-base-red kill before any node ran) is
+      // refunded, so the conductor can serve once more when the flake clears rather than the cap
+      // wedging a solvable criterion into a human-only 'escalate'.
       const countsTowardServeCap = (e: Todo) => predCountsTowardServeCap(e, allTodos, capRuns, ledgerUnavailable);
       const servedEpicCount = allEpicsEver.filter(
         (e) => todoServesCriterion(e, c.id) &&

@@ -348,6 +348,7 @@ export interface LeafRunSummary {
   tier: string | null;
   lastTs: number;
   nodesSpent: number;
+  attempts: number;
   costUsd: number;
 }
 
@@ -377,6 +378,10 @@ export function listLeafRuns(
     const lastMarker = markers[markers.length - 1]; // run is ascending → last is newest
     let terminal: LeafRunStats['terminal'] = null;
     if (lastMarker?.outcomeDetail) { try { terminal = JSON.parse(lastMarker.outcomeDetail); } catch { terminal = null; } }
+    const attempts = Math.max(
+      nodeRows.filter((r) => r.nodeKind === 'blueprint').length,
+      nodeRows.length > 0 ? 1 : 0,
+    );
     out.push({
       leafId,
       project: group[0].project,
@@ -388,6 +393,7 @@ export function listLeafRuns(
       tier: terminal?.tier ?? null,
       lastTs: Math.max(...run.map((r) => r.ts)),
       nodesSpent: nodeRows.reduce((s, r) => s + (r.nodesSpent ?? 0), 0) || nodeRows.length,
+      attempts,
       costUsd: run.reduce((s, r) => s + (r.costUsd ?? 0), 0),
     });
   }
