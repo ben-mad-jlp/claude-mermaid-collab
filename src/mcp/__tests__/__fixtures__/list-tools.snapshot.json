@@ -6546,7 +6546,7 @@
     },
     {
       "name": "set_mission_criterion",
-      "description": "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. When a criterion is high-stakes (reopened by land, contested by humans, or approaching serve limits), supply panelVerdicts (≥2 independent lenses) to join them by strict-majority vote; fewer than 2 will error fail-closed. Pass remove=true to delete the criterion instead. Convergence = all criteria met.",
+      "description": "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. When a criterion is high-stakes (reopened by land, contested by humans, or approaching serve limits), supply panelVerdicts (≥2 independent lenses) to join them by strict-majority vote; fewer than 2 will error fail-closed. Pass remove=true to reversibly DROP the criterion instead (preserves the row, cascades any live serving epics to dropped; a future undrop re-arms it). Convergence = all criteria met.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6603,7 +6603,11 @@
           },
           "remove": {
             "type": "boolean",
-            "description": "If true, delete the criterion (ignores met)."
+            "description": "If true, reversibly drop the criterion (ignores met)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the criterion is being dropped (recorded with remove=true; defaults to a generic note)."
           }
         },
         "required": [

@@ -9,7 +9,7 @@ import {
 } from '../services/todo-store.js';
 import {
   upsertMission, getMission,
-  addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
+  addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, dropCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
   activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
   assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
   type CriterionType,
@@ -23,6 +23,7 @@ import { collectVerifyStakesInput } from '../services/criterion-verify-facts.js'
 import { classifyVerifyStakes } from '../services/criterion-verify-stakes.js';
 import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVerdict } from '../services/criterion-verify-panel.js';
 import { coerceArrayArg } from './arg-coercion.js';
+import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/criterion-closeability.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -41,7 +42,7 @@ export const MISSION_TOOL_DEFS = [
       { name: 'list_missions', description: "List a project's MISSIONS as compact summaries — the counterpart to get_mission (which needs a mission id you may not have yet). DEFAULT returns only OPEN missions: it EXCLUDES terminal (converged/abandoned) and archived missions, so you see just what is still in play. Filters: `activeOnly` = only the mission currently being DRIVEN (active=true — at most one per PROJECT); `session` = narrow to missions whose recorded ownerSession/assigneeSession match (a reporting filter only — a mission belongs to its project, not to a session, and queue/active scoping is per-project); `includeTerminal` = also include converged/abandoned; `includeArchived` = also include archived. Each row: id, shortId, title, status, active, awaitingApproval, ownerSession/assigneeSession, capability {met,total}, mechanical {done,total}, gaps, awaitingVerify, converged. Rows are sorted active-first. Use this to find the id, then call get_mission for full per-criterion actions.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'Optional — return only missions owned by / assigned to this session.' }, activeOnly: { type: 'boolean', description: 'Only missions with active=true (the driven one). Default false.' }, includeTerminal: { type: 'boolean', description: 'Include converged/abandoned missions. Default false (open only).' }, includeArchived: { type: 'boolean', description: 'Include archived missions. Default false.' } }, required: ['project'] } },
       { name: 'get_mission', description: 'Read a mission\'s full state: control state, acceptance criteria (each with a DERIVED per-criterion `action`: met|building|verify|discover — serve EVERY discover gap in one pass, one epic per criterion), and the convergence rollup — mechanical (direct [EPIC] children done/total) + capability (criteria met/total) + gaps/awaitingVerify + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' } }, required: ['project', 'todoId'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' }, type: { type: 'string', enum: ['capability', 'one-shot'], description: "Criterion type. Defaults to 'capability'." } }, required: ['project', 'todoId', 'text'] } },
-      { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. When a criterion is high-stakes (reopened by land, contested by humans, or approaching serve limits), supply panelVerdicts (≥2 independent lenses) to join them by strict-majority vote; fewer than 2 will error fail-closed. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, panelVerdicts: { type: 'array', items: { type: 'object', properties: { lens: { type: 'string' }, met: { type: 'boolean' }, reason: { type: 'string' } }, required: ['lens', 'met', 'reason'] }, description: 'High-stakes verdict panel: array of independent lens verdicts. Required when a criterion is reopened-by-land, contested, or serving ≥2 epics; must have ≥2 verdicts or the call will fail closed.' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
+      { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. When a criterion is high-stakes (reopened by land, contested by humans, or approaching serve limits), supply panelVerdicts (≥2 independent lenses) to join them by strict-majority vote; fewer than 2 will error fail-closed. Pass remove=true to reversibly DROP the criterion instead (preserves the row, cascades any live serving epics to dropped; a future undrop re-arms it). Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, panelVerdicts: { type: 'array', items: { type: 'object', properties: { lens: { type: 'string' }, met: { type: 'boolean' }, reason: { type: 'string' } }, required: ['lens', 'met', 'reason'] }, description: 'High-stakes verdict panel: array of independent lens verdicts. Required when a criterion is reopened-by-land, contested, or serving ≥2 epics; must have ≥2 verdicts or the call will fail closed.' }, remove: { type: 'boolean', description: 'If true, reversibly drop the criterion (ignores met).' }, reason: { type: 'string', description: 'Why the criterion is being dropped (recorded with remove=true; defaults to a generic note).' } }, required: ['project', 'criterionId'] } },
 ];
 
 /**
@@ -61,6 +62,12 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // stripLabel drops a role bracket an operator may have typed, never a topic tag.
       const missionTitle = stripLabel(title);
       if (!missionTitle) throw new Error('title must be non-empty after stripping the role prefix');
+      for (const c of criteria ?? []) {
+        const trimmed = c.trim();
+        if (!trimmed) continue;
+        const match = detectForwardAccrual(trimmed);
+        if (match) throw new ForwardAccrualCriterionError(trimmed, match.matched);
+      }
       assertMissionCreationAllowed(project);
       // A mission node is a legitimate top-level root (resolveTodoParent exempts it by
       // `kind`, not by title), so allowOrphan isn't needed — addSessionTodo creates it
@@ -247,12 +254,15 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const { project, todoId, text, type } = args as { project: string; todoId: string; text: string; type?: CriterionType };
       if (!project || !todoId || !text) throw new Error('Missing required: project, todoId, text');
       if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
+      const trimmedText = text.trim();
+      const match = detectForwardAccrual(trimmedText);
+      if (match) throw new ForwardAccrualCriterionError(trimmedText, match.matched);
       const criterion = addCriterion(project, todoId, text, type);
       return JSON.stringify({ criterion, rollup: getMissionRollup(project, todoId) }, null, 2);
     }
     case 'set_mission_criterion': {
-      const { project, criterionId, met, evidence, verifiedBy, verifiedAtSha, evidencePaths, remove, panelVerdicts } = args as {
-        project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; verifiedAtSha?: string; evidencePaths?: string[]; remove?: boolean; panelVerdicts?: { lens: string; met: boolean; reason: string }[];
+      const { project, criterionId, met, evidence, verifiedBy, verifiedAtSha, evidencePaths, remove, panelVerdicts, reason } = args as {
+        project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; verifiedAtSha?: string; evidencePaths?: string[]; remove?: boolean; panelVerdicts?: { lens: string; met: boolean; reason: string }[]; reason?: string;
       };
       // The MCP bridge marshals an array-OF-OBJECTS argument (panelVerdicts) to the handler as a
       // JSON STRING for some clients — array-of-strings params (evidencePaths) pass through as real
@@ -265,7 +275,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // array — which is why it went unseen).
       const panelVerdictsArr = normalizePanelVerdicts(panelVerdicts);
       if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
-      if (remove) { removeCriterion(project, criterionId); return JSON.stringify({ removed: criterionId }, null, 2); }
+      if (remove) { await dropCriterion(project, criterionId, { reason: reason ?? 'dropped via set_mission_criterion(remove:true)', by: 'mcp:set_mission_criterion' }); return JSON.stringify({ dropped: criterionId }, null, 2); }
       if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
 
       // Panel enforcement: when met=true, check if this criterion is high-stakes.
