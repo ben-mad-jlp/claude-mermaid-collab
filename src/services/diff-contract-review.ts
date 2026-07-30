@@ -16,6 +16,7 @@ import type {
   NamedTestRequirement,
   ThresholdRequirement,
 } from './diff-contract';
+import { parseBallotVerdicts, validateBallotGrounding } from './review-citations';
 
 /** The parsed base..HEAD diff handed to the engine — the change-set file list. */
 export interface ParsedDiff {
@@ -159,4 +160,75 @@ export async function diffContractReview(
     .map((r) => ({ id: r.id, kind: r.kind, description: r.description }));
 
   return { verdicts, ballotInput };
+}
+
+/** The status of a typed per-requirement-id grounding, shaped to slot in for the prose
+ *  {@link import('./review-citations').ReviewGrounding} at the review-node call sites:
+ *   'ok'      — no ballot verdict cites an undeclared id, every 'met' ballot verdict resolves a
+ *               real citation, and every observable/invariant requirement the LLM was handed is
+ *               addressed by a declared verdict.
+ *   'vacuous' — the review cites a requirement id NOT in the declared contract (fabricated), a
+ *               'met' verdict resolves no citation, OR the review omits a verdict for a ballot
+ *               (observable/invariant) requirement it was handed — the typed analog of a vacuous
+ *               prose PASS.
+ *   'abstain' — the change-set was unreadable (null) — we cannot ground, so we do not pretend to
+ *               (matches the prose gate's abstain: caller treats it as today's no-park behaviour). */
+export interface ContractGroundingResult {
+  status: 'ok' | 'vacuous' | 'abstain';
+  reasons: string[];
+  /** The mechanical-stage verdicts (mechanical:true) from {@link diffContractReview}. */
+  verdicts: DiffContractVerdict[];
+  /** The observable/invariant requirements forwarded to the LLM ballot. */
+  ballotInput: BallotRequirement[];
+}
+
+/**
+ * TYPED per-requirement-id grounding — the Phase-3 review-node substitute for the prose
+ * `validateReviewGrounding`, gated ON only when a valid typed contract is present.
+ *
+ * It composes the two shipped-but-dormant primitives into one production path:
+ *  1. {@link diffContractReview} runs the mechanical stages (deciding symbol-present/named-test/
+ *     threshold WITHOUT the LLM) and forwards the still-undecided observable/invariant
+ *     requirements as the closed ballot.
+ *  2. {@link parseBallotVerdicts} extracts the reviewer's per-id verdicts from the review text and
+ *     {@link validateBallotGrounding} grounds them against the DECLARED requirement ids: an
+ *     undeclared/fabricated id ⇒ 'vacuous'; a 'met' verdict citing nothing that resolves ⇒
+ *     'vacuous'.
+ *  3. Finally, an observable/invariant ballot requirement the LLM did NOT address at all is an
+ *     uncited gap ⇒ 'vacuous' (a typed vacuous PASS).
+ *
+ * FAIL-SAFE: a null change-set → 'abstain' (parity with the prose gate). Never throws — any dep
+ * throw inside diffContractReview is already swallowed to 'not-applicable'.
+ */
+export async function groundReviewViaContract(
+  reviewText: string,
+  contract: DiffContract,
+  diff: ParsedDiff | null,
+  deps: DiffContractReviewDeps,
+): Promise<ContractGroundingResult> {
+  if (diff === null) {
+    return { status: 'abstain', reasons: ['typed-review-grounding: change-set unreadable'], verdicts: [], ballotInput: [] };
+  }
+  const { verdicts, ballotInput } = await diffContractReview(contract, diff, deps);
+  const declaredIds = contract.requirements.map((r) => r.id);
+  const ballotVerdicts = parseBallotVerdicts(reviewText);
+
+  // Closed-ballot grounding: reject fabricated ids and uncited 'met' verdicts (constraint 3bfda28e).
+  const ballot = validateBallotGrounding(ballotVerdicts, declaredIds, diff.changedFiles);
+  if (ballot.status !== 'ok') {
+    return { status: ballot.status, reasons: ballot.reasons.map((r) => `typed-review-grounding: ${r}`), verdicts, ballotInput };
+  }
+
+  // Every observable/invariant requirement the LLM was handed must be ADDRESSED by a verdict.
+  const addressed = new Set(ballotVerdicts.map((v) => v.id));
+  const uncited = ballotInput.filter((r) => !addressed.has(r.id)).map((r) => r.id);
+  if (uncited.length > 0) {
+    return {
+      status: 'vacuous',
+      reasons: [`typed-review-grounding: review does not address observable/invariant requirement id(s): ${uncited.join(', ')}`],
+      verdicts, ballotInput,
+    };
+  }
+
+  return { status: 'ok', reasons: [], verdicts, ballotInput };
 }

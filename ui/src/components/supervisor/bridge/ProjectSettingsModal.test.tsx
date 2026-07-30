@@ -28,6 +28,7 @@ const NODE_PROFILES_BODY = {
 // Mutable server-side injection-flag state; POST mutates it and echoes it back.
 let flagState = { digest: false, retryContext: false, activeConstraints: false };
 let conductorEnabled = false;
+let typedContractGating = false;
 
 function mockFetch(url: string, init?: any): Promise<{ ok: boolean; json: () => Promise<any> }> {
   const method = init?.method ?? 'GET';
@@ -48,6 +49,14 @@ function mockFetch(url: string, init?: any): Promise<{ ok: boolean; json: () => 
     }
     return json({ project: '/abs/p', ...flagState });
   }
+  if (url.includes('/api/supervisor/typed-contract-gating')) {
+    if (method === 'POST') {
+      const body = JSON.parse(init.body);
+      if ('enabled' in body) typedContractGating = body.enabled;
+      return json({ ok: true, project: '/abs/p', enabled: typedContractGating });
+    }
+    return json({ project: '/abs/p', enabled: typedContractGating });
+  }
   if (url.includes('/api/supervisor/conductor')) {
     if (method === 'POST') {
       const body = JSON.parse(init.body);
@@ -63,6 +72,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   flagState = { digest: false, retryContext: false, activeConstraints: false };
   conductorEnabled = false;
+  typedContractGating = false;
 });
 
 describe('ProjectSettingsModal', () => {
@@ -122,6 +132,29 @@ describe('ProjectSettingsModal', () => {
       ([u, init]: any[]) =>
         typeof u === 'string' &&
         u.includes('/api/supervisor/conductor') &&
+        init?.method === 'POST' &&
+        JSON.parse(init.body).project === '/abs/p' &&
+        JSON.parse(init.body).enabled === true,
+    );
+    expect(posted).toBe(true);
+  });
+
+  it('renders the typed-contract-gating toggle unchecked (default off) and POSTs on click', async () => {
+    const fetchMock = vi.fn(mockFetch as any);
+    global.fetch = fetchMock as any;
+    render(<ProjectSettingsModal project="/abs/p" open onClose={() => {}} />);
+
+    const toggle = await screen.findByTestId('typed-contract-gating-toggle');
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect((screen.getByTestId('typed-contract-gating-toggle') as HTMLInputElement).checked).toBe(true));
+
+    const posted = fetchMock.mock.calls.some(
+      ([u, init]: any[]) =>
+        typeof u === 'string' &&
+        u.includes('/api/supervisor/typed-contract-gating') &&
         init?.method === 'POST' &&
         JSON.parse(init.body).project === '/abs/p' &&
         JSON.parse(init.body).enabled === true,

@@ -394,3 +394,27 @@ export function validateBallotGrounding(
 
   return { status: 'ok', reasons: [] };
 }
+
+/** The review-text token by which a reviewer keys a ballot verdict to a DECLARED requirement id,
+ *  e.g. `- [MET] REQ:obs-1 — src/a.ts:12`. Case-insensitive; ids use the closed `[A-Za-z0-9._-]`
+ *  set the diff-contract uses. Boundary-anchored so it never matches mid-word. */
+const BALLOT_ID_RE = /\bREQ:\s*([A-Za-z0-9._-]+)/i;
+
+/**
+ * Parse per-requirement-id ballot verdicts from a typed review. A line is a ballot verdict iff it
+ * carries BOTH a `REQ:<id>` token AND an outcome marker (`[MET]`/`[UNMET]`/`[N/A]`); the WHOLE line
+ * is retained as `text` so {@link validateBallotGrounding} can extract its file:line citations. Any
+ * line without both is ignored (prose commentary is not a verdict). Pure, no I/O. Feeds the closed
+ * ballot: an id NOT declared in the contract is rejected downstream by validateBallotGrounding.
+ */
+export function parseBallotVerdicts(text: string): BallotVerdict[] {
+  const out: BallotVerdict[] = [];
+  for (const line of text.split('\n')) {
+    const idm = line.match(BALLOT_ID_RE);
+    if (!idm) continue;
+    const marker = line.match(OUTCOME_MARKER_RE);
+    if (!marker) continue;
+    out.push({ id: idm[1], outcome: outcomeFromMarker(marker[1]), text: line });
+  }
+  return out;
+}

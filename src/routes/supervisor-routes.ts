@@ -31,6 +31,8 @@ import {
   getConductorEnabled,
   setConductorEnabled,
   getConductorLastPass,
+  getTypedContractGating,
+  setTypedContractGating,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
 import { applyRebetDecision, OVER_BUDGET_REBET_KIND } from '../services/mission-budget-gate.ts';
@@ -1122,6 +1124,32 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       else if (flag === 'activeConstraints') setPromptInjectActiveConstraints(project, value);
       else return jsonError('flag must be one of: digest, retryContext, activeConstraints', 400);
       return Response.json({ ok: true, project, ...getInjectionFlags(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/typed-contract-gating?project= — the per-project TYPED-CONTRACT
+  // gating flag (default OFF). When on AND a leaf has a valid typed DiffContract, the blueprint
+  // citability gate is advisory and review grounds per-requirement-id.
+  if (url.pathname === '/api/supervisor/typed-contract-gating' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, enabled: getTypedContractGating(project) });
+  }
+
+  // POST /api/supervisor/typed-contract-gating — toggle the flag. body { project, enabled }.
+  // UPDATE-only (the project must be watched), like the conductor / injection-flag setters.
+  if (url.pathname === '/api/supervisor/typed-contract-gating' && req.method === 'POST') {
+    try {
+      const body = (await req.json()) as { project?: string; enabled?: boolean };
+      const { project, enabled } = body;
+      if (!project) return jsonError('project is required', 400);
+      if (!('enabled' in body) || typeof enabled !== 'boolean') {
+        return jsonError('enabled must be a boolean', 400);
+      }
+      setTypedContractGating(project, enabled);
+      return Response.json({ ok: true, project, enabled: getTypedContractGating(project) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
