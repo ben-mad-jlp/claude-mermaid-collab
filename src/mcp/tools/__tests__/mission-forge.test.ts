@@ -14,7 +14,8 @@ beforeEach(() => {
 });
 
 // Imports AFTER the env is set so any db opens against our temp dir.
-import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMissionAndConstitution, parseForgeSpec } from '../mission-forge';
+import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMissionAndConstitution, parseForgeSpec, buildForgePrompt } from '../mission-forge';
+import { detectForwardAccrual, FORWARD_ACCRUAL_REASON } from '../../../services/criterion-closeability';
 import { getMission, getMissionRollup, listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
 import { listDecisionRecords, _closeProject as closeDecisions } from '../../../services/decision-record-store';
 import { getTodo, _closeProject as closeTodos, listTodos } from '../../../services/todo-store';
@@ -113,6 +114,21 @@ describe('forgeMission — atomic mission + constitution', () => {
     // No mission leaked from the failed calls.
     const missions = listDecisionRecords(project, {}); // any store touch works; assert no criteria orphaned
     expect(missions).toEqual([]);
+  });
+
+  test('forgeMission rejects a forward-accrual criterion with FORWARD_ACCRUAL_REASON and creates no mission todo', async () => {
+    await expect(
+      forgeMission(project, { ...base(), criteria: ['the card continues to render over the next 5 passes'] }),
+    ).rejects.toThrow(FORWARD_ACCRUAL_REASON);
+    expect(listTodos(project).filter((t) => t.kind === 'mission')).toEqual([]);
+  });
+});
+
+describe('buildForgePrompt', () => {
+  test('drops the ≥N-runs request and states the one-shot instruction', () => {
+    const prompt = buildForgePrompt('doc');
+    expect(prompt).not.toMatch(/over\s+(?:≥|>=|at least\s+)?\d+\s+runs/i);
+    expect(prompt).toContain('SINGLE observation');
   });
 });
 
@@ -234,6 +250,14 @@ describe('forgeMissionFromDoc — server forge node → unapproved mission', () 
         invoke: async () => ({ ok: true, rateLimited: false, text: 'sorry, I could not do it' } as any),
       }),
     ).rejects.toThrow(/no parseable mission-spec JSON/i);
+  });
+
+  test('forgeMissionFromDoc rewrites a forward-accrual criterion to one-shot and no surviving criterion detects as forward-accrual', async () => {
+    const spec = { ...SPEC, criteria: ['the fix holds over ≥5 live mission passes'] };
+    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, mockDeps(spec));
+    const criteria = listCriteria(project, r.missionId);
+    expect(criteria.every((c) => detectForwardAccrual(c.text) === null)).toBe(true);
+    expect(criteria.some((c) => /the fix/i.test(c.text))).toBe(true);
   });
 });
 
