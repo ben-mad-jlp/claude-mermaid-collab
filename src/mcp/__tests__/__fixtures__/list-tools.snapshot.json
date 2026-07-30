@@ -6874,6 +6874,30 @@
       }
     },
     {
+      "name": "list_conductor_passes",
+      "description": "Read-only conductor_pass JOURNAL for a project, newest-first — the durable per-pass record of what each conductor pass actually did: which fingerprints it saw (serveFp/passFp/selfFp), which arm it took, which criteria it acted on, what it filed/declined, its outcome, and whether it ran. Use this to answer 'what has the conductor been doing / why did it decline' instead of guessing from a single lastPass summary. Optionally scope to one missionId and cap with limit. Fail-open: returns [] for a project with no rows.",
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Max rows to return (newest-first).",
+            "type": "number"
+          },
+          "missionId": {
+            "description": "Only passes for this mission.",
+            "type": "string"
+          },
+          "project": {
+            "description": "Tracking project whose conductor passes to list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object"
+      }
+    },
+    {
       "name": "list_spreadsheets",
       "description": "List all spreadsheets in a session.",
       "inputSchema": {

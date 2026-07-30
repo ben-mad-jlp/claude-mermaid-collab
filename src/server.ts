@@ -40,6 +40,7 @@ import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
 import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
+import { handleConductorRoutes } from './routes/conductor-routes.js';
 import { touchSupervisorIdentity, SUPERVISOR_HEARTBEAT_INTERVAL_MS } from './services/supervisor-store.js';
 import { handleBrowserRoutes } from './routes/browser-routes.js';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
@@ -493,6 +494,11 @@ const server = Bun.serve<WsData>({
 
     if (url.pathname.startsWith('/api/orchestrator')) {
       const res = await handleOrchestratorRoutes(req, url);
+      if (res) return res;
+    }
+
+    if (url.pathname.startsWith('/api/conductor')) {
+      const res = await handleConductorRoutes(req, url);
       if (res) return res;
     }
 

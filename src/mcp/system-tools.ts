@@ -15,6 +15,7 @@ import { getOrchestratorHealth as getOrchestratorHealthSST } from '../services/o
 import { API_BASE_URL, apiFetch } from './tools/http-util.js';
 import { recordSupervisorDecision } from './setup.js';
 import { conductorNeedsHuman } from '../services/conductor-pass.js';
+import { listConductorPasses } from '../services/conductor-pass-journal.js';
 
 export const SYSTEM_TOOL_DEFS = [
   {"name":"check_server_health","description":"Check if MCP server, HTTP/API backend, and React UI are running","inputSchema":{"properties":{},"required":[],"type":"object"}},
@@ -31,6 +32,7 @@ export const SYSTEM_TOOL_DEFS = [
   {"name":"set_watchdog_threshold","description":"Set (or clear, with null) a project's context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.","inputSchema":{"properties":{"project":{"type":"string"},"thresholdPercent":{"description":"Percent (1-100) or null to clear.","type":["number","null"]}},"required":["project","thresholdPercent"],"type":"object"}},
   {"name":"set_context_recycle","description":"Set a project's context-auto-recycle mode — the deterministic server-side driver that keeps a low-context WATCHED session alive by injecting /vibe-checkpoint → /clear → /collab (no LLM supervisor in the loop). 'off' (default) = inert; 'notify' = at the watchdog threshold, inject an advisory nudge and only auto-clear+reload once the session itself saves a fresh checkpoint (assisted); 'force' = server injects the checkpoint too, then clears+reloads (for an unattended autonomous-loop session).","inputSchema":{"properties":{"mode":{"description":"off | notify | force","enum":["off","notify","force"],"type":"string"},"project":{"type":"string"}},"required":["project","mode"],"type":"object"}},
   {"name":"context_usage","description":"Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.","inputSchema":{"properties":{"project":{"description":"Tracking project whose sessions to report.","type":"string"},"thresholdPercent":{"description":"Override the checkpoint threshold % (default: per-project config → 80).","type":"number"}},"required":["project"],"type":"object"}},
+  {"name":"list_conductor_passes","description":"Read-only conductor_pass JOURNAL for a project, newest-first — the durable per-pass record of what each conductor pass actually did: which fingerprints it saw (serveFp/passFp/selfFp), which arm it took, which criteria it acted on, what it filed/declined, its outcome, and whether it ran. Use this to answer 'what has the conductor been doing / why did it decline' instead of guessing from a single lastPass summary. Optionally scope to one missionId and cap with limit. Fail-open: returns [] for a project with no rows.","inputSchema":{"properties":{"limit":{"description":"Max rows to return (newest-first).","type":"number"},"missionId":{"description":"Only passes for this mission.","type":"string"},"project":{"description":"Tracking project whose conductor passes to list.","type":"string"}},"required":["project"],"type":"object"}},
 ];
 
 export async function handleSystemTool(name: string, args: any): Promise<string | null> {
@@ -156,6 +158,11 @@ export async function handleSystemTool(name: string, args: any): Promise<string 
         return { session: r.session, status: r.status, contextPercent: r.contextPercent, contextAgeMs: r.contextUpdatedAt != null ? now - r.contextUpdatedAt : null, checkpointReadyAt: r.checkpointReadyAt, nearThreshold: action != null, watchdogAction: action?.action ?? null, reason: action?.reason ?? null };
       });
       return JSON.stringify({ project, thresholdPercent: effectiveThreshold, sessions }, null, 2);
+    }
+    case 'list_conductor_passes': {
+      const { project, missionId, limit } = args as { project: string; missionId?: string; limit?: number };
+      if (!project) throw new Error('Missing required: project');
+      return JSON.stringify(listConductorPasses(project, { missionId, limit }), null, 2);
     }
     default:
       return null;
