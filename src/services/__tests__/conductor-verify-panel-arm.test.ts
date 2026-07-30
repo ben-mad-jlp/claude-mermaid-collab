@@ -161,7 +161,7 @@ describe('runVerifyPanelArm', () => {
     expect(result.paneled).toEqual([]);
   });
 
-  test('a non-stakes criterion is not paneled', async () => {
+  test('a non-stakes criterion is still paneled, with N=1 lens', async () => {
     const forged = await forgeMission(project, {
       session: 's1',
       title: 'Non-paneled verify',
@@ -177,15 +177,14 @@ describe('runVerifyPanelArm', () => {
       parentId: forged.missionId,
       servesCriterionIds: [crit.id],
     });
-    await updateTodo(project, epic.id, { status: 'ready' });
     const leaf = await createTodo(project, {
       ownerSession: 's1',
       title: 'the leaf',
       parentId: epic.id,
-      status: 'ready',
+      servesCriterionIds: [crit.id],
     });
-
-    await updateTodo(project, leaf.id, { status: 'done' });
+    await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+    await updateTodo(project, epic.id, { status: 'done' });
     recordNode({
       project,
       todoId: leaf.id,
@@ -195,16 +194,17 @@ describe('runVerifyPanelArm', () => {
       leafOutcome: 'completed',
     });
 
-    // Run verify panel arm: the criterion is action=verify but panel===false (no high-stakes)
+    // Run verify panel arm: the criterion is action=verify, panel===false (no high-stakes) —
+    // still goes through the SAME plumbing with checkerCount===1, not skipped entirely.
     invokeCalls = 0;
     const result = await runVerifyPanelArm(project, forged.missionId, 's1', {
       runPanel: mockPanelRunner,
     });
 
-    expect(result.paneled).toEqual([]);
+    expect(result.paneled).toEqual([crit.id]);
     expect(result.held).toEqual([]);
-    expect(result.skipped).toEqual([]); // Not even skipped — not paneled at all
-    expect(invokeCalls).toBe(0); // Panel runner never called
+    expect(result.skipped).toEqual([]);
+    expect(invokeCalls).toBe(1); // Panel runner IS called now (N=1 lens)
   });
 
   test('an arm fault degrades to a no-op pass', async () => {
@@ -310,5 +310,158 @@ describe('runVerifyPanelArm', () => {
     expect(r.reason).not.toBe('verify-paneled');
     expect(r.verifyPaneled).toBeUndefined();
     expect(invokeCalls).toBe(1); // Node is called because all results are skipped
+  });
+
+  test('a low-stakes verify criterion runs the panel with N=1 lens and never invokes the conductor node', async () => {
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Low-stakes verify',
+      criteria: ['regular criterion'],
+    });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    // No high-stakes trigger (no enqueueRecheck, no card, no serve-burn) → panel===false,
+    // checkerCount===1.
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] serving epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the leaf',
+      parentId: epic.id,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+    await updateTodo(project, epic.id, { status: 'done' });
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      leafOutcome: 'completed',
+    });
+
+    let capturedLensCount: number | undefined;
+    const spiedRunPanel = async (_p: string, _cid: string, deps: any) => {
+      capturedLensCount = deps.lensCount;
+      return { skipped: undefined, hold: false, met: true, invocations: deps.lensCount ?? 3 };
+    };
+
+    invokeCalls = 0;
+    const nodeInvokeSpy = async () => { throw new Error('conductor node should never be invoked'); };
+
+    const r = await runConductorPass(project, {
+      invoke: nodeInvokeSpy,
+      verifyPanelArm: async () => {
+        const result = await runVerifyPanelArm(project, forged.missionId, 's1', {
+          runPanel: spiedRunPanel,
+        });
+        return result;
+      },
+    });
+
+    expect(capturedLensCount).toBe(1);
+    expect(r.ran).toBe(true);
+    expect(r.verifyPaneled).toBe(1);
+    expect(invokeCalls).toBe(0);
+  });
+
+  test('a high-stakes verify criterion still runs the full three-lens panel', async () => {
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'High-stakes verify',
+      criteria: ['high-stakes criterion'],
+    });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    enqueueRecheck(project, { criterionId: crit.id, todoId: forged.missionId, reason: 'land-diff-intersects-evidence', landedSha: 'abc123' });
+
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] serving epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the leaf',
+      parentId: epic.id,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+    await updateTodo(project, epic.id, { status: 'done' });
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      leafOutcome: 'completed',
+    });
+
+    let capturedLensCount: number | undefined;
+    const spiedRunPanel = async (_p: string, _cid: string, deps: any) => {
+      capturedLensCount = deps.lensCount;
+      return { skipped: undefined, hold: false, met: true, invocations: deps.lensCount ?? 3 };
+    };
+
+    const result = await runVerifyPanelArm(project, forged.missionId, 's1', {
+      runPanel: spiedRunPanel,
+    });
+
+    expect(capturedLensCount).toBe(3);
+    expect(result.paneled).toEqual([crit.id]);
+  });
+
+  test('a degraded single-lens run lands in skipped, not held', async () => {
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Degraded low-stakes verify',
+      criteria: ['regular criterion'],
+    });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] serving epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the leaf',
+      parentId: epic.id,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+    await updateTodo(project, epic.id, { status: 'done' });
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      leafOutcome: 'completed',
+    });
+
+    const mockPanelRunnerInfraDegradedN1 = async (_p: string, _cid: string, deps: any) => {
+      expect(deps.lensCount).toBe(1);
+      return { skipped: undefined, hold: true, met: false, invocations: 1, outcome: 'infra-degraded' as const };
+    };
+
+    const result = await runVerifyPanelArm(project, forged.missionId, 's1', {
+      runPanel: mockPanelRunnerInfraDegradedN1,
+    });
+
+    expect(result.skipped).toEqual([crit.id]);
+    expect(result.held).toEqual([]);
+    expect(result.paneled).toEqual([]);
   });
 });

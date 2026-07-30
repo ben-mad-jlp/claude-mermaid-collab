@@ -1513,6 +1513,14 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
     expect(empty).toBe(bare); // empty ⇒ byte-identical to the pre-injection prompt
   });
 
+  test('the rendered conductor prompt no longer instructs the node to run a single-checker verify itself', () => {
+    const p = buildConductorPrompt('/p', 'm1', 'A mission', 's1');
+    expect(p).not.toMatch(/run the\s+INDEPENDENT verify/);
+    expect(p).not.toContain('That is ONE independent checker — the default.');
+    expect(p).not.toContain('takes the default single-checker path above, unchanged.');
+    expect(p).toContain('auto-checked by the deterministic verify panel arm');
+  });
+
   test('step 4 hands the cards over instead of telling the node to go fetch them', () => {
     const p = buildConductorPrompt('/p', 'm1', 'A mission', 's1');
     expect(p).toContain('OPEN CARDS ARE LISTED ABOVE in WAKE CONTEXT — act on them; do not go looking for them');

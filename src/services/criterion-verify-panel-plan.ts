@@ -3,7 +3,7 @@
  *  Assigns each verification lens to one model from a pool, and validates that
  *  the assignments are distinct and distinct from the maker model. */
 
-import { VERIFY_LENSES, type VerifyLens } from './criterion-verify-panel.js';
+import { type VerifyLens } from './criterion-verify-panel.js';
 import { normalizeModelId } from './spend-ledger.js';
 
 export const PANEL_LENS_TIMEOUT_MS = 10 * 60_000; // 10 minutes per lens
@@ -15,11 +15,12 @@ export const PANEL_LENS_TIMEOUT_MS = 10 * 60_000; // 10 minutes per lens
 export function planPanelModels(args: {
   makerModel: string;
   lensPool: string[];
+  lenses: VerifyLens[];
 }): Record<VerifyLens, string> {
   const plan: Record<VerifyLens, string> = {} as any;
 
-  for (let i = 0; i < VERIFY_LENSES.length; i++) {
-    const lens = VERIFY_LENSES[i];
+  for (let i = 0; i < args.lenses.length; i++) {
+    const lens = args.lenses[i];
     const modelIndex = i % args.lensPool.length;
     plan[lens] = args.lensPool[modelIndex];
   }
@@ -33,12 +34,13 @@ export function planPanelModels(args: {
 export function assertDistinctPanel(
   plan: Record<VerifyLens, string>,
   makerModel: string,
+  lenses: VerifyLens[],
 ): void {
   const normalizedMaker = normalizeModelId(makerModel);
   const lensToNormal = new Map<VerifyLens, string>();
   const normalToLenses = new Map<string, VerifyLens[]>();
 
-  for (const lens of VERIFY_LENSES) {
+  for (const lens of lenses) {
     const pinModel = plan[lens];
     if (!pinModel || !pinModel.trim()) {
       throw new Error(
