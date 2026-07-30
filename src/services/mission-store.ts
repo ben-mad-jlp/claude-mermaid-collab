@@ -1266,8 +1266,9 @@ export interface MissionCriterionFacts {
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
   servingEpics?: { id: string; title: string; landed: boolean }[];
   /** ids from this criterion's `dependsOn` that exist on the same mission and are not yet
-   *  met — 'blocked' when non-empty. */
-  unmetDependencyIds: string[];
+   *  met — 'blocked' when non-empty. Optional so existing fact fixtures need no change;
+   *  set by collectMissionStatusFacts. */
+  unmetDependencyIds?: string[];
 }
 
 export interface MissionStatusFacts {
@@ -1320,7 +1321,7 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   // (verification-as-event — `met` alone is a self-grade until verifiedAt stamps it).
   if (c.servingEpicState === 'landed' && (c.verifiedAt == null || predServingLandIsNewerThanVerdict(c))) return 'verify';
   if (c.met) return 'met';
-  if (c.unmetDependencyIds.length > 0) return 'blocked';
+  if ((c.unmetDependencyIds?.length ?? 0) > 0) return 'blocked';
   if (c.servingEpicState === 'open' && c.servingEpicLive) return 'building';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
   // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
