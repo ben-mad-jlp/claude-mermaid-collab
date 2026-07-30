@@ -1308,17 +1308,20 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     ]);
     expect(a).toBe(b);
   });
+  test('buildConductorPrompt no longer instructs the LLM to park at attempts >= 3 via reset_todo', () => {
+    const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
+    expect(p).not.toContain('Repeatedly failing (attempts');
+  });
   test('prompt names the mission + session, forbids hand-editing, lands as conductor', () => {
     const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
     expect(p).toContain('m1');
     expect(p).toContain('Ship the thing');
     expect(p).toContain('sess-A');
     expect(p).toContain('hand-edit source');
-    expect(p).toContain('land_epic');
-    // Autonomous land via the conductor actor + ownership gate (not a bare land).
-    expect(p).toContain('actor:');
-    expect(p).toContain('"conductor"');
-    expect(p).toContain('escalation_list');
+    // Landing is done by the deterministic land arm before the pass runs; the prompt no
+    // longer instructs the model to go find a land card and confirm its readiness itself.
+    expect(p).toContain('LANDING is AUTOMATIC');
+    expect(p).not.toContain('mcp__mermaid__epic_land_readiness');
   });
 });
 
@@ -1613,6 +1616,14 @@ describe('WAKE CONTEXT injection (the things that kick the conductor land in its
       expect(p).not.toContain('OPEN CARDS ON THIS MISSION —');
     }
     expect(empty).toBe(bare); // empty ⇒ byte-identical to the pre-injection prompt
+  });
+
+  test('the rendered conductor prompt no longer instructs the node to run a single-checker verify itself', () => {
+    const p = buildConductorPrompt('/p', 'm1', 'A mission', 's1');
+    expect(p).not.toMatch(/run the\s+INDEPENDENT verify/);
+    expect(p).not.toContain('That is ONE independent checker — the default.');
+    expect(p).not.toContain('takes the default single-checker path above, unchanged.');
+    expect(p).toContain('auto-checked by the deterministic verify panel arm');
   });
 
   test('step 4 hands the cards over instead of telling the node to go fetch them', () => {

@@ -1,11 +1,15 @@
 /**
- * conductor-verify-panel-arm — the conductor's auto-fire arm for high-stakes verify panel runs.
+ * conductor-verify-panel-arm — the conductor's auto-fire arm for EVERY verify-action criterion.
  *
- * For every criterion classifyVerifyStakes marks panel===true (land-reopened, contested-carded,
- * or serve-burning), this arm spawns the three-lens panel runner DETERMINISTICALLY in the
- * conductor pass itself, BEFORE any conductor node is invoked. Criteria whose panel run finishes
- * with unchanged-sha (already verified at this sha) are recorded and fall through as skipped;
- * the conductor's expensive node is never spent on criteria already known-verified.
+ * For every criterion with action === 'verify', this arm spawns the panel runner
+ * DETERMINISTICALLY in the conductor pass itself, BEFORE any conductor node is invoked.
+ * classifyVerifyStakes decides how many distinct-model lenses that run uses: 1 lens
+ * (checkerCount) on the default low-stakes path, 3 distinct-model lenses when the criterion
+ * is high-stakes (land-reopened, contested-carded, or serve-burning). Both levels go through
+ * the SAME panel plumbing — there is no separate single-checker code path. Criteria whose
+ * panel run finishes with unchanged-sha (already verified at this sha) are recorded and fall
+ * through as skipped; the conductor's expensive node is never spent on criteria already
+ * known-verified.
  *
  * Fail OPEN: one panel run fault must not sink the pass, and an unresolved criterion must not
  * be miscounted as held (which implies the panel positively recorded not-met). A throw lands
@@ -77,15 +81,13 @@ export async function runVerifyPanelArm(
       try {
         const stakes = classifyVerifyStakes(collectVerifyStakesInput(project, criterion.id));
 
-        // Skip non-panel criteria (fresh/unserved). They will be rendered in the WAKE
-        // CONTEXT as 'verify' action but are NOT high-stakes — the conductor runs a
-        // single-checker verify on them, not a panel.
-        if (!stakes.panel) continue;
-
-        // Panel is high-stakes: run it deterministically, before the conductor node.
+        // Run the panel deterministically, before the conductor node, for EVERY
+        // verify-action criterion — 1 lens on the default low-stakes path, 3 distinct-model
+        // lenses when stakes.panel is true.
         try {
           const panelResult = await runPanel(project, criterion.id, {
             headSha: deps.headSha,
+            lensCount: stakes.checkerCount,
           });
 
           // Bucket by outcome.
