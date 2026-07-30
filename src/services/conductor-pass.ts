@@ -276,7 +276,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -337,6 +337,7 @@ export function conductorStatusLine(
     }
     case 'debounced': return 'idle — nothing to do';
     case 'building-wait': return 'building — waiting on work';
+    case 'criteria-blocked': return 'waiting on a dependency';
     case 'criteria-escalated': return n(counts.serveCapDeferred) ? `${n(counts.serveCapDeferred)} stuck — needs you` : 'stuck — needs you';
     case 'redecomposed': return 're-planned an epic';
     case 'over-budget-rebet': return 'over budget — needs you';
@@ -816,6 +817,11 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     // authority for exactly that stuck work. Wakes at most once per distinct card set — the
     // productive pass stamps the self key over it.
     if (status === 'building' && hardCardIds.length === 0) return done({ ran: false, reason: 'building-wait', missionId });
+    // A mission whose only non-met criteria are 'blocked' (waiting on a prerequisite sibling,
+    // not asking the node for a decision) derives no discover/verify/escalate/building shape
+    // above and would otherwise fall through to an expensive, needless node invocation.
+    const blockedOnly = actions.some((a) => a.action === 'blocked');
+    if (blockedOnly && hardCardIds.length === 0) return done({ ran: false, reason: 'criteria-blocked', missionId });
   }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
