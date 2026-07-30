@@ -85,6 +85,18 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
     expect(epic?.servesCriterionIds ?? []).toEqual(expect.arrayContaining([criterionId, secondId]));
   });
 
+  test('baseRepair:true is forwarded to the created epic', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId], baseRepair: true }, { invoke: mockInvoke() });
+    expect(getTodo(project, r.epicId)?.baseRepair).toBe(1);
+  });
+
+  test('omitting baseRepair leaves the created epic non-base-repair', async () => {
+    const { missionId, criterionId } = await approvedMission();
+    const r = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke() });
+    expect(getTodo(project, r.epicId)?.baseRepair).toBe(0);
+  });
+
   test('a planner node with no parseable spec throws (nothing created)', async () => {
     const { missionId, criterionId } = await approvedMission();
     await expect(
