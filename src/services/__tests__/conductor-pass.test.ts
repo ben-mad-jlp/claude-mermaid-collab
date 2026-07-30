@@ -1633,6 +1633,119 @@ describe('buildServeCapDiagnosis (pure)', () => {
     expect(diagnosis).toContain('re-decompose — attempted, second attempt');
     expect(diagnosis).not.toContain('re-decompose — failed');
   });
+
+  test('two blueprint-uncitable-criterion reasons plus a newer verdict names a different blocker surfaces CURRENT VERDICT before REASONS SEEN', () => {
+    const evidence = 'evidence naming a different blocker';
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: ['blueprint uncitable one', 'blueprint uncitable two'],
+      verdict: { evidence, verifiedAt: 100, verifiedAtSha: 'abc1234' },
+      newestReasonAt: 50,
+    });
+    expect(diagnosis).toContain('CURRENT VERDICT');
+    expect(diagnosis).toContain('abc1234');
+    expect(diagnosis).toContain(evidence);
+    expect(diagnosis).toContain('REASONS SEEN');
+    expect(diagnosis.indexOf(evidence)).toBeLessThan(diagnosis.indexOf('REASONS SEEN'));
+  });
+
+  const BASELINE_INPUT = {
+    criterionText: 'test criterion',
+    servedEpicCount: 3,
+    attempts: [
+      { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose' as const, epicId: 'e1', outcome: 'attempted' as const, detail: null, attemptedAt: 1 },
+    ],
+    distinctReasons: ['reason one', 'reason two'],
+  };
+
+  test('omitting verdict/newestReasonAt/exhaustedBy is byte-identical to the pre-change output', () => {
+    const diagnosis = buildServeCapDiagnosis(BASELINE_INPUT);
+    expect(diagnosis).toBe([
+      'REASONS SEEN',
+      '- reason one',
+      '- reason two',
+      '',
+      'LADDER',
+      'fresh-blueprint — not recorded',
+      'tier-bump — not recorded',
+      're-decompose — attempted, epic e1',
+      '',
+      'RECOMMEND: ladder incomplete — fresh-blueprint, tier-bump never ran; investigate the rung owner',
+    ].join('\n'));
+  });
+
+  test('a verdict older than newestReasonAt does not surface CURRENT VERDICT', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      ...BASELINE_INPUT,
+      verdict: { evidence: 'stale evidence', verifiedAt: 10, verifiedAtSha: 'deadbee' },
+      newestReasonAt: 50,
+    });
+    expect(diagnosis).toBe([
+      'REASONS SEEN',
+      '- reason one',
+      '- reason two',
+      '',
+      'LADDER',
+      'fresh-blueprint — not recorded',
+      'tier-bump — not recorded',
+      're-decompose — attempted, epic e1',
+      '',
+      'RECOMMEND: ladder incomplete — fresh-blueprint, tier-bump never ran; investigate the rung owner',
+    ].join('\n'));
+  });
+
+  test("exhaustedBy 'serve-cap' with only re-decompose missing excludes the ladder-incomplete language and names the cap", () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 4,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+        { id: '2', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'tier-bump', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 2 },
+      ],
+      distinctReasons: ['reason one', 'reason two'],
+      exhaustedBy: 'serve-cap',
+    });
+    expect(diagnosis).not.toContain('ladder incomplete');
+    expect(diagnosis).not.toContain('investigate the rung owner');
+    expect(diagnosis).toContain(String(CRITERION_SERVE_CAP));
+    expect(diagnosis).toContain('4');
+  });
+
+  test("exhaustedBy 'store-fault' recommend line differs from the serve-cap recommend line", () => {
+    const serveCapDiagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 4,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+      ],
+      distinctReasons: [],
+      exhaustedBy: 'serve-cap',
+    });
+    const storeFaultDiagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 4,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+      ],
+      distinctReasons: [],
+      exhaustedBy: 'store-fault',
+    });
+    expect(storeFaultDiagnosis).not.toBe(serveCapDiagnosis);
+    expect(storeFaultDiagnosis).toContain('approach-attempt store could not be read');
+  });
+
+  test("exhaustedBy 're-decompose' with rungs missing still emits the ladder-incomplete investigate-the-rung-owner line", () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: [],
+      exhaustedBy: 're-decompose',
+    });
+    expect(diagnosis).toContain('investigate the rung owner');
+  });
 });
 
 describe('conductorStatusLine', () => {
