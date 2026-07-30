@@ -23,6 +23,7 @@ import { collectVerifyStakesInput } from '../services/criterion-verify-facts.js'
 import { classifyVerifyStakes } from '../services/criterion-verify-stakes.js';
 import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVerdict } from '../services/criterion-verify-panel.js';
 import { coerceArrayArg } from './arg-coercion.js';
+import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/criterion-closeability.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -61,6 +62,12 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // stripLabel drops a role bracket an operator may have typed, never a topic tag.
       const missionTitle = stripLabel(title);
       if (!missionTitle) throw new Error('title must be non-empty after stripping the role prefix');
+      for (const c of criteria ?? []) {
+        const trimmed = c.trim();
+        if (!trimmed) continue;
+        const match = detectForwardAccrual(trimmed);
+        if (match) throw new ForwardAccrualCriterionError(trimmed, match.matched);
+      }
       assertMissionCreationAllowed(project);
       // A mission node is a legitimate top-level root (resolveTodoParent exempts it by
       // `kind`, not by title), so allowOrphan isn't needed — addSessionTodo creates it
@@ -247,6 +254,9 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const { project, todoId, text, type } = args as { project: string; todoId: string; text: string; type?: CriterionType };
       if (!project || !todoId || !text) throw new Error('Missing required: project, todoId, text');
       if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
+      const trimmedText = text.trim();
+      const match = detectForwardAccrual(trimmedText);
+      if (match) throw new ForwardAccrualCriterionError(trimmedText, match.matched);
       const criterion = addCriterion(project, todoId, text, type);
       return JSON.stringify({ criterion, rollup: getMissionRollup(project, todoId) }, null, 2);
     }

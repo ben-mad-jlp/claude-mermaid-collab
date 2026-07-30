@@ -48,6 +48,7 @@ import { stripLabel } from '../../services/todo-kind.js';
 import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { recordSpend } from '../../services/spend-ledger.js';
+import { detectForwardAccrual, toOneShot, ForwardAccrualCriterionError } from '../../services/criterion-closeability.js';
 import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } from '../../services/node-provider.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import type { EffortLevel } from '../../agent/contracts.js';
@@ -115,6 +116,11 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   }
   const constraints = (input.constraints ?? []).filter((c) => c.rule?.trim());
   const rejected = (input.rejectedAlternatives ?? []).filter((r) => r.title?.trim() && (r.alternatives ?? []).length > 0);
+
+  for (const c of criteria) {
+    const hit = detectForwardAccrual(c);
+    if (hit) throw new ForwardAccrualCriterionError(c, hit.matched);
+  }
 
   assertMissionCreationAllowed(project);
 
@@ -281,7 +287,10 @@ export function buildForgePrompt(docContent: string): string {
     '- criteria: 3–7 ACCEPTANCE CRITERIA = the VERIFY gate. Each is a CAPABILITY assertion (not a task)',
     '  that an independent reviewer can check against ground truth. Make them FALSIFIABLE — name the',
     '  regression test, the observable state, or the measured threshold. SEQUENCE by risk (each de-risks',
-    '  the next). Make the LAST one a measured-outcome check ("did this actually work" over ≥N runs).',
+    '  the next). Every criterion must be closeable by a SINGLE observation at a point in time — name',
+    '  the test, state, or measured value on a recorded sample. Do NOT emit a criterion asserting',
+    '  accrual over future passes/events/missions (e.g. "holds over ≥N runs", "continues to X") — the',
+    '  machinery rejects those.',
     '- constraints: the LOCKED invariants that must not regress — each a one-line hard rule with its',
     '  reason. These become active constraints injected into every builder; keep them true and minimal.',
     '- rejectedAlternatives: design decisions whose losing options should not be re-proposed (title +',
@@ -320,10 +329,18 @@ export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 
   if (!Array.isArray(raw.criteria) || raw.criteria.filter((c: unknown) => typeof c === 'string' && c.trim()).length === 0) {
     throw new Error('forge node spec has no criteria (the VERIFY gate)');
   }
+  const criteria = raw.criteria
+    .filter((c: unknown) => typeof c === 'string' && c.trim())
+    .map((c: string) => {
+      const rewritten = toOneShot(c);
+      const hit = detectForwardAccrual(rewritten);
+      if (hit) throw new ForwardAccrualCriterionError(rewritten, hit.matched);
+      return rewritten;
+    });
   return {
     title: raw.title,
     description: typeof raw.description === 'string' ? raw.description : undefined,
-    criteria: raw.criteria.filter((c: unknown) => typeof c === 'string' && c.trim()),
+    criteria,
     constraints: Array.isArray(raw.constraints) ? raw.constraints.filter((c: any) => c && typeof c.rule === 'string') : [],
     rejectedAlternatives: Array.isArray(raw.rejectedAlternatives) ? raw.rejectedAlternatives.filter((r: any) => r && typeof r.title === 'string' && Array.isArray(r.alternatives)) : [],
     digest: typeof raw.digest === 'string' ? raw.digest : undefined,
