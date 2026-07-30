@@ -40,7 +40,8 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
-import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp } from './conductor-pass-journal.js';
+import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow } from './conductor-pass-journal.js';
+import { getWebSocketHandler } from './ws-handler-manager.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -369,10 +370,24 @@ function note(rowId: string | null, patch: Parameters<typeof appendPassProgress>
   }
 }
 
-function seal(rowId: string | null, patch: Parameters<typeof finalizePassRow>[1]): void {
+function seal(project: string, rowId: string | null, patch: Parameters<typeof finalizePassRow>[1]): void {
   if (rowId == null) return;
   try {
     finalizePassRow(rowId, patch);
+  } catch {
+    /* fail-open */
+  }
+
+  let row: ConductorPassJournalRow | undefined;
+  try {
+    row = listConductorPasses(project, { limit: 1 }).find((r) => r.id === rowId);
+  } catch {
+    row = undefined;
+  }
+  if (row === undefined) return;
+
+  try {
+    getWebSocketHandler()?.broadcast({ type: 'conductor_pass', project, row });
   } catch {
     /* fail-open */
   }
@@ -397,7 +412,7 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       status: conductorStatusLine(result.reason, result),
       timeoutKills: result.timeoutKills,
     });
-    seal(journalRowId, { missionId: result.missionId ?? null, outcome: result.reason, ran: result.ran });
+    seal(project, journalRowId, { missionId: result.missionId ?? null, outcome: result.reason, ran: result.ran });
     return result;
   } catch (err) {
     // Error stamp: records that the pass failed (rethrow so callers keep seeing the failure).
@@ -407,7 +422,7 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       tickAt: Date.now(),
       status: conductorStatusLine('pass-error'),
     });
-    seal(journalRowId, { missionId: null, outcome: 'pass-error', ran: false });
+    seal(project, journalRowId, { missionId: null, outcome: 'pass-error', ran: false });
     throw err;
   }
 }
