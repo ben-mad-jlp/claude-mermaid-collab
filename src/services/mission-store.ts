@@ -193,7 +193,9 @@ export interface MissionRollup {
   /** Derived capability status, first-match-wins precedence. */
   status: MissionStatus;
   /** Criteria whose derived action is 'discover' — open gaps with no live serving epic.
-   *  The conductor files one epic PER gap, all in the same pass. */
+   *  The conductor files one epic PER gap, all in the same pass. Excludes criteria whose
+   *  action is 'blocked' (an unmet dependency) — those aren't gaps to serve, just
+   *  not-yet-servable. */
   gaps: number;
   /** Criteria whose derived action is 'verify' — landed, awaiting the independent gate. */
   awaitingVerify: number;
@@ -1263,6 +1265,9 @@ export interface MissionCriterionFacts {
    *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
   servingEpics?: { id: string; title: string; landed: boolean }[];
+  /** ids from this criterion's `dependsOn` that exist on the same mission and are not yet
+   *  met — 'blocked' when non-empty. */
+  unmetDependencyIds: string[];
 }
 
 export interface MissionStatusFacts {
@@ -1297,6 +1302,7 @@ export type CriterionAction =
   | 'building'  // a serving epic is open WITH live motion — wait for it
   | 'verify'    // a serving epic landed, verdict not yet recorded — run the independent gate
   | 'discover'  // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
+  | 'blocked'   // an unmet dependsOn dependency — structurally not servable yet
   | 'dropped'   // criterion dropped — serve-inert: derives no work and is excluded from convergence
   | 'escalate'; // capped: CRITERION_SERVE_CAP+ serving epics filed and still unmet — stop re-filing, escalate to a human ONCE
 
@@ -1314,6 +1320,7 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   // (verification-as-event — `met` alone is a self-grade until verifiedAt stamps it).
   if (c.servingEpicState === 'landed' && (c.verifiedAt == null || predServingLandIsNewerThanVerdict(c))) return 'verify';
   if (c.met) return 'met';
+  if (c.unmetDependencyIds.length > 0) return 'blocked';
   if (c.servingEpicState === 'open' && c.servingEpicLive) return 'building';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
   // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
@@ -1517,6 +1524,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   }
   const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean }>();
   const proofForEpic = (epicId: string) => predProofForEpic(epicId, childrenByParent, proofByEpic);
+  const metById = new Map(criteria.map((cc) => [cc.id, cc.met]));
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
@@ -1622,7 +1630,8 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         }
         if (best) { servingEpicLandSha = best.sha; servingEpicLandedAt = best.at; }
       } catch { /* fail closed to null, same as a missing record */ }
-      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingEpics };
+      const unmetDependencyIds = c.dependsOn.filter((depId) => metById.get(depId) === false);
+      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingEpics, unmetDependencyIds };
     }),
   };
 }
