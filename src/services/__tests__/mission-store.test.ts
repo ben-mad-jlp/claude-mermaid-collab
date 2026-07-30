@@ -9,6 +9,7 @@ import {
 import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, listCriteriaWithActions, setCriterionMet, removeCriterion,
+  dropCriterion, undropCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveTerminalMissionPrefix, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
   CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
@@ -186,6 +187,43 @@ describe('mission-store: criteria', () => {
     upsertMission(project, id);
     expect(() => addCriterion(project, id, '   ')).toThrow();
     expect(() => setCriterionMet(project, 'nope', true)).toThrow();
+  });
+
+  test('dropCriterion preserves the criterion row with the stamped reason/at/by', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const c = addCriterion(project, id, 'can create an assembly');
+    await dropCriterion(project, c.id, { reason: 'no longer needed', by: 'tester' });
+    const got = listCriteria(project, id).find((x) => x.id === c.id)!;
+    expect(got.text).toBe('can create an assembly');
+    expect(got.status).toBe('dropped');
+    expect(got.droppedReason).toBe('no longer needed');
+    expect(got.droppedAt).not.toBeNull();
+    expect(got.droppedBy).toBe('tester');
+  });
+
+  test('undropCriterion re-arms the criterion but leaves its dropped serving epics dropped', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const c = addCriterion(project, id, 'can simulate physics');
+    const epic = await createTodo(project, {
+      allowOrphan: true, ownerSession: 's1', title: '[EPIC] serve crit', parentId: id, kind: 'epic',
+      servesCriterionIds: [c.id],
+    });
+    await dropCriterion(project, c.id, { reason: 'cut scope', by: 'tester' });
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
+
+    undropCriterion(project, c.id);
+    const got = listCriteria(project, id).find((x) => x.id === c.id)!;
+    expect(got.status).toBe('active');
+    expect(got.droppedReason).toBeNull();
+    expect(got.droppedAt).toBeNull();
+    expect(got.droppedBy).toBeNull();
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
+  });
+
+  test('dropCriterion throws for an unknown criterion id', async () => {
+    await expect(dropCriterion(project, 'nonexistent-id', { reason: 'x', by: 'tester' })).rejects.toThrow();
   });
 });
 
