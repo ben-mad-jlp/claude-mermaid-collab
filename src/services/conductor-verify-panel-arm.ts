@@ -31,7 +31,9 @@ export interface VerifyPanelArmDeps {
 export interface VerifyPanelArmResult {
   /** Criterion ids whose panel run recorded a met verdict (all three lenses PASS by majority). */
   paneled: string[];
-  /** Criterion ids whose panel run recorded a not-met verdict (majority FAIL or dissent). */
+  /** Criterion ids whose panel run recorded a not-met verdict (majority FAIL or dissent).
+   *  Excludes infra-degraded panels (no lens produced a parseable verdict) — those land in
+   *  skipped instead, since held implies the panel positively recorded not-met. */
   held: string[];
   /** Criterion ids skipped (unchanged-sha, or panel run threw / degraded). */
   skipped: string[];
@@ -88,6 +90,8 @@ export async function runVerifyPanelArm(
 
           // Bucket by outcome.
           if (panelResult.skipped) {
+            result.skipped.push(criterion.id);
+          } else if (panelResult.outcome === 'infra-degraded') {
             result.skipped.push(criterion.id);
           } else if (panelResult.met) {
             result.paneled.push(criterion.id);

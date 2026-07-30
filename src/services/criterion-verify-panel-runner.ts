@@ -57,6 +57,7 @@ export async function runCriterionVerifyPanel(
   met: boolean;
   invocations: number;
   dissent?: string;
+  outcome?: 'pass' | 'dissent' | 'infra-degraded';
 }> {
   // 1. No-op guard: resolve criterion and check if verifiedAtSha is unchanged
   const todoId = missionIdOfCriterion(project, criterionId);
@@ -111,6 +112,7 @@ export async function runCriterionVerifyPanel(
 
   // 4. Invoke each lens and parse verdicts
   const verdicts: PanelVerdict[] = [];
+  const causes: Array<'met' | 'genuine-not-met' | 'infra'> = [];
   const invoker = deps.invoke ?? invokeNode;
 
   for (const lens of VERIFY_LENSES) {
@@ -137,12 +139,19 @@ export async function runCriterionVerifyPanel(
           : 'criterion met by this lens';
 
     verdicts.push({ lens, met, reason });
+    causes.push(parsed === 'error' ? 'infra' : parsed === 'not-met' ? 'genuine-not-met' : 'met');
   }
 
   // 5. Join verdicts with unanimity check
   const join = joinPanelVerdicts(verdicts);
   const unanimousMet = verdicts.every((v) => v.met);
   const met = join.met && unanimousMet;
+
+  const outcome: 'pass' | 'dissent' | 'infra-degraded' =
+    unanimousMet ? 'pass'
+    : causes.some((c) => c === 'genuine-not-met') ? 'dissent'
+    : causes.every((c) => c === 'infra') ? 'infra-degraded'
+    : 'dissent';
 
   let dissent: string | undefined;
   let hold = false;
@@ -166,9 +175,12 @@ export async function runCriterionVerifyPanel(
     ? `\n\nPRIOR evidence (retained — re-verify against ground truth if this reopen was a shared-evidence-path land, not a real change):\n${criterion.evidence}`
     : '';
   const shaLabel = currentHeadSha ?? 'unknown-sha';
-  const evidence = met
-    ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${VERIFY_LENSES.length} distinct-model lenses (${panelSummary}).${priorEvidence}`
-    : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
+  const evidence =
+    outcome === 'pass'
+      ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${VERIFY_LENSES.length} distinct-model lenses (${panelSummary}).${priorEvidence}`
+      : outcome === 'infra-degraded'
+        ? `Auto-panel HOLD (infra-degraded — no lens produced a parseable verdict; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
+        : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
   const evidencePaths = criterion.evidencePaths ?? [];
 
   const recordFn = deps.recordVerdict ?? (async (p, cid, pv, extra) =>
@@ -192,5 +204,6 @@ export async function runCriterionVerifyPanel(
     met,
     invocations: VERIFY_LENSES.length,
     dissent,
+    outcome,
   };
 }
