@@ -12,8 +12,10 @@ import {
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, dropCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
   activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
   assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
+  missionIdOfCriterion,
   type CriterionType,
 } from '../services/mission-store.js';
+import { raiseCriterionDropCard } from '../services/criterion-drop-card.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
 import { addSessionTodo } from './tools/session-todos.js';
@@ -275,7 +277,16 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // array — which is why it went unseen).
       const panelVerdictsArr = normalizePanelVerdicts(panelVerdicts);
       if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
-      if (remove) { await dropCriterion(project, criterionId, { reason: reason ?? 'dropped via set_mission_criterion(remove:true)', by: 'mcp:set_mission_criterion' }); return JSON.stringify({ dropped: criterionId }, null, 2); }
+      if (remove) {
+        const dropReason = reason ?? 'dropped via set_mission_criterion(remove:true)';
+        const missionId = missionIdOfCriterion(project, criterionId);
+        const crit = missionId ? listCriteria(project, missionId).find((c) => c.id === criterionId) : undefined;
+        await dropCriterion(project, criterionId, { reason: dropReason, by: 'mcp:set_mission_criterion' });
+        if (missionId && crit) {
+          raiseCriterionDropCard({}, { project, session: 'mcp:set_mission_criterion', missionId, criterion: { id: crit.id, text: crit.text, type: crit.type }, reason: dropReason });
+        }
+        return JSON.stringify({ dropped: criterionId }, null, 2);
+      }
       if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
 
       // Panel enforcement: when met=true, check if this criterion is high-stakes.
