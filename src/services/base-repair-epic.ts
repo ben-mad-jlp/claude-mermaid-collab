@@ -9,7 +9,7 @@
  * Bounded: at most `BASE_REPAIR_ATTEMPT_CAP` repair epics per epic per `BASE_REPAIR_WINDOW_MS`.
  * Idempotent: an already-in-flight repair epic blocks a duplicate raise.
  */
-import { listTodos, type Todo } from './todo-store.js';
+import { listTodos, updateTodo, type Todo } from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { createEpicWithLandLeaf, addLeavesToEpic, type LeafInput } from '../mcp/workgraph-tools.js';
 import { WAKE_GATE_REPROBE_TTL_MS } from './conductor-wake-gate.js';
@@ -116,6 +116,7 @@ export interface RaiseBaseRepairIo {
   listTodos?: typeof listTodos;
   createEpic?: typeof createEpicWithLandLeaf;
   addLeaves?: typeof addLeavesToEpic;
+  updateTodo?: typeof updateTodo;
   now?: () => number;
 }
 
@@ -148,6 +149,7 @@ export async function raiseBaseRepairEpic(
   const listTodosFn = io?.listTodos ?? listTodos;
   const createEpicFn = io?.createEpic ?? createEpicWithLandLeaf;
   const addLeavesFn = io?.addLeaves ?? addLeavesToEpic;
+  const updateTodoFn = io?.updateTodo ?? updateTodo;
 
   const todos = listTodosFn(args.project, { includeCompleted: true });
   const { open, attemptsInWindow } = findBaseRepairEpics(todos, marker, io?.now?.());
@@ -181,6 +183,8 @@ export async function raiseBaseRepairEpic(
   };
 
   await addLeavesFn(args.project, args.session, epic.id, [leafSpec]);
+
+  await updateTodoFn(args.project, epic.id, { status: 'ready' });
 
   return { created: true, epicId: epic.id };
 }

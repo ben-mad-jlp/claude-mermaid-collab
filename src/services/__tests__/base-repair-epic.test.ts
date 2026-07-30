@@ -11,6 +11,7 @@ import {
   type RaiseBaseRepairIo,
 } from '../base-repair-epic';
 import { type Todo } from '../todo-store';
+import { derivedStatus, isClaimable, claimReason } from '../claimability';
 
 describe('baseRepairMarker', () => {
   test('formats as [base-repair:epicId8:laneSig8]', () => {
@@ -248,6 +249,7 @@ describe('raiseBaseRepairEpic', () => {
     const todos: Todo[] = [];
     let createdEpic: { title: string; home: any; homeProvided: any; baseRepair: any; description: any } | null = null;
     let createdLeaves: any = null;
+    let updatedTodo: { project: string; id: string; patch: unknown } | null = null;
 
     const io: RaiseBaseRepairIo = {
       listTodos: () => todos,
@@ -258,6 +260,10 @@ describe('raiseBaseRepairEpic', () => {
       addLeaves: async (_project, _session, epicId, leaves) => {
         createdLeaves = { epicId, leaves };
         return { epicId, createdIds: ['leaf-id'] };
+      },
+      updateTodo: async (project, id, patch) => {
+        updatedTodo = { project, id, patch };
+        return {} as any;
       },
     };
 
@@ -298,5 +304,80 @@ describe('raiseBaseRepairEpic', () => {
     expect(leaf.status).toBe('ready');
     expect(leaf.files).toEqual(['src/foo.ts']);
     expect(leaf.description).toContain('do NOT weaken, skip or delete a test that catches a real gap — park and escalate instead');
+
+    // Verify the release call
+    expect(updatedTodo).not.toBeNull();
+    expect(updatedTodo!).toEqual({ project: 'p1', id: 'new-epic-id', patch: { status: 'ready' } });
+  });
+
+  test('releases the epic so its leaf clears parent-unreleased (mutation probe on the release call)', async () => {
+    const now = Date.now();
+    const epic: Todo = {
+      id: 'new-epic-id',
+      kind: 'epic',
+      title: 'Base repair: epic-my-feature',
+      status: 'ready',
+      description: 'base repair epic',
+      baseRepair: 1,
+      approvedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Todo;
+    const leaf: Todo = {
+      id: 'leaf-id',
+      kind: 'leaf',
+      title: 'Repair red base',
+      status: 'ready',
+      parentId: 'new-epic-id',
+      approvedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Todo;
+
+    const todos: Todo[] = [];
+
+    const io: RaiseBaseRepairIo = {
+      listTodos: () => todos,
+      createEpic: async () => ({ epic: epic as any }),
+      addLeaves: async (_project, _session, epicId, leaves) => {
+        return { epicId, createdIds: ['leaf-id'] };
+      },
+      updateTodo: async (_project, id, patch) => {
+        if (id === epic.id) {
+          Object.assign(epic, patch, { approvedAt: now });
+        }
+        return epic as any;
+      },
+    };
+
+    const epicId = 'epic1234567890ab';
+    const laneSig = 'abc123456def7890';
+
+    const result = await raiseBaseRepairEpic(
+      {
+        project: 'p1',
+        session: 's1',
+        epicId,
+        targetProject: 'p1',
+        laneSignature: laneSig,
+        cause: 'epic-base-red',
+        reasonTail: 'reason',
+        epicBranch: 'epic-my-feature',
+      },
+      io,
+    );
+    expect(result.created).toBe(true);
+
+    const byId = new Map<string, Todo>([[epic.id, epic], [leaf.id, leaf]]);
+
+    expect(epic.approvedAt).not.toBeNull();
+    expect(derivedStatus(epic, byId)).not.toBe('planned');
+    expect(isClaimable(leaf, byId)).toBe(true);
+    expect(claimReason(leaf, byId)).not.toBe('parent-unreleased');
+
+    // Mutation probe: without the release patch applied, the leaf stays parent-unreleased.
+    const unreleasedEpic: Todo = { ...epic, approvedAt: null } as unknown as Todo;
+    const unreleasedById = new Map<string, Todo>([[unreleasedEpic.id, unreleasedEpic], [leaf.id, leaf]]);
+    expect(claimReason(leaf, unreleasedById)).toBe('parent-unreleased');
   });
 });
