@@ -54,4 +54,45 @@ describe('diffAgainstBaseline', () => {
     expect(result.warnings.some((w) => w.includes('src/legacy.test.ts'))).toBe(true);
     expect(result.netNew).toEqual([]);
   });
+
+  it('(1) LEGACY EXEMPTION: legacy baseline is exempt from count growth', () => {
+    const failed = [{ file: 'src/a.test.ts', output: '(fail) one\n(fail) two\n(fail) three' }];
+    const baseline = { generatedAt: '2026-01-01T00:00:00Z', failing: ['src/a.test.ts'] };
+
+    const result = diffAgainstBaseline(failed, baseline);
+
+    expect(result.countGrowth).toEqual([]);
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.netNew).toEqual([]);
+  });
+
+  it('(2) V2 CONTROL: schema:2 entry with count growth is still detected', () => {
+    const failed = [{ file: 'src/a.test.ts', output: '(fail) x\n(fail) y' }];
+    const baseline = {
+      generatedAt: '2026-01-01T00:00:00Z',
+      schema: 2 as const,
+      files: [{ file: 'src/a.test.ts', failingTests: ['x'], count: 1 }],
+    };
+
+    const result = diffAgainstBaseline(failed, baseline);
+
+    expect(result.countGrowth).toHaveLength(1);
+    expect(result.countGrowth[0].file).toBe('src/a.test.ts');
+    expect(result.countGrowth[0].baselineCount).toBe(1);
+    expect(result.countGrowth[0].currentCount).toBe(2);
+    expect(result.countGrowth[0].newNames).toEqual(['y']);
+  });
+
+  it('(3) V2 no-growth control: schema:2 entry with no count growth stays green', () => {
+    const failed = [{ file: 'src/a.test.ts', output: '(fail) x' }];
+    const baseline = {
+      generatedAt: '2026-01-01T00:00:00Z',
+      schema: 2 as const,
+      files: [{ file: 'src/a.test.ts', failingTests: ['x'], count: 1 }],
+    };
+
+    const result = diffAgainstBaseline(failed, baseline);
+
+    expect(result.countGrowth).toEqual([]);
+  });
 });
