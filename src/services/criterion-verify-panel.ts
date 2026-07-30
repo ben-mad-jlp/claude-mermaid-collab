@@ -96,9 +96,10 @@ export function buildLensVerifyPrompt(lens: VerifyLens, ctx: LensVerifyCtx): str
 ${evidenceBlock}
 
 ## Your verdict
-Respond with EXACTLY one line:
+Reply with your reasoning, then end your response with EXACTLY one final line and nothing after it:
 - VERDICT: PASS (if the evidence and claim meet your lens)
-- VERDICT: FAIL — <reason> (if not, explain briefly why)`;
+- VERDICT: FAIL — <reason> (if not, explain briefly why)
+Do not wrap the VERDICT line in backticks, quotes, or a code fence.`;
 }
 
 /** Join panel verdicts using strict-majority vote: met = countMet * 2 > verdicts.length.

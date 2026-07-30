@@ -117,13 +117,14 @@ export async function runCriterionVerifyPanel(
     const spec: NodeSpec = {
       prompt: prompts[lens],
       model: plan[lens],
-      cwd: process.cwd(),
+      cwd: project,
       timeoutMs: PANEL_LENS_TIMEOUT_MS,
       strictMcpConfig: true,
     };
 
     const res = await invoker(spec);
-    const parsed = parseLensVerdict(res.ok ? res.stdout : undefined);
+    const parseSource = res.ok ? (res.text && res.text.trim() ? res.text : res.stdout) : undefined;
+    const parsed = parseLensVerdict(parseSource);
 
     const met = parsed === 'met';
     const reason =
