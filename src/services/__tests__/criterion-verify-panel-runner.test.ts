@@ -30,42 +30,49 @@ async function setupMissionWithCriterion() {
 }
 
 describe('runCriterionVerifyPanel', () => {
-  test('rejects a same-model panel before spawning', async () => {
+  test('rejects a same-model panel before spawning the runner', async () => {
     const { criterion } = await setupMissionWithCriterion();
     const invokeSpy = { calls: 0 };
 
-    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
-      invokeSpy.calls++;
-      return {
-        ok: true,
-        exitCode: 0,
-        stdout: 'VERDICT: PASS',
-        durationMs: 1000,
-        rateLimited: false,
-        authMode: 'subscription',
-      };
-    };
+    await expect(runCriterionVerifyPanel(project, criterion.id, {
+      invoke: async (_spec: NodeSpec): Promise<NodeResult> => {
+        invokeSpy.calls++;
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: 'VERDICT: PASS',
+          durationMs: 1,
+          rateLimited: false,
+          authMode: 'subscription',
+        };
+      },
+      makerModel: 'sonnet',
+      lensPool: ['sonnet', 'haiku', 'fable'],
+    })).rejects.toThrow(/Panel model collision/);
 
-    // Mock deps where one lens maps to the maker model
-    const deps = {
-      invoke: mockInvoke,
-      // Simulate assertDistinctPanel throwing by modifying the plan
-      // We'll test this by passing a makerModel='sonnet' and a lensPool that includes 'sonnet'
-    };
-
-    // The runner defaults to maker='opus' and pool=['sonnet', 'haiku', 'fable']
-    // So we expect no throw here. To test the throw, we'd need to allow makerModel/lensPool
-    // to be passed via deps, but the blueprint doesn't specify that signature.
-    // Instead, we verify that assertDistinctPanel throws when called with bad inputs:
-    const { assertDistinctPanel, planPanelModels } = await import('../criterion-verify-panel-plan');
-
-    // This should throw because 'sonnet' appears in both plan and as maker
-    const badPlan = planPanelModels({ makerModel: 'opus', lensPool: ['sonnet', 'haiku', 'fable'] });
-    // Set one lens to maker model (manually for this test)
-    badPlan['evidence-exists'] = 'opus';
-
-    expect(() => assertDistinctPanel(badPlan, 'opus')).toThrow(/Panel model collision/);
     expect(invokeSpy.calls).toBe(0);
+  });
+
+  test('production default resolves a non-colliding plan when maker/pool are not supplied', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+    const invokeSpy = { calls: 0 };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: async (_spec: NodeSpec): Promise<NodeResult> => {
+        invokeSpy.calls++;
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: 'VERDICT: PASS',
+          durationMs: 1,
+          rateLimited: false,
+          authMode: 'subscription',
+        };
+      },
+    });
+
+    expect(result.invocations).toBe(3);
+    expect(invokeSpy.calls).toBe(3);
   });
 
   test('a per-lens watchdog timeout resolves to HOLD', async () => {
