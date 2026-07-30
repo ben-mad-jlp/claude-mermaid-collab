@@ -10,13 +10,13 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine, conductorNeedsHuman } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorLastPass, type Escalation } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setCriterionVerdict, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
 import { REBET_KIND, rebetConditionKey } from '../rebet-briefing';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
-import { createTodo, updateTodo } from '../todo-store';
+import { createTodo, updateTodo, listTodos } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
@@ -785,7 +785,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     const qt = escCalls[0].questionText;
     expect(qt).toContain('fresh-blueprint');
     expect(qt).toContain('tier-bump');
-    expect(qt).toContain('ladder incomplete');
+    expect(qt).toContain('hit the serve cap');
   });
 
   test('serve-cap with store fault on listApproachAttempts — treats as exhausted and raises card', async () => {
@@ -814,6 +814,42 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(r.reason).toBe('criteria-escalated');
     expect(r.escalationsRaised).toBe(1); // card raised despite fault
     expect(escCalls.length).toBe(1);
+  });
+
+  test('surfaces the current verdict sha/evidence in the serve-cap card and skips the ladder-incomplete line when the ladder was tried', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+
+    const servingEpics = listTodos(project).filter((t) => t.kind === 'epic' && (t.servesCriterionIds ?? []).includes(crit.id));
+    const leafId = `synthetic-leaf-${servingEpics[0].id}-content`;
+    recordNode({
+      project, todoId: leafId, epicId: servingEpics[0].id, leafId, session: 's1', nodeKind: 'outcome',
+      nodesSpent: 0, leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'review-findings: naming inconsistency' }),
+    }, Date.now() - 1000);
+
+    setCriterionVerdict(project, crit.id, { met: false, evidence: 'p95 measured at 142ms on prod excerpt', verifiedAtSha: 'deadbeef1234', verifiedBy: 'conductor' });
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(escCalls.length).toBe(1);
+    const qt = escCalls[0].questionText;
+    expect(qt).toContain('deadbeef1234');
+    expect(qt).toContain('p95 measured at 142ms on prod excerpt'.slice(0, 20));
+    expect(qt).not.toContain('ladder incomplete');
   });
 
   /** Forge a capped mission like forgeCappedMission, but also return the serving epic ids so
