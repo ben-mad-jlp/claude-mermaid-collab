@@ -127,7 +127,7 @@ export const WAKE_CARD_EXCERPT_CHARS = 320;
 export const WAKE_CRITERION_RENDER_CAP = 12;
 
 /** The derived actions that mean "there is work for the conductor on this criterion". */
-const ACTIONABLE_ACTIONS: readonly string[] = ['discover', 'verify'];
+export const ACTIONABLE_ACTIONS: readonly string[] = ['discover', 'verify'];
 
 /** Compact human age, e.g. "45s", "12m", "3h12m", "2d3h". Never negative (clock skew → "0s"). */
 export function formatWakeAge(ms: number): string {
