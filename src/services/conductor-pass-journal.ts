@@ -12,6 +12,8 @@ import { homedir } from 'node:os';
 
 export type ConductorPassArm = 'infra' | 'redecompose' | 'verify-panel' | 'test-only-close' | 'land' | 'node' | 'none';
 
+export interface ConductorFiledRef { kind: 'epic' | 'leaf' | 'card'; id: string; title: string }
+
 export interface ConductorPassJournalRow {
   id: string;
   project: string;
@@ -22,9 +24,9 @@ export interface ConductorPassJournalRow {
   passFp: string | null;
   selfFp: string | null;
   arm: ConductorPassArm | null;
-  criteriaActed: Array<{ criterionId: string; action: string }>;
-  filed: unknown;
-  declined: Array<{ what: string; why: string }>;
+  criteriaActed: Array<{ criterionId: string; action: string; servedEpicId?: string | null }>;
+  filed: ConductorFiledRef[] | unknown;
+  declined: Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }>;
   outcome: string | null;
   ran: boolean | null;
   /** Whether a 'node-failed' outcome on this row is a genuine, countable attempt (a real node
@@ -200,6 +202,19 @@ function rowFromRaw(r: any): ConductorPassJournalRow {
     ran: r.ran == null ? null : r.ran === 1,
     failCounted: r.failCounted == null ? null : r.failCounted === 1,
   };
+}
+
+/** Normalize `row.filed` to a typed array of refs, returning [] for legacy shapes (e.g. the
+ *  old count object) or any entry that doesn't match the typed shape. */
+export function filedRefsOf(row: Pick<ConductorPassJournalRow, 'filed'>): ConductorFiledRef[] {
+  const f = row.filed;
+  if (!Array.isArray(f)) return [];
+  return f.filter(
+    (x): x is ConductorFiledRef =>
+      x != null && typeof x === 'object' &&
+      (x.kind === 'epic' || x.kind === 'leaf' || x.kind === 'card') &&
+      typeof x.id === 'string' && typeof x.title === 'string',
+  );
 }
 
 /** List conductor passes for a project, newest-first. Returns [] on throw. */
