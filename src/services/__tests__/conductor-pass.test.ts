@@ -815,6 +815,143 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(r.escalationsRaised).toBe(1); // card raised despite fault
     expect(escCalls.length).toBe(1);
   });
+
+  /** Forge a capped mission like forgeCappedMission, but also return the serving epic ids so
+   *  the caller can attach leaf-run reasons to them (distinctReasons is keyed off these epics). */
+  async function forgeCappedMissionWithEpicIds(title = 'MEASURED-live: p95 latency < 100ms in prod') {
+    const forged = await forgeMission(project, { session: 's1', title, criteria: ['p95 latency measured under 100ms on the live deploy'] });
+    const crit = listCriteria(project, forged.missionId)[0];
+    const epicIds: string[] = [];
+    for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+      const e = await createTodo(project, { ownerSession: 's1', title: `[EPIC] serve ${i}`, kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
+      await updateTodo(project, e.id, { status: 'dropped' });
+      epicIds.push(e.id);
+    }
+    recordApproachAttempt({
+      criterionId: crit.id,
+      missionId: forged.missionId,
+      project,
+      rung: 're-decompose',
+      epicId: null,
+      outcome: 'attempted',
+      detail: null,
+      attemptedAt: Date.now(),
+    });
+    return { forged, crit, epicIds };
+  }
+
+  function recordBaseRedLeafRun(epicId: string) {
+    const leafId = `synthetic-leaf-${epicId}-red`;
+    recordNode({
+      project, todoId: leafId, epicId, leafId, session: 's1', nodeKind: 'outcome',
+      nodesSpent: 0, leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'epic-base-red: npx tsc --noEmit\n--- output (tail) ---\nerror TS2345' }),
+    });
+  }
+
+  function recordContentLeafRun(epicId: string) {
+    const leafId = `synthetic-leaf-${epicId}-content`;
+    recordNode({
+      project, todoId: leafId, epicId, leafId, session: 's1', nodeKind: 'outcome',
+      nodesSpent: 0, leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'review-findings: naming inconsistency' }),
+    });
+  }
+
+  test('all-base-red distinctReasons + GREEN re-measure on every serving epic ⇒ suppresses the serve-cap card', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, epicIds } = await forgeCappedMissionWithEpicIds();
+    recordBaseRedLeafRun(epicIds[0]);
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+      epicBaseProbe: async () => 'pass',
+    });
+
+    expect(r.ran).toBe(false);
+    void forged;
+    expect(escCalls.filter((e) => e.kind === CRITERION_SERVE_CAP_KIND).length).toBe(0);
+    expect(r.serveCapDeferred).toBeGreaterThanOrEqual(1);
+  });
+
+  test('all-base-red distinctReasons + a FAILING re-measure still raises the serve-cap card', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { epicIds } = await forgeCappedMissionWithEpicIds();
+    recordBaseRedLeafRun(epicIds[0]);
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+      epicBaseProbe: async () => 'fail',
+    });
+
+    expect(r.ran).toBe(false);
+    expect(escCalls.filter((e) => e.kind === CRITERION_SERVE_CAP_KIND).length).toBe(1);
+  });
+
+  test('all-base-red distinctReasons + a THROWING probe fails open: card raised and the pass still returns', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { epicIds } = await forgeCappedMissionWithEpicIds();
+    recordBaseRedLeafRun(epicIds[0]);
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+      epicBaseProbe: async () => { throw new Error('probe boom'); },
+    });
+
+    expect(r.ran).toBe(false);
+    expect(escCalls.filter((e) => e.kind === CRITERION_SERVE_CAP_KIND).length).toBe(1);
+  });
+
+  test('mixed reasons (not all epic-base-red) still raise the card even when the probe would pass', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { epicIds } = await forgeCappedMissionWithEpicIds();
+    recordBaseRedLeafRun(epicIds[0]);
+    recordContentLeafRun(epicIds[1]);
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+      epicBaseProbe: async () => 'pass',
+    });
+
+    expect(r.ran).toBe(false);
+    expect(escCalls.filter((e) => e.kind === CRITERION_SERVE_CAP_KIND).length).toBe(1);
+  });
 });
 
 describe('runConductorPass — mission-scoped card ids in the signature', () => {
