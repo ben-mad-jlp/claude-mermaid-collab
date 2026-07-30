@@ -14,6 +14,7 @@ import { listSessionRuntimes } from '../services/session-runtime.js';
 import { getOrchestratorHealth as getOrchestratorHealthSST } from '../services/orchestrator-live.js';
 import { API_BASE_URL, apiFetch } from './tools/http-util.js';
 import { recordSupervisorDecision } from './setup.js';
+import { conductorNeedsHuman } from '../services/conductor-pass.js';
 
 export const SYSTEM_TOOL_DEFS = [
   {"name":"check_server_health","description":"Check if MCP server, HTTP/API backend, and React UI are running","inputSchema":{"properties":{},"required":[],"type":"object"}},
@@ -86,8 +87,10 @@ export async function handleSystemTool(name: string, args: any): Promise<string 
       const STALE_MS = 15 * 60 * 1000;
       const inflight = listLeafInflight({ project }).map((r) => ({ leafId: r.leafId, project: r.project, epicId: r.epicId ?? null, nodeKind: r.nodeKind ?? null, model: r.model ?? null, attempt: r.attempt ?? null, startedAt: r.startedAt, elapsedMs: now - r.startedAt, stale: now - r.startedAt > STALE_MS }));
       const claimSuppression = project ? await diagnoseClaimSuppression(project) : undefined;
-      const state = inflight.length > 0 ? 'working' : claimSuppression?.blocked ? 'blocked-on-decision' : (claimSuppression?.suppressed.length ?? 0) > 0 ? 'claims-suppressed' : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : 'idle';
-      return JSON.stringify({ now, state, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}) }, null, 2);
+      const lastPass = project ? supervisorStore.getConductorLastPass(project) : null;
+      const needsHuman = conductorNeedsHuman(lastPass?.reason);
+      const state = inflight.length > 0 ? 'working' : claimSuppression?.blocked ? 'blocked-on-decision' : (claimSuppression?.suppressed.length ?? 0) > 0 ? 'claims-suppressed' : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : needsHuman ? 'needs-attention' : 'idle';
+      return JSON.stringify({ now, state, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}), ...(project ? { conductor: lastPass ? { missionId: lastPass.missionId, timeoutKills: lastPass.timeoutKills ?? 0, status: lastPass.status ?? null, needsHuman } : null } : {}) }, null, 2);
     }
     case 'friction_trends': {
       const { project, layer, limit } = args as { project: string; layer?: any; limit?: number };
