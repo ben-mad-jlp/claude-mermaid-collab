@@ -2051,6 +2051,9 @@ describe('conductorStatusLine', () => {
     expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('stuck');
     expect(conductorStatusLine('debounced')).toBe('idle — nothing to do');
     expect(conductorStatusLine('building-wait')).toBe('building — waiting on work');
+    expect(conductorStatusLine('conductor-timeouts-capped', { timeoutKills: 3 })).toBe('killed 3x — needs you');
+    expect(conductorStatusLine('node-failed', { timeoutKills: 2 })).toBe('killed 2x — retrying');
+    expect(conductorStatusLine('node-failed')).toBe('hit an error — retrying');
   });
 });
 
@@ -2060,6 +2063,7 @@ describe('conductorNeedsHuman', () => {
     // must be flagged, and nothing else. Guards the Bridge RED project-card signal.
     expect(conductorNeedsHuman('criteria-escalated')).toBe(true);
     expect(conductorNeedsHuman('over-budget-rebet')).toBe(true);
+    expect(conductorNeedsHuman('conductor-timeouts-capped')).toBe(true);
     for (const r of ['conducted', 'debounced', 'building-wait', 'pass-ran', 'redecomposed',
       'no-actionable-mission', 'conductor-disabled', 'daemon-off', 'node-failed'] as const) {
       expect(conductorNeedsHuman(r)).toBe(false);

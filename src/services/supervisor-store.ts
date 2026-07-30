@@ -544,6 +544,8 @@ export interface ConductorLastPass {
    *  set at the end of each pass, so the Bridge readout shows WHY, not just when. Persisted in the
    *  same JSON blob — no schema change. */
   status?: string;
+  /** Consecutive conductor-node timeouts in a row on the same unchanged serve-state. */
+  timeoutKills?: number;
 }
 
 /** Per-project OBSERVABLE outcome of the last runConductorPass tick — which mission (if any) it

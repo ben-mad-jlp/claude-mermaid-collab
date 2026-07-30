@@ -39,7 +39,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
-import { openPassRow, appendPassProgress, finalizePassRow } from './conductor-pass-journal.js';
+import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp } from './conductor-pass-journal.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -297,6 +297,8 @@ export interface ConductorPassResult {
   cardsParked?: number;
   missionId?: string;
   modelUsed?: string;
+  /** Consecutive conductor-node timeouts in a row on the same unchanged serve-state. */
+  timeoutKills?: number;
 }
 
 /** The SETTLED conductor-pass reasons that mean the mission is stuck on a HUMAN — the pass
@@ -309,7 +311,7 @@ export interface ConductorPassResult {
  *  so it always backs a needs-you status). Single source of truth, shared by conductorStatusLine
  *  and the /conductor-running route. */
 export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null | undefined): boolean {
-  return reason === 'criteria-escalated' || reason === 'over-budget-rebet';
+  return reason === 'criteria-escalated' || reason === 'over-budget-rebet' || reason === 'conductor-timeouts-capped';
 }
 
 /** SHORT (<=60 char) human status line for a SETTLED conductor pass — what the pass DID this run,
@@ -317,7 +319,7 @@ export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null
  *  test covers every reason value. Set at the end of each pass in runConductorPass. */
 export function conductorStatusLine(
   reason: ConductorPassResult['reason'],
-  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed' | 'cardsParked'> = {},
+  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed' | 'cardsParked' | 'timeoutKills'> = {},
 ): string {
   const n = (x?: number): number => x ?? 0;
   // Plain-language status shown in the Bridge conductor line. Keep these HUMAN-READABLE — an
@@ -336,7 +338,8 @@ export function conductorStatusLine(
     case 'criteria-escalated': return n(counts.serveCapDeferred) ? `${n(counts.serveCapDeferred)} stuck — needs you` : 'stuck — needs you';
     case 'redecomposed': return 're-planned an epic';
     case 'over-budget-rebet': return 'over budget — needs you';
-    case 'node-failed': return 'hit an error — retrying';
+    case 'node-failed': return counts.timeoutKills ? `killed ${n(counts.timeoutKills)}x — retrying` : 'hit an error — retrying';
+    case 'conductor-timeouts-capped': return `killed ${n(counts.timeoutKills)}x — needs you`;
     case 'pass-error': return 'hit an error';
     case 'no-actionable-mission': return 'no active mission';
     case 'target-not-actionable': return "mission can't run yet";
@@ -388,6 +391,7 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       reason: result.reason,
       tickAt: Date.now(),
       status: conductorStatusLine(result.reason, result),
+      timeoutKills: result.timeoutKills,
     });
     seal(journalRowId, { missionId: result.missionId ?? null, outcome: result.reason, ran: result.ran });
     return result;
@@ -755,22 +759,23 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // separate infraActed bypass to key on).
   const serveFp = buildServeSignature({ status, actions, hardCardIds });
   const fp = buildPassSignature(serveFp, landCardIds);
-  const lastKey = target.row.lastConductorKey;
-  const selfKey = target.row.lastConductorSelfKey;
+  note(journalRowId, { serveFp });
+  const productivePass = latestProductivePassFp(project, missionId);
+  const lastKey = productivePass?.passFp ?? null;
+  const selfKey = productivePass?.selfFp ?? null;
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
   // a self-echo, not a wake-up.
   if (lastKey === fp || selfKey === fp) return done({ ran: false, reason: 'debounced', missionId });
-  // A prior FAILED pass encodes `${serveFp}|fail:N`. A node FAILURE (or empty serve) used to stamp
-  // the plain fp and permanently wedge the mission; it now retries up to CONDUCTOR_SERVE_RETRY_CAP
-  // times across ticks, then stops respinning an expensive node on an unservable serve-state
-  // (bounded, not a permanent wedge — and NOT re-armed by landCardIds drift). Because hard-card ids
-  // now live INSIDE serveFp, a new hard card changes failPrefix itself and the counter restarts from
-  // 0 for the new serve-state — the intended re-arm (a new card is new information), still bounded by
-  // CONDUCTOR_SERVE_RETRY_CAP per distinct card set.
-  const failPrefix = `${serveFp}|fail:`;
-  const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
+  // The fail-retry counter is derived from the journal's contiguous run of node-failed passes on
+  // this exact serveFp (excluding this pass's own in-flight row), not from a hand-rolled
+  // `${serveFp}|fail:N` string parse on the mission column. Bounded, not a permanent wedge — and
+  // NOT re-armed by landCardIds drift. Because hard-card ids live INSIDE serveFp, a new hard card
+  // changes serveFp itself and the counter restarts from 0 for the new serve-state — the intended
+  // re-arm (a new card is new information), still bounded by CONDUCTOR_SERVE_RETRY_CAP per distinct
+  // card set.
+  const priorFails = countConsecutiveFailedPasses(project, missionId, serveFp, journalRowId);
   if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId });
 
   // Distinct bounded loop-breaker for CONSECUTIVE node timeouts on this unchanged serve-state
@@ -791,7 +796,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           `likely needs a smaller/cheaper serve-state or human investigation.`,
       });
     } catch { /* fail-open — the cap itself must not throw */ }
-    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
+    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, timeoutKills: timeoutRecurrence });
   }
 
   // No servable gap and no land card to drive: nothing for the node to do. A capped
@@ -959,17 +964,26 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       postPassSelfKey = null;
     }
     stampConductorRun(project, missionId, updatedFp, { selfKey: postPassSelfKey });
-  } else if (res.timedOut === true) {
+    note(journalRowId, { passFp: updatedFp, selfFp: postPassSelfKey });
+  }
+  let timeoutKills: number | undefined;
+  if (!productive && res.timedOut === true) {
     // Bounded separately from the fail counter — see CONDUCTOR_TIMEOUT_RECUR_CAP. Must be
     // checked BEFORE the generic `transient` arm below (timedOut is itself transient) or a
-    // timeout would silently fall into the no-op arm and never be bounded.
+    // timeout would silently fall into the no-op arm and never be bounded. Also excluded from
+    // the journal's countable-fail walk (failCounted:false) — it has its own separate cap.
     stampConductorTimeout(project, missionId, serveFp);
-  } else if (transient) {
+    timeoutKills = timeoutRecurrence + 1;
+    note(journalRowId, { failCounted: false });
+  } else if (!productive && transient) {
     // rateLimited / startFailure — unchanged: no stamp, no counter consumed (ec9a00eb).
     // Do NOT stampConductorRun — leave target.row.lastConductorKey unchanged so the next
-    // tick re-runs a pass on the SAME serve-state (no fail: increment, no debounce).
-  } else {
-    stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
+    // tick re-runs a pass on the SAME serve-state (no fail: increment, no debounce). Also
+    // excluded from the journal's countable-fail walk.
+    note(journalRowId, { failCounted: false });
+  } else if (!productive) {
+    stampConductorRun(project, missionId, serveFp);
+    note(journalRowId, { failCounted: true });
   }
-  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised, timeoutKills });
 }
