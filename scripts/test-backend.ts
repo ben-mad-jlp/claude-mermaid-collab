@@ -53,6 +53,7 @@ export function diffAgainstBaseline(
 
   let baselineFileNames: string[];
   let entries: BaselineFileEntryV2[];
+  const legacyFiles = new Set<string>();
   if (isV2) {
     const v2 = baseline as BaselineV2;
     baselineFileNames = v2.files.map((f) => f.file);
@@ -64,6 +65,7 @@ export function diffAgainstBaseline(
       warnings.push(
         `baseline: legacy file-shaped entry for ${file} — count growth cannot be checked (regenerate with --write-baseline)`,
       );
+      legacyFiles.add(file);
       return { file, failingTests: [], count: 0 };
     });
   }
@@ -78,6 +80,7 @@ export function diffAgainstBaseline(
   for (const f of failed) {
     const entry = baselineMap.get(f.file);
     if (!entry) continue;
+    if (legacyFiles.has(f.file)) continue;
     const currentTests = extractFailingTests(f.output);
     const hasNewName = entry.failingTests.length > 0 && currentTests.some((n) => !entry.failingTests.includes(n));
     const grew = currentTests.length > entry.count || hasNewName;
