@@ -15,6 +15,8 @@ import {
   getEscalation,
   resolveEscalationShortId,
   conditionIdentity,
+  reopenResolvedEscalationByConditionKey,
+  listEscalations,
   _closeDb,
 } from '../supervisor-store';
 import { TOKEN_BURN_KIND } from '../burn-watch';
@@ -280,5 +282,66 @@ describe('createEscalation — condition-key identity', () => {
     const rows = directDb.query('SELECT id FROM escalation WHERE project = ? AND session = ? AND questionText = ?').all(project, triple.session, triple.questionText) as { id: string }[];
     directDb.close();
     expect(rows.length).toBe(1);
+  });
+});
+
+describe('reopenResolvedEscalationByConditionKey', () => {
+  it('reopens a resolved row: status open, resolvedAt null, recurrenceCount 1, reopened true', () => {
+    const project = '/test-reopen-1';
+    const conditionKey = 'blocker:test-reopen-1';
+    const { escalation: esc1 } = createEscalation({
+      audience: 'internal',
+      project, session: 'sess-r1', kind: 'blocker', questionText: 'condition present',
+      conditionKey, conditionTuple: ['a'],
+    });
+    resolveEscalation(esc1.id, 'resolved', 'human');
+
+    const result = reopenResolvedEscalationByConditionKey({ project, conditionKey });
+    expect(result).not.toBeNull();
+    expect(result!.reopened).toBe(true);
+    expect(result!.escalation.status).toBe('open');
+    expect(result!.escalation.resolvedAt).toBeNull();
+    expect(result!.escalation.recurrenceCount).toBe(1);
+  });
+
+  it('a second call on the now-open row is a no-op: reopened false, recurrenceCount unchanged, one row', () => {
+    const project = '/test-reopen-2';
+    const conditionKey = 'blocker:test-reopen-2';
+    const { escalation: esc1 } = createEscalation({
+      audience: 'internal',
+      project, session: 'sess-r2', kind: 'blocker', questionText: 'condition present',
+      conditionKey, conditionTuple: ['a'],
+    });
+    resolveEscalation(esc1.id, 'resolved', 'human');
+
+    const first = reopenResolvedEscalationByConditionKey({ project, conditionKey });
+    expect(first!.reopened).toBe(true);
+
+    const second = reopenResolvedEscalationByConditionKey({ project, conditionKey });
+    expect(second).not.toBeNull();
+    expect(second!.reopened).toBe(false);
+    expect(second!.escalation.recurrenceCount).toBe(first!.escalation.recurrenceCount);
+    expect(listEscalations().filter(e => e.conditionKey === conditionKey).length).toBe(1);
+  });
+
+  it('an acknowledged row is left untouched: reopened false, status stays acknowledged', () => {
+    const project = '/test-reopen-3';
+    const conditionKey = 'blocker:test-reopen-3';
+    const { escalation: esc1 } = createEscalation({
+      audience: 'internal',
+      project, session: 'sess-r3', kind: 'blocker', questionText: 'condition present',
+      conditionKey, conditionTuple: ['a'],
+    });
+    acknowledgeEscalation(esc1.id, 'human');
+
+    const result = reopenResolvedEscalationByConditionKey({ project, conditionKey });
+    expect(result).not.toBeNull();
+    expect(result!.reopened).toBe(false);
+    expect(result!.escalation.status).toBe('acknowledged');
+  });
+
+  it('a conditionKey never used in the project returns null', () => {
+    const result = reopenResolvedEscalationByConditionKey({ project: '/test-reopen-4', conditionKey: 'blocker:never-used' });
+    expect(result).toBeNull();
   });
 });

@@ -1035,6 +1035,37 @@ export function reopenEscalation(id: string): Escalation | null {
 }
 
 /**
+ * Reopen the latest RESOLVED escalation for a `(project, conditionKey)` pair —
+ * for a condition that recurs after being marked resolved. No-op (returns the
+ * live row untouched) when an open/acknowledged row for that key already
+ * exists; returns null when the key has never been used in that project.
+ */
+export function reopenResolvedEscalationByConditionKey(input: {
+  project: string;
+  conditionKey: string;
+  questionText?: string;
+}): { escalation: Escalation; reopened: boolean } | null {
+  const d = openDb();
+  const project = trackingProjectRoot(input.project);
+  const openRow = d
+    .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND status IN ('open','acknowledged') ORDER BY createdAt DESC LIMIT 1")
+    .get(project, input.conditionKey) as EscalationRow | null;
+  if (openRow) {
+    return { escalation: mapEscalationRow(openRow), reopened: false };
+  }
+  const resolvedRow = d
+    .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND status = 'resolved' ORDER BY createdAt DESC LIMIT 1")
+    .get(project, input.conditionKey) as EscalationRow | null;
+  if (!resolvedRow) return null;
+  const now = Date.now();
+  d.prepare(
+    'UPDATE escalation SET status = ?, resolvedAt = NULL, resolvedBy = NULL, lastSeenAt = ?, recurrenceCount = recurrenceCount + 1, questionText = COALESCE(?, questionText) WHERE id = ?'
+  ).run('open', now, input.questionText ?? null, resolvedRow.id);
+  const refreshed = d.query('SELECT * FROM escalation WHERE id = ?').get(resolvedRow.id) as EscalationRow;
+  return { escalation: mapEscalationRow(refreshed), reopened: true };
+}
+
+/**
  * Operator-gate ('only you') an escalation — the human marking it as theirs alone.
  * Sets/clears the operatorGated column. When SETTING it, forces audience='human'
  * (the irreversible/outward floor — operator-gated is always human-visible).
