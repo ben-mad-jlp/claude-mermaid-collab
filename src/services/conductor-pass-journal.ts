@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-export type ConductorPassArm = 'infra' | 'redecompose' | 'verify-panel' | 'test-only-close' | 'node' | 'none';
+export type ConductorPassArm = 'infra' | 'redecompose' | 'verify-panel' | 'test-only-close' | 'land' | 'node' | 'none';
 
 export interface ConductorPassJournalRow {
   id: string;

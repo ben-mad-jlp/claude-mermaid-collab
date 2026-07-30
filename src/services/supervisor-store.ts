@@ -531,6 +531,9 @@ export type ConductorPassReason =
   // The pass PARKED one or more carded leaves at/over the attempts threshold deterministically,
   // before invoking the node — zero node spend. Card-triage arm.
   | 'card-triaged'
+  // The pass LANDED a green land-ready epic deterministically, without consulting the node.
+  // Landing arm.
+  | 'landed'
   // The pass STOPPED short-circuit before invoking the node: CONDUCTOR_TIMEOUT_RECUR_CAP
   // consecutive timeouts on this MISSION's unchanged serve-state (not a criterion) — a card
   // was raised naming the serve-state; the conductor will not re-invoke until it changes.
