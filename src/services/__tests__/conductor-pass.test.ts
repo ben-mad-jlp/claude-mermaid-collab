@@ -10,18 +10,19 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine, conductorNeedsHuman } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorLastPass, type Escalation } from '../supervisor-store';
-import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
+import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setCriterionVerdict, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
 import { REBET_KIND, rebetConditionKey } from '../rebet-briefing';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { planMissionCriterion } from '../../mcp/tools/mission-planner';
 import { listCriteria } from '../mission-store';
-import { createTodo, updateTodo } from '../todo-store';
+import { createTodo, updateTodo, listTodos } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
 import { CONDUCTOR_NODE_TIMEOUT_MS } from '../harness-caps';
+import { claimReason, isClaimable } from '../claimability';
 
 let project: string;
 let invokeCalls: number;
@@ -812,7 +813,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     const qt = escCalls[0].questionText;
     expect(qt).toContain('fresh-blueprint');
     expect(qt).toContain('tier-bump');
-    expect(qt).toContain('ladder incomplete');
+    expect(qt).toContain('hit the serve cap');
   });
 
   test('serve-cap with store fault on listApproachAttempts — treats as exhausted and raises card', async () => {
@@ -841,6 +842,141 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(r.reason).toBe('criteria-escalated');
     expect(r.escalationsRaised).toBe(1); // card raised despite fault
     expect(escCalls.length).toBe(1);
+  });
+
+  test('surfaces the current verdict sha/evidence in the serve-cap card and skips the ladder-incomplete line when the ladder was tried', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+
+    const servingEpics = listTodos(project).filter((t) => t.kind === 'epic' && (t.servesCriterionIds ?? []).includes(crit.id));
+    const leafId = `synthetic-leaf-${servingEpics[0].id}-content`;
+    recordNode({
+      project, todoId: leafId, epicId: servingEpics[0].id, leafId, session: 's1', nodeKind: 'outcome',
+      nodesSpent: 0, leafOutcome: 'rejected',
+      outcomeDetail: JSON.stringify({ reason: 'review-findings: naming inconsistency' }),
+    }, Date.now() - 1000);
+
+    setCriterionVerdict(project, crit.id, { met: false, evidence: 'p95 measured at 142ms on prod excerpt', verifiedAtSha: 'deadbeef1234', verifiedBy: 'conductor' });
+
+    const escCalls: any[] = [];
+    const createEscalationSpy = ((input: any) => {
+      escCalls.push(input);
+      return { escalation: { id: 'esc-1', ...input } as any, isNew: true };
+    }) as typeof createEscalation;
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      createEscalation: createEscalationSpy,
+      listOpenEscalations: () => [],
+    });
+
+    expect(r.ran).toBe(false);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(escCalls.length).toBe(1);
+    const qt = escCalls[0].questionText;
+    expect(qt).toContain('deadbeef1234');
+    expect(qt).toContain('p95 measured at 142ms on prod excerpt'.slice(0, 20));
+    expect(qt).not.toContain('ladder incomplete');
+  });
+
+  test('mints a claimable close-out leaf for a capped test-only criterion', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'measured at src/__tests__/perf.test.ts:12 — TO CLOSE the threshold needs updating',
+      evidencePaths: ['src/__tests__/perf.test.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.closeOutsMinted).toBe(1);
+
+    const todos = listTodos(project);
+    const closeEpic = todos.find((t) => t.kind === 'epic' && t.parentId === forged.missionId && (t.servesCriterionIds ?? []).includes(crit.id) && t.title.startsWith('Close out:'));
+    expect(closeEpic).toBeTruthy();
+    expect(closeEpic!.approvedAt).toBeTruthy(); // released BEFORE the leaf was added
+
+    const closeLeaf = todos.find((t) => t.parentId === closeEpic!.id);
+    expect(closeLeaf).toBeTruthy();
+    expect(closeLeaf!.description).toContain('TO CLOSE');
+    expect(closeLeaf!.description).toContain('OUT OF SCOPE');
+
+    const byId = new Map(todos.map((t) => [t.id, t]));
+    expect(claimReason(closeLeaf!, byId)).toBe('claimable');
+    expect(isClaimable(closeLeaf!, byId)).toBe(true);
+  });
+
+  test('mints exactly one epic and leaf across four passes at an unchanged verifiedAtSha', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'measured at src/__tests__/perf.test.ts:12',
+      evidencePaths: ['src/__tests__/perf.test.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    let mintedTotal = 0;
+    for (let i = 0; i < 4; i++) {
+      const r = await runConductorPass(project, { invoke: okInvoke });
+      mintedTotal += r.closeOutsMinted ?? 0;
+    }
+    expect(mintedTotal).toBe(1);
+
+    const todos = listTodos(project);
+    const closeEpics = todos.filter((t) => t.kind === 'epic' && t.parentId === forged.missionId && t.title.startsWith('Close out:'));
+    expect(closeEpics.length).toBe(1);
+    const closeLeaves = todos.filter((t) => t.parentId === closeEpics[0].id);
+    expect(closeLeaves.length).toBe(1);
+  });
+
+  test('raises the serve-cap card and mints nothing when the verdict cites a src path', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'the fix landed at src/foo.ts:5',
+      evidencePaths: ['src/foo.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.closeOutsMinted ?? 0).toBe(0);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1);
+
+    const todos = listTodos(project);
+    const closeEpic = todos.find((t) => t.kind === 'epic' && t.parentId === forged.missionId && t.title.startsWith('Close out:'));
+    expect(closeEpic).toBeUndefined();
+  });
+
+  test('falls through to the serve-cap card when the close arm dependency throws', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'measured at src/__tests__/perf.test.ts:12',
+      evidencePaths: ['src/__tests__/perf.test.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      closeArm: async () => { throw new Error('boom'); },
+    });
+    expect(r.closeOutsMinted ?? 0).toBe(0);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1);
   });
 
   /** Forge a capped mission like forgeCappedMission, but also return the serving epic ids so
@@ -1660,6 +1796,119 @@ describe('buildServeCapDiagnosis (pure)', () => {
     expect(diagnosis).toContain('re-decompose — attempted, second attempt');
     expect(diagnosis).not.toContain('re-decompose — failed');
   });
+
+  test('two blueprint-uncitable-criterion reasons plus a newer verdict names a different blocker surfaces CURRENT VERDICT before REASONS SEEN', () => {
+    const evidence = 'evidence naming a different blocker';
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: ['blueprint uncitable one', 'blueprint uncitable two'],
+      verdict: { evidence, verifiedAt: 100, verifiedAtSha: 'abc1234' },
+      newestReasonAt: 50,
+    });
+    expect(diagnosis).toContain('CURRENT VERDICT');
+    expect(diagnosis).toContain('abc1234');
+    expect(diagnosis).toContain(evidence);
+    expect(diagnosis).toContain('REASONS SEEN');
+    expect(diagnosis.indexOf(evidence)).toBeLessThan(diagnosis.indexOf('REASONS SEEN'));
+  });
+
+  const BASELINE_INPUT = {
+    criterionText: 'test criterion',
+    servedEpicCount: 3,
+    attempts: [
+      { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 're-decompose' as const, epicId: 'e1', outcome: 'attempted' as const, detail: null, attemptedAt: 1 },
+    ],
+    distinctReasons: ['reason one', 'reason two'],
+  };
+
+  test('omitting verdict/newestReasonAt/exhaustedBy is byte-identical to the pre-change output', () => {
+    const diagnosis = buildServeCapDiagnosis(BASELINE_INPUT);
+    expect(diagnosis).toBe([
+      'REASONS SEEN',
+      '- reason one',
+      '- reason two',
+      '',
+      'LADDER',
+      'fresh-blueprint — not recorded',
+      'tier-bump — not recorded',
+      're-decompose — attempted, epic e1',
+      '',
+      'RECOMMEND: ladder incomplete — fresh-blueprint, tier-bump never ran; investigate the rung owner',
+    ].join('\n'));
+  });
+
+  test('a verdict older than newestReasonAt does not surface CURRENT VERDICT', () => {
+    const diagnosis = buildServeCapDiagnosis({
+      ...BASELINE_INPUT,
+      verdict: { evidence: 'stale evidence', verifiedAt: 10, verifiedAtSha: 'deadbee' },
+      newestReasonAt: 50,
+    });
+    expect(diagnosis).toBe([
+      'REASONS SEEN',
+      '- reason one',
+      '- reason two',
+      '',
+      'LADDER',
+      'fresh-blueprint — not recorded',
+      'tier-bump — not recorded',
+      're-decompose — attempted, epic e1',
+      '',
+      'RECOMMEND: ladder incomplete — fresh-blueprint, tier-bump never ran; investigate the rung owner',
+    ].join('\n'));
+  });
+
+  test("exhaustedBy 'serve-cap' with only re-decompose missing excludes the ladder-incomplete language and names the cap", () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 4,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+        { id: '2', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'tier-bump', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 2 },
+      ],
+      distinctReasons: ['reason one', 'reason two'],
+      exhaustedBy: 'serve-cap',
+    });
+    expect(diagnosis).not.toContain('ladder incomplete');
+    expect(diagnosis).not.toContain('investigate the rung owner');
+    expect(diagnosis).toContain(String(CRITERION_SERVE_CAP));
+    expect(diagnosis).toContain('4');
+  });
+
+  test("exhaustedBy 'store-fault' recommend line differs from the serve-cap recommend line", () => {
+    const serveCapDiagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 4,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+      ],
+      distinctReasons: [],
+      exhaustedBy: 'serve-cap',
+    });
+    const storeFaultDiagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 4,
+      attempts: [
+        { id: '1', criterionId: 'c1', missionId: 'm1', project: 'p1', rung: 'fresh-blueprint', epicId: null, outcome: 'attempted', detail: null, attemptedAt: 1 },
+      ],
+      distinctReasons: [],
+      exhaustedBy: 'store-fault',
+    });
+    expect(storeFaultDiagnosis).not.toBe(serveCapDiagnosis);
+    expect(storeFaultDiagnosis).toContain('approach-attempt store could not be read');
+  });
+
+  test("exhaustedBy 're-decompose' with rungs missing still emits the ladder-incomplete investigate-the-rung-owner line", () => {
+    const diagnosis = buildServeCapDiagnosis({
+      criterionText: 'test',
+      servedEpicCount: 3,
+      attempts: [],
+      distinctReasons: [],
+      exhaustedBy: 're-decompose',
+    });
+    expect(diagnosis).toContain('investigate the rung owner');
+  });
 });
 
 describe('conductorStatusLine', () => {
@@ -1668,6 +1917,7 @@ describe('conductorStatusLine', () => {
       'conductor-disabled', 'daemon-off', 'no-actionable-mission', 'target-not-actionable',
       'target-cleared', 'building-wait', 'criteria-escalated', 'debounced', 'conducted',
       'node-failed', 'infra-leaf-reset', 'redecomposed', 'over-budget-rebet', 'pass-ran', 'pass-error',
+      'verify-paneled',
     ] as const;
     for (const r of reasons) {
       const s = conductorStatusLine(r);
@@ -1678,11 +1928,11 @@ describe('conductorStatusLine', () => {
   });
 
   test('surfaces counts for a productive conducted pass; stable strings for the common reasons', () => {
-    expect(conductorStatusLine('conducted')).toBe('served a gap');
-    expect(conductorStatusLine('conducted', { escalationsRaised: 2 })).toContain('2 escalated');
-    expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('capped');
-    expect(conductorStatusLine('debounced')).toBe('no change');
-    expect(conductorStatusLine('building-wait')).toBe('building');
+    expect(conductorStatusLine('conducted')).toBe('assigned new work');
+    expect(conductorStatusLine('conducted', { escalationsRaised: 2 })).toContain('2 raised for you');
+    expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('stuck');
+    expect(conductorStatusLine('debounced')).toBe('idle — nothing to do');
+    expect(conductorStatusLine('building-wait')).toBe('building — waiting on work');
   });
 });
 

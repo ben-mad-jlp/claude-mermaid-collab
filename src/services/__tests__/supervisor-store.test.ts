@@ -17,6 +17,9 @@ import {
   conditionIdentity,
   reopenResolvedEscalationByConditionKey,
   listEscalations,
+  addWatchedProject,
+  getTypedContractGating,
+  setTypedContractGating,
   _closeDb,
 } from '../supervisor-store';
 import { TOKEN_BURN_KIND } from '../burn-watch';
@@ -30,6 +33,21 @@ afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); dele
  * one allows it (isNew becomes true). This tests the exact contrast: both states
  * start from the SAME (project, session, questionText) triple.
  */
+describe('typedContractGating flag (per-project, default OFF)', () => {
+  it('defaults OFF for an unwatched project, and for a watched project with no explicit value', () => {
+    expect(getTypedContractGating('/tcg-unwatched')).toBe(false);
+    addWatchedProject('/tcg-proj');
+    expect(getTypedContractGating('/tcg-proj')).toBe(false);
+  });
+  it('reads back an explicit on/off toggle', () => {
+    addWatchedProject('/tcg-proj2');
+    setTypedContractGating('/tcg-proj2', true);
+    expect(getTypedContractGating('/tcg-proj2')).toBe(true);
+    setTypedContractGating('/tcg-proj2', false);
+    expect(getTypedContractGating('/tcg-proj2')).toBe(false);
+  });
+});
+
 describe('createEscalation — acknowledge vs resolve dedup semantics', () => {
   it('acknowledge blocks re-raise: escalation stays deduplicated', () => {
     const triple = { project: '/test', session: 'sess-1', kind: TOKEN_BURN_KIND, questionText: 'serve capacity low', audience: 'internal' as const };

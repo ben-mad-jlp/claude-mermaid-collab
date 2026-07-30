@@ -22,6 +22,7 @@ import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS } from './harness-
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
+import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
@@ -110,12 +111,19 @@ export function buildServeCapDiagnosis(input: {
   servedEpicCount: number;
   attempts: ApproachAttempt[];
   distinctReasons: string[];
+  verdict?: { evidence: string | null; verifiedAt: number | null; verifiedAtSha: string | null };
+  newestReasonAt?: number;
+  exhaustedBy?: 're-decompose' | 'serve-cap' | 'store-fault';
 }): string {
   // REASONS SEEN block: up to 5 reasons, each max 200 chars
   const slicedReasons = input.distinctReasons.slice(0, 5);
   const reasonsBlock = slicedReasons.length > 0
     ? slicedReasons.map((r) => `- ${r.substring(0, 200)}`).join('\n')
     : '- (none recorded)';
+
+  const verdictWins = input.verdict?.verifiedAt != null
+    && input.verdict.verifiedAt > (input.newestReasonAt ?? -Infinity);
+  const historicalHeader = verdictWins ? 'EARLIER ATTEMPTS (REASONS SEEN)' : 'REASONS SEEN';
 
   // LADDER block: three rungs in order
   const ladderOrder: Array<'fresh-blueprint' | 'tier-bump' | 're-decompose'> = ['fresh-blueprint', 'tier-bump', 're-decompose'];
@@ -144,12 +152,26 @@ export function buildServeCapDiagnosis(input: {
     recommendLine = `RECOMMEND: the criterion likely needs a human action / rescope: ${input.distinctReasons[0]}`;
   } else if (presentRungs.length === ladderOrder.length) {
     recommendLine = 'RECOMMEND: all ladder rungs ran and the criterion is still unmet — human rescope';
+  } else if (input.exhaustedBy === 'serve-cap') {
+    recommendLine = `RECOMMEND: criterion hit the serve cap (${CRITERION_SERVE_CAP}) with ${input.servedEpicCount} serving epics — human rescope`;
+  } else if (input.exhaustedBy === 'store-fault') {
+    recommendLine = 'RECOMMEND: the approach-attempt store could not be read — exhaustion could not be established; human rescope';
   } else {
     recommendLine = `RECOMMEND: ladder incomplete — ${missingRungs.join(', ')} never ran; investigate the rung owner`;
   }
 
+  const verdictBlock = verdictWins
+    ? [
+        'CURRENT VERDICT',
+        `sha ${input.verdict!.verifiedAtSha}`,
+        input.verdict!.evidence ?? '(no evidence recorded)',
+        '',
+      ]
+    : [];
+
   return [
-    'REASONS SEEN',
+    ...verdictBlock,
+    historicalHeader,
     reasonsBlock,
     '',
     'LADDER',
@@ -240,6 +262,8 @@ export interface ConductorPassDeps {
   infraArm?: typeof runInfraRejectionArm;
   /** Injectable re-decompose churn-breaking arm (test spy). Defaults to runRedecomposeArm. */
   redecomposeArm?: typeof runRedecomposeArm;
+  /** Injectable test-only close-out arm (test spy). Defaults to runTestOnlyCloseArm. */
+  closeArm?: typeof runTestOnlyCloseArm;
   /** Injectable verify-panel auto-fire arm (test spy). Defaults to runVerifyPanelArm. */
   verifyPanelArm?: typeof runVerifyPanelArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
@@ -265,6 +289,8 @@ export interface ConductorPassResult {
   infraCards?: number;
   /** Criteria re-decomposed this pass (dropped churning epics and re-planned with tighter hints). */
   redecomposed?: number;
+  /** Test-only close-out leaves minted this pass (capped criterion, test-only verdict). */
+  closeOutsMinted?: number;
   /** Criteria with high-stakes verify panel run this pass, verdict met. */
   verifyPaneled?: number;
   /** Criteria with high-stakes verify panel run this pass, verdict not met. */
@@ -296,25 +322,29 @@ export function conductorStatusLine(
   counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed'> = {},
 ): string {
   const n = (x?: number): number => x ?? 0;
+  // Plain-language status shown in the Bridge conductor line. Keep these HUMAN-READABLE — an
+  // operator who has never read the code should understand each one. (Display only; nothing keys
+  // off the string — the debounce/ownership logic keys off `reason`.)
   switch (reason) {
     case 'conducted': {
       const extra: string[] = [];
-      if (n(counts.escalationsRaised)) extra.push(`${n(counts.escalationsRaised)} escalated`);
-      if (n(counts.infraResets)) extra.push(`${n(counts.infraResets)} infra reset`);
-      if (n(counts.redecomposed)) extra.push(`${n(counts.redecomposed)} re-decomposed`);
-      return extra.length ? `served · ${extra.join(', ')}` : 'served a gap';
+      if (n(counts.escalationsRaised)) extra.push(`${n(counts.escalationsRaised)} raised for you`);
+      if (n(counts.infraResets)) extra.push(`${n(counts.infraResets)} unblocked`);
+      if (n(counts.redecomposed)) extra.push(`${n(counts.redecomposed)} re-planned`);
+      return extra.length ? `assigned work · ${extra.join(', ')}` : 'assigned new work';
     }
-    case 'debounced': return 'no change';
-    case 'building-wait': return 'building';
-    case 'criteria-escalated': return n(counts.serveCapDeferred) ? `capped: ${n(counts.serveCapDeferred)} blocked` : 'capped — needs you';
-    case 'redecomposed': return 're-decomposed';
+    case 'debounced': return 'idle — nothing to do';
+    case 'building-wait': return 'building — waiting on work';
+    case 'criteria-escalated': return n(counts.serveCapDeferred) ? `${n(counts.serveCapDeferred)} stuck — needs you` : 'stuck — needs you';
+    case 'redecomposed': return 're-planned an epic';
     case 'over-budget-rebet': return 'over budget — needs you';
-    case 'node-failed': return 'pass failed — retry';
-    case 'pass-error': return 'pass errored';
+    case 'node-failed': return 'hit an error — retrying';
+    case 'pass-error': return 'hit an error';
     case 'no-actionable-mission': return 'no active mission';
-    case 'target-not-actionable': return 'mission not actionable';
-    case 'target-cleared': return 'target cleared';
-    case 'infra-leaf-reset': return n(counts.infraResets) ? `infra reset ${n(counts.infraResets)}` : 'infra reset';
+    case 'target-not-actionable': return "mission can't run yet";
+    case 'target-cleared': return 'stopped driving';
+    case 'infra-leaf-reset': return n(counts.infraResets) ? `unblocked ${n(counts.infraResets)} stuck leaf${n(counts.infraResets) === 1 ? '' : 's'}` : 'unblocked stuck work';
+    case 'verify-paneled': return 'verifying criteria';
     case 'conductor-disabled': return 'off';
     case 'daemon-off': return 'daemon off';
     case 'pass-ran': return 'running…';
@@ -426,6 +456,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const escalated = criteriaWithActions.filter((a) => a.action === 'escalate');
   let escalationsRaised = 0;
   let serveCapDeferred = 0;
+  let closeOutsMinted = 0;
   // Hoist the serving epics read outside the loop, fail-open to []
   let servingEpicsByComp: Map<string, typeof criteriaWithActions[number]['id'][]> = new Map();
   let epicTargetProjectById: Map<string, string | null> = new Map();
@@ -459,7 +490,8 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         }
 
         // Check if ladder is exhausted
-        const { exhausted } = storeFaulted ? { exhausted: true } : ladderExhausted({ attempts, servedEpicCount: c.servedEpicCount });
+        const ladder = storeFaulted ? { exhausted: true, tried: [], missing: [] } : ladderExhausted({ attempts, servedEpicCount: c.servedEpicCount });
+        const { exhausted } = ladder;
 
         // If not exhausted, defer and skip card creation
         if (!exhausted) {
@@ -467,8 +499,35 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           continue;
         }
 
+        const exhaustedBy: 'store-fault' | 're-decompose' | 'serve-cap' =
+          storeFaulted ? 'store-fault' : c.servedEpicCount >= CRITERION_SERVE_CAP ? 'serve-cap' : 're-decompose';
+
+        // TEST-ONLY-CLOSE ARM: if the criterion's verdict cites test paths only, mint a
+        // narrow close-out leaf instead of raising a human card. Own try/catch (not the
+        // outer per-criterion one) so a thrown deps fn falls through to the card path below
+        // exactly as a `mint-failed` result would, rather than being swallowed and skipping
+        // the card entirely.
+        let closeMinted = false;
+        try {
+          const closeResult = await (deps.closeArm ?? runTestOnlyCloseArm)(project, session, missionId, {
+            id: c.id,
+            text: c.text,
+            evidence: c.evidence,
+            evidencePaths: c.evidencePaths,
+            verifiedAtSha: c.verifiedAtSha,
+          });
+          closeMinted = closeResult.minted;
+        } catch {
+          closeMinted = false;
+        }
+        if (closeMinted) {
+          closeOutsMinted++;
+          continue;
+        }
+
         // Collect reasons from serving epics
         let distinctReasons: string[] = [];
+        let newestReasonAt: number | undefined;
         try {
           const servingEpicIds = servingEpicsByComp.get(c.id) ?? [];
           const allRuns: Array<ReturnType<typeof listLeafRunsFn>[number]> = [];
@@ -482,6 +541,8 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           }
           if (allRuns.length > 0) {
             distinctReasons = summariseEpicOutcomes(allRuns).distinctReasons;
+            const contributing = allRuns.filter((r) => (r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked') && !!r.reason);
+            if (contributing.length > 0) newestReasonAt = Math.max(...contributing.map((r) => r.lastTs));
           }
         } catch {
           // fail-open to empty reasons
@@ -493,6 +554,9 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           servedEpicCount: c.servedEpicCount,
           attempts,
           distinctReasons,
+          verdict: { evidence: c.evidence, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha },
+          newestReasonAt,
+          exhaustedBy,
         });
 
         let suppressed = false;
@@ -578,6 +642,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       missionId,
       escalationsRaised,
       serveCapDeferred,
+      closeOutsMinted,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
     });
@@ -587,7 +652,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
   catch { redecomposed = [] }
   if (redecomposed.length > 0)
-    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, redecomposed: redecomposed.length,
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: redecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
@@ -637,7 +702,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
   // building-wait (daemon working) no-op.
   if (!hasGap && landCardIds.length === 0) {
-    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred });
+    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
     // 'building' normally means "the daemon is on it — leave it". An open mission-scoped hard card
     // (e.g. a just-carded INFRA leaf) is the exception: reaching this line already proves the
     // signature differs from both stored keys, and step 4 of the conductor prompt makes the node the
@@ -723,6 +788,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       missionId,
       escalationsRaised,
       serveCapDeferred,
+      closeOutsMinted,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
       verifyPaneled: verifyPanel.paneled.length,
@@ -801,5 +867,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
-  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 }

@@ -232,6 +232,53 @@ const ConductorControl: React.FC<{ project: string }> = ({ project }) => {
   );
 };
 
+// ── Typed-contract gating toggle (experimental) ──────────────────────────────
+const TYPED_CONTRACT_HINT =
+  'When on, a leaf with a valid typed diff-contract has its blueprint citability gate treated as advisory and its review grounded per-requirement-id. Default off ⇒ unchanged behavior.';
+
+const TypedContractGatingControl: React.FC<{ project: string }> = ({ project }) => {
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    void (async () => {
+      const data = await apiGet(`/api/supervisor/typed-contract-gating?project=${encodeURIComponent(project)}`);
+      if (!cancelled && typeof data.enabled === 'boolean') setEnabled(data.enabled);
+    })();
+    return () => { cancelled = true; };
+  }, [project]);
+
+  const toggle = useCallback((value: boolean) => {
+    if (busy || !project) return;
+    const prev = enabled;
+    setEnabled(value); // optimistic
+    setBusy(true);
+    void (async () => {
+      const data = await apiPost('/api/supervisor/typed-contract-gating', { project, enabled: value });
+      if (typeof data?.enabled === 'boolean') setEnabled(data.enabled);
+      else setEnabled(prev);
+      setBusy(false);
+    })();
+  }, [busy, project, enabled]);
+
+  return (
+    <label className="flex items-center gap-2 text-3xs text-gray-700 dark:text-gray-200 cursor-pointer" title={TYPED_CONTRACT_HINT}>
+      <input
+        type="checkbox"
+        data-testid="typed-contract-gating-toggle"
+        checked={enabled}
+        disabled={busy}
+        onChange={(e) => toggle(e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600"
+      />
+      <span className="font-medium">Typed diff-contract gating</span>
+      <span className="text-gray-400 dark:text-gray-500">{TYPED_CONTRACT_HINT}</span>
+    </label>
+  );
+};
+
 // ── Section wrapper ──────────────────────────────────────────────────────────
 const Section: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex flex-col gap-2">
@@ -314,6 +361,10 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ proj
 
           <Section label="Prompt injection (advisory)">
             <InjectionFlags project={project} />
+          </Section>
+
+          <Section label="Gating (experimental)">
+            <TypedContractGatingControl project={project} />
           </Section>
         </div>
       </div>

@@ -32,6 +32,10 @@ export interface WatchedProject {
   /** Per-project gate SHADOW-MODE flag (default OFF). When on, a candidate gate runs
    *  advisory-only alongside the live gate. */
   gateShadowMode?: number | null;
+  /** Per-project TYPED-CONTRACT gating flag (default OFF). When on AND a valid typed
+   *  DiffContract is present, the blueprint citability gate becomes advisory and the
+   *  review node grounds per-requirement-id via diffContractReview. */
+  typedContractGating?: number | null;
 }
 
 /** Context-auto-recycle mode for a watched project:
@@ -207,7 +211,8 @@ CREATE TABLE IF NOT EXISTS watched_project (
   projectDigestEnabled INTEGER,
   promptInjectRetryContext INTEGER,
   promptInjectActiveConstraints INTEGER,
-  gateShadowMode INTEGER
+  gateShadowMode INTEGER,
+  typedContractGating INTEGER
 );
 CREATE TABLE IF NOT EXISTS supervised_session (
   project TEXT NOT NULL,
@@ -334,6 +339,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');
   addColumnIfMissing(db, 'watched_project', 'promptInjectActiveConstraints', 'promptInjectActiveConstraints INTEGER');
   addColumnIfMissing(db, 'watched_project', 'gateShadowMode', 'gateShadowMode INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'typedContractGating', 'typedContractGating INTEGER');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
@@ -597,6 +603,24 @@ export function getGateShadowMode(project: string): boolean {
 export function setGateShadowMode(project: string, on: boolean): void {
   const d = openDb();
   d.prepare('UPDATE watched_project SET gateShadowMode = ? WHERE project = ?')
+    .run(on ? 1 : 0, project);
+}
+
+/** Per-project TYPED-CONTRACT gating flag (default OFF). When on AND a valid typed
+ *  DiffContract is present for a leaf, the blueprint citability gate becomes advisory
+ *  (record-only, no park) and the review node grounds per-requirement-id via
+ *  diffContractReview instead of the prose grounding gate. Unset/NULL reads false, so a
+ *  project that never turned it on behaves byte-identically to before. UPDATE-only (like the
+ *  other per-project setters — never auto-watch a project). */
+export function getTypedContractGating(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT typedContractGating FROM watched_project WHERE project = ?')
+    .get(project) as { typedContractGating: number | null } | undefined;
+  return !!row?.typedContractGating;
+}
+export function setTypedContractGating(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare('UPDATE watched_project SET typedContractGating = ? WHERE project = ?')
     .run(on ? 1 : 0, project);
 }
 

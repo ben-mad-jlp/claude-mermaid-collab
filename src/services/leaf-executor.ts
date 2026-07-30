@@ -45,7 +45,7 @@ import { config } from '../config';
 import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
-import { createEscalation, resolveEscalation } from './supervisor-store';
+import { createEscalation, resolveEscalation, getTypedContractGating } from './supervisor-store';
 import { composeInjectedContext, type PriorRunInput } from './prompt-injection';
 import { getInjectionFlags } from './runtime-config';
 import { getActiveConstraints } from './decision-record-store';
@@ -69,9 +69,10 @@ export type {
 } from './leaf-parsing';
 export { NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey };
 export type { LeafNodeGroup } from './leaf-prompts';
-import { validateReviewGrounding, checkConstraintCitations, extractCitations } from './review-citations';
+import { validateReviewGrounding, checkConstraintCitations, extractCitations, type ReviewGrounding } from './review-citations';
 import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
-import { parseDiffContract, validateContractForKind } from './diff-contract';
+import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
+import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
@@ -486,6 +487,13 @@ export interface LeafExecutorDeps {
    *  Default reader is () => false; the sibling harness leaf replaces the factory
    *  default with the runtime-config reader. */
   gateShadowMode?: (project: string) => boolean;
+  /** Per-project TYPED-CONTRACT gating flag (default OFF). When true AND the leaf has a valid,
+   *  non-underspecified typed DiffContract, the blueprint citability gate becomes ADVISORY when
+   *  the contract covers citability (Phase 2) and the review node grounds per-requirement-id via
+   *  diffContractReview instead of the prose grounding gate (Phase 3). Default reader () => false
+   *  ⇒ behavior is byte-identical to today. Fail-safe: absent/malformed/underspecified contract
+   *  ALWAYS falls back to the prose path. */
+  typedContractGating?: (project: string) => boolean;
   /** LIVE in-flight signal (optional): mark/clear the leaf as running a node so separate
    *  processes (UI, MCP, daemon_status) can see "on node X, Ns elapsed". Best-effort; the
    *  floor/tests run fine unwired. */
@@ -894,7 +902,7 @@ const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
   return e && (['low', 'medium', 'high', 'xhigh', 'max'] as string[]).includes(e) ? (e as EffortLevel) : undefined;
 })();
 
-import type { LeafNodeKind, LeafNodeGroup } from './leaf-prompts';
+import type { LeafNodeKind, LeafNodeGroup, BallotPromptRequirement } from './leaf-prompts';
 import {
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
@@ -1999,6 +2007,7 @@ export async function runLeaf(
     blueprintText?: string,
     reviewFindings?: string,
     depth?: ReviewDepth,
+    ballotRequirements?: ReadonlyArray<BallotPromptRequirement>,
   ): NodeSpec => {
     const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
@@ -2007,7 +2016,7 @@ export async function runLeaf(
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings, {
         worktree: cwd,
         mainCheckout: deps.mainCheckoutRoot ?? null,
-      }),
+      }, ballotRequirements),
       // Retry ladder + wall-based tier escalation: compose the attempt ladder with the
       // cross-dispatch wall bump so implement models escalate monotonically via both paths.
       model: kind === 'implement'
@@ -2248,6 +2257,10 @@ export async function runLeaf(
   // reuses ONLY the plan text, never partial work. Only set after a good blueprint, so a
   // blueprint-failure attempt still re-runs it. Complements the cross-dispatch reattach.
   let carriedBlueprint: string | null = null;
+  // Typed diff-contract (Phase 2/3): the leaf's valid, non-underspecified DiffContract, hoisted
+  // out of the blueprint block so the citability gate and the review node can both consult it.
+  // null ⇒ no valid typed contract ⇒ ALWAYS the prose fail-safe path (byte-identical to today).
+  let leafContract: DiffContract | null = null;
   // C2: non-fatal unbacked-claim warning from the review pass — carried forward for recordOutcome.
   let unbackedNote: string | undefined;
   // G3 retained-mode observability: set when grounding ran in retained mode (empty
@@ -2481,6 +2494,14 @@ export async function runLeaf(
         }
       }
 
+      // Phase 2/3: adopt the (possibly crit-8-repaired) contract as the leaf's typed contract
+      // ONLY when it is valid AND not underspecified for its own leafKind. Anything else leaves
+      // leafContract null ⇒ the prose fail-safe path everywhere downstream.
+      leafContract =
+        seededContract && !validateContractForKind(seededContract, seededContract.leafKind).underspecified
+          ? seededContract
+          : null;
+
       deps.persistBlueprintBase?.({
         project,
         leafId: leaf.id,
@@ -2556,7 +2577,30 @@ export async function runLeaf(
           reasons: citability.reasons.join('; '),
         });
       } catch { /* replay corpus is telemetry — never break the run */ }
-      if (citability.status === 'uncitable') {
+      // Phase 2 (typed-contract gating): when the flag is ON AND the leaf has a valid,
+      // non-underspecified typed contract that COVERS citability (≥1 mechanically-citable
+      // requirement: symbol-present / named-test / threshold), an 'uncitable' PROSE verdict is
+      // ADVISORY — the typed contract already carries the machine-checkable cite the prose gate
+      // was demanding, and Phase 3 grounds review against it. Record-only (reuse the SEAM
+      // gate-eval), then fall through to implement: do NOT re-prompt, do NOT park. Flag OFF or no
+      // valid citable typed contract ⇒ this is false ⇒ EXACTLY today's park+repair path.
+      const typedCitabilityAdvisory =
+        (deps.typedContractGating?.(project) ?? false) &&
+        leafContract !== null &&
+        contractCoversCitability(leafContract);
+      if (citability.status === 'uncitable' && typedCitabilityAdvisory) {
+        try {
+          await deps.recordGateEval?.(project, {
+            gate: 'citability',
+            leafId: leaf.id,
+            inputText: blueprintBody,
+            changeSet: declaredForCriteria,
+            verdict: 'advisory-typed-contract',
+            reasons: `typed-contract covers citability (leafKind=${leafContract!.leafKind}); prose-uncitable treated as advisory: ${citability.reasons.join('; ')}`,
+          });
+        } catch { /* replay corpus is telemetry — never break the run */ }
+      }
+      if (citability.status === 'uncitable' && !typedCitabilityAdvisory) {
         // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
         // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
         const repairSpec = {
@@ -3096,7 +3140,15 @@ export async function runLeaf(
           });
         } catch { /* telemetry — never break the run */ }
 
-        const review = await runNode('review', buildSpec('review', cwd, blueprintBody, undefined, route.depth));
+        // TYPED review only: hand the review node the observable/invariant ballot so it emits the
+        // per-requirement-id verdict lines `groundReviewViaContract` parses below. SAME gate as the
+        // grounder (typedContractGating flag ON AND a valid leafContract) — otherwise pass nothing,
+        // so the review prompt is byte-identical to today's output.
+        const reviewBallot: BallotPromptRequirement[] | undefined =
+          (deps.typedContractGating?.(project) ?? false) && leafContract
+            ? contractBallotRequirements(leafContract).map((r) => ({ id: r.id, kind: r.kind, text: r.description }))
+            : undefined;
+        const review = await runNode('review', buildSpec('review', cwd, blueprintBody, undefined, route.depth, reviewBallot));
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
         llm = parseVerdict(review.text);
@@ -3109,6 +3161,35 @@ export async function runLeaf(
           if (d.park) return parkBlocked('review-vacuous');
           proseRetryFindings = d.findings; // first offense → retry with synthesized findings
         }
+        // Phase 3 (typed-contract gating): when the flag is ON AND the leaf has a valid typed
+        // contract, ground the review per-requirement-id via diffContractReview INSTEAD of the
+        // prose validateReviewGrounding — the mechanical stages decide symbol-present/named-test/
+        // threshold, the LLM ballot addresses only observable/invariant ids, and a review that
+        // cites an id NOT declared in the contract (or omits a ballot id) is REJECTED as 'vacuous'.
+        // Flag OFF or no valid typed contract ⇒ typedReviewOn is false ⇒ EXACTLY today's prose gate.
+        // FAIL-SAFE: the typed result is mapped into the same ReviewGrounding shape (criteria:[]),
+        // and a null change-set still abstains, so no downstream consumer sees new behaviour.
+        const typedReviewOn = (deps.typedContractGating?.(project) ?? false) && leafContract !== null;
+        const groundReview = async (cs: string[] | null): Promise<ReviewGrounding> => {
+          if (typedReviewOn && leafContract) {
+            const typed = await groundReviewViaContract(
+              review.text ?? '',
+              leafContract,
+              cs === null ? null : { changedFiles: cs },
+              {
+                cwd,
+                baseSha: deps.epicBaseSha,
+                testsFlipBaseToBranch: deps.testsFlipBaseToBranch ?? (async () => null),
+                readGateMetric: async () => null,
+                runGrepCount: async () => null,
+              },
+            );
+            return { status: typed.status, reasons: typed.reasons, criteria: [] };
+          }
+          return validateReviewGrounding(review.text ?? '', cs, {
+            citationExists: makeCitationExists(cwd),
+          });
+        };
         // --- G3 GROUNDING GATE -------------------------------------------------
         // A PASS is the ONLY path from an LLM string to an accept, so it is the only one
         // that must prove it looked. Structure + citations are MECHANICAL; the semantics
@@ -3116,9 +3197,7 @@ export async function runLeaf(
         // accepts, and forcing structure on it would turn a real finding into a park.
         if (llm === 'pass') {
           const cs = (await deps.changeSet?.(sessionKey)) ?? null;
-          const grounding = validateReviewGrounding(review.text ?? '', cs, {
-            citationExists: makeCitationExists(cwd),
-          });
+          const grounding = await groundReview(cs);
           try {
             await deps.recordGateEval?.(project, {
               gate: 'g3',
@@ -3178,9 +3257,7 @@ export async function runLeaf(
           // executor-core over-rejections) is an ABSTAIN and must NOT gate. Doubt is not
           // a defect; the green mechanical gate is the independent correctness signal.
           const cs = (await deps.changeSet?.(sessionKey)) ?? null;
-          const grounding = validateReviewGrounding(review.text ?? '', cs, {
-            citationExists: makeCitationExists(cwd),
-          });
+          const grounding = await groundReview(cs);
           try {
             await deps.recordGateEval?.(project, {
               gate: 'g3',
@@ -3645,6 +3722,11 @@ export async function makeLeafExecutorDeps(
     // Shadow mode default OFF. The sibling harness leaf replaces this with the
     // runtime-config per-project reader; until then the gates behave exactly as before.
     gateShadowMode: () => false,
+    // Per-project TYPED-CONTRACT gating flag (default OFF). Read from the supervisor store so a
+    // project can opt in; a throw (unopenable DB) degrades to false ⇒ today's prose path.
+    typedContractGating: (p) => {
+      try { return getTypedContractGating(p); } catch { return false; }
+    },
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,
     persistResume: recordLeafResume,
