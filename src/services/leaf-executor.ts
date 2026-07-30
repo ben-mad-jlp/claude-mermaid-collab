@@ -61,6 +61,8 @@ import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
+import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
+import type { GitRunner } from './main-checkout-invariant.js';
 export { parseVerdict, parseVerifyGate, parseSizeManifest, joinReviewReports, VERIFY_GATE_MCP_SERVER, verbMcpTool, VERIFY_GATE_MCP_TOOL, resolveVerifyGate };
 export type {
   LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict, LeafSizeManifest, ReviewLens, VerifyGateConfig,
@@ -80,6 +82,14 @@ import { ScopeIncidentError } from '../agent/worktree-manager';
 import { sameReviewWall, isHardWall, type WallReasonClass, type LeafWallHistory, getLeafWallHistory } from './leaf-wall-history';
 import { planTierEscalation, type TierEscalationPlan } from './tier-escalation';
 import { isLightPathParityMet } from './review-depth-parity';
+
+const defaultRunGit: GitRunner = async (cwd, args) => {
+  const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited,
+  ]);
+  return { code: code ?? 1, stdout, stderr };
+};
 
 /** Friction 6150b497 default salvage-commit: stage + commit the given dirty/untracked
  *  paths in the leaf worktree via the SAME scoped-commit helper the worker merge path
@@ -3876,7 +3886,9 @@ export async function makeLeafExecutorDeps(
         // resolves upward), AFTER forwardIntegrateEpic so we gate the base a leaf will
         // actually fork from.
         ensureEpicWorktree: () => wm.ensureEpic(epicId, targetProject),
-        runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined),
+        runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn,
+          epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined,
+          { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }),
       });
     },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
