@@ -6,7 +6,10 @@
 import type { Escalation } from './supervisor-store.js';
 
 export interface ConductorActionRow {
-  action: 'met' | 'building' | 'verify' | 'discover' | 'escalate';
+  // Mirrors mission-store's CriterionAction (kept as literals so this module stays
+  // store/db/git-import-free). 'dropped' is serve-inert but still fingerprinted, so a
+  // drop changes the debounce signature and wakes the conductor.
+  action: 'met' | 'building' | 'verify' | 'discover' | 'dropped' | 'escalate';
   id: string;
   rejectedParked?: number;
 }

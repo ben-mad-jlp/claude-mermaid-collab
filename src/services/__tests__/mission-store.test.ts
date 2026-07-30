@@ -225,6 +225,43 @@ describe('mission-store: criteria', () => {
   test('dropCriterion throws for an unknown criterion id', async () => {
     await expect(dropCriterion(project, 'nonexistent-id', { reason: 'x', by: 'tester' })).rejects.toThrow();
   });
+
+  test("deriveCriterionAction returns 'dropped' (not 'discover') for a dropped-but-unmet criterion with no serving epic", () => {
+    expect(deriveCriterionAction(crit({ status: 'dropped' }))).toBe('dropped');
+    expect(deriveCriterionAction(crit({ status: 'dropped' }))).not.toBe('discover');
+  });
+
+  test('a mission with 6 met + 1 dropped criterion converges, and the rollup reports met/total/dropped', async () => {
+    const id = await makeMissionNode('[MISSION] dropped-aware convergence');
+    upsertMission(project, id);
+    for (let i = 0; i < 6; i++) {
+      const c = addCriterion(project, id, `met criterion ${i}`);
+      setCriterionMet(project, c.id, true);
+    }
+    const cut = addCriterion(project, id, 'cut criterion');
+    await dropCriterion(project, cut.id, { reason: 'out of scope', by: 'tester' });
+
+    const rollup = getMissionRollup(project, id);
+    expect(rollup.capability).toEqual({ met: 6, total: 6, dropped: 1 });
+    expect(rollup.converged).toBe(true);
+    // Convergence auto-closes the mission, and 'closed' outranks 'converged' in the terminal
+    // prefix — so assert the capability derivation itself, with the terminal prefix cleared.
+    const facts = collectMissionStatusFacts(project, getMission(project, id)!);
+    expect(deriveMissionStatus({ ...facts, closedAt: null })).toBe('converged');
+  });
+
+  test('dropping the last active criterion does not converge the mission', async () => {
+    const id = await makeMissionNode('[MISSION] all dropped');
+    upsertMission(project, id);
+    const only = addCriterion(project, id, 'the only criterion');
+    await dropCriterion(project, only.id, { reason: 'cut', by: 'tester' });
+
+    const rollup = getMissionRollup(project, id);
+    expect(rollup.capability).toEqual({ met: 0, total: 0, dropped: 1 });
+    expect(rollup.converged).toBe(false);
+    expect(rollup.status).not.toBe('converged');
+    expect(rollup.status).toBe('needs-discovery');
+  });
 });
 
 describe('mission-store: listMissions', () => {
@@ -245,7 +282,7 @@ describe('mission-store: listMissions', () => {
     expect(missions[0].node.id).toBe(m1);
     expect(missions[0].node.title).toBe('[MISSION] one');
     expect(missions[0].mission.status).toBeDefined(); // status is derived
-    expect(missions[0].rollup.capability).toEqual({ met: 0, total: 1 });
+    expect(missions[0].rollup.capability).toEqual({ met: 0, total: 1, dropped: 0 });
     expect(missions[0].criteria).toHaveLength(1);
     expect(missions[0].ownerSession).toBe('s1'); // mission↔session tie
     expect(missions[0].epics).toEqual([]); // no epic children yet
@@ -302,7 +339,7 @@ describe('mission-store: convergence rollup', () => {
 
     let r = getMissionRollup(project, id);
     expect(r.mechanical).toEqual({ done: 0, total: 2 });
-    expect(r.capability).toEqual({ met: 0, total: 2 });
+    expect(r.capability).toEqual({ met: 0, total: 2, dropped: 0 });
     expect(r.converged).toBe(false);
 
     await completeTodo(project, e1, 'accepted');

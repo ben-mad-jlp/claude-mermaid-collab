@@ -183,8 +183,9 @@ export interface MissionRollup {
   todoId: string;
   /** Descendant `[EPIC]` children: done vs total. */
   mechanical: { done: number; total: number };
-  /** Acceptance criteria: met vs total (the true convergence gauge). */
-  capability: { met: number; total: number };
+  /** Acceptance criteria: met vs total over the ACTIVE (non-dropped) criteria — the true
+   *  convergence gauge — plus how many were dropped (inert, still visible in the rollup). */
+  capability: { met: number; total: number; dropped: number };
   /** True iff there is ≥1 criterion and every criterion is met. */
   converged: boolean;
   /** True when the mission is terminal (converged or abandoned). */
@@ -1229,6 +1230,9 @@ export interface MissionCriterionFacts {
   /** Criterion id — lets consumers zip facts back onto listCriteria rows. */
   id: string;
   met: boolean;
+  /** Lifecycle status of the criterion row. Optional (defaults to active) so existing fact
+   *  fixtures need no change; a 'dropped' criterion is serve-inert and derives 'dropped'. */
+  status?: CriterionStatus;
   verifiedAt: number | null;
   servingEpicState: 'landed' | 'open' | 'none';
   /** True when a serving OPEN epic has live motion (a pending/paused leaf run, or a
@@ -1293,6 +1297,7 @@ export type CriterionAction =
   | 'building'  // a serving epic is open WITH live motion — wait for it
   | 'verify'    // a serving epic landed, verdict not yet recorded — run the independent gate
   | 'discover'  // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
+  | 'dropped'   // criterion dropped — serve-inert: derives no work and is excluded from convergence
   | 'escalate'; // capped: CRITERION_SERVE_CAP+ serving epics filed and still unmet — stop re-filing, escalate to a human ONCE
 
 // CRITERION_SERVE_CAP moved to harness-caps.ts (the harness's single loop-breaker cap
@@ -1301,6 +1306,9 @@ export type CriterionAction =
 export { CRITERION_SERVE_CAP };
 
 export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction {
+  // DROPPED FIRST: a dropped criterion is serve-inert — it derives no work at all (never
+  // 'discover', never 'verify'), so the conductor cannot file an epic for it.
+  if (c.status === 'dropped') return 'dropped';
   // verify BEFORE met: a met-but-unverified criterion, OR one whose serving epic has landed
   // a newer commit than the last verdict, still owes the independent gate a fresh verdict
   // (verification-as-event — `met` alone is a self-grade until verifiedAt stamps it).
@@ -1337,6 +1345,9 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   const terminal = deriveTerminalMissionPrefix({ ...f, awaitingApproval: f.awaitingApproval === true });
   if (terminal != null) return terminal;
   const actions = f.criteria.map(deriveCriterionAction);
+  // Dropped criteria are serve-inert: they derive no mission-scalar action at all. Reading
+  // activeActions at EVERY arm below makes that invariant explicit per call site.
+  const activeActions = actions.filter((a) => a !== 'dropped');
   // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
   // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
   // of the open-missions list rather than linger labelled 'over-budget'. A mission that crossed
@@ -1344,7 +1355,10 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   // as a blown-budget failure and keeps a done mission dangling "in play". The overspend stays
   // permanently in the cost ledger and the re-bet card history is untouched — only the status
   // stops lying. This also matches deriveCheapMissionStatus, which already ranks converged first.
-  if (f.criteria.length > 0 && actions.every((a) => a === 'met')) return 'converged';
+  // DELIBERATE: dropping the LAST active criterion leaves activeActions empty, which SKIPS this
+  // arm — an all-dropped mission must not read converged; it falls through the chain below to
+  // the 'needs-discovery' default.
+  if (activeActions.length > 0 && activeActions.every((a) => a === 'met')) return 'converged';
   // WAITING: enqueued behind the session's active mission — deriveTerminalMissionPrefix
   // already ran (so this is approved and non-terminal) and it hasn't converged, so its
   // work-ladder status is moot until it's promoted (promoteQueuedMissions).
@@ -1360,9 +1374,9 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   // status. The flag self-clears the moment the loop sees a QUIET reason or a nudge fires.
   if (f.stalled) return 'stalled';
   if (f.hasBlockedLeaf) return 'blocked';
-  if (actions.includes('verify')) return 'needs-verify';
-  if (actions.includes('discover')) return 'needs-discovery';
-  if (f.hasBuildingLeaf || actions.includes('building')) return 'building';
+  if (activeActions.includes('verify')) return 'needs-verify';
+  if (activeActions.includes('discover')) return 'needs-discovery';
+  if (f.hasBuildingLeaf || activeActions.includes('building')) return 'building';
   return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
 }
 
@@ -1379,7 +1393,7 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
 export function deriveCheapMissionStatus(
   m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null; active?: boolean | number; queuePos?: number | null },
   _epics: readonly { status: string }[],
-  criteria: readonly { met: boolean }[] = [],
+  criteria: readonly { met: boolean; status?: string }[] = [],
   stalled: boolean = false,
 ): MissionStatus {
   const terminal = deriveTerminalMissionPrefix({ closedAt: m.closedAt, abandonedAt: m.abandonedAt, awaitingApproval: m.awaitingApprovalSince != null });
@@ -1390,7 +1404,10 @@ export function deriveCheapMissionStatus(
   // mission with an unmet criterion read 'converged' (b90bfa21). The criteria are the true
   // done-signal, so this keeps `status` consistent with the `converged` flag. Non-converged reads
   // 'building' (the list badge; the detail view carries the exact building/needs-discovery status).
-  if (criteria.length > 0 && criteria.every((c) => c.met)) return 'converged';
+  // Dropped criteria are serve-inert and excluded from convergence (an all-dropped mission
+  // has no active criteria, so it does NOT read converged).
+  const active = criteria.filter((c) => c.status !== 'dropped');
+  if (active.length > 0 && active.every((c) => c.met)) return 'converged';
   // WAITING: same semantics as deriveMissionStatus's waiting arm — active is stored as a
   // SQLite INTEGER (0/1), so test truthiness (`!m.active`), never `=== false`.
   if (!m.active && m.queuePos != null) return 'waiting';
@@ -1605,7 +1622,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         }
         if (best) { servingEpicLandSha = best.sha; servingEpicLandedAt = best.at; }
       } catch { /* fail closed to null, same as a missing record */ }
-      return { id: c.id, met: c.met, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingEpics };
+      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingEpics };
     }),
   };
 }
@@ -1727,14 +1744,15 @@ export function listMissions(
     // already hold. `gaps`/`awaitingVerify` are per-criterion ACTIONS, which are only
     // derivable from facts — the cheap path reports 0 rather than pay the scan.
     const mechDone = epics.filter((e) => e.status === 'done').length;
-    const capMet = criteria.filter((c) => c.met).length;
+    const activeCriteria = criteria.filter((c) => c.status !== 'dropped');
+    const capMet = activeCriteria.filter((c) => c.met).length;
     const rollup: MissionRollup = withFacts
       ? getMissionRollup(project, node.id)
       : {
           todoId: node.id,
           mechanical: { done: mechDone, total: epics.length },
-          capability: { met: capMet, total: criteria.length },
-          converged: criteria.length > 0 && capMet === criteria.length,
+          capability: { met: capMet, total: activeCriteria.length, dropped: criteria.length - activeCriteria.length },
+          converged: activeCriteria.length > 0 && capMet === activeCriteria.length,
           stopped: isMissionTerminal(mission),
           status: mission.status ?? deriveCheapMissionStatus(mission, epics, criteria, isMissionStalled(project, node.id)),
           gaps: 0,
@@ -1829,14 +1847,17 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
   );
   const mechDone = epics.filter((e) => e.status === 'done').length;
   const criteria = listCriteria(project, id);
-  const capMet = criteria.filter((c) => c.met).length;
+  // Dropped criteria are serve-inert: excluded from met/total and from convergence, but still
+  // reported (capability.dropped) so the rollup never hides them.
+  const active = criteria.filter((c) => c.status !== 'dropped');
+  const capMet = active.filter((c) => c.met).length;
   const facts = collectMissionStatusFacts(project, m);
   const actions = facts.criteria.map(deriveCriterionAction);
   return {
     todoId: id,
     mechanical: { done: mechDone, total: epics.length },
-    capability: { met: capMet, total: criteria.length },
-    converged: criteria.length > 0 && capMet === criteria.length,
+    capability: { met: capMet, total: active.length, dropped: criteria.length - active.length },
+    converged: active.length > 0 && capMet === active.length,
     stopped: isMissionTerminal(m),
     status: deriveMissionStatus(facts),
     gaps: actions.filter((a) => a === 'discover').length,
