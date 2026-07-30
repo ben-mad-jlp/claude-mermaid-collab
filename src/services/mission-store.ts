@@ -17,7 +17,7 @@
 import Database from 'bun:sqlite';
 import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, type Todo } from './todo-store.ts';
+import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, updateTodo, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
@@ -119,6 +119,9 @@ export interface MissionRow {
 export const CRITERION_TYPES = ['capability', 'one-shot'] as const;
 export type CriterionType = typeof CRITERION_TYPES[number];
 
+export const CRITERION_STATUSES = ['active', 'met', 'dropped'] as const;
+export type CriterionStatus = typeof CRITERION_STATUSES[number];
+
 export interface MissionCriterion {
   id: string;
   todoId: string;
@@ -128,6 +131,11 @@ export interface MissionCriterion {
   updatedAt: number;
   /** What kind of acceptance assertion this is. Defaults to 'capability' for legacy rows. */
   type: CriterionType;
+  /** Lifecycle status: 'active' (default), 'met', or 'dropped'. */
+  status: CriterionStatus;
+  droppedReason: string | null;
+  droppedAt: number | null;
+  droppedBy: string | null;
   /** VERIFY-gate audit trail: why the judge ruled this met/unmet, WHO judged it,
    *  and WHEN — set by an INDEPENDENT verify (not the maker). Null until verified. */
   evidence: string | null;
@@ -223,7 +231,11 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   evidencePaths TEXT,
   reopenCount INTEGER NOT NULL DEFAULT 0,
   lastReopenSha TEXT,
-  type TEXT NOT NULL DEFAULT 'capability'
+  type TEXT NOT NULL DEFAULT 'capability',
+  status TEXT NOT NULL DEFAULT 'active',
+  droppedReason TEXT,
+  droppedAt INTEGER,
+  droppedBy TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
 CREATE TABLE IF NOT EXISTS mission_recheck (
@@ -305,6 +317,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'mission_criterion', 'lastReopenSha', 'lastReopenSha TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'type', "type TEXT NOT NULL DEFAULT 'capability'");
+  addColumnIfMissing(db, 'mission_criterion', 'status', "status TEXT NOT NULL DEFAULT 'active'");
+  addColumnIfMissing(db, 'mission_criterion', 'droppedReason', 'droppedReason TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'droppedAt', 'droppedAt INTEGER');
+  addColumnIfMissing(db, 'mission_criterion', 'droppedBy', 'droppedBy TEXT');
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
@@ -828,6 +844,10 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     reopenCount: (r.reopenCount as number | null) ?? 0,
     lastReopenSha: (r.lastReopenSha as string | null) ?? null,
     type: ((r.type as string | null) ?? 'capability') as CriterionType,
+    status: ((r.status as string | null) ?? 'active') as CriterionStatus,
+    droppedReason: (r.droppedReason as string | null) ?? null,
+    droppedAt: (r.droppedAt as number | null) ?? null,
+    droppedBy: (r.droppedBy as string | null) ?? null,
   }));
 }
 
@@ -852,7 +872,7 @@ export function addCriterion(
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type) VALUES (?, ?, ?, 0, ?, ?, ?)')
     .run(id, resolved, trimmed, order, ts, type);
-  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null, type };
+  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null, type, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
@@ -937,6 +957,39 @@ export function updateCriterionText(project: string, criterionId: string, text: 
 
 export function removeCriterion(project: string, criterionId: string): void {
   openDb(project).prepare('DELETE FROM mission_criterion WHERE id = ?').run(criterionId);
+}
+
+/** Reversibly drop a criterion: preserves the row (text, met, verdict/provenance columns
+ *  untouched), stamps status/droppedReason/droppedAt/droppedBy, and cascades any live
+ *  serving epics to 'dropped' (which itself cascades their live descendant leaves via
+ *  todo-store's own dropped-container cascade). */
+export async function dropCriterion(
+  project: string,
+  criterionId: string,
+  opts: { reason: string; by: string },
+): Promise<void> {
+  const now = nowMs();
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET status = ?, droppedReason = ?, droppedAt = ?, droppedBy = ?, updatedAt = ? WHERE id = ?')
+    .run('dropped', opts.reason, now, opts.by, now, criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+  const missionId = missionIdOfCriterion(project, criterionId);
+  if (!missionId) return;
+  const liveServingEpics = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === missionId && isEpic(t) && t.status !== 'done' && t.status !== 'dropped'
+      && todoServesCriterion(t, criterionId),
+  );
+  for (const epic of liveServingEpics) await updateTodo(project, epic.id, { status: 'dropped' });
+}
+
+/** Re-arm a dropped criterion to active, clearing its drop stamps. Deliberately does NOT
+ *  resurrect the epics/leaves dropped under this criterion when it was dropped — their
+ *  worktree/branch state is gone; a re-armed criterion gets a FRESH serving epic. */
+export function undropCriterion(project: string, criterionId: string): void {
+  const res = openDb(project)
+    .prepare("UPDATE mission_criterion SET status = 'active', droppedReason = NULL, droppedAt = NULL, droppedBy = NULL, updatedAt = ? WHERE id = ?")
+    .run(nowMs(), criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
 }
 
 /** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
