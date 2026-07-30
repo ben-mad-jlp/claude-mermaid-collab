@@ -116,6 +116,55 @@ describe('findViolations', () => {
   });
 });
 
+describe('stranded-leaf', () => {
+  function landedEpicFixture(extraChildStatus: Omit<Partial<Todo>, 'kind'> = { status: 'planned' }) {
+    const epic = todo({ id: 'e1', title: '[EPIC] shipped', status: 'todo', landedAt: '2026-01-01T00:00:00Z', kind: 'epic' });
+    const done1 = todo({ id: 'c1', title: 'done1', parentId: 'e1', status: 'done', acceptanceStatus: 'accepted', kind: 'leaf' });
+    const done2 = todo({ id: 'c2', title: 'done2', parentId: 'e1', status: 'done', acceptanceStatus: 'accepted', kind: 'leaf' });
+    const done3 = todo({ id: 'c3', title: 'done3', parentId: 'e1', status: 'done', acceptanceStatus: 'accepted', kind: 'leaf' });
+    const stray = todo({ id: 'c4', title: 'stray', parentId: 'e1', kind: 'leaf', ...extraChildStatus });
+    return { epic, done1, done2, done3, stray };
+  }
+
+  test('(a) landed epic with a planned child yields exactly one stranded-leaf on that child', () => {
+    const { epic, done1, done2, done3, stray } = landedEpicFixture({ status: 'planned' });
+    const v = findViolations([epic, done1, done2, done3, stray]).filter((x) => x.kind === 'stranded-leaf');
+    expect(v).toHaveLength(1);
+    expect(v[0].todoId).toBe('c4');
+    expect(v[0].title).toBe('stray');
+  });
+
+  test('(b) landed epic with a dropped stray child yields no stranded-leaf', () => {
+    const { epic, done1, done2, done3, stray } = landedEpicFixture({ status: 'dropped' });
+    const v = findViolations([epic, done1, done2, done3, stray]).filter((x) => x.kind === 'stranded-leaf');
+    expect(v).toHaveLength(0);
+  });
+
+  test('(c) landed epic with all four children done+accepted yields no stranded-leaf', () => {
+    const { epic, done1, done2, done3, stray } = landedEpicFixture({ status: 'done', acceptanceStatus: 'accepted' });
+    const v = findViolations([epic, done1, done2, done3, stray]).filter((x) => x.kind === 'stranded-leaf');
+    expect(v).toHaveLength(0);
+  });
+
+  test('(d) unlanded epic with a planned child yields no stranded-leaf (but stranded-epic does not fire either, since not all children are done+accepted)', () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] not shipped', status: 'todo', kind: 'epic' });
+    const child = todo({ id: 'c1', title: 'planned child', parentId: 'e1', status: 'planned', kind: 'leaf' });
+    const v = findViolations([epic, child]);
+    expect(v.filter((x) => x.kind === 'stranded-leaf')).toHaveLength(0);
+    expect(v.filter((x) => x.kind === 'stranded-epic')).toHaveLength(0);
+    expect(v.filter((x) => x.kind === 'live-child-under-terminal-epic')).toHaveLength(0);
+  });
+
+  test('(e) coexistence pin: stranded-leaf and live-child-under-terminal-epic both fire for the same planned child of a landed epic', () => {
+    const { epic, done1, done2, done3, stray } = landedEpicFixture({ status: 'planned' });
+    const v = findViolations([epic, done1, done2, done3, stray]);
+    const strandedLeaf = v.filter((x) => x.kind === 'stranded-leaf' && x.todoId === 'c4');
+    const liveChild = v.filter((x) => x.kind === 'live-child-under-terminal-epic' && x.todoId === 'c4');
+    expect(strandedLeaf).toHaveLength(1);
+    expect(liveChild).toHaveLength(1);
+  });
+});
+
 describe('findLandedAtDivergence', () => {
   test('landed-satisfies: landedAt set, no [LAND] child, ahead=0 → []', () => {
     const epic = todo({ id: 'e1', title: '[EPIC] shipped', status: 'done', kind: 'epic', landedAt: '2026-07-20T00:00:00Z' });
