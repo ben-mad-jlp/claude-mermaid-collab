@@ -224,8 +224,9 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!node) throw new Error(`todo not found: ${todoId}`);
       if (!isMission(node)) throw new Error(`not a mission node (kind='mission'): ${todoId}`);
       const ownerSession = node.ownerSession ?? node.assigneeSession ?? null;
+      await updateTodoStore(project, todoId, { status: 'dropped' }); // drop the graph node
       deleteMission(project, todoId);            // control state + criteria
-      // Remove subscription before dropping the node (owner needed for unsubscribe).
+      // Remove subscription before returning (owner needed for unsubscribe).
       if (ownerSession) {
         try {
           const { unsubscribeMission } = await import('../services/mission-subscription.js');
@@ -234,7 +235,6 @@ export async function handleMissionTool(name: string, args: any): Promise<string
           console.warn('mission subscription cleanup failed (non-fatal):', (e as Error).message);
         }
       }
-      await updateTodoStore(project, todoId, { status: 'dropped' }); // drop the graph node
       return JSON.stringify({ deleted: todoId }, null, 2);
     }
     case 'update_mission_criterion': {
