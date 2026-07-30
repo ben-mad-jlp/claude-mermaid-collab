@@ -160,6 +160,9 @@ export interface PlanCriterionInput {
   effort?: EffortLevel;
   /** Re-decomposition hint carried into the planner prompt. */
   decompositionHint?: string;
+  /** Opt-in only, for an epic whose purpose is greening a red base lane. Disables the
+   *  epic-base-red hold (G2) for this epic's leaves. Never auto-inferred. */
+  baseRepair?: boolean;
 }
 export interface PlanCriterionDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
@@ -355,6 +358,7 @@ export async function planMissionCriterion(
       home: input.missionId,
       homeProvided: true,
       servesCriterionIds: input.criterionIds,
+      baseRepair: input.baseRepair,
     });
     try {
       const { createdIds } = await addLeavesToEpic(
