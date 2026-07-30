@@ -15,11 +15,18 @@ describe('leaf-executor LOC budget', () => {
   // merely delegates to diff-contract-review's `groundReviewViaContract` or the existing
   // `validateReviewGrounding`. The heavy logic lives in diff-contract-review.ts /
   // review-citations.ts, not here. Comments are ~40% of the delta (this file's house style).
-  it('leaf-executor.ts should be ≤ 3988 lines', () => {
+  //
+  // Re-pinned 3988 → 3997: the typed-review REQ:<id> ballot (bug 6559ce96) — a 6th optional
+  // `ballotRequirements` param on the buildSpec closure + a `reviewBallot` derivation at the
+  // review call site (gated on typedContractGating + leafContract, byte-identical off-path),
+  // delegating to diff-contract-review's `contractBallotRequirements`. +9 lines of call-site
+  // wiring; the ballot-block logic lives in leaf-prompts.ts. (This ratchet is a floating
+  // tripwire, not a real ceiling — down-only redesign filed as bug 0e494237.)
+  it('leaf-executor.ts should be ≤ 3997 lines', () => {
     const leafExecutorPath = path.join(__dirname, '../leaf-executor.ts');
     const content = fs.readFileSync(leafExecutorPath, 'utf-8');
     const lineCount = content.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(3988);
+    expect(lineCount).toBeLessThanOrEqual(3997);
   });
 
   it('should re-export all required functions', () => {
