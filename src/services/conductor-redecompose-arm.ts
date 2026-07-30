@@ -22,6 +22,7 @@ import { listLeafRuns } from './ledger-stats.js';
 import { detectEpicChurn, buildTighterDecompositionHint } from './epic-churn.js';
 import { hasAttemptedRung, recordApproachAttempt } from './criterion-approach-store.js';
 import { todoServesCriterion } from './criterion-edges.js';
+import { raiseCriterionDropCard } from './criterion-drop-card.js';
 
 export type RedecomposeSkipReason =
   | 'no-serving-epic'
@@ -180,6 +181,7 @@ export async function runRedecomposeArm(
         result.skipped.push({ criterionId: criterion.id, why: 'drop-failed' });
         continue;
       }
+      raiseCriterionDropCard({}, { subject: 'epic', project, session, missionId, reason: `re-decompose churn: ${detail}` });
 
       // 6. Plan with tighter decomposition hint
       try {
