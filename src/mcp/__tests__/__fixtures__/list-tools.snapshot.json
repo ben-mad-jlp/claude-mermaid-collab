@@ -6527,6 +6527,14 @@
           },
           "text": {
             "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "capability",
+              "one-shot"
+            ],
+            "description": "Criterion type. Defaults to 'capability'."
           }
         },
         "required": [

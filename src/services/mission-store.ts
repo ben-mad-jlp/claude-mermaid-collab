@@ -116,6 +116,9 @@ export interface MissionRow {
   status?: MissionStatus;
 }
 
+export const CRITERION_TYPES = ['capability', 'one-shot'] as const;
+export type CriterionType = typeof CRITERION_TYPES[number];
+
 export interface MissionCriterion {
   id: string;
   todoId: string;
@@ -123,6 +126,8 @@ export interface MissionCriterion {
   met: boolean;
   order: number;
   updatedAt: number;
+  /** What kind of acceptance assertion this is. Defaults to 'capability' for legacy rows. */
+  type: CriterionType;
   /** VERIFY-gate audit trail: why the judge ruled this met/unmet, WHO judged it,
    *  and WHEN — set by an INDEPENDENT verify (not the maker). Null until verified. */
   evidence: string | null;
@@ -217,7 +222,8 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   verifiedAtSha TEXT,
   evidencePaths TEXT,
   reopenCount INTEGER NOT NULL DEFAULT 0,
-  lastReopenSha TEXT
+  lastReopenSha TEXT,
+  type TEXT NOT NULL DEFAULT 'capability'
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
 CREATE TABLE IF NOT EXISTS mission_recheck (
@@ -298,6 +304,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'mission_criterion', 'lastReopenSha', 'lastReopenSha TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'type', "type TEXT NOT NULL DEFAULT 'capability'");
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
@@ -820,15 +827,22 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     evidencePaths: r.evidencePaths ? (JSON.parse(r.evidencePaths as string) as string[]) : [],
     reopenCount: (r.reopenCount as number | null) ?? 0,
     lastReopenSha: (r.lastReopenSha as string | null) ?? null,
+    type: ((r.type as string | null) ?? 'capability') as CriterionType,
   }));
 }
 
 /** Add an acceptance criterion (a capability assertion the mission converges to).
  *  Resolves a short todoId to the canonical id first — inserting against the raw short id
  *  would create a mission_criterion row that listCriteria(fullId) can never see. */
-export function addCriterion(project: string, todoId: string, text: string): MissionCriterion {
+export function addCriterion(
+  project: string,
+  todoId: string,
+  text: string,
+  type: CriterionType = 'capability',
+): MissionCriterion {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('criterion text is empty');
+  if (!CRITERION_TYPES.includes(type)) throw new Error(`invalid criterion type: ${type}`);
   const resolved = resolveMissionTodoId(project, todoId);
   if (!resolved) throw new Error(`mission not found: ${todoId}`);
   const existing = listCriteria(project, resolved);
@@ -836,9 +850,9 @@ export function addCriterion(project: string, todoId: string, text: string): Mis
   const order = existing.length;
   const ts = nowMs();
   openDb(project)
-    .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
-    .run(id, resolved, trimmed, order, ts);
-  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null };
+    .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type) VALUES (?, ?, ?, 0, ?, ?, ?)')
+    .run(id, resolved, trimmed, order, ts, type);
+  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null, type };
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
