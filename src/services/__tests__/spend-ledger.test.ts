@@ -14,7 +14,7 @@ import {
   DEFAULT_BURN_THRESHOLDS,
   type BurnRow,
 } from '../spend-ledger.ts';
-import { _closeLedgerDb } from '../worker-ledger.ts';
+import { _closeLedgerDb, queryLedgerThin } from '../worker-ledger.ts';
 
 const P = '/proj/spend';
 
@@ -43,6 +43,36 @@ describe('recordSpend → getBurnBySource roundtrip', () => {
     const r = rows.find((x) => x.source === 'timeout-src')!;
     expect(r.calls).toBe(1);
     expect(r.inputTokens).toBe(0);
+  });
+
+  it('a KILLED node records WHY it died — exitCode + timedOut reach the row, not just $0.00', () => {
+    // REGRESSION: recordSpend previously dropped exitCode/timedOut on the floor, so every row
+    // written through the invokeNode auto-ledger boundary had exitCode NULL — measured at 874/874
+    // for source='conductor' over 14 days, and the same for planner/forge/summary. The ONLY trace
+    // of a SIGTERM'd node was $0.00 against a long duration, which is indistinguishable from a
+    // node that simply did no work. The test above pins that a killed node is COUNTED; this one
+    // pins that it is DIAGNOSABLE.
+    const t = 2_500_000;
+    recordSpend(
+      { project: P, source: 'killed-src', model: 'opus', usage: undefined, durationMs: 600_000, exitCode: 143, timedOut: true },
+      t,
+    );
+    const row = queryLedgerThin({ project: P, limit: 50 }).find((x) => x.source === 'killed-src')!;
+    expect(row).toBeDefined();
+    expect(row.exitCode).toBe(143); // SIGTERM — the kill
+    expect(row.timedOut).toBe(true); // ...and WHY: a timer killed it, it did not exit on its own
+    expect(row.durationMs).toBe(600_000);
+  });
+
+  it('a NORMAL node records exitCode 0 and is not marked timed-out', () => {
+    const t = 2_600_000;
+    recordSpend(
+      { project: P, source: 'clean-src', model: 'opus', usage: { inputTokens: 10, outputTokens: 5 }, durationMs: 1_234, exitCode: 0, timedOut: false },
+      t,
+    );
+    const row = queryLedgerThin({ project: P, limit: 50 }).find((x) => x.source === 'clean-src')!;
+    expect(row.exitCode).toBe(0);
+    expect(row.timedOut).toBe(false);
   });
 
   it('estimates USD from tokens × price when the provider omits costUsd (the Max-plan case)', () => {

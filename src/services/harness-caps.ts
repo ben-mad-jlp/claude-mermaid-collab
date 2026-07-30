@@ -58,6 +58,31 @@ export const CONDUCTOR_LEADER_STALE_TICKS = 4;
  *  Origin: src/services/orchestrator-live.ts (CONDUCTOR_INTERVAL_MS). */
 export const CONDUCTOR_BEAT_MS = 30_000;
 
+/** Wall-clock ceiling for ONE conductor NODE invocation.
+ *
+ *  Before this constant existed the conductor invoke passed no `timeoutMs` and silently
+ *  inherited node-invoker's DEFAULT_TIMEOUT_MS (600_000) — a generic per-node default never
+ *  sized against what a conductor pass actually costs. Measured over 14 days of production
+ *  conductor runs (worker_ledger, source='conductor', n=874):
+ *
+ *    <1m 242 · 1–5m 406 · 5–9.9m 142 · 600–610s 75 (0 steps, 0 tokens, $0.00) · >10m 9
+ *
+ *  i.e. 142 PRODUCTIVE passes already ran 5–9.9 minutes — 16% of real work sitting in the
+ *  last 40% of the budget — while 75 passes (8.6% of all passes, across 37 distinct missions)
+ *  were killed at the wall having produced nothing. The old ceiling was not catching a rare
+ *  pathology; it was amputating the workload's natural right tail.
+ *
+ *  20 minutes clears the observed productive tail with headroom. It is deliberately NOT a
+ *  substitute for bounding the retry: a pass that keeps hitting even this ceiling is a fact
+ *  about that serve-state (its evidence payload cannot be processed in budget), not bad luck,
+ *  and must be bounded + carded separately — see bugs ce7f74bf / 565f7bef. Raising a ceiling
+ *  only moves a wall.
+ *
+ *  START_WINDOW_MS (60s, node-invoker.ts) is unaffected: a node that never emits stdout still
+ *  dies in ~a minute, so this does NOT slow the spawn-wedge path.
+ *  Origin: src/services/conductor-pass.ts (the invokeNode call in runConductorPassInner). */
+export const CONDUCTOR_NODE_TIMEOUT_MS = 1_200_000;
+
 /** HARD RE-DISPATCH CAP (loop breaker). A todo re-dispatched this many times without
  *  reaching done/accepted is looping — each dispatch re-runs (and re-pays) a full
  *  blueprint. Past the cap the daemon PARKS it held + escalates instead of paying

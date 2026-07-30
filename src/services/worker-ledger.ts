@@ -60,6 +60,10 @@ export interface LedgerEntry {
   durationMs?: number | null;
   /** Whether the node was rate-limited (stored 0/1 like knownPrice). */
   rateLimited?: boolean | null;
+  /** Whether the node was KILLED by a timer — start-window or wall-clock — rather than
+   *  exiting on its own (stored 0/1). Distinguishes "the pass failed" from "the pass never
+   *  got to run", which exitCode 143 alone cannot. */
+  timedOut?: boolean | null;
   /** Leaf correlation id (the executor leaf this node ran for). */
   leafId?: string | null;
   /** REVIEW node's parsed PASS/FAIL verdict ('pass'|'fail'|null). Written by the
@@ -152,6 +156,11 @@ function openDb(): Database {
   add('exitCode', 'INTEGER');
   add('durationMs', 'INTEGER');
   add('rateLimited', 'INTEGER'); // 0/1 like knownPrice
+  // Additive migration: the node was KILLED by a timer (start-window or wall-clock) rather
+  // than exiting on its own. 0/1 like rateLimited. exitCode alone (143=SIGTERM) does not say
+  // WHY a node died, and a kill is what separates "the pass failed" from "the pass never got
+  // to run" — the distinction that made repeated conductor kills invisible.
+  add('timedOut', 'INTEGER');
   add('leafId', 'TEXT');
   // Additive migration: prompt-cache token visibility (Max-plan quota is paid in input
   // incl. cache; the bare inputTokens column is only the uncached delta). Nullable → 0.
@@ -320,15 +329,16 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
       .prepare(
         `INSERT INTO worker_ledger
           (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, parseError,
-           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outputText, outcomeDetail, commands, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?, ?)`,
+           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, timedOut, leafId, verdict, leafOutcome, outputText, outcomeDetail, commands, ts)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?, ?, ?)`,
       )
       .run(
         entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
         entry.inputTokens, entry.outputTokens, entry.cacheReadTokens ?? null, entry.cacheCreationTokens ?? null, entry.costUsd, entry.knownPrice ? 1 : 0, entry.steps,
         entry.parseError ?? null,
         entry.nodeKind ?? null, entry.nodesSpent ?? null, entry.authMode ?? null, entry.exitCode ?? null,
-        entry.durationMs ?? null, entry.rateLimited == null ? null : entry.rateLimited ? 1 : 0, entry.leafId ?? null,
+        entry.durationMs ?? null, entry.rateLimited == null ? null : entry.rateLimited ? 1 : 0,
+        entry.timedOut == null ? null : entry.timedOut ? 1 : 0, entry.leafId ?? null,
         entry.verdict ?? null, entry.leafOutcome ?? null,
         entry.outputText == null ? null : entry.outputText.slice(0, MAX_OUTPUT_CHARS),
         entry.outcomeDetail ?? null,
@@ -380,6 +390,7 @@ export function recordNode(
       exitCode?: number | null;
       durationMs?: number | null;
       rateLimited?: boolean | null;
+      timedOut?: boolean | null;
     },
   now: number = Date.now(),
 ): number | null {
@@ -407,6 +418,7 @@ export function recordNode(
       exitCode: entry.exitCode ?? null,
       durationMs: entry.durationMs ?? null,
       rateLimited: entry.rateLimited ?? null,
+      timedOut: entry.timedOut ?? null,
       leafId: entry.leafId ?? null,
       verdict: entry.verdict ?? null,
       leafOutcome: entry.leafOutcome ?? null,
@@ -1181,7 +1193,7 @@ export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
   return (d.query(sql).all(...(params as never[])) as LedgerRow[]).map(rowToEntry);
 }
 
-const THIN_LEDGER_COLUMNS = 'id, project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outcomeDetail, ts';
+const THIN_LEDGER_COLUMNS = 'id, project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, timedOut, leafId, verdict, leafOutcome, outcomeDetail, ts';
 
 /** Builds the exact SQL `queryLedgerThin` runs — exported so tests (e.g. EXPLAIN QUERY PLAN)
  *  assert against the real query instead of a hand-copied string that can drift. */
@@ -1201,6 +1213,7 @@ export function queryLedgerThin(q: LedgerQuery = {}): ThinLedgerRow[] {
     ...r,
     knownPrice: Boolean(r.knownPrice),
     rateLimited: r.rateLimited == null ? null : Boolean(r.rateLimited),
+    timedOut: r.timedOut == null ? null : Boolean(r.timedOut),
   }));
 }
 
