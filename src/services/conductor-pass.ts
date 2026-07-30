@@ -868,7 +868,13 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       lastPassAt,
       openCards,
       resolvedCards,
-      actions: criteriaWithActions.map((c) => ({ id: c.id, action: c.action, text: c.text })),
+      actions: criteriaWithActions.map((c) => ({
+        id: c.id,
+        action: c.action,
+        text: c.text,
+        verdict: c.verifiedAt != null ? (c.met ? 'MET' : 'NOT MET') : undefined,
+        evidence: c.evidence ?? undefined,
+      })),
       rechecks: pendingRechecks.map((r) => ({ criterionId: r.criterionId, reason: r.reason, landedSha: r.landedSha, enqueuedAt: r.enqueuedAt })),
       stakes,
     });
