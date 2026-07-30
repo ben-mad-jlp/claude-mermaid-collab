@@ -367,4 +367,66 @@ describe('runCriterionVerifyPanel', () => {
     expect(updated?.verifiedAtSha).toBe(realSha);
     expect(updated?.verifiedAtSha).toMatch(/^[0-9a-f]{40}$/);
   });
+
+  function productionStreamJson(finalText: string): string {
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 'abc123' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: `Some reasoning here.\nMore reasoning.\n${finalText}` }] },
+      }),
+      JSON.stringify({ type: 'result', result: finalText }),
+    ];
+    return lines.join('\n');
+  }
+
+  test('records met:true on unanimous PASS from production-shaped stream-json NodeResult', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const finalText = 'Reasoning follows.\nVERDICT: PASS';
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
+      ok: true,
+      exitCode: 0,
+      stdout: productionStreamJson(finalText),
+      text: finalText,
+      durationMs: 1000,
+      rateLimited: false,
+      authMode: 'subscription',
+    });
+
+    const mockRecord = async (): Promise<string | null> => null;
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    expect(result.met).toBe(true);
+    expect(result.hold).toBeUndefined();
+  });
+
+  test('stays met:false when production-shaped text carries no VERDICT line', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const finalText = 'I looked at the evidence and it seems reasonable, no clear verdict though.';
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
+      ok: true,
+      exitCode: 0,
+      stdout: productionStreamJson(finalText),
+      text: finalText,
+      durationMs: 1000,
+      rateLimited: false,
+      authMode: 'subscription',
+    });
+
+    const mockRecord = async (): Promise<string | null> => null;
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    expect(result.met).toBe(false);
+    expect(result.hold).toBe(true);
+  });
 });
