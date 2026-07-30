@@ -797,6 +797,14 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       durationMs: result.durationMs,
       rateLimited: result.rateLimited,
       ok: result.ok,
+      // Forward the kill signals. Omitting these left exitCode NULL on every row written
+      // through this boundary — measured at 874/874 for source='conductor', and likewise for
+      // planner/forge/summary (only leaf rows, written elsewhere, carried it). A node SIGTERM'd
+      // at its wall-clock ceiling was therefore indistinguishable from one that simply did no
+      // work: both showed $0.00 and nothing else. A killed orchestration node has to be
+      // detectable by something other than a human noticing the cost column.
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
     });
   }
   return result;
@@ -1459,6 +1467,10 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
       durationMs: result.durationMs,
       rateLimited: result.rateLimited,
       ok: result.ok,
+      // Same kill-signal forwarding as the claude boundary above — a grok node killed at its
+      // ceiling must not look like a node that did no work either.
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
     });
   }
   return result;

@@ -21,6 +21,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
+import { CONDUCTOR_NODE_TIMEOUT_MS } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
 
 let project: string;
@@ -170,6 +171,32 @@ describe('runConductorPass — scheduling', () => {
     expect(r.missionId).toBe(forged.missionId);
     expect(r.modelUsed).toBe('opus'); // conductor default (configurable via node_profile_override)
     expect(invokeCalls).toBe(1);
+  });
+
+  test('the conductor node carries an EXPLICIT wall-clock ceiling, not node-invoker\'s generic default', async () => {
+    // REGRESSION (measured, worker_ledger source='conductor', n=874 over 14d): the invoke passed
+    // no timeoutMs and silently inherited DEFAULT_TIMEOUT_MS=600_000, which sat BELOW the
+    // conductor's own productive duration tail — 142 productive passes ran 5–9.9m while 75
+    // (8.6%, across 37 missions) were killed at the wall with 0 steps / 0 tokens / $0.00. An
+    // omitted timeoutMs is silent: nothing in the type system or the tests noticed the conductor
+    // was running under a ceiling nobody sized for it. Pin the field so it cannot regress to the
+    // implicit default again.
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+
+    let seenTimeoutMs: number | undefined;
+    const captureInvoke = async (spec: any) => {
+      seenTimeoutMs = spec.timeoutMs;
+      return okInvoke();
+    };
+    const r = await runConductorPass(project, { invoke: captureInvoke });
+
+    expect(r.ran).toBe(true);
+    expect(seenTimeoutMs).toBe(CONDUCTOR_NODE_TIMEOUT_MS);
+    // The point of the pin: an explicit ceiling ABOVE the generic per-node default. If someone
+    // drops the field, seenTimeoutMs goes undefined and this fails.
+    expect(seenTimeoutMs).toBeGreaterThan(600_000);
   });
 
   test('debounced: an identical second tick spends NO node (fingerprint unchanged)', async () => {

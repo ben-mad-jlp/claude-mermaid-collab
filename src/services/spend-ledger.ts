@@ -48,6 +48,18 @@ export interface SpendEvent {
   durationMs?: number;
   rateLimited?: boolean;
   ok?: boolean;
+  /** Process exit code (143 = SIGTERM, i.e. a wall-clock or start-window kill). Before this
+   *  field existed the auto-ledger boundary in invokeNode never forwarded it, so EVERY row it
+   *  wrote had exitCode NULL — measured at 874/874 for source='conductor', and likewise for
+   *  planner/forge/summary. Only leaf rows (written through a different path) carried it. That
+   *  is what made a repeatedly-killed conductor invisible to every monitor: the sole trace was
+   *  $0.00 against a long duration. */
+  exitCode?: number | null;
+  /** True when the node was KILLED by a timer rather than exiting on its own — start-window or
+   *  wall-clock. Recorded alongside exitCode because 143 alone does not say WHY the node was
+   *  killed (ledger-stats.ts makes the same point), and a kill is the signal that separates
+   *  "the pass failed" from "the pass never got to run". */
+  timedOut?: boolean;
 }
 
 /** Model-alias → published id so alias-named rows ('opus'/'sonnet'/…) still price. Full ids pass
@@ -102,6 +114,8 @@ export function recordSpend(e: SpendEvent, now: number = Date.now()): void {
         nodesSpent: 1,
         durationMs: e.durationMs ?? null,
         rateLimited: e.rateLimited ?? null,
+        exitCode: e.exitCode ?? null,
+        timedOut: e.timedOut ?? null,
       },
       now,
     );

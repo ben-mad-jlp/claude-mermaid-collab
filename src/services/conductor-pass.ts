@@ -18,7 +18,7 @@ import {
   promoteQueuedMissions,
   type MissionRecheck,
 } from './mission-store.js';
-import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
+import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
@@ -800,6 +800,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     prompt: buildConductorPrompt(project, missionId, target.summary.node.title ?? missionId, session, wakeBlock),
     model,
     effort,
+    // Explicit ceiling. Omitting this silently inherited node-invoker's generic
+    // DEFAULT_TIMEOUT_MS (600_000), which measurement showed was BELOW the conductor's own
+    // productive duration tail — 8.6% of passes were killed at the wall having produced
+    // nothing. See CONDUCTOR_NODE_TIMEOUT_MS for the distribution and why a bigger ceiling
+    // is a floor-raise, not the fix (bugs ce7f74bf / 565f7bef own the bounded-retry half).
+    timeoutMs: CONDUCTOR_NODE_TIMEOUT_MS,
     allowedTools: CONDUCTOR_ALLOWED_TOOLS,
     mcpConfig: mcpConfigFor(config.PORT),
     strictMcpConfig: true,
