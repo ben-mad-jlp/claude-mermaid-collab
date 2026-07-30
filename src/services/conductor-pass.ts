@@ -22,6 +22,7 @@ import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
+import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
@@ -261,6 +262,8 @@ export interface ConductorPassDeps {
   infraArm?: typeof runInfraRejectionArm;
   /** Injectable re-decompose churn-breaking arm (test spy). Defaults to runRedecomposeArm. */
   redecomposeArm?: typeof runRedecomposeArm;
+  /** Injectable test-only close-out arm (test spy). Defaults to runTestOnlyCloseArm. */
+  closeArm?: typeof runTestOnlyCloseArm;
   /** Injectable verify-panel auto-fire arm (test spy). Defaults to runVerifyPanelArm. */
   verifyPanelArm?: typeof runVerifyPanelArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
@@ -286,6 +289,8 @@ export interface ConductorPassResult {
   infraCards?: number;
   /** Criteria re-decomposed this pass (dropped churning epics and re-planned with tighter hints). */
   redecomposed?: number;
+  /** Test-only close-out leaves minted this pass (capped criterion, test-only verdict). */
+  closeOutsMinted?: number;
   /** Criteria with high-stakes verify panel run this pass, verdict met. */
   verifyPaneled?: number;
   /** Criteria with high-stakes verify panel run this pass, verdict not met. */
@@ -451,6 +456,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const escalated = criteriaWithActions.filter((a) => a.action === 'escalate');
   let escalationsRaised = 0;
   let serveCapDeferred = 0;
+  let closeOutsMinted = 0;
   // Hoist the serving epics read outside the loop, fail-open to []
   let servingEpicsByComp: Map<string, typeof criteriaWithActions[number]['id'][]> = new Map();
   let epicTargetProjectById: Map<string, string | null> = new Map();
@@ -495,6 +501,29 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
 
         const exhaustedBy: 'store-fault' | 're-decompose' | 'serve-cap' =
           storeFaulted ? 'store-fault' : c.servedEpicCount >= CRITERION_SERVE_CAP ? 'serve-cap' : 're-decompose';
+
+        // TEST-ONLY-CLOSE ARM: if the criterion's verdict cites test paths only, mint a
+        // narrow close-out leaf instead of raising a human card. Own try/catch (not the
+        // outer per-criterion one) so a thrown deps fn falls through to the card path below
+        // exactly as a `mint-failed` result would, rather than being swallowed and skipping
+        // the card entirely.
+        let closeMinted = false;
+        try {
+          const closeResult = await (deps.closeArm ?? runTestOnlyCloseArm)(project, session, missionId, {
+            id: c.id,
+            text: c.text,
+            evidence: c.evidence,
+            evidencePaths: c.evidencePaths,
+            verifiedAtSha: c.verifiedAtSha,
+          });
+          closeMinted = closeResult.minted;
+        } catch {
+          closeMinted = false;
+        }
+        if (closeMinted) {
+          closeOutsMinted++;
+          continue;
+        }
 
         // Collect reasons from serving epics
         let distinctReasons: string[] = [];
@@ -613,6 +642,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       missionId,
       escalationsRaised,
       serveCapDeferred,
+      closeOutsMinted,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
     });
@@ -622,7 +652,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
   catch { redecomposed = [] }
   if (redecomposed.length > 0)
-    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, redecomposed: redecomposed.length,
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: redecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
@@ -672,7 +702,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
   // building-wait (daemon working) no-op.
   if (!hasGap && landCardIds.length === 0) {
-    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred });
+    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
     // 'building' normally means "the daemon is on it — leave it". An open mission-scoped hard card
     // (e.g. a just-carded INFRA leaf) is the exception: reaching this line already proves the
     // signature differs from both stored keys, and step 4 of the conductor prompt makes the node the
@@ -758,6 +788,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       missionId,
       escalationsRaised,
       serveCapDeferred,
+      closeOutsMinted,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
       verifyPaneled: verifyPanel.paneled.length,
@@ -830,5 +861,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } else {
     stampConductorRun(project, missionId, `${failPrefix}${priorFails + 1}`);
   }
-  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 }

@@ -21,6 +21,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
+import { claimReason, isClaimable } from '../claimability';
 
 let project: string;
 let invokeCalls: number;
@@ -850,6 +851,105 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(qt).toContain('deadbeef1234');
     expect(qt).toContain('p95 measured at 142ms on prod excerpt'.slice(0, 20));
     expect(qt).not.toContain('ladder incomplete');
+  });
+
+  test('mints a claimable close-out leaf for a capped test-only criterion', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'measured at src/__tests__/perf.test.ts:12 — TO CLOSE the threshold needs updating',
+      evidencePaths: ['src/__tests__/perf.test.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.closeOutsMinted).toBe(1);
+
+    const todos = listTodos(project);
+    const closeEpic = todos.find((t) => t.kind === 'epic' && t.parentId === forged.missionId && (t.servesCriterionIds ?? []).includes(crit.id) && t.title.startsWith('Close out:'));
+    expect(closeEpic).toBeTruthy();
+    expect(closeEpic!.approvedAt).toBeTruthy(); // released BEFORE the leaf was added
+
+    const closeLeaf = todos.find((t) => t.parentId === closeEpic!.id);
+    expect(closeLeaf).toBeTruthy();
+    expect(closeLeaf!.description).toContain('TO CLOSE');
+    expect(closeLeaf!.description).toContain('OUT OF SCOPE');
+
+    const byId = new Map(todos.map((t) => [t.id, t]));
+    expect(claimReason(closeLeaf!, byId)).toBe('claimable');
+    expect(isClaimable(closeLeaf!, byId)).toBe(true);
+  });
+
+  test('mints exactly one epic and leaf across four passes at an unchanged verifiedAtSha', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'measured at src/__tests__/perf.test.ts:12',
+      evidencePaths: ['src/__tests__/perf.test.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    let mintedTotal = 0;
+    for (let i = 0; i < 4; i++) {
+      const r = await runConductorPass(project, { invoke: okInvoke });
+      mintedTotal += r.closeOutsMinted ?? 0;
+    }
+    expect(mintedTotal).toBe(1);
+
+    const todos = listTodos(project);
+    const closeEpics = todos.filter((t) => t.kind === 'epic' && t.parentId === forged.missionId && t.title.startsWith('Close out:'));
+    expect(closeEpics.length).toBe(1);
+    const closeLeaves = todos.filter((t) => t.parentId === closeEpics[0].id);
+    expect(closeLeaves.length).toBe(1);
+  });
+
+  test('raises the serve-cap card and mints nothing when the verdict cites a src path', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'the fix landed at src/foo.ts:5',
+      evidencePaths: ['src/foo.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    const r = await runConductorPass(project, { invoke: okInvoke });
+    expect(r.closeOutsMinted ?? 0).toBe(0);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1);
+
+    const todos = listTodos(project);
+    const closeEpic = todos.find((t) => t.kind === 'epic' && t.parentId === forged.missionId && t.title.startsWith('Close out:'));
+    expect(closeEpic).toBeUndefined();
+  });
+
+  test('falls through to the serve-cap card when the close arm dependency throws', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { crit } = await forgeCappedMission();
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'measured at src/__tests__/perf.test.ts:12',
+      evidencePaths: ['src/__tests__/perf.test.ts'],
+      verifiedAtSha: 'deadbeef1234',
+      verifiedBy: 'conductor',
+    });
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      closeArm: async () => { throw new Error('boom'); },
+    });
+    expect(r.closeOutsMinted ?? 0).toBe(0);
+    expect(r.reason).toBe('criteria-escalated');
+    expect(r.escalationsRaised).toBe(1);
   });
 
   /** Forge a capped mission like forgeCappedMission, but also return the serving epic ids so
