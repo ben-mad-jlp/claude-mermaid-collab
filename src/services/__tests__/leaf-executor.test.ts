@@ -186,6 +186,8 @@ function makeDeps(opts: {
   // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
   changeSet?: string[] | null;
   gateShadowMode?: boolean;
+  // Phase 2/3 typed-contract gating flag. Absent ⇒ false (default OFF ⇒ prose path).
+  typedContractGating?: boolean;
   // crit 2/3: mock the edit-coverage seam. true=covered, false=uncovered, null=unknown.
   // Absent ⇒ seam unwired (returns null ⇒ gate).
   coverage?: boolean | null;
@@ -332,6 +334,7 @@ function makeDeps(opts: {
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     recordGateEval: async (_p, input) => { spies.gateEvals.push(input); return {} as any; },
     gateShadowMode: () => opts.gateShadowMode ?? false,
+    typedContractGating: () => opts.typedContractGating ?? false,
     citationLineExistsAtBase: opts.citationLineExistsAtBase,
     testsFlipBaseToBranch: opts.coverage !== undefined
       ? async ({ testFiles, baseSha }) => { spies.coverageCalls.push({ testFiles, baseSha }); return opts.coverage ?? null; }
@@ -5185,5 +5188,104 @@ describe('L4 CITABILITY gate — testOnly + base-line-existence', () => {
       const parsed = parseVerdict(result.report);
       expect(parsed).toBe(result.verdict);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPED-CONTRACT GATING (Phase 2 citability advisory + Phase 3 typed review).
+// The load-bearing safety property: FLAG OFF ⇒ byte-for-byte the prose path.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('typed-contract gating (Phase 2 + 3)', () => {
+  // A valid, non-underspecified refactor contract that COVERS citability (symbol-present).
+  const contractJson = (extraReqs = ''): string =>
+    '```json\n' + JSON.stringify({
+      schemaVersion: 2,
+      estimatedFiles: 1,
+      estimatedTasks: 1,
+      nonEnumerableFanout: false,
+      filesToCreate: [],
+      filesToEdit: ['src/a.ts'],
+      tasks: [],
+      leafKind: 'refactor',
+      requirements: [
+        { kind: 'symbol-present', id: 'sym-1', file: 'src/a.ts', symbol: 'foo', description: 'foo exists' },
+        ...(extraReqs === 'observable' ? [{ kind: 'observable', id: 'obs-1', description: 'behaves' }] : []),
+      ],
+      outOfScope: [],
+    }, null, 2) + '\n```';
+
+  // Blueprint whose acceptance criterion is a COMMAND-RESULT ⇒ prose-uncitable.
+  const uncitableBlueprint = (withContract: boolean): string =>
+    '# Blueprint\n\n## Acceptance Criteria\n- The full test suite passes\n\n' +
+    (withContract ? contractJson() : '');
+
+  // Blueprint with NO acceptance-criteria section ⇒ citability not convicted; carries a
+  // valid typed contract WITH an observable ballot requirement so review grounds a ballot.
+  const citableBlueprintWithBallot = '# Blueprint\n\ndoes the thing\n\n' + contractJson('observable');
+
+  it('(a) FLAG OFF: an uncitable prose criterion PARKS (prose path unchanged)', async () => {
+    const { deps, spies } = makeDeps({
+      typedContractGating: false,
+      readBlueprintReturns: [uncitableBlueprint(true), uncitableBlueprint(true)],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^blueprint-uncitable-criterion/);
+    expect(spies.gateEvals.some((e) => e.verdict === 'advisory-typed-contract')).toBe(false);
+  });
+
+  it('(b) FLAG ON + valid citable typed contract: uncitable prose is ADVISORY — no park, proceeds', async () => {
+    const { deps, spies } = makeDeps({
+      typedContractGating: true,
+      readBlueprintReturns: [uncitableBlueprint(true), uncitableBlueprint(true)],
+      reviewVerdicts: ['VERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('blocked');
+    expect(res.reason ?? '').not.toMatch(/blueprint-uncitable-criterion/);
+    // The advisory evaluation is recorded (record-only SEAM), not a park.
+    expect(spies.gateEvals.some((e) => e.verdict === 'advisory-typed-contract')).toBe(true);
+    expect(spies.bumpRetryCalls).toEqual([]);
+  });
+
+  it('(c) FLAG ON but NO valid typed contract: still PARKS as today (advisory only when typed covers it)', async () => {
+    const { deps, spies } = makeDeps({
+      typedContractGating: true,
+      readBlueprintReturns: [uncitableBlueprint(false), uncitableBlueprint(false)],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^blueprint-uncitable-criterion/);
+    expect(spies.gateEvals.some((e) => e.verdict === 'advisory-typed-contract')).toBe(false);
+  });
+
+  it('(d) FLAG ON: review grounds via diffContractReview and REJECTS a fabricated requirement id', async () => {
+    const fabricated = '- [MET] REQ:ghost — src/a.ts:1\n\nVERDICT: PASS';
+    const { deps, spies } = makeDeps({
+      typedContractGating: true,
+      readBlueprintReturns: [citableBlueprintWithBallot],
+      reviewVerdicts: [fabricated, fabricated],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^review-vacuous/);
+  });
+
+  it('(e) FLAG OFF: the SAME leaf grounds on PROSE (fabricated REQ id is inert) and ACCEPTS', async () => {
+    // Prose grounding sees a properly cited criterion; the REQ:ghost token is meaningless to it.
+    const prosePass = '- [MET] x — src/a.ts:1\nREQ:ghost [MET]\n\nVERDICT: PASS';
+    const { deps, spies } = makeDeps({
+      typedContractGating: false,
+      readBlueprintReturns: [citableBlueprintWithBallot],
+      reviewVerdicts: [prosePass],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
   });
 });
