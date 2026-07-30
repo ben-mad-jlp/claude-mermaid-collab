@@ -484,7 +484,8 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         }
 
         // Check if ladder is exhausted
-        const { exhausted } = storeFaulted ? { exhausted: true } : ladderExhausted({ attempts, servedEpicCount: c.servedEpicCount });
+        const ladder = storeFaulted ? { exhausted: true, tried: [], missing: [] } : ladderExhausted({ attempts, servedEpicCount: c.servedEpicCount });
+        const { exhausted } = ladder;
 
         // If not exhausted, defer and skip card creation
         if (!exhausted) {
@@ -492,8 +493,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           continue;
         }
 
+        const exhaustedBy: 'store-fault' | 're-decompose' | 'serve-cap' =
+          storeFaulted ? 'store-fault' : c.servedEpicCount >= CRITERION_SERVE_CAP ? 'serve-cap' : 're-decompose';
+
         // Collect reasons from serving epics
         let distinctReasons: string[] = [];
+        let newestReasonAt: number | undefined;
         try {
           const servingEpicIds = servingEpicsByComp.get(c.id) ?? [];
           const allRuns: Array<ReturnType<typeof listLeafRunsFn>[number]> = [];
@@ -507,6 +512,8 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           }
           if (allRuns.length > 0) {
             distinctReasons = summariseEpicOutcomes(allRuns).distinctReasons;
+            const contributing = allRuns.filter((r) => (r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked') && !!r.reason);
+            if (contributing.length > 0) newestReasonAt = Math.max(...contributing.map((r) => r.lastTs));
           }
         } catch {
           // fail-open to empty reasons
@@ -518,6 +525,9 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           servedEpicCount: c.servedEpicCount,
           attempts,
           distinctReasons,
+          verdict: { evidence: c.evidence, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha },
+          newestReasonAt,
+          exhaustedBy,
         });
 
         let suppressed = false;
