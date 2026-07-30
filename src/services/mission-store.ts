@@ -150,6 +150,8 @@ export interface MissionCriterion {
   reopenCount: number;
   /** The landedSha of the most recent land-driven reopen, or null. */
   lastReopenSha: string | null;
+  /** DAG edge set: ids of criteria (on the same mission) this criterion depends on. */
+  dependsOn: string[];
 }
 
 export interface CriterionVerdictHistoryEntry {
@@ -233,6 +235,7 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   reopenCount INTEGER NOT NULL DEFAULT 0,
   lastReopenSha TEXT,
   type TEXT NOT NULL DEFAULT 'capability',
+  dependsOn TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active',
   droppedReason TEXT,
   droppedAt INTEGER,
@@ -318,6 +321,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'mission_criterion', 'lastReopenSha', 'lastReopenSha TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'type', "type TEXT NOT NULL DEFAULT 'capability'");
+  addColumnIfMissing(db, 'mission_criterion', 'dependsOn', "dependsOn TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, 'mission_criterion', 'status', "status TEXT NOT NULL DEFAULT 'active'");
   addColumnIfMissing(db, 'mission_criterion', 'droppedReason', 'droppedReason TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'droppedAt', 'droppedAt INTEGER');
@@ -845,11 +849,45 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     reopenCount: (r.reopenCount as number | null) ?? 0,
     lastReopenSha: (r.lastReopenSha as string | null) ?? null,
     type: ((r.type as string | null) ?? 'capability') as CriterionType,
+    dependsOn: r.dependsOn ? (JSON.parse(r.dependsOn as string) as string[]) : [],
     status: ((r.status as string | null) ?? 'active') as CriterionStatus,
     droppedReason: (r.droppedReason as string | null) ?? null,
     droppedAt: (r.droppedAt as number | null) ?? null,
     droppedBy: (r.droppedBy as string | null) ?? null,
   }));
+}
+
+/** Enforce that adding/setting `dependsOn` on `criterionId` cannot introduce a self-edge,
+ *  a reference to an unknown sibling, or a cycle. Pure read — throws before any mutation. */
+function assertAcyclicDependsOn(
+  project: string,
+  missionTodoId: string,
+  criterionId: string,
+  dependsOn: string[],
+): void {
+  const siblings = listCriteria(project, missionTodoId);
+  const edges = new Map<string, string[]>();
+  for (const s of siblings) edges.set(s.id, s.dependsOn);
+
+  for (const depId of dependsOn) {
+    if (depId === criterionId) {
+      throw new Error(`criterion-dependency-cycle: ${criterionId} -> ${criterionId}`);
+    }
+    if (!edges.has(depId)) {
+      throw new Error(`criterion-dependency-unknown: ${depId}`);
+    }
+    const visited = new Set<string>();
+    const stack = [depId];
+    while (stack.length > 0) {
+      const cur = stack.pop() as string;
+      if (cur === criterionId) {
+        throw new Error(`criterion-dependency-cycle: ${criterionId} -> ${depId}`);
+      }
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      for (const next of edges.get(cur) ?? []) stack.push(next);
+    }
+  }
 }
 
 /** Add an acceptance criterion (a capability assertion the mission converges to).
@@ -860,6 +898,7 @@ export function addCriterion(
   todoId: string,
   text: string,
   type: CriterionType = 'capability',
+  dependsOn: string[] = [],
 ): MissionCriterion {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('criterion text is empty');
@@ -868,12 +907,24 @@ export function addCriterion(
   if (!resolved) throw new Error(`mission not found: ${todoId}`);
   const existing = listCriteria(project, resolved);
   const id = `crit_${resolved.slice(0, 8)}_${existing.length + 1}_${nowMs().toString(36)}`;
+  assertAcyclicDependsOn(project, resolved, id, dependsOn);
   const order = existing.length;
   const ts = nowMs();
   openDb(project)
-    .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type) VALUES (?, ?, ?, 0, ?, ?, ?)')
-    .run(id, resolved, trimmed, order, ts, type);
-  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null, type, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
+    .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn) VALUES (?, ?, ?, 0, ?, ?, ?, ?)')
+    .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn));
+  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
+}
+
+/** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
+ *  before any write. */
+export function setCriterionDependsOn(project: string, criterionId: string, dependsOn: string[]): void {
+  const missionId = missionIdOfCriterion(project, criterionId);
+  if (!missionId) throw new Error(`criterion not found: ${criterionId}`);
+  assertAcyclicDependsOn(project, missionId, criterionId, dependsOn);
+  openDb(project)
+    .prepare('UPDATE mission_criterion SET dependsOn = ?, updatedAt = ? WHERE id = ?')
+    .run(JSON.stringify(dependsOn), nowMs(), criterionId);
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
@@ -957,7 +1008,15 @@ export function updateCriterionText(project: string, criterionId: string, text: 
 }
 
 export function removeCriterion(project: string, criterionId: string): void {
+  const missionId = missionIdOfCriterion(project, criterionId);
   openDb(project).prepare('DELETE FROM mission_criterion WHERE id = ?').run(criterionId);
+  if (!missionId) return;
+  const db = openDb(project);
+  for (const c of listCriteria(project, missionId)) {
+    if (!c.dependsOn.includes(criterionId)) continue;
+    const next = c.dependsOn.filter((d) => d !== criterionId);
+    db.prepare('UPDATE mission_criterion SET dependsOn = ? WHERE id = ?').run(JSON.stringify(next), c.id);
+  }
 }
 
 /** Reversibly drop a criterion: preserves the row (text, met, verdict/provenance columns
