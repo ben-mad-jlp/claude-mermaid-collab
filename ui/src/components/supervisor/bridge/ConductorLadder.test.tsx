@@ -130,6 +130,18 @@ describe('ConductorLadder', () => {
     expect(screen.getByTestId('conductor-last-pass').textContent).toContain('running');
   });
 
+  it('shows "interrupted" (not a stale "running…") for a pass that died mid-flight', async () => {
+    // A killed pass (sidecar restart / watchdog) never stamped its terminal reason, so lastPass is
+    // still reason:'pass-ran' with the literal status 'running…' — but STALE, so it is NOT running.
+    mockConductorWithPass(true, { reason: 'pass-ran', tickAt: Date.now() - 10 * 60 * 1000, status: 'running…' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('conductor-last-pass')).toBeTruthy());
+    expect(screen.getByTestId('conductor-last-pass').getAttribute('data-running')).toBe('false');
+    const line = screen.getByTestId('conductor-status-line').textContent ?? '';
+    expect(line).toContain('interrupted');
+    expect(line).not.toContain('running…');
+  });
+
   it('does not POST when the already-active stop is clicked', async () => {
     const { post } = mockConductor(true);
     render(<ConductorLadder project="/abs/p" />);

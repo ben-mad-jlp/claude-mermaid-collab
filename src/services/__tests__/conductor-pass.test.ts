@@ -1641,6 +1641,7 @@ describe('conductorStatusLine', () => {
       'conductor-disabled', 'daemon-off', 'no-actionable-mission', 'target-not-actionable',
       'target-cleared', 'building-wait', 'criteria-escalated', 'debounced', 'conducted',
       'node-failed', 'infra-leaf-reset', 'redecomposed', 'over-budget-rebet', 'pass-ran', 'pass-error',
+      'verify-paneled',
     ] as const;
     for (const r of reasons) {
       const s = conductorStatusLine(r);
@@ -1651,11 +1652,11 @@ describe('conductorStatusLine', () => {
   });
 
   test('surfaces counts for a productive conducted pass; stable strings for the common reasons', () => {
-    expect(conductorStatusLine('conducted')).toBe('served a gap');
-    expect(conductorStatusLine('conducted', { escalationsRaised: 2 })).toContain('2 escalated');
-    expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('capped');
-    expect(conductorStatusLine('debounced')).toBe('no change');
-    expect(conductorStatusLine('building-wait')).toBe('building');
+    expect(conductorStatusLine('conducted')).toBe('assigned new work');
+    expect(conductorStatusLine('conducted', { escalationsRaised: 2 })).toContain('2 raised for you');
+    expect(conductorStatusLine('criteria-escalated', { serveCapDeferred: 1 })).toContain('stuck');
+    expect(conductorStatusLine('debounced')).toBe('idle — nothing to do');
+    expect(conductorStatusLine('building-wait')).toBe('building — waiting on work');
   });
 });
 
