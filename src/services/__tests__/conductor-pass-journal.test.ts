@@ -9,7 +9,9 @@ import {
   appendPassProgress,
   listConductorPasses,
   countConsecutiveFailedPasses,
+  filedRefsOf,
   _closeConductorJournalDb,
+  type ConductorFiledRef,
 } from '../conductor-pass-journal';
 
 let dir: string;
@@ -83,6 +85,55 @@ describe('conductor-pass-journal', () => {
       declined: [],
       filed: null,
     });
+  });
+
+  test('a typed row (filed refs, servedEpicId, declined entity refs) round-trips through listConductorPasses', () => {
+    const id = openPassRow('/p', 'm1', 1000);
+    expect(id).not.toBeNull();
+
+    const ok = finalizePassRow(id as string, {
+      endedAt: 2000,
+      serveFp: 'sfp1',
+      passFp: 'pfp1',
+      selfFp: 'selffp1',
+      arm: 'node',
+      criteriaActed: [{ criterionId: 'c1', action: 'served', servedEpicId: 'e1' }],
+      filed: [{ kind: 'epic', id: 'e1', title: 'Epic One' } satisfies ConductorFiledRef],
+      declined: [{ what: 'redecompose', why: 'not ready', entityType: 'leaf', entityId: 'l1' }],
+      outcome: 'node-succeeded',
+      ran: true,
+    });
+    expect(ok).toBe(true);
+
+    const rows = listConductorPasses('/p', { missionId: 'm1' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id,
+      criteriaActed: [{ criterionId: 'c1', action: 'served', servedEpicId: 'e1' }],
+      filed: [{ kind: 'epic', id: 'e1', title: 'Epic One' }],
+      declined: [{ what: 'redecompose', why: 'not ready', entityType: 'leaf', entityId: 'l1' }],
+    });
+    expect(filedRefsOf(rows[0])).toEqual([{ kind: 'epic', id: 'e1', title: 'Epic One' }]);
+  });
+
+  test('a legacy row (count-object filed, criteriaActed without servedEpicId) is read back without throwing and filedRefsOf returns []', () => {
+    const id = openPassRow('/p', 'm1', 1000);
+    expect(id).not.toBeNull();
+
+    const ok = finalizePassRow(id as string, {
+      endedAt: 2000,
+      serveFp: 'sfp1',
+      criteriaActed: [{ criterionId: 'c1', action: 'served' }],
+      filed: { escalationsRaised: 1, infraResets: 0 } as any,
+      outcome: 'node-succeeded',
+      ran: true,
+    });
+    expect(ok).toBe(true);
+
+    const rows = listConductorPasses('/p', { missionId: 'm1' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].criteriaActed[0].servedEpicId).toBeUndefined();
+    expect(filedRefsOf(rows[0])).toEqual([]);
   });
 
   test('countConsecutiveFailedPasses returns the contiguous fail run and resets on a productive row or serveFp change', () => {
