@@ -32,6 +32,11 @@ function run(dir: string, file: string, mutation: string, ...cmd: string[]) {
   return { code: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
 }
 
+function runNeutralize(dir: string, neutralize: string, file: string, mutation: string, ...cmd: string[]) {
+  const r = spawnSync('bash', [SCRIPT, '--neutralize', neutralize, file, mutation, ...cmd], { cwd: dir, encoding: 'utf8' });
+  return { code: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
+}
+
 let repos: string[] = [];
 beforeEach(() => { repos = []; });
 afterEach(() => { for (const d of repos) rmSync(d, { recursive: true, force: true }); });
@@ -99,5 +104,35 @@ describe('mutation-check.sh', () => {
     const placeboResult = run(placeboDir, 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
     expect(placeboResult.code).toBe(1);
     expect(git(placeboDir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
+  });
+
+  it('exit 4 (VACUOUS FIXTURE) when the test passes even with the subject deleted', () => {
+    const dir = makeRepo(
+      `import {expect,test} from 'bun:test'; import * as val from './src/val'; test('degenerate', () => expect(typeof val.N === 'number' || true).toBe(true));\n`,
+    );
+    repos.push(dir);
+    const r = runNeutralize(dir, 'delete', 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
+    expect(r.code).toBe(4);
+    expect(r.out).toContain('VACUOUS FIXTURE');
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
+  });
+
+  it('exit 0 for a sound fixture when neutralized (deletion makes the import fail, not a vacuous pass)', () => {
+    const dir = makeRepo(
+      `import {expect,test} from 'bun:test'; import {N} from './src/val'; test('n', () => expect(N).toBe(1));\n`,
+    );
+    repos.push(dir);
+    const r = runNeutralize(dir, 'delete', 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain('VACUOUS FIXTURE');
+  });
+
+  it('backward compat: the degenerate fixture through the plain (non-neutralize) path still yields PLACEBO (exit 1)', () => {
+    const dir = makeRepo(
+      `import {expect,test} from 'bun:test'; import * as val from './src/val'; test('degenerate', () => expect(typeof val.N === 'number' || true).toBe(true));\n`,
+    );
+    repos.push(dir);
+    const r = run(dir, 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
+    expect(r.code).toBe(1);
   });
 });
