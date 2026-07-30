@@ -1318,11 +1318,10 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     expect(p).toContain('Ship the thing');
     expect(p).toContain('sess-A');
     expect(p).toContain('hand-edit source');
-    expect(p).toContain('land_epic');
-    // Autonomous land via the conductor actor + ownership gate (not a bare land).
-    expect(p).toContain('actor:');
-    expect(p).toContain('"conductor"');
-    expect(p).toContain('escalation_list');
+    // Landing is done by the deterministic land arm before the pass runs; the prompt no
+    // longer instructs the model to go find a land card and confirm its readiness itself.
+    expect(p).toContain('LANDING is AUTOMATIC');
+    expect(p).not.toContain('mcp__mermaid__epic_land_readiness');
   });
 });
 

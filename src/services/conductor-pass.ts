@@ -27,6 +27,7 @@ import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redeco
 import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
+import { runConductorLandArm, type LandArmResult } from './conductor-land-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -226,13 +227,12 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     '     • Fixable spec/constraint → tighten it (`plan_mission_criterion` to re-plan, or correct a bad',
     '       ACTIVE CONSTRAINT) so the next build can actually pass.',
     '     • Genuinely handled → `mcp__mermaid__escalation_resolve` to close the stale card.',
-    '5. LANDING (you LAND — this is autonomous): when a serving epic is build-green and VERIFY-green,',
-    '   the reconcile pass surfaces an OPEN `epic-ready-to-land` escalation for it. Find it via',
-    '   `mcp__mermaid__escalation_list`, confirm with `mcp__mermaid__epic_land_readiness` (green',
-    `   mechanical + deps satisfied), then \`mcp__mermaid__land_epic\` with { escalationId, actor:`,
-    `   "conductor", session: "${session}" } — the ownership gate authorizes you to land only YOUR`,
-    '   mission\'s epics (never a bucket root or a foreign mission). Never land on a bare tick or an',
-    '   unverified change; a red proof / conflict leaves master untouched.',
+    '5. LANDING is AUTOMATIC — not your job. A build-green + verify-green epic is landed by the',
+    '   deterministic land arm before this pass ever runs, through the same readiness proof and',
+    '   ownership gate you would have used. You will normally never see an open `epic-ready-to-land`',
+    `   card for your own mission's epics. If one survives, \`mcp__mermaid__land_epic\` (actor:`,
+    `   "conductor", session: "${session}") remains available as a manual fallback — but do not go`,
+    '   looking for land cards, and never spend a pass hunting one.',
     '',
     'Serve EVERY open `discover`/`verify` gap you find in THIS pass (don\'t stop at one). If nothing is',
     'actionable (all building, or converged), say so and stop — do not invent work. Keep the mission\'s',
@@ -262,6 +262,8 @@ export interface ConductorPassDeps {
   verifyPanelArm?: typeof runVerifyPanelArm;
   /** Injectable card-triage arm (test spy). Defaults to runCardTriageArm. */
   cardTriageArm?: typeof runCardTriageArm;
+  /** Injectable deterministic land arm (test spy). Defaults to runConductorLandArm. */
+  landArm?: typeof runConductorLandArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
   /** Injectable approach attempts read for the serve-cap diagnosis. Defaults to the store fn. */
@@ -274,7 +276,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'conductor-timeouts-capped';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -346,6 +348,7 @@ export function conductorStatusLine(
     case 'target-cleared': return 'stopped driving';
     case 'infra-leaf-reset': return n(counts.infraResets) ? `unblocked ${n(counts.infraResets)} stuck leaf${n(counts.infraResets) === 1 ? '' : 's'}` : 'unblocked stuck work';
     case 'verify-paneled': return 'verifying criteria';
+    case 'landed': return 'landed an epic';
     case 'card-triaged': return n(counts.cardsParked) ? `parked ${n(counts.cardsParked)} stuck leaf${n(counts.cardsParked) === 1 ? '' : 's'}` : 'parked stuck work';
     case 'conductor-disabled': return 'off';
     case 'daemon-off': return 'daemon off';
@@ -460,11 +463,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     /* fail-open — a drain hiccup must never abort a conductor pass */
   }
 
-  const armFor = (reason: ConductorPassResult['reason']): 'infra' | 'redecompose' | 'verify-panel' | 'node' | 'none' => {
+  const armFor = (reason: ConductorPassResult['reason']): 'infra' | 'redecompose' | 'verify-panel' | 'land' | 'node' | 'none' => {
     switch (reason) {
       case 'infra-leaf-reset': return 'infra';
       case 'redecomposed': return 'redecompose';
       case 'verify-paneled': return 'verify-panel';
+      case 'landed': return 'land';
       case 'conducted':
       case 'node-failed': return 'node';
       default: return 'none';
@@ -896,6 +900,31 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       infraCards: arm.cardsRaised,
       verifyPaneled: verifyPanel.paneled.length,
       verifyHeld: verifyPanel.held.length,
+    });
+  }
+
+  // LAND ARM. The LAST deterministic arm before the node is ever invoked: a green
+  // land-ready card of this mission is landed in code — same landReadiness proof, same
+  // ownership gate, same landEpic pipeline the human Land button drives — so the conductor
+  // node is never spent clicking a button whose decision is pure arithmetic. Fail-open: a
+  // fault, or a pass where everything was skipped, falls through to the node exactly as
+  // verify-panel's skipped-only path does; only an actual land short-circuits.
+  let landArm: LandArmResult = { landed: [], skipped: [] };
+  try {
+    landArm = await (deps.landArm ?? runConductorLandArm)(project, missionId, session, {});
+  } catch {
+    landArm = { landed: [], skipped: [] };
+  }
+  if (landArm.landed.length > 0) {
+    return done({
+      ran: true,
+      reason: 'landed',
+      missionId,
+      escalationsRaised,
+      serveCapDeferred,
+      closeOutsMinted,
+      infraResets: arm.reset.length,
+      infraCards: arm.cardsRaised,
     });
   }
 
