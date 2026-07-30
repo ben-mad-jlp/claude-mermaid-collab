@@ -70,4 +70,34 @@ describe('mutation-check.sh', () => {
     // still exactly our manual dirty edit — the script did not touch it
     expect(git(dir, 'diff', 'src/val.ts')).toContain('N = 99');
   });
+
+  it('exit 3 (VACUOUS) when the test already fails on the unmutated tree', () => {
+    // A test that fails regardless of N — never references val.ts's N at all.
+    const dir = makeRepo(
+      `import {expect,test} from 'bun:test'; test('always-fails', () => expect(1).toBe(2));\n`,
+    );
+    repos.push(dir);
+    const r = run(dir, 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
+    expect(r.code).toBe(3);
+    expect(r.out).toContain('VACUOUS');
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
+  });
+
+  it('pins the exact OK/PLACEBO codes through the PRE_CODE gate', () => {
+    const soundDir = makeRepo(
+      `import {expect,test} from 'bun:test'; import {N} from './src/val'; test('n', () => expect(N).toBe(1));\n`,
+    );
+    repos.push(soundDir);
+    const soundResult = run(soundDir, 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
+    expect(soundResult.code).toBe(0);
+    expect(git(soundDir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
+
+    const placeboDir = makeRepo(
+      `import {expect,test} from 'bun:test'; test('placebo', () => expect('x').toBe('x'));\n`,
+    );
+    repos.push(placeboDir);
+    const placeboResult = run(placeboDir, 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
+    expect(placeboResult.code).toBe(1);
+    expect(git(placeboDir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
+  });
 });

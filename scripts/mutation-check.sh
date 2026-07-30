@@ -8,6 +8,7 @@
 #   0  the test FAILED under mutation  → the test caught the regression (the desired outcome)
 #   1  the test PASSED under mutation  → placebo: the test cannot detect this change
 #   2  refused / could not restore     → the tree was dirty to begin with, or restore failed
+#   3  test does not even pass on the unmutated tree (VACUOUS) → the mutated-run result is not evidence
 #
 # Guarantees:
 #   - restores <file> on success, failure, exit, INT, and TERM (trap installed BEFORE mutating)
@@ -50,13 +51,19 @@ if [ -n "$(status_porcelain)" ]; then
   exit 2
 fi
 
-# 2. Install the restore trap BEFORE mutating, so it fires on every exit path.
+# 2. Run the test command on the UNMUTATED tree first — a test that doesn't even pass on
+#    clean code cannot use a later failure as proof of anything. Runs before any mutation
+#    or trap install, so it cannot dirty the tree.
+"$@"
+PRE_CODE=$?
+
+# 3. Install the restore trap BEFORE mutating, so it fires on every exit path.
 restore() {
   GIT -C "$REPO_ROOT" checkout -- "$FILE" 2>/dev/null || true
 }
 trap restore EXIT INT TERM
 
-# 3. Apply the mutation.
+# 4. Apply the mutation.
 if [ "${MUTATION:0:1}" = "@" ]; then
   GIT -C "$REPO_ROOT" apply "${MUTATION:1}" || { echo "mutation-check: patch did not apply" >&2; exit 2; }
 else
@@ -65,22 +72,25 @@ else
   sed -i.mcbak "$MUTATION" "$FILE" && rm -f "$FILE.mcbak" || { echo "mutation-check: sed mutation failed" >&2; exit 2; }
 fi
 
-# 4. Run the test command; capture its exit code (do not let it abort us).
+# 5. Run the test command; capture its exit code (do not let it abort us).
 "$@"
 TEST_CODE=$?
 
-# 5. Restore (the trap will also fire; git checkout -- is idempotent).
+# 6. Restore (the trap will also fire; git checkout -- is idempotent).
 restore
 
-# 6. Assert clean. A failed restore is an INCIDENT, never a silent pass.
+# 7. Assert clean. A failed restore is an INCIDENT, never a silent pass.
 if [ -n "$(status_porcelain)" ]; then
   echo "mutation-check: FAILED TO RESTORE — tree still dirty after restore:" >&2
   GIT -C "$REPO_ROOT" --no-pager diff -- "$FILE" >&2
   exit 2
 fi
 
-# 7. Report. Test FAILED under mutation → the test caught it (good). Test PASSED → placebo.
-if [ "$TEST_CODE" -ne 0 ]; then
+# 8. Report.
+if [ "$PRE_CODE" -ne 0 ]; then
+  echo "mutation-check: VACUOUS — test does not pass on the unmutated tree (PRE_CODE=$PRE_CODE); a mutated-run failure would not be evidence." >&2
+  exit 3
+elif [ "$TEST_CODE" -ne 0 ]; then
   echo "mutation-check: OK — test FAILED under mutation (the regression was caught)."
   exit 0
 else
