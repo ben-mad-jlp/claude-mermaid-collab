@@ -34,6 +34,7 @@ export interface RunPanelDeps {
   headSha?: () => string;
   makerModel?: string;
   lensPool?: string[];
+  lensCount?: number;
   /** Persist the panel verdict. `extra` carries the derived met flag plus the NON-NULL
    *  evidence string and preserved evidencePaths so a HOLD can never wipe a previously-met
    *  criterion's evidence to null (the phantom-gap bug). Extra is appended, so legacy mocks
@@ -83,6 +84,8 @@ export async function runCriterionVerifyPanel(
     };
   }
 
+  const lenses = VERIFY_LENSES.slice(0, deps.lensCount ?? VERIFY_LENSES.length);
+
   // 2. Build LensVerifyCtx and prompts for each lens
   const ctx: LensVerifyCtx = {
     criterionText: criterion.text,
@@ -92,7 +95,7 @@ export async function runCriterionVerifyPanel(
   };
 
   const prompts: Record<VerifyLens, string> = {} as any;
-  for (const lens of VERIFY_LENSES) {
+  for (const lens of lenses) {
     prompts[lens] = buildLensVerifyPrompt(lens, ctx);
   }
 
@@ -107,15 +110,15 @@ export async function runCriterionVerifyPanel(
     (m) => normalizeModelId(m) !== normalizeModelId(resolvedMaker),
   );
 
-  const plan = planPanelModels({ makerModel: resolvedMaker, lensPool: resolvedPool });
-  assertDistinctPanel(plan, resolvedMaker);
+  const plan = planPanelModels({ makerModel: resolvedMaker, lensPool: resolvedPool, lenses });
+  assertDistinctPanel(plan, resolvedMaker, lenses);
 
   // 4. Invoke each lens and parse verdicts
   const verdicts: PanelVerdict[] = [];
   const causes: Array<'met' | 'genuine-not-met' | 'infra'> = [];
   const invoker = deps.invoke ?? invokeNode;
 
-  for (const lens of VERIFY_LENSES) {
+  for (const lens of lenses) {
     const spec: NodeSpec = {
       prompt: prompts[lens],
       model: plan[lens],
@@ -177,7 +180,7 @@ export async function runCriterionVerifyPanel(
   const shaLabel = currentHeadSha ?? 'unknown-sha';
   const evidence =
     outcome === 'pass'
-      ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${VERIFY_LENSES.length} distinct-model lenses (${panelSummary}).${priorEvidence}`
+      ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${lenses.length} distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
       : outcome === 'infra-degraded'
         ? `Auto-panel HOLD (infra-degraded — no lens produced a parseable verdict; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
         : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
@@ -202,7 +205,7 @@ export async function runCriterionVerifyPanel(
   return {
     hold: hold || undefined,
     met,
-    invocations: VERIFY_LENSES.length,
+    invocations: lenses.length,
     dissent,
     outcome,
   };
