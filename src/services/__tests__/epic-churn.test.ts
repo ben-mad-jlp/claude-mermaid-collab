@@ -19,6 +19,7 @@ function run(over: Partial<LeafRunSummary>): LeafRunSummary {
     pathTaken: null,
     tier: null,
     lastTs: 1,
+    attempts: 1,
     nodesSpent: 5,
     costUsd: 1,
     ...over,
