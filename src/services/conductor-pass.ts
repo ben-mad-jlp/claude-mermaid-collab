@@ -525,7 +525,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // either un-parks the leaf or raises exactly one human card; either way the debounce is broken for
   // this tick so the stuck work cannot sit invisible forever. Fail-open: an arm fault degrades to a
   // no-op pass, never a broken conductor.
-  let arm: InfraArmResult = { candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [] };
+  let arm: InfraArmResult = { candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] };
   try {
     arm = await (deps.infraArm ?? runInfraRejectionArm)(project, missionId, session, {
       probe: deps.epicBaseProbe,
@@ -533,7 +533,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       listOpenEscalations: deps.listOpenEscalations,
     });
   } catch {
-    arm = { candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [] };
+    arm = { candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] };
   }
   if (arm.reset.length > 0) {
     // A leaf just went back to READY. Spend NOTHING on a conductor node and do NOT stamp the run:

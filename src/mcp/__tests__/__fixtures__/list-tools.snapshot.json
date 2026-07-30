@@ -6339,6 +6339,10 @@
           "decompositionHint": {
             "type": "string",
             "description": "Re-decomposition hint for the planner prompt when a previous epic for this criterion churned."
+          },
+          "baseRepair": {
+            "type": "boolean",
+            "description": "Opt-in only, for an epic whose purpose is greening a red base lane. Disables the epic-base-red hold (G2) for this epic's leaves. Never auto-inferred."
           }
         },
         "required": [
