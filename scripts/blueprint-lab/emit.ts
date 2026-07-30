@@ -23,6 +23,7 @@ import { parseDiffContract, validateContractForKind, type DiffContract } from '.
 import { resolveNodeModel, resolveNodeProvider } from '../../src/services/node-provider';
 import { listNodeProfileOverrides, getProjectEffort } from '../../src/services/orchestrator-config';
 import { NODE_PROFILE, buildBlueprintRepairPrompt } from '../../src/services/leaf-executor';
+import { MANIFEST_JSON_SCHEMA_LINES, MANIFEST_SCHEMA_NOTES_LINES } from '../../src/services/leaf-prompts';
 import { CORPUS, type CorpusCase } from './corpus';
 
 const OUT = join(import.meta.dir, 'results');
@@ -31,7 +32,7 @@ mkdirSync(OUT, { recursive: true });
 const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 const PROJECT = REPO_ROOT;
 
-function buildV2BlueprintPrompt(c: CorpusCase): string {
+export function buildV2BlueprintPrompt(c: CorpusCase): string {
   return [
     'You are the BLUEPRINT node for ONE leaf todo. Do NOT write implementation code.',
     `Title: ${c.spec.title}`,
@@ -42,23 +43,11 @@ function buildV2BlueprintPrompt(c: CorpusCase): string {
     'ACCEPTANCE CRITERIA must be POSITIVE and CITABLE: each names a concrete change a reviewer can',
     'point a `file:line` at. NEVER write an absence or non-goal as an acceptance criterion.',
     '',
-    'FINISH your reply with EXACTLY ONE trailing fenced ```json block — it MUST be the LAST json',
-    'fence in your reply and parse as this v2 DiffContract shape:',
-    '```json',
-    '{ "schemaVersion": 2, "estimatedFiles": <int>, "estimatedTasks": <int>,',
-    '  "nonEnumerableFanout": <bool>, "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
-    '  "leafKind": "feature" | "fix" | "refactor" | "test" | "infra",',
-    '  "requirements": [ /* symbol-present | named-test | threshold — see below */ ],',
-    '  "outOfScope": ["<note>"] }',
-    '```',
-    'Each `requirements[]` entry is ONE of:',
-    '  { "kind": "symbol-present", "file": "<path>", "symbol": "<name>", "description": "<why>" }',
-    '  { "kind": "named-test", "testFile": "<path>", "testName": "<name>", "mechanical": true }',
-    '  { "kind": "threshold", "source": "gate-output" | "grep-count", "metric": "<name>",',
-    '    "comparison": "gte" | "lte" | "eq", "value": <number>, "mechanical": true }',
-    'Pick `leafKind` from the title/description. `requirements` must name REAL symbols/tests you',
-    'actually see or intend to add — never a placeholder.',
+    // The v2 schema + citability teaching are SHARED VERBATIM with the production blueprint prompt
+    // (src/services/leaf-prompts.ts) so the lab measures the SAME contract the daemon actually
+    // emits — never a divergent copy (bug d9ae1c52). Drift is caught by emit-prompt-parity.test.ts.
+    ...MANIFEST_JSON_SCHEMA_LINES,
+    ...MANIFEST_SCHEMA_NOTES_LINES,
   ].join('\n');
 }
 
