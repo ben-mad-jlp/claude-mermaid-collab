@@ -25,7 +25,7 @@ export interface ConductingView {
   goal: string;
   /** Compact micro-label for the card, e.g. "daemon building 2/3" or "your move · plan". */
   label: string;
-  capability: { met: number; total: number };
+  capability: { met: number; total: number; dropped?: number };
   mechanical: { done: number; total: number };
 }
 
@@ -46,7 +46,7 @@ export function conductingView(m?: MissionSummary | null): ConductingView | null
   // Terminal / non-driving statuses have no conducting view — the mission is done or abandoned.
   if (TERMINAL_STATUSES.has(status)) return null;
 
-  const capability = m.rollup?.capability ?? { met: 0, total: 0 };
+  const capability = m.rollup?.capability ?? { met: 0, total: 0, dropped: 0 };
   const mechanical = m.rollup?.mechanical ?? { done: 0, total: 0 };
   const goal = goalOf(m.node?.title ?? 'mission');
 

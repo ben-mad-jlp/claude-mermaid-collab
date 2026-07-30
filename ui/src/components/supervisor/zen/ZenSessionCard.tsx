@@ -115,7 +115,7 @@ const MissionRibbon: React.FC<{ cond: ConductingView }> = ({ cond }) => {
         {STATUS_LABEL[status]}
       </span>
       <span className="shrink-0 font-mono tabular-nums text-gray-500 dark:text-gray-400" title="Acceptance criteria met / total (the convergence gauge)">
-        goal {capability.met}/{capability.total}
+        goal {capability.met}/{capability.total}{capability.dropped ? ` · ${capability.dropped} dropped` : ''}
       </span>
       {mechanical.total > 0 && (
         <span className="shrink-0 font-mono tabular-nums text-gray-400 dark:text-gray-500" title="This iteration's epics done / total">

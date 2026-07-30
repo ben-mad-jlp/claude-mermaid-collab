@@ -388,7 +388,7 @@ export const Gauge: React.FC<{
 // ── Criteria editor (add / edit-text / remove — verdict stays read-only) ──────
 
 export const CriteriaEditor: React.FC<{
-  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }> }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }>; status?: 'active' | 'met' | 'dropped'; droppedReason?: string | null }>;
   onAdd: (text: string) => Promise<void>;
   onEdit: (criterionId: string, text: string) => Promise<void>;
   onRemove: (criterionId: string) => Promise<void>;
@@ -433,7 +433,7 @@ export const CriteriaEditor: React.FC<{
               />
             ) : (
               <div className="flex-1 flex items-center gap-1">
-                <span className={`leading-relaxed ${c.met ? 'text-gray-900 dark:text-gray-100' : 'text-gray-800 dark:text-gray-200'}`}>
+                <span className={`leading-relaxed ${c.status === 'dropped' ? 'text-gray-400 dark:text-gray-500 line-through' : c.met ? 'text-gray-900 dark:text-gray-100' : 'text-gray-800 dark:text-gray-200'}`}>
                   {c.text}
                 </span>
                 {c.met && c.verifiedAtSha && (
@@ -476,6 +476,11 @@ export const CriteriaEditor: React.FC<{
               </span>
             )}
           </div>
+          {editingId !== c.id && c.status === 'dropped' && c.droppedReason ? (
+            <div data-testid="criterion-dropped-reason" className="ml-5 mt-0.5 text-3xs text-gray-400 dark:text-gray-500 italic leading-snug">
+              Dropped: {c.droppedReason}
+            </div>
+          ) : null}
           {editingId !== c.id && c.evidencePaths?.length ? (
             <div data-testid="criterion-evidence" className="ml-5 mt-0.5 text-3xs text-gray-400 dark:text-gray-500 font-mono leading-snug">
               {c.evidencePaths.map((path, idx) => (
@@ -710,7 +715,7 @@ export const MissionDetail: React.FC<{
       {activeTab === 'goal' && (
         <div data-testid="mission-goals-tab">
           <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
-            <span className="font-mono">{view.cap.met}/{view.cap.total}</span> acceptance criteria met
+            <span className="font-mono">{view.cap.met}/{view.cap.total}</span> acceptance criteria met{view.cap.dropped ? ` · ${view.cap.dropped} dropped` : ''}
           </div>
           <CriteriaEditor
             criteria={view.criteria}
@@ -725,7 +730,7 @@ export const MissionDetail: React.FC<{
       {activeTab === 'build' && (
         <div data-testid="mission-build-tab">
           <div className="text-3xs text-gray-500 dark:text-gray-400 mb-2">
-            <span className="font-mono">{view.mech.done}/{view.mech.total}</span> epics done (mechanical) · <span className="font-mono">{view.cap.met}/{view.cap.total}</span> capability met
+            <span className="font-mono">{view.mech.done}/{view.mech.total}</span> epics done (mechanical) · <span className="font-mono">{view.cap.met}/{view.cap.total}</span> capability met{view.cap.dropped ? ` · ${view.cap.dropped} dropped` : ''}
           </div>
           <EpicList epics={view.epics} />
         </div>
@@ -781,9 +786,9 @@ export interface MissionView {
   stopped: boolean;
   stopReason: string | null;
   procedure: string | null;
-  cap: { met: number; total: number };
+  cap: { met: number; total: number; dropped?: number };
   mech: { done: number; total: number };
-  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }> }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }>; status?: 'active' | 'met' | 'dropped'; droppedReason?: string | null }>;
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
   owner: string | null;
   active: boolean;
@@ -800,7 +805,7 @@ export function missionView(m: MissionSummary): MissionView {
   const stopped = phase === 'stopped';
   const stopReason = m.rollup?.stopReason ?? m.mission?.stopReason ?? null;
   const procedure = m.mission?.procedure ?? null;
-  const cap = m.rollup?.capability ?? { met: 0, total: 0 };
+  const cap = m.rollup?.capability ?? { met: 0, total: 0, dropped: 0 };
   const mech = m.rollup?.mechanical ?? { done: 0, total: 0 };
   const criteria = m.criteria ?? [];
   const epics = m.epics ?? [];
