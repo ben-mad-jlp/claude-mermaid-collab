@@ -572,6 +572,41 @@ describe('buildNodePrompt per-node specs', () => {
     expect(buildNodePrompt('review', makeLeaf())).toContain('VERDICT: PASS');
   });
 
+  it('review prompt emits the TYPED REQUIREMENT BALLOT when observable/invariant requirements are supplied', () => {
+    // Bug 6559ce96: the typed grounder (groundReviewViaContract) parses per-id REQ ballots the
+    // review prompt never asked for, so every observable/invariant leaf parked review-vacuous.
+    const rev = buildNodePrompt('review', makeLeaf(), undefined, undefined, undefined, [
+      { id: 'obs-1', kind: 'observable', text: 'the panel shows the live count' },
+      { id: 'inv-2', kind: 'invariant', text: 'existing routes keep responding' },
+    ]);
+    expect(rev).toContain('TYPED REQUIREMENT BALLOT');
+    // both declared ids appear as REQ:<id> ballot instructions...
+    expect(rev).toContain('REQ:obs-1');
+    expect(rev).toContain('REQ:inv-2');
+    // ...alongside their requirement text...
+    expect(rev).toContain('the panel shows the live count');
+    expect(rev).toContain('existing routes keep responding');
+    // ...and the three outcome markers the closed ballot (parseBallotVerdicts) understands.
+    expect(rev).toContain('[MET]');
+    expect(rev).toContain('[UNMET]');
+    expect(rev).toContain('[N/A]');
+    // the ballot is emitted BEFORE the final VERDICT trailer.
+    expect(rev.indexOf('TYPED REQUIREMENT BALLOT')).toBeLessThan(rev.indexOf('VERDICT: PASS'));
+    expect(rev.endsWith('(otherwise)')).toBe(true);
+  });
+
+  it('review prompt is BYTE-IDENTICAL on the off-path (omitted === undefined === empty ballot)', () => {
+    // Safety property: the new trailing param must not perturb the untyped path at all.
+    const omitted = buildNodePrompt('review', makeLeaf());
+    const undef = buildNodePrompt('review', makeLeaf(), undefined, undefined, undefined, undefined);
+    const empty = buildNodePrompt('review', makeLeaf(), undefined, undefined, undefined, []);
+    expect(undef).toBe(omitted);
+    expect(empty).toBe(omitted);
+    // the ballot block never leaks into the off-path output.
+    expect(omitted).not.toContain('TYPED REQUIREMENT BALLOT');
+    expect(omitted).not.toContain('REQ:');
+  });
+
   it('blueprint prompt forbids command-result and absence acceptance criteria', () => {
     const bp = buildNodePrompt('blueprint', makeLeaf());
     // no build/command/gate-result criteria

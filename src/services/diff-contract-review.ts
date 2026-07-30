@@ -47,6 +47,18 @@ export interface BallotRequirement {
   description: string;
 }
 
+/** The observable/invariant requirements of a contract — the closed LLM ballot's input, keyed by
+ *  declared id. The SINGLE source of the ballot's membership: both {@link diffContractReview} (at
+ *  grounding time) and the review-node prompt builder (at spawn time) derive the ballot from THIS
+ *  filter, so what the reviewer is told to address is exactly what the grader will ground. symbol-
+ *  present/named-test/threshold are decided mechanically and are NEVER balloted. */
+export function contractBallotRequirements(contract: DiffContract): BallotRequirement[] {
+  return contract.requirements
+    .filter((r): r is Extract<DiffRequirement, { kind: 'observable' | 'invariant' }> =>
+      r.kind === 'observable' || r.kind === 'invariant')
+    .map((r) => ({ id: r.id, kind: r.kind, description: r.description }));
+}
+
 export interface DiffContractReviewResult {
   /** Mechanical-stage findings (mechanical:true), one entry per triggered breach / decided requirement. */
   verdicts: DiffContractVerdict[];
@@ -153,11 +165,9 @@ export async function diffContractReview(
   }
 
   // Ballot input — ONLY undecided observable/invariant requirements (symbol-present excluded:
-  // it is the separate SOFT stage 4; named-test/threshold already decided above).
-  const ballotInput: BallotRequirement[] = contract.requirements
-    .filter((r): r is Extract<DiffRequirement, { kind: 'observable' | 'invariant' }> =>
-      r.kind === 'observable' || r.kind === 'invariant')
-    .map((r) => ({ id: r.id, kind: r.kind, description: r.description }));
+  // it is the separate SOFT stage 4; named-test/threshold already decided above). Derived via the
+  // shared filter so the reviewer's ballot instruction and this grader read the SAME membership.
+  const ballotInput = contractBallotRequirements(contract);
 
   return { verdicts, ballotInput };
 }

@@ -266,12 +266,45 @@ export function workingRootLines(roots?: NodeRoots): string[] {
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
  *  vibe-go worker / vibe-review as a self-contained string — references NOTHING
  *  in skills/). */
+/** One observable/invariant requirement the typed review must ballot on, keyed by its declared id.
+ *  Derived at the call site from `contractBallotRequirements` (diff-contract-review.ts) — the SAME
+ *  filter the grounding grader uses, so the reviewer is told to address exactly what will be graded. */
+export interface BallotPromptRequirement {
+  id: string;
+  kind: 'observable' | 'invariant';
+  text: string;
+}
+
+/** The TYPED REQUIREMENT BALLOT block appended to the review prompt when (and only when) the leaf
+ *  carries observable/invariant contract requirements. Emitted BEFORE the final VERDICT trailer so
+ *  the reviewer casts one per-id ballot line the closed grounding gate (parseBallotVerdicts +
+ *  validateBallotGrounding) can read. Never called with an empty list — the caller guards on
+ *  `.length`, preserving the byte-identical off-path. */
+function buildReviewBallotBlock(reqs: ReadonlyArray<BallotPromptRequirement>): string[] {
+  return [
+    '',
+    'TYPED REQUIREMENT BALLOT — this leaf carries a typed DiffContract. In ADDITION to the',
+    '`## CRITERIA` section and the final VERDICT line, you MUST cast a ballot on EACH of these',
+    'observable/invariant requirements (identified by their declared id):',
+    ...reqs.map((r) => `  • REQ:${r.id} — ${r.text}`),
+    'For EACH id listed above, emit EXACTLY ONE line (nothing else on the line), in this shape:',
+    '`- [MET] REQ:<id> — <path>:<line>`   (requirement holds; cite a real changed `file:line`)',
+    '`- [UNMET] REQ:<id> — <path>:<line>` (requirement is violated; cite where)',
+    '`- [N/A] REQ:<id> — <why>`           (requirement does not apply to this change-set)',
+    'A `[MET]` ballot MUST carry at least one `file:line` that resolves into THIS leaf\'s change-set',
+    '(same citation discipline as the CRITERIA section — a build/gate RESULT is NOT a citation).',
+    'Every id listed above must appear in EXACTLY one `REQ:<id>` ballot line — an omitted id parks',
+    'the leaf as review-vacuous even when the code is correct.',
+  ];
+}
+
 export function buildNodePrompt(
   kind: LeafNodeKind,
   leaf: Todo,
   blueprintText?: string,
   reviewFindings?: string,
   roots?: NodeRoots,
+  ballotRequirements?: ReadonlyArray<BallotPromptRequirement>,
 ): string {
   const title = leaf.title ?? leaf.id;
   const description = leaf.description ?? '(no description)';
@@ -338,8 +371,8 @@ export function buildNodePrompt(
         'the executor drives the gate. Just make the edits the blueprint specifies.',
         `If you spot-check compilation: ${COMPILE_CHECK_INSTRUCTION}`,
       ].filter(Boolean).join('\n');
-    case 'review':
-      return [
+    case 'review': {
+      const reviewLines = [
         'You are the REVIEW node, READ-ONLY (Read/Grep/Glob and Bash for inspection ONLY; no edits).',
         ...rootLines,
         blueprintText
@@ -371,10 +404,19 @@ export function buildNodePrompt(
         'exemption is only for criteria that NObody could cite.)',
         'Be as TERSE as the change deserves — a one-line diff earns a one-line review. There is no',
         'length requirement and none will be inferred; only the citations are checked.',
+      ];
+      // TYPED path only: append the per-requirement-id ballot BEFORE the VERDICT trailer. Guarding
+      // on `.length` keeps the untyped output BYTE-IDENTICAL (the block is never spliced in).
+      if (ballotRequirements?.length) {
+        reviewLines.push(...buildReviewBallotBlock(ballotRequirements));
+      }
+      reviewLines.push(
         'End your reply with EXACTLY one line, nothing after it:',
         '`VERDICT: PASS`  (if complete and correct)',
         '`VERDICT: FAIL — <reason>`  (otherwise)',
-      ].join('\n');
+      );
+      return reviewLines.join('\n');
+    }
     default:
       // Verify-pipeline kinds (driveplan/driveexec/report) are built by buildVerifyPrompt;
       // the retired wave kinds (research/wimplement/verify/fix) are never spawned. Neither
