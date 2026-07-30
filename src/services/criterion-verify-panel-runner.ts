@@ -10,6 +10,11 @@ import { invokeNode, type NodeSpec, type NodeResult } from '../agent/node-invoke
 import { missionIdOfCriterion, listCriteria } from './mission-store.js';
 import { handleMissionTool } from '../mcp/mission-tools.js';
 import { readMainCheckoutHead, type GitRunner } from './main-checkout-invariant.js';
+import { resolveNodeModel, resolveNodeProvider } from './node-provider.js';
+import { NODE_PROFILE } from './leaf-executor.js';
+import { normalizeModelId } from './spend-ledger.js';
+
+const PANEL_CANDIDATE_POOL = ['opus', 'sonnet', 'haiku', 'fable'];
 
 const defaultRunGit: GitRunner = async (cwd, args) => {
   const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -27,6 +32,8 @@ async function defaultHeadSha(project: string): Promise<string | undefined> {
 export interface RunPanelDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
   headSha?: () => string;
+  makerModel?: string;
+  lensPool?: string[];
   /** Persist the panel verdict. `extra` carries the derived met flag plus the NON-NULL
    *  evidence string and preserved evidencePaths so a HOLD can never wipe a previously-met
    *  criterion's evidence to null (the phantom-gap bug). Extra is appended, so legacy mocks
@@ -89,13 +96,18 @@ export async function runCriterionVerifyPanel(
   }
 
   // 3. Plan models and assert distinctness BEFORE any invoke
-  // The runner accepts makerModel and lensPool via deps or must fail loudly
-  // For now, default to opus for maker and [sonnet, haiku, fable] for pool
-  const makerModel = 'opus';
-  const lensPool = ['sonnet', 'haiku', 'fable'];
+  const resolvedMaker = deps.makerModel ?? resolveNodeModel(
+    project,
+    'implement',
+    resolveNodeProvider(project, 'implement', NODE_PROFILE.implement.allowedTools),
+    NODE_PROFILE.implement.model,
+  );
+  const resolvedPool = deps.lensPool ?? PANEL_CANDIDATE_POOL.filter(
+    (m) => normalizeModelId(m) !== normalizeModelId(resolvedMaker),
+  );
 
-  const plan = planPanelModels({ makerModel, lensPool });
-  assertDistinctPanel(plan, makerModel);
+  const plan = planPanelModels({ makerModel: resolvedMaker, lensPool: resolvedPool });
+  assertDistinctPanel(plan, resolvedMaker);
 
   // 4. Invoke each lens and parse verdicts
   const verdicts: PanelVerdict[] = [];
