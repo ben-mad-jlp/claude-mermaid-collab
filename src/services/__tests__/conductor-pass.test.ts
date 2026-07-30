@@ -23,6 +23,8 @@ import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
 import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
+import { initializeWebSocketHandler } from '../ws-handler-manager';
+import { listConductorPasses } from '../conductor-pass-journal';
 
 let project: string;
 let invokeCalls: number;
@@ -2082,5 +2084,53 @@ describe('conductorNeedsHuman', () => {
       const endsInNeedsYou = conductorStatusLine(r).endsWith('needs you');
       expect(conductorNeedsHuman(r)).toBe(endsInNeedsYou);
     }
+  });
+});
+
+describe('conductor_pass WS broadcast', () => {
+  afterEach(() => {
+    initializeWebSocketHandler(null as any);
+  });
+
+  test('broadcasts exactly one conductor_pass event carrying the enriched row per finalized pass', async () => {
+    const broadcast = (() => {
+      const calls: any[] = [];
+      const fn: any = (msg: any) => calls.push(msg);
+      fn.calls = calls;
+      return fn;
+    })();
+    initializeWebSocketHandler({ broadcast } as any);
+
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    const r = await runConductorPass(project, { invoke: okInvoke });
+
+    const passMessages = broadcast.calls.filter((m: any) => m.type === 'conductor_pass');
+    expect(passMessages.length).toBe(1);
+    expect(passMessages[0].project).toBe(project);
+    expect(passMessages[0].row.endedAt).not.toBeNull();
+    expect(passMessages[0].row.outcome).toBe(r.reason);
+  });
+
+  test('a throwing broadcast handler leaves ConductorPassResult unchanged and the row sealed with endedAt/outcome', async () => {
+    const throwingBroadcast = () => {
+      throw new Error('broadcast boom');
+    };
+    initializeWebSocketHandler({ broadcast: throwingBroadcast } as any);
+
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeApprovedActive();
+    const r = await runConductorPass(project, { invoke: okInvoke });
+
+    expect(r.ran).toBe(true);
+    expect(r.reason).toBe('conducted');
+
+    const rows = listConductorPasses(project, { limit: 5 });
+    const sealed = rows.find((row) => row.missionId === r.missionId);
+    expect(sealed).toBeDefined();
+    expect(sealed!.endedAt).not.toBeNull();
+    expect(sealed!.outcome).not.toBeNull();
   });
 });

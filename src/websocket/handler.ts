@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from 'bun';
 import type { AgentCommand, AgentEvent, EffortLevel } from '../agent/contracts.ts';
+import type { ConductorPassJournalRow } from '../services/conductor-pass-journal.ts';
 import { getStatuses } from '../services/session-status-store.ts';
 import { setPeerRegistry } from '../services/supervisor-store.ts';
 
@@ -72,6 +73,7 @@ export type WSMessage =
   | { type: 'claude_session_checkpoint_ready'; project: string; session: string; persistedAt: number; [k: string]: unknown }
   | { type: 'supervisor_session_cleared'; project: string; session: string; [k: string]: unknown }
   | { type: 'supervisor_decision'; project: string; session: string; kind: string; detail?: string | null; ts: number; [k: string]: unknown }
+  | { type: 'conductor_pass'; project: string; row: ConductorPassJournalRow }
   | { type: 'lesson_added'; project: string; session: string; [k: string]: unknown }
   | { type: 'notification'; data: NotificationData }
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }
