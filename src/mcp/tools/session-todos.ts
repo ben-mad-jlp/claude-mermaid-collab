@@ -247,6 +247,7 @@ export const updateSessionTodoSchema = {
       enum: ['full', 'small', 'test-pinned'],
       description: "Set the executor recipe tier (full|small|test-pinned). Settable alongside status:'ready' to pin the tier at approve time.",
     },
+    baseRepair: { type: 'boolean', description: "EPIC-only base-repair exemption: set true to skip the epic-base-red hold for this epic's leaves; set false to clear it." },
   },
   required: ['project', 'session', 'id'],
 };
@@ -475,6 +476,7 @@ export async function updateSessionTodo(
     sessionName?: string | null;
     targetProject?: string | null;
     tier?: LeafTier | null;
+    baseRepair?: boolean;
   }
 ): Promise<Todo & { previousAssigneeSession: string | null }> {
   const titleValue = updates.title ?? updates.text;
@@ -516,6 +518,7 @@ export async function updateSessionTodo(
     sessionName: updates.sessionName,
     targetProject: updates.targetProject,
     tier: updates.tier,
+    baseRepair: updates.baseRepair === undefined ? undefined : (updates.baseRepair ? 1 : 0),
   });
   return Object.assign(updated, { previousAssigneeSession });
 }
@@ -623,7 +626,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
     inputSchema: updateSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, servesCriterionIds, sessionName, targetProject, tier } = args as {
+      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, servesCriterionIds, sessionName, targetProject, tier, baseRepair } = args as {
         project: string;
         session: string;
         id: string;
@@ -646,9 +649,10 @@ export const sessionTodoToolDefs: ToolDef[] = [
         sessionName?: string | null;
         targetProject?: string | null;
         tier?: LeafTier | null;
+        baseRepair?: boolean;
       };
       if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, servesCriterionIds, sessionName, targetProject, tier });
+      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, servesCriterionIds, sessionName, targetProject, tier, baseRepair });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
