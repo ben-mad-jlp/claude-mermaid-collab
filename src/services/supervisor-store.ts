@@ -519,6 +519,9 @@ export function setIntakeEnabled(project: string, on: boolean): void {
 export type ConductorPassReason =
   | 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable'
   | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed'
+  // The mission's only actionable criteria are dependency-blocked — quiet, not stalled: the pass
+  // returns without spending a node (criterion-blocked-conductor-read).
+  | 'criteria-blocked'
   | 'pass-ran' | 'pass-error' | 'infra-leaf-reset'
   // The pass DROPPED a churning epic and re-served its criterion once, smaller (825e4cdd).
   | 'redecomposed'
