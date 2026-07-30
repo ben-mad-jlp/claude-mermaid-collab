@@ -24,6 +24,7 @@ import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, typ
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
 import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
+import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -228,9 +229,6 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     '   WHY it failed. Then DECIDE — never let a todo silently re-blueprint attempt after attempt:',
     '     • Fixable spec/constraint → tighten it (`plan_mission_criterion` to re-plan, or correct a bad',
     '       ACTIVE CONSTRAINT) so the next build can actually pass.',
-    '     • Repeatedly failing (attempts ≥ 3) with an unresolved blocker → STOP the loop: park it with',
-    '       `mcp__mermaid__reset_todo` { status: "blocked" } (a HOLD — not claimable, so the daemon stops',
-    '       re-dispatching), and leave the blocker escalation OPEN for the human with what you found.',
     '     • Genuinely handled → `mcp__mermaid__escalation_resolve` to close the stale card.',
     '5. LANDING (you LAND — this is autonomous): when a serving epic is build-green and VERIFY-green,',
     '   the reconcile pass surfaces an OPEN `epic-ready-to-land` escalation for it. Find it via',
@@ -266,6 +264,8 @@ export interface ConductorPassDeps {
   closeArm?: typeof runTestOnlyCloseArm;
   /** Injectable verify-panel auto-fire arm (test spy). Defaults to runVerifyPanelArm. */
   verifyPanelArm?: typeof runVerifyPanelArm;
+  /** Injectable card-triage arm (test spy). Defaults to runCardTriageArm. */
+  cardTriageArm?: typeof runCardTriageArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
   /** Injectable approach attempts read for the serve-cap diagnosis. Defaults to the store fn. */
@@ -278,7 +278,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -297,6 +297,8 @@ export interface ConductorPassResult {
   verifyHeld?: number;
   /** mission_recheck rows GC'd this pass. */
   rechecksDrained?: number;
+  /** Leaves parked this pass by the card-triage arm — deterministic, zero node spend. */
+  cardsParked?: number;
   missionId?: string;
   modelUsed?: string;
 }
@@ -319,7 +321,7 @@ export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null
  *  test covers every reason value. Set at the end of each pass in runConductorPass. */
 export function conductorStatusLine(
   reason: ConductorPassResult['reason'],
-  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed'> = {},
+  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed' | 'cardsParked'> = {},
 ): string {
   const n = (x?: number): number => x ?? 0;
   // Plain-language status shown in the Bridge conductor line. Keep these HUMAN-READABLE — an
@@ -345,6 +347,7 @@ export function conductorStatusLine(
     case 'target-cleared': return 'stopped driving';
     case 'infra-leaf-reset': return n(counts.infraResets) ? `unblocked ${n(counts.infraResets)} stuck leaf${n(counts.infraResets) === 1 ? '' : 's'}` : 'unblocked stuck work';
     case 'verify-paneled': return 'verifying criteria';
+    case 'card-triaged': return n(counts.cardsParked) ? `parked ${n(counts.cardsParked)} stuck leaf${n(counts.cardsParked) === 1 ? '' : 's'}` : 'parked stuck work';
     case 'conductor-disabled': return 'off';
     case 'daemon-off': return 'daemon off';
     case 'pass-ran': return 'running…';
@@ -645,6 +648,20 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       closeOutsMinted,
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
+    });
+  }
+
+  let cardTriage: CardTriageArmResult = { parked: [], skipped: [] };
+  try {
+    cardTriage = await (deps.cardTriageArm ?? runCardTriageArm)(project, missionId, session, {});
+  } catch {
+    cardTriage = { parked: [], skipped: [] };
+  }
+  if (cardTriage.parked.length > 0) {
+    return done({
+      ran: true, reason: 'card-triaged', missionId, escalationsRaised, serveCapDeferred,
+      closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised,
+      cardsParked: cardTriage.parked.length,
     });
   }
 
