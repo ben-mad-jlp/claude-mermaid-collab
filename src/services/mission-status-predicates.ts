@@ -96,16 +96,25 @@ export function isHollowDone(e: Todo, allTodos: readonly Todo[]): boolean {
 export function countsTowardServeCap(
   e: Todo,
   allTodos: readonly Todo[],
-  capRuns: readonly Pick<LeafRunSummary, 'epicId' | 'finalOutcome' | 'nodesSpent'>[],
+  capRuns: readonly Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[],
   ledgerUnavailable: boolean,
 ): boolean {
   const leaves = allTodos.filter((t) => t.parentId === e.id && !isEpic(t));
   if (leaves.length === 0) return true;
   if (ledgerUnavailable) return true;
-  if (leaves.some((t) => t.acceptanceStatus === 'accepted' || t.acceptanceStatus === 'rejected')) return true;
+  const isGenuineAttempt = (
+    r: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'> | undefined,
+  ) => r == null || (r.attempts ?? 0) >= 1 || (r.nodesSpent ?? 0) > 0;
+  const runsByLeafId = new Map(
+    capRuns.filter((r) => r.leafId != null).map((r) => [r.leafId as string, r]),
+  );
+  if (leaves.some((t) =>
+    (t.acceptanceStatus === 'accepted' || t.acceptanceStatus === 'rejected') &&
+    isGenuineAttempt(runsByLeafId.get(t.id)),
+  )) return true;
   return capRuns.some((r) => r.epicId === e.id && (
-    r.finalOutcome === 'accepted' || r.finalOutcome === 'rejected' || (r.nodesSpent ?? 0) > 0
-  ));
+    r.finalOutcome === 'accepted' || r.finalOutcome === 'rejected'
+  ) && isGenuineAttempt(r));
 }
 
 /**
