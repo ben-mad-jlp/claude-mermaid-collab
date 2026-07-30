@@ -112,6 +112,55 @@ describe('runVerifyPanelArm', () => {
     expect(invokeCalls).toBe(0); // Panel ran and returned early — node was NOT spawned
   });
 
+  test('an infra-degraded panel result lands in skipped, not held', async () => {
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Infra-degraded verify',
+      criteria: ['high-stakes criterion'],
+    });
+    const crit = listCriteria(project, forged.missionId)[0];
+
+    enqueueRecheck(project, { criterionId: crit.id, todoId: forged.missionId, reason: 'land-diff-intersects-evidence', landedSha: 'abc123' });
+
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] serving epic',
+      kind: 'epic',
+      parentId: forged.missionId,
+      servesCriterionIds: [crit.id],
+    });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'the leaf',
+      parentId: epic.id,
+      servesCriterionIds: [crit.id],
+    });
+    await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+    await updateTodo(project, epic.id, { status: 'done' });
+    recordNode({
+      project,
+      todoId: leaf.id,
+      epicId: epic.id,
+      leafId: leaf.id,
+      session: 's1',
+      leafOutcome: 'completed',
+    });
+
+    invokeCalls = 0;
+    const mockPanelRunnerInfraDegraded = async (project: string, criterionId: string, _deps: any) => {
+      invokeCalls++;
+      return { skipped: undefined, hold: true, met: false, invocations: 3, outcome: 'infra-degraded' as const };
+    };
+
+    const result = await runVerifyPanelArm(project, forged.missionId, 's1', {
+      runPanel: mockPanelRunnerInfraDegraded,
+    });
+
+    expect(result.skipped).toEqual([crit.id]);
+    expect(result.held).toEqual([]);
+    expect(result.paneled).toEqual([]);
+  });
+
   test('a non-stakes criterion is not paneled', async () => {
     const forged = await forgeMission(project, {
       session: 's1',

@@ -229,6 +229,75 @@ describe('runCriterionVerifyPanel', () => {
     }
   });
 
+  test('all-lenses-unparseable panel records outcome infra-degraded with the infra marker in evidence', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
+      ok: true,
+      exitCode: 0,
+      stdout: 'no clear verdict here',
+      durationMs: 1000,
+      rateLimited: false,
+      authMode: 'subscription',
+    });
+
+    let extraSeen: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string } | undefined;
+    const mockRecord = async (
+      _p: string,
+      _cid: string,
+      _pv: PanelVerdict[],
+      extra: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string },
+    ): Promise<string | null> => {
+      extraSeen = extra;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    expect(result.outcome).toBe('infra-degraded');
+    expect(result.hold).toBe(true);
+    expect(result.met).toBe(false);
+    expect(extraSeen).toBeTruthy();
+    expect(extraSeen?.evidence).toContain('infra-degraded');
+  });
+
+  test('all-lenses genuine FAIL panel records outcome dissent without the infra marker', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
+      ok: true,
+      exitCode: 0,
+      stdout: 'VERDICT: FAIL — evidence not found',
+      durationMs: 1000,
+      rateLimited: false,
+      authMode: 'subscription',
+    });
+
+    let extraSeen: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string } | undefined;
+    const mockRecord = async (
+      _p: string,
+      _cid: string,
+      _pv: PanelVerdict[],
+      extra: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string },
+    ): Promise<string | null> => {
+      extraSeen = extra;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    expect(result.outcome).toBe('dissent');
+    expect(result.hold).toBe(true);
+    expect(result.met).toBe(false);
+    expect(extraSeen?.evidence).not.toContain('infra-degraded');
+  });
+
   test('unanimous PASS records met via set_mission_criterion', async () => {
     const { criterion } = await setupMissionWithCriterion();
 
