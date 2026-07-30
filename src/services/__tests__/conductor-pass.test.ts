@@ -1202,6 +1202,10 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
     ]);
     expect(a).toBe(b);
   });
+  test('buildConductorPrompt no longer instructs the LLM to park at attempts >= 3 via reset_todo', () => {
+    const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
+    expect(p).not.toContain('Repeatedly failing (attempts');
+  });
   test('prompt names the mission + session, forbids hand-editing, lands as conductor', () => {
     const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
     expect(p).toContain('m1');

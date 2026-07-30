@@ -48,6 +48,13 @@ export const EPIC_CHURN_REJECT_THRESHOLD = 2;
  *  Origin: src/services/conductor-pass.ts (runConductorPass fail-retry counter). */
 export const CONDUCTOR_SERVE_RETRY_CAP = 3;
 
+/** How many attempts a carded leaf may accumulate before the card-triage arm parks it
+ *  deterministically instead of letting the conductor re-dispatch it again. Replaces the
+ *  same `attempts >= 3` threshold previously spelled out in the conductor's own prompt
+ *  (a prohibition in a prompt is not a constraint) — the check now lives in code.
+ *  Origin: src/services/conductor-card-triage-arm.ts. */
+export const CARD_TRIAGE_PARK_ATTEMPTS = 3;
+
 /** How many conductor beats a driven mission may go without a new pass stamp
  *  (lastConductorPassAt) before its progress clock is treated as stale. Retained as a
  *  shared cap for the conductor progress-clock diagnostics. */
