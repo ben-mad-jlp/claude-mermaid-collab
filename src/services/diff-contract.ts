@@ -131,6 +131,24 @@ export function validateContractForKind(
   return { underspecified: false };
 }
 
+/** The three MECHANICALLY-CITABLE requirement kinds — each carries a concrete cite (a file+symbol,
+ *  an exact test name, or a grep/gate metric) that the prose-citability gate would ACCEPT. observable
+ *  and invariant are LLM-judged and are NOT counted as citable here. */
+const CITABLE_REQUIREMENT_KINDS: ReadonlySet<DiffRequirementKind> = new Set<DiffRequirementKind>([
+  'symbol-present',
+  'named-test',
+  'threshold',
+]);
+
+/** Phase-1 parity helper (record-only): does this contract carry at least one mechanically-citable
+ *  requirement (symbol-present / named-test / threshold)? Used to MEASURE whether a valid typed
+ *  contract would have satisfied citability when the prose gate bounces — never (in Phase 1) to
+ *  change enforcement. A contract with only observable/invariant requirements does NOT cover
+ *  citability (it has no machine-checkable cite), matching the prose gate's own bar. */
+export function contractCoversCitability(contract: DiffContract): boolean {
+  return contract.requirements.some((r) => CITABLE_REQUIREMENT_KINDS.has(r.kind));
+}
+
 const toStrArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 
