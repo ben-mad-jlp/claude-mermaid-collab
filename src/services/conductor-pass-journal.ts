@@ -86,8 +86,8 @@ export function openPassRow(project: string, missionId: string | null, startedAt
 
 type JsonPatchKey = 'criteriaActed' | 'filed' | 'declined';
 const JSON_PATCH_KEYS: JsonPatchKey[] = ['criteriaActed', 'filed', 'declined'];
-type ScalarPatchKey = 'serveFp' | 'passFp' | 'selfFp' | 'arm';
-const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['serveFp', 'passFp', 'selfFp', 'arm'];
+type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm';
+const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm'];
 
 function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey>>): {
   clauses: string[];
@@ -114,7 +114,7 @@ function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPat
  *  still shows its partial progress. Returns whether a row was updated, false on throw. */
 export function appendPassProgress(
   id: string,
-  patch: Partial<Pick<ConductorPassJournalRow, 'serveFp' | 'passFp' | 'selfFp' | 'arm' | 'criteriaActed' | 'filed' | 'declined'>>,
+  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey>>,
 ): boolean {
   try {
     const { clauses, values } = buildProgressSet(patch);
