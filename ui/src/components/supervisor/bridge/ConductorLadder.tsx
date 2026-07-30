@@ -148,7 +148,10 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
         >
           {running ? 'running…' : lastRunLabel ?? '—'}
           {!running && lastPass?.status ? (
-            <span data-testid="conductor-status-line" className="opacity-90"> · {lastPass.status}</span>
+            // A pass that died mid-flight (killed process / sidecar restart) never stamped its
+            // terminal reason, so its persisted status is still the literal 'running…'. Since it is
+            // NOT actually running (stale), show 'interrupted' rather than a misleading 'running…'.
+            <span data-testid="conductor-status-line" className="opacity-90"> · {lastPass.reason === 'pass-ran' ? 'interrupted' : lastPass.status}</span>
           ) : null}
         </span>
       )}
