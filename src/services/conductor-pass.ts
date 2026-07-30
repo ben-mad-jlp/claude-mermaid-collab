@@ -14,11 +14,13 @@ import {
   getMission,
   listCriteriaWithActions,
   stampConductorRun,
+  stampConductorTimeout,
+  readConductorTimeoutRecurrence,
   CRITERION_SERVE_CAP,
   promoteQueuedMissions,
   type MissionRecheck,
 } from './mission-store.js';
-import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS } from './harness-caps.js';
+import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
@@ -37,6 +39,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
+import { openPassRow, appendPassProgress, finalizePassRow } from './conductor-pass-journal.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -271,7 +274,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'conductor-timeouts-capped';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -348,18 +351,45 @@ export function conductorStatusLine(
   }
 }
 
+// telemetry — never break the run. The journal is an observer of a pass, not a dependency of
+// one: any throw from either wrapper is swallowed so a journal DB hiccup can never sink a pass.
+function note(rowId: string | null, patch: Parameters<typeof appendPassProgress>[1]): void {
+  if (rowId == null) return;
+  try {
+    appendPassProgress(rowId, patch);
+  } catch {
+    /* fail-open */
+  }
+}
+
+function seal(rowId: string | null, patch: Parameters<typeof finalizePassRow>[1]): void {
+  if (rowId == null) return;
+  try {
+    finalizePassRow(rowId, patch);
+  } catch {
+    /* fail-open */
+  }
+}
+
 /** One conductor pass for a project. No-op (spends nothing) unless the toggle is on AND there is an
  *  approved+active mission with a NEW actionable state (a discover/verify gap the conductor hasn't
  *  already served at this exact fingerprint). */
 export async function runConductorPass(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
+  let journalRowId: string | null = null;
   try {
-    const result = await runConductorPassInner(project, deps);
+    journalRowId = openPassRow(project, null, Date.now());
+  } catch {
+    journalRowId = null;
+  }
+  try {
+    const result = await runConductorPassInner(project, deps, journalRowId);
     setConductorLastPass(project, {
       missionId: result.missionId ?? null,
       reason: result.reason,
       tickAt: Date.now(),
       status: conductorStatusLine(result.reason, result),
     });
+    seal(journalRowId, { missionId: result.missionId ?? null, outcome: result.reason, ran: result.ran });
     return result;
   } catch (err) {
     // Error stamp: records that the pass failed (rethrow so callers keep seeing the failure).
@@ -369,11 +399,12 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       tickAt: Date.now(),
       status: conductorStatusLine('pass-error'),
     });
+    seal(journalRowId, { missionId: null, outcome: 'pass-error', ran: false });
     throw err;
   }
 }
 
-async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}): Promise<ConductorPassResult> {
+async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}, journalRowId: string | null = null): Promise<ConductorPassResult> {
   if (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled' };
   // The conductor DIRECTS the daemon — it grounds gaps, files serving epics, and promotes leaves to
   // READY for the daemon to build & land. With the daemon OFF the build pass never runs (the tick
@@ -413,6 +444,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const missionId = target.row.todoId;
   const status = target.row.status!;
   const session = 'conductor';
+  note(journalRowId, { missionId });
 
   let rechecksDrained = 0;
   let pendingRechecks: MissionRecheck[] = [];
@@ -424,7 +456,41 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     /* fail-open — a drain hiccup must never abort a conductor pass */
   }
 
-  const done = (r: ConductorPassResult): ConductorPassResult => ({ ...r, rechecksDrained });
+  const armFor = (reason: ConductorPassResult['reason']): 'infra' | 'redecompose' | 'verify-panel' | 'node' | 'none' => {
+    switch (reason) {
+      case 'infra-leaf-reset': return 'infra';
+      case 'redecomposed': return 'redecompose';
+      case 'verify-paneled': return 'verify-panel';
+      case 'conducted':
+      case 'node-failed': return 'node';
+      default: return 'none';
+    }
+  };
+
+  const declinedFor = (reason: ConductorPassResult['reason'], serveCapDeferredCount?: number): Array<{ what: string; why: string }> => {
+    switch (reason) {
+      case 'debounced': return [{ what: 'pass', why: 'fingerprint unchanged' }];
+      case 'building-wait': return [{ what: 'pass', why: 'daemon already building, no gap' }];
+      case 'criteria-escalated':
+        return (serveCapDeferredCount ?? 0) > 0
+          ? [{ what: 'criteria', why: 'serve-cap ladder not exhausted' }]
+          : [];
+      default: return [];
+    }
+  };
+
+  const done = (r: ConductorPassResult): ConductorPassResult => {
+    note(journalRowId, {
+      arm: armFor(r.reason),
+      filed: {
+        escalationsRaised: r.escalationsRaised, infraResets: r.infraResets, infraCards: r.infraCards,
+        redecomposed: r.redecomposed, closeOutsMinted: r.closeOutsMinted,
+        verifyPaneled: r.verifyPaneled, verifyHeld: r.verifyHeld,
+      },
+      declined: declinedFor(r.reason, r.serveCapDeferred),
+    });
+    return { ...r, rechecksDrained };
+  };
 
   // OVER-BUDGET FINAL ACT (mission a6ab522b). The authoritative derived status says this
   // mission's spend has crossed its ceiling. Everything below this line costs money — the
@@ -444,6 +510,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   }
 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
+  note(journalRowId, { criteriaActed: criteriaWithActions.map((a) => ({ criterionId: a.id, action: a.action })) });
   const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
   // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
   // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Gate card raise on
@@ -706,6 +773,27 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const priorFails = lastKey && lastKey.startsWith(failPrefix) ? Number(lastKey.slice(failPrefix.length)) || 0 : 0;
   if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId });
 
+  // Distinct bounded loop-breaker for CONSECUTIVE node timeouts on this unchanged serve-state
+  // (see CONDUCTOR_TIMEOUT_RECUR_CAP). A serve-state that structurally can't be processed
+  // inside CONDUCTOR_NODE_TIMEOUT_MS must not be re-spun forever; unlike the fail counter this
+  // never falls into isTransientNodeFault's no-stamp exemption, so it needs its own cap + card.
+  const timeoutRecurrence = readConductorTimeoutRecurrence(target.row, serveFp);
+  if (timeoutRecurrence >= CONDUCTOR_TIMEOUT_RECUR_CAP) {
+    try {
+      (deps.createEscalation ?? createEscalation)({
+        project, session, kind: 'conductor-timeouts-capped', todoId: missionId,
+        operatorGated: true, audience: 'human',
+        conditionKey: `conductor-timeout:${missionId}`,
+        conditionTuple: ['conductor-timeout', missionId],
+        questionText: `Mission "${target.summary.node.title ?? missionId}" — the conductor node ` +
+          `has timed out ${timeoutRecurrence} times in a row on the same serve-state (signature ` +
+          `${serveFp}, mission status "${status}"). The conductor will not re-invoke; this state ` +
+          `likely needs a smaller/cheaper serve-state or human investigation.`,
+      });
+    } catch { /* fail-open — the cap itself must not throw */ }
+    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
+  }
+
   // No servable gap and no land card to drive: nothing for the node to do. A capped
   // ('escalate') criterion is NOT a servable gap — we already raised its human escalation
   // above and must NOT spend a node re-filing for it (the thrash this cap kills). Report
@@ -871,7 +959,13 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       postPassSelfKey = null;
     }
     stampConductorRun(project, missionId, updatedFp, { selfKey: postPassSelfKey });
+  } else if (res.timedOut === true) {
+    // Bounded separately from the fail counter — see CONDUCTOR_TIMEOUT_RECUR_CAP. Must be
+    // checked BEFORE the generic `transient` arm below (timedOut is itself transient) or a
+    // timeout would silently fall into the no-op arm and never be bounded.
+    stampConductorTimeout(project, missionId, serveFp);
   } else if (transient) {
+    // rateLimited / startFailure — unchanged: no stamp, no counter consumed (ec9a00eb).
     // Do NOT stampConductorRun — leave target.row.lastConductorKey unchanged so the next
     // tick re-runs a pass on the SAME serve-state (no fail: increment, no debounce).
   } else {

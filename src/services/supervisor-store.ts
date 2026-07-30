@@ -527,7 +527,14 @@ export type ConductorPassReason =
   | 'over-budget-rebet'
   // The pass AUTO-SPAWNED the 3-lens verify panel for a stakes-routed criterion (no human
   // verify-skill invocation). Mission 44d8b837.
-  | 'verify-paneled';
+  | 'verify-paneled'
+  // The pass PARKED one or more carded leaves at/over the attempts threshold deterministically,
+  // before invoking the node — zero node spend. Card-triage arm.
+  | 'card-triaged'
+  // The pass STOPPED short-circuit before invoking the node: CONDUCTOR_TIMEOUT_RECUR_CAP
+  // consecutive timeouts on this MISSION's unchanged serve-state (not a criterion) — a card
+  // was raised naming the serve-state; the conductor will not re-invoke until it changes.
+  | 'conductor-timeouts-capped';
 
 export interface ConductorLastPass {
   missionId: string | null;
