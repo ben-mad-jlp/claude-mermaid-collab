@@ -8,9 +8,11 @@
  * vacuous PASS. Run with `bun test src/services/__tests__/diff-contract-grounding.test.ts`.
  */
 import { describe, it, expect } from 'bun:test';
-import { groundReviewViaContract, type DiffContractReviewDeps, type ParsedDiff } from '../diff-contract-review';
+import { groundReviewViaContract, contractBallotRequirements, type DiffContractReviewDeps, type ParsedDiff } from '../diff-contract-review';
 import { parseBallotVerdicts } from '../review-citations';
+import { buildNodePrompt } from '../leaf-prompts';
 import type { DiffContract, DiffRequirement } from '../diff-contract';
+import type { Todo } from '../todo-store';
 
 function makeContract(requirements: DiffRequirement[], leafKind: DiffContract['leafKind'] = 'feature'): DiffContract {
   return {
@@ -99,5 +101,53 @@ describe('groundReviewViaContract', () => {
     expect(nt?.decision).toBe('met');
     // named-test is mechanical, not a ballot requirement, so grounding needs no REQ line ⇒ ok.
     expect(g.status).toBe('ok');
+  });
+});
+
+describe('contractBallotRequirements', () => {
+  it('returns ONLY the observable/invariant requirements, keyed by declared id', () => {
+    const c = makeContract([
+      { kind: 'symbol-present', id: 'sym-1', file: 'src/a.ts', symbol: 'foo', description: 'foo added' },
+      { kind: 'observable', id: 'obs-1', description: 'panel shows the count' },
+      { kind: 'invariant', id: 'inv-2', description: 'routes keep responding' },
+    ]);
+    expect(contractBallotRequirements(c)).toEqual([
+      { id: 'obs-1', kind: 'observable', description: 'panel shows the count' },
+      { id: 'inv-2', kind: 'invariant', description: 'routes keep responding' },
+    ]);
+  });
+});
+
+describe('review-prompt ballot → grounder closed loop (bug 6559ce96)', () => {
+  const leaf = { id: 'leaf-1', title: 'a leaf', description: 'do the thing' } as unknown as Todo;
+
+  it('a review that OBEYS the emitted ballot instruction grounds OK for every requirement id', async () => {
+    const c = makeContract([
+      { kind: 'observable', id: 'obs-1', description: 'panel shows the count' },
+      { kind: 'invariant', id: 'inv-2', description: 'routes keep responding' },
+    ]);
+    const ballot = contractBallotRequirements(c).map((r) => ({ id: r.id, kind: r.kind, text: r.description }));
+    const prompt = buildNodePrompt('review', leaf, undefined, undefined, undefined, ballot);
+    // the prompt names every ballot id the grounder will demand a verdict for
+    for (const r of ballot) expect(prompt).toContain(`REQ:${r.id}`);
+
+    // A reviewer that follows the instruction: exactly one `- [MET] REQ:<id> — file:line` per id.
+    const reviewText = [
+      '- [MET] REQ:obs-1 — src/a.ts:12',
+      '- [MET] REQ:inv-2 — src/a.ts:20',
+      'VERDICT: PASS',
+    ].join('\n');
+    // parseBallotVerdicts recovers a verdict for every requirement id...
+    expect(parseBallotVerdicts(reviewText).map((v) => v.id).sort()).toEqual(['inv-2', 'obs-1']);
+    // ...and the full grounder passes (no uncited-gap, no fabricated id, met verdicts resolve).
+    const g = await groundReviewViaContract(reviewText, c, diff(['src/a.ts']), makeDeps());
+    expect(g.status).toBe('ok');
+  });
+
+  it('the PRE-FIX behaviour (review with NO ballot lines) parks as vacuous — what the fix cures', async () => {
+    const c = makeContract([{ kind: 'observable', id: 'obs-1', description: 'panel shows the count' }]);
+    const g = await groundReviewViaContract('VERDICT: PASS', c, diff(['src/a.ts']), makeDeps());
+    expect(g.status).toBe('vacuous');
+    expect(g.reasons.join(' ')).toMatch(/obs-1/);
   });
 });

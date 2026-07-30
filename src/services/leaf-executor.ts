@@ -72,7 +72,7 @@ export type { LeafNodeGroup } from './leaf-prompts';
 import { validateReviewGrounding, checkConstraintCitations, extractCitations, type ReviewGrounding } from './review-citations';
 import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
-import { groundReviewViaContract } from './diff-contract-review';
+import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
@@ -902,7 +902,7 @@ const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
   return e && (['low', 'medium', 'high', 'xhigh', 'max'] as string[]).includes(e) ? (e as EffortLevel) : undefined;
 })();
 
-import type { LeafNodeKind, LeafNodeGroup } from './leaf-prompts';
+import type { LeafNodeKind, LeafNodeGroup, BallotPromptRequirement } from './leaf-prompts';
 import {
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
@@ -2007,6 +2007,7 @@ export async function runLeaf(
     blueprintText?: string,
     reviewFindings?: string,
     depth?: ReviewDepth,
+    ballotRequirements?: ReadonlyArray<BallotPromptRequirement>,
   ): NodeSpec => {
     const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project), attempt: state.attempt, priorRun });
     return {
@@ -2015,7 +2016,7 @@ export async function runLeaf(
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings, {
         worktree: cwd,
         mainCheckout: deps.mainCheckoutRoot ?? null,
-      }),
+      }, ballotRequirements),
       // Retry ladder + wall-based tier escalation: compose the attempt ladder with the
       // cross-dispatch wall bump so implement models escalate monotonically via both paths.
       model: kind === 'implement'
@@ -3139,7 +3140,15 @@ export async function runLeaf(
           });
         } catch { /* telemetry — never break the run */ }
 
-        const review = await runNode('review', buildSpec('review', cwd, blueprintBody, undefined, route.depth));
+        // TYPED review only: hand the review node the observable/invariant ballot so it emits the
+        // per-requirement-id verdict lines `groundReviewViaContract` parses below. SAME gate as the
+        // grounder (typedContractGating flag ON AND a valid leafContract) — otherwise pass nothing,
+        // so the review prompt is byte-identical to today's output.
+        const reviewBallot: BallotPromptRequirement[] | undefined =
+          (deps.typedContractGating?.(project) ?? false) && leafContract
+            ? contractBallotRequirements(leafContract).map((r) => ({ id: r.id, kind: r.kind, text: r.description }))
+            : undefined;
+        const review = await runNode('review', buildSpec('review', cwd, blueprintBody, undefined, route.depth, reviewBallot));
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
         llm = parseVerdict(review.text);
