@@ -35,6 +35,16 @@ import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, type RaiseBaseRepairAr
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
+import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
+import type { GitRunner } from './main-checkout-invariant.js';
+
+const defaultRunGit: GitRunner = async (cwd, args) => {
+  const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited,
+  ]);
+  return { code: code ?? 1, stdout, stderr };
+};
 
 /** The INFRA causes an executor stamps as the HEAD of a park reason (leaf-executor's G2
  *  base gate + the mis-homed target guard). Everything else is CONTENT. */
@@ -173,7 +183,8 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
       try { await forwardIntegrate(epicId, targetProject); } catch { /* best-effort */ }
       const sha = await headSha(epicId, targetProject);
       const runGate = injectedRunGate ?? ((cwd: string, cfg: LeafGateConfig) =>
-        runBaseGate(cwd, cfg, defaultGateSpawn, sha ? { project: targetProject, baseSha: sha } : undefined));
+        runBaseGate(cwd, cfg, defaultGateSpawn, sha ? { project: targetProject, baseSha: sha } : undefined,
+          { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }));
       const cached = getEpicBaseGate(epicId, sha);
       if (cached && shouldHonourCachedBaseGate(cached, now?.()) === 'honour') {
         return cached.status === 'pass' ? 'pass' : cached.status === 'fail' ? 'fail' : 'error';
