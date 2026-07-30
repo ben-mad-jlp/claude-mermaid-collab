@@ -13,7 +13,9 @@ import {
   WAKE_CARD_RENDER_CAP,
   WAKE_CARD_EXCERPT_CHARS,
   WAKE_CRITERION_RENDER_CAP,
+  CONDUCTOR_PROMPT_RENDER_CAP_CHARS,
   type WakeCard,
+  type WakeCriterion,
   type WakeRecheck,
   type WakeStakes,
 } from '../conductor-wake-context';
@@ -310,6 +312,57 @@ describe('buildWakeContextBlock — high-stakes verify panel section', () => {
     expect(block).toContain(`cap ${WAKE_CRITERION_RENDER_CAP}`);
     expect(block).toContain('panel-c0');
     expect(block).not.toContain(`panel-c${WAKE_CRITERION_RENDER_CAP + 2}`);
+  });
+});
+
+describe('buildWakeContextBlock — total prompt render cap', () => {
+  test('buildConductorPrompt stays under CONDUCTOR_PROMPT_RENDER_CAP_CHARS by dropping lowest-priority items with a signposted omission', () => {
+    const bigEvidence = 'E'.repeat(5000);
+    const actions: WakeCriterion[] = Array.from({ length: 4 }, (_, i) => ({
+      id: `crit-${i}`,
+      action: 'verify',
+      text: `criterion ${i} text`,
+      verdict: 'MET',
+      evidence: bigEvidence,
+    }));
+    const rechecks: WakeRecheck[] = Array.from({ length: 12 }, (_, i) => ({
+      criterionId: `crit-${i}`,
+      reason: 'R'.repeat(3000),
+      landedSha: 'a'.repeat(40),
+      enqueuedAt: NOW - 5 * 60 * 1000,
+    }));
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      actions,
+      rechecks,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONDUCTOR_PROMPT_RENDER_CAP_CHARS);
+    expect(block).toContain(`total prompt cap ${CONDUCTOR_PROMPT_RENDER_CAP_CHARS} chars`);
+    // Dropped annotations still keep the base fact line intact.
+    expect(block).toContain('crit-0 [verify]');
+    // No unmarked mid-sentence truncation of the giant evidence blob (whole annotations are
+    // dropped, never re-sliced).
+    expect(block).not.toContain('EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE'.repeat(90));
+    // Some rechecks were dropped as whole items, with a signpost naming the count.
+    expect(block).toMatch(/… \d+ more omitted \(total prompt cap/);
+  });
+
+  test('a small fixture renders byte-identically to the pre-cap output (the cap is inert below the ceiling)', () => {
+    const input = {
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [card({ id: 'esc-small-1' })],
+      actions: [{ id: 'crit-a', action: 'discover', text: 'small criterion' }] as WakeCriterion[],
+    };
+    const block1 = buildWakeContextBlock(input);
+    const block2 = buildWakeContextBlock(input);
+    expect(block1).toBe(block2);
+    expect(block1).not.toContain('total prompt cap');
+    expect(block1.length).toBeLessThan(CONDUCTOR_PROMPT_RENDER_CAP_CHARS);
   });
 });
 

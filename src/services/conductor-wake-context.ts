@@ -38,6 +38,11 @@ export interface WakeCriterion {
   id: string;
   action: string;
   text?: string;
+  /** MissionCriterion.met, rendered as 'MET'/'NOT MET' — only when verifiedAt is set (a
+   *  never-verified criterion has no verdict yet, `met` defaults false and would lie). */
+  verdict?: string;
+  /** MissionCriterion.evidence — the verify judge's cited reasoning. */
+  evidence?: string;
 }
 
 /** One criterion's high-stakes verify classification, reduced to what the panel section renders.
@@ -98,6 +103,20 @@ export interface WakeContextInput {
  *  liveness decision — so it lives with the renderer it bounds. */
 export const WAKE_CARD_RENDER_CAP = 8;
 
+/** Total char ceiling on buildConductorPrompt's ENTIRE output (this block + the fixed step
+ *  text). Verdict/evidence text (§1) can each run multi-thousand chars per criterion, so the
+ *  per-section item caps (WAKE_CARD_RENDER_CAP, WAKE_CRITERION_RENDER_CAP) no longer bound the
+ *  total — this does. NOT in harness-caps.ts, same rationale as WAKE_CARD_RENDER_CAP (above):
+ *  a prompt-rendering bound, breaks no loop, gates no liveness decision — lives with the
+ *  renderer it bounds. */
+export const CONDUCTOR_PROMPT_RENDER_CAP_CHARS = 24_000;
+
+/** Conservative reserve for buildConductorPrompt's fixed step text + mission id/title
+ *  boilerplate (conductor-pass.ts:198-240), measured with headroom so the wake block's own
+ *  budget (CAP - this reserve) keeps the COMBINED prompt under CONDUCTOR_PROMPT_RENDER_CAP_CHARS
+ *  for any realistic missionTitle. */
+const CONDUCTOR_PROMPT_STATIC_RESERVE_CHARS = 4_000;
+
 /** MAX characters of each card's questionText reproduced in the block. Long enough to carry the
  *  full first sentence of every card kind the harness mints (the serve-cap text is ~260 chars);
  *  the node can always call `escalation_list` for the untruncated text. */
@@ -143,121 +162,262 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
   );
   const actionable = (input.actions ?? []).filter((a) => ACTIONABLE_ACTIONS.includes(a.action));
   const rechecks = [...(input.rechecks ?? [])].sort((a, b) => a.enqueuedAt - b.enqueuedAt);
-
-  const lines: string[] = [];
-  lines.push('=== WAKE CONTEXT (injected by the harness — this is DATA already fetched for you) ===');
-  lines.push('');
-
-  // ── 1. WHY YOU WERE WOKEN ────────────────────────────────────────────────────
-  lines.push(
-    lastPassAt == null
-      ? 'WHY YOU WERE WOKEN (no previous conductor pass recorded on this mission — everything below is new to you):'
-      : `WHY YOU WERE WOKEN (delta since your last pass ${formatWakeAge(now - lastPassAt)} ago):`,
-  );
-
-  const newCards = lastPassAt == null ? openCards : openCards.filter((c) => c.createdAt > lastPassAt);
-  const whyLines: string[] = [];
-  for (const c of newCards) {
-    whyLines.push(
-      `  • NEW card ${c.id} (${c.kind}${c.conditionKey ? `, conditionKey ${c.conditionKey}` : ''}) opened ${formatWakeAge(now - c.createdAt)} ago`,
-    );
-  }
-  for (const c of resolvedCards) {
-    whyLines.push(
-      `  • RESOLVED since your last pass: card ${c.id} (${c.kind}${c.conditionKey ? `, conditionKey ${c.conditionKey}` : ''})` +
-        ` — a human ANSWERED this; read the answer and act on it, do not re-raise it.`,
-    );
-  }
-  if (actionable.length > 0) {
-    const shown = actionable.slice(0, WAKE_CRITERION_RENDER_CAP);
-    whyLines.push(`  • Criteria ACTIONABLE right now (${actionable.length}):`);
-    for (const a of shown) {
-      whyLines.push(`      - ${a.id} [${a.action}]${a.text ? ` — ${excerpt(a.text)}` : ''}`);
-    }
-    if (actionable.length > shown.length) {
-      whyLines.push(
-        `      - … ${actionable.length - shown.length} more actionable criterion/criteria omitted (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
-      );
-    }
-  }
-  if (whyLines.length === 0) {
-    whyLines.push(
-      '  • Nothing could be attributed: no card opened or resolved since your last pass, and no criterion is `discover` or `verify` right now. An empty delta is itself information — do not invent work.',
-    );
-  }
-  lines.push(...whyLines);
-  lines.push('');
-
-  // ── 1.5 REOPENED CRITERIA ────────────────────────────────────────────────────
-  if (rechecks.length > 0) {
-    lines.push(`REOPENED — needs re-verify (${rechecks.length} criterion/criteria lost verdict):`);
-    const shown = rechecks.slice(0, WAKE_CRITERION_RENDER_CAP);
-    for (const r of shown) {
-      lines.push(
-        `  ${r.criterionId}   reason: ${r.reason}   reopened ${formatWakeAge(now - r.enqueuedAt)} ago   landedSha: ${r.landedSha ?? '(none)'}`,
-      );
-    }
-    if (rechecks.length > shown.length) {
-      lines.push(
-        `  … ${rechecks.length - shown.length} more (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
-      );
-    }
-    lines.push('');
-  }
-
-  // ── 1.6 HIGH-STAKES VERIFY (distinct-lens panel) ─────────────────────────────
-  // OPT-IN: only criteria classified panel===true (an enumerated trigger fired) appear. Absent
-  // entirely when nothing is high-stakes — an absent section is correct here (a fresh criterion is
-  // NOT high-stakes), unlike the OPEN CARDS section whose absence would read as "not checked".
   const panelStakes = (input.stakes ?? []).filter((s) => s.panel === true);
-  if (panelStakes.length > 0) {
-    const lensNames = VERIFY_LENSES.join(', ');
-    lines.push('HIGH-STAKES VERIFY — automatically paneled by the conductor pass:');
-    lines.push(
-      `  The three lenses (${lensNames}) already ran this pass; verdicts are recorded.` +
-        ' (A criterion below with its verdict unchanged since the last check is informational — already verified.)',
-    );
-    const shown = panelStakes.slice(0, WAKE_CRITERION_RENDER_CAP);
-    for (const s of shown) {
-      lines.push(`  • ${s.criterionId}   trigger: ${s.trigger ?? '(unknown)'}   lenses: ${lensNames}`);
+
+  const shownActionable = actionable.slice(0, WAKE_CRITERION_RENDER_CAP);
+  const shownCards = openCards.slice(0, WAKE_CARD_RENDER_CAP);
+  const shownRechecks = rechecks.slice(0, WAKE_CRITERION_RENDER_CAP);
+  const shownStakes = panelStakes.slice(0, WAKE_CRITERION_RENDER_CAP);
+  const lensNames = VERIFY_LENSES.join(', ');
+
+  // Drop state, mutated by the total-cap enforcement loop below. Priority 0 (dropped first):
+  // individual open-card items beyond the first kept. Priority 1: per-criterion verdict/evidence
+  // annotations. Priority 2: HIGH-STAKES VERIFY entries. Priority 3: REOPENED entries.
+  const droppedCardIdx = new Set<number>();
+  const droppedAnnotationIdx = new Set<number>();
+  const droppedStakesIdx = new Set<number>();
+  const droppedRecheckIdx = new Set<number>();
+
+  function annotationSize(a: WakeCriterion): number {
+    let n = 0;
+    if (a.verdict) n += a.verdict.length + 20;
+    if (a.evidence) n += excerpt(a.evidence).length + 20;
+    return n;
+  }
+
+  function cardItemSize(c: WakeCard): number {
+    return excerpt(c.questionText).length + c.id.length + c.kind.length + 40;
+  }
+
+  function pickDropCandidate(): { tier: 0 | 1 | 2 | 3; idx: number } | null {
+    // Tier 0: open cards, never drop the last one kept.
+    if (shownCards.length - droppedCardIdx.size > 1) {
+      let best = -1;
+      let bestSize = -1;
+      for (let idx = 0; idx < shownCards.length; idx++) {
+        if (droppedCardIdx.has(idx)) continue;
+        const size = cardItemSize(shownCards[idx]);
+        if (size > bestSize) {
+          bestSize = size;
+          best = idx;
+        }
+      }
+      if (best >= 0) return { tier: 0, idx: best };
     }
-    if (panelStakes.length > shown.length) {
-      lines.push(
-        `  … ${panelStakes.length - shown.length} more high-stakes criterion/criteria omitted (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
-      );
+    // Tier 1: criterion verdict/evidence annotations.
+    {
+      let best = -1;
+      let bestSize = -1;
+      for (let idx = 0; idx < shownActionable.length; idx++) {
+        if (droppedAnnotationIdx.has(idx)) continue;
+        const a = shownActionable[idx];
+        if (!a.verdict && !a.evidence) continue;
+        const size = annotationSize(a);
+        if (size > bestSize) {
+          bestSize = size;
+          best = idx;
+        }
+      }
+      if (best >= 0) return { tier: 1, idx: best };
     }
+    // Tier 2: HIGH-STAKES VERIFY entries.
+    if (shownStakes.length - droppedStakesIdx.size > 0) {
+      let best = -1;
+      let bestSize = -1;
+      for (let idx = 0; idx < shownStakes.length; idx++) {
+        if (droppedStakesIdx.has(idx)) continue;
+        const s = shownStakes[idx];
+        const size = (s.trigger ?? '').length + s.criterionId.length + 40;
+        if (size > bestSize) {
+          bestSize = size;
+          best = idx;
+        }
+      }
+      if (best >= 0) return { tier: 2, idx: best };
+    }
+    // Tier 3: REOPENED entries.
+    if (shownRechecks.length - droppedRecheckIdx.size > 0) {
+      let best = -1;
+      let bestSize = -1;
+      for (let idx = 0; idx < shownRechecks.length; idx++) {
+        if (droppedRecheckIdx.has(idx)) continue;
+        const r = shownRechecks[idx];
+        const size = r.reason.length + r.criterionId.length + 40;
+        if (size > bestSize) {
+          bestSize = size;
+          best = idx;
+        }
+      }
+      if (best >= 0) return { tier: 3, idx: best };
+    }
+    return null;
+  }
+
+  function assemble(): string[] {
+    const lines: string[] = [];
+    lines.push('=== WAKE CONTEXT (injected by the harness — this is DATA already fetched for you) ===');
     lines.push('');
-  }
 
-  // ── 2. OPEN CARDS ON THIS MISSION ────────────────────────────────────────────
-  lines.push('OPEN CARDS ON THIS MISSION — act on these; do not go looking for them:');
-  if (openCards.length === 0) {
-    lines.push('  (none open — there is NO open escalation card on this mission right now.)');
-  } else {
-    const shown = openCards.slice(0, WAKE_CARD_RENDER_CAP);
-    let i = 0;
-    for (const c of shown) {
-      i++;
-      const isNew = lastPassAt != null && c.createdAt > lastPassAt;
-      lines.push(
-        `  [${i}] id: ${c.id}${isNew ? '  (NEW since last pass)' : ''}`,
-      );
-      lines.push(
-        `      kind: ${c.kind}   age: ${formatWakeAge(now - c.createdAt)}   recurrenceCount: ${c.recurrenceCount ?? 0}   conditionKey: ${c.conditionKey ?? '(none)'}`,
-      );
-      lines.push(`      question: ${excerpt(c.questionText)}`);
-    }
-    if (openCards.length > shown.length) {
-      lines.push(
-        `  … ${openCards.length - shown.length} more open card(s) OMITTED from this block (render cap ${WAKE_CARD_RENDER_CAP}). Call \`mcp__mermaid__escalation_list\` to see the rest — they are still open and still yours.`,
-      );
-    }
+    // ── 1. WHY YOU WERE WOKEN ────────────────────────────────────────────────────
     lines.push(
-      '  Use the FULL id above with `mcp__mermaid__escalation_resolve` — a short id silently no-ops on that store.',
+      lastPassAt == null
+        ? 'WHY YOU WERE WOKEN (no previous conductor pass recorded on this mission — everything below is new to you):'
+        : `WHY YOU WERE WOKEN (delta since your last pass ${formatWakeAge(now - lastPassAt)} ago):`,
     );
+
+    const newCards = lastPassAt == null ? openCards : openCards.filter((c) => c.createdAt > lastPassAt);
+    const whyLines: string[] = [];
+    for (const c of newCards) {
+      whyLines.push(
+        `  • NEW card ${c.id} (${c.kind}${c.conditionKey ? `, conditionKey ${c.conditionKey}` : ''}) opened ${formatWakeAge(now - c.createdAt)} ago`,
+      );
+    }
+    for (const c of resolvedCards) {
+      whyLines.push(
+        `  • RESOLVED since your last pass: card ${c.id} (${c.kind}${c.conditionKey ? `, conditionKey ${c.conditionKey}` : ''})` +
+          ` — a human ANSWERED this; read the answer and act on it, do not re-raise it.`,
+      );
+    }
+    if (actionable.length > 0) {
+      whyLines.push(`  • Criteria ACTIONABLE right now (${actionable.length}):`);
+      let annotationsOmitted = 0;
+      for (let idx = 0; idx < shownActionable.length; idx++) {
+        const a = shownActionable[idx];
+        whyLines.push(`      - ${a.id} [${a.action}]${a.text ? ` — ${excerpt(a.text)}` : ''}`);
+        if (droppedAnnotationIdx.has(idx)) {
+          annotationsOmitted++;
+          continue;
+        }
+        if (a.verdict) whyLines.push(`          verdict: ${a.verdict}`);
+        if (a.evidence) whyLines.push(`          evidence: ${excerpt(a.evidence)}`);
+      }
+      if (actionable.length > shownActionable.length) {
+        whyLines.push(
+          `      - … ${actionable.length - shownActionable.length} more actionable criterion/criteria omitted (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
+        );
+      }
+      if (annotationsOmitted > 0) {
+        whyLines.push(
+          `      - … verdict/evidence omitted for ${annotationsOmitted} criterion/criteria above (total prompt cap ${CONDUCTOR_PROMPT_RENDER_CAP_CHARS} chars); \`get_mission\` has the full verdict/evidence.`,
+        );
+      }
+    }
+    if (whyLines.length === 0) {
+      whyLines.push(
+        '  • Nothing could be attributed: no card opened or resolved since your last pass, and no criterion is `discover` or `verify` right now. An empty delta is itself information — do not invent work.',
+      );
+    }
+    lines.push(...whyLines);
+    lines.push('');
+
+    // ── 1.5 REOPENED CRITERIA ────────────────────────────────────────────────────
+    if (rechecks.length > 0) {
+      lines.push(`REOPENED — needs re-verify (${rechecks.length} criterion/criteria lost verdict):`);
+      let recheckDropped = 0;
+      for (let idx = 0; idx < shownRechecks.length; idx++) {
+        if (droppedRecheckIdx.has(idx)) {
+          recheckDropped++;
+          continue;
+        }
+        const r = shownRechecks[idx];
+        lines.push(
+          `  ${r.criterionId}   reason: ${r.reason}   reopened ${formatWakeAge(now - r.enqueuedAt)} ago   landedSha: ${r.landedSha ?? '(none)'}`,
+        );
+      }
+      const cappedOmitted = rechecks.length - shownRechecks.length;
+      const totalOmitted = cappedOmitted + recheckDropped;
+      if (totalOmitted > 0) {
+        lines.push(
+          recheckDropped > 0
+            ? `  … ${totalOmitted} more omitted (total prompt cap ${CONDUCTOR_PROMPT_RENDER_CAP_CHARS} chars); \`get_mission\` lists them all.`
+            : `  … ${totalOmitted} more (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
+        );
+      }
+      lines.push('');
+    }
+
+    // ── 1.6 HIGH-STAKES VERIFY (distinct-lens panel) ─────────────────────────────
+    // OPT-IN: only criteria classified panel===true (an enumerated trigger fired) appear. Absent
+    // entirely when nothing is high-stakes — an absent section is correct here (a fresh criterion is
+    // NOT high-stakes), unlike the OPEN CARDS section whose absence would read as "not checked".
+    if (panelStakes.length > 0) {
+      lines.push('HIGH-STAKES VERIFY — automatically paneled by the conductor pass:');
+      lines.push(
+        `  The three lenses (${lensNames}) already ran this pass; verdicts are recorded.` +
+          ' (A criterion below with its verdict unchanged since the last check is informational — already verified.)',
+      );
+      let stakesDropped = 0;
+      for (let idx = 0; idx < shownStakes.length; idx++) {
+        if (droppedStakesIdx.has(idx)) {
+          stakesDropped++;
+          continue;
+        }
+        const s = shownStakes[idx];
+        lines.push(`  • ${s.criterionId}   trigger: ${s.trigger ?? '(unknown)'}   lenses: ${lensNames}`);
+      }
+      const cappedOmitted = panelStakes.length - shownStakes.length;
+      const totalOmitted = cappedOmitted + stakesDropped;
+      if (totalOmitted > 0) {
+        lines.push(
+          stakesDropped > 0
+            ? `  … ${totalOmitted} more high-stakes criterion/criteria omitted (total prompt cap ${CONDUCTOR_PROMPT_RENDER_CAP_CHARS} chars); \`get_mission\` lists them all.`
+            : `  … ${totalOmitted} more high-stakes criterion/criteria omitted (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
+        );
+      }
+      lines.push('');
+    }
+
+    // ── 2. OPEN CARDS ON THIS MISSION ────────────────────────────────────────────
+    lines.push('OPEN CARDS ON THIS MISSION — act on these; do not go looking for them:');
+    if (openCards.length === 0) {
+      lines.push('  (none open — there is NO open escalation card on this mission right now.)');
+    } else {
+      let i = 0;
+      let cardsDropped = 0;
+      for (let idx = 0; idx < shownCards.length; idx++) {
+        if (droppedCardIdx.has(idx)) {
+          cardsDropped++;
+          continue;
+        }
+        const c = shownCards[idx];
+        i++;
+        const isNew = lastPassAt != null && c.createdAt > lastPassAt;
+        lines.push(`  [${i}] id: ${c.id}${isNew ? '  (NEW since last pass)' : ''}`);
+        lines.push(
+          `      kind: ${c.kind}   age: ${formatWakeAge(now - c.createdAt)}   recurrenceCount: ${c.recurrenceCount ?? 0}   conditionKey: ${c.conditionKey ?? '(none)'}`,
+        );
+        lines.push(`      question: ${excerpt(c.questionText)}`);
+      }
+      const cappedOmitted = openCards.length - shownCards.length;
+      const totalOmitted = cappedOmitted + cardsDropped;
+      if (totalOmitted > 0) {
+        lines.push(
+          cardsDropped > 0
+            ? `  … ${totalOmitted} more open card(s) OMITTED from this block (total prompt cap ${CONDUCTOR_PROMPT_RENDER_CAP_CHARS} chars). Call \`mcp__mermaid__escalation_list\` to see the rest — they are still open and still yours.`
+            : `  … ${totalOmitted} more open card(s) OMITTED from this block (render cap ${WAKE_CARD_RENDER_CAP}). Call \`mcp__mermaid__escalation_list\` to see the rest — they are still open and still yours.`,
+        );
+      }
+      lines.push(
+        '  Use the FULL id above with `mcp__mermaid__escalation_resolve` — a short id silently no-ops on that store.',
+      );
+    }
+
+    lines.push('');
+    lines.push('=== END WAKE CONTEXT ===');
+    return lines;
   }
 
-  lines.push('');
-  lines.push('=== END WAKE CONTEXT ===');
+  const budget = CONDUCTOR_PROMPT_RENDER_CAP_CHARS - CONDUCTOR_PROMPT_STATIC_RESERVE_CHARS;
+  let lines = assemble();
+  while (lines.join('\n').length > budget) {
+    const candidate = pickDropCandidate();
+    if (!candidate) break;
+    if (candidate.tier === 0) droppedCardIdx.add(candidate.idx);
+    else if (candidate.tier === 1) droppedAnnotationIdx.add(candidate.idx);
+    else if (candidate.tier === 2) droppedStakesIdx.add(candidate.idx);
+    else droppedRecheckIdx.add(candidate.idx);
+    lines = assemble();
+  }
+
   return lines.join('\n');
 }
