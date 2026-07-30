@@ -627,7 +627,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     expect(matching.length).toBe(1);
   });
 
-  test('a resolved serve-cap card for the same criterion is not re-raised', async () => {
+  test('a resolved serve-cap card is RE-OPENED while the criterion is still capped+unmet', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
     const { forged, crit } = await forgeCappedMission();
@@ -640,12 +640,22 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
     resolveEscalation(first.id, 'resolved');
 
     const r2 = await runConductorPass(project, { invoke: okInvoke });
-    expect(r2.escalationsRaised).toBe(0);
-    const matching = listEscalations().filter(
+    const openMatching = listOpenEscalations().filter(
       (e) => e.kind === CRITERION_SERVE_CAP_KIND && e.todoId === forged.missionId && e.questionText.includes(serveCapMarker(crit.id)),
     );
-    expect(matching.length).toBe(1);
-    expect(matching[0].status).toBe('resolved');
+    expect(openMatching.length).toBe(1);
+    expect(openMatching[0].status).toBe('open');
+    expect(openMatching[0].audience).toBe('human');
+    expect(openMatching[0].todoId).toBe(forged.missionId);
+    expect(conductorNeedsHuman(r2.reason)).toBe(true);
+
+    const r3 = await runConductorPass(project, { invoke: okInvoke });
+    void r3;
+    const allMatching = listEscalations().filter(
+      (e) => e.kind === CRITERION_SERVE_CAP_KIND && e.todoId === forged.missionId && e.questionText.includes(serveCapMarker(crit.id)),
+    );
+    expect(allMatching.length).toBe(1);
+    expect(allMatching[0].status).toBe('open');
   });
 
   test('a repeated pass bumps recurrenceCount on the single open serve-cap card rather than creating a second', async () => {
