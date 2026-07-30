@@ -68,4 +68,18 @@ describe('ZenSessionCard mission ribbon', () => {
     expect(document.querySelector('.bg-danger-300')).toBeTruthy();
     expect(document.querySelector('.bg-success-300')).toBeNull(); // conducting green overridden
   });
+
+  it('ribbon shows dropped count when capability.dropped > 0', () => {
+    render(<ZenSessionCard {...baseProps} mission={mission({ rollup: { capability: { met: 6, total: 6, dropped: 1 } } })} />);
+    const ribbon = screen.getByTestId('mission-ribbon');
+    expect(ribbon.textContent).toContain('6/6');
+    expect(ribbon.textContent).toContain('1 dropped');
+  });
+
+  it('ribbon shows no dropped text when capability.dropped is 0', () => {
+    render(<ZenSessionCard {...baseProps} mission={mission({ rollup: { capability: { met: 6, total: 6, dropped: 0 } } })} />);
+    const ribbon = screen.getByTestId('mission-ribbon');
+    expect(ribbon.textContent).toContain('6/6');
+    expect(ribbon.textContent).not.toContain('dropped');
+  });
 });
