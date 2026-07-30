@@ -9,10 +9,11 @@
  * Bounded: at most `BASE_REPAIR_ATTEMPT_CAP` repair epics per epic per `BASE_REPAIR_WINDOW_MS`.
  * Idempotent: an already-in-flight repair epic blocks a duplicate raise.
  */
-import { listTodos, type Todo } from './todo-store.js';
+import { listTodos, updateTodo, type Todo } from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { createEpicWithLandLeaf, addLeavesToEpic, type LeafInput } from '../mcp/workgraph-tools.js';
 import { WAKE_GATE_REPROBE_TTL_MS } from './conductor-wake-gate.js';
+import { isLanded } from './epic-landedness.js';
 
 /** Stable dedupe marker embedded in the epic's description. Mirrors {@link infraRejectedMarker}
  *  shape and the epic branch's `laneSignature` format. Greppable. */
@@ -61,6 +62,53 @@ export function findBaseRepairEpics(
     }
   }
   return { open, attemptsInWindow };
+}
+
+const BASE_REPAIR_MARKER_RE = /\[base-repair:([0-9a-f]{8}):[0-9a-f]{8}\]/;
+
+/**
+ * Reap base-repair epics whose targeted lane has already settled (landed or dropped).
+ *
+ * Base-repair epics are raised for a human to hand-fix the base; nothing else notices
+ * when the targeted epic resolves on its own. This scans all open base-repair epics,
+ * resolves each marker's target epic, and drops the repair epic when the target is
+ * landed or dropped — fail-open per repair epic so one bad entry doesn't stop the scan.
+ */
+export async function reapSettledBaseRepairEpics(
+  project: string,
+  io?: { listTodos?: typeof listTodos; updateTodo?: typeof updateTodo },
+): Promise<string[]> {
+  const listTodosFn = io?.listTodos ?? listTodos;
+  const updateTodoFn = io?.updateTodo ?? updateTodo;
+
+  const todos = listTodosFn(project, { includeCompleted: true });
+  const byId8 = new Map<string, Todo>();
+  for (const t of todos) {
+    byId8.set(t.id.slice(0, 8), t);
+  }
+
+  const reaped: string[] = [];
+
+  for (const t of todos) {
+    if (!isEpic(t) || t.baseRepair !== 1 || t.status === 'done' || t.status === 'dropped') continue;
+
+    const match = BASE_REPAIR_MARKER_RE.exec(t.description ?? '');
+    if (!match) continue;
+
+    const target = byId8.get(match[1]);
+    if (!target) continue;
+
+    if (!(isLanded(target) || target.status === 'dropped')) continue;
+
+    try {
+      await updateTodoFn(project, t.id, { status: 'dropped' });
+      reaped.push(t.id);
+    } catch {
+      // fail-open: one bad repair epic must not stop the scan of the rest
+    }
+  }
+
+  return reaped;
 }
 
 /**
