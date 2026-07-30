@@ -8,7 +8,7 @@ import { join } from 'node:path';
 // dir BEFORE anything opens it, so these tests never touch the real ledger.
 process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'gate-quarantine-'));
 
-const { frontendSuiteGatePlugin } = await import('../gate-runner');
+const { frontendSuiteGatePlugin, extractFailingTests } = await import('../gate-runner');
 const { upsertQuarantine, DEFAULT_TTL_MS } = await import('../flaky-quarantine');
 const { listTestQuarantine } = await import('../worker-ledger');
 type GateSubject = import('../gate-runner').GateSubject;
@@ -110,5 +110,15 @@ describe('frontendSuiteGatePlugin quarantine baseline', () => {
     const v = await frontendSuiteGatePlugin.run(ctx);
     expect(v).not.toBeNull();
     expect(v!.passed).toBe(false);
+  });
+});
+
+describe('extractFailingTests bun (fail) marker', () => {
+  it('extracts a plain bun (fail) name with a timing suffix', () => {
+    expect(extractFailingTests('(fail) some test name [0.12ms]')).toEqual(['some test name']);
+  });
+
+  it('extracts a describe-nested bun (fail) name', () => {
+    expect(extractFailingTests('(fail) outer > inner test')).toEqual(['outer > inner test']);
   });
 });

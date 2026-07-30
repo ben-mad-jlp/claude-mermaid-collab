@@ -347,6 +347,8 @@ export function extractFailingTests(out: string): string[] {
     if (failMatch) { fails.push(failMatch[1].trim()); continue; }
     const markMatch = line.match(/^[×✗✕]\s+(.+?)(?:\s+\d+\s*ms)?$/);
     if (markMatch) { fails.push(markMatch[1].trim()); continue; }
+    const bunFailMatch = line.match(/^\(fail\)\s+(.+?)(?:\s+\[[\d.]+m?s\])?$/);
+    if (bunFailMatch) { fails.push(bunFailMatch[1].trim()); continue; }
   }
   return [...new Set(fails)];
 }
