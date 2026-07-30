@@ -296,25 +296,29 @@ export function conductorStatusLine(
   counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed'> = {},
 ): string {
   const n = (x?: number): number => x ?? 0;
+  // Plain-language status shown in the Bridge conductor line. Keep these HUMAN-READABLE — an
+  // operator who has never read the code should understand each one. (Display only; nothing keys
+  // off the string — the debounce/ownership logic keys off `reason`.)
   switch (reason) {
     case 'conducted': {
       const extra: string[] = [];
-      if (n(counts.escalationsRaised)) extra.push(`${n(counts.escalationsRaised)} escalated`);
-      if (n(counts.infraResets)) extra.push(`${n(counts.infraResets)} infra reset`);
-      if (n(counts.redecomposed)) extra.push(`${n(counts.redecomposed)} re-decomposed`);
-      return extra.length ? `served · ${extra.join(', ')}` : 'served a gap';
+      if (n(counts.escalationsRaised)) extra.push(`${n(counts.escalationsRaised)} raised for you`);
+      if (n(counts.infraResets)) extra.push(`${n(counts.infraResets)} unblocked`);
+      if (n(counts.redecomposed)) extra.push(`${n(counts.redecomposed)} re-planned`);
+      return extra.length ? `assigned work · ${extra.join(', ')}` : 'assigned new work';
     }
-    case 'debounced': return 'no change';
-    case 'building-wait': return 'building';
-    case 'criteria-escalated': return n(counts.serveCapDeferred) ? `capped: ${n(counts.serveCapDeferred)} blocked` : 'capped — needs you';
-    case 'redecomposed': return 're-decomposed';
+    case 'debounced': return 'idle — nothing to do';
+    case 'building-wait': return 'building — waiting on work';
+    case 'criteria-escalated': return n(counts.serveCapDeferred) ? `${n(counts.serveCapDeferred)} stuck — needs you` : 'stuck — needs you';
+    case 'redecomposed': return 're-planned an epic';
     case 'over-budget-rebet': return 'over budget — needs you';
-    case 'node-failed': return 'pass failed — retry';
-    case 'pass-error': return 'pass errored';
+    case 'node-failed': return 'hit an error — retrying';
+    case 'pass-error': return 'hit an error';
     case 'no-actionable-mission': return 'no active mission';
-    case 'target-not-actionable': return 'mission not actionable';
-    case 'target-cleared': return 'target cleared';
-    case 'infra-leaf-reset': return n(counts.infraResets) ? `infra reset ${n(counts.infraResets)}` : 'infra reset';
+    case 'target-not-actionable': return "mission can't run yet";
+    case 'target-cleared': return 'stopped driving';
+    case 'infra-leaf-reset': return n(counts.infraResets) ? `unblocked ${n(counts.infraResets)} stuck leaf${n(counts.infraResets) === 1 ? '' : 's'}` : 'unblocked stuck work';
+    case 'verify-paneled': return 'verifying criteria';
     case 'conductor-disabled': return 'off';
     case 'daemon-off': return 'daemon off';
     case 'pass-ran': return 'running…';
