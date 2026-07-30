@@ -27,6 +27,11 @@ export interface ConductorPassJournalRow {
   declined: Array<{ what: string; why: string }>;
   outcome: string | null;
   ran: boolean | null;
+  /** Whether a 'node-failed' outcome on this row is a genuine, countable attempt (a real node
+   *  ran and made no progress) vs a transient fault (rateLimited/startFailure/timedOut) that
+   *  must never consume the bounded retry counter. null on rows where the distinction doesn't
+   *  apply (debounced/productive/etc.). */
+  failCounted: boolean | null;
 }
 
 const DDL = `
@@ -44,7 +49,8 @@ CREATE TABLE IF NOT EXISTS conductor_pass (
   filed TEXT,
   declined TEXT,
   outcome TEXT,
-  ran INTEGER
+  ran INTEGER,
+  failCounted INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_conductor_pass_lookup ON conductor_pass (project, missionId, startedAt);
 `;
@@ -75,8 +81,8 @@ export function openPassRow(project: string, missionId: string | null, startedAt
     const id = crypto.randomUUID();
     const d = openDb();
     d.prepare(
-      `INSERT INTO conductor_pass (id, project, missionId, startedAt, endedAt, serveFp, passFp, selfFp, arm, criteriaActed, filed, declined, outcome, ran)
-       VALUES (?,?,?,?,NULL,NULL,NULL,NULL,NULL,?,NULL,?,NULL,NULL)`,
+      `INSERT INTO conductor_pass (id, project, missionId, startedAt, endedAt, serveFp, passFp, selfFp, arm, criteriaActed, filed, declined, outcome, ran, failCounted)
+       VALUES (?,?,?,?,NULL,NULL,NULL,NULL,NULL,?,NULL,?,NULL,NULL,NULL)`,
     ).run(id, project, missionId, startedAt, JSON.stringify([]), JSON.stringify([]));
     return id;
   } catch {
@@ -88,8 +94,10 @@ type JsonPatchKey = 'criteriaActed' | 'filed' | 'declined';
 const JSON_PATCH_KEYS: JsonPatchKey[] = ['criteriaActed', 'filed', 'declined'];
 type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm';
 const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm'];
+type BoolPatchKey = 'failCounted';
+const BOOL_PATCH_KEYS: BoolPatchKey[] = ['failCounted'];
 
-function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey>>): {
+function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey>>): {
   clauses: string[];
   values: (string | number | null)[];
 } {
@@ -99,6 +107,13 @@ function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPat
     if (patch[key] !== undefined) {
       clauses.push(`${key}=?`);
       values.push(patch[key] ?? null);
+    }
+  }
+  for (const key of BOOL_PATCH_KEYS) {
+    if (patch[key] !== undefined) {
+      clauses.push(`${key}=?`);
+      const v = patch[key];
+      values.push(v == null ? null : v ? 1 : 0);
     }
   }
   for (const key of JSON_PATCH_KEYS) {
@@ -114,7 +129,7 @@ function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPat
  *  still shows its partial progress. Returns whether a row was updated, false on throw. */
 export function appendPassProgress(
   id: string,
-  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey>>,
+  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey>>,
 ): boolean {
   try {
     const { clauses, values } = buildProgressSet(patch);
@@ -183,6 +198,7 @@ function rowFromRaw(r: any): ConductorPassJournalRow {
     declined: parseJsonArray(r.declined, []),
     outcome: r.outcome ?? null,
     ran: r.ran == null ? null : r.ran === 1,
+    failCounted: r.failCounted == null ? null : r.failCounted === 1,
   };
 }
 
@@ -210,19 +226,49 @@ export function listConductorPasses(project: string, opts?: { missionId?: string
 
 /** Derive the contiguous run of node-failed passes for (project, missionId, serveFp),
  *  walking newest-first and stopping at the first non-matching row. Returns 0 on throw. */
-export function countConsecutiveFailedPasses(project: string, missionId: string, serveFp: string): number {
+export function countConsecutiveFailedPasses(
+  project: string,
+  missionId: string,
+  serveFp: string,
+  excludeId?: string | null,
+): number {
   try {
     const rows = listConductorPasses(project, { missionId });
     let count = 0;
     for (const row of rows) {
+      if (row.id === excludeId) continue;
       if (row.endedAt === null) break;
       if (row.serveFp !== serveFp) break;
+      // A row with ran!==true represents no real attempt this tick (e.g. a debounced early
+      // return, or a fail-open cap arm) — it carries the serveFp it saw but never spent a node,
+      // so it is transparent to the walk: skip it without breaking the contiguous run.
+      if (row.ran !== true) continue;
       if (row.outcome !== 'node-failed') break;
-      if (row.ran !== true) break;
+      if (row.failCounted === false) continue;
       count++;
     }
     return count;
   } catch {
     return 0;
+  }
+}
+
+/** Return the most recent finalized, productive (outcome:'conducted', ran:true) pass's
+ *  fingerprints, walking newest-first and skipping any other row. Returns null on throw
+ *  or if no such row exists. */
+export function latestProductivePassFp(
+  project: string,
+  missionId: string,
+): { passFp: string | null; selfFp: string | null } | null {
+  try {
+    const rows = listConductorPasses(project, { missionId });
+    for (const row of rows) {
+      if (row.endedAt !== null && row.outcome === 'conducted' && row.ran === true) {
+        return { passFp: row.passFp, selfFp: row.selfFp };
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
