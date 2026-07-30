@@ -26,8 +26,9 @@ function makeRun(
   epicId: string,
   finalOutcome: LeafRunSummary['finalOutcome'],
   nodesSpent = 0,
-): Pick<LeafRunSummary, 'epicId' | 'finalOutcome' | 'nodesSpent'> {
-  return { epicId, finalOutcome, nodesSpent };
+  attempts = 0,
+): Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'> {
+  return { leafId: 'leaf', epicId, finalOutcome, nodesSpent, attempts };
 }
 
 describe('mission-status-predicates', () => {
@@ -314,8 +315,8 @@ describe('mission-status-predicates', () => {
         status: 'todo',
         acceptanceStatus: null,
       });
-      const capRuns: Pick<LeafRunSummary, 'epicId' | 'finalOutcome' | 'nodesSpent'>[] = [
-        makeRun('epic', 'accepted', 0),
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
+        makeRun('epic', 'accepted', 0, 1),
       ];
 
       const result = countsTowardServeCap(epic, [leaf], capRuns, false);
@@ -331,8 +332,8 @@ describe('mission-status-predicates', () => {
         status: 'todo',
         acceptanceStatus: null,
       });
-      const capRuns: Pick<LeafRunSummary, 'epicId' | 'finalOutcome' | 'nodesSpent'>[] = [
-        makeRun('epic', 'pending', 5),
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
+        makeRun('epic', 'accepted', 5),
       ];
 
       const result = countsTowardServeCap(epic, [leaf], capRuns, false);
@@ -351,6 +352,38 @@ describe('mission-status-predicates', () => {
       const result = countsTowardServeCap(epic, [leaf], [], false);
 
       expect(result).toBe(false);
+    });
+
+    it('returns false for a rejected leaf whose ledger record proves zero burn', () => {
+      const epic = makeTodo('epic', { kind: 'epic' });
+      const leaf = makeTodo('leaf', {
+        parentId: 'epic',
+        kind: 'leaf',
+        acceptanceStatus: 'rejected',
+      });
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
+        { leafId: 'leaf', epicId: 'epic', finalOutcome: 'rejected', attempts: 0, nodesSpent: 0 },
+      ];
+
+      const result = countsTowardServeCap(epic, [leaf], capRuns, false);
+
+      expect(result).toBe(false);
+    });
+
+    it('returns true for a rejected leaf whose ledger record shows a genuine attempt', () => {
+      const epic = makeTodo('epic', { kind: 'epic' });
+      const leaf = makeTodo('leaf', {
+        parentId: 'epic',
+        kind: 'leaf',
+        acceptanceStatus: 'rejected',
+      });
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
+        { leafId: 'leaf', epicId: 'epic', finalOutcome: 'rejected', attempts: 1, nodesSpent: 0 },
+      ];
+
+      const result = countsTowardServeCap(epic, [leaf], capRuns, false);
+
+      expect(result).toBe(true);
     });
   });
 
