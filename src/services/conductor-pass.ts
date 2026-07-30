@@ -20,7 +20,7 @@ import {
 } from './mission-store.js';
 import { CONDUCTOR_SERVE_RETRY_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
-import { runInfraRejectionArm, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
+import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
@@ -428,6 +428,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   let serveCapDeferred = 0;
   // Hoist the serving epics read outside the loop, fail-open to []
   let servingEpicsByComp: Map<string, typeof criteriaWithActions[number]['id'][]> = new Map();
+  let epicTargetProjectById: Map<string, string | null> = new Map();
   try {
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
     for (const c of escalated) {
@@ -435,6 +436,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
       );
       servingEpicsByComp.set(c.id, matching.map((t) => t.id));
+      for (const t of matching) epicTargetProjectById.set(t.id, t.targetProject);
     }
   } catch {
     // fail-open to empty serving epics
@@ -492,6 +494,26 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           attempts,
           distinctReasons,
         });
+
+        let suppressed = false;
+        if (distinctReasons.length > 0 && distinctReasons.every((r) => classifyInfraRejection(r) === 'epic-base-red')) {
+          try {
+            const probeFn = deps.epicBaseProbe ?? defaultEpicBaseProbe;
+            const servingEpicIds = servingEpicsByComp.get(c.id) ?? [];
+            const verdicts = await Promise.all(
+              servingEpicIds.map((epicId) => probeFn(epicId, epicTargetProjectById.get(epicId) ?? project)),
+            );
+            if (verdicts.length > 0 && verdicts.every((v) => v === 'pass')) {
+              suppressed = true;
+            }
+          } catch {
+            // fail-open — do not suppress on a probe throw
+          }
+        }
+        if (suppressed) {
+          serveCapDeferred++;
+          continue;
+        }
 
         const marker = serveCapMarker(c.id);
         const questionText =
