@@ -6453,12 +6453,18 @@
           },
           "text": {
             "type": "string"
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Criterion ids this criterion depends on (must be met first). Optional."
           }
         },
         "required": [
           "project",
-          "criterionId",
-          "text"
+          "criterionId"
         ]
       }
     },
@@ -6535,6 +6541,13 @@
               "one-shot"
             ],
             "description": "Criterion type. Defaults to 'capability'."
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Criterion ids this criterion depends on (must be met first). Optional."
           }
         },
         "required": [
