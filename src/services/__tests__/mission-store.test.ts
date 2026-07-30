@@ -1458,3 +1458,50 @@ describe('queued missions derive waiting', () => {
     )).toBe('unapproved');
   });
 });
+
+describe('mission-store: criterion type column', () => {
+  test("backfill sets type='capability' for legacy rows with no type column", async () => {
+    const missionId = await makeMissionNode();
+
+    const db = new Database(join(project, '.collab', 'mission.db'));
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS mission_criterion (
+        id TEXT PRIMARY KEY,
+        todoId TEXT NOT NULL,
+        text TEXT NOT NULL,
+        met INTEGER NOT NULL DEFAULT 0,
+        "order" INTEGER NOT NULL DEFAULT 0,
+        updatedAt INTEGER NOT NULL,
+        verifiedAtSha TEXT,
+        evidencePaths TEXT,
+        reopenCount INTEGER NOT NULL DEFAULT 0,
+        lastReopenSha TEXT
+      )
+    `);
+    db.prepare(
+      'INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('crit_legacy_1', missionId, 'legacy criterion one', 0, 0, Date.now());
+    db.prepare(
+      'INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('crit_legacy_2', missionId, 'legacy criterion two', 1, 1, Date.now());
+    db.close();
+
+    _resetMissionDbCache(project);
+
+    const criteria = listCriteria(project, missionId);
+    expect(criteria).toHaveLength(2);
+    expect(criteria[0].type).toBe('capability');
+    expect(criteria[0].text).toBe('legacy criterion one');
+    expect(criteria[0].met).toBe(false);
+    expect(criteria[1].type).toBe('capability');
+    expect(criteria[1].text).toBe('legacy criterion two');
+    expect(criteria[1].met).toBe(true);
+  });
+
+  test('addCriterion throws and inserts no row for an unknown type', async () => {
+    const missionId = await makeMissionNode();
+
+    expect(() => addCriterion(project, missionId, 'x', 'bogus-type' as any)).toThrow();
+    expect(listCriteria(project, missionId)).toHaveLength(0);
+  });
+});
