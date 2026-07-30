@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation } from './supervisor-store.js';
+import { getConductorEnabled, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation, reopenResolvedEscalationByConditionKey } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -96,8 +96,9 @@ export function collectMissionTodoIds(project: string, missionId: string): Set<s
 }
 
 /** The store's durable identity for a criterion-serve-cap card: one per criterion. Used as
- *  `conditionKey` so a resolved card is suppressed and an open one is bumped instead of
- *  re-raised (supervisor-store.ts createEscalation :824-842). */
+ *  `conditionKey` so an open card is bumped instead of re-raised (supervisor-store.ts
+ *  createEscalation :824-842), and a resolved card is REOPENED (not left suppressed) via
+ *  `reopenResolvedEscalationByConditionKey` when the criterion is still capped+unmet. */
 export function serveCapConditionKey(criterionId: string): string {
   return `serve-cap:${criterionId}`;
 }
@@ -228,6 +229,8 @@ export interface ConductorPassDeps {
   /** Injectable for the serve-cap escalation (test spy). Defaults to the store fns. */
   createEscalation?: typeof createEscalation;
   listOpenEscalations?: typeof listOpenEscalations;
+  /** Injectable resolved-card reopen (test spy). Defaults to the store fn. */
+  reopenResolvedEscalation?: typeof reopenResolvedEscalationByConditionKey;
   /** Injectable resolved-card read for the WAKE CONTEXT block. Defaults to the store fn. */
   listEscalationsResolvedSince?: typeof listEscalationsResolvedSince;
   /** Injectable WAKE CONTEXT renderer (test seam for the fail-open path). Defaults to the pure
@@ -277,9 +280,10 @@ export interface ConductorPassResult {
  *  move to make. These are the reasons whose status ends in "needs you": a capped criterion
  *  ladder that's exhausted (`criteria-escalated`) and a mission that blew its rebet budget
  *  (`over-budget-rebet`). The Bridge keys the RED project-card / "needs you" signal off this so
- *  a needs-you conductor status can never sit next to a green card (the serve-cap escalation
- *  that should back it can be resolved-then-silenced — bug filed separately). Single source of
- *  truth, shared by conductorStatusLine and the /conductor-running route. */
+ *  a needs-you conductor status can never sit next to a green card (the serve-cap card is
+ *  reopened via reopenResolvedEscalationByConditionKey when the criterion is still capped+unmet,
+ *  so it always backs a needs-you status). Single source of truth, shared by conductorStatusLine
+ *  and the /conductor-running route. */
 export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null | undefined): boolean {
   return reason === 'criteria-escalated' || reason === 'over-budget-rebet';
 }
@@ -490,6 +494,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         });
 
         const marker = serveCapMarker(c.id);
+        const questionText =
+          `Mission "${target.summary.node.title ?? missionId}" — criterion "${c.text}" ${marker}: ` +
+          `${c.servedEpicCount} serving epics filed but the criterion is still unmet — it likely needs ` +
+          `HUMAN action (a live measurement / deploy / rescope); the conductor will not re-file. ` +
+          `Resolve or rescope this criterion.\n` +
+          diagnosis;
         const res = createEsc({
           project,
           session,
@@ -499,14 +509,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           audience: 'human',
           conditionKey: serveCapConditionKey(c.id),
           conditionTuple: ['serve-cap', c.id],
-          questionText:
-            `Mission "${target.summary.node.title ?? missionId}" — criterion "${c.text}" ${marker}: ` +
-            `${c.servedEpicCount} serving epics filed but the criterion is still unmet — it likely needs ` +
-            `HUMAN action (a live measurement / deploy / rescope); the conductor will not re-file. ` +
-            `Resolve or rescope this criterion.\n` +
-            diagnosis,
+          questionText,
         });
-        if (res && res.isNew) escalationsRaised++;
+        if (res && res.isNew) {
+          escalationsRaised++;
+        } else if (res && !res.isNew && res.escalation.status === 'resolved') {
+          const reopen = deps.reopenResolvedEscalation ?? reopenResolvedEscalationByConditionKey;
+          const reopened = reopen({ project, conditionKey: serveCapConditionKey(c.id), questionText });
+          if (reopened && reopened.reopened) escalationsRaised++;
+        }
       } catch {
         // fail-open per criterion — one bad card must not sink the rest of the pass.
       }
