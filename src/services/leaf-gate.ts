@@ -16,6 +16,7 @@ import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { activeQuarantine, promoteQuarantineCandidates } from './flaky-quarantine';
+import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
 export interface GateTestLane {
@@ -124,6 +125,11 @@ export interface LeafGateResult {
    *  Reporting only — never affects a lane whose failures are not ALL quarantined — and
    *  present only when a downgrade actually happened. */
   quarantinedOnlyFailures?: string[];
+  /** Base-gate only: present when a `checkout` dep was supplied and a poison probe fired.
+   *  `paths` = the poisoned files reported by the probe; `restored` = the subset the restore
+   *  step actually cleaned (empty when no restore dep or restore failed). Reporting only —
+   *  never affects status semantics. */
+  poisonedCheckout?: { paths: string[]; restored: string[] };
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -810,8 +816,39 @@ export function gateFindingsText(r: LeafGateResult): string {
 export async function runBaseGate(
   cwd: string, cfg: LeafGateConfig | null, spawn: GateSpawn,
   observe?: { project: string; baseSha: string },
+  checkout?: {
+    probe: (cwd: string) => Promise<PoisonedCheckout>;
+    restore?: (cwd: string, paths: string[]) => Promise<{ restored: string[]; failed: string[] }>;
+  },
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: [], declared: false };
+
+  let poisonedCheckout: { paths: string[]; restored: string[] } | undefined;
+  if (checkout) {
+    const initial = await checkout.probe(cwd);
+    if (initial.poisoned) {
+      if (checkout.restore) {
+        const { restored, failed } = await checkout.restore(cwd, initial.paths);
+        const reprobe = await checkout.probe(cwd);
+        if (!reprobe.poisoned) {
+          poisonedCheckout = { paths: initial.paths, restored };
+          // fall through to normal lane measurement below
+        } else {
+          return {
+            status: 'error', output: '', declared: true,
+            reasons: ['poisoned-checkout', ...initial.detail, `restore left poisoned: ${failed.join(', ')}`],
+            poisonedCheckout: { paths: initial.paths, restored },
+          };
+        }
+      } else {
+        return {
+          status: 'error', output: '', declared: true,
+          reasons: ['poisoned-checkout', ...initial.detail],
+          poisonedCheckout: { paths: initial.paths, restored: [] },
+        };
+      }
+    }
+  }
 
   const baselineFailures: LaneBaselineMap = {};
   let firstFailCommand: string | undefined;
@@ -892,10 +929,14 @@ export async function runBaseGate(
       reasons: [firstFailReason!, lastLines(firstFailOutput, 20)],
       declared: true,
       baselineFailures,
+      ...(poisonedCheckout ? { poisonedCheckout } : {}),
     };
   }
 
-  return { status: 'pass', output: '', reasons: [], declared: true, baselineFailures };
+  return {
+    status: 'pass', output: '', reasons: [], declared: true, baselineFailures,
+    ...(poisonedCheckout ? { poisonedCheckout } : {}),
+  };
 }
 
 /** A base-gate verdict is a durable BASE FACT only when the gate actually RAN.
