@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { CRITERION_SERVE_CAP } from './harness-caps';
 
-export type ApproachRung = 'fresh-blueprint' | 'tier-bump' | 're-decompose';
+export type ApproachRung = 'fresh-blueprint' | 'tier-bump' | 're-decompose' | 'test-only-close';
 
 export type ApproachOutcome = 'attempted' | 'not-applicable' | 'failed';
 
@@ -81,6 +81,25 @@ export function recordApproachAttempt(row: Omit<ApproachAttempt, 'id'> & { id?: 
          outcome=excluded.outcome, detail=excluded.detail, attemptedAt=excluded.attemptedAt`,
     ).run(id, row.criterionId, row.missionId, row.project, row.rung, epicId, row.outcome, row.detail ?? null, row.attemptedAt);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Atomically claim a (criterionId, rung, epicId) slot once. Returns true if this call
+ *  performed the insert, false if the slot was already claimed (or on any thrown error —
+ *  fail closed, matching the existing pattern above). Reuses idx_criterion_approach_rung. */
+export function claimApproachRungOnce(row: Omit<ApproachAttempt, 'id'> & { id?: string }): boolean {
+  try {
+    const id = row.id ?? crypto.randomUUID();
+    const epicId = row.epicId ?? '';
+    const d = openDb();
+    const result = d.prepare(
+      `INSERT INTO criterion_approach (id, criterionId, missionId, project, rung, epicId, outcome, detail, attemptedAt)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(criterionId, rung, epicId) DO NOTHING`,
+    ).run(id, row.criterionId, row.missionId, row.project, row.rung, epicId, row.outcome, row.detail ?? null, row.attemptedAt);
+    return result.changes > 0;
   } catch {
     return false;
   }
