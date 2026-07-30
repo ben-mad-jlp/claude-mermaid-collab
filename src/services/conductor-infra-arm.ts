@@ -31,7 +31,7 @@ import { createEscalation, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHonourCachedBaseGate } from './worker-ledger.js';
 import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
-import { raiseBaseRepairEpic, type RaiseBaseRepairArgs } from './base-repair-epic.js';
+import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, type RaiseBaseRepairArgs } from './base-repair-epic.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
@@ -224,6 +224,7 @@ export interface InfraArmDeps {
   recordSignature?: typeof recordEpicProbeSignature;
   now?: () => number;
   raiseBaseRepair?: typeof raiseBaseRepairEpic;
+  reapSettled?: typeof reapSettledBaseRepairEpics;
 }
 
 export interface InfraArmResult {
@@ -239,6 +240,9 @@ export interface InfraArmResult {
   skipped: string[];
   /** Epic ids of base-repair epics raised this pass. */
   baseRepairEpics: string[];
+  /** Base-repair epic ids dropped this pass because their target lane already landed or was
+   *  dropped. */
+  reapedBaseRepairEpics: string[];
 }
 
 /**
@@ -255,7 +259,14 @@ export async function runInfraRejectionArm(
   deps: InfraArmDeps = {},
 ): Promise<InfraArmResult> {
   const candidates = collectInfraRejectedLeaves(project, missionId);
-  const result: InfraArmResult = { candidates, reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [] };
+  const result: InfraArmResult = {
+    candidates,
+    reset: [],
+    cardsRaised: 0,
+    skipped: [],
+    baseRepairEpics: [],
+    reapedBaseRepairEpics: [],
+  };
   if (candidates.length === 0) return result;
 
   const probe = deps.probe ?? defaultEpicBaseProbe;
@@ -266,6 +277,7 @@ export async function runInfraRejectionArm(
   const recordSignature = deps.recordSignature ?? recordEpicProbeSignature;
   const nowFn = deps.now;
   const raiseRepair = deps.raiseBaseRepair ?? raiseBaseRepairEpic;
+  const reapSettled = deps.reapSettled ?? reapSettledBaseRepairEpics;
 
   const todos = listTodos(project, { includeCompleted: true });
   const byId = new Map<string, Todo>(todos.map((t) => [t.id, t]));
@@ -409,6 +421,12 @@ export async function runInfraRejectionArm(
     } catch {
       // fail-open — a card-store hiccup on the coalesced call must not sink the pass.
     }
+  }
+
+  try {
+    result.reapedBaseRepairEpics = await reapSettled(project);
+  } catch {
+    // fail-open — a reap-scan hiccup must not sink the pass.
   }
 
   return result;
