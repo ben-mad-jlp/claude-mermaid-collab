@@ -127,7 +127,7 @@ export function leafSessionKey(leaf: Todo): string {
  *  shared VERBATIM by every blueprint-authoring prompt (buildNodePrompt's 'blueprint' case,
  *  buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt, buildBlueprintRepairPrompt) so the
  *  schema can never drift between them. */
-const MANIFEST_JSON_SCHEMA_LINES: readonly string[] = [
+export const MANIFEST_JSON_SCHEMA_LINES: readonly string[] = [
   'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable',
   'diff contract — the prose blueprint goes above it). It MUST be the LAST json fence in the file',
   'and parse as (schemaVersion 2 — a TYPED diff contract):',
@@ -161,7 +161,7 @@ const MANIFEST_GLOB_RULE_LINE =
  *  prompts (buildNodePrompt's 'blueprint' case and buildBlueprintRefreshPrompt). The two
  *  repair prompts state the glob rule earlier (as part of restating the offending criterion)
  *  and skip this trailing glossary. */
-const MANIFEST_SCHEMA_NOTES_LINES: readonly string[] = [
+export const MANIFEST_SCHEMA_NOTES_LINES: readonly string[] = [
   'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
   'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
   'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
