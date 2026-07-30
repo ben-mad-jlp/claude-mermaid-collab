@@ -110,12 +110,19 @@ export function buildServeCapDiagnosis(input: {
   servedEpicCount: number;
   attempts: ApproachAttempt[];
   distinctReasons: string[];
+  verdict?: { evidence: string | null; verifiedAt: number | null; verifiedAtSha: string | null };
+  newestReasonAt?: number;
+  exhaustedBy?: 're-decompose' | 'serve-cap' | 'store-fault';
 }): string {
   // REASONS SEEN block: up to 5 reasons, each max 200 chars
   const slicedReasons = input.distinctReasons.slice(0, 5);
   const reasonsBlock = slicedReasons.length > 0
     ? slicedReasons.map((r) => `- ${r.substring(0, 200)}`).join('\n')
     : '- (none recorded)';
+
+  const verdictWins = input.verdict?.verifiedAt != null
+    && input.verdict.verifiedAt > (input.newestReasonAt ?? -Infinity);
+  const historicalHeader = verdictWins ? 'EARLIER ATTEMPTS (REASONS SEEN)' : 'REASONS SEEN';
 
   // LADDER block: three rungs in order
   const ladderOrder: Array<'fresh-blueprint' | 'tier-bump' | 're-decompose'> = ['fresh-blueprint', 'tier-bump', 're-decompose'];
@@ -144,12 +151,26 @@ export function buildServeCapDiagnosis(input: {
     recommendLine = `RECOMMEND: the criterion likely needs a human action / rescope: ${input.distinctReasons[0]}`;
   } else if (presentRungs.length === ladderOrder.length) {
     recommendLine = 'RECOMMEND: all ladder rungs ran and the criterion is still unmet — human rescope';
+  } else if (input.exhaustedBy === 'serve-cap') {
+    recommendLine = `RECOMMEND: criterion hit the serve cap (${CRITERION_SERVE_CAP}) with ${input.servedEpicCount} serving epics — human rescope`;
+  } else if (input.exhaustedBy === 'store-fault') {
+    recommendLine = 'RECOMMEND: the approach-attempt store could not be read — exhaustion could not be established; human rescope';
   } else {
     recommendLine = `RECOMMEND: ladder incomplete — ${missingRungs.join(', ')} never ran; investigate the rung owner`;
   }
 
+  const verdictBlock = verdictWins
+    ? [
+        'CURRENT VERDICT',
+        `sha ${input.verdict!.verifiedAtSha}`,
+        input.verdict!.evidence ?? '(no evidence recorded)',
+        '',
+      ]
+    : [];
+
   return [
-    'REASONS SEEN',
+    ...verdictBlock,
+    historicalHeader,
     reasonsBlock,
     '',
     'LADDER',
