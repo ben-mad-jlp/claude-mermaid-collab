@@ -4,7 +4,7 @@ import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
 import { yieldToLoop } from './loop-yield.ts';
 import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe } from './epic-branch-status.ts';
-import { hasLandStamp } from './epic-landedness';
+import { hasLandStamp, isLanded } from './epic-landedness';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -21,6 +21,9 @@ import { hasLandStamp } from './epic-landedness';
  *                            but landedAt is still null (a383bc2c — every epic that
  *                            looks done must actually land).
  *  - broken-depends-on       dependsOn points at a missing or dropped todo.
+ *  - stranded-leaf           child of a LANDED [EPIC] that is not dropped and not
+ *                            done+accepted (a383bc2c — landed work must not strand a
+ *                            live/unsettled sibling).
  *
  * Epics and land leaves are identified by the `kind` column via the shared predicate
  * module (./todo-kind), not by title prefix. Titles still carry their prefixes; they
@@ -32,7 +35,8 @@ export type InvariantKind =
   | 'stranded-epic'
   | 'broken-depends-on'
   | 'landed-at-divergence'
-  | 'live-child-under-terminal-epic';
+  | 'live-child-under-terminal-epic'
+  | 'stranded-leaf';
 
 export interface InvariantViolation {
   kind: InvariantKind;
@@ -167,6 +171,29 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
           reason: `child of terminal epic ${t.id} (status='${t.status}', landedAt=${t.landedAt ?? 'null'}) is not done/dropped (status='${c.status}')`,
         });
       }
+    }
+  }
+
+  // 'stranded-leaf' COEXISTS with 'live-child-under-terminal-epic' above — that check is
+  // narrower (only flags non-isTerminalStatus children, so it misses a done-but-not-accepted
+  // child, which 'stranded-leaf' catches). It cannot double-count with 'stranded-epic' above,
+  // which only fires when !hasLandStamp(t) — this loop only fires when isLanded(t) is true,
+  // and hasLandStamp implies isLanded, so a given epic can never satisfy both guards at once
+  // in the same direction. Note: isLanded can also be true via status==='done' alone (no
+  // landedAt stamp) — in that case an epic COULD also be flagged by 'stranded-epic' if its
+  // children are all done+accepted, but that's intentionally overlapping-but-non-duplicating:
+  // 'stranded-epic' keys on the epic itself, this loop keys on the (different) unsettled child.
+  for (const t of todos) {
+    if (!isEpicTodo(t) || !isLanded(t)) continue;
+    for (const c of childrenOf.get(t.id) ?? []) {
+      if (c.status === 'dropped') continue;
+      if (c.status === 'done' && c.acceptanceStatus === 'accepted') continue;
+      violations.push({
+        kind: 'stranded-leaf',
+        todoId: c.id,
+        title: c.title,
+        reason: `parent epic ${t.id} is landed (status='${t.status}', landedAt=${t.landedAt ?? 'null'}) but child status='${c.status}' acceptanceStatus='${c.acceptanceStatus ?? 'null'}' is neither dropped nor done+accepted`,
+      });
     }
   }
 
