@@ -83,6 +83,14 @@ export const CONDUCTOR_BEAT_MS = 30_000;
  *  Origin: src/services/conductor-pass.ts (the invokeNode call in runConductorPassInner). */
 export const CONDUCTOR_NODE_TIMEOUT_MS = 1_200_000;
 
+/** Counts CONSECUTIVE `timedOut` conductor node invocations on ONE unchanged serve-state
+ *  (keyed `${serveFp}|timeout:N`). This is a DISTINCT counter from CONDUCTOR_SERVE_RETRY_CAP
+ *  (node FAILURE) and never reuses that identifier or its stored key — a timeout is an infra
+ *  fact about the serve-state's cost (its evidence payload cannot be processed inside
+ *  CONDUCTOR_NODE_TIMEOUT_MS), not a productive-attempt failure. Override with
+ *  CONDUCTOR_TIMEOUT_RECUR_CAP (default 3). */
+export const CONDUCTOR_TIMEOUT_RECUR_CAP = Math.max(1, Number(process.env.CONDUCTOR_TIMEOUT_RECUR_CAP) || 3);
+
 /** HARD RE-DISPATCH CAP (loop breaker). A todo re-dispatched this many times without
  *  reaching done/accepted is looping — each dispatch re-runs (and re-pays) a full
  *  blueprint. Past the cap the daemon PARKS it held + escalates instead of paying

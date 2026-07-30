@@ -21,7 +21,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
-import { CONDUCTOR_NODE_TIMEOUT_MS } from '../harness-caps';
+import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
 
 let project: string;
@@ -292,7 +292,7 @@ describe('runConductorPass — scheduling', () => {
       expect(key.includes('|fail:')).toBe(false);
     });
 
-    test('transient (timedOut, real start-window kill) failures never stamp the fail counter or wedge the mission', async () => {
+    test('transient (timedOut, real start-window kill) failures never stamp the fail counter, but ARE bounded by the distinct timeout-recurrence cap', async () => {
       addWatchedProject(project);
       setConductorEnabled(project, true);
       const forged = await forgeApprovedActive();
@@ -306,14 +306,120 @@ describe('runConductorPass — scheduling', () => {
 
       let calls = 0;
       const invoke = async () => { calls++; return real; };
-      const n = CONDUCTOR_SERVE_RETRY_CAP + 2;
+      // Unlike rateLimited/startFailure, timedOut is bounded by CONDUCTOR_TIMEOUT_RECUR_CAP —
+      // it never falls into the plain fail:-counter no-op arm, but it is not left unbounded
+      // either. It still never touches lastConductorKey's |fail: prefix.
+      for (let i = 0; i < CONDUCTOR_TIMEOUT_RECUR_CAP; i++) {
+        const r = await runConductorPass(project, { invoke });
+        expect(r.ran).toBe(true);
+        expect(r.reason).toBe('node-failed');
+      }
+      expect(calls).toBe(CONDUCTOR_TIMEOUT_RECUR_CAP);
+      const capped = await runConductorPass(project, { invoke });
+      expect(capped.ran).toBe(false);
+      expect(capped.reason).toBe('conductor-timeouts-capped');
+      expect(calls).toBe(CONDUCTOR_TIMEOUT_RECUR_CAP); // no further node spawned past the cap
+      const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
+      expect(key.includes('|fail:')).toBe(false);
+    });
+  });
+
+  describe('CONDUCTOR_TIMEOUT_RECUR_CAP — bounded timeout recurrence + one card naming the serve-state', () => {
+    const timedOutInvoke = async () => { invokeCalls++; return { ok: false, rateLimited: false, timedOut: true, text: '' } as any; };
+
+    test('CONDUCTOR_TIMEOUT_RECUR_CAP consecutive timeouts on an unchanged serve-state cap the pass and raise exactly one escalation naming the serve-state', async () => {
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      const forged = await forgeApprovedActive();
+      let lastReason = '';
+      for (let i = 0; i < CONDUCTOR_TIMEOUT_RECUR_CAP + 1; i++) {
+        const r = await runConductorPass(project, { invoke: timedOutInvoke });
+        lastReason = r.reason;
+      }
+      expect(invokeCalls).toBe(CONDUCTOR_TIMEOUT_RECUR_CAP);
+      expect(lastReason).toBe('conductor-timeouts-capped');
+      const cards = listOpenEscalations().filter((e) => e.kind === 'conductor-timeouts-capped' && e.todoId === forged.missionId);
+      expect(cards.length).toBe(1);
+      const mission = getMission(project, forged.missionId)!;
+      expect(cards[0].questionText).toContain(String(mission.status));
+    });
+
+    test('a single timeout still re-invokes the node on the next tick', async () => {
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      await forgeApprovedActive();
+      const r1 = await runConductorPass(project, { invoke: timedOutInvoke });
+      expect(r1.ran).toBe(true);
+      expect(r1.reason).toBe('node-failed');
+      const r2 = await runConductorPass(project, { invoke: timedOutInvoke });
+      expect(r2.ran).toBe(true);
+      expect(r2.reason).toBe('node-failed');
+      expect(invokeCalls).toBe(2);
+    });
+
+    test('rateLimited and startFailure passes past CONDUCTOR_TIMEOUT_RECUR_CAP re-invoke every tick and raise zero timeout cards', async () => {
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      const forgedRL = await forgeApprovedActive();
+      let rlCalls = 0;
+      const rateLimitedInvoke = async () => { rlCalls++; return { ok: false, rateLimited: true, text: '' } as any; };
+      const n = CONDUCTOR_TIMEOUT_RECUR_CAP + 1;
+      for (let i = 0; i < n; i++) {
+        const r = await runConductorPass(project, { invoke: rateLimitedInvoke });
+        expect(r.ran).toBe(true);
+        expect(r.reason).toBe('node-failed');
+      }
+      expect(rlCalls).toBe(n); // every tick invoked — never capped
+
+      const stubDir2 = mkdtempSync(join(tmpdir(), 'conductor-claude-stub2-'));
+      const realCwd2 = mkdtempSync(join(tmpdir(), 'conductor-real-cwd2-'));
+      _resetAuthCache();
+      _resetClaudeBinCache();
+      _primeAuthCacheForTest('subscription');
+      process.env.MERMAID_TEST_ALLOW_DETACHED = '1';
+      process.env.CLAUDE_BIN = join(stubDir2, 'does-not-exist');
+      const project2 = mkdtempSync(join(tmpdir(), 'conductor-'));
+      _resetMissionDbCache(project2);
+      const priorProject = project;
+      project = project2;
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      await forgeApprovedActive();
+      const real = await invokeNode({ prompt: 'x', cwd: realCwd2 });
+      expect(real.startFailure != null).toBe(true);
+      let sfCalls = 0;
+      const invoke = async () => { sfCalls++; return real; };
       for (let i = 0; i < n; i++) {
         const r = await runConductorPass(project, { invoke });
         expect(r.ran).toBe(true);
         expect(r.reason).toBe('node-failed');
       }
-      expect(calls).toBe(n);
-      const key = getMission(project, forged.missionId)?.lastConductorKey ?? '';
+      expect(sfCalls).toBe(n); // every tick invoked — never capped
+      delete process.env.CLAUDE_BIN;
+      delete process.env.MERMAID_TEST_ALLOW_DETACHED;
+      _resetAuthCache();
+      _resetClaudeBinCache();
+      project = priorProject;
+
+      const timeoutCards = listOpenEscalations().filter(
+        (e) => e.kind === 'conductor-timeouts-capped' && (e.todoId === forgedRL.missionId || e.project === project2),
+      );
+      expect(timeoutCards.length).toBe(0);
+    });
+
+    test('CONDUCTOR_TIMEOUT_RECUR_CAP is a distinct identifier from CONDUCTOR_SERVE_RETRY_CAP and burning the timeout counter leaves the fail counter untouched', async () => {
+      expect(CONDUCTOR_TIMEOUT_RECUR_CAP).not.toBe(undefined);
+      expect(CONDUCTOR_SERVE_RETRY_CAP).not.toBe(undefined);
+      expect('CONDUCTOR_TIMEOUT_RECUR_CAP').not.toBe('CONDUCTOR_SERVE_RETRY_CAP');
+
+      addWatchedProject(project);
+      setConductorEnabled(project, true);
+      const forged = await forgeApprovedActive();
+      for (let i = 0; i < CONDUCTOR_TIMEOUT_RECUR_CAP; i++) {
+        await runConductorPass(project, { invoke: timedOutInvoke });
+      }
+      const mission = getMission(project, forged.missionId)!;
+      const key = mission.lastConductorKey ?? '';
       expect(key.includes('|fail:')).toBe(false);
     });
   });

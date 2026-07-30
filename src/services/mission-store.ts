@@ -76,6 +76,10 @@ export interface MissionRow {
   /** The pass's own self-issued key from its last run, distinct from the debounce
    *  lastConductorKey. Null until the first pass supplies one. */
   lastConductorSelfKey: string | null;
+  /** Consecutive-timeout counter for the conductor node, distinct from lastConductorKey's
+   *  fail counter. Stored shape `${serveFp}|timeout:N`, or null before the first timeout.
+   *  A changed serveFp re-arms the count to 0 (see readConductorTimeoutRecurrence). */
+  lastConductorTimeoutKey: string | null;
   /** Whether this is the ACTIVE mission for its owning session. A steward drives ONE
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
@@ -278,6 +282,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'lastConductorKey', 'lastConductorKey TEXT');
   addColumnIfMissing(db, 'mission', 'lastConductorPassAt', 'lastConductorPassAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastConductorSelfKey', 'lastConductorSelfKey TEXT');
+  addColumnIfMissing(db, 'mission', 'lastConductorTimeoutKey', 'lastConductorTimeoutKey TEXT');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
   // Note: migrateDropPhaseMachine (below) rebuilds the pre-closedAt mission table shape when
@@ -326,6 +331,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     lastConductorKey: (row.lastConductorKey as string | null) ?? null,
     lastConductorPassAt: (row.lastConductorPassAt as number | null) ?? null,
     lastConductorSelfKey: (row.lastConductorSelfKey as string | null) ?? null,
+    lastConductorTimeoutKey: (row.lastConductorTimeoutKey as string | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
     queuePos: (row.queuePos as number | null) ?? null,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
@@ -363,6 +369,27 @@ export function stampConductorRun(
     db.prepare('UPDATE mission SET lastConductorKey = ?, lastConductorPassAt = ?, updatedAt = ? WHERE todoId = ?')
       .run(key, at, nowMs(), todoId);
   }
+}
+
+/** Bump the per-mission consecutive-timeout counter for an unchanged serve-state (serveFp).
+ *  Distinct from stampConductorRun's fail counter — see CONDUCTOR_TIMEOUT_RECUR_CAP. */
+export function stampConductorTimeout(project: string, todoId: string, serveFp: string): void {
+  const prefix = `${serveFp}|timeout:`;
+  const db = openDb(project);
+  const row = db.query('SELECT lastConductorTimeoutKey FROM mission WHERE todoId = ?').get(todoId) as { lastConductorTimeoutKey: string | null } | null;
+  const prior = row?.lastConductorTimeoutKey ?? null;
+  const n = prior && prior.startsWith(prefix) ? (Number(prior.slice(prefix.length)) || 0) : 0;
+  db.prepare('UPDATE mission SET lastConductorTimeoutKey = ?, updatedAt = ? WHERE todoId = ?')
+    .run(`${prefix}${n + 1}`, nowMs(), todoId);
+}
+
+/** Pure reader: consecutive-timeout count for the given serveFp. A changed serveFp (the
+ *  argument, not the stored prefix) returns 0 — the re-arm. */
+export function readConductorTimeoutRecurrence(row: Pick<MissionRow, 'lastConductorTimeoutKey'>, serveFp: string): number {
+  const prefix = `${serveFp}|timeout:`;
+  const key = row.lastConductorTimeoutKey;
+  if (!key || !key.startsWith(prefix)) return 0;
+  return Number(key.slice(prefix.length)) || 0;
 }
 
 /**
