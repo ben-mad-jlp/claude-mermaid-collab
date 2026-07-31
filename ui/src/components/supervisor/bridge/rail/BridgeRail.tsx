@@ -144,6 +144,12 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           icon: '♥',
           description: 'Dogfood health signals',
         },
+        {
+          key: 'conductor',
+          label: 'Conductor',
+          icon: '☉',
+          description: 'Conductor pass journal — decisions, criteria acted on, epics served',
+        },
       ],
     });
 

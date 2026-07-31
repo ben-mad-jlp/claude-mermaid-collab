@@ -33,6 +33,7 @@ describe('BridgeRail', () => {
       'subscribers',
       'usage',
       'dogfood',
+      'conductor',
     ];
     expect(items).toHaveLength(expectedOrder.length);
     expectedOrder.forEach((key, index) => {

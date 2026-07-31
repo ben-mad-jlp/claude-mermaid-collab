@@ -42,6 +42,7 @@ import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
+import { ConductorActivityPanel } from './ConductorActivityPanel';
 import { UsagePanel } from './UsagePanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
@@ -491,6 +492,14 @@ export const BridgeDashboard: React.FC = () => {
       subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
       usage: <UsagePanel project={project} serverScope={serverScope} />,
       dogfood: <div className="h-full min-h-0 overflow-y-auto p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
+      conductor: <div className="h-full min-h-0 overflow-y-auto p-2"><ConductorActivityPanel project={project} onOpenEntity={(kind, id) => {
+        if (kind === 'epic') { handleSelectEpic({ id, label: titleByTodoId.get(id) ?? id }); return; }
+        if (kind === 'leaf' || kind === 'card') {
+          const t = todos.find((x) => x.id === id);
+          if (t) handleSelectTodo(t);
+          return;
+        }
+      }} /></div>,
     }),
     [nonLandOpenEscalations, blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name],
   );
