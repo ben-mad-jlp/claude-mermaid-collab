@@ -1,14 +1,19 @@
 /**
- * Canonical API for three distinct landed-ness notions.
+ * Canonical API for distinct landed-ness notions.
  *
  * INTENT STAMP: `epic.landedAt` — a land path stamped intent to land.
- * GIT-REACHED-MASTER: a merge sha in the land record — durable proof the epic's tip reached master.
+ * GIT-REACHED-MASTER: a merge sha in the land record — durable, RECORD-BACKED proof the
+ *   epic's tip reached master (`hasGitReachedMaster`, unchanged by this module).
+ * GIT-REACHED-TRUNK: `git log --grep=Collab-Epic` on the detected trunk branch — a durable,
+ *   GIT-BACKED probe (`isEpicLandedInGit`) that proves reachability WITHOUT the land record,
+ *   so it can still detect a real land even when the record write was skipped.
  * REACHABILITY: descendant work audit — all accepted code leaves carry committed trailers reachable from the epic branch.
  *
- * These three disagree in real states: a stamp without a merge (land started, then failed),
- * a merge without a status (completed by direct commit), or landed-but-stranded work (a leaf
- * committed elsewhere). They must NEVER be collapsed into one boolean — each has distinct
- * call sites and implications.
+ * These notions disagree in real states: a stamp without a merge (land started, then failed),
+ * a merge without a status (completed by direct commit), landed-but-stranded work (a leaf
+ * committed elsewhere), or a real trunk merge whose land record was never written (git says
+ * landed, the record says not). They must NEVER be collapsed into one boolean — each has
+ * distinct call sites and implications.
  */
 
 import type { Todo } from './todo-store.js';
@@ -106,6 +111,80 @@ export async function isEpicWorkReachable(project: string, epicId: string): Prom
       indeterminate: true,
       stranded: [],
     };
+  }
+}
+
+/** Result of a git-only trunk-reachability probe. */
+export type GitLandStatus = 'landed' | 'not-landed' | 'indeterminate';
+
+/** Runs git in `cwd` with `args`, returning its exit code and stdout. Injectable for tests. */
+export interface GitRunner {
+  (cwd: string, args: string[]): Promise<{ code: number; stdout: string }>;
+}
+
+/** Hard cap on any single git probe. */
+const GIT_PROBE_TIMEOUT_MS = 15_000;
+
+/** Default async GitRunner: Bun.spawn + await exited, never spawnSync (would block the
+ *  sidecar event loop), never throws (probe failures resolve to a non-zero code). */
+async function defaultRunGit(cwd: string, gitArgs: string[]): Promise<{ code: number; stdout: string }> {
+  try {
+    const p = Bun.spawn(['git', ...gitArgs], {
+      cwd,
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const killTimer = setTimeout(() => { try { p.kill(); } catch { /* already gone */ } }, GIT_PROBE_TIMEOUT_MS);
+    try {
+      const [stdout, code] = await Promise.all([
+        p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
+        p.exited,
+      ]);
+      return { code: code ?? 1, stdout };
+    } finally {
+      clearTimeout(killTimer);
+    }
+  } catch {
+    return { code: 1, stdout: '' };
+  }
+}
+
+/**
+ * Detect the repo's trunk branch: the current HEAD's symbolic ref name, falling back to
+ * the raw commit sha on a detached/bare HEAD. Sibling implementation to
+ * `WorktreeManager.detectBaseBranch` (src/agent/worktree-manager.ts:2465) — that one lives
+ * on the class and isn't reusable here without constructing a WorktreeManager, so this is a
+ * module-local mirror rather than an import.
+ */
+export async function detectTrunkBranch(projectRoot: string, runGit: GitRunner = defaultRunGit): Promise<string> {
+  const sym = await runGit(projectRoot, ['symbolic-ref', '--short', 'HEAD']).catch(() => ({ code: 1, stdout: '' }));
+  if (sym.code === 0 && sym.stdout.trim()) return sym.stdout.trim();
+  const rev = await runGit(projectRoot, ['rev-parse', 'HEAD']);
+  return rev.stdout.trim();
+}
+
+/**
+ * Git-only probe: has a commit carrying `Collab-Epic: <epicId>` reached the detected trunk?
+ *
+ * Deliberately independent of the durable land record (see `hasGitReachedMaster`) — it can
+ * prove reachability even when the record write was skipped. Never reads `todo.landedAt` and
+ * never calls `getEpicLandRecord`. Never throws.
+ */
+export async function isEpicLandedInGit(
+  project: string,
+  epicId: string,
+  deps?: { runGit?: GitRunner; trunk?: string },
+): Promise<GitLandStatus> {
+  try {
+    const runGit = deps?.runGit ?? defaultRunGit;
+    const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
+    if (!trunk) return 'indeterminate';
+    const res = await runGit(project, ['log', trunk, `--grep=Collab-Epic: ${epicId}`, '--format=%H', '-1']).catch(() => null);
+    if (res === null) return 'indeterminate';
+    if (res.code !== 0) return 'indeterminate';
+    return res.stdout.trim().length > 0 ? 'landed' : 'not-landed';
+  } catch {
+    return 'indeterminate';
   }
 }
 
