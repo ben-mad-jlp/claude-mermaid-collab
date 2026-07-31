@@ -206,6 +206,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
       inheritedFiles: [],
       declaredFiles: [],
       isBucket: false,
+      nickname: 'nick',
       },
       {
         id: 'e1',
@@ -252,6 +253,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
       inheritedFiles: [],
       declaredFiles: [],
       isBucket: false,
+      nickname: 'nick',
       },
       {
         id: 'land1',
@@ -298,6 +300,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
       inheritedFiles: [],
       declaredFiles: [],
       isBucket: false,
+      nickname: 'nick',
       },
     ];
 
