@@ -81,6 +81,8 @@ describe('conductor_pass journal — carried rollup', () => {
     expect(row.carried!.count).toBe(0);
     expect(row.carried!.verify).toEqual([]);
     expect(row.carried!.serve).toEqual([]);
-    expect(row.criteriaActed).toEqual([{ criterionId: crit.id, action: 'discover', servedEpicId: null }]);
+    expect(row.criteriaActed).toEqual([
+      { criterionId: crit.id, action: 'discover', servedEpicId: null, servedEpicNickname: null },
+    ]);
   });
 });
