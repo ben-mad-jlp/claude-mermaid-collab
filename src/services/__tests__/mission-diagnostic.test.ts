@@ -2,10 +2,12 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTodo, _closeProject } from '../todo-store';
+import { createTodo, claimTodo, _closeProject } from '../todo-store';
 import { upsertMission, addCriterion } from '../mission-store';
 import { buildMissionDiagnostic, classifyLeafTerminal } from '../mission-diagnostic';
 import type { LeafRunSummary } from '../ledger-stats';
+import { openPassRow, finalizePassRow, _closeConductorJournalDb, type ConductorPassArm } from '../conductor-pass-journal';
+import { _closeLedgerDb } from '../worker-ledger';
 
 let project: string;
 
@@ -16,6 +18,8 @@ beforeEach(() => {
 
 afterEach(() => {
   _closeProject(project);
+  _closeConductorJournalDb();
+  _closeLedgerDb();
   delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(project, { recursive: true, force: true });
 });
@@ -72,6 +76,132 @@ describe('buildMissionDiagnostic', () => {
     expect(Object.keys(result).sort()).toEqual(
       ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
     );
+  });
+});
+
+const NO_GIT = { isEpicLandedInGit: async () => 'indeterminate' as const, epicHeadSha: async () => null };
+
+function addFinalizedPass(missionId: string, startedAt: number, outcome: string, arm: ConductorPassArm = 'node', ran = true) {
+  const id = openPassRow(project, missionId, startedAt);
+  expect(id).not.toBeNull();
+  finalizePassRow(id!, { outcome, ran, arm, endedAt: startedAt + 1 });
+}
+
+describe('buildMissionDiagnostic conductorPass', () => {
+  test('three finalized debounced passes yield debouncedStreak 3', async () => {
+    const { m } = await makeFixture();
+    addFinalizedPass(m.id, 1000, 'debounced');
+    addFinalizedPass(m.id, 2000, 'debounced');
+    addFinalizedPass(m.id, 3000, 'debounced');
+    const r = await buildMissionDiagnostic(project, m.id, { ...NO_GIT, now: () => 4000 });
+    expect(r.conductorPass.debouncedStreak).toBe(3);
+    expect(r.conductorPass.isInflight).toBe(false);
+    expect(r.conductorPass.lastPassAt).toBe(3000);
+    expect(r.conductorPass.staleSeconds).toBe(1);
+  });
+
+  test('a non-debounced pass between debounced runs stops the streak at the newest contiguous run', async () => {
+    const { m } = await makeFixture();
+    addFinalizedPass(m.id, 1000, 'debounced');
+    addFinalizedPass(m.id, 2000, 'conducted'); // breaks the run
+    addFinalizedPass(m.id, 3000, 'debounced'); // newest
+    const r = await buildMissionDiagnostic(project, m.id, { ...NO_GIT, now: () => 4000 });
+    expect(r.conductorPass.debouncedStreak).toBe(1);
+    expect(r.conductorPass.lastOutcome).toBe('debounced');
+  });
+
+  test('an open (unfinalized) newest row reads isInflight and is excluded from the streak', async () => {
+    const { m } = await makeFixture();
+    addFinalizedPass(m.id, 1000, 'debounced');
+    addFinalizedPass(m.id, 2000, 'debounced');
+    openPassRow(project, m.id, 3000); // open, newest — endedAt stays null
+    const r = await buildMissionDiagnostic(project, m.id, { ...NO_GIT, now: () => 5000 });
+    expect(r.conductorPass.isInflight).toBe(true);
+    expect(r.conductorPass.debouncedStreak).toBe(2);
+    expect(r.conductorPass.lastPassAt).toBe(2000); // the open row is excluded
+  });
+
+  test('no passes yield the all-null/zero shape, not inflight', async () => {
+    const { m } = await makeFixture();
+    const r = await buildMissionDiagnostic(project, m.id, NO_GIT);
+    expect(r.conductorPass).toEqual({
+      lastPassAt: null, lastArm: null, lastOutcome: null, ran: null,
+      isInflight: false, debouncedStreak: 0, staleSeconds: null,
+    });
+  });
+});
+
+describe('buildMissionDiagnostic baseHealth', () => {
+  test('a base-repair epic with an in_progress child leaf surfaces as repairLeafInflight', async () => {
+    const { m } = await makeFixture();
+    const repairEpic = await createTodo(project, {
+      allowOrphan: true, ownerSession: 's1', title: '[EPIC] base-repair', kind: 'epic',
+      status: 'ready', baseRepair: 1,
+    });
+    const leaf = await createTodo(project, {
+      ownerSession: 's1', title: 'green the tsc lane', kind: 'leaf',
+      parentId: repairEpic.id, status: 'ready',
+    });
+    const claimed = await claimTodo(project, leaf.id, 'agent-1', 60_000);
+    expect(claimed).not.toBeNull();
+    const r = await buildMissionDiagnostic(project, m.id, NO_GIT);
+    expect(r.baseHealth.repairLeafInflight?.id).toBe(leaf.id);
+    expect(r.baseHealth.repairLeafInflight?.title).toBe('green the tsc lane');
+  });
+
+  test('a base-repair epic with no in-flight child leaf yields repairLeafInflight null', async () => {
+    const { m } = await makeFixture();
+    const repairEpic = await createTodo(project, {
+      allowOrphan: true, ownerSession: 's1', title: '[EPIC] base-repair', kind: 'epic',
+      status: 'ready', baseRepair: 1,
+    });
+    await createTodo(project, {
+      ownerSession: 's1', title: 'not started', kind: 'leaf',
+      parentId: repairEpic.id, status: 'ready',
+    }); // ready, never claimed ⇒ not in_progress
+    const r = await buildMissionDiagnostic(project, m.id, NO_GIT);
+    expect(r.baseHealth.repairLeafInflight).toBeNull();
+  });
+
+  test('no base-gate row (epicHeadSha resolves null) yields tsc/suite unknown and still resolves', async () => {
+    const { m } = await makeFixture();
+    const r = await buildMissionDiagnostic(project, m.id, {
+      isEpicLandedInGit: async () => 'indeterminate', epicHeadSha: async () => null,
+    });
+    expect(r.baseHealth.tsc).toBe('unknown');
+    expect(r.baseHealth.suite).toBe('unknown');
+  });
+});
+
+describe('buildMissionDiagnostic read-only + fail-open (crit 7)', () => {
+  test('a call performs no write to the todos db (row count unchanged)', async () => {
+    const { m } = await makeFixture();
+    const { listTodos } = await import('../todo-store');
+    const before = listTodos(project, { includeCompleted: true }).length;
+    await buildMissionDiagnostic(project, m.id, NO_GIT);
+    await buildMissionDiagnostic(project, m.id, NO_GIT);
+    const after = listTodos(project, { includeCompleted: true }).length;
+    expect(after).toBe(before);
+  });
+
+  test('every injected source throwing still resolves to a well-formed all-degraded object', async () => {
+    const { m, e } = await makeFixture();
+    const boom = () => { throw new Error('boom'); };
+    const r = await buildMissionDiagnostic(project, m.id, {
+      isEpicLandedInGit: async () => { boom(); return 'landed'; },
+      epicHeadSha: async () => { boom(); return null; },
+      now: () => { boom(); return 0; },
+    });
+    // Shape intact, every git-fed field degraded — never a rejection.
+    expect(Object.keys(r).sort()).toEqual(
+      ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
+    );
+    const servingEpic = r.criteria[0]?.servingEpics.find((s) => s.id === e.id);
+    expect(servingEpic?.landedInGit).toBeNull(); // throwing probe ⇒ indeterminate ⇒ null
+    expect(r.baseHealth.tsc).toBe('unknown');
+    expect(r.baseHealth.suite).toBe('unknown');
+    // now() throwing is caught inside the conductorPass block ⇒ all-degraded shape
+    expect(r.conductorPass.staleSeconds).toBeNull();
   });
 });
 

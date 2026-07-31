@@ -10,6 +10,8 @@ import { isEpic, isLeaf } from './todo-kind.js';
 import { listLeafRuns, type LeafRunSummary } from './ledger-stats.js';
 import { classifyInfraRejection } from './conductor-infra-arm.js';
 import { derivedStatus } from './claimability.js';
+import { listConductorPasses, type ConductorPassArm } from './conductor-pass-journal.js';
+import { getEpicBaseGate } from './worker-ledger.js';
 
 export type LeafTerminalClass =
   | 'accepted'
@@ -27,6 +29,33 @@ export interface MissionDiagnosticLeaf {
   terminalClass: LeafTerminalClass;
 }
 
+/** Latest conductor-pass telemetry for a mission, derived from the durable conductor_pass
+ *  journal (newest-first). Degrades to the all-null/zero shape below on any read failure. */
+export interface MissionDiagnosticConductorPass {
+  /** startedAt of the most recent FINALIZED pass (endedAt != null), or null. */
+  lastPassAt: number | null;
+  /** arm of that finalized pass, or null. */
+  lastArm: ConductorPassArm | null;
+  /** outcome of that finalized pass, or null. */
+  lastOutcome: string | null;
+  /** ran flag of that finalized pass, or null. */
+  ran: boolean | null;
+  /** true when the newest row is still open (endedAt == null) — a pass is mid-flight. */
+  isInflight: boolean;
+  /** contiguous count of newest FINALIZED passes with outcome === 'debounced'. */
+  debouncedStreak: number;
+  /** seconds since lastPassAt (now() - lastPassAt)/1000, or null when no finalized pass. */
+  staleSeconds: number | null;
+}
+
+/** Base-health snapshot for a mission: the trunk lanes' green/red as memoized at the epic
+ *  base gate, plus any in-flight base-repair leaf. Degrades to all-unknown/null on failure. */
+export interface MissionDiagnosticBaseHealth {
+  tsc: 'green' | 'red' | 'unknown';
+  suite: 'green' | 'red' | 'unknown';
+  repairLeafInflight: { id: string; title: string } | null;
+}
+
 export interface MissionDiagnostic {
   status: MissionStatus | null;
   rollup: MissionRollup | null;
@@ -37,9 +66,8 @@ export interface MissionDiagnostic {
     servingEpics: Array<{ id: string; title: string; open: boolean; landedInGit: boolean | null }>;
   }>;
   leaves: MissionDiagnosticLeaf[];
-  conductorPass: null; // TODO(sibling leaf: mission-diagnostic conductorPass field) — stub null
-  baseHealth: { tsc: 'unknown'; suite: 'unknown'; repairLeafInflight: null };
-  // TODO(sibling leaf: mission-diagnostic baseHealth field) — stub above
+  conductorPass: MissionDiagnosticConductorPass;
+  baseHealth: MissionDiagnosticBaseHealth;
 }
 
 function toLandedInGit(status: GitLandStatus): boolean | null {
@@ -84,9 +112,24 @@ export function classifyLeafTerminal(
 export async function buildMissionDiagnostic(
   project: string,
   missionId: string,
-  deps?: { isEpicLandedInGit?: typeof isEpicLandedInGit },
+  deps?: {
+    isEpicLandedInGit?: typeof isEpicLandedInGit;
+    now?: () => number;
+    epicHeadSha?: (project: string, epicId: string) => Promise<string | null>;
+  },
 ): Promise<MissionDiagnostic> {
   const probe = deps?.isEpicLandedInGit ?? isEpicLandedInGit;
+  const now = deps?.now ?? Date.now;
+  const epicHeadSha =
+    deps?.epicHeadSha ??
+    (async (proj: string, epicId: string): Promise<string | null> => {
+      try {
+        const { getWorktreeManager } = await import('./coordinator-live.js');
+        return await getWorktreeManager(proj).epicHeadSha(epicId);
+      } catch {
+        return null;
+      }
+    });
 
   let status: MissionStatus | null = null;
   try {
@@ -180,12 +223,108 @@ export async function buildMissionDiagnostic(
     leaves = [];
   }
 
+  // conductorPass — latest pass telemetry from the durable journal (newest-first). Any throw
+  // degrades to the all-null/zero shape; empty rows also read that shape (never "inflight").
+  let conductorPass: MissionDiagnosticConductorPass = {
+    lastPassAt: null,
+    lastArm: null,
+    lastOutcome: null,
+    ran: null,
+    isInflight: false,
+    debouncedStreak: 0,
+    staleSeconds: null,
+  };
+  try {
+    const rows = listConductorPasses(project, { missionId, limit: 20 });
+    // The newest row, if unfinalized, is the mission's in-flight pass and is EXCLUDED from
+    // the streak/last-X reads (which describe SETTLED history).
+    const isInflight = rows.length > 0 && rows[0].endedAt == null;
+    const finalized = rows.filter((r) => r.endedAt != null);
+    const lastPassAt = finalized[0]?.startedAt ?? null;
+    let debouncedStreak = 0;
+    for (const r of finalized) {
+      if (r.outcome === 'debounced') debouncedStreak++;
+      else break;
+    }
+    conductorPass = {
+      lastPassAt,
+      lastArm: finalized[0]?.arm ?? null,
+      lastOutcome: finalized[0]?.outcome ?? null,
+      ran: finalized[0]?.ran ?? null,
+      isInflight,
+      debouncedStreak,
+      staleSeconds: lastPassAt == null ? null : (now() - lastPassAt) / 1000,
+    };
+  } catch {
+    conductorPass = {
+      lastPassAt: null,
+      lastArm: null,
+      lastOutcome: null,
+      ran: null,
+      isInflight: false,
+      debouncedStreak: 0,
+      staleSeconds: null,
+    };
+  }
+
+  // baseHealth — trunk-lane green/red as memoized at the epic base gate, plus any in-flight
+  // base-repair leaf. Own try/catch (independent of the leaves block): the first mission epic
+  // that yields a non-null base-gate row for its current head sha wins. Base-repair epics are
+  // homed with home:null (NOT under missionId), so the repair-leaf scan walks the FULL list.
+  let baseHealth: MissionDiagnosticBaseHealth = { tsc: 'unknown', suite: 'unknown', repairLeafInflight: null };
+  try {
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const byId = new Map(allTodos.map((t) => [t.id, t]));
+    const missionEpics = allTodos.filter((t) => t.parentId === missionId && isEpic(t));
+
+    let tsc: 'green' | 'red' | 'unknown' = 'unknown';
+    let suite: 'green' | 'red' | 'unknown' = 'unknown';
+    for (const epic of missionEpics) {
+      let sha: string | null = null;
+      try {
+        sha = await epicHeadSha(project, epic.id);
+      } catch {
+        sha = null;
+      }
+      const row = getEpicBaseGate(epic.id, sha);
+      if (row == null) continue; // MISS (no row / stale sha) — try the next epic
+      if (row.status === 'pass') {
+        tsc = 'green';
+        suite = 'green';
+      } else if (row.status === 'error') {
+        tsc = 'unknown';
+        suite = 'unknown';
+      } else {
+        tsc = (row.baselineFailures?.typecheck?.length ?? 0) > 0 ? 'red' : 'green';
+        suite = (row.baselineFailures?.baseTest?.length ?? 0) > 0 ? 'red' : 'green';
+      }
+      break; // first non-null row wins
+    }
+
+    // Base-repair epics (baseRepair === 1) live anywhere in the graph — scan the full list.
+    let repairLeafInflight: { id: string; title: string } | null = null;
+    const repairEpics = allTodos.filter((t) => isEpic(t) && t.baseRepair === 1);
+    for (const re of repairEpics) {
+      const child = allTodos.find(
+        (t) => t.parentId === re.id && isLeaf(t) && derivedStatus(t, byId) === 'in_progress',
+      );
+      if (child) {
+        repairLeafInflight = { id: child.id, title: child.title };
+        break;
+      }
+    }
+
+    baseHealth = { tsc, suite, repairLeafInflight };
+  } catch {
+    baseHealth = { tsc: 'unknown', suite: 'unknown', repairLeafInflight: null };
+  }
+
   return {
     status,
     rollup,
     criteria,
     leaves,
-    conductorPass: null,
-    baseHealth: { tsc: 'unknown', suite: 'unknown', repairLeafInflight: null },
+    conductorPass,
+    baseHealth,
   };
 }
