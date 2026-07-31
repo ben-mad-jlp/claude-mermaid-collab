@@ -5041,7 +5041,7 @@
           },
           "baseRef": {
             "type": "string",
-            "description": "Trunk to merge in (default 'master')."
+            "description": "Trunk to merge in (default: auto-detected from the target repo's checked-out branch, falling back to 'master' if detection fails)."
           }
         },
         "required": [

@@ -120,6 +120,9 @@ export interface GateVerdict {
   passed: boolean;
   reasons: string[];
   metrics?: Record<string, unknown>;
+  /** Base-attribution classification (gate-base-attribution.ts), when a caller has run
+   *  it. Not set by any live gate today. */
+  baseAttributed?: { command: string; failingFiles: string[]; signature: string };
 }
 
 /** One coordination tick: reclaim expired leases (retry, or park+escalate if the
@@ -265,14 +268,14 @@ export async function handleWorkerComplete(
   /** bf2eaf84: the completing run's claim token — forwarded to the completeTodo CAS so a
    *  run that lost the todo to a re-claim cannot apply its outcome to the new owner. */
   claimToken?: string,
-): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict; effective?: 'accepted' | 'rejected' | 'pending'; pendingReason?: string }> {
+): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict; effective?: 'accepted' | 'rejected' | 'pending'; pendingReason?: string; baseRed?: GateVerdict['baseAttributed'] }> {
   // AUTHORITATIVE RESOLUTION (5374e299 + PAW P1): a worker can only PROPOSE an
   // acceptance. The server-authoritative completion-resolver decides the effective
   // outcome — the declared gate (fail-closed; overrides 'accepted'→'rejected'), then
   // a work-committed re-verify (fail-open; downgrades a gate-green-but-empty
   // 'accepted'→'pending', closing the hallucinated-completion hole). No declared
   // gate / indeterminate re-verify preserves the prior trust-the-worker behavior.
-  const { effective, gateOverride, pendingReason } = await resolveCompletion(
+  const { effective, gateOverride, pendingReason, baseRed } = await resolveCompletion(
     { runGate: deps.runGate, verifyWorkCommitted: deps.verifyWorkCommitted },
     project,
     todoId,
@@ -283,5 +286,5 @@ export async function handleWorkerComplete(
   if (effective === 'rejected' && deps.escalateRejected) {
     try { await deps.escalateRejected(project, todoId); escalated = true; } catch { /* never block the report */ }
   }
-  return { promoted, escalated, gateOverride, effective, pendingReason };
+  return { promoted, escalated, gateOverride, effective, pendingReason, baseRed };
 }

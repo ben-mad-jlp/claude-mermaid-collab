@@ -399,6 +399,9 @@ export interface LeafExecutorDeps {
     pendingReason?: string;
     /** When the gate overrode 'accepted'→'rejected', the failing-gate reasons. */
     gateReasons?: string[];
+    /** Present when the gate failure is base-attributed (not the leaf's own fault) —
+     *  the caller should park 'epic-base-red' instead of stamping a rejection. */
+    baseRed?: { command: string; failingFiles: string[]; signature: string };
   }>;
   /** Commit the leaf worktree + merge it back onto the epic branch (so the gate's
    *  work-committed re-verify sees it). Called on PASS, BEFORE `complete`. */
@@ -648,6 +651,14 @@ export interface LeafExecutorDeps {
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
   ensureBaseGreen?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
+  /** G2 base-red re-probe: how many commits the epic branch is behind trunk. Used to decide
+   *  whether a forward-integrate + re-probe is worth attempting before parking. Unwired ⇒
+   *  undefined ⇒ treated as 0 (never behind) ⇒ no re-probe attempted. */
+  epicBehindTrunk?: () => Promise<number>;
+  /** G2 base-red re-probe: forward-integrate trunk into the epic branch and re-run the base
+   *  gate at the new epic tip sha. Returns null on any failure (falls through to the stale,
+   *  pre-FI base result). Never spends a node. Unwired ⇒ undefined ⇒ no re-probe attempted. */
+  forwardIntegrateAndReprobe?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
   /** Reader for the leaf's parent-epic todo row — consulted by the G2 base-red park to
    *  honor the epic-level `baseRepair` exemption (bug 65345589). Defaults to
    *  getTodo(project, leaf.parentId); injectable for tests. */
@@ -1905,6 +1916,12 @@ export async function runLeaf(
       }
     }
     recordOutcome('blocked', verdict, { reason });
+    // A base-red park means the leaf itself was never judged — its base was red, not
+    // its own code. Skip the reject pre-stamp entirely: no markRejecting, no
+    // complete(...,'rejected') re-entering resolveCompletion's worker-declared-'rejected'
+    // fast path — either would durably stamp acceptanceStatus='rejected' on a leaf that
+    // was never actually rejected.
+    const isBaseRedPark = reason.startsWith('epic-base-red');
     // Land the reject intent DURABLY before the slow gate so a mid-gate process
     // restart can't reclaim+re-run this leaf (reclaimNow refuses acceptanceStatus
     // 'rejected'). complete() re-stamps it idempotently below.
@@ -1914,14 +1931,18 @@ export async function runLeaf(
     // run already reaped the worktree). DISCARD the blocked outcome: do NOT clobber the
     // todo to rejected, do NOT escalate a spurious blocker. Mirrors completeTodo's E2 skip.
     let owned: void | boolean = true;
-    try { owned = await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
+    if (!isBaseRedPark) {
+      try { owned = await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
+    }
     if (owned === false) {
       return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason: `discarded-not-owned: ${reason}` });
     }
-    try {
-      await deps.complete(project, leaf.id, 'rejected');
-    } catch {
-      /* gate funnel best-effort on the blocked path */
+    if (!isBaseRedPark) {
+      try {
+        await deps.complete(project, leaf.id, 'rejected');
+      } catch {
+        /* gate funnel best-effort on the blocked path */
+      }
     }
     deps.escalate({
       project,
@@ -2125,6 +2146,9 @@ export async function runLeaf(
       );
     }
     const g = await deps.complete(project, leaf.id, 'accepted');
+    if (g.baseRed) {
+      return parkBlocked(`epic-base-red: ${g.baseRed.command}\n${g.baseRed.failingFiles.join(', ')}`, gateVerdict);
+    }
     const effective = g.effective ?? 'accepted';
     const reason =
       effective === 'pending' ? 'gate-pending'
@@ -2164,15 +2188,28 @@ export async function runLeaf(
   if (baseRepairEpic) {
     console.log(`[leaf-executor] base-red EXEMPT: epic ${(leaf.parentId ?? '').slice(0, 8)} is baseRepair — leaf ${leaf.id.slice(0, 8)} proceeds under net-new gate semantics`);
   }
-  if (base && base.status !== 'pass' && !baseRepairEpic) {
-    const head = base.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
-    const cmd = base.command ?? 'gate';
+  // G2 FORWARD-INTEGRATE RE-PROBE: a base can read 'fail' merely because the epic branch is
+  // behind trunk and trunk already fixed it. Before parking, forward-integrate trunk into the
+  // epic and re-run the gate at the new tip — a stale-fail should not park an epic that a
+  // one-line FI would unstick. Only for 'fail' (never 'error' — a gate config/infra error isn't
+  // fixed by moving commits) and only when not already exempted.
+  let effectiveBase = base;
+  if (base && base.status === 'fail' && !baseRepairEpic) {
+    const behind = (await deps.epicBehindTrunk?.()) ?? 0;
+    if (behind > 0) {
+      const reprobe = await deps.forwardIntegrateAndReprobe?.();
+      if (reprobe) effectiveBase = reprobe;
+    }
+  }
+  if (effectiveBase && effectiveBase.status !== 'pass' && !baseRepairEpic) {
+    const head = effectiveBase.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
+    const cmd = effectiveBase.command ?? 'gate';
     // Finding 3: a leaf parking on a CACHED verdict (fresh:false) escalates nothing — it
     // must still say WHY. The reason is the leaf's only durable trace, so it carries the
     // failing command and a short output tail, not a bare "epic-base-red".
-    const tail = lastLines(base.output, 10);
+    const tail = lastLines(effectiveBase.output, 10);
     const reason = tail ? `${head}: ${cmd}\n--- output (tail) ---\n${tail}` : `${head}: ${cmd}`;
-    if (base.fresh) {
+    if (effectiveBase.fresh) {
       deps.escalate({
         project,
         session: sessionKey,
@@ -2181,7 +2218,7 @@ export async function runLeaf(
         questionText:
           `Epic base is RED — no leaf on ${epicBranch} can be trusted, so NONE will start.\n` +
           `failing command: ${cmd}\n` +
-          `--- output (tail) ---\n${lastLines(base.output, 40)}\n---\n` +
+          `--- output (tail) ---\n${lastLines(effectiveBase.output, 40)}\n---\n` +
           `Fix the base and commit the fix to ${epicBranch}. The cached verdict is keyed to the ` +
           `base commit it examined, so moving the base invalidates it: the next leaf re-runs the ` +
           `gate automatically. No manual cache-clearing step exists or is needed.`,
@@ -2236,6 +2273,9 @@ export async function runLeaf(
     // feeds the REVIEW node, which skip-to-gate deliberately skips — it is NOT the
     // authoritative gate and its absence here changes no verdict.
     const gate = await deps.complete(project, leaf.id, 'accepted');
+    if (gate.baseRed) {
+      return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+    }
     const effective = gate.effective ?? 'accepted';
     const reason =
       effective === 'pending' ? 'gate-pending'
@@ -2869,6 +2909,9 @@ export async function runLeaf(
           });
         } catch { /* telemetry — never break the run */ }
         const gate = await deps.complete(project, leaf.id, 'accepted');
+        if (gate.baseRed) {
+          return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+        }
         const effective = gate.effective ?? 'accepted';
         const outcome: LeafRunResult['outcome'] = effective;
         const reason = effective === 'pending' ? 'gate-pending'
@@ -2912,6 +2955,9 @@ export async function runLeaf(
             });
           } catch { /* telemetry — never break the run */ }
           const gate = await deps.complete(project, leaf.id, 'accepted');
+          if (gate.baseRed) {
+            return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+          }
           const effective = gate.effective ?? 'accepted';
           const outcome: LeafRunResult['outcome'] = effective;
           const reason = effective === 'pending' ? 'gate-pending'
@@ -3488,6 +3534,9 @@ export async function runLeaf(
         deps.markMerged?.(leaf.id);
       }
       const gate = await deps.complete(project, leaf.id, 'accepted');
+      if (gate.baseRed) {
+        return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, reviewVerdict);
+      }
       const effective = gate.effective ?? 'accepted';
       // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
       // collapse 'pending' into 'rejected'. 'pending' = review PASSed + work merged but
@@ -3692,7 +3741,7 @@ export async function makeLeafExecutorDeps(
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
       // leaf-executor's terminal record needs them (they were silently dropped before).
       const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a, runClaimToken);
-      return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons };
+      return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons, baseRed: r.baseRed };
     },
     mergeToEpic: (sessionKey, eId, message, todoId, scope) =>
       wm.commitAndMergeToEpic(sessionKey, eId, {
@@ -3972,6 +4021,36 @@ export async function makeLeafExecutorDeps(
           epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined,
           { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }),
       });
+    },
+    // G2 base-red re-probe: how many commits the epic branch is behind trunk.
+    epicBehindTrunk: async () => {
+      try {
+        const epicRef = wm.epicBranchName(epicId);
+        const r = await defaultRunGit(targetProject, ['rev-list', '--count', `${epicRef}..${baseBranch}`]);
+        if (r.code !== 0) return 0;
+        const n = parseInt(r.stdout.trim(), 10);
+        return Number.isFinite(n) ? n : 0;
+      } catch { return 0; }
+    },
+    // G2 base-red re-probe: forward-integrate trunk into the epic branch and re-run the base
+    // gate at the new epic tip sha (not the stale epicBaseSha), so the sha-keyed cache misses
+    // and the gate actually re-runs instead of replaying the cached red.
+    forwardIntegrateAndReprobe: async () => {
+      try {
+        await wm.forwardIntegrateEpic(epicId, baseBranch);
+        const newSha = await wm.epicHeadSha(epicId);
+        return await resolveBaseGreen({
+          epicId,
+          project,
+          targetProject,
+          epicBaseSha: newSha,
+          gateCfg,
+          ensureEpicWorktree: () => wm.ensureEpic(epicId, targetProject),
+          runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn,
+            newSha ? { project: targetProject, baseSha: newSha } : undefined,
+            { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }),
+        });
+      } catch { return null; }
     },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
