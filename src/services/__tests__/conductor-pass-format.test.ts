@@ -20,6 +20,7 @@ describe('formatConductorPass', () => {
       outcome: null,
       ran: null,
       failCounted: null,
+      carried: null,
     };
 
     const result = formatConductorPass(row);
@@ -50,6 +51,7 @@ describe('formatConductorPass', () => {
     outcome: null,
     ran: null,
     failCounted: null,
+    carried: null,
   };
 
   test('renders a legacy filed count object as plain non-clickable text', () => {
@@ -79,6 +81,7 @@ describe('formatConductorPass', () => {
       outcome: null,
       ran: null,
       failCounted: null,
+      carried: null,
     };
 
     const result = formatConductorPass(row);
@@ -103,6 +106,7 @@ describe('formatConductorPass', () => {
       outcome: null,
       ran: null,
       failCounted: null,
+      carried: null,
     };
 
     const result = formatConductorPass(row);
@@ -126,6 +130,7 @@ describe('formatConductorPass', () => {
       outcome: null,
       ran: null,
       failCounted: null,
+      carried: null,
     };
 
     const result = formatConductorPass(row);
