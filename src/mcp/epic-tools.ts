@@ -21,9 +21,10 @@ import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { adoptBranchAsEpic } from '../services/adopt-branch-as-epic.js';
 import { settleDupOfLandedToolDef, settleDupOfLandedHandler } from './tools/settle-dup-of-landed.js';
 import { recordSupervisorDecision } from './setup.js';
+import { createJob, markJobRunning, markJobSucceeded, markJobFailed } from '../services/async-job-store.js';
 
 export const EPIC_TOOL_DEFS = [
-      { name: 'land_epic', description: "LAND an epic onto master (FBPE P4 — human-gated, irreversible). Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at click time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the work-graph + escalation live).' }, escalationId: { type: 'string', description: "The open 'epic-ready-to-land' escalation id to land." }, allowDirty: { type: 'boolean', description: "Bypass the clean-tree guard: land even though the main checkout has uncommitted/untracked changes. The dirty paths are still printed, an `Allow-Dirty: <paths>` trailer is added to the land commit, and an orchestration friction note is recorded. Per-call only — NOT a persistent flag." }, actor: { type: 'string', enum: ['human', 'conductor', 'daemon'], description: "Who is taking this irreversible action. Defaults to 'human'. 'conductor' additionally requires `session` and is gated on OWNERSHIP: the epic must be a descendant of that session's ACTIVE mission, and must not be a bucket root." }, session: { type: 'string', description: "Conductor session id. Required when actor='conductor'." } }, required: ['project', 'escalationId'] } },
+      { name: 'land_epic', description: "LAND an epic onto master (FBPE P4 — human-gated, irreversible). The call ACKNOWLEDGES IMMEDIATELY with {jobId, status:'landing'} and runs the gated merge as a BACKGROUND JOB. Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at call time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Poll the returned jobId (via async-job-store) or watch the escalation / master advance to learn the outcome. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the work-graph + escalation live).' }, escalationId: { type: 'string', description: "The open 'epic-ready-to-land' escalation id to land." }, allowDirty: { type: 'boolean', description: "Bypass the clean-tree guard: land even though the main checkout has uncommitted/untracked changes. The dirty paths are still printed, an `Allow-Dirty: <paths>` trailer is added to the land commit, and an orchestration friction note is recorded. Per-call only — NOT a persistent flag." }, actor: { type: 'string', enum: ['human', 'conductor', 'daemon'], description: "Who is taking this irreversible action. Defaults to 'human'. 'conductor' additionally requires `session` and is gated on OWNERSHIP: the epic must be a descendant of that session's ACTIVE mission, and must not be a bucket root." }, session: { type: 'string', description: "Conductor session id. Required when actor='conductor'." } }, required: ['project', 'escalationId'] } },
       { name: 'inbox', description: 'Drain THIS session\'s pending subscription notifications (the PULL half of nudge-to-pull). Returns + marks-seen every unseen update [{ scope, targetId, event, summary, payload, ts, tsLocal }] plus a top-level `servedAt` (epochMs/iso/local) stamping when you pulled. `tsLocal` is the human-readable wall-clock of each event; `ts` is its epoch ms. The FULL drain means a missed nudge self-heals on the next one. Call this when woken by a nudge (or any time) to see what changed on your subscribed todos/epics/projects, then act.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'get_todo', description: "Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). `status`/`derivedStatus` are the live-DERIVED state and `storedStatus` is the raw persisted value (an approved todo derives 'ready' while storedStatus stays 'planned'); also returns isClaimable + claimReason. Used by a worker to read its claimed todo.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] }, claimToken: { type: 'string', description: 'The claim token of the run reporting completion; omit only for human/steward completions.' } }, required: ['project','todoId','acceptance'] } },
@@ -82,21 +83,29 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
               }
             }
 
-            const result = await landEpic(project, escalationId, { allowDirty });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+            // Create and dispatch the background land job
+            const job = createJob(project, { kind: 'land-epic', targetId: escalationId });
+            markJobRunning(project, job.id);
 
-            // Attach the actor and trailer to the result
-            const trailer = landedByTrailer(actor);
-            const payload = result.reason === 'dirty-tree'
-              ? { ...result, instruction: 'Main checkout is dirty. File a todo for the daemon, or EnterWorktree to hand-code, or commit / discard the changes — then re-land. To override for this call, pass allowDirty:true.', landedBy: trailer, actor: actor.kind }
-              : { ...result, landedBy: trailer, actor: actor.kind };
+            // Kick off the background continuation without awaiting it
+            void landEpic(project, escalationId, { allowDirty }).then((result) => {
+              getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+              const trailer = landedByTrailer(actor);
+              const payload = result.reason === 'dirty-tree'
+                ? { ...result, instruction: 'Main checkout is dirty. File a todo for the daemon, or EnterWorktree to hand-code, or commit / discard the changes — then re-land. To override for this call, pass allowDirty:true.', landedBy: trailer, actor: actor.kind }
+                : { ...result, landedBy: trailer, actor: actor.kind };
+              if (result.landed === true && result.epicId) {
+                recordSupervisorDecision('reconcile', project, actor.kind === 'conductor' ? session! : actor.kind, JSON.stringify({ escalationId, epicId: result.epicId, land: 'landed', trailer }));
+                markJobSucceeded(project, job.id, JSON.stringify(payload));
+              } else {
+                markJobFailed(project, job.id, JSON.stringify(payload));
+              }
+            }).catch((e) => {
+              markJobFailed(project, job.id, e instanceof Error ? e.message : String(e));
+            });
 
-            // Record audit on successful land
-            if (result.landed === true && result.epicId) {
-              recordSupervisorDecision('reconcile', project, actor.kind === 'conductor' ? session! : actor.kind, JSON.stringify({ escalationId, epicId: result.epicId, land: 'landed', trailer }));
-            }
-
-            return JSON.stringify(payload, null, 2);
+            // Return immediately with the job id and status
+            return JSON.stringify({ jobId: job.id, escalationId, status: 'landing', actor: actor.kind, landedBy: landedByTrailer(actor) }, null, 2);
           }
           case 'inbox': {
             const { project, session } = args as { project?: string; session?: string };
