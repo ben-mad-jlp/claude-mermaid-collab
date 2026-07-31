@@ -29,6 +29,14 @@ afterEach(() => {
   mockMissions = [];
 });
 
+const nicknamedMission = {
+  node: { id: 'm-nick', title: '[MISSION] Nicknamed Mission', nickname: 'swift-otter' },
+  mission: { active: true, phase: 'execute', iteration: 1, maxIterations: null, description: '', procedure: '' },
+  rollup: { phase: 'execute', stopped: false, status: 'building', criteriaMet: 0, criteriaTotal: 2, mechDone: 0, mechTotal: 1 },
+  criteria: [{ id: 'c3', text: 'C3', met: false, order: 0 }],
+  epics: [],
+};
+
 describe('MissionStrip — terminal-skip selection', () => {
   it('selects the live mission over a converged-but-active mission', () => {
     mockMissions = [convergedActiveMission, liveMission];
@@ -36,6 +44,23 @@ describe('MissionStrip — terminal-skip selection', () => {
     render(<MissionStrip serverId="s" project="/p" onOpenMissions={onOpenMissions} />);
     expect(screen.getByText('Live Mission')).toBeTruthy();
     expect(screen.queryByText('Converged Mission')).toBeNull();
+    expect(screen.getByTestId('mission-strip-title').textContent).toBe('Live Mission');
+  });
+
+  it('shows the mission nickname as the strip title and exposes the raw id via data-mission-id', () => {
+    mockMissions = [nicknamedMission];
+    const onOpenMissions = vi.fn();
+    render(<MissionStrip serverId="s" project="/p" onOpenMissions={onOpenMissions} />);
+    const title = screen.getByTestId('mission-strip-title');
+    expect(title.textContent).toContain('swift-otter');
+    expect(title.getAttribute('data-mission-id')).toBe('m-nick');
+  });
+
+  it('falls back to the stripped title when no nickname is present', () => {
+    mockMissions = [liveMission];
+    const onOpenMissions = vi.fn();
+    render(<MissionStrip serverId="s" project="/p" onOpenMissions={onOpenMissions} />);
+    expect(screen.getByTestId('mission-strip-title').textContent).toBe('Live Mission');
   });
 
   it('renders the clickable idle state when only terminal missions exist', () => {
