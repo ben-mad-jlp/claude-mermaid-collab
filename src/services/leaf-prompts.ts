@@ -293,6 +293,13 @@ function buildReviewBallotBlock(reqs: ReadonlyArray<BallotPromptRequirement>): s
     '`- [N/A] REQ:<id> — <why>`           (requirement does not apply to this change-set)',
     'A `[MET]` ballot MUST carry at least one `file:line` that resolves into THIS leaf\'s change-set',
     '(same citation discipline as the CRITERIA section — a build/gate RESULT is NOT a citation).',
+    'A PRESERVATION/invariant requirement satisfied by NOT changing production code is still',
+    'balloted `[MET]`, never `[N/A]`. Cite the TEST in THIS leaf\'s change-set that exercises and',
+    'proves the invariant holds — never the unchanged production subject: an unchanged file resolves',
+    'to nothing in the change-set and parks the leaf review-vacuous (the exact failure mode from',
+    'incident leaf `6a5fdf36`, requirement `seal-stays-fail-open`). Do not mark a preservation',
+    'requirement `[N/A]` merely because no production line changed — a changed TEST file:line is the',
+    'correct citation, not an excuse to skip the ballot.',
     'Every id listed above must appear in EXACTLY one `REQ:<id>` ballot line — an omitted id parks',
     'the leaf as review-vacuous even when the code is correct.',
   ];

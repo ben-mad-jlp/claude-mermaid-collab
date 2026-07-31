@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { diffContractReview, type DiffContractReviewDeps, type ParsedDiff } from '../diff-contract-review';
+import { diffContractReview, groundReviewViaContract, type DiffContractReviewDeps, type ParsedDiff } from '../diff-contract-review';
 import { validateBallotGrounding } from '../review-citations';
 import type { DiffContract } from '../diff-contract';
 
@@ -696,5 +696,94 @@ describe('diffContractReview', () => {
       { citationExists: () => true },
     );
     expect(grounding.status).toBe('ok');
+  });
+});
+
+describe('groundReviewViaContract', () => {
+  const testFile = 'src/services/__tests__/conductor-pass-seal.test.ts';
+
+  function setupCase() {
+    const { cwd } = setupRepo({
+      base: { 'README.md': 'base' },
+      after: { [testFile]: 'test content' },
+    });
+    const contract: DiffContract = {
+      schemaVersion: 2,
+      leafKind: 'test',
+      estimatedFiles: 1,
+      estimatedTasks: 1,
+      nonEnumerableFanout: false,
+      filesToCreate: [testFile],
+      filesToEdit: [],
+      outOfScope: [],
+      tasks: [],
+      requirements: [
+        {
+          kind: 'invariant',
+          id: 'seal-stays-fail-open',
+          description: 'the conductor pass seal stays fail-open on error',
+        },
+      ],
+    };
+    const deps: DiffContractReviewDeps = {
+      cwd,
+      testsFlipBaseToBranch: async () => null,
+      readGateMetric: async () => null,
+      runGrepCount: async () => null,
+    };
+    const diff: ParsedDiff = { changedFiles: [testFile] };
+    return { cwd, contract, deps, diff };
+  }
+
+  it('status ok when MET ballot cites the changed file', async () => {
+    const { cwd, contract, deps, diff } = setupCase();
+    try {
+      const reviewText = `- [MET] REQ:seal-stays-fail-open — ${testFile}:42`;
+      const result = await groundReviewViaContract(reviewText, contract, diff, deps);
+      expect(result.status).toBe('ok');
+      expect(result.reasons).toEqual([]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('status vacuous when MET ballot cites an unchanged file outside the change-set', async () => {
+    const { cwd, contract, deps, diff } = setupCase();
+    try {
+      const reviewText = '- [MET] REQ:seal-stays-fail-open — src/services/conductor-pass.ts:373';
+      const result = await groundReviewViaContract(reviewText, contract, diff, deps);
+      expect(result.status).toBe('vacuous');
+      expect(result.reasons.some((r) => /does not resolve into the change-set/.test(r))).toBe(true);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('status vacuous when ballot cites an undeclared requirement id', async () => {
+    const { cwd, contract, deps, diff } = setupCase();
+    try {
+      const reviewText = `- [MET] REQ:not-a-real-id — ${testFile}:1`;
+      const result = await groundReviewViaContract(reviewText, contract, diff, deps);
+      expect(result.status).toBe('vacuous');
+      expect(result.reasons.some((r) => /undeclared requirement id/.test(r))).toBe(true);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('status vacuous when review has no REQ ballot line for an invariant requirement', async () => {
+    const { cwd, contract, deps, diff } = setupCase();
+    try {
+      const reviewText = 'Looks good, ship it.';
+      const result = await groundReviewViaContract(reviewText, contract, diff, deps);
+      expect(result.status).toBe('vacuous');
+      expect(
+        result.reasons.some(
+          (r) => /does not address observable\/invariant requirement id\(s\)/.test(r) && r.includes('seal-stays-fail-open'),
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
