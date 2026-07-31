@@ -10,8 +10,10 @@ import { isEpic, isLeaf } from './todo-kind.js';
 import { listLeafRuns, type LeafRunSummary } from './ledger-stats.js';
 import { classifyInfraRejection } from './conductor-infra-arm.js';
 import { derivedStatus } from './claimability.js';
-import { listConductorPasses, type ConductorPassArm } from './conductor-pass-journal.js';
 import { getEpicBaseGate } from './worker-ledger.js';
+import { deriveConductorPassLiveness } from './conductor-pass-liveness.js';
+import type { MissionDiagnosticConductorPass } from './conductor-pass-liveness.js';
+export type { MissionDiagnosticConductorPass } from './conductor-pass-liveness.js';
 
 export type LeafTerminalClass =
   | 'accepted'
@@ -27,25 +29,6 @@ export interface MissionDiagnosticLeaf {
   derivedStatus: string;
   terminalReason: string | null;
   terminalClass: LeafTerminalClass;
-}
-
-/** Latest conductor-pass telemetry for a mission, derived from the durable conductor_pass
- *  journal (newest-first). Degrades to the all-null/zero shape below on any read failure. */
-export interface MissionDiagnosticConductorPass {
-  /** startedAt of the most recent FINALIZED pass (endedAt != null), or null. */
-  lastPassAt: number | null;
-  /** arm of that finalized pass, or null. */
-  lastArm: ConductorPassArm | null;
-  /** outcome of that finalized pass, or null. */
-  lastOutcome: string | null;
-  /** ran flag of that finalized pass, or null. */
-  ran: boolean | null;
-  /** true when the newest row is still open (endedAt == null) — a pass is mid-flight. */
-  isInflight: boolean;
-  /** contiguous count of newest FINALIZED passes with outcome === 'debounced'. */
-  debouncedStreak: number;
-  /** seconds since lastPassAt (now() - lastPassAt)/1000, or null when no finalized pass. */
-  staleSeconds: number | null;
 }
 
 /** Base-health snapshot for a mission: the trunk lanes' green/red as memoized at the epic
@@ -223,49 +206,7 @@ export async function buildMissionDiagnostic(
     leaves = [];
   }
 
-  // conductorPass — latest pass telemetry from the durable journal (newest-first). Any throw
-  // degrades to the all-null/zero shape; empty rows also read that shape (never "inflight").
-  let conductorPass: MissionDiagnosticConductorPass = {
-    lastPassAt: null,
-    lastArm: null,
-    lastOutcome: null,
-    ran: null,
-    isInflight: false,
-    debouncedStreak: 0,
-    staleSeconds: null,
-  };
-  try {
-    const rows = listConductorPasses(project, { missionId, limit: 20 });
-    // The newest row, if unfinalized, is the mission's in-flight pass and is EXCLUDED from
-    // the streak/last-X reads (which describe SETTLED history).
-    const isInflight = rows.length > 0 && rows[0].endedAt == null;
-    const finalized = rows.filter((r) => r.endedAt != null);
-    const lastPassAt = finalized[0]?.startedAt ?? null;
-    let debouncedStreak = 0;
-    for (const r of finalized) {
-      if (r.outcome === 'debounced') debouncedStreak++;
-      else break;
-    }
-    conductorPass = {
-      lastPassAt,
-      lastArm: finalized[0]?.arm ?? null,
-      lastOutcome: finalized[0]?.outcome ?? null,
-      ran: finalized[0]?.ran ?? null,
-      isInflight,
-      debouncedStreak,
-      staleSeconds: lastPassAt == null ? null : (now() - lastPassAt) / 1000,
-    };
-  } catch {
-    conductorPass = {
-      lastPassAt: null,
-      lastArm: null,
-      lastOutcome: null,
-      ran: null,
-      isInflight: false,
-      debouncedStreak: 0,
-      staleSeconds: null,
-    };
-  }
+  const conductorPass = deriveConductorPassLiveness(project, missionId, { now });
 
   // baseHealth — trunk-lane green/red as memoized at the epic base gate, plus any in-flight
   // base-repair leaf. Own try/catch (independent of the leaves block): the first mission epic

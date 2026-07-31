@@ -28,6 +28,7 @@ import { coerceArrayArg } from './arg-coercion.js';
 import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/criterion-closeability.js';
 import { buildMissionDiagnostic } from '../services/mission-diagnostic.js';
 import { isEpicLandedInGit } from '../services/epic-landedness.js';
+import { deriveConductorPassLiveness } from '../services/conductor-pass-liveness.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -196,6 +197,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         // Enforcement teeth: 'constitution-not-injected' = a mission with a handoff whose locked
         // rules never became active constraint records the builders see (forge_mission prevents this).
         constitutionHealth: missionConstitutionHealth(project, id),
+        conductorPass: deriveConductorPassLiveness(project, id),
       }, null, 2);
     }
     case 'mission_diagnostic': {
