@@ -502,3 +502,21 @@ describe('handleWorkerComplete — authoritative gate (5374e299)', () => {
     expect(r.baseRed).toBeUndefined();
   });
 });
+
+describe('handleWorkerComplete — sibling parity: base-attributed rejected park', () => {
+  test('worker REJECTED + base-attributed gate failure → pending, no escalation, completeTodo gets pending', async () => {
+    const escalated: string[] = [];
+    const baseAttributed = { command: 'bunx vitest --run', failingFiles: ['src/foreign/other.ts'], signature: 'sig-parity' };
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g8'), promoted: [] }),
+      escalateRejected: async (_p, id) => { escalated.push(id); },
+      runGate: async () => ({ passed: false, reasons: ['gate failed'], baseAttributed }),
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'g8', 'rejected');
+    expect(r.escalated).toBe(false);
+    expect(escalated).toEqual([]);
+    expect(r.effective).toBe('pending');
+    expect(r.pendingReason).toMatch(/^epic-base-red/);
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g8', 'pending']);
+  });
+});
