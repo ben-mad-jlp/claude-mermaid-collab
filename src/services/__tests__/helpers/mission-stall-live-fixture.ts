@@ -12,9 +12,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTodo, updateTodo, _closeProject } from '../../todo-store';
+import { createTodo, updateTodo, claimTodo, _closeProject } from '../../todo-store';
 import { upsertMission, addCriterion, CRITERION_SERVE_CAP, _resetMissionDbCache } from '../../mission-store';
-import { recordStatus } from '../../session-status-store';
+import { recordStatus, setRecycleState } from '../../session-status-store';
+import { recordNode } from '../../worker-ledger';
+import { _resetMissionSpendMemo } from '../../ledger-stats';
 
 export interface StalledFixtureOpts {
   /** Create an extra unresolved 'discover' gap criterion (rollup.gaps > 0). */
@@ -27,9 +29,8 @@ export interface StalledFixtureOpts {
   leavesRunning?: boolean;
   /** Create a `done` epic with `acceptanceStatus: 'pending'` (landInFlight > 0). */
   landInFlight?: boolean;
-  /** Set mission.budgetUsd to a value already crossed by spend (budgetPaused). Left off
-   *  by default — the live store's spend read is real, so this is not wired here; kept
-   *  for interface completeness / future callers. */
+  /** Set mission.budgetUsd to a value already crossed by spend (budgetPaused). Drives real
+   *  deriveMissionStatus to 'over-budget' via a recorded ledger spend past the ceiling. */
   budgetPaused?: boolean;
   /** Owner session for the mission node. Pass `null` to leave the mission ownerless
    *  (drives planMissionLoopStep's 'no-owner-session' STALLED reason). Defaults to 's1'. */
@@ -37,6 +38,13 @@ export interface StalledFixtureOpts {
   /** Session status to record for `session` (recordStatus). `false` records 'working'
    *  (busy — not idle); anything else (default) records 'waiting' (idle). */
   sessionIdle?: boolean;
+  /** Set `getStatus(project, session)?.recycleState === 'recovering'` (recycling > 0). */
+  recycling?: boolean;
+  /** Whether to burn CRITERION_SERVE_CAP dropped serving epics on c1, forcing
+   *  deriveCriterionAction to read 'escalate' (blockedCriterionIds.length >= 1). Defaults to
+   *  `true` — reproduces today's behaviour byte-for-byte. `false` leaves c1 unserved
+   *  (`discover`, not `escalate`). */
+  blockServeCap?: boolean;
 }
 
 export interface StalledFixture {
@@ -70,7 +78,7 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
     title: '[MISSION] Stall reachability fixture',
     kind: 'mission',
   });
-  upsertMission(project, m.id);
+  upsertMission(project, m.id, opts.budgetPaused ? { budgetUsd: 0.05 } : {});
   const missionId = m.id;
 
   const c1 = addCriterion(project, missionId, 'the one capability this fixture is stalled on');
@@ -78,15 +86,17 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
 
   // Burn the serve cap on c1's serving epics (all dropped → no live/landed serving epic,
   // but servedEpicCount >= CRITERION_SERVE_CAP) so deriveCriterionAction reads 'escalate'.
-  for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
-    const e = await createTodo(project, {
-      ownerSession: ownerSessionForCreate,
-      title: `[EPIC] serve ${i}`,
-      kind: 'epic',
-      parentId: missionId,
-      servesCriterionIds: [criterionId],
-    });
-    await updateTodo(project, e.id, { status: 'dropped' });
+  if (opts.blockServeCap !== false) {
+    for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
+      const e = await createTodo(project, {
+        ownerSession: ownerSessionForCreate,
+        title: `[EPIC] serve ${i}`,
+        kind: 'epic',
+        parentId: missionId,
+        servesCriterionIds: [criterionId],
+      });
+      await updateTodo(project, e.id, { status: 'dropped' });
+    }
   }
 
   if ((opts.gaps ?? 0) > 0) {
@@ -105,24 +115,27 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
         parentId: missionId,
         servesCriterionIds: [vc.id],
       });
-      await createTodo(project, {
+      const leaf = await createTodo(project, {
         ownerSession: ownerSessionForCreate,
         title: `land leaf ${i}`,
         kind: 'leaf',
         parentId: e.id,
       });
+      await updateTodo(project, leaf.id, { status: 'done' });
       await updateTodo(project, e.id, { status: 'done' });
     }
   }
 
   if ((opts.epicsBuilding ?? 0) > 0) {
     for (let i = 0; i < (opts.epicsBuilding ?? 0); i++) {
-      await createTodo(project, {
+      const e = await createTodo(project, {
         ownerSession: ownerSessionForCreate,
         title: `[EPIC] building ${i}`,
         kind: 'epic',
         parentId: missionId,
+        status: 'ready',
       });
+      await claimTodo(project, e.id, ownerSessionForCreate || 'worker-1', 60_000);
     }
   }
 
@@ -133,13 +146,14 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
       kind: 'epic',
       parentId: missionId,
     });
-    await createTodo(project, {
+    const leaf = await createTodo(project, {
       ownerSession: ownerSessionForCreate,
       title: 'a leaf being built',
       kind: 'leaf',
       parentId: e.id,
-      status: 'in_progress',
+      status: 'ready',
     });
+    await claimTodo(project, leaf.id, ownerSessionForCreate || 'worker-1', 60_000);
   }
 
   if (opts.landInFlight) {
@@ -150,6 +164,18 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
       parentId: missionId,
     });
     await updateTodo(project, e.id, { status: 'done', acceptanceStatus: 'pending' });
+  }
+
+  if (opts.recycling) {
+    setRecycleState(project, ownerSessionForCreate || 's1', 'recovering');
+  }
+
+  if (opts.budgetPaused) {
+    recordNode({
+      project, todoId: missionId, session: ownerSessionForCreate || 'mission-loop',
+      costUsd: 1, knownPrice: true, nodesSpent: 1, model: 'x',
+    });
+    _resetMissionSpendMemo();
   }
 
   if (session) {
