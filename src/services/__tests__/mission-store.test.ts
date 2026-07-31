@@ -679,6 +679,45 @@ describe('per-criterion discovery', () => {
     expect(deriveCriterionAction(crit({ servingEpicState: 'landed', verifiedAt: 5, servedEpicCount: CRITERION_SERVE_CAP }))).toBe('escalate');
   });
 
+  test('completed-after-unmet serving work at/above serve cap returns verify, not escalate', () => {
+    // Serving epic OPEN (not landed) but all its leaves settled after the last verdict — the
+    // work is done even though it hasn't landed; that still owes a fresh verify, not escalate.
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'open',
+      servingEpicLive: false,
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: 200,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('verify');
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'open',
+      servingEpicLive: false,
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: 200,
+      servedEpicCount: CRITERION_SERVE_CAP + 2,
+    }))).toBe('verify');
+    // Same fixture but servingWorkCompletedAt null → still escalates (no completed-work signal).
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'open',
+      servingEpicLive: false,
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: null,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+    // Same fixture but servingWorkCompletedAt <= verifiedAt → still escalates (stale/no-op).
+    expect(deriveCriterionAction(crit({
+      servingEpicState: 'open',
+      servingEpicLive: false,
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: 100,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+  });
+
   test('under the cap → still discover (one fewer than the cap does NOT escalate)', () => {
     expect(deriveCriterionAction(crit({ servedEpicCount: CRITERION_SERVE_CAP - 1 }))).toBe('discover');
     expect(deriveCriterionAction(crit({ servedEpicCount: 0 }))).toBe('discover');
@@ -741,6 +780,37 @@ describe('per-criterion discovery', () => {
       servedEpicCount: CRITERION_SERVE_CAP,
       servingEpicLandSha: 'new222',
       servingEpicLandedAt: 50,
+    }))).toBe('escalate');
+  });
+
+  // ── Serving work completed (all leaves settled) but not landed: still owes a verify ──
+  test('completed-after-unmet serving work at/above serve cap returns verify, not escalate', () => {
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: 200,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('verify');
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: 200,
+      servedEpicCount: CRITERION_SERVE_CAP + 2,
+    }))).toBe('verify');
+  });
+
+  test('completed-after-unmet does NOT flip to verify when null or stale, and still escalates at the cap', () => {
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: null,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      servingWorkCompletedAt: 50,
+      servedEpicCount: CRITERION_SERVE_CAP,
     }))).toBe('escalate');
   });
 
