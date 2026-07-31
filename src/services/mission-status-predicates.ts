@@ -138,3 +138,23 @@ export function servingLandIsNewerThanVerdict(c: {
     c.servingEpicLandedAt > c.verifiedAt
   );
 }
+
+/**
+ * Fail-closed: the serving epic's descendant leaves all settled (no unfinished leaf) at a
+ * time NEWER than the last recorded verdict, even though the epic itself hasn't landed.
+ * Landing is a separate concern (forward-integrate/land cadence) from whether the WORK is
+ * done — a criterion whose serving work is complete still owes a fresh verdict, not another
+ * escalate/discover thrash cycle. Any missing input ⇒ false.
+ */
+export function servingWorkCompletedAfterVerdict(c: {
+  met: boolean;
+  verifiedAt: number | null;
+  servingWorkCompletedAt?: number | null;
+}): boolean {
+  return (
+    !c.met &&
+    c.verifiedAt != null &&
+    c.servingWorkCompletedAt != null &&
+    c.servingWorkCompletedAt > c.verifiedAt
+  );
+}

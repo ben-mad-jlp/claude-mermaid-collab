@@ -29,7 +29,7 @@ import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
-import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict } from './mission-status-predicates.ts';
+import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -1261,6 +1261,10 @@ export interface MissionCriterionFacts {
   servingEpicLandSha?: string | null;
   /** Timestamp the current serving epic's land record was stamped. */
   servingEpicLandedAt?: number | null;
+  /** Latest settle time (completedAt, falling back to updatedAt) across the serving epic's
+   *  descendant leaves, set ONLY when that epic has no unfinished leaf. Optional so existing
+   *  fact fixtures need no change. */
+  servingWorkCompletedAt?: number | null;
   /** Every epic serving this criterion (primary edge or servesCriterionIds), with its
    *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
@@ -1323,6 +1327,11 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   if (c.met) return 'met';
   if ((c.unmetDependencyIds?.length ?? 0) > 0) return 'blocked';
   if (c.servingEpicState === 'open' && c.servingEpicLive) return 'building';
+  // Serving work COMPLETED (all leaves settled) but not landed, and the last verdict predates
+  // it: still owes a fresh verify, not another escalate/discover thrash cycle. Landing itself
+  // isn't required to know the work is done — non-landing is orthogonal to whether it should be
+  // graded again.
+  if (predServingWorkCompletedAfterVerdict(c)) return 'verify';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
   // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
   // escalate to a human once instead. ONLY the discover path caps — verify/building/met are
@@ -1632,7 +1641,32 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         if (best) { servingEpicLandSha = best.sha; servingEpicLandedAt = best.at; }
       } catch { /* fail closed to null, same as a missing record */ }
       const unmetDependencyIds = c.dependsOn.filter((depId) => metById.get(depId) === false);
-      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingEpics, unmetDependencyIds };
+      // Latest settle time across the descendant leaves of any serving epic with NO
+      // unfinished leaf — mirrors provingLanded's use of proofForEpic but is not restricted
+      // to LANDED epics: an epic whose leaves all settled but which hasn't landed yet still
+      // has completed work worth verifying (see servingWorkCompletedAfterVerdict).
+      const leafSettledMax = (epicId: string): number | null => {
+        let max: number | null = null;
+        const walk = (parentId: string) => {
+          for (const t of childrenByParent.get(parentId) ?? []) {
+            if (!isEpic(t)) {
+              const ts = Date.parse((t.completedAt ?? t.updatedAt) as string);
+              if (Number.isFinite(ts)) max = max == null ? ts : Math.max(max, ts);
+            }
+            walk(t.id);
+          }
+        };
+        walk(epicId);
+        return max;
+      };
+      let servingWorkCompletedAt: number | null = null;
+      for (const e of serving) {
+        if (proofForEpic(e.id).hasUnfinishedLeaf) continue;
+        const m = leafSettledMax(e.id);
+        if (m == null) continue;
+        servingWorkCompletedAt = servingWorkCompletedAt == null ? m : Math.max(servingWorkCompletedAt, m);
+      }
+      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, servingEpics, unmetDependencyIds };
     }),
   };
 }
