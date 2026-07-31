@@ -6520,6 +6520,30 @@
       }
     },
     {
+      "name": "mission_diagnostic",
+      "description": "Read-only diagnostic aggregate for a mission: status, rollup, per-criterion actions + serving-epic landedness (git-verified), leaves, conductorPass, and baseHealth. A convenience view over get_mission-adjacent data for status inspection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "missionId": {
+            "type": "string",
+            "description": "The mission node id (alias: todoId)."
+          },
+          "todoId": {
+            "type": "string",
+            "description": "Alias for missionId, for consistency with sibling mission verbs."
+          }
+        },
+        "required": [
+          "project",
+          "missionId"
+        ]
+      }
+    },
+    {
       "name": "add_mission_criterion",
       "description": "Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.",
       "inputSchema": {
