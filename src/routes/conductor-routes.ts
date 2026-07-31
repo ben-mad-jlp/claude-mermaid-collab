@@ -1,5 +1,6 @@
 // Read-only HTTP surface over the conductor_pass journal.
 import { listConductorPasses } from '../services/conductor-pass-journal.js';
+import { nicknamesForProject } from '../services/nickname-lookup.js';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -17,7 +18,8 @@ export async function handleConductorRoutes(req: Request, url: URL): Promise<Res
       return jsonError('limit must be a non-negative number', 400);
     }
     const rows = listConductorPasses(project, { missionId, limit });
-    return Response.json({ project, rows });
+    const nicknames = nicknamesForProject(project);
+    return Response.json({ project, rows, nicknames });
   }
 
   return null;
