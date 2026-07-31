@@ -1,10 +1,20 @@
 // Runs via `bun test` (uses bun:sqlite via checkInvariants path) — the pure
 // findViolations tests need no DB.
-import { describe, test, expect } from 'bun:test';
+
+// Isolate the global supervisor.db BEFORE any store module is imported.
+import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const supervisorDir = mkdtempSync(join(tmpdir(), 'sup-invariant-check-'));
+process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
+
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import type { Todo, TodoStatus } from '../todo-store';
-import { findViolations, findLandedAtDivergence } from '../invariant-check';
+import { findViolations, findLandedAtDivergence, checkInvariants } from '../invariant-check';
 import { mkTodo, mkLegacyTodo } from './fixtures/mk-todo';
 import { MissingKindError } from '../todo-kind';
+import { createTodo, openDb, stampEpicLandedAt, _closeProject } from '../todo-store';
+import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 
 let seq = 0;
 function todo(partial: Partial<Todo> & { id?: string; title: string; status?: TodoStatus; kind: string }): Todo {
@@ -179,5 +189,82 @@ describe('findLandedAtDivergence', () => {
     expect(v).toHaveLength(1);
     expect(v[0].kind).toBe('landed-at-divergence');
     expect(v[0].todoId).toBe('e1');
+  });
+});
+
+describe('checkInvariants (DB-backed)', () => {
+  const todoBase = mkdtempSync(join(tmpdir(), 'invariant-check-todos-'));
+  let projectCounter = 0;
+  function freshProject(): string {
+    const p = join(todoBase, `proj-${++projectCounter}`);
+    mkdirSync(join(p, '.collab'), { recursive: true });
+    return p;
+  }
+
+  beforeAll(() => { _closeSupervisorDb(); });
+  afterAll(() => {
+    _closeSupervisorDb();
+    rmSync(supervisorDir, { recursive: true, force: true });
+    rmSync(todoBase, { recursive: true, force: true });
+    delete process.env.MERMAID_SUPERVISOR_DIR;
+  });
+
+  test('checkInvariants: landed epic with one non-terminal child yields exactly one stranded-leaf violation naming that child', async () => {
+    const project = freshProject();
+    try {
+      const epic = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] DB-backed stranded-leaf',
+        kind: 'epic',
+      });
+      const child = await createTodo(project, {
+        ownerSession: 'test',
+        title: 'live child',
+        kind: 'leaf',
+        parentId: epic.id,
+      });
+
+      const stamped = stampEpicLandedAt(project, epic.id, '2026-01-01T00:00:00Z');
+      expect(stamped).toBe(true);
+      _closeProject(project);
+
+      const violations = await checkInvariants(project);
+      const stranded = violations.filter((v) => v.kind === 'stranded-leaf');
+      expect(stranded).toHaveLength(1);
+      expect(stranded[0]!.todoId).toBe(child.id);
+    } finally {
+      _closeProject(project);
+    }
+  });
+
+  test('checkInvariants: landed epic whose only child is done+accepted yields no stranded-leaf violation', async () => {
+    const project = freshProject();
+    try {
+      const epic = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] DB-backed no-strand',
+        kind: 'epic',
+      });
+      const child = await createTodo(project, {
+        ownerSession: 'test',
+        title: 'settled child',
+        kind: 'leaf',
+        parentId: epic.id,
+      });
+
+      const db = openDb(project);
+      db.prepare('UPDATE todos SET status = ?, acceptanceStatus = ? WHERE id = ?')
+        .run('done', 'accepted', child.id);
+
+      const stamped = stampEpicLandedAt(project, epic.id, '2026-01-01T00:00:00Z');
+      expect(stamped).toBe(true);
+      _closeProject(project);
+
+      const violations = await checkInvariants(project);
+      const stranded = violations.filter((v) => v.kind === 'stranded-leaf');
+      expect(stranded).toHaveLength(0);
+    } finally {
+      _closeProject(project);
+    }
   });
 });
