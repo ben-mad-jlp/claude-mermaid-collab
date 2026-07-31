@@ -1792,7 +1792,7 @@ export function listCriteriaWithActions(
  *  epics under it, for the UI. `ownerSession`/`assigneeSession` tie the mission to a
  *  session (attribution + session-scoped filtering). */
 export interface MissionSummary {
-  node: { id: string; title: string; status: string };
+  node: { id: string; title: string; status: string; nickname?: string };
   /** The session that owns/drives this mission (mission ↔ session tie). */
   ownerSession: string | null;
   assigneeSession: string | null;
@@ -1889,7 +1889,7 @@ export function listMissions(
           factsOmitted: true,
         };
     out.push({
-      node: { id: node.id, title: node.title, status: node.status },
+      node: { id: node.id, title: node.title, status: node.status, nickname: node.nickname },
       ownerSession: node.ownerSession ?? null,
       assigneeSession: node.assigneeSession ?? null,
       mission,

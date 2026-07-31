@@ -43,6 +43,7 @@ import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo, resetTodo, overrideAcceptTodo, deriveTodoViews } from '../services/todo-store.ts';
 import { listMissions } from '../services/mission-store.ts';
+import { nicknamesForProject } from '../services/nickname-lookup.ts';
 import { selectConductorOwnedTodoIds, RUNNING_FRESH_MS } from '../services/conductor-owned-todos.ts';
 import { conductorNeedsHuman } from '../services/conductor-pass.ts';
 import { isInboxEpic } from '../services/claimability.ts';
@@ -297,6 +298,14 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   // MISSIONS (write) — AUTHORING surface for the Plan-board Missions strip. Each route
+  // NICKNAMES — read-only merge of todo + mission-criterion nicknames for a project.
+  if (url.pathname === '/api/supervisor/nicknames' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project query param is required', 400);
+    const nicknames = nicknamesForProject(project);
+    return Response.json({ project, nicknames });
+  }
+
   // is a thin delegate to handleMissionTool (the same logic the MCP tools run), so the
   // UI shares the node-update + websocket-broadcast + integrity rules with the steward.
   // DELIBERATELY NOT exposed here: setting a criterion's VERDICT (met/unmet) —
