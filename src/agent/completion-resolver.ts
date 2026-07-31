@@ -53,6 +53,29 @@ export interface CompletionResolution {
   baseRed?: GateVerdict['baseAttributed'];
 }
 
+export interface ResolveCompletionOpts {
+  /** 'worker' (default) re-gates a self-reported acceptance/rejection.
+   *  'admin' is a programmatic park (budget/rate-cap) — taken at face value,
+   *  never re-gated or reinterpreted as base-red pending. */
+  source?: 'worker' | 'admin';
+}
+
+/** Classify a gate verdict into an override CompletionResolution, or null if the
+ *  verdict does not change the outcome (passed, or no verdict at all). This is the
+ *  ONE place base-attribution classification lives — both the accepted and rejected
+ *  paths call it. */
+function classifyGateVerdict(verdict: GateVerdict | null): CompletionResolution | null {
+  if (!verdict || verdict.passed) return null;
+  if (verdict.baseAttributed) {
+    return {
+      effective: 'pending',
+      baseRed: verdict.baseAttributed,
+      pendingReason: `epic-base-red: ${verdict.baseAttributed.command}`,
+    };
+  }
+  return { effective: 'rejected', gateOverride: verdict };
+}
+
 /** Decide the effective acceptance for a worker completion. Pure of any store
  *  mutation — the caller (handleWorkerComplete) applies `effective` via completeTodo. */
 export async function resolveCompletion(
@@ -60,10 +83,26 @@ export async function resolveCompletion(
   project: string,
   todoId: string,
   acceptance: 'accepted' | 'rejected',
+  opts?: ResolveCompletionOpts,
 ): Promise<CompletionResolution> {
-  // A worker-declared 'rejected' is taken at face value (it failed its own gate
-  // in-scope) — no re-verify, nothing to downgrade.
+  const source = opts?.source ?? 'worker';
+
+  // A worker-declared 'rejected' is re-gated too (see module doc) — but only a
+  // base-attributed verdict may change the outcome; admin-sourced parks are taken
+  // at face value, matching today's fail-open framing.
   if (acceptance !== 'accepted') {
+    if (source === 'admin' || !deps.runGate) {
+      return { effective: acceptance };
+    }
+    let verdict: GateVerdict | null;
+    try {
+      verdict = await deps.runGate(project, todoId);
+    } catch {
+      // fail open on error — do NOT synthesize a failing verdict for the rejected path.
+      return { effective: acceptance };
+    }
+    const c = classifyGateVerdict(verdict);
+    if (c && c.effective === 'pending') return c;
     return { effective: acceptance };
   }
 
@@ -75,16 +114,8 @@ export async function resolveCompletion(
     } catch (e) {
       verdict = { passed: false, reasons: [`gate execution error: ${e instanceof Error ? e.message : String(e)}`] };
     }
-    if (verdict && !verdict.passed) {
-      if (verdict.baseAttributed) {
-        return {
-          effective: 'pending',
-          baseRed: verdict.baseAttributed,
-          pendingReason: `epic-base-red: ${verdict.baseAttributed.command}`,
-        };
-      }
-      return { effective: 'rejected', gateOverride: verdict };
-    }
+    const c = classifyGateVerdict(verdict);
+    if (c) return c;
   }
 
   // 2. WORK-COMMITTED re-verify — fail OPEN (only an explicit false downgrades).
