@@ -61,6 +61,11 @@ function greenProofDeps(overrides?: Partial<LandStageDeps>): LandStageDeps {
   } as LandStageDeps;
 }
 
+/** Wall-clock budget for the real-`git` land tests. The base gate runs 6 test
+ *  files concurrently, so these subprocess-heavy cases need far more headroom
+ *  than bun's 5s default. */
+const REAL_GIT_TIMEOUT_MS = 60_000;
+
 function git(project: string, args: string[]): string {
   return execFileSync('git', args, { cwd: project }).toString('utf8').trim();
 }
@@ -187,7 +192,10 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
       }
     }
     expect(openEpic).toBeNull();
-  });
+    // Real `git` subprocesses, so the wall-clock budget has to survive the base
+    // gate running 6 test files at a time — bun's 5s default was a coin-flip
+    // (observed 5491ms) and false-redded the whole epic base.
+  }, REAL_GIT_TIMEOUT_MS);
 
   it('a real merge conflict on the base leaves master untouched and raises an assumption-invalidated escalation', async () => {
     execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
@@ -224,7 +232,7 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
       (e) => e.project === project && e.conditionKey === cond.conditionKey,
     );
     expect(matching.length).toBe(1);
-  });
+  }, REAL_GIT_TIMEOUT_MS);
 
   it('a red base gate short-circuits before the merge/teardown stages and leaves master untouched', async () => {
     execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
@@ -272,5 +280,5 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
 
     const masterAfter = git(project, ['rev-parse', 'master']);
     expect(masterAfter).toBe(masterBefore);
-  });
+  }, REAL_GIT_TIMEOUT_MS);
 });

@@ -65,12 +65,20 @@ describe('ServerSupervisor crash loop and forensics', () => {
   let fetchCallCount = 0;
   let now = 1_000_000;
   const originalEnv = process.env.MERMAID_SUPERVISOR_DIR;
+  const originalRuntimeDir = process.env.XDG_RUNTIME_DIR;
 
   beforeEach(() => {
     _closeDb();
     forensicsDir = mkdtempSync(join(tmpdir(), 'sidecar-forensics-'));
     supervisorDir = mkdtempSync(join(tmpdir(), 'sidecar-supervisor-'));
     process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
+    // Pin the port-ownership lockDir per test — see the same guard in
+    // server-supervisor-watchdog.test.ts. Without it start() shares the
+    // machine-global $TMPDIR/mermaid-collab-<uid> locks with every other
+    // concurrently-running test file that touches ports 9100-9105, and a stale
+    // lock whose pid has been recycled makes the handshake 'defer' instead of
+    // spawning.
+    process.env.XDG_RUNTIME_DIR = mkdtempSync(join(tmpdir(), 'sidecar-runtime-'));
     spawnedChildren = [];
     fetchCallCount = 0;
     now = 1_000_000;
@@ -85,6 +93,11 @@ describe('ServerSupervisor crash loop and forensics', () => {
       process.env.MERMAID_SUPERVISOR_DIR = originalEnv;
     } else {
       delete process.env.MERMAID_SUPERVISOR_DIR;
+    }
+    if (originalRuntimeDir !== undefined) {
+      process.env.XDG_RUNTIME_DIR = originalRuntimeDir;
+    } else {
+      delete process.env.XDG_RUNTIME_DIR;
     }
   });
 
