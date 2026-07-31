@@ -325,6 +325,7 @@ describe('splitLeafInto with items', () => {
       inheritedFiles: [],
       declaredFiles: [],
       isBucket: false,
+      nickname: 'nick',
       ...overrides,
     };
   }

@@ -67,6 +67,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     inheritedFiles: partial.inheritedFiles ?? [],
     declaredFiles: partial.declaredFiles ?? [],
     isBucket: partial.isBucket ?? false,
+    nickname: partial.nickname ?? 'nick',
     id: partial.id ?? `t${++seq}`,
     status,
     completed: status === 'done',

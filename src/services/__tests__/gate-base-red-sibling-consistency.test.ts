@@ -90,6 +90,7 @@ function makeLeaf(over: Partial<Todo> & { id: string; title: string }): Todo {
     inheritedFiles: [],
     declaredFiles: [],
     isBucket: false,
+    nickname: 'nick',
     ...over,
   };
 }

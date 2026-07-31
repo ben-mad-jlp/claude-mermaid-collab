@@ -48,6 +48,7 @@ function base(): Omit<Todo, 'kind'> {
     inheritedFiles: [],
     declaredFiles: [],
     isBucket: false,
+    nickname: 'nick',
   };
 }
 
