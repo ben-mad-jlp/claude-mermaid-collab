@@ -11,19 +11,45 @@
  * OFF run: the same 4 arms dispatch together in one batch with no foundation leaf and no file
  * mutex, so each leaf's gate failure classifies as `epic-base-red` against the shared file (parks).
  *
+ * Each simulated leaf dispatch drives a REAL commit into a throwaway git fixture repo, and
+ * `ownChangeSet` is resolved via the production `resolveLeafOwnChangeSet` seam over that repo —
+ * not fabricated from batch size.
+ *
  * Usage: bun run scripts/measure-shared-union-split.ts
  */
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 
 import { applyFoundationFirst, type EpicSpec, type PlannedLeaf } from '../src/mcp/tools/mission-planner.ts';
 import { partitionByFileContention } from '../src/services/file-mutex.ts';
-import { classifyGateFailure } from '../src/services/gate-base-attribution.ts';
+import { classifyGateFailure, resolveLeafOwnChangeSet } from '../src/services/gate-base-attribution.ts';
+import type { GitRunner } from '../src/services/main-checkout-invariant.ts';
 import type { Todo } from '../src/services/todo-store.ts';
 
 const DECLARED_FILE = 'src/services/conductor-pass.ts';
 const FIXED_DIAGNOSTIC = `${DECLARED_FILE}(1,1): error TS2367: not all cases handled`;
+
+const GIT_ENV = {
+  GIT_AUTHOR_NAME: 'measure-shared-union-split',
+  GIT_AUTHOR_EMAIL: 'measure-shared-union-split@example.invalid',
+  GIT_COMMITTER_NAME: 'measure-shared-union-split',
+  GIT_COMMITTER_EMAIL: 'measure-shared-union-split@example.invalid',
+};
+
+/** Spawn `git` with a fixed identity so commits succeed on a bare CI machine with no global
+ *  git identity configured. */
+const runGit: GitRunner = (cwd, args) =>
+  new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd, env: { ...process.env, ...GIT_ENV } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
 
 interface DispatchRecord {
   id: string;
@@ -38,6 +64,61 @@ interface DispatchedLeaf {
   run: 'on' | 'off';
   batchSize: number;
   kind: 'own' | 'epic-base-red' | 'unattributable';
+}
+
+interface FixtureRepo {
+  tmpDir: string;
+  baseBranch: string;
+  epicBranch: string;
+  runGit: GitRunner;
+}
+
+async function git(fixture: Pick<FixtureRepo, 'tmpDir' | 'runGit'>, args: string[]): Promise<string> {
+  const res = await fixture.runGit(fixture.tmpDir, args);
+  if (res.code !== 0) {
+    throw new Error(`git ${args.join(' ')} failed in ${fixture.tmpDir}: ${res.stderr}`);
+  }
+  return res.stdout;
+}
+
+async function setupFixtureRepo(): Promise<FixtureRepo> {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'measure-shared-union-'));
+  const stub = { tmpDir, runGit };
+
+  await git(stub, ['init']);
+  writeFileSync(join(tmpDir, 'README.md'), '# fixture\n');
+  const declaredDir = join(tmpDir, ...DECLARED_FILE.split('/').slice(0, -1));
+  mkdirSync(declaredDir, { recursive: true });
+  writeFileSync(join(tmpDir, DECLARED_FILE), `export type ConductorPassReason = 'a' | 'b' | 'c';\n`);
+
+  await git(stub, ['add', '-A']);
+  await git(stub, [
+    '-c', `user.name=${GIT_ENV.GIT_AUTHOR_NAME}`,
+    '-c', `user.email=${GIT_ENV.GIT_AUTHOR_EMAIL}`,
+    'commit', '-m', 'fixture: base commit',
+  ]);
+
+  const baseBranch = (await git(stub, ['symbolic-ref', '--short', 'HEAD'])).trim();
+  const epicBranch = 'collab/epic/measure';
+  await git(stub, ['checkout', '-b', epicBranch]);
+
+  return { tmpDir, baseBranch, epicBranch, runGit };
+}
+
+/** Writes `content` to each file under the fixture and commits on the current branch with a
+ *  `Collab-Todo: <leafId>` trailer — the "leaf actually doing its work" step. */
+async function commitLeaf(fixture: FixtureRepo, leafId: string, files: string[], content: string): Promise<void> {
+  for (const file of files) {
+    const abs = join(fixture.tmpDir, ...file.split('/'));
+    mkdirSync(join(fixture.tmpDir, ...file.split('/').slice(0, -1)), { recursive: true });
+    writeFileSync(abs, content);
+  }
+  await git(fixture, ['add', '-A']);
+  await git(fixture, [
+    '-c', `user.name=${GIT_ENV.GIT_AUTHOR_NAME}`,
+    '-c', `user.email=${GIT_ENV.GIT_AUTHOR_EMAIL}`,
+    'commit', '-m', `${leafId}\n\nCollab-Todo: ${leafId}`,
+  ]);
 }
 
 function buildArmLeaves(): PlannedLeaf[] {
@@ -69,24 +150,39 @@ function resolveDeps(records: DispatchRecord[]): void {
   }
 }
 
-function classify(leaf: DispatchRecord, batchSize: number, run: 'on' | 'off'): DispatchedLeaf {
-  const ownChangeSet = batchSize === 1 ? leaf.declaredFiles : ['scripts/__fixtures__/unrelated.ts'];
+async function classify(
+  fixture: FixtureRepo,
+  leaf: DispatchRecord,
+  batchSize: number,
+  run: 'on' | 'off',
+  diagnostic: string = FIXED_DIAGNOSTIC,
+): Promise<DispatchedLeaf> {
+  const ownChangeSet = await resolveLeafOwnChangeSet({
+    cwd: fixture.tmpDir,
+    epicBranch: fixture.epicBranch,
+    baseBranch: fixture.baseBranch,
+    leafId: leaf.id,
+    runGit: fixture.runGit,
+  });
   const classification = classifyGateFailure({
     command: 'tsc',
-    output: FIXED_DIAGNOSTIC,
+    output: diagnostic,
     ownChangeSet,
   });
   return { id: leaf.id, title: leaf.title, run, batchSize, kind: classification.kind };
 }
 
-function runOn(): DispatchedLeaf[] {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'measure-shared-union-'));
-  const tempFile = join(tmpDir, 'conductor-pass.ts');
-  writeFileSync(tempFile, `export type ConductorPassReason = 'a' | 'b' | 'c';\n`);
+interface RunDeps {
+  applyFoundationFirst: typeof applyFoundationFirst;
+  partitionByFileContention: typeof partitionByFileContention;
+}
+
+async function runOn(deps: RunDeps, fixture: FixtureRepo): Promise<DispatchedLeaf[]> {
+  await git(fixture, ['checkout', fixture.epicBranch]);
 
   const spec: EpicSpec = { title: 'Extend ConductorPassReason', leaves: buildArmLeaves() };
-  const normalised = applyFoundationFirst(spec, {
-    readFile: (p) => (p === DECLARED_FILE ? readFileSync(tempFile, 'utf8') : null),
+  const normalised = deps.applyFoundationFirst(spec, {
+    readFile: (p) => (p === DECLARED_FILE ? `export type ConductorPassReason = 'a' | 'b' | 'c';\n` : null),
   });
 
   if (normalised.leaves.length !== 5) {
@@ -111,7 +207,7 @@ function runOn(): DispatchedLeaf[] {
       (r) => !dispatched.has(r.id) && r.dependsOn.every((d) => landed.has(d)),
     );
     const heldFiles = new Set<string>();
-    const { dispatch } = partitionByFileContention(ready as unknown as Todo[], heldFiles);
+    const { dispatch } = deps.partitionByFileContention(ready as unknown as Todo[], heldFiles);
     if (dispatch.length === 0) {
       throw new Error('ON run dispatch loop stalled: no ready leaves could dispatch this tick');
     }
@@ -119,41 +215,79 @@ function runOn(): DispatchedLeaf[] {
     for (const rec of dispatch as unknown as DispatchRecord[]) {
       dispatched.add(rec.id);
       landed.add(rec.id);
-      results.push(classify(rec, batchSize, 'on'));
+      const isFoundation = rec.id === 'on-0';
+      if (isFoundation) {
+        // The foundation leaf is the one that actually widens the shared union — its own
+        // diff genuinely touches the declared file and resolves the diagnostic.
+        await commitLeaf(fixture, rec.id, [DECLARED_FILE], `export type ConductorPassReason = 'a' | 'b' | 'c' | 'd';\n`);
+        results.push(await classify(fixture, rec, batchSize, 'on', FIXED_DIAGNOSTIC));
+      } else {
+        // Arms dispatch AFTER the foundation has already fixed the union, so their own
+        // diff never touches the shared file and their gate run never re-surfaces this
+        // diagnostic — modeled as an empty gate output (no failure to classify).
+        await commitLeaf(fixture, rec.id, [`scripts/__fixtures__/${rec.id}-scratch.ts`], `export const ${rec.id.replace(/-/g, '_')} = true;\n`);
+        results.push(await classify(fixture, rec, batchSize, 'on', ''));
+      }
     }
   }
 
   return results;
 }
 
-function runOff(): DispatchedLeaf[] {
+async function runOff(_deps: RunDeps, fixture: FixtureRepo): Promise<DispatchedLeaf[]> {
+  await git(fixture, ['checkout', fixture.epicBranch]);
+
   const spec: EpicSpec = { title: 'Extend ConductorPassReason', leaves: buildArmLeaves() };
   const records = toRecords(spec.leaves, 'off');
   const batchSize = records.length;
-  return records.map((r) => classify(r, batchSize, 'off'));
+
+  const results: DispatchedLeaf[] = [];
+  for (const rec of records) {
+    // No foundation leaf ever widens the union here, so no arm's own diff touches the
+    // shared file — each arm's own (unrelated) work leaves the diagnostic foreign to it.
+    await commitLeaf(fixture, rec.id, [`scripts/__fixtures__/${rec.id}-scratch.ts`], `export const ${rec.id.replace(/-/g, '_')} = true;\n`);
+    results.push(await classify(fixture, rec, batchSize, 'off', FIXED_DIAGNOSTIC));
+  }
+
+  return results;
 }
 
-export function runSharedUnionSplitMeasurement(): {
+export async function runSharedUnionSplitMeasurement(deps: {
+  applyFoundationFirst?: typeof applyFoundationFirst;
+  partitionByFileContention?: typeof partitionByFileContention;
+} = {}): Promise<{
   parksOn: number;
   parksOff: number;
   onLeaves: string[];
   offParkReasons: string[];
-} {
-  const onResults = runOn();
-  const offResults = runOff();
+}> {
+  const resolvedDeps: RunDeps = {
+    applyFoundationFirst: deps.applyFoundationFirst ?? applyFoundationFirst,
+    partitionByFileContention: deps.partitionByFileContention ?? partitionByFileContention,
+  };
 
-  const parksOn = onResults.filter((r) => r.kind === 'epic-base-red').length;
-  const parksOff = offResults.filter((r) => r.kind === 'epic-base-red').length;
-  const onLeaves = onResults.map((r) => r.title);
-  const offParkReasons = offResults
-    .filter((r) => r.kind === 'epic-base-red')
-    .map((r) => `epic-base-red: ${r.title} batchSize=${r.batchSize}`);
+  const onFixture = await setupFixtureRepo();
+  const offFixture = await setupFixtureRepo();
+  try {
+    const onResults = await runOn(resolvedDeps, onFixture);
+    const offResults = await runOff(resolvedDeps, offFixture);
 
-  return { parksOn, parksOff, onLeaves, offParkReasons };
+    const parksOn = onResults.filter((r) => r.kind === 'epic-base-red').length;
+    const parksOff = offResults.filter((r) => r.kind === 'epic-base-red').length;
+    const onLeaves = onResults.map((r) => r.title);
+    const offParkReasons = offResults
+      .filter((r) => r.kind === 'epic-base-red')
+      .map((r) => `epic-base-red: ${r.title} batchSize=${r.batchSize}`);
+
+    return { parksOn, parksOff, onLeaves, offParkReasons };
+  } finally {
+    rmSync(onFixture.tmpDir, { recursive: true, force: true });
+    rmSync(offFixture.tmpDir, { recursive: true, force: true });
+  }
 }
 
-function main() {
-  const { parksOn, parksOff, onLeaves, offParkReasons } = runSharedUnionSplitMeasurement();
+async function main(): Promise<void> {
+  const { parksOn, parksOff, onLeaves, offParkReasons } = await runSharedUnionSplitMeasurement();
 
   console.log(`MEASURE shared-union-split parksOn=${parksOn} parksOff=${parksOff}`);
   console.log('-- ON run (foundation-first + file-mutex) --');
@@ -167,4 +301,9 @@ function main() {
   process.exit(0);
 }
 
-if (import.meta.main) main();
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
