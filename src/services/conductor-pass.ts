@@ -591,6 +591,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     })),
   });
   const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
+  const carriedServeIds = actions.filter((a) => a.action === 'discover').map((a) => a.id).slice(CONDUCTOR_SERVE_BATCH_MAX);
   // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
   // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Gate card raise on
   // ladder exhaustion: only raise when all rungs have been attempted. This runs BEFORE
@@ -985,6 +986,10 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } catch {
     verifyPanel = { paneled: [], held: [], skipped: [] };
   }
+  const carriedVerifyIds = verifyPanel.carried ?? [];
+  note(journalRowId, {
+    carried: { verify: carriedVerifyIds, serve: carriedServeIds, count: carriedVerifyIds.length + carriedServeIds.length },
+  });
   if (verifyPanel.paneled.length > 0 || verifyPanel.held.length > 0) {
     return done({
       ran: true,
