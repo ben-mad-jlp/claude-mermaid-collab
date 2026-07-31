@@ -29,6 +29,7 @@ import type { ProjectManifest } from '../config/project-manifest';
 import type { GateVerdict } from './coordinator-daemon';
 import { resolveLeafGate, resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
 import { activeQuarantine, seedManifestBaseline } from './flaky-quarantine';
+import { classifyGateFailure, type GateFailureClassification } from './gate-base-attribution';
 
 /** Resolution tiers, most-specific-LAST in number but resolved core-first. A
  *  core plugin (collab-shipped, domain-free) is considered before a domain plugin
@@ -70,6 +71,10 @@ export interface GateSubject {
    *  Only meaningful with `laneCwd`; the committed half of the change-set is
    *  `git diff --name-only <integrationBase>..HEAD` in the lane worktree. */
   integrationBase?: string;
+  /** This leaf's own authored change-set (gate-base-attribution.resolveLeafOwnChangeSet),
+   *  when the caller could resolve it. null/absent → every RED lane below stays
+   *  unattributable, byte-identical to today's verdict. */
+  ownChangeSet?: string[] | null;
 }
 
 /** A pluggable gate strategy. `appliesTo` is a SYNC predicate (cheap checks only —
@@ -180,6 +185,18 @@ export function lastLines(s: string, n: number): string {
 // worker's Step-3 gate does: after the command fails, attribute each reported
 // failure to a file and judge ONLY the change-set. A failure whose files are all
 // OUTSIDE the change-set is foreign contamination → the change-set is green.
+
+/** Build the GateVerdict for a failure classified as `epic-base-red` (every
+ *  failing file is foreign to this leaf's own change-set) — the shared shape
+ *  all four RED lanes emit so a downstream consumer can dedup/attribute by
+ *  `baseAttributed.signature` regardless of which lane produced it. */
+function baseAttributedVerdict(command: string, cls: GateFailureClassification): GateVerdict {
+  return {
+    passed: false,
+    reasons: [`epic-base-red: ${command}`, ...cls.failingFiles.slice(0, 20)],
+    baseAttributed: { command, failingFiles: cls.failingFiles, signature: cls.signature },
+  };
+}
 
 /** A file path is normalized for comparison by dropping a leading `./` and any
  *  surrounding quotes (git porcelain quotes paths with special chars). */
@@ -492,6 +509,8 @@ export const frontendSuiteGatePlugin: GatePlugin = {
         return { passed: true, reasons: [], metrics: { feSuiteGate: true, baselineOnlyFailures: failing } };
       }
       // Net-new regressions (or an unattributable non-zero exit) → REJECT.
+      const cls = classifyGateFailure({ command: cmd, output: out, ownChangeSet: ctx.ownChangeSet ?? null });
+      if (cls.kind === 'epic-base-red') return baseAttributedVerdict(cmd, cls);
       const detail = netNew.length > 0 ? netNew.slice(0, 20) : [lastLines(out, 20)];
       return {
         passed: false,
@@ -547,6 +566,8 @@ export const changeSetTestGatePlugin: GatePlugin = {
         return { passed: true, reasons: [], metrics: { changeSetTestGate: true, ranSpecs: specs } };
       }
       const failing = extractFailingTests(out);
+      const cls = classifyGateFailure({ command: cmd, output: out, ownChangeSet: ctx.ownChangeSet ?? null });
+      if (cls.kind === 'epic-base-red') return baseAttributedVerdict(cmd, cls);
       return {
         passed: false,
         reasons: [
@@ -621,6 +642,8 @@ export const impactedSuiteGatePlugin: GatePlugin = {
 
     const branchFailures: string[] = [];
     const root = ctx.laneCwd ?? ctx.gateProject;
+    let combinedOut = '';
+    const executedCommands: string[] = [];
 
     for (const lane of lanes) {
       const files = byLane.get(lane);
@@ -633,6 +656,8 @@ export const impactedSuiteGatePlugin: GatePlugin = {
         try {
           const proc = await ctx.exec(['sh', '-c', command], { cwd: laneCwd, capture: true });
           const out = proc.stdout + '\n' + proc.stderr;
+          executedCommands.push(command);
+          combinedOut += out + '\n';
           if (proc.code !== 0) {
             const failing = extractFailingTests(out);
             branchFailures.push(...failing);
@@ -724,6 +749,9 @@ export const impactedSuiteGatePlugin: GatePlugin = {
         };
       }
 
+      const command = executedCommands.join(' && ');
+      const cls = classifyGateFailure({ command, output: combinedOut, ownChangeSet: ctx.ownChangeSet ?? null });
+      if (cls.kind === 'epic-base-red') return baseAttributedVerdict(command, cls);
       return {
         passed: false,
         reasons: [
@@ -761,6 +789,8 @@ export async function runManifestCommand(ctx: GateSubject): Promise<GateVerdict 
       // non-zero exit is this leaf's own — reject UN-NARROWED, exact parity with the land gate
       // (epic-land-gate.ts typecheck). Narrowing (below) is kept ONLY for the legacy shared tree.
       if (ctx.laneCwd) {
+        const cls = classifyGateFailure({ command: cmd, output: out, ownChangeSet: ctx.ownChangeSet ?? null });
+        if (cls.kind === 'epic-base-red') return baseAttributedVerdict(cmd, cls);
         return { passed: false, reasons: [`typecheck failed (${cmd}): ${lastLines(out, 20)}`],
                  metrics: { unNarrowedTypecheck: true } };
       }
