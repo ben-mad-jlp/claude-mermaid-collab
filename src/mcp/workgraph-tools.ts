@@ -395,7 +395,7 @@ export const WORKGRAPH_TOOL_DEFS = [
               title: { type: 'string' },
               description: { type: 'string' },
               type: { type: 'string' },
-              files: { type: 'array', items: { type: 'string' } },
+              files: { type: 'array', items: { type: 'string' }, description: 'Touched files — persisted as `declaredFiles` and used to infer the agent-profile type when `type` is omitted, and for dispatch same-file serialization.' },
               tier: { type: 'string', enum: ['full', 'small', 'test-pinned'] },
               dependsOn: { type: 'array', items: { type: 'string' } },
               status: { type: 'string', enum: ['planned', 'ready'] },

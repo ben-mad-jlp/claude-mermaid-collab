@@ -39,7 +39,6 @@ export async function forwardIntegrateEpicTool(
   epicIdArg: string,
   opts?: { baseRef?: string; deps?: ForwardIntegrateDeps },
 ): Promise<ForwardIntegrateEpicToolResult> {
-  const baseRef = opts?.baseRef ?? 'master';
   const deps = opts?.deps;
 
   // Resolve the leading-8 prefix.
@@ -58,7 +57,7 @@ export async function forwardIntegrateEpicTool(
       reason: 'epic-not-found',
       epicId: epicIdArg,
       epicBranch: '',
-      baseRef,
+      baseRef: opts?.baseRef ?? 'master',
       beforeSha: null,
       afterSha: null,
       advanced: false,
@@ -70,6 +69,7 @@ export async function forwardIntegrateEpicTool(
 
   const targetProject = deps?.projectRoot ?? getTodo(project, epicId)?.targetProject ?? project;
   const wm = deps?.wm ?? getWorktreeManager(targetProject);
+  const baseRef = opts?.baseRef ?? await wm.detectBaseBranch().catch(() => 'master');
 
   const epicBranch = wm.epicBranchName(epicId);
   const beforeSha = await wm.epicHeadSha(epicId);
