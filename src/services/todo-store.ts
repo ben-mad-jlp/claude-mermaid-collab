@@ -174,6 +174,9 @@ export interface Todo {
   inheritedBlueprintFrom: string | null;
   /** SR-7: the files this split child owns (its slice of the parent plan). */
   inheritedFiles: string[];
+  /** The file set this leaf itself declared at create time (NOT the split-child
+   *  inherited slice). Persisted for dispatch same-file contention detection. */
+  declaredFiles: string[];
   /** EPIC 532c48fb GAP 2: bucket-ness, ORTHOGONAL to `kind`. A bucket IS an epic that
    *  never lands / has no branch / no mission / is not conductor-landable. Backfilled by
    *  id for the 5 known buckets; predicates migrate to consult this in leaf 4. */
@@ -243,6 +246,7 @@ export interface CreateTodoInput {
   claimProbe?: string | null;
   inheritedBlueprintFrom?: string | null;
   inheritedFiles?: string[];
+  declaredFiles?: string[];
   /** EVERY-TODO-NEEDS-AN-EPIC guard (373a2d52). A non-epic top-level create (no
    *  parentId, kind not 'epic'/'mission') is an ORPHAN and is REJECTED — so a
    *  planning skill that forgets to attach an epic fails LOUDLY instead of silently
@@ -474,6 +478,7 @@ export type UpdateTodoPatch = Partial<{
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
   inheritedFiles: string[];
+  declaredFiles: string[];
   /** R5 bucket promotion link: set when promoting a bucket item to a real epic. */
   promotedTo: string | null;
   tier: LeafTier | null;
@@ -539,6 +544,7 @@ interface TodoRow {
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
   inheritedFiles: string | null;
+  declaredFiles: string | null;
   isBucket: number;
   bucketType: string | null;
   triageTag: string | null;
@@ -591,6 +597,7 @@ CREATE TABLE IF NOT EXISTS todos (
   claimProbe TEXT,
   inheritedBlueprintFrom TEXT,
   inheritedFiles TEXT,
+  declaredFiles TEXT,
   isBucket INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
@@ -670,6 +677,8 @@ export function openDb(project: string): Database {
   // their slice of files. Both nullable; present iff a split child.
   addColumnIfMissing(db, 'todos', 'inheritedBlueprintFrom', 'inheritedBlueprintFrom TEXT');
   addColumnIfMissing(db, 'todos', 'inheritedFiles', 'inheritedFiles TEXT');
+  // The leaf's OWN declared file set (distinct from the split-child inherited slice).
+  addColumnIfMissing(db, 'todos', 'declaredFiles', 'declaredFiles TEXT');
   // EPIC 532c48fb GAP 2 (step 3, DATA FIRST): bucket-ness is ORTHOGONAL to `kind`.
   // A bucket IS an epic that never lands / has no branch / no mission. Additive,
   // NOT NULL DEFAULT 0 so every existing row reads false until the backfill below
@@ -1382,6 +1391,8 @@ function rowToTodo(row: TodoRow): Todo {
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
   let inheritedFiles: string[] = [];
   try { inheritedFiles = JSON.parse(row.inheritedFiles ?? '[]'); } catch { /* default [] */ }
+  let declaredFiles: string[] = [];
+  try { declaredFiles = JSON.parse(row.declaredFiles ?? '[]'); } catch { /* default [] */ }
   let link: TodoLink | null = null;
   if (row.link) { try { link = JSON.parse(row.link); } catch { /* null */ } }
   return {
@@ -1431,6 +1442,7 @@ function rowToTodo(row: TodoRow): Todo {
     claimProbe: row.claimProbe ?? null,
     inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
     inheritedFiles,
+    declaredFiles,
     isBucket: row.isBucket === 1,
     bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
@@ -1835,8 +1847,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket, bucketType, triageTag, tier, baseRepair)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1848,7 +1860,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -2008,6 +2020,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
       inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
       inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
+      declaredFiles: patch.declaredFiles ?? existing.declaredFiles,
       promotedTo: patch.promotedTo !== undefined ? patch.promotedTo : (existing.promotedTo ?? null),
       tier: patch.tier !== undefined ? patch.tier : (existing.tier ?? null),
       baseRepair: patch.baseRepair !== undefined ? patch.baseRepair : (existing.baseRepair ?? 0),
@@ -2043,13 +2056,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
           dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?, baseRepair=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
-          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
+          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, declaredFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
         next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier, next.baseRepair,
         approvedAt, approvedBy, heldAt, heldReason,
-        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), patch.retryCount ?? existing.retryCount, fullId
+        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), JSON.stringify(next.declaredFiles), patch.retryCount ?? existing.retryCount, fullId
       );
       if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
 
