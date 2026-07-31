@@ -3,6 +3,11 @@
  * with an epic's accumulation worktree, drops the epic, and verifies the sweep:
  * - pristine worktree is removed, branch survives
  * - dirty worktree is kept, friction is recorded
+ *
+ * Worktree GC for a dropped epic is a post-drop SWEEP (`releaseDroppedEpicWorktrees`), not
+ * part of the drop transaction (`updateTodo(..., { status: 'dropped' })`) — the sweep must be
+ * driven explicitly, as every test in this file already does via
+ * `_resetDroppedEpicSweepState()` + `{ force: true }`.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
@@ -13,7 +18,7 @@ const supervisorDir = mkdtempSync(join(tmpdir(), 'sup-epic-drop-'));
 process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { getWorktreeManager, releaseDroppedEpicWorktrees, _resetDroppedEpicSweepState } from '../coordinator-live';
-import { createTodo, updateTodo, _closeProject } from '../todo-store';
+import { createTodo, updateTodo, getTodo, _closeProject } from '../todo-store';
 import { listFriction, _closeProject as _closeFrictionProject } from '../friction-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 
@@ -156,6 +161,17 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     const frictionNote = frictions.find((f) => f.retryReason === 'dropped-epic-worktree-dirty');
     expect(frictionNote).toBeTruthy();
     expect(frictionNote!.detail).toContain('dirty');
+
+    // Idempotency of the "kept" outcome: a second sweep does not silently clear the
+    // dirty worktree or the friction record — the dirty state is observed and reported,
+    // not swept away on a later pass.
+    expect(existsSync(wtPath)).toBe(true);
+    const releasedAgain = await releaseDroppedEpicWorktrees(repo, { force: true });
+    expect(releasedAgain).not.toContain(epicId);
+    expect(existsSync(wtPath)).toBe(true);
+    const frictionsAfter = listFriction(repo, { todoId: epicId });
+    const frictionNoteAfter = frictionsAfter.find((f) => f.retryReason === 'dropped-epic-worktree-dirty');
+    expect(frictionNoteAfter).toBeTruthy();
   });
 
   it('test C: dropped epic with commits → branch renamed to collab/dropped/, not counted as unlanded', async () => {
@@ -259,6 +275,74 @@ describe('releaseDroppedEpicWorktrees — dropped-epic worktree release (H6a)', 
     expect(unlanded.map((e) => e.epicId8)).not.toContain(id8);
 
     // Assert (d): the epic id is reported in the released array.
+    expect(released).toContain(epicId);
+  });
+
+  it('test E: epic with live leaf children → dropped, cascade clears children, worktree swept clean', async () => {
+    _resetDroppedEpicSweepState();
+    const wm = getWorktreeManager(repo);
+
+    // Create an epic todo with two live (non-terminal) leaf children.
+    const epic = await createTodo(repo, {
+      allowOrphan: true,
+      title: 'epic with live children',
+      ownerSession: 'test',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const epicId = epic.id;
+    const branch = wm.epicBranchName(epicId);
+
+    const child1 = await createTodo(repo, {
+      title: 'leaf child 1',
+      ownerSession: 'test',
+      parentId: epicId,
+      status: 'planned',
+    });
+    const child2 = await createTodo(repo, {
+      title: 'leaf child 2',
+      ownerSession: 'test',
+      parentId: epicId,
+      status: 'ready',
+    });
+
+    // Ensure the epic accumulation worktree exists
+    await wm.ensureEpic(epicId, undefined, 'master');
+
+    // Commit a file on the epic worktree so it's pristine (no dirty changes) after commit.
+    const wtPath = wm.epicWorktreePath(epicId);
+    writeFileSync(join(wtPath, 'test.txt'), 'test content\n');
+    await runGit(wtPath, ['add', '-A']);
+    await runGit(wtPath, ['commit', '-q', '-m', 'test commit']);
+
+    // Drop the epic todo — production entry point per the DroppedEpicHasLiveChildrenError
+    // cascade contract (todo-store.ts:2088-2107): live descendants are auto-dropped in the
+    // same transaction, so this call does not throw.
+    await updateTodo(repo, epicId, { status: 'dropped' });
+
+    // Assert: the cascade cleared both live children to a terminal status.
+    const childAfter1 = await getTodo(repo, child1.id);
+    const childAfter2 = await getTodo(repo, child2.id);
+    expect(childAfter1?.status).toBe('dropped');
+    expect(childAfter2?.status).toBe('dropped');
+
+    // Run the sweep with force=true
+    const released = await releaseDroppedEpicWorktrees(repo, { force: true });
+
+    // Assert: worktree checkout dir removed from disk.
+    expect(existsSync(wtPath)).toBe(false);
+
+    // Assert: `git worktree list --porcelain` no longer lists the released worktree path.
+    const worktreeList = await runGit(repo, ['worktree', 'list', '--porcelain']);
+    expect(worktreeList.stdout).not.toContain(wtPath);
+
+    // Assert: the epic branch survives (renamed to collab/dropped/<id8>) — GC removes the
+    // checkout, not the work.
+    const droppedBranch = branch.replace('collab/epic/', 'collab/dropped/');
+    const droppedCheck = await runGit(repo, ['rev-parse', '--verify', droppedBranch]);
+    expect(droppedCheck.code).toBe(0);
+
+    // Assert: epic id is in released array.
     expect(released).toContain(epicId);
   });
 });
