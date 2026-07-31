@@ -65,6 +65,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     kind: partial.kind ?? inferKind(partial.title),
     inheritedBlueprintFrom: partial.inheritedBlueprintFrom ?? null,
     inheritedFiles: partial.inheritedFiles ?? [],
+    declaredFiles: partial.declaredFiles ?? [],
     isBucket: partial.isBucket ?? false,
     id: partial.id ?? `t${++seq}`,
     status,

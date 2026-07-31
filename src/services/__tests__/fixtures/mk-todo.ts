@@ -46,6 +46,7 @@ function base(): Omit<Todo, 'kind'> {
     claimProbe: null,
     inheritedBlueprintFrom: null,
     inheritedFiles: [],
+    declaredFiles: [],
     isBucket: false,
   };
 }
