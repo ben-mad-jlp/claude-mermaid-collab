@@ -345,8 +345,7 @@ function handleNoneReason(
 ): void {
   const missionId = m.node.id;
   try {
-    const episode = noteMissionLoopReason(project, missionId, reason, now);
-    if (!episode) return; // quiet reason — clock cleared, nothing to say
+    noteMissionLoopReason(project, missionId, reason, now);
 
     if (reason === 'over-budget') {
       const card = (deps.raiseRebetCard ?? raiseOverBudgetRebetCard)(
@@ -358,7 +357,34 @@ function handleNoneReason(
       if (card.raised) result.overBudget.push(missionId);
       return;
     }
+  } catch {
+    /* fail-open — the stall alarm must never break the mission-loop pass */
+  }
+}
 
+/**
+ * Evaluate the stall conjunction for one mission this tick and, once a STALLED condition
+ * has been observed twice, raise exactly one human card. Runs from BOTH the `none` branch
+ * (after `handleNoneReason` has fed the classified reason into the clock) and the `nudge`
+ * branch (which has no `MissionLoopNoneReason` of its own, so it feeds `noteMissionLoopReason`
+ * with the generic `'stalled'` reason here). `noteMissionLoopReason` no-ops the `since`/`reason`
+ * on an in-TTL episode, so a same-tick call here never clobbers a more specific reason already
+ * fed by `handleNoneReason`.
+ *
+ * Returns true iff the stall conjunction holds this tick (episode should stay open / survive
+ * a nudge); false if it does not (safe to clear).
+ *
+ * FAILS OPEN: every store touch is wrapped, because a card path must never break the pass.
+ */
+function evaluateStallAndMaybeRaise(
+  project: string,
+  m: MissionSummary,
+  now: number,
+  deps: MissionLoopDeps,
+  result: MissionLoopResult,
+): boolean {
+  const missionId = m.node.id;
+  try {
     const episodeKey = `${project} ${missionId}`;
     const facts = (deps.buildStallFacts ?? collectMissionStallFacts)(project, m, now);
     const { stalled, conditionKey, blockedCriterionIds } = evaluateMissionStall(facts, missionId);
@@ -376,11 +402,14 @@ function handleNoneReason(
           openStallByMission.delete(episodeKey);
         }
       }
-      return;
+      return false;
     }
 
+    const episode = noteMissionLoopReason(project, missionId, 'stalled', now);
+    if (!episode) return true; // in-TTL/no-op clock read, but the predicate still says stalled
+
     const count = noteStallObservation(project, missionId, conditionKey!);
-    if (count < 2) return;
+    if (count < 2) return true;
 
     (deps.createEscalation ?? createEscalation)({
       project,
@@ -400,8 +429,10 @@ function handleNoneReason(
     });
     openStallByMission.set(episodeKey, { conditionKey: conditionKey!, unmetCriteria: facts.unmetCriteria, blockedCriterionIds });
     result.stalled.push(missionId);
+    return true;
   } catch {
     /* fail-open — the stall alarm must never break the mission-loop pass */
+    return false;
   }
 }
 
@@ -442,8 +473,13 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
 
     try {
       if (action.kind === 'nudge') {
-        // A nudge IS motion — the mission is being driven, so any stall episode ends here.
-        clearMissionStall(project, m.node.id);
+        // A nudge is motion, but the stall conjunction may STILL hold (e.g. an in-flight
+        // land or over-budget re-bet) — only clear the episode when it genuinely does not.
+        const stillStalled = evaluateStallAndMaybeRaise(project, m, now, deps, result);
+        if (!stillStalled) {
+          clearMissionStall(project, m.node.id);
+          clearStallObservation(project, m.node.id);
+        }
         await nudge(project, action.session, action.message);
         stampNudge(project, m.node.id, action.key);
         result.nudged.push(m.node.id);
@@ -451,6 +487,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
         // NO SILENT STOP: classify this no-op and, if it means the mission is stuck,
         // make it visible (stall clock → derived status → exactly one human card).
         handleNoneReason(project, m, action.reason, now, deps, result);
+        evaluateStallAndMaybeRaise(project, m, now, deps, result);
         result.skipped++;
       }
     } catch {
