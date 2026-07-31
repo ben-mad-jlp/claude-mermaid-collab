@@ -185,22 +185,15 @@ async function runOn(deps: RunDeps, fixture: FixtureRepo): Promise<DispatchedLea
     readFile: (p) => (p === DECLARED_FILE ? `export type ConductorPassReason = 'a' | 'b' | 'c';\n` : null),
   });
 
-  if (normalised.leaves.length !== 5) {
-    throw new Error(`applyFoundationFirst shape mismatch: expected 5 leaves, got ${normalised.leaves.length}`);
-  }
-  const arms = normalised.leaves.slice(1);
-  for (const arm of arms) {
-    if (!arm.dependsOn || arm.dependsOn.length !== 1 || arm.dependsOn[0] !== '$0') {
-      throw new Error(`applyFoundationFirst shape mismatch: arm dependsOn was ${JSON.stringify(arm.dependsOn)}, expected ['$0']`);
-    }
-  }
-
+  const foundationAdded = normalised.leaves.length > spec.leaves.length;
   const records = toRecords(normalised.leaves, 'on');
   resolveDeps(records);
+  const foundationId = foundationAdded ? records[0].id : null;
 
   const landed = new Set<string>();
   const dispatched = new Set<string>();
   const results: DispatchedLeaf[] = [];
+  let unionWidened = false;
 
   while (landed.size < records.length) {
     const ready = records.filter(
@@ -215,18 +208,21 @@ async function runOn(deps: RunDeps, fixture: FixtureRepo): Promise<DispatchedLea
     for (const rec of dispatch as unknown as DispatchRecord[]) {
       dispatched.add(rec.id);
       landed.add(rec.id);
-      const isFoundation = rec.id === 'on-0';
+      const isFoundation = rec.id === foundationId;
       if (isFoundation) {
         // The foundation leaf is the one that actually widens the shared union — its own
         // diff genuinely touches the declared file and resolves the diagnostic.
         await commitLeaf(fixture, rec.id, [DECLARED_FILE], `export type ConductorPassReason = 'a' | 'b' | 'c' | 'd';\n`);
         results.push(await classify(fixture, rec, batchSize, 'on', FIXED_DIAGNOSTIC));
+        unionWidened = true;
       } else {
         // Arms dispatch AFTER the foundation has already fixed the union, so their own
         // diff never touches the shared file and their gate run never re-surfaces this
-        // diagnostic — modeled as an empty gate output (no failure to classify).
+        // diagnostic — modeled as an empty gate output (no failure to classify). An arm
+        // only sees an empty diagnostic once something has actually widened the union;
+        // absent a foundation, the diagnostic persists and every arm parks.
         await commitLeaf(fixture, rec.id, [`scripts/__fixtures__/${rec.id}-scratch.ts`], `export const ${rec.id.replace(/-/g, '_')} = true;\n`);
-        results.push(await classify(fixture, rec, batchSize, 'on', ''));
+        results.push(await classify(fixture, rec, batchSize, 'on', unionWidened ? '' : FIXED_DIAGNOSTIC));
       }
     }
   }
