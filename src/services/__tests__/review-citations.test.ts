@@ -422,4 +422,43 @@ describe('validateBallotGrounding', () => {
     expect(grounding.status).toBe('vacuous');
     expect(grounding.reasons.length).toBeGreaterThan(1);
   });
+
+  it("ok: met verdict grounds via a test-only change-set entry unrelated to the requirement id's textual subject", () => {
+    const verdicts = [
+      { id: 'seal-stays-fail-open', outcome: 'met' as const, text: 'src/services/__tests__/conductor-pass-seal.test.ts:42' },
+    ];
+    const grounding = validateBallotGrounding(
+      verdicts,
+      ['seal-stays-fail-open'],
+      ['src/services/__tests__/conductor-pass-seal.test.ts'],
+    );
+    expect(grounding.status).toBe('ok');
+    expect(grounding.reasons).toEqual([]);
+  });
+
+  it('vacuous: met verdict citing an unchanged file, or citing nothing, does not resolve into the change-set', () => {
+    const verdictsA = [
+      { id: 'seal-stays-fail-open', outcome: 'met' as const, text: 'src/services/conductor-pass.ts:373' },
+    ];
+    const groundingA = validateBallotGrounding(
+      verdictsA,
+      ['seal-stays-fail-open'],
+      ['src/services/__tests__/conductor-pass-seal.test.ts'],
+    );
+    expect(groundingA.status).toBe('vacuous');
+    expect(groundingA.reasons[0]).toMatch(/met verdict .* does not resolve into the change-set/);
+    expect(groundingA.reasons[0]).toContain('seal-stays-fail-open');
+
+    const verdictsB = [
+      { id: 'seal-stays-fail-open', outcome: 'met' as const, text: 'trust me, sealed' },
+    ];
+    const groundingB = validateBallotGrounding(
+      verdictsB,
+      ['seal-stays-fail-open'],
+      ['src/services/__tests__/conductor-pass-seal.test.ts'],
+    );
+    expect(groundingB.status).toBe('vacuous');
+    expect(groundingB.reasons[0]).toMatch(/met verdict .* does not resolve into the change-set/);
+    expect(groundingB.reasons[0]).toContain('seal-stays-fail-open');
+  });
 });
