@@ -33,6 +33,7 @@ import {
   listCriteria,
   getMissionRollup,
   assertMissionCreationAllowed,
+  setMissionForgeState,
   type MissionCriterion,
   type MissionRollup,
   type MissionRow,
@@ -45,7 +46,7 @@ import {
 } from '../../services/decision-record-store.js';
 import { writeMissionDigest } from '../../services/mission-digest.js';
 import { stripLabel } from '../../services/todo-kind.js';
-import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
+import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { recordSpend } from '../../services/spend-ledger.js';
 import { detectForwardAccrual, toOneShot, ForwardAccrualCriterionError } from '../../services/criterion-closeability.js';
@@ -87,6 +88,8 @@ export interface ForgeMissionInput {
    *  'unapproved', INACTIVE, and its constraints left PROPOSED — it sits in the list until a human
    *  approves it (approve_mission), which activates it AND ratifies the constraints so they inject. */
   approved?: boolean;
+  /** Reuse an existing `createForgeShell` mission instead of minting a new node — the async-forge seam. */
+  intoMissionId?: string;
 }
 
 export interface ForgeMissionResult {
@@ -98,6 +101,28 @@ export interface ForgeMissionResult {
   digestWritten: boolean;
   rollup: MissionRollup;
   ratificationMessage: string;
+}
+
+export interface ForgeShellInput { session: string; docId: string; title?: string }
+export interface ForgeShellResult { missionId: string; node: ReturnType<typeof deriveTodoViews>[number] }
+
+export async function createForgeShell(project: string, input: ForgeShellInput): Promise<ForgeShellResult> {
+  const { session, docId } = input;
+  if (!project || !session || !docId) throw new Error('createForgeShell: project, session, and docId are required');
+  assertMissionCreationAllowed(project);
+  const placeholderTitle = stripLabel(input.title?.trim() || `Forging mission from doc ${docId}`);
+  const node = await addSessionTodo(project, session, placeholderTitle, undefined, {
+    kind: 'mission',
+    assigneeSession: session,
+  });
+  const missionId = node.id;
+  upsertMission(project, missionId, {
+    handoffDocId: docId,
+    awaitingApprovalSince: Date.now(),
+    forgeState: 'forging',
+  });
+  enqueueMission(project, missionId);
+  return { missionId, node: deriveTodoViews(project, [node as Todo])[0] };
 }
 
 /** Validate + atomically instantiate a mission and its full constitution. Throws on invalid input
@@ -122,21 +147,29 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     if (hit) throw new ForwardAccrualCriterionError(c, hit.matched);
   }
 
-  assertMissionCreationAllowed(project);
+  if (!input.intoMissionId) assertMissionCreationAllowed(project);
 
   // 1. Mission node + row + criteria (same core as create_mission).
   const approved = input.approved ?? true;
-  const node = await addSessionTodo(project, session, missionTitle, undefined, {
-    kind: 'mission',
-    assigneeSession: session,
-    description: input.description,
-  });
-  const missionId = node.id;
-  upsertMission(project, missionId, {
-    budgetUsd: input.budgetUsd ?? null,
-    handoffDocId: input.handoffDocId ?? null,
-    awaitingApprovalSince: approved ? null : Date.now(), // unapproved mission → status 'unapproved'
-  });
+  let node: Todo;
+  let missionId: string;
+  if (input.intoMissionId) {
+    missionId = input.intoMissionId;
+    if (!getMission(project, missionId)) throw new Error(`forge_mission: intoMissionId not found: ${missionId}`);
+    node = await updateTodo(project, missionId, { title: missionTitle, description: input.description });
+  } else {
+    node = await addSessionTodo(project, session, missionTitle, undefined, {
+      kind: 'mission',
+      assigneeSession: session,
+      description: input.description,
+    });
+    missionId = node.id;
+    upsertMission(project, missionId, {
+      budgetUsd: input.budgetUsd ?? null,
+      handoffDocId: input.handoffDocId ?? null,
+      awaitingApprovalSince: approved ? null : Date.now(),
+    });
+  }
   if (approved) stampMissionNodeApproved(project, missionId, session);
   const activate = (input.activate ?? true) && approved; // an unapproved mission is never the active driven one
   // One-active-per-project: never steal focus unless explicitly told to activate.
@@ -182,6 +215,8 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     writeMissionDigest(project, missionId, digest);
     digestWritten = true;
   }
+
+  if (input.intoMissionId) setMissionForgeState(project, missionId, null);
 
   return {
     node: deriveTodoViews(project, [node as Todo])[0],
