@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { ConductorActivityPanel } from './ConductorActivityPanel';
+import { ConductorActivityPanel, CONDUCTOR_RAW_MODE_KEY } from './ConductorActivityPanel';
 
 let capturedHandler: ((msg: any) => void) | null = null;
 
@@ -72,6 +72,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.localStorage.clear();
 });
 
 describe('ConductorActivityPanel', () => {
@@ -123,10 +124,88 @@ describe('ConductorActivityPanel', () => {
       expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(2);
     });
 
-    fireEvent.click(screen.getByTestId('conductor-chip-epic-epic-aaa11111'));
+    fireEvent.click(screen.getByTestId('entity-chip-epic-epic-aaa11111'));
     expect(onOpenEntity).toHaveBeenCalledWith('epic', 'epic-aaa11111');
 
-    fireEvent.click(screen.getByTestId('conductor-chip-leaf-leaf-bbb22222'));
+    fireEvent.click(screen.getByTestId('entity-chip-leaf-leaf-bbb22222'));
     expect(onOpenEntity).toHaveBeenCalledWith('leaf', 'leaf-bbb22222');
+  });
+
+  describe('with nicknames', () => {
+    const FULL_UUID = '12345678-90ab-cdef-1234-567890abcdef';
+    const ROW_UUID = {
+      id: 'pass-uuid1',
+      project: 'proj1',
+      missionId: 'mission-aaa',
+      startedAt: 1500,
+      endedAt: 2500,
+      arm: 'serve',
+      criteriaActed: [{ criterionId: 'crit-1', action: 'serve', servedEpicId: FULL_UUID }],
+      filed: [],
+      declined: [],
+      outcome: 'ok',
+      ran: true,
+    };
+
+    beforeEach(() => {
+      global.fetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              rows: [ROW_UUID],
+              nicknames: { [FULL_UUID]: 'happy-otter' },
+            }),
+        }),
+      ) as any;
+    });
+
+    it('chip shows the fixture nickname while carrying the full raw id, and calls onOpenEntity with that id', async () => {
+      const onOpenEntity = vi.fn();
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={onOpenEntity} />);
+
+      const chip = await screen.findByTestId(`entity-chip-epic-${FULL_UUID}`);
+      expect(chip.textContent).toBe('happy-otter');
+      expect(chip.getAttribute('title')).toBe(FULL_UUID);
+      expect(chip.getAttribute('data-entity-id')).toBe(FULL_UUID);
+
+      fireEvent.click(chip);
+      expect(onOpenEntity).toHaveBeenCalledWith('epic', FULL_UUID);
+    });
+
+    it('no full UUID is rendered in default mode', async () => {
+      const { container } = render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId(`entity-chip-epic-${FULL_UUID}`);
+      const uuidRe = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
+      expect(container.textContent).not.toMatch(uuidRe);
+    });
+
+    it('clicking the raw toggle reveals the full UUID', async () => {
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId(`entity-chip-epic-${FULL_UUID}`);
+      fireEvent.click(screen.getByTestId('conductor-raw-toggle'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`entity-chip-epic-${FULL_UUID}`).textContent).toBe(FULL_UUID);
+      });
+    });
+
+    it('raw mode is still selected after unmount and remount', async () => {
+      const { unmount } = render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId(`entity-chip-epic-${FULL_UUID}`);
+      fireEvent.click(screen.getByTestId('conductor-raw-toggle'));
+      await waitFor(() => {
+        expect(window.localStorage.getItem(CONDUCTOR_RAW_MODE_KEY)).toBe('1');
+      });
+      unmount();
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByTestId(`entity-chip-epic-${FULL_UUID}`).textContent).toBe(FULL_UUID);
+      });
+    });
   });
 });
