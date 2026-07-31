@@ -258,6 +258,21 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // MISSION DIAGNOSTIC — read-only aggregate view (status, rollup, criteria with
+  // git-verified serving-epic landedness, leaves, conductorPass, baseHealth).
+  if (url.pathname === '/api/supervisor/missions/diagnostic' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      const missionId = url.searchParams.get('missionId');
+      if (!project || !missionId) return jsonError('project and missionId are required', 400);
+      const { buildMissionDiagnostic } = await import('../services/mission-diagnostic.ts');
+      const diagnostic = await buildMissionDiagnostic(project, missionId);
+      return Response.json(diagnostic);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // HISTORY — browse the archive (todos or missions) for a project, newest-archivedAt
   // first, keyset-paginated. Read-only. Companion to the MISSIONS/todos hot-path routes
   // above; the archival sweep (archival-sweep.ts) is what populates archivedAt.
