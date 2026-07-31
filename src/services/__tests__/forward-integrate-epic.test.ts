@@ -240,4 +240,10 @@ describe('forwardIntegrateEpicTool', () => {
     expect(result.ok).toBe(true);
     expect(result.advanced).toBe(true);
   });
+
+  it('carries no literal master default on the forward-integrate path', async () => {
+    const srcPath = new URL('../forward-integrate-epic.ts', import.meta.url);
+    const src = await fs.readFile(srcPath, 'utf8');
+    expect(src.match(/baseRef\s*(\?\?|=)\s*'master'/g)).toBeNull();
+  });
 });
