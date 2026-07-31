@@ -147,7 +147,7 @@ export function runSharedUnionSplitMeasurement(): {
   const onLeaves = onResults.map((r) => r.title);
   const offParkReasons = offResults
     .filter((r) => r.kind === 'epic-base-red')
-    .map((r) => `${r.title}: kind=epic-base-red batchSize=${r.batchSize}`);
+    .map((r) => `epic-base-red: ${r.title} batchSize=${r.batchSize}`);
 
   return { parksOn, parksOff, onLeaves, offParkReasons };
 }
