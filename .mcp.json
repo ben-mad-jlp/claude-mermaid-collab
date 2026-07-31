@@ -2,8 +2,8 @@
   "mcpServers": {
     "mermaid": {
       "type": "http",
-      "url": "http://localhost:9002/mcp",
-      "instructions": "Use these tools for collaborative design workflows: creating and managing Mermaid diagrams, wireframes, markdown documents, and UI rendering. All diagram/document operations require project path and session name parameters."
+      "url": "http://localhost:${COLLAB_API_PORT:-9002}/mcp",
+      "instructions": "Use these tools for collaborative design workflows: creating and managing Mermaid diagrams, wireframes, markdown documents, and UI rendering. All diagram/document operations require project path and session name parameters. PORT: 9002 is only the port the server REQUESTS — under per-user coexistence a second user's server falls back to another port and writes the real one to $MERMAID_DATA_DIR/port (~/.mermaid-collab/port). Set COLLAB_API_PORT to that value, as scripts/statusline.sh and the notification hooks already do. Pointing at another user's server fails quietly rather than loudly: check_server_health reports healthy because that server is healthy, list_sessions returns [] because those are the other user's sessions, and the first hard error is an EACCES writing into a home directory that server cannot traverse."
     }
   }
 }
