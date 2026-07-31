@@ -6,9 +6,12 @@
  */
 import React, { useEffect, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
-import { fetchConductorJournal, formatConductorPass, ConductorPassRow } from '@/lib/conductorActivity';
+import { fetchConductorJournalWithNicknames, formatConductorPass, ConductorPassRow } from '@/lib/conductorActivity';
+import { EntityChip } from './EntityChip';
+import { humanizeIds } from '@/lib/entityNickname';
 
 const ALL_MISSIONS = '__all__';
+export const CONDUCTOR_RAW_MODE_KEY = 'collab.conductorActivity.rawMode';
 
 export const ConductorActivityPanel: React.FC<{
   project: string;
@@ -16,17 +19,31 @@ export const ConductorActivityPanel: React.FC<{
   onOpenEntity: (kind: string, id: string) => void;
 }> = ({ project, missionOptions, onOpenEntity }) => {
   const [rows, setRows] = useState<ConductorPassRow[]>([]);
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [selectedMission, setSelectedMission] = useState<string>(ALL_MISSIONS);
+  const [rawMode, setRawMode] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(CONDUCTOR_RAW_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // Fetch on mount and whenever project changes
   useEffect(() => {
     let cancelled = false;
-    fetchConductorJournal(project)
+    fetchConductorJournalWithNicknames(project)
       .then((r) => {
-        if (!cancelled) setRows(r);
+        if (!cancelled) {
+          setRows(r.rows);
+          setNicknames(r.nicknames);
+        }
       })
       .catch(() => {
-        if (!cancelled) setRows([]);
+        if (!cancelled) {
+          setRows([]);
+          setNicknames({});
+        }
       });
     return () => {
       cancelled = true;
@@ -60,11 +77,29 @@ export const ConductorActivityPanel: React.FC<{
     <div data-testid="conductor-activity-panel">
       <div className="px-3 py-2 flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-wide text-gray-400">conductor activity</span>
+        <button
+          type="button"
+          data-testid="conductor-raw-toggle"
+          onClick={() =>
+            setRawMode((v) => {
+              const next = !v;
+              try {
+                window.localStorage.setItem(CONDUCTOR_RAW_MODE_KEY, next ? '1' : '0');
+              } catch {
+                // ignore
+              }
+              return next;
+            })
+          }
+          className="ml-auto text-3xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
+        >
+          {rawMode ? 'raw' : 'nicknames'}
+        </button>
         <select
           data-testid="conductor-mission-filter"
           value={selectedMission}
           onChange={(e) => setSelectedMission(e.target.value)}
-          className="ml-auto text-2xs"
+          className="text-2xs"
         >
           <option value={ALL_MISSIONS}>All missions</option>
           {missionEntries.map(([id, label]) => (
@@ -91,19 +126,20 @@ export const ConductorActivityPanel: React.FC<{
                 data-mission-id={row.missionId ?? ''}
                 className="py-1 border-b border-gray-200/50 dark:border-gray-700/50"
               >
-                <div className="text-2xs text-gray-700 dark:text-gray-200">{formatted.sentence}</div>
+                <div className="text-2xs text-gray-700 dark:text-gray-200">
+                  {rawMode ? formatted.sentence : humanizeIds(formatted.sentence, nicknames)}
+                </div>
                 <div className="text-3xs text-gray-400">{new Date(row.startedAt).toLocaleString()}</div>
                 <div className="flex items-center gap-1 mt-1">
                   {formatted.chips.map((chip) => (
-                    <button
+                    <EntityChip
                       key={`${chip.kind}-${chip.id}`}
-                      type="button"
-                      data-testid={`conductor-chip-${chip.kind}-${chip.id}`}
-                      onClick={() => onOpenEntity(chip.kind, chip.id)}
-                      className="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
-                    >
-                      {chip.label}
-                    </button>
+                      kind={chip.kind}
+                      id={chip.id}
+                      nicknames={nicknames}
+                      onOpen={onOpenEntity}
+                      raw={rawMode}
+                    />
                   ))}
                 </div>
               </div>
