@@ -95,11 +95,21 @@ describe('single-producer-audit', () => {
   });
 
   describe('landedness producers', () => {
-    it('finds exactly 2 hits at specified lines in epic-landedness.ts', () => {
+    it('finds exactly 2 hits, in isLanded and hasLandStamp in epic-landedness.ts', () => {
       const result = findLandednessProducers(corpus);
-      expect(locations(result)).toEqual([
-        'src/services/epic-landedness.ts:43',
-        'src/services/epic-landedness.ts:55',
+      // De-pinned from exact lines (were :43 and :55) for the same reason the terminal
+      // prefix group was de-pinned below: line pins re-red master on ANY edit to
+      // epic-landedness.ts. Adding isEpicLandedInGit shifted these to :47/:59 and wedged
+      // every leaf of the epic that added it. The invariant is TWO producers, both in
+      // epic-landedness.ts, in isLanded and hasLandStamp.
+      expect(result.hits.length).toBe(2);
+      expect(result.hits.map((h) => h.file)).toEqual([
+        'src/services/epic-landedness.ts',
+        'src/services/epic-landedness.ts',
+      ]);
+      expect(result.hits.map((h) => enclosingFunction(corpus, h.file, h.line))).toEqual([
+        'isLanded',
+        'hasLandStamp',
       ]);
     });
 
