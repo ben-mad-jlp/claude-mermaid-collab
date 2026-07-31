@@ -147,3 +147,16 @@ export async function fetchConductorJournal(
   const data = (await response.json()) as { rows?: ConductorPassRow[] };
   return data.rows ?? [];
 }
+
+export async function fetchConductorJournalWithNicknames(
+  project: string,
+  opts?: { missionId?: string; limit?: number },
+): Promise<{ rows: ConductorPassRow[]; nicknames: Record<string, string> }> {
+  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
+  if (opts?.missionId != null) url += `&missionId=${encodeURIComponent(opts.missionId)}`;
+  if (opts?.limit != null) url += `&limit=${encodeURIComponent(String(opts.limit))}`;
+  const response = await fetch(url);
+  if (!response.ok) return { rows: [], nicknames: {} };
+  const data = (await response.json()) as { rows?: ConductorPassRow[]; nicknames?: Record<string, string> };
+  return { rows: data.rows ?? [], nicknames: data.nicknames ?? {} };
+}
