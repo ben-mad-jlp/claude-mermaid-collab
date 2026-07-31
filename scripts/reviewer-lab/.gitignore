@@ -1,1 +1,7 @@
-results/
+# Ad-hoc lab runs stay untracked. Note `results/*`, not `results/` — git does not
+# descend into an ignored DIRECTORY, so a bare `results/` makes the negations below
+# unreachable and force-parks any leaf whose deliverable is a recorded artifact.
+results/*
+# ...except recorded artifacts a mission cites as evidence, which must be committable
+# with a plain `git add` (the leaf-executor's merge step does not use -f).
+!results/*-run.json
