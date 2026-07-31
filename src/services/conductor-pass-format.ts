@@ -17,6 +17,10 @@ export function formatConductorPass(row: ConductorPassJournalRow): FormattedCond
 
   parts.push(row.missionId ? `Mission ${row.missionId}` : 'No mission');
 
+  if (row.arm != null) {
+    parts.push(`arm: ${row.arm}`);
+  }
+
   if (row.endedAt === null) {
     parts.push('unfinished (killed)');
   }
