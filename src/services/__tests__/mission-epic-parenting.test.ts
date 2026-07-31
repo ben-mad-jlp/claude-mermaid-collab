@@ -204,6 +204,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      declaredFiles: [],
       isBucket: false,
       },
       {
@@ -249,6 +250,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      declaredFiles: [],
       isBucket: false,
       },
       {
@@ -294,6 +296,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      declaredFiles: [],
       isBucket: false,
       },
     ];

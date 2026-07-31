@@ -323,6 +323,7 @@ describe('splitLeafInto with items', () => {
       claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      declaredFiles: [],
       isBucket: false,
       ...overrides,
     };
