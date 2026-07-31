@@ -174,6 +174,9 @@ interface Spies {
 function makeDeps(opts: {
   reviewVerdicts?: string[]; // 'VERDICT: PASS' | 'VERDICT: FAIL — x' | '' per review call
   gateEffective?: 'accepted' | 'rejected' | 'pending';
+  // Base-attributed gate failure: complete() resolves 'pending' with this baseRed
+  // payload instead of gateEffective, mirroring resolveCompletion's baseAttributed branch.
+  gateBaseRed?: { command: string; failingFiles: string[]; signature: string };
   authThrows?: boolean;
   mergeThrows?: boolean;
   blueprintFails?: number; // first N blueprint-node invocations return ok:false (non-rate-limited)
@@ -292,6 +295,9 @@ function makeDeps(opts: {
     async complete(_p, _t, acceptance) {
       spies.completeCalls.push({ acceptance });
       spies.seq.push(`complete:${acceptance}`);
+      if (opts.gateBaseRed) {
+        return { effective: 'pending', baseRed: opts.gateBaseRed, pendingReason: `epic-base-red: ${opts.gateBaseRed.command}` };
+      }
       return { effective: opts.gateEffective ?? acceptance };
     },
     async markRejecting(_p, leafId) {
@@ -2690,6 +2696,7 @@ function makeVerifyDeps(opts: {
   execFails?: number;        // first N driveexec invocations fail (ok:false), then ok
   reportFails?: boolean;     // report returns ok:false
   gateEffective?: 'accepted' | 'rejected' | 'pending';
+  gateBaseRed?: { command: string; failingFiles: string[]; signature: string };
   mergeThrows?: boolean;
 }): { deps: LeafExecutorDeps; spies: Spies & { reportFindings: string[]; writes: Array<{ relPath: string; content: string }> } } {
   const spies = {
@@ -2752,7 +2759,14 @@ function makeVerifyDeps(opts: {
     assertAuth: () => 'subscription',
     async complete(_p, _t, acceptance) {
       spies.completeCalls.push({ acceptance });
+      if (opts.gateBaseRed) {
+        return { effective: 'pending', baseRed: opts.gateBaseRed, pendingReason: `epic-base-red: ${opts.gateBaseRed.command}` };
+      }
       return { effective: opts.gateEffective ?? acceptance };
+    },
+    async markRejecting(_p, leafId) {
+      spies.markRejectingCalls.push(leafId);
+      return true;
     },
     async mergeToEpic() {
       spies.mergeCalls += 1;
@@ -2799,6 +2813,25 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     const reportWrite = spies.writes.find((w) => w.relPath.endsWith('.report.md'));
     expect(reportWrite).toBeDefined();
     expect(reportWrite!.content).toContain('T14 verify report');
+  });
+
+  it('base-attributed gate failure in finalizeReportLeaf parks epic-base-red, never stamps rejected', async () => {
+    const gateBaseRed = { command: 'npm test', failingFiles: ['src/foo.ts'], signature: 'sig-1' };
+    const { deps: cleanDeps, spies: cleanSpies } = makeVerifyDeps({ resultJson: PLAN_CLEAN });
+    const cleanRes = await runLeaf('proj', verifyLeaf(), cleanDeps);
+    const cleanReportWrite = cleanSpies.writes.find((w) => w.relPath.endsWith('.report.md'));
+
+    const { deps, spies } = makeVerifyDeps({ resultJson: PLAN_CLEAN, gateBaseRed });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^epic-base-red/);
+    expect(spies.markRejectingCalls).toEqual([]);
+    expect(spies.completeCalls.some((c) => c.acceptance === 'rejected')).toBe(false);
+    // The report artifact write is unaffected by the base-red park.
+    const reportWrite = spies.writes.find((w) => w.relPath.endsWith('.report.md'));
+    expect(cleanRes.outcome).toBe('accepted');
+    expect(reportWrite).toBeDefined();
+    expect(reportWrite!.content).toBe(cleanReportWrite!.content);
   });
 
   it('empty report node output → BLOCKED (verify-report-empty), no merge', async () => {
@@ -2991,6 +3024,17 @@ describe('runLeaf resume consumption (slice 2)', () => {
     expect(res.reason).toBe('gate-rejected');
     // It still went through the SAME deps.complete gate as the fresh path.
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('base-attributed gate failure at skip-to-gate resume parks epic-base-red, never stamps rejected', async () => {
+    const gateBaseRed = { command: 'npm test', failingFiles: ['src/foo.ts'], signature: 'sig-1' };
+    const { deps, spies } = makeDeps({ gateBaseRed });
+    deps.resumePlan = { mode: 'skip-to-gate', reason: 'work-merged' };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^epic-base-red/);
+    expect(spies.markRejectingCalls).toEqual([]);
+    expect(spies.completeCalls.some((c) => c.acceptance === 'rejected')).toBe(false);
   });
 
   it('reattach-blueprint: reuses the durable plan (no blueprint node), runs implement+review', async () => {
@@ -3681,6 +3725,16 @@ describe('SR-7 inherited blueprint refresh', () => {
     expect(result?.from).toBe('parent-id');
     expect(result?.files).toEqual(['a.ts', 'b.ts']);
     expect(result?.text).toBe(plan);
+  });
+
+  it('base-attributed gate failure at the main gate site parks epic-base-red, never stamps rejected', async () => {
+    const gateBaseRed = { command: 'npm test', failingFiles: ['src/foo.ts'], signature: 'sig-1' };
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateBaseRed });
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^epic-base-red/);
+    expect(spies.markRejectingCalls).toEqual([]);
+    expect(spies.completeCalls.some((c) => c.acceptance === 'rejected')).toBe(false);
   });
 
   it('refresh node uses sonnet model by default', async () => {
