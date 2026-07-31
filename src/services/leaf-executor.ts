@@ -399,6 +399,9 @@ export interface LeafExecutorDeps {
     pendingReason?: string;
     /** When the gate overrode 'accepted'→'rejected', the failing-gate reasons. */
     gateReasons?: string[];
+    /** Present when the gate failure is base-attributed (not the leaf's own fault) —
+     *  the caller should park 'epic-base-red' instead of stamping a rejection. */
+    baseRed?: { command: string; failingFiles: string[]; signature: string };
   }>;
   /** Commit the leaf worktree + merge it back onto the epic branch (so the gate's
    *  work-committed re-verify sees it). Called on PASS, BEFORE `complete`. */
@@ -1913,6 +1916,12 @@ export async function runLeaf(
       }
     }
     recordOutcome('blocked', verdict, { reason });
+    // A base-red park means the leaf itself was never judged — its base was red, not
+    // its own code. Skip the reject pre-stamp entirely: no markRejecting, no
+    // complete(...,'rejected') re-entering resolveCompletion's worker-declared-'rejected'
+    // fast path — either would durably stamp acceptanceStatus='rejected' on a leaf that
+    // was never actually rejected.
+    const isBaseRedPark = reason.startsWith('epic-base-red');
     // Land the reject intent DURABLY before the slow gate so a mid-gate process
     // restart can't reclaim+re-run this leaf (reclaimNow refuses acceptanceStatus
     // 'rejected'). complete() re-stamps it idempotently below.
@@ -1922,14 +1931,18 @@ export async function runLeaf(
     // run already reaped the worktree). DISCARD the blocked outcome: do NOT clobber the
     // todo to rejected, do NOT escalate a spurious blocker. Mirrors completeTodo's E2 skip.
     let owned: void | boolean = true;
-    try { owned = await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
+    if (!isBaseRedPark) {
+      try { owned = await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
+    }
     if (owned === false) {
       return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason: `discarded-not-owned: ${reason}` });
     }
-    try {
-      await deps.complete(project, leaf.id, 'rejected');
-    } catch {
-      /* gate funnel best-effort on the blocked path */
+    if (!isBaseRedPark) {
+      try {
+        await deps.complete(project, leaf.id, 'rejected');
+      } catch {
+        /* gate funnel best-effort on the blocked path */
+      }
     }
     deps.escalate({
       project,
@@ -2133,6 +2146,9 @@ export async function runLeaf(
       );
     }
     const g = await deps.complete(project, leaf.id, 'accepted');
+    if (g.baseRed) {
+      return parkBlocked(`epic-base-red: ${g.baseRed.command}\n${g.baseRed.failingFiles.join(', ')}`, gateVerdict);
+    }
     const effective = g.effective ?? 'accepted';
     const reason =
       effective === 'pending' ? 'gate-pending'
@@ -2257,6 +2273,9 @@ export async function runLeaf(
     // feeds the REVIEW node, which skip-to-gate deliberately skips — it is NOT the
     // authoritative gate and its absence here changes no verdict.
     const gate = await deps.complete(project, leaf.id, 'accepted');
+    if (gate.baseRed) {
+      return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+    }
     const effective = gate.effective ?? 'accepted';
     const reason =
       effective === 'pending' ? 'gate-pending'
@@ -2890,6 +2909,9 @@ export async function runLeaf(
           });
         } catch { /* telemetry — never break the run */ }
         const gate = await deps.complete(project, leaf.id, 'accepted');
+        if (gate.baseRed) {
+          return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+        }
         const effective = gate.effective ?? 'accepted';
         const outcome: LeafRunResult['outcome'] = effective;
         const reason = effective === 'pending' ? 'gate-pending'
@@ -2933,6 +2955,9 @@ export async function runLeaf(
             });
           } catch { /* telemetry — never break the run */ }
           const gate = await deps.complete(project, leaf.id, 'accepted');
+          if (gate.baseRed) {
+            return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+          }
           const effective = gate.effective ?? 'accepted';
           const outcome: LeafRunResult['outcome'] = effective;
           const reason = effective === 'pending' ? 'gate-pending'
@@ -3509,6 +3534,9 @@ export async function runLeaf(
         deps.markMerged?.(leaf.id);
       }
       const gate = await deps.complete(project, leaf.id, 'accepted');
+      if (gate.baseRed) {
+        return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, reviewVerdict);
+      }
       const effective = gate.effective ?? 'accepted';
       // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
       // collapse 'pending' into 'rejected'. 'pending' = review PASSed + work merged but
@@ -3713,7 +3741,7 @@ export async function makeLeafExecutorDeps(
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
       // leaf-executor's terminal record needs them (they were silently dropped before).
       const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a, runClaimToken);
-      return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons };
+      return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons, baseRed: r.baseRed };
     },
     mergeToEpic: (sessionKey, eId, message, todoId, scope) =>
       wm.commitAndMergeToEpic(sessionKey, eId, {
