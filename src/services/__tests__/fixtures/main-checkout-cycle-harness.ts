@@ -4,7 +4,7 @@
  */
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import type { WorktreeManagerOpts } from '../../../agent/worktree-manager';
 import type { MainCheckoutResidueError, MainCheckoutBranchChangedError } from '../../main-checkout-invariant';
 
@@ -84,6 +84,17 @@ export async function buildEpicTouchingExistingTestFile(
   await runGit(epic.path, ['commit', '-q', '-m', 'epic: edit existing test file']);
 
   return { editedContent };
+}
+
+export async function advanceMasterWithCommit(
+  repo: string,
+  relPath: string,
+  content: string,
+): Promise<void> {
+  mkdirSync(join(repo, dirname(relPath)), { recursive: true });
+  writeFileSync(join(repo, relPath), content);
+  await runGit(repo, ['add', '-A']);
+  await runGit(repo, ['commit', '-q', '-m', `trunk: advance ${relPath}`]);
 }
 
 export interface MainCheckoutProbes {
