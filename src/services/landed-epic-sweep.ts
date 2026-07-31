@@ -49,7 +49,7 @@ export async function reconcileLandedEpics(
   opts: { probe?: GitProbe; baseRef?: string; now?: () => string; listBranches?: BranchLister } = {},
 ): Promise<LandedEpicSweepResult> {
   const probe = opts.probe ?? makeGitProbe(project);
-  const baseRef = opts.baseRef ?? 'master';
+  const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
   // Prefilter probes to branches that actually exist (crit-5). When a fake probe is
   // injected WITHOUT an explicit lister, skip the prefilter so hermetic tests keep
   // their exact semantics (their probe already answers exists:false for free).
@@ -226,7 +226,7 @@ export async function gcEpicBranches(
 ): Promise<GcEpicBranchesResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
-  const baseRef = opts.baseRef ?? 'master';
+  const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
   const now = opts.now ?? (() => new Date().toISOString());
   const rescue = opts.rescue ?? ((branch: string) => rescueOrphanedLeafCommitsForBranch(project, branch, { baseRef }));
 

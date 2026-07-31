@@ -14,6 +14,7 @@ import {
   buildEpicBranchStatus,
   makeGitProbe,
   epicBranchName,
+  detectTrunkRef,
 } from './epic-branch-status.js';
 import { findLandedAtDivergence, type AheadLookup } from './invariant-check.js';
 import {
@@ -58,7 +59,7 @@ export async function runSweepMeasurement(
 ): Promise<SweepMeasurement> {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
-  const baseRef = opts.baseRef ?? 'master';
+  const baseRef = opts.baseRef ?? (await detectTrunkRef(project));
   // Prefilter (crit-5): with the REAL probe, enumerate collab/epic/* once per report so
   // probing is bounded by existing branches, not epic-todo count. Injected-probe tests
   // keep their exact old semantics (no prefilter).
