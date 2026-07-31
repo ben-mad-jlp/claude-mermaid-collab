@@ -13,6 +13,8 @@ import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { RecurrenceBadge } from '@/components/shared/RecurrenceBadge';
 import { classifyEscalationLifecycle, selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
+import { humanizeIds } from '@/lib/entityNickname';
+import { useProjectNicknames } from '@/lib/nicknames';
 
 /**
  * Lifecycle badge for an OPEN escalation (todo fd934fb7): makes the triage state
@@ -112,6 +114,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const sessions = useSessionStore((s) => s.sessions);
+  const nicknames = useProjectNicknames(project ?? '');
 
   const open = escalations.filter((e) => e.status === 'open');
 
@@ -245,8 +248,12 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                     </button>
                   ) : null}
                 </div>
-                <div className="text-xs leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
-                  {e.questionText}
+                <div
+                  data-testid="escalation-question-text"
+                  data-raw-text={e.questionText}
+                  className="text-xs leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words"
+                >
+                  {humanizeIds(e.questionText, nicknames)}
                 </div>
                 {/* Linked todo (#1): the work this question is about. Click to open it
                     in the detail tab. Shows its current status so the human has context. */}
