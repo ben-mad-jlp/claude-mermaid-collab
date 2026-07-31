@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyGateFailure, gateFailureSignature } from '../gate-base-attribution';
+import { classifyGateFailure, extractGateFailingFiles, gateFailureSignature } from '../gate-base-attribution';
 
 describe('classifyGateFailure', () => {
   test('classifies an untouched-file tsc diagnostic as epic-base-red', () => {
@@ -42,6 +42,13 @@ describe('classifyGateFailure', () => {
       ownChangeSet: null,
     });
     expect(result.kind).toBe('unattributable');
+  });
+});
+
+describe('extractGateFailingFiles', () => {
+  test('extractGateFailingFiles returns the diagnostic file for a tsc-shaped line', () => {
+    const files = extractGateFailingFiles('src/untouched.ts(3,1): error TS2304: x');
+    expect(files).toEqual(['src/untouched.ts']);
   });
 });
 
