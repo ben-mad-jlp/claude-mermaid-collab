@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap, servingLandIsNewerThanVerdict } from '../mission-status-predicates.ts';
+import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap, servingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict } from '../mission-status-predicates.ts';
 import type { Todo } from '../todo-store.ts';
 import type { LeafRunSummary } from '../ledger-stats.ts';
 
@@ -490,6 +490,58 @@ describe('mission-status-predicates', () => {
         verifiedAt: 100,
         verifiedAtSha: 'old111',
         servingEpicLandSha: 'new222',
+      });
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('servingWorkCompletedAfterVerdict', () => {
+    it('returns true when serving work completed newer than the verdict', () => {
+      const result = servingWorkCompletedAfterVerdict({
+        met: false,
+        verifiedAt: 100,
+        servingWorkCompletedAt: 200,
+      });
+
+      expect(result).toBe(true);
+    });
+
+    it('returns false when criterion is already met', () => {
+      const result = servingWorkCompletedAfterVerdict({
+        met: true,
+        verifiedAt: 100,
+        servingWorkCompletedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when verifiedAt is null', () => {
+      const result = servingWorkCompletedAfterVerdict({
+        met: false,
+        verifiedAt: null,
+        servingWorkCompletedAt: 200,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingWorkCompletedAt is null', () => {
+      const result = servingWorkCompletedAfterVerdict({
+        met: false,
+        verifiedAt: 100,
+        servingWorkCompletedAt: null,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingWorkCompletedAt is not newer than verifiedAt', () => {
+      const result = servingWorkCompletedAfterVerdict({
+        met: false,
+        verifiedAt: 200,
+        servingWorkCompletedAt: 100,
       });
 
       expect(result).toBe(false);
