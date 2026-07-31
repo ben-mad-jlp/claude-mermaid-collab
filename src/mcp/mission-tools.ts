@@ -27,6 +27,7 @@ import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVer
 import { coerceArrayArg } from './arg-coercion.js';
 import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/criterion-closeability.js';
 import { buildMissionDiagnostic } from '../services/mission-diagnostic.js';
+import { isEpicLandedInGit } from '../services/epic-landedness.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -172,11 +173,25 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // getMissionCost/missionConstitutionHealth live outside mission-store.ts and do NOT
       // self-resolve, so those two still need the canonical id explicitly.
       const id = mission.todoId;
+      // Rewire servingEpics[].landed onto git-reconciled land truth: a landed epic can leave
+      // status/landedAt lagging (see collectMissionStatusFacts comment above), so probe git
+      // directly per unique serving epic and feed the result back into the derivation.
+      const rawCriteria = listCriteriaWithActions(project, todoId);
+      const servingEpicIds = new Set(rawCriteria.flatMap((c) => c.servingEpics.map((e) => e.id)));
+      const landTruth = new Map<string, boolean>();
+      for (const epicId of servingEpicIds) {
+        try {
+          const status = await isEpicLandedInGit(project, epicId);
+          if (status === 'landed') landTruth.set(epicId, true);
+          else if (status === 'not-landed') landTruth.set(epicId, false);
+          // 'indeterminate' (or a throw below): leave epicId OUT of the map — falls back to isLanded.
+        } catch { /* fail-open: never downgrade to false on a probe failure */ }
+      }
       return JSON.stringify({
         // Criteria carry the DERIVED per-criterion `action` ('met'|'building'|'verify'|'discover')
         // + servingEpicState — the conductor serves EVERY 'discover' gap in one pass; the scalar
         // mission.status is only the headline.
-        mission, criteria: listCriteriaWithActions(project, todoId), rollup: getMissionRollup(project, todoId),
+        mission, criteria: listCriteriaWithActions(project, todoId, { landTruth }), rollup: getMissionRollup(project, todoId),
         cost: getMissionCost(project, id),
         // Enforcement teeth: 'constitution-not-injected' = a mission with a handoff whose locked
         // rules never became active constraint records the builders see (forge_mission prevents this).
