@@ -1,5 +1,5 @@
 import type { Todo } from './todo-store';
-import { resolveCompletion } from '../agent/completion-resolver';
+import { resolveCompletion, type ResolveCompletionOpts } from '../agent/completion-resolver';
 import { DEFAULT_LEASE_MS } from './harness-caps';
 import { partitionByFileContention } from './file-mutex';
 
@@ -282,6 +282,7 @@ export async function handleWorkerComplete(
   /** bf2eaf84: the completing run's claim token — forwarded to the completeTodo CAS so a
    *  run that lost the todo to a re-claim cannot apply its outcome to the new owner. */
   claimToken?: string,
+  opts?: ResolveCompletionOpts,
 ): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict; effective?: 'accepted' | 'rejected' | 'pending'; pendingReason?: string; baseRed?: GateVerdict['baseAttributed'] }> {
   // AUTHORITATIVE RESOLUTION (5374e299 + PAW P1): a worker can only PROPOSE an
   // acceptance. The server-authoritative completion-resolver decides the effective
@@ -294,6 +295,7 @@ export async function handleWorkerComplete(
     project,
     todoId,
     acceptance,
+    opts,
   );
   const { promoted } = await deps.completeTodo(project, todoId, effective, claimToken);
   let escalated = false;

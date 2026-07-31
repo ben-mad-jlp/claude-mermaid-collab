@@ -467,7 +467,7 @@ describe('handleWorkerComplete — authoritative gate (5374e299)', () => {
     expect(r.gateOverride?.passed).toBe(false);
   });
 
-  test('worker REJECTED → gate is not consulted (already rejected)', async () => {
+  test('worker REJECTED with non-base-attributed gate failure → still rejected (gate consulted, no override)', async () => {
     let gateCalls = 0;
     const deps = makeDeps({
       completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g5'), promoted: [] }),
@@ -475,6 +475,30 @@ describe('handleWorkerComplete — authoritative gate (5374e299)', () => {
     });
     await handleWorkerComplete(deps, 'proj', 'g5', 'rejected');
     expect(deps._completeCalls[0]).toEqual(['proj', 'g5', 'rejected']);
+    expect(gateCalls).toBe(1);
+  });
+
+  test('worker REJECTED + base-attributed gate failure → downgraded to pending', async () => {
+    const baseAttributed = { command: 'npm test', failingFiles: ['src/foo.ts'], signature: 'sig-1' };
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g6'), promoted: [] }),
+      runGate: async () => ({ passed: false, reasons: ['gate failed'], baseAttributed }),
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'g6', 'rejected');
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g6', 'pending']);
+    expect(r.baseRed).toEqual(baseAttributed);
+  });
+
+  test('admin-source rejected park skips re-gating even with a base-attributed verdict', async () => {
+    const baseAttributed = { command: 'npm test', failingFiles: ['src/foo.ts'], signature: 'sig-1' };
+    let gateCalls = 0;
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g7'), promoted: [] }),
+      runGate: async () => { gateCalls++; return { passed: false, reasons: ['gate failed'], baseAttributed }; },
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'g7', 'rejected', undefined, { source: 'admin' });
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g7', 'rejected']);
     expect(gateCalls).toBe(0);
+    expect(r.baseRed).toBeUndefined();
   });
 });

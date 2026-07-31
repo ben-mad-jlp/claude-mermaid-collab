@@ -2100,7 +2100,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // HARD: park BLOCKED (non-claimable) via the completion funnel, then escalate.
         // Thread the row's LIVE claim token so a lane already re-claimed by a fresh
         // run no-ops instead of parking the new owner's in-flight work.
-        try { await handleWorkerComplete(deps, project, trip.todoId, 'rejected', todo?.claim?.token ?? undefined); }
+        try { await handleWorkerComplete(deps, project, trip.todoId, 'rejected', todo?.claim?.token ?? undefined, { source: 'admin' }); }
         catch { /* park funnel best-effort; the escalation still files below */ }
         // Structured payload (design §2.5): the literal trip trajectory + the exhausted
         // action-class (it ran past its budget) + concrete options + recommendation.
@@ -2137,7 +2137,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // status blocked, completion cleared), same mechanism parkBlocked uses.
         // Thread the row's LIVE claim token so a lane already re-claimed by a fresh
         // run no-ops instead of parking the new owner's in-flight work.
-        try { await handleWorkerComplete(deps, project, entry.todoId, 'rejected', todo?.claim?.token ?? undefined); }
+        try { await handleWorkerComplete(deps, project, entry.todoId, 'rejected', todo?.claim?.token ?? undefined, { source: 'admin' }); }
         catch { /* gate funnel best-effort on the exhaustion path */ }
         createEscalation({
           project,
