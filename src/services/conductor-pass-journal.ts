@@ -34,6 +34,10 @@ export interface ConductorPassJournalRow {
    *  must never consume the bounded retry counter. null on rows where the distinction doesn't
    *  apply (debounced/productive/etc.). */
   failCounted: boolean | null;
+  /** Criterion ids this pass deferred past its batch cap (CONDUCTOR_VERIFY_BATCH_MAX /
+   *  CONDUCTOR_SERVE_BATCH_MAX) rather than acting on this tick — null when nothing was
+   *  carried (or on legacy rows predating this column). */
+  carried: { verify: string[]; serve: string[]; count: number } | null;
 }
 
 const DDL = `
@@ -52,12 +56,20 @@ CREATE TABLE IF NOT EXISTS conductor_pass (
   declined TEXT,
   outcome TEXT,
   ran INTEGER,
-  failCounted INTEGER
+  failCounted INTEGER,
+  carried TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conductor_pass_lookup ON conductor_pass (project, missionId, startedAt);
 `;
 
 let db: Database | null = null;
+
+function addColumnIfMissing(d: Database, table: string, col: string, ddl: string): void {
+  const cols = d.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === col)) {
+    d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
 
 function openDb(): Database {
   if (db) return db;
@@ -66,6 +78,7 @@ function openDb(): Database {
   db = new Database(join(dir, 'worker-ledger.db'));
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  addColumnIfMissing(db, 'conductor_pass', 'carried', 'carried TEXT');
   return db;
 }
 
@@ -92,8 +105,8 @@ export function openPassRow(project: string, missionId: string | null, startedAt
   }
 }
 
-type JsonPatchKey = 'criteriaActed' | 'filed' | 'declined';
-const JSON_PATCH_KEYS: JsonPatchKey[] = ['criteriaActed', 'filed', 'declined'];
+type JsonPatchKey = 'criteriaActed' | 'filed' | 'declined' | 'carried';
+const JSON_PATCH_KEYS: JsonPatchKey[] = ['criteriaActed', 'filed', 'declined', 'carried'];
 type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm';
 const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm'];
 type BoolPatchKey = 'failCounted';
@@ -201,6 +214,7 @@ function rowFromRaw(r: any): ConductorPassJournalRow {
     outcome: r.outcome ?? null,
     ran: r.ran == null ? null : r.ran === 1,
     failCounted: r.failCounted == null ? null : r.failCounted === 1,
+    carried: r.carried == null ? null : parseJsonValue(r.carried) as ConductorPassJournalRow['carried'],
   };
 }
 
