@@ -187,7 +187,7 @@ export const addSessionTodoSchema = {
     servesCriterionIds: { type: 'array', items: { type: 'string' }, description: 'MULTI-EDGE: ALL criteria this epic serves — one right-sized epic may serve several aspect criteria of the same deliverable (preferred over thin one-per-criterion epics). Wins over servesCriterionId when both given.' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
     type: { type: 'string', description: 'Agent-profile type (frontend/backend/api/ui/library). Overrides inference from files.' },
-    files: { type: 'array', items: { type: 'string' }, description: 'Touched files — used to infer the agent-profile type when `type` is omitted.' },
+    files: { type: 'array', items: { type: 'string' }, description: 'Touched files — persisted as `declaredFiles` and used to infer the agent-profile type when `type` is omitted, and for dispatch same-file serialization.' },
     inbox: { type: 'boolean', description: 'Deliberately file an UNPLANNED high-level thought under [EPIC] Inbox. The ONLY way into the Inbox — never assumed. Use ONLY for genuine unplanned thoughts; planned work must pass parentId=<epic id> instead.' },
     kind: {
       type: 'string',
@@ -450,6 +450,7 @@ export async function addSessionTodo(
     title: trimmed, // after the spread so the trimmed value always wins
     link: link ?? null,
     type: resolvedType,
+    declaredFiles: files ?? [],
   });
 }
 
