@@ -65,7 +65,7 @@ function makeMinimalDeps(): LeafExecutorDeps {
     ensureBaseGreen: async () => ({
       status: 'fail',
       command: COMMAND,
-      output: FAILING_FILES.join(', '),
+      output: `${FAILING_FILES[0]}(12,3): error TS2304: Cannot find name 'Foo'.`,
       reasons: [],
       declared: true,
       fresh: true,
@@ -133,6 +133,10 @@ describe('sibling parity: G2 leaf park vs self-report seam classify the same bas
     const resA = await runLeaf('proj', makeMinimalLeaf(), makeMinimalDeps());
     expect(resA.outcome).toBe('blocked');
     expect(resA.reason).toMatch(/^epic-base-red/);
+    expect(resA.nodesSpent).toBe(0);
+    expect(resA.baseRed!.signature).toEqual(expect.any(String));
+    expect(resA.baseRed!.signature.length).toBeGreaterThan(0);
+    expect(resA.baseRed!.failingFiles).toEqual(FAILING_FILES);
 
     // Leaf B: the self-report seam (worker reports 'rejected', gate attributes it to base).
     const baseAttributed = { command: COMMAND, failingFiles: FAILING_FILES, signature: EXPECTED_SIGNATURE };
@@ -146,7 +150,7 @@ describe('sibling parity: G2 leaf park vs self-report seam classify the same bas
     // Parity: both leaves were driven off the identical (COMMAND, FAILING_FILES) pair, so
     // they must resolve to the SAME signature — a future divergence in either park site's
     // reason-string construction would break this comparison, not just each half alone.
-    expect(gateFailureSignature(COMMAND, FAILING_FILES)).toBe(rB.baseRed!.signature);
+    expect(resA.baseRed!.signature).toBe(rB.baseRed!.signature);
     expect(resA.reason).toMatch(/^epic-base-red/);
     expect(rB.pendingReason).toMatch(/^epic-base-red/);
   });
