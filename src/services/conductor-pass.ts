@@ -20,7 +20,7 @@ import {
   promoteQueuedMissions,
   type MissionRecheck,
 } from './mission-store.js';
-import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP } from './harness-caps.js';
+import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
@@ -235,7 +235,7 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     `   "conductor", session: "${session}") remains available as a manual fallback — but do not go`,
     '   looking for land cards, and never spend a pass hunting one.',
     '',
-    'Serve EVERY open `discover`/`verify` gap you find in THIS pass (don\'t stop at one). If nothing is',
+    `Serve the \`discover\`/\`verify\` gaps enumerated in WAKE CONTEXT above, at most ${CONDUCTOR_SERVE_BATCH_MAX} per pass. If more are listed as CARRIED, leave them for the next pass — do not try to serve them now. If nothing is`,
     'actionable (all building, or converged), say so and stop — do not invent work. Keep the mission\'s',
     'ACTIVE CONSTRAINTS (injected into your builders) intact; do not re-litigate locked decisions.',
   ].join('\n');

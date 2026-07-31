@@ -20,6 +20,7 @@ import {
   type WakeStakes,
 } from '../conductor-wake-context';
 import { VERIFY_LENSES } from '../criterion-verify-panel';
+import { CONDUCTOR_SERVE_BATCH_MAX } from '../harness-caps';
 
 const NOW = 1_800_000_000_000;
 const LAST_PASS = NOW - 60 * 60 * 1000; // 1h ago
@@ -363,6 +364,31 @@ describe('buildWakeContextBlock — total prompt render cap', () => {
     expect(block1).toBe(block2);
     expect(block1).not.toContain('total prompt cap');
     expect(block1.length).toBeLessThan(CONDUCTOR_PROMPT_RENDER_CAP_CHARS);
+  });
+});
+
+describe('buildWakeContextBlock — discover slate bound', () => {
+  test('bounds discover gaps to CONDUCTOR_SERVE_BATCH_MAX and renders a carried line', () => {
+    const discoverGaps: WakeCriterion[] = Array.from({ length: 8 }, (_, i) => ({
+      id: `crit-discover-${i}`,
+      action: 'discover',
+      text: `gap ${i}`,
+    }));
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [],
+      actions: discoverGaps,
+    });
+
+    const renderedIds = discoverGaps.filter((g) => block.includes(g.id));
+    expect(renderedIds.length).toBe(CONDUCTOR_SERVE_BATCH_MAX);
+
+    const carriedCount = discoverGaps.length - CONDUCTOR_SERVE_BATCH_MAX;
+    const match = block.match(/CARRIED to the next pass \(serve bound \d+\)/);
+    expect(match).not.toBeNull();
+    expect(block).toContain(`… ${carriedCount} more \`discover\` gap(s) CARRIED to the next pass (serve bound ${CONDUCTOR_SERVE_BATCH_MAX})`);
   });
 });
 
