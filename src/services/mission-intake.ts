@@ -13,7 +13,7 @@ import { listTodos, type Todo } from './todo-store.ts';
 import { isEpic } from './todo-kind.ts';
 import { getConfig } from './config-service.ts';
 import { getIntakeEnabled } from './supervisor-store.ts';
-import { forgeMissionFromDoc, type ForgeFromDocResult } from '../mcp/tools/mission-forge.ts';
+import { forgeMissionFromDoc, type ForgeFromDocAck } from '../mcp/tools/mission-forge.ts';
 
 /**
  * MISSION A — friction → forge intake pipeline.
@@ -229,7 +229,7 @@ async function defaultForge(
   candidate: IntakeCandidate,
   briefContent: string,
 ): Promise<{ missionId: string }> {
-  const res: ForgeFromDocResult = await forgeMissionFromDoc(
+  const res: ForgeFromDocAck = await forgeMissionFromDoc(
     project,
     { session: INTAKE_SESSION, docId: `intake-${sanitizeSigForFilename(candidate.sig)}` },
     { readDoc: async () => briefContent },
