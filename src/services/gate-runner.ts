@@ -686,7 +686,15 @@ export const impactedSuiteGatePlugin: GatePlugin = {
       try { await ctx.exec(['git', '-C', ctx.gateProject, 'worktree', 'prune'], { cwd: ctx.gateProject, capture: true }); } catch {}
     };
 
-    const baseRef = 'master';
+    // Resolve the trunk (main-then-master probe via ctx.exec so it stays mockable).
+    // Behaviour-preserving on a master-trunk repo: 'main' probe fails → 'master'.
+    let baseRef = 'master';
+    for (const cand of ['main', 'master']) {
+      try {
+        const probe = await ctx.exec(['git', '-C', ctx.gateProject, 'rev-parse', '--verify', '--quiet', `refs/heads/${cand}`], { cwd: ctx.gateProject, capture: true });
+        if (probe.code === 0 && probe.stdout.trim()) { baseRef = cand; break; }
+      } catch { /* fall through to next candidate / literal fallback */ }
+    }
     const addRes = await ctx.exec(['git', '-C', ctx.gateProject, 'worktree', 'add', '--detach', trial, baseRef], { cwd: ctx.gateProject, capture: true });
     if (addRes.code !== 0) {
       await teardown();

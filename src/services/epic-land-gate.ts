@@ -214,9 +214,18 @@ async function runRegressionFloor(o: {
 }
 
 export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGateResult> {
-  const baseRef = o.baseRef ?? 'master';
   const spawn = o.spawn ?? defaultGateSpawn;
   const git = o.git ?? defaultGit;
+  // Resolve the trunk via the injected git runner (main-then-master probe, mockable).
+  // Behaviour-preserving on a master-trunk repo: 'main' probe fails → 'master'.
+  const resolveTrunk = (): string => {
+    for (const cand of ['main', 'master']) {
+      const r = git(o.repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${cand}`]);
+      if (r.code === 0 && r.stdout.trim()) return cand;
+    }
+    return 'master';
+  };
+  const baseRef = o.baseRef ?? resolveTrunk();
   const fs = o.fs ?? defaultFs;
   const decl = o.decl ?? resolveGateDeclaration(loadManifestSource(o.repo));
 

@@ -289,13 +289,15 @@ export async function pickBaseRef(
   return requested; // give up — probes return null, exactly as before
 }
 
-/** DB-backed wrapper: load the project's work-graph and report each epic's branch status. */
-export async function getEpicBranchStatus(
-  project: string,
-  baseRef: string = 'master',
-): Promise<EpicBranchStatusReport> {
-  const resolved = await pickBaseRef(
-    baseRef,
+/** Resolve the trunk ref to compare against for `project` using real git probes
+ *  (main→master→origin/HEAD via pickBaseRef). Lives in this LIGHT module (todo-store
+ *  only) so low-level services can resolve the trunk WITHOUT importing the heavy
+ *  coordinator-live hub — importing that hub into a low-level module reorders module
+ *  init and triggers TDZ cycles (session-runtime CRASH_MS). Behaviour-preserving on a
+ *  master-trunk repo: `requested` ('master') exists → returned unchanged. Never throws. */
+export async function detectTrunkRef(project: string, requested: string = 'master'): Promise<string> {
+  return pickBaseRef(
+    requested,
     async (ref) =>
       (await runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}`])).code === 0,
     async () => {
@@ -303,7 +305,15 @@ export async function getEpicBranchStatus(
       const short = r.code === 0 ? r.stdout.trim().replace(/^origin\//, '') : '';
       return short || null;
     },
-  );
+  ).catch(() => requested);
+}
+
+/** DB-backed wrapper: load the project's work-graph and report each epic's branch status. */
+export async function getEpicBranchStatus(
+  project: string,
+  baseRef: string = 'master',
+): Promise<EpicBranchStatusReport> {
+  const resolved = await detectTrunkRef(project, baseRef);
   const todos = listTodos(project, { includeCompleted: true });
   return buildEpicBranchStatus(todos, makeGitProbe(project), resolved, project, () =>
     listEpicBranchesIn(project),

@@ -52,8 +52,29 @@ export async function runGit(
   }
 }
 
+/**
+ * Resolve the repo's trunk branch by probing local refs: `main` first, then
+ * `master`, else the literal fallback `'master'`. This mirrors
+ * WorktreeManager.detectBaseBranch()'s local-ref preference so a repo whose trunk
+ * is `main` (no `master` ref) resolves correctly, while a `master`-trunk repo
+ * resolves to `'master'` unchanged (behaviour-preserving). Never throws.
+ */
+export async function detectBaseTrunk(
+  gitRoot: string,
+  runGitFn: typeof runGit,
+): Promise<string> {
+  for (const cand of ['main', 'master']) {
+    const r = await runGitFn(gitRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${cand}`]);
+    if (r.code === 0 && r.stdout.trim()) return cand;
+  }
+  return 'master';
+}
+
 export interface AdoptBranchAsEpicDeps {
   runGit: typeof runGit;
+  /** Injectable trunk resolver (defaults to the real main-then-master probe).
+   *  Overridable for testability. */
+  detectBase?: (gitRoot: string, runGitFn: typeof runGit) => Promise<string>;
 }
 
 export const defaultAdoptBranchAsEpicDeps: AdoptBranchAsEpicDeps = { runGit };
@@ -74,24 +95,25 @@ async function writeEpicRef(
   return deps.runGit(gitRoot, gitArgs);
 }
 
-async function refuseIfMasterSource(
+async function refuseIfTrunkSource(
   gitRoot: string,
   source: string,
   sourceSha: string,
+  trunk: string,
   deps: AdoptBranchAsEpicDeps,
 ): Promise<void> {
-  if (source === 'master' || source === 'refs/heads/master') {
+  if (source === trunk || source === `refs/heads/${trunk}`) {
     throw new Error(
-      `adopt_branch_as_epic: refusing source "${source}" — cannot adopt master itself; adopt a topic branch, not master`,
+      `adopt_branch_as_epic: refusing source "${source}" — cannot adopt ${trunk} itself; adopt a topic branch, not ${trunk}`,
     );
   }
 
-  const masterResolve = await deps.runGit(gitRoot, ['rev-parse', '--verify', 'master']);
-  if (masterResolve.code === 0) {
-    const masterSha = masterResolve.stdout.trim();
-    if (masterSha === sourceSha) {
+  const trunkResolve = await deps.runGit(gitRoot, ['rev-parse', '--verify', trunk]);
+  if (trunkResolve.code === 0) {
+    const trunkSha = trunkResolve.stdout.trim();
+    if (trunkSha === sourceSha) {
       throw new Error(
-        `adopt_branch_as_epic: refusing source "${source}" — cannot adopt master itself; adopt a topic branch, not master`,
+        `adopt_branch_as_epic: refusing source "${source}" — cannot adopt ${trunk} itself; adopt a topic branch, not ${trunk}`,
       );
     }
   }
@@ -123,6 +145,10 @@ export async function adoptBranchAsEpic(
 ): Promise<AdoptBranchAsEpicResult> {
   const gitRoot = opts.targetProject ?? project;
 
+  // Resolve the trunk ONCE (main-then-master probe; 'master' on a master-trunk repo,
+  // so all downstream git commands are behaviour-preserving there). Injectable for tests.
+  const trunk = await (deps.detectBase ?? detectBaseTrunk)(gitRoot, deps.runGit);
+
   // 1. Resolve source to SHA
   const revParseResult = await deps.runGit(gitRoot, ['rev-parse', '--verify', opts.source]);
   if (revParseResult.code !== 0) {
@@ -133,17 +159,17 @@ export async function adoptBranchAsEpic(
     throw new Error(`adopt_branch_as_epic: source "${opts.source}" resolved to empty SHA`);
   }
 
-  // Guard: refuse master as source
-  await refuseIfMasterSource(gitRoot, opts.source, sourceSha, deps);
+  // Guard: refuse the trunk (main OR master) as source
+  await refuseIfTrunkSource(gitRoot, opts.source, sourceSha, trunk, deps);
 
   // Guard: refuse if main checkout is dirty
   await refuseIfDirtyMainCheckout(gitRoot, deps);
 
-  // 2. Enumerate commits ahead of master (oldest first)
+  // 2. Enumerate commits ahead of the trunk (oldest first)
   const revListResult = await deps.runGit(gitRoot, [
     'rev-list',
     '--reverse',
-    `master..${sourceSha}`,
+    `${trunk}..${sourceSha}`,
   ]);
   if (revListResult.code !== 0) {
     throw new Error(`adopt_branch_as_epic: failed to enumerate commits (git rev-list failed)`);
@@ -154,7 +180,7 @@ export async function adoptBranchAsEpic(
     .filter(Boolean);
 
   if (commits.length === 0) {
-    throw new Error(`adopt_branch_as_epic: source has no commits ahead of master`);
+    throw new Error(`adopt_branch_as_epic: source has no commits ahead of ${trunk}`);
   }
 
   // 3. Create epic + land leaf via existing helpers

@@ -13,6 +13,7 @@ import {
   epicBranchName,
   epicId8,
   effectiveNewCount,
+  detectTrunkRef,
   type GitProbe,
   type BranchProbe,
 } from './epic-branch-status';
@@ -46,7 +47,7 @@ export async function stampEpicLandedAtGated(
 ): Promise<{ stamped: boolean; reason: GateReason; newCount?: number }> {
   try {
     const probe = opts?.probe ?? makeGitProbe(project);
-    const baseRef = opts?.baseRef ?? 'master';
+    const baseRef = opts?.baseRef ?? (await detectTrunkRef(project));
     const session = opts?.session ?? 'coordinator';
     const branch = epicBranchName(epicId);
 

@@ -1338,7 +1338,7 @@ export class WorktreeManager {
     if (!/^collab\/epic\//.test(baseBranch)) return; // not an epic branch
     if (await branchRefExists(baseBranch)) return; // already exists
 
-    const basePointRef = await this.resolveBase('master');
+    const basePointRef = await this.resolveBase(await this.detectBaseBranch());
     await this.runGit(
       this.opts.projectRoot,
       ['branch', baseBranch, basePointRef],
