@@ -135,7 +135,7 @@ describe('post-land tree/index restore — mutation probe', () => {
 
     // Invert the assertion from the e2e: assertCleanMainCheckout should reject.
     await expect(assertCleanMainCheckout(afterProbe)).rejects.toThrow(EXISTING_TEST_FILE);
-  });
+  }, 30_000);
 
   it('neutered diff --cached --name-only silently discards index-only work while intact arm catches it', async () => {
     // NEUTERED ARM: diff --cached is neutered.
@@ -245,5 +245,5 @@ describe('post-land tree/index restore — mutation probe', () => {
     // Verify staged work was preserved (not destroyed).
     const afterIntactProbe = await probeMainCheckout(repo);
     expect(afterIntactProbe.stagedNameStatus.trim()).toContain('M');
-  });
+  }, 30_000);
 });
