@@ -52,6 +52,7 @@ import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { collectDiffRisk, routeReviewDepth, type ReviewDepth, type DiffRisk } from './review-depth-router';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
+import { extractGateFailingFiles, gateFailureSignature } from './gate-base-attribution';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
@@ -724,6 +725,9 @@ export interface LeafRunResult {
   nodesSpent: number;
   /** Set on a 'blocked' outcome (the cap/budget reason). */
   reason?: string;
+  /** Present ONLY when this run parked epic-base-red (`reason` starts with
+   *  'epic-base-red'). The machine-readable form of the reason string. */
+  baseRed?: { command: string; failingFiles: string[]; signature: string };
   /** Present ONLY when outcome==='paused' (a node hit a rate cap). The minimum the
    *  daemon needs to resume — the executor NEVER backs off; it just yields this. */
   paused?: {
@@ -751,7 +755,7 @@ export interface LeafRunContext {
   escalatedKinds: Set<LeafNodeKind>;
   checkBudget: () => boolean;
   runNode: (kind: LeafNodeKind, spec: NodeSpec, extra?: { verdict?: 'pass' | 'fail' | null; leafOutcome?: LeafRunResult['outcome'] | null }) => Promise<NodeResult>;
-  parkBlocked: (reason: string, verdict?: 'pass' | 'fail' | null) => Promise<LeafRunResult>;
+  parkBlocked: (reason: string, verdict?: 'pass' | 'fail' | null, baseRedDetail?: LeafRunResult['baseRed']) => Promise<LeafRunResult>;
   parkNodeStartFailure: (kind: LeafNodeKind, res: NodeResult) => Promise<LeafRunResult>;
   pausedResult: (kind: LeafNodeKind, res: NodeResult) => LeafRunResult;
   pausedForWorktreeAddFault: (kind: LeafNodeKind) => LeafRunResult;
@@ -1850,6 +1854,7 @@ export async function runLeaf(
   const parkBlocked = async (
     reason: string,
     verdict: 'pass' | 'fail' | null = null,
+    baseRedDetail?: LeafRunResult['baseRed'],
   ): Promise<LeafRunResult> => {
     // Refund the dispatch-time retryCount bump for infra parks that did zero work.
     if (reason === 'epic-base-moved') {
@@ -1953,7 +1958,7 @@ export async function runLeaf(
         `Leaf-executor parked "${leaf.title ?? leaf.id}" — ${reason} ` +
         `(attempts=${state.attempt}, nodesSpent=${state.nodesSpent}).`,
     });
-    return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+    return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason, ...(baseRedDetail ? { baseRed: baseRedDetail } : {}) });
   };
 
   /** A node that could not START is an INCIDENT, not a finding. Park 'error', escalate
@@ -2147,7 +2152,7 @@ export async function runLeaf(
     }
     const g = await deps.complete(project, leaf.id, 'accepted');
     if (g.baseRed) {
-      return parkBlocked(`epic-base-red: ${g.baseRed.command}\n${g.baseRed.failingFiles.join(', ')}`, gateVerdict);
+      return parkBlocked(`epic-base-red: ${g.baseRed.command}\n${g.baseRed.failingFiles.join(', ')}`, gateVerdict, g.baseRed);
     }
     const effective = g.effective ?? 'accepted';
     const reason =
@@ -2224,7 +2229,13 @@ export async function runLeaf(
           `gate automatically. No manual cache-clearing step exists or is needed.`,
       });
     }
-    return parkBlocked(reason);
+    const baseRedDetail = effectiveBase.status === 'fail'
+      ? (() => {
+          const failingFiles = extractGateFailingFiles(effectiveBase.output ?? '');
+          return { command: cmd, failingFiles, signature: gateFailureSignature(cmd, failingFiles) };
+        })()
+      : undefined;
+    return parkBlocked(reason, null, baseRedDetail);
   }
 
   // Friction 552f95c2: the latest attempt's write-leak snapshot + lane cwd, hoisted so the
@@ -2274,7 +2285,7 @@ export async function runLeaf(
     // authoritative gate and its absence here changes no verdict.
     const gate = await deps.complete(project, leaf.id, 'accepted');
     if (gate.baseRed) {
-      return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+      return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null, gate.baseRed);
     }
     const effective = gate.effective ?? 'accepted';
     const reason =
@@ -2910,7 +2921,7 @@ export async function runLeaf(
         } catch { /* telemetry — never break the run */ }
         const gate = await deps.complete(project, leaf.id, 'accepted');
         if (gate.baseRed) {
-          return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+          return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null, gate.baseRed);
         }
         const effective = gate.effective ?? 'accepted';
         const outcome: LeafRunResult['outcome'] = effective;
@@ -2956,7 +2967,7 @@ export async function runLeaf(
           } catch { /* telemetry — never break the run */ }
           const gate = await deps.complete(project, leaf.id, 'accepted');
           if (gate.baseRed) {
-            return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null);
+            return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null, gate.baseRed);
           }
           const effective = gate.effective ?? 'accepted';
           const outcome: LeafRunResult['outcome'] = effective;
@@ -3535,7 +3546,7 @@ export async function runLeaf(
       }
       const gate = await deps.complete(project, leaf.id, 'accepted');
       if (gate.baseRed) {
-        return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, reviewVerdict);
+        return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, reviewVerdict, gate.baseRed);
       }
       const effective = gate.effective ?? 'accepted';
       // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
