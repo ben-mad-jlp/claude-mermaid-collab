@@ -41,8 +41,10 @@ describe('todo nickname column', () => {
 
     for (const created of [mission, epic]) {
       const read = getTodo(project, created.id)!;
-      expect(read.nickname.length).toBeGreaterThan(0);
-      expect(read.nickname).toMatch(NICKNAME_RE);
+      // nickname is optional in the type (always populated by rowToTodo); assert it is present.
+      expect(read.nickname).toBeDefined();
+      expect(read.nickname ?? '').toMatch(NICKNAME_RE);
+      expect((read.nickname ?? '').length).toBeGreaterThan(0);
     }
 
     expect(getTodo(project, mission.id)!.nickname).not.toBe(

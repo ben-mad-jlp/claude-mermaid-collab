@@ -210,8 +210,12 @@ export interface Todo {
   archivedAt?: number | null;
   /** Human-friendly display slug derived from the title at create time (2–4 hyphenated
    *  lowercase tokens), uniquified project-wide. Display metadata ONLY — the raw `id`
-   *  stays the sole identity for every work-graph edge, dispatch, land and serve lookup. */
-  nickname: string;
+   *  stays the sole identity for every work-graph edge, dispatch, land and serve lookup.
+   *  OPTIONAL in the type (though rowToTodo always populates it, `row.nickname ?? ''`) so a
+   *  Todo literal — chiefly a test fixture — need not set it: a REQUIRED new field forced
+   *  every fixture to add it and re-redded master repeatedly (the non-additive migration
+   *  churn). Read-tolerant per the mission's own NULL-tolerant constraint. */
+  nickname?: string;
 }
 
 export interface TodoFilter {
