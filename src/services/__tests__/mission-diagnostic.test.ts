@@ -94,16 +94,27 @@ function makeRun(reason: string | null): LeafRunSummary {
 
 describe('classifyLeafTerminal', () => {
   test('a leaf rejected on epic-base-red classifies as epic-base-red, not gate-rejected', () => {
-    const todo = { acceptanceStatus: 'rejected', status: 'blocked' } as const;
+    const todo = { acceptanceStatus: 'rejected' } as const;
     const run = makeRun('epic-base-red: npx tsc --noEmit');
-    const result = classifyLeafTerminal(todo, run);
+    const result = classifyLeafTerminal(todo, run, 'blocked');
     expect(result).toBe('epic-base-red');
     expect(result).not.toBe('gate-rejected');
   });
 
   test('a leaf rejected on its own gate failure classifies as gate-rejected', () => {
-    const todo = { acceptanceStatus: 'rejected', status: 'blocked' } as const;
+    const todo = { acceptanceStatus: 'rejected' } as const;
     const run = makeRun('review: missing test coverage for X');
-    expect(classifyLeafTerminal(todo, run)).toBe('gate-rejected');
+    expect(classifyLeafTerminal(todo, run, 'blocked')).toBe('gate-rejected');
+  });
+
+  test('a non-terminal leaf whose CANONICAL derived status is blocked classifies as blocked-dependency', () => {
+    // Uses the canonical derivedStatus label, never the shadow enum (status-oracle S6).
+    const todo = { acceptanceStatus: null } as const;
+    expect(classifyLeafTerminal(todo, null, 'blocked')).toBe('blocked-dependency');
+  });
+
+  test('a non-terminal leaf that is ready/planned (not blocked) with no settled run classifies as inflight', () => {
+    const todo = { acceptanceStatus: null } as const;
+    expect(classifyLeafTerminal(todo, null, 'ready')).toBe('inflight');
   });
 });

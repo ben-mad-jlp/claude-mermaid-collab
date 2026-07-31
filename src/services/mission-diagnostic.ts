@@ -49,13 +49,17 @@ function toLandedInGit(status: GitLandStatus): boolean | null {
 }
 
 /**
- * Classify a leaf's terminal state from its persisted todo status/acceptance and its latest
- * durable ledger run. Order matters: `blocked` must be checked before the in-flight fallback,
- * since a blocked leaf also has no settled run and would otherwise be mis-caught there.
+ * Classify a leaf's terminal state from its acceptance, its CANONICAL derived status
+ * (from claimability.derivedStatus — never the untrusted shadow enum), and its latest
+ * durable ledger run. Order matters: `blocked` must be checked before the in-flight
+ * fallback, since a blocked leaf also has no settled run and would otherwise be
+ * mis-caught there. `derived` is passed in (the caller already computes it) so this
+ * stays a pure classifier and the single-source read lives in claimability.
  */
 export function classifyLeafTerminal(
-  todo: Pick<Todo, 'acceptanceStatus' | 'status'>,
+  todo: Pick<Todo, 'acceptanceStatus'>,
   run: LeafRunSummary | null,
+  derived: string,
 ): LeafTerminalClass {
   if (todo.acceptanceStatus === 'accepted') return 'accepted';
   if (todo.acceptanceStatus === 'rejected') {
@@ -64,9 +68,9 @@ export function classifyLeafTerminal(
     if (cause === 'epic-base-gate-could-not-run' || cause === 'mis-homed-target') return 'parked-other';
     return 'gate-rejected';
   }
-  if (todo.status === 'blocked') return 'blocked-dependency';
+  if (derived === 'blocked') return 'blocked-dependency';
   if (
-    todo.status === 'in_progress' ||
+    derived === 'in_progress' ||
     !run ||
     run.finalOutcome == null ||
     run.finalOutcome === 'pending' ||
@@ -163,12 +167,13 @@ export async function buildMissionDiagnostic(
 
     leaves = missionLeaves.map((leaf) => {
       const run = runsByLeaf.get(leaf.id) ?? null;
+      const derived = derivedStatus(leaf, byId);
       return {
         id: leaf.id,
         epicId: leaf.parentId as string,
-        derivedStatus: derivedStatus(leaf, byId),
+        derivedStatus: derived,
         terminalReason: run?.reason ?? null,
-        terminalClass: classifyLeafTerminal(leaf, run),
+        terminalClass: classifyLeafTerminal(leaf, run, derived),
       };
     });
   } catch {
