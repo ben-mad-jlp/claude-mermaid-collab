@@ -48,6 +48,9 @@ export interface CompletionResolution {
   gateOverride?: GateVerdict;
   /** Present when the work-committed re-verify downgraded 'accepted' to 'pending'. */
   pendingReason?: string;
+  /** Present when the gate failure is base-attributed (not the leaf's own fault) —
+   *  downgraded to 'pending' instead of 'rejected'. */
+  baseRed?: GateVerdict['baseAttributed'];
 }
 
 /** Decide the effective acceptance for a worker completion. Pure of any store
@@ -73,6 +76,13 @@ export async function resolveCompletion(
       verdict = { passed: false, reasons: [`gate execution error: ${e instanceof Error ? e.message : String(e)}`] };
     }
     if (verdict && !verdict.passed) {
+      if (verdict.baseAttributed) {
+        return {
+          effective: 'pending',
+          baseRed: verdict.baseAttributed,
+          pendingReason: `epic-base-red: ${verdict.baseAttributed.command}`,
+        };
+      }
       return { effective: 'rejected', gateOverride: verdict };
     }
   }
