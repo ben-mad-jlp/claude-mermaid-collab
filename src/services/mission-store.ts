@@ -39,6 +39,8 @@ export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 export type MissionStatus =
   | 'unapproved'      // awaitingApprovalSince set — forged (e.g. from a doc) but not yet human-approved
   | 'abandoned'       // abandonedAt set
+  | 'forge-failed'    // forgeState==='forge-failed' — the doc→mission forge node failed; terminal
+  | 'forging'         // forgeState==='forging' — a doc→mission forge node is running; not yet a real mission
   | 'over-budget'     // spendUsd >= budgetUsd
   | 'stalled'         // the mission loop has taken no action for a STALLED reason past the grace window
   | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
@@ -54,7 +56,7 @@ export type MissionStatus =
 export function isMissionTerminal(
   m: Pick<MissionRow, 'status' | 'abandonedAt'> & { closedAt?: number | null },
 ): boolean {
-  return m.closedAt != null || m.abandonedAt != null || m.status === 'converged' || m.status === 'closed';
+  return m.closedAt != null || m.abandonedAt != null || m.status === 'converged' || m.status === 'closed' || m.status === 'forge-failed';
 }
 
 export interface MissionRow {
@@ -104,6 +106,8 @@ export interface MissionRow {
    *  forge). Null = approved / not applicable (all hand-created + legacy missions). While set the
    *  derived status is 'unapproved' and the mission-loop never drives it. approve_mission clears it. */
   awaitingApprovalSince: number | null;
+  /** Tracks the state of a forge operation: 'forging' = in progress, 'forge-failed' = failed, null = not forged or completed. */
+  forgeState: 'forging' | 'forge-failed' | null;
   /** Per-mission USD budget ceiling, or null = project default. */
   budgetUsd: number | null;
   /** The mission's CONSTITUTION: the handoff/brief document id (session doc) carrying the
@@ -362,6 +366,7 @@ function openDb(project: string): Database {
   // every time and no-ops once the column already exists.
   addColumnIfMissing(db, 'mission', 'closedAt', 'closedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
+  addColumnIfMissing(db, 'mission', 'forgeState', 'forgeState TEXT');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
   addColumnIfMissing(db, 'mission', 'handoffDocId', 'handoffDocId TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
@@ -417,6 +422,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     closedAt: (row.closedAt as number | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
+    forgeState: (row.forgeState as 'forging' | 'forge-failed' | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
     handoffDocId: (row.handoffDocId as string | null) ?? null,
     archivedAt: (row.archivedAt as number | null) ?? null,
@@ -532,17 +538,17 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
 export function upsertMission(
   project: string,
   todoId: string,
-  opts: { budgetUsd?: number | null; handoffDocId?: string | null; awaitingApprovalSince?: number | null } = {},
+  opts: { budgetUsd?: number | null; handoffDocId?: string | null; awaitingApprovalSince?: number | null; forgeState?: 'forging' | 'forge-failed' | null } = {},
 ): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId, awaitingApprovalSince)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId, awaitingApprovalSince, forgeState)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null, opts.awaitingApprovalSince ?? null);
+    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null, opts.awaitingApprovalSince ?? null, opts.forgeState ?? null);
   return getMission(project, todoId)!;
 }
 
@@ -611,6 +617,14 @@ export function setMissionClosed(project: string, todoId: string, at: number | n
   const res = openDb(project)
     .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(at, nowMs(), id);
+  if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+}
+
+export function setMissionForgeState(project: string, todoId: string, state: 'forging' | 'forge-failed' | null): void {
+  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const res = openDb(project)
+    .prepare('UPDATE mission SET forgeState = ?, updatedAt = ? WHERE todoId = ?')
+    .run(state, nowMs(), id);
   if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
 }
 
@@ -1362,6 +1376,8 @@ export interface MissionStatusFacts {
   /** Optional (defaults falsy) so existing fact fixtures need no change; set by
    *  collectMissionStatusFacts from the mission row's closedAt column. */
   closedAt?: number | null;
+  /** Optional so existing fact fixtures need no change; set by collectMissionStatusFacts. */
+  forgeState?: 'forging' | 'forge-failed' | null;
   budgetUsd: number | null;
   spendUsd: number;
   hasBlockedLeaf: boolean;   // a leaf run rejected or blocked (parked/rejected/escalation/unapproved-split)
@@ -1425,10 +1441,12 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
  *  Post-prefix arms deliberately differ: deriveMissionStatus is a facts-backed capability
  *  gauge; deriveCheapMissionStatus is a list-badge proxy. Precedence: closed > abandoned > unapproved. */
 export function deriveTerminalMissionPrefix(
-  t: { closedAt?: number | null; abandonedAt?: number | null; awaitingApproval: boolean },
+  t: { closedAt?: number | null; abandonedAt?: number | null; awaitingApproval: boolean; forgeState?: 'forging' | 'forge-failed' | null },
 ): MissionStatus | null {
   if (t.closedAt != null) return 'closed';
   if (t.abandonedAt != null) return 'abandoned';
+  if (t.forgeState === 'forge-failed') return 'forge-failed';
+  if (t.forgeState === 'forging') return 'forging';
   if (t.awaitingApproval) return 'unapproved';
   return null;
 }
@@ -1439,7 +1457,7 @@ export function deriveTerminalMissionPrefix(
  *  conductor can serve every open gap concurrently. 'building' is now the QUIETEST
  *  non-terminal state — it only surfaces when nothing is left to discover or verify. */
 export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
-  const terminal = deriveTerminalMissionPrefix({ ...f, awaitingApproval: f.awaitingApproval === true });
+  const terminal = deriveTerminalMissionPrefix({ closedAt: f.closedAt, abandonedAt: f.abandonedAt, awaitingApproval: f.awaitingApproval === true, forgeState: f.forgeState });
   if (terminal != null) return terminal;
   const actions = f.criteria.map(deriveCriterionAction);
   // Dropped criteria are serve-inert: they derive no mission-scalar action at all. Reading
@@ -1488,12 +1506,12 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
  * `withFacts: true`.
  */
 export function deriveCheapMissionStatus(
-  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null; active?: boolean | number; queuePos?: number | null },
+  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null; active?: boolean | number; queuePos?: number | null; forgeState?: 'forging' | 'forge-failed' | null },
   _epics: readonly { status: string }[],
   criteria: readonly { met: boolean; status?: string }[] = [],
   stalled: boolean = false,
 ): MissionStatus {
-  const terminal = deriveTerminalMissionPrefix({ closedAt: m.closedAt, abandonedAt: m.abandonedAt, awaitingApproval: m.awaitingApprovalSince != null });
+  const terminal = deriveTerminalMissionPrefix({ closedAt: m.closedAt, abandonedAt: m.abandonedAt, awaitingApproval: m.awaitingApprovalSince != null, forgeState: m.forgeState });
   if (terminal != null) return terminal;
   // Converged = the CAPABILITY gauge: every acceptance criterion met (stored verdicts — cheap, no
   // facts scan), NOT "all epics done". Keying off epics gave the wrong badge both ways: a
@@ -1619,6 +1637,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
     closedAt: m.closedAt,
+    forgeState: m.forgeState,
     budgetUsd: m.budgetUsd,
     spendUsd,
     // Ledger unavailable: we cannot see the leaf runs that would normally reveal a blocked
