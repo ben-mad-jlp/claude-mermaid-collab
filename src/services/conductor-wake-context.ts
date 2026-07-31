@@ -18,6 +18,7 @@
  */
 
 import { VERIFY_LENSES } from './criterion-verify-panel.ts';
+import { CONDUCTOR_SERVE_BATCH_MAX } from './harness-caps.ts';
 
 /** One escalation card, reduced to the fields the block renders. Structurally a subset of
  *  supervisor-store's `Escalation`, declared locally so this module imports nothing. */
@@ -100,7 +101,10 @@ export interface WakeContextInput {
  *  Overflow is ANNOUNCED, never silently dropped.
  *  NOT in harness-caps.ts by design: that module's stated purpose is loop-breaker caps and
  *  worker-liveness thresholds. This is a prompt-rendering bound — it breaks no loop and gates no
- *  liveness decision — so it lives with the renderer it bounds. */
+ *  liveness decision — so it lives with the renderer it bounds. `CONDUCTOR_SERVE_BATCH_MAX` is
+ *  the deliberate exception: it DOES live in harness-caps.ts, because it gates work WIDTH (how
+ *  many `discover` gaps the node may act on this pass), not render width (how much text is shown
+ *  for that work) — a loop-breaker cap, not a prompt-rendering bound. */
 export const WAKE_CARD_RENDER_CAP = 8;
 
 /** Total char ceiling on buildConductorPrompt's ENTIRE output (this block + the fixed step
@@ -161,10 +165,13 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
     (a, b) => (a.resolvedAt ?? 0) - (b.resolvedAt ?? 0),
   );
   const actionable = (input.actions ?? []).filter((a) => ACTIONABLE_ACTIONS.includes(a.action));
+  const discoverGaps = actionable.filter((a) => a.action === 'discover');
   const rechecks = [...(input.rechecks ?? [])].sort((a, b) => a.enqueuedAt - b.enqueuedAt);
   const panelStakes = (input.stakes ?? []).filter((s) => s.panel === true);
 
-  const shownActionable = actionable.slice(0, WAKE_CRITERION_RENDER_CAP);
+  const shownDiscover = discoverGaps.slice(0, CONDUCTOR_SERVE_BATCH_MAX);
+  const shownVerify = actionable.filter((a) => a.action === 'verify').slice(0, WAKE_CRITERION_RENDER_CAP);
+  const shownActionable = [...shownDiscover, ...shownVerify];
   const shownCards = openCards.slice(0, WAKE_CARD_RENDER_CAP);
   const shownRechecks = rechecks.slice(0, WAKE_CRITERION_RENDER_CAP);
   const shownStakes = panelStakes.slice(0, WAKE_CRITERION_RENDER_CAP);
@@ -294,6 +301,11 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
       if (actionable.length > shownActionable.length) {
         whyLines.push(
           `      - … ${actionable.length - shownActionable.length} more actionable criterion/criteria omitted (cap ${WAKE_CRITERION_RENDER_CAP}); \`get_mission\` lists them all.`,
+        );
+      }
+      if (discoverGaps.length > shownDiscover.length) {
+        whyLines.push(
+          `      - … ${discoverGaps.length - shownDiscover.length} more \`discover\` gap(s) CARRIED to the next pass (serve bound ${CONDUCTOR_SERVE_BATCH_MAX}) — they are still open and still yours; do NOT try to serve them this pass.`,
         );
       }
       if (annotationsOmitted > 0) {

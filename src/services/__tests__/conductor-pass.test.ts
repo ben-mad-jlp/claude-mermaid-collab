@@ -21,7 +21,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
-import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP } from '../harness-caps';
+import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
 import { initializeWebSocketHandler } from '../ws-handler-manager';
 import { listConductorPasses } from '../conductor-pass-journal';
@@ -1313,6 +1313,11 @@ describe('conductorFingerprint + buildConductorPrompt (pure)', () => {
   test('buildConductorPrompt no longer instructs the LLM to park at attempts >= 3 via reset_todo', () => {
     const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
     expect(p).not.toContain('Repeatedly failing (attempts');
+  });
+  test('buildConductorPrompt no longer instructs to serve EVERY gap and names the serve bound', () => {
+    const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
+    expect(p).not.toContain('Serve EVERY open');
+    expect(p).toContain(String(CONDUCTOR_SERVE_BATCH_MAX));
   });
   test('prompt names the mission + session, forbids hand-editing, lands as conductor', () => {
     const p = buildConductorPrompt('/proj', 'm1', 'Ship the thing', 'sess-A');
