@@ -26,7 +26,7 @@ describe('formatConductorPass', () => {
     const result = formatConductorPass(row);
 
     expect(result.sentence).toBe(
-      'Mission abc12345. acted on crit1 (served) via epic epic123. declined crit2 (not ready). filed epic Add foo.',
+      'Mission abc12345. served 1 criterion via epic epic123. declined crit2 (not ready). filed epic Add foo.',
     );
     expect(result.chips).toEqual([
       { kind: 'epic', id: 'epic123', label: 'epic123' },
@@ -85,8 +85,40 @@ describe('formatConductorPass', () => {
     };
 
     const result = formatConductorPass(row);
-    expect(result.sentence).toBe('No mission. unfinished (killed).');
+    expect(result.sentence).toBe('No mission. killed (ran out of time).');
     expect(result.chips.length).toBe(0);
+  });
+
+  test('dedupes 7 identical-epic criteria into one grouped clause naming the nickname once', () => {
+    const criteriaActed = Array.from({ length: 7 }, (_, i) => ({
+      criterionId: `crit${i}`,
+      action: 'served',
+      servedEpicId: 'epic-shared-uuid-0000',
+      servedEpicNickname: 'brave-otter',
+    }));
+    const row: ConductorPassJournalRow = {
+      id: 'p6',
+      project: '/proj',
+      missionId: 'abc12345',
+      startedAt: 1000,
+      endedAt: 2000,
+      serveFp: null,
+      passFp: null,
+      selfFp: null,
+      arm: null,
+      criteriaActed,
+      filed: null,
+      declined: [],
+      outcome: null,
+      ran: null,
+      failCounted: null,
+      carried: null,
+    };
+
+    const result = formatConductorPass(row);
+    expect((result.sentence.match(/brave-otter/g) ?? []).length).toBe(1);
+    expect(result.sentence).toContain('7 criteria');
+    expect(result.sentence.split('epic-shared-uuid-0000').length - 1).toBe(0);
   });
 
   test('renders arm: node for a row with arm set to node', () => {

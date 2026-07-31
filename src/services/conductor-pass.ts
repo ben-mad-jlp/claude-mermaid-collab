@@ -573,6 +573,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // further down reads the same map.
   const servingEpicsByComp: Map<string, string[]> = new Map();
   const epicTargetProjectById: Map<string, string | null> = new Map();
+  const servingEpicNicknameById: Map<string, string | null> = new Map();
   try {
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
     for (const c of criteriaWithActions) {
@@ -580,15 +581,22 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
       );
       servingEpicsByComp.set(c.id, matching.map((t) => t.id));
-      for (const t of matching) epicTargetProjectById.set(t.id, t.targetProject);
+      for (const t of matching) {
+        epicTargetProjectById.set(t.id, t.targetProject);
+        servingEpicNicknameById.set(t.id, t.nickname ?? null);
+      }
     }
   } catch {
     // fail-open to empty serving epics
   }
   note(journalRowId, {
-    criteriaActed: criteriaWithActions.map((a) => ({
-      criterionId: a.id, action: a.action, servedEpicId: servingEpicsByComp.get(a.id)?.[0] ?? null,
-    })),
+    criteriaActed: criteriaWithActions.map((a) => {
+      const servedEpicId = servingEpicsByComp.get(a.id)?.[0] ?? null;
+      return {
+        criterionId: a.id, action: a.action, servedEpicId,
+        servedEpicNickname: servedEpicId ? servingEpicNicknameById.get(servedEpicId) ?? null : null,
+      };
+    }),
   });
   const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
   const carriedServeIds = actions.filter((a) => a.action === 'discover').map((a) => a.id).slice(CONDUCTOR_SERVE_BATCH_MAX);
