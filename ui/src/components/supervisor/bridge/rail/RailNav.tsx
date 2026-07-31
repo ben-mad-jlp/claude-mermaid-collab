@@ -4,7 +4,7 @@ export type RailKey =
   | 'plan'                               // HOME
   | 'escalations' | 'land'          // ACT
   | 'work' | 'stranded'             // WORK
-  | 'stream' | 'executor' | 'subscribers' | 'usage' | 'dogfood'; // TELEMETRY
+  | 'stream' | 'executor' | 'subscribers' | 'usage' | 'dogfood' | 'conductor'; // TELEMETRY
 
 export type RailTone = 'loud' | 'warn' | 'info';
 
