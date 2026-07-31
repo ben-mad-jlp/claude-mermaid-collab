@@ -15,19 +15,27 @@
  * be miscounted as held (which implies the panel positively recorded not-met). A throw lands
  * in skipped; a panel run that yields only skipped falls through so the pass proceeds as normal.
  */
-import { listCriteriaWithActions } from './mission-store.js';
+import { listCriteriaWithActions, bumpCriterionVerifyAttempt, resetCriterionAttemptCounters } from './mission-store.js';
 import { collectVerifyStakesInput } from './criterion-verify-facts.js';
 import { classifyVerifyStakes } from './criterion-verify-stakes.js';
 import { runCriterionVerifyPanel, type RunPanelDeps } from './criterion-verify-panel-runner.js';
-import { listOpenEscalations, type Escalation } from './supervisor-store.js';
-import { CONDUCTOR_VERIFY_BATCH_MAX } from './harness-caps.js';
+import { listOpenEscalations, createEscalation, type Escalation } from './supervisor-store.js';
+import { CONDUCTOR_VERIFY_BATCH_MAX, CRITERION_VERIFY_ATTEMPT_CAP } from './harness-caps.js';
+
+export const CRITERION_VERIFY_ATTEMPTS_CAPPED_KIND = 'criterion-verify-attempts-capped';
+export function verifyAttemptsCapConditionKey(criterionId: string): string {
+  return `verify-attempts-cap:${criterionId}`;
+}
 
 export interface VerifyPanelArmDeps {
   /** Panel runner: resolves criterion, classifies stakes, spawns lenses in parallel,
    *  records verdicts via set_mission_criterion. Defaults to runCriterionVerifyPanel. */
   runPanel?: typeof runCriterionVerifyPanel;
-  /** Retained for shape parity with sibling arms (conductor-infra-arm.ts); unused today. */
+  /** Gates the capped-escalation raise: dedups against any already-open
+   *  criterion-verify-attempts-capped card for the same criterion. */
   listOpenEscalations?: () => Escalation[];
+  /** Creates the capped-escalation card. Defaults to createEscalation. */
+  createEscalation?: typeof createEscalation;
   /** Current HEAD sha for unchanged-sha guard. If omitted, headSha inside RunPanelDeps
    *  defaults to repo HEAD. */
   headSha?: () => string;
@@ -115,6 +123,19 @@ export async function runVerifyPanelArm(
           } else {
             result.held.push(criterion.id);
           }
+
+          try {
+            if (panelResult.met) {
+              resetCriterionAttemptCounters(project, criterion.id, 'verify');
+            } else {
+              const count = bumpCriterionVerifyAttempt(project, criterion.id);
+              if (count >= CRITERION_VERIFY_ATTEMPT_CAP) {
+                raiseVerifyAttemptsCappedCard(project, session, missionId, criterion, count, deps);
+              }
+            }
+          } catch {
+            // fail-open: counter/escalation fault must not affect the bucket already recorded above.
+          }
         } catch {
           // fail-open: panel run threw (a lens node failed, a store error, etc.).
           // Never crash the pass. Record in skipped (not held, which implies the panel
@@ -132,4 +153,26 @@ export async function runVerifyPanelArm(
     // Return a no-op result and let the pass continue.
     return { paneled: [], held: [], skipped: [], carried: [] };
   }
+}
+
+function raiseVerifyAttemptsCappedCard(
+  project: string, session: string, missionId: string,
+  criterion: { id: string; text: string }, count: number, deps: VerifyPanelArmDeps,
+): void {
+  const conditionKey = verifyAttemptsCapConditionKey(criterion.id);
+  const listOpen = deps.listOpenEscalations ?? listOpenEscalations;
+  if (listOpen().some((e) => e.conditionKey === conditionKey && e.status === 'open')) return;
+  const createEsc = deps.createEscalation ?? createEscalation;
+  createEsc({
+    project, session,
+    kind: CRITERION_VERIFY_ATTEMPTS_CAPPED_KIND,
+    todoId: missionId,
+    operatorGated: true,
+    audience: 'human',
+    conditionKey,
+    conditionTuple: ['verify-attempts-cap', criterion.id],
+    questionText: `Mission "${missionId}" — criterion "${criterion.text}" (id ${criterion.id}) ` +
+      `has hit ${count} verify attempts without recording met (cap ${CRITERION_VERIFY_ATTEMPT_CAP}); ` +
+      `the conductor will not keep re-paneling it. Resolve or rescope this criterion.`,
+  });
 }
