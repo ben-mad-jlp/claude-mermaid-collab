@@ -32,6 +32,11 @@ vi.mock('@/stores/sessionStore', () => ({
     sel({ sessions: sessionStoreMockSessions }),
 }));
 
+let nicknameMap: Record<string, string> = {};
+vi.mock('@/lib/nicknames', () => ({
+  useProjectNicknames: () => nicknameMap,
+}));
+
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 
 function esc(p: Partial<Escalation>): Escalation {
@@ -51,6 +56,7 @@ beforeEach(() => {
   decideEscalation.mockClear();
   resolveEscalation.mockClear();
   sessionStoreMockSessions = [];
+  nicknameMap = {};
 });
 
 describe('BridgeEscalationInbox', () => {
@@ -135,5 +141,30 @@ describe('BridgeEscalationInbox', () => {
     expect(onJump).toHaveBeenCalledWith('P', 'worker-1');
 
     expect(screen.queryByTestId('escalation-open-todo')).not.toBeInTheDocument();
+  });
+
+  it('renders the nickname for a serve-cap criterion id while keeping the raw id in data-raw-text', () => {
+    const questionText = 'Serve cap reached for [serve-cap:crit_1dd86268_6_abc123]';
+    nicknameMap = { crit_1dd86268_6_abc123: 'brave-otter' };
+    const escalations = [
+      esc({
+        id: 'e1',
+        project: 'P',
+        questionText,
+        conditionKey: null,
+      }),
+    ];
+
+    render(
+      <BridgeEscalationInbox
+        escalations={escalations}
+        serverScope="local"
+        project="P"
+      />
+    );
+
+    const questionEl = screen.getByTestId('escalation-question-text');
+    expect(questionEl).toHaveTextContent('brave-otter');
+    expect(questionEl).toHaveAttribute('data-raw-text', questionText);
   });
 });
