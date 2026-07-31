@@ -52,12 +52,33 @@ describe('formatConductorPass', () => {
     expect(result.sentence).toContain('declined thing (reason)');
   });
 
+  it('renders arm: node in the sentence', () => {
+    const row = mkRow({ arm: 'node' });
+    const result = formatConductorPass(row);
+    expect(result.sentence).toContain('arm: node');
+  });
+
+  it('renders arm: none literally in the sentence', () => {
+    const row = mkRow({ arm: 'none' });
+    const result = formatConductorPass(row);
+    expect(result.sentence).toContain('arm: none');
+  });
+
+  it('omits the arm clause when arm is null', () => {
+    const row = mkRow({ arm: null });
+    const result = formatConductorPass(row);
+    expect(result.sentence).not.toContain('arm:');
+  });
+
   it('matches the backend reference implementation over fixture rows', () => {
     const rows: ConductorPassRow[] = [
       mkRow({ filed: [{ kind: 'epic', id: 'e1', title: 'My Epic' }] }),
       mkRow({ filed: [{ foo: 'bar' }] }),
       mkRow({ endedAt: null }),
       mkRow({ declined: [{ what: 'thing', why: 'reason', entityType: 'leaf', entityId: 'l1' }] }),
+      mkRow({ arm: 'node' }),
+      mkRow({ arm: 'none' }),
+      mkRow({ arm: null }),
     ];
     for (const row of rows) {
       const uiResult = formatConductorPass(row);

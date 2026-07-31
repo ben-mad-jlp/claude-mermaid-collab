@@ -85,4 +85,50 @@ describe('formatConductorPass', () => {
     expect(result.sentence).toBe('No mission. unfinished (killed).');
     expect(result.chips.length).toBe(0);
   });
+
+  test('renders arm: node for a row with arm set to node', () => {
+    const row: ConductorPassJournalRow = {
+      id: 'p4',
+      project: '/proj',
+      missionId: null,
+      startedAt: 1000,
+      endedAt: 2000,
+      serveFp: null,
+      passFp: null,
+      selfFp: null,
+      arm: 'node',
+      criteriaActed: [],
+      filed: null,
+      declined: [],
+      outcome: null,
+      ran: null,
+      failCounted: null,
+    };
+
+    const result = formatConductorPass(row);
+    expect(result.sentence).toContain('arm: node');
+  });
+
+  test('renders arm: none literally for a row with arm set to the none sentinel', () => {
+    const row: ConductorPassJournalRow = {
+      id: 'p5',
+      project: '/proj',
+      missionId: null,
+      startedAt: 1000,
+      endedAt: 2000,
+      serveFp: null,
+      passFp: null,
+      selfFp: null,
+      arm: 'none',
+      criteriaActed: [],
+      filed: null,
+      declined: [],
+      outcome: null,
+      ran: null,
+      failCounted: null,
+    };
+
+    const result = formatConductorPass(row);
+    expect(result.sentence).toContain('arm: none');
+  });
 });
