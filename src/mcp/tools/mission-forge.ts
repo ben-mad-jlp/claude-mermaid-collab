@@ -405,6 +405,12 @@ export interface ForgeFromDocResult extends ForgeMissionResult {
   effortUsed: EffortLevel;
 }
 
+export interface ForgeFromDocAck {
+  missionId: string;
+  jobId: string;
+  status: 'forging';
+}
+
 async function defaultReadDoc(project: string, session: string, docId: string): Promise<string> {
   const { sessionRegistry } = await import('../../services/session-registry.js');
   const { DocumentManager } = await import('../../services/document-manager.js');
@@ -417,71 +423,151 @@ async function defaultReadDoc(project: string, session: string, docId: string): 
   return doc.content;
 }
 
-/** Forge a mission FROM a collab doc via a server-side `forge` node (configurable model/effort like
- *  the other daemon nodes). The node reads the doc + surveys the repo and emits a structured spec,
- *  which forgeMission instantiates as an UNAPPROVED mission (inactive, constraints proposed) that
- *  sits in the list until a human runs approve_mission. Judgment is the node's; instantiation is
- *  machinery. */
-export async function forgeMissionFromDoc(
+/** Validate inputs and set up the forge shell + background job. Returns missionId, jobId, and
+ *  the document content for the continuation to use. Throws if doc is missing/empty (no half-started job). */
+async function startForge(
   project: string,
   input: ForgeFromDocInput,
   deps: ForgeFromDocDeps = {},
-): Promise<ForgeFromDocResult> {
+): Promise<{ missionId: string; jobId: string; docContent: string }> {
   if (!project || !input.session || !input.docId) {
     throw new Error('forge_mission_from_doc: project, session, and docId are required');
   }
   const docContent = await (deps.readDoc ?? defaultReadDoc)(project, input.session, input.docId);
   if (!docContent || !docContent.trim()) throw new Error('forge_mission_from_doc: the source document is empty');
 
-  const provider = resolveNodeProvider(project, 'forge', ORCHESTRATION_NODE_PROFILE.forge.allowedTools);
-  const model = input.model ?? resolveNodeModel(project, 'forge', provider, ORCHESTRATION_NODE_PROFILE.forge.model);
-  const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'forge');
+  const shell = await createForgeShell(project, { session: input.session, docId: input.docId });
+  const { createJob, markJobRunning } = await import('../../services/async-job-store.js');
+  const job = createJob(project, { kind: 'forge-mission', targetId: shell.missionId });
+  markJobRunning(project, job.id);
 
-  const res = await (deps.invoke ?? invokeNode)({
-    prompt: buildForgePrompt(docContent),
-    model,
-    effort,
-    allowedTools: ORCHESTRATION_NODE_PROFILE.forge.allowedTools,
-    strictMcpConfig: true,
-    permissionMode: 'bypassPermissions',
-    cwd: project,
-    project,
-    transcriptLabel: 'forge',
-    skipAutoLedger: true,
-    ledgerSource: 'forge',
-  });
-  if (!res.ok || !res.text || !res.text.trim()) {
-    throw new Error(`forge_mission_from_doc: the forge node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
-  }
+  return { missionId: shell.missionId, jobId: job.id, docContent };
+}
 
-  // The mission doesn't exist until forgeMission returns, so the forge node's spend row
-  // can't be keyed to a missionId at the invoke call site above (hence skipAutoLedger).
-  // Record it here instead, in a `finally` so exactly one row is written whether or not
-  // the parse+instantiate below succeeds (todoId falls back to 'forge' on failure).
+/** The forge continuation: invoke → parse → forgeMission → recordSpend. On any error, marks the
+ *  mission forge-failed, marks the job failed, raises an escalation, and re-throws. On success,
+ *  marks the job succeeded and returns the complete result. */
+async function runForgeContinuation(
+  project: string,
+  input: ForgeFromDocInput,
+  missionId: string,
+  jobId: string,
+  deps: ForgeFromDocDeps = {},
+  docContent: string,
+): Promise<ForgeFromDocResult> {
   let spec: ReturnType<typeof parseForgeSpec> | undefined;
   let forged: ForgeMissionResult | undefined;
+  let model: string = '';
+  let effort: EffortLevel = 'high';
+
   try {
+    const provider = resolveNodeProvider(project, 'forge', ORCHESTRATION_NODE_PROFILE.forge.allowedTools);
+    model = input.model ?? resolveNodeModel(project, 'forge', provider, ORCHESTRATION_NODE_PROFILE.forge.model);
+    effort = input.effort ?? resolveOrchestrationEffort(project, 'forge');
+
+    const res = await (deps.invoke ?? invokeNode)({
+      prompt: buildForgePrompt(docContent),
+      model,
+      effort,
+      allowedTools: ORCHESTRATION_NODE_PROFILE.forge.allowedTools,
+      strictMcpConfig: true,
+      permissionMode: 'bypassPermissions',
+      cwd: project,
+      project,
+      transcriptLabel: 'forge',
+      skipAutoLedger: true,
+      ledgerSource: 'forge',
+    });
+    if (!res.ok || !res.text || !res.text.trim()) {
+      throw new Error(`forge_mission_from_doc: the forge node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
+    }
+
     spec = parseForgeSpec(res.text);
     forged = await forgeMission(project, {
       session: input.session,
       ...spec,
-      handoffDocId: input.docId, // the source doc IS the mission's constitution
-      approved: false,           // UNAPPROVED: sits in the list, inactive, constraints proposed
+      handoffDocId: input.docId,
+      approved: false,
       activate: false,
+      intoMissionId: missionId,
     });
+  } catch (err) {
+    await failForge(project, missionId, jobId, input.docId, err, input.session);
+    throw err;
   } finally {
     recordSpend({
       project,
       source: 'forge',
       nodeKind: 'forge',
       session: input.session,
-      todoId: forged?.missionId ?? 'forge',
+      todoId: forged?.missionId ?? missionId,
       model,
-      usage: res.usage,
-      durationMs: res.durationMs,
-      rateLimited: res.rateLimited,
-      ok: res.ok,
+      usage: forged ? undefined : {},
+      durationMs: 0,
+      rateLimited: false,
+      ok: !!forged,
     });
   }
+
+  const { markJobSucceeded } = await import('../../services/async-job-store.js');
+  markJobSucceeded(project, jobId, JSON.stringify({ missionId }));
   return { ...forged!, spec: spec!, modelUsed: model, effortUsed: effort };
+}
+
+/** On forge failure: mark the mission forge-failed, mark the job failed, and raise an escalation. */
+async function failForge(
+  project: string,
+  missionId: string,
+  jobId: string,
+  docId: string,
+  err: unknown,
+  session: string,
+): Promise<void> {
+  const { markJobFailed } = await import('../../services/async-job-store.js');
+  const message = err instanceof Error ? err.message : String(err);
+
+  setMissionForgeState(project, missionId, 'forge-failed');
+  markJobFailed(project, jobId, message);
+
+  try {
+    const { createEscalation } = await import('../../services/supervisor-store.js');
+    createEscalation({
+      project,
+      session,
+      kind: 'mission-forge-failed',
+      questionText: `Forge mission from doc ${docId} failed: ${message}`,
+      audience: 'human',
+      todoId: missionId,
+      conditionKey: `forge-failed:${missionId}`,
+    });
+  } catch (escalationErr) {
+    console.error('failForge: escalation creation failed:', escalationErr instanceof Error ? escalationErr.message : String(escalationErr));
+  }
+}
+
+/** Forge a mission FROM a collab doc via a server-side `forge` node (configurable model/effort like
+ *  the other daemon nodes). Acks IMMEDIATELY with {missionId, jobId, status:'forging'}; the node
+ *  reads the doc + surveys the repo and emits a structured spec, which forgeMission instantiates
+ *  as an UNAPPROVED mission (inactive, constraints proposed) that sits in the list until a human
+ *  runs approve_mission. Judgment is the node's; instantiation is machinery. Poll the jobId via
+ *  async-job-store or watch the mission's status to learn the outcome. */
+export async function forgeMissionFromDoc(
+  project: string,
+  input: ForgeFromDocInput,
+  deps: ForgeFromDocDeps = {},
+): Promise<ForgeFromDocAck> {
+  const { missionId, jobId, docContent } = await startForge(project, input, deps);
+  void runForgeContinuation(project, input, missionId, jobId, deps, docContent).catch(() => {});
+  return { missionId, jobId, status: 'forging' };
+}
+
+/** Deterministic awaited variant for tests and internal callers. Same as forgeMissionFromDoc but
+ *  awaits the background continuation. */
+export async function forgeMissionFromDocAndWait(
+  project: string,
+  input: ForgeFromDocInput,
+  deps: ForgeFromDocDeps = {},
+): Promise<ForgeFromDocResult> {
+  const { missionId, jobId, docContent } = await startForge(project, input, deps);
+  return runForgeContinuation(project, input, missionId, jobId, deps, docContent);
 }

@@ -14,18 +14,21 @@ beforeEach(() => {
 });
 
 // Imports AFTER the env is set so any db opens against our temp dir.
-import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, approveMissionAndConstitution, parseForgeSpec, buildForgePrompt, createForgeShell } from '../mission-forge';
+import { forgeMission, missionConstitutionHealth, forgeMissionFromDoc, forgeMissionFromDocAndWait, approveMissionAndConstitution, parseForgeSpec, buildForgePrompt, createForgeShell } from '../mission-forge';
 import { detectForwardAccrual, FORWARD_ACCRUAL_REASON } from '../../../services/criterion-closeability';
 import { getMission, getMissionRollup, listCriteria, _resetMissionDbCache } from '../../../services/mission-store';
 import { listDecisionRecords, _closeProject as closeDecisions } from '../../../services/decision-record-store';
 import { getTodo, _closeProject as closeTodos, listTodos } from '../../../services/todo-store';
 import { composeInjectedContext } from '../../../services/prompt-injection';
 import { claimReason } from '../../../services/claimability';
+import { getJob, _resetAsyncJobDbCache } from '../../../services/async-job-store';
+import { listEscalationsByKindInWindow } from '../../../services/supervisor-store';
 
 afterEach(() => {
   _resetMissionDbCache(project);
   closeDecisions(project);
   closeTodos(project);
+  _resetAsyncJobDbCache(project);
   rmSync(project, { recursive: true, force: true });
 });
 
@@ -181,7 +184,7 @@ describe('get_mission handler resolves a short id for ALL sub-queries (not just 
 
 describe('forgeMissionFromDoc — server forge node → unapproved mission', () => {
   test('forges an UNAPPROVED mission: status unapproved, inactive, constraints PROPOSED, handoff=docId', async () => {
-    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
+    const r = await forgeMissionFromDocAndWait(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
     const mission = getMission(project, r.missionId);
     expect(mission?.status).toBe('unapproved');
     expect(mission?.active).toBe(false);
@@ -201,7 +204,7 @@ describe('forgeMissionFromDoc — server forge node → unapproved mission', () 
   });
 
   test('approve_mission ratifies it: status leaves unapproved, active, constraints go active + inject', async () => {
-    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
+    const r = await forgeMissionFromDocAndWait(project, { session: 's1', docId: 'design-doc-1' }, mockDeps());
     const { mission, approvedConstraints } = await approveMissionAndConstitution(project, r.missionId, 'ben');
     expect(mission.status).not.toBe('unapproved');
     expect(mission.active).toBe(true);
@@ -238,14 +241,14 @@ describe('forgeMissionFromDoc — server forge node → unapproved mission', () 
   });
 
   test('the node model/effort default to forge (opus/high) and are returned', async () => {
-    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, mockDeps());
+    const r = await forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, mockDeps());
     expect(r.modelUsed).toBe('opus');
     expect(r.effortUsed).toBe('high');
   });
 
   test('a node that emits no parseable spec throws (no half-forged mission)', async () => {
     await expect(
-      forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, {
+      forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, {
         readDoc: async () => 'doc',
         invoke: async () => ({ ok: true, rateLimited: false, text: 'sorry, I could not do it' } as any),
       }),
@@ -254,7 +257,7 @@ describe('forgeMissionFromDoc — server forge node → unapproved mission', () 
 
   test('forgeMissionFromDoc rewrites a forward-accrual criterion to one-shot and no surviving criterion detects as forward-accrual', async () => {
     const spec = { ...SPEC, criteria: ['the fix holds over ≥5 live mission passes'] };
-    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, mockDeps(spec));
+    const r = await forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, mockDeps(spec));
     const criteria = listCriteria(project, r.missionId);
     expect(criteria.every((c) => detectForwardAccrual(c.text) === null)).toBe(true);
     expect(criteria.some((c) => /the fix/i.test(c.text))).toBe(true);
@@ -288,8 +291,8 @@ describe('unapproved status regression — approved flag gates both active and r
     expect(rollup.status).toBe('unapproved');
   });
 
-  test('forgeMissionFromDoc → status unapproved on both getMission and getMissionRollup', async () => {
-    const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, mockDeps());
+  test('forgeMissionFromDocAndWait → status unapproved on both getMission and getMissionRollup', async () => {
+    const r = await forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, mockDeps());
     const mission = getMission(project, r.missionId);
     const rollup = getMissionRollup(project, r.missionId);
     expect(mission?.status).toBe('unapproved');
@@ -384,5 +387,117 @@ describe('createForgeShell + intoMissionId reuse', () => {
     expect(mission?.status).toBe('unapproved');
     expect(mission?.forgeState).toBeNull(); // Not a forged shell, so forgeState stays null
     expect(listCriteria(project, r.missionId)).toHaveLength(2);
+  });
+});
+
+describe('forgeMissionFromDoc — ack-then-background', () => {
+  test('resolves under 5s with a forging mission that becomes unapproved after release', async () => {
+    let release: () => void;
+    const heldPromise = new Promise<void>((r) => { release = r; });
+    const deps = {
+      readDoc: async () => 'doc',
+      invoke: async () => {
+        await heldPromise;
+        return { ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(SPEC) + '\n```' } as any;
+      },
+    };
+
+    const startTime = Date.now();
+    const ack = await forgeMissionFromDoc(project, { session: 's1', docId: 'd' }, deps);
+    const elapsedMs = Date.now() - startTime;
+
+    expect(elapsedMs).toBeLessThan(5000);
+    expect(ack).toEqual({ missionId: ack.missionId, jobId: ack.jobId, status: 'forging' });
+    const mission = getMission(project, ack.missionId);
+    expect(mission?.status).toBe('forging');
+    expect(mission?.forgeState).toBe('forging');
+
+    release!();
+    // Poll for completion
+    let attempts = 0;
+    while (attempts < 50) {
+      const job = getJob(project, ack.jobId);
+      if (job?.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 100));
+      attempts++;
+    }
+
+    const finalMission = getMission(project, ack.missionId);
+    expect(finalMission?.status).toBe('unapproved');
+    expect(finalMission?.forgeState).toBeNull();
+    expect(listCriteria(project, ack.missionId)).toHaveLength(2);
+    const job = getJob(project, ack.jobId);
+    expect(job?.status).toBe('succeeded');
+  });
+
+  test('invoke throwing marks the mission forge-failed, files an escalation, and fails the job', async () => {
+    const error = new Error('invoke failed: network timeout');
+    const deps = {
+      readDoc: async () => 'doc',
+      invoke: async () => { throw error; },
+    };
+
+    await expect(forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, deps)).rejects.toThrow('invoke failed');
+
+    // The mission was started and now stands forge-failed
+    const missions = listTodos(project).filter((t) => t.kind === 'mission');
+    expect(missions).toHaveLength(1);
+    const missionId = missions[0].id;
+    const mission = getMission(project, missionId);
+    expect(mission?.forgeState).toBe('forge-failed');
+
+    // An escalation was filed
+    const sinceMs = Date.now() - 10000;
+    const untilMs = Date.now();
+    const escalations = listEscalationsByKindInWindow(project, 'mission-forge-failed', sinceMs, untilMs);
+    const forgeFailedEsc = escalations.find((e) => e.todoId === missionId);
+    expect(forgeFailedEsc).toBeDefined();
+    expect(forgeFailedEsc?.questionText).toContain('d'); // docId
+    expect(forgeFailedEsc?.audience).toBe('human');
+  });
+
+  test('unparseable node text marks the mission forge-failed, files an escalation, and fails the job', async () => {
+    const deps = {
+      readDoc: async () => 'doc',
+      invoke: async () => ({ ok: true, rateLimited: false, text: 'no json here' } as any),
+    };
+
+    await expect(forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, deps)).rejects.toThrow(/no parseable mission-spec JSON/i);
+
+    const missions = listTodos(project).filter((t) => t.kind === 'mission');
+    expect(missions).toHaveLength(1);
+    const missionId = missions[0].id;
+    const mission = getMission(project, missionId);
+    expect(mission?.forgeState).toBe('forge-failed');
+
+    const sinceMs = Date.now() - 10000;
+    const untilMs = Date.now();
+    const escalations = listEscalationsByKindInWindow(project, 'mission-forge-failed', sinceMs, untilMs);
+    const forgeFailedEsc = escalations.find((e) => e.todoId === missionId);
+    expect(forgeFailedEsc).toBeDefined();
+    expect(forgeFailedEsc?.audience).toBe('human');
+  });
+
+  test('empty spec (no criteria after parse) marks the mission forge-failed, files an escalation, and fails the job', async () => {
+    const badSpec = { ...SPEC, criteria: [] };
+    const deps = {
+      readDoc: async () => 'doc',
+      invoke: async () => ({ ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(badSpec) + '\n```' } as any),
+    };
+
+    await expect(forgeMissionFromDocAndWait(project, { session: 's1', docId: 'd' }, deps)).rejects.toThrow(/criteria/i);
+
+    const missions = listTodos(project).filter((t) => t.kind === 'mission');
+    expect(missions).toHaveLength(1);
+    const missionId = missions[0].id;
+    const mission = getMission(project, missionId);
+    expect(mission?.forgeState).toBe('forge-failed');
+
+    const sinceMs = Date.now() - 10000;
+    const untilMs = Date.now();
+    const escalations = listEscalationsByKindInWindow(project, 'mission-forge-failed', sinceMs, untilMs);
+    const forgeFailedEsc = escalations.find((e) => e.todoId === missionId);
+    expect(forgeFailedEsc).toBeDefined();
+    expect(forgeFailedEsc?.audience).toBe('human');
   });
 });
