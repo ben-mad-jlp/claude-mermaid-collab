@@ -21,13 +21,31 @@ import { classifyVerdictTestOnly, extractToCloseText } from './verdict-test-only
 import { claimApproachRungOnce } from './criterion-approach-store.js';
 import { updateTodo } from './todo-store.js';
 
+function buildOutOfScopeFence(testPaths: string[]): string[] {
+  const roots = ['src', 'ui/src', 'bin', 'scripts'];
+  const fence: string[] = [];
+  for (const root of roots) {
+    const recursive = `${root}/**`;
+    const recursiveOverlaps = testPaths.some((p) => new Bun.Glob(recursive).match(p));
+    if (!recursiveOverlaps) {
+      fence.push(recursive);
+      continue;
+    }
+    for (const candidate of [`${root}/*`, `${root}/*/*`]) {
+      const overlaps = testPaths.some((p) => new Bun.Glob(candidate).match(p));
+      if (!overlaps) fence.push(candidate);
+    }
+  }
+  return fence;
+}
+
 export function buildCloseOutBrief(input: {
   criterionText: string;
   toCloseText: string | null;
   testPaths: string[];
   verifiedAtSha: string | null;
 }): { title: string; description: string; files: string[]; outOfScope: string[] } {
-  const outOfScope = ['src/**', 'ui/src/**', 'bin/**', 'scripts/**'];
+  const outOfScope = buildOutOfScopeFence(input.testPaths);
 
   const lines: string[] = [];
   lines.push('TO CLOSE');

@@ -13,15 +13,31 @@ describe('buildCloseOutBrief', () => {
     expect(brief.description).toContain('TO CLOSE');
     expect(brief.description).toContain('the assertion at src/__tests__/perf.test.ts:12 is stale, update the threshold');
     expect(brief.description).toContain('OUT OF SCOPE');
-    expect(brief.description).toContain('src/**');
+    expect(brief.description).toContain('src/*');
     expect(brief.description).toContain('ui/src/**');
-    expect(brief.outOfScope).toEqual(['src/**', 'ui/src/**', 'bin/**', 'scripts/**']);
+    expect(brief.outOfScope).toEqual(['src/*', 'ui/src/**', 'bin/**', 'scripts/**']);
 
     const outOfScopeBlock = brief.description.slice(brief.description.indexOf('OUT OF SCOPE'));
     expect(outOfScopeBlock).not.toContain('src/__tests__/perf.test.ts');
 
     expect(brief.files).toEqual(['src/__tests__/perf.test.ts']);
     expect(brief.title).toContain('p95 latency measured under 100ms');
+  });
+
+  test('no outOfScope glob matches any testPath file (real Bun.Glob check)', () => {
+    const brief = buildCloseOutBrief({
+      criterionText: 'a thing',
+      toCloseText: null,
+      testPaths: ['src/__tests__/perf.test.ts', 'src/services/__tests__/foo.test.ts'],
+      verifiedAtSha: null,
+    });
+
+    for (const g of brief.outOfScope) {
+      for (const f of brief.files) {
+        expect(new Bun.Glob(g).match(f)).toBe(false);
+      }
+    }
+    expect(brief.outOfScope.some((g) => g.startsWith('src/'))).toBe(true);
   });
 
   test('falls back to "(none captured)" when toCloseText is null', () => {
