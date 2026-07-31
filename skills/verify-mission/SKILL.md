@@ -8,6 +8,7 @@ allowed-tools:
   - Grep
   - Bash
   - Agent
+  - mcp__plugin_mermaid-collab_mermaid__mission_diagnostic
   - mcp__plugin_mermaid-collab_mermaid__get_mission
   - mcp__plugin_mermaid-collab_mermaid__set_mission_criterion
 ---
@@ -17,6 +18,8 @@ allowed-tools:
 This is the **heart of the convergence loop**. Per the loops principle: *the model that did the work is far too generous a grader.* The verify gate must be an **independent check** — a fresh reviewer, separate from whoever did the work — that can actually FAIL the work. Without it you have "the agent agreeing with itself on repeat" (the Ralph-Wiggum loop).
 
 Invoke this **when the mission's derived `status` is `needs-verify`** (a serving epic has landed but a criterion is still unverified, `verifiedAt == null`), or any time a criterion needs re-checking. This is not a phase the loop steps into; it is a gate that fires when a criterion goes unverified.
+
+**Also invoke it to break a verify-timeout debounce-wedge.** The daemon's own auto-verify-panel runs this same gate — but on a wide mission (many `verify` criteria at once) a pass can time out, after which the conductor debounces the still-`awaitingVerify` state as "fingerprint unchanged" and never retries (check `mission_diagnostic.conductorPass`: a climbing `debouncedStreak` + high `staleSeconds` with all leaves done+accepted). When you see that signature, run THIS gate by hand: it is the independent verify the wedged auto-panel can't finish, and recording the verdicts converges the mission. Verify against **HEAD** (the landed code), not against whoever authored it.
 
 ## Inputs
 - `project` — the mission's tracking project (abs path).

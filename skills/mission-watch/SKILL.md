@@ -11,7 +11,9 @@ allowed-tools:
   - Write
   - Agent
   - Skill
+  - mcp__plugin_mermaid-collab_mermaid__mission_diagnostic
   - mcp__plugin_mermaid-collab_mermaid__get_mission
+  - mcp__plugin_mermaid-collab_mermaid__set_mission_criterion
   - mcp__plugin_mermaid-collab_mermaid__list_missions
   - mcp__plugin_mermaid-collab_mermaid__daemon_status
   - mcp__plugin_mermaid-collab_mermaid__orchestrator_status
@@ -40,13 +42,24 @@ and turn every incident into a shipped improvement. Stamp every observation
 
 ## Signals: what to trust
 
-- **Authoritative mission state = `get_mission`** (full facts, per-criterion `action`).
-  NEVER the missions LIST route — its cheap rollup fakes gaps:0/status and is flagged
-  `factsOmitted`. A monitor that trips on it reports phantom motion.
+- **First-line read = `mission_diagnostic { project, missionId }`** (a landed verb; if the
+  running server predates it, fall back to the granular reads below). ONE read-only, fail-open
+  call returns the whole live state: per-criterion `action` + **git-reconciled** serving-epic
+  land truth, every leaf with a **classified** `terminalClass` (`accepted | epic-base-red |
+  gate-rejected | blocked-dependency | inflight | parked-other`), `conductorPass` (`isInflight`,
+  `debouncedStreak`, `staleSeconds`, `lastArm/lastOutcome`), and `baseHealth` (`tsc`/`suite` +
+  `repairLeafInflight`). It exists precisely so you STOP stitching a mission's state from ~9
+  hand calls. Use it first; drop to the granular reads only for a single leaf's deep detail.
+- **Authoritative per-criterion state = `get_mission`** (full facts, per-criterion `action`) —
+  the `mission_diagnostic` aggregate is derived from the same source. NEVER the missions LIST
+  route — its cheap rollup fakes gaps:0/status and is flagged `factsOmitted`. A monitor that
+  trips on it reports phantom motion.
 - **Work-graph truth = sqlite on `.collab/todos.db`** (children of the mission node,
   statuses, `acceptanceStatus`, `landedAt`) and **`leaf_inspect`** for any single leaf
   (node timeline, `outcomeDetail.reason`, resumeDecisions). The worker ledger
-  (`~/.mermaid-collab/worker-ledger.db`) is the durable cost/outcome record.
+  (`~/.mermaid-collab/worker-ledger.db`) is the durable cost/outcome record. Prefer
+  `mission_diagnostic.conductorPass`/`.leaves` over raw worker-ledger SQL for pass state and
+  leaf classification — raw SQL is the drill-down, not the default.
 - **Watch by DELTA, not threshold.** Background watcher loop: snapshot
   (met-criteria count, settled-leaf count, live-epic count, hash of open
   blocker/decision escalation IDS) at launch; wake only on change from the snapshot.
@@ -61,6 +74,19 @@ re-plan / reset_todo / escalation_resolve). Step in only when it is structurally
 blind: debounced with no `discover` gap while work sits parked, a decision card
 awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
 
+- **Verify-timeout → debounce-wedge (grade at HEAD, don't nudge).** When ALL leaves
+  are done+accepted and every criterion is `awaitingVerify` on a LANDED serving epic, yet
+  the mission sits at 0-met: check `mission_diagnostic.conductorPass` — a climbing
+  `debouncedStreak` + high `staleSeconds` (declined "fingerprint unchanged") after a recorded
+  verify timeout is the signature. The verify pass ran out of time on too-many criteria, and
+  the debounce now treats the still-`awaitingVerify` state as "unchanged / nothing to do" — so
+  verify NEVER re-runs. A `supervisor_nudge` just re-times-out the same unbounded verify. The
+  reliable unwedge is to **verify the shipped work yourself at HEAD and record it**: run the
+  mission's named tests + `tsc` + the whole-surface gate on a clean worktree, then
+  `set_mission_criterion { met, evidence, verifiedBy, verifiedAtSha, panelVerdicts }` per
+  criterion (you are the independent checker; the daemon built it). This converges a
+  genuinely-done mission the wedged auto-panel can't finish. File the debounce bug as friction
+  (awaiting-verify-on-a-landed-epic is actionable state, not a settled fingerprint).
 - **Full ids for every write, verify-after-write.** Todo-store verbs now resolve
   short ids and throw on zero-row writes, but OTHER stores still lie: an
   escalation_resolve with an 8-hex id returns success while resolving nothing
@@ -178,6 +204,11 @@ Every intervention produces a durable artifact, in the moment, not at the end:
 ## Anti-patterns
 
 - Polling the missions list route for progress → phantom motion.
+- Reading a leaf's `acceptanceStatus:'rejected'` as a real rejection when its
+  `terminalClass` (from `mission_diagnostic.leaves`) is `epic-base-red` — that is a base-red
+  PARK, self-healing on a base move, NOT a spec defect. Never re-plan a park.
+- Stitching mission state from ~9 hand calls when `mission_diagnostic` returns it in one.
+- Nudging a verify-timeout debounce-wedge → it re-times-out; grade shipped work at HEAD instead.
 - reset_todo as a reflex → poisoned-blueprint thrash; inspect first.
 - Dropping a dup to "clean up" without checking progress on both copies.
 - Resolving informational cards to zero the queue → re-raise loop.
