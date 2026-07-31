@@ -51,7 +51,7 @@ export function formatConductorPass(row: ConductorPassRow): FormattedConductorPa
   }
 
   if (row.endedAt === null) {
-    parts.push('unfinished (killed)');
+    parts.push('killed (ran out of time)');
   }
 
   if (row.criteriaActed.length) {
