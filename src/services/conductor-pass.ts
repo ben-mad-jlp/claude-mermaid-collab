@@ -18,9 +18,11 @@ import {
   readConductorTimeoutRecurrence,
   CRITERION_SERVE_CAP,
   promoteQueuedMissions,
+  bumpCriterionServeAttempt,
+  resetCriterionAttemptCounters,
   type MissionRecheck,
 } from './mission-store.js';
-import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX } from './harness-caps.js';
+import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
@@ -108,6 +110,19 @@ export function collectMissionTodoIds(project: string, missionId: string): Set<s
  *  `reopenResolvedEscalationByConditionKey` when the criterion is still capped+unmet. */
 export function serveCapConditionKey(criterionId: string): string {
   return `serve-cap:${criterionId}`;
+}
+
+/** The kind stamped on a serve-ATTEMPT-cap escalation. Distinct from CRITERION_SERVE_CAP /
+ *  CRITERION_SERVE_CAP_KIND: those count epics actually FILED (servedEpicCount). This counts
+ *  PASSES where the gap was presented to the node and the node still filed nothing for it — a
+ *  distinct, usually-smaller, faster-firing signal that catches an unproductive node before it
+ *  ever burns a real epic slot. */
+export const CRITERION_SERVE_ATTEMPTS_CAPPED_KIND = 'criterion-serve-attempts-capped';
+
+/** Mirrors serveCapConditionKey / verifyAttemptsCapConditionKey — the durable identity for a
+ *  serve-attempts-capped card: one per criterion. */
+export function serveAttemptsCapConditionKey(criterionId: string): string {
+  return `serve-attempts-cap:${criterionId}`;
 }
 
 /** Build serve-cap diagnosis: a pure renderer that emits REASONS SEEN, LADDER, and RECOMMEND blocks.
@@ -1043,6 +1058,50 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // self-heals across ticks (up to CONDUCTOR_SERVE_RETRY_CAP, then the serve-cap escalation fires).
   const discoverIdsBefore = actions.filter((a) => a.action === 'discover').map((a) => a.id);
   const updatedCriteriaWithActions = listCriteriaWithActions(project, missionId);
+
+  // SERVE-ATTEMPT COUNTER: for every discover gap actually PRESENTED to the node this pass
+  // (the same positional slice conductor-wake-context.ts used to build the wake block), bump
+  // its serve-attempt counter if it's still gapless (no live serving epic), or reset it if the
+  // node served it. A gap past the presented slate was CARRIED, never shown — its counter must
+  // not move. Fail-open per criterion: a store/escalation throw here must not affect res.ok,
+  // servedAGap, or the pass's returned reason.
+  const presentedDiscoverIds = discoverIdsBefore.slice(0, CONDUCTOR_SERVE_BATCH_MAX);
+  for (const id of presentedDiscoverIds) {
+    try {
+      const c = updatedCriteriaWithActions.find((x) => x.id === id);
+      if (!c) continue;
+      if (c.servingEpicState !== 'none') {
+        resetCriterionAttemptCounters(project, id, 'serve');
+        continue;
+      }
+      const count = bumpCriterionServeAttempt(project, id);
+      if (count >= CRITERION_SERVE_ATTEMPT_CAP) {
+        const conditionKey = serveAttemptsCapConditionKey(id);
+        const listOpen = deps.listOpenEscalations ?? listOpenEscalations;
+        if (!listOpen().some((e) => e.conditionKey === conditionKey && e.status === 'open')) {
+          const createEsc = deps.createEscalation ?? createEscalation;
+          const res = createEsc({
+            project,
+            session,
+            kind: CRITERION_SERVE_ATTEMPTS_CAPPED_KIND,
+            todoId: missionId,
+            operatorGated: true,
+            audience: 'human',
+            conditionKey,
+            conditionTuple: ['serve-attempts-cap', id],
+            questionText: `Mission "${target.summary.node.title ?? missionId}" — criterion "${c.text}" ` +
+              `(id ${id}) has been presented ${count} passes without the conductor filing a serving epic ` +
+              `for it (cap ${CRITERION_SERVE_ATTEMPT_CAP}); this is unproductive before it ever burns a ` +
+              `serving-epic slot. Resolve or rescope this criterion.`,
+          });
+          if (res && res.isNew) escalationsRaised++;
+        }
+      }
+    } catch {
+      // fail-open per criterion — one bad counter/escalation must not sink the rest of the pass.
+    }
+  }
+
   const servedAGap =
     discoverIdsBefore.length === 0 ||
     updatedCriteriaWithActions.some(

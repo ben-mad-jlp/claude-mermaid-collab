@@ -8,7 +8,7 @@ import { join } from 'node:path';
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'conductor-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
-import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine, conductorNeedsHuman } from '../conductor-pass';
+import { runConductorPass, conductorFingerprint, buildConductorPrompt, CRITERION_SERVE_CAP_KIND, serveCapMarker, CONDUCTOR_SERVE_RETRY_CAP, buildServeCapDiagnosis, conductorStatusLine, conductorNeedsHuman, CRITERION_SERVE_ATTEMPTS_CAPPED_KIND } from '../conductor-pass';
 import { addWatchedProject, setConductorEnabled, createEscalation, listOpenEscalations, listEscalations, acknowledgeEscalation, resolveEscalation, getConductorLastPass, type Escalation } from '../supervisor-store';
 import { getMission, _resetMissionDbCache, setMissionAbandoned, setCriterionMet, setCriterionVerdict, setMissionBudget, CRITERION_SERVE_CAP, listMissions, listCriteriaWithActions, isMissionTerminal, enqueueRecheck, activateMission } from '../mission-store';
 import { _resetMissionSpendMemo } from '../ledger-stats';
@@ -21,7 +21,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { invokeNode, _primeAuthCacheForTest, _resetAuthCache, _resetClaudeBinCache } from '../../agent/node-invoker';
 import { recordNode } from '../worker-ledger';
 import { recordApproachAttempt } from '../criterion-approach-store';
-import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX } from '../harness-caps';
+import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
 import { initializeWebSocketHandler } from '../ws-handler-manager';
 import { listConductorPasses } from '../conductor-pass-journal';
@@ -1222,6 +1222,51 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
 
     expect(r.ran).toBe(false);
     expect(escCalls.filter((e) => e.kind === CRITERION_SERVE_CAP_KIND).length).toBe(1);
+  });
+
+  test('bumps serveAttemptCount for a presented-but-unserved gap and raises criterion-serve-attempts-capped at the cap, while a served gap resets to 0', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Serve-attempt counter mission',
+      criteria: ['criterion A: never served', 'criterion B: served every pass'],
+    });
+    const criteria = listCriteria(project, forged.missionId);
+    const critA = criteria[0];
+    const critB = criteria[1];
+
+    // Serves B every pass, never files anything for A.
+    const invoke = async () => {
+      await createTodo(project, {
+        ownerSession: 's1', title: '[EPIC] served B', kind: 'epic', parentId: forged.missionId, servesCriterionIds: [critB.id],
+      });
+      return { ok: true, rateLimited: false, text: 'served B, skipped A' } as any;
+    };
+
+    for (let i = 0; i < CRITERION_SERVE_ATTEMPT_CAP; i++) {
+      // Force each pass to actually run (bypass the productive-pass debounce, which otherwise
+      // treats an unchanged serve-signature as already-attempted) by toggling an unrelated
+      // mission-scoped card open/resolved around each call — a genuinely new signature each time.
+      const { escalation } = createEscalation({
+        audience: 'internal', project, session: 's1', kind: 'blocker', todoId: forged.missionId, questionText: `force wake ${i}`,
+      });
+      await runConductorPass(project, { invoke });
+      resolveEscalation(escalation.id, 'resolved');
+    }
+
+    const finalCriteria = listCriteriaWithActions(project, forged.missionId);
+    const finalA = finalCriteria.find((c) => c.id === critA.id)!;
+    const finalB = finalCriteria.find((c) => c.id === critB.id)!;
+
+    expect(finalA.serveAttemptCount).toBe(CRITERION_SERVE_ATTEMPT_CAP);
+    expect(finalB.serveAttemptCount).toBe(0);
+    expect(finalB.servingEpicState).not.toBe('none');
+
+    const capped = listOpenEscalations().filter((e) => e.project === project && e.kind === CRITERION_SERVE_ATTEMPTS_CAPPED_KIND);
+    expect(capped.length).toBe(1);
+    expect(capped[0].conditionKey).toBe(`serve-attempts-cap:${critA.id}`);
+    expect(capped[0].questionText).toContain(critA.id);
   });
 });
 
