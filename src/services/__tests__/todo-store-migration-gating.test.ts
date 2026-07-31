@@ -8,7 +8,7 @@ import {
   createTodo,
   openDb,
   _closeProject,
-  TODO_TITLE_PREFIX_V9,
+  TODO_NICKNAME_V10,
 } from '../todo-store';
 
 let project: string;
@@ -89,7 +89,7 @@ describe('Migration gating — idempotence and convergence', () => {
     freshDb.close();
   });
 
-  test('legacy user_version=0 DB converges to final state with V9', async () => {
+  test('legacy user_version=0 DB converges to final state at the latest user_version', async () => {
     // 1. Create a DB via openDb, then close and reset to user_version=0 with legacy-shaped rows.
     const epic = await createTodo(project, {
       kind: 'epic',
@@ -162,7 +162,7 @@ describe('Migration gating — idempotence and convergence', () => {
 
     // Check final user_version.
     const versionResult = freshDb.query(`PRAGMA user_version`).get() as any;
-    expect(versionResult.user_version).toBe(TODO_TITLE_PREFIX_V9);
+    expect(versionResult.user_version).toBe(TODO_NICKNAME_V10);
 
     freshDb.close();
   });

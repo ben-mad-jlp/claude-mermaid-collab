@@ -438,7 +438,8 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
     } finally {
       rmSync(repoA, { recursive: true, force: true });
     }
-  });
+    // Two full git repos + worktrees in one test — well past bun's 5s default.
+  }, 30000);
 
   it('the parity comparison fails on a deliberately diverged land record', async () => {
     const repoM = mkdtempSync(join(tmpdir(), 'land-record-mutation-probe-'));
