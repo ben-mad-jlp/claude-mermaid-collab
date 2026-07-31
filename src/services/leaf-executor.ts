@@ -1490,6 +1490,9 @@ export async function runLeaf(
   // remove` keeps the BRANCH, so accepted work (already merged) and any un-merged
   // blocked/rejected work stays recoverable on demand. A `pending` (paused/resumable)
   // leaf KEEPS its worktree. Best-effort: never let cleanup change the outcome.
+  // Declared HERE (not at first snapshot) so finishWith — which may fire on an early park
+  // before any snapshot is taken — can read it without hitting the `let` temporal dead zone.
+  let lastRootSnap: { cwd: string; snap: RootSnapshot } | null = null;
   const finishWith = async (r: LeafRunResult): Promise<LeafRunResult> => {
     // RUN-LEVEL inflight clear (bug 0f1df3d2): the leaf_inflight row now SPANS the
     // whole run (runNode no longer deletes it per-node — that left a between-nodes
@@ -1499,6 +1502,21 @@ export async function runLeaf(
     // live → correctly becomes re-dispatchable. The ownership-CAS discard path clears
     // it independently; process death is handled by reapStaleInflight (stale epoch).
     try { deps.clearInflight?.(leaf.id); } catch { /* best-effort */ }
+    // ROOT FIX (main-checkout stranding → land-poison): before reaping the worktree, relocate any
+    // files the leaf's implement/fix nodes leaked to the MAIN checkout (a `cd` out of the worktree)
+    // back INTO this worktree. The per-review-cycle sweep only runs before the review node, so a
+    // leaf that leaks then PARKS before review (base-red, budget, node-failed, …) previously left
+    // that work stranded in the main checkout — where it later triggers the post-land drift/poison
+    // class and blocks deploy_self/adopt. finishWith is the single terminal funnel for EVERY
+    // outcome, so sweeping here guarantees no leaf can leave a main-checkout leak, however it exits.
+    // Best-effort; sweepLeakedWrites only touches paths that appeared AFTER this run's snapshot
+    // (rootSnap diff) — never pre-existing content or a human's edits.
+    if (lastRootSnap) {
+      try {
+        const swept = sweepLeakedWrites(lastRootSnap.cwd, lastRootSnap.snap);
+        if (swept.length) console.warn(`[leaf-executor] finish write-leak sweep: relocated ${swept.length} leaked file(s) from the main checkout into the worktree (${swept.slice(0, 5).join(', ')}${swept.length > 5 ? ', …' : ''})`);
+      } catch { /* never break the terminal funnel on the mitigation */ }
+    }
     // Keep the worktree for RESUMABLE outcomes (pending = gate-deferred, paused =
     // rate-limited) — those re-dispatch and reuse/rebuild from it. Reap on every
     // TERMINAL outcome (accepted/blocked/rejected/split), EXCEPT an epic-base-moved
@@ -2241,7 +2259,7 @@ export async function runLeaf(
   // Friction 552f95c2: the latest attempt's write-leak snapshot + lane cwd, hoisted so the
   // ABORT path (outer LeafAborted catch) can sweep leaked main-checkout writes too — a run
   // killed mid-implement otherwise never sweeps, and later runs grandfather its leak forever.
-  let lastRootSnap: { cwd: string; snap: RootSnapshot } | null = null;
+  // (lastRootSnap is declared above finishWith — TDZ fix — and assigned as snapshots are taken.)
 
   // Cooperative abort: everything past this point can spawn nodes via `runNode`, which
   // throws LeafAborted at either node boundary once the daemon has stopped the run
