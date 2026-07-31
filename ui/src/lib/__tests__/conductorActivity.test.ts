@@ -40,7 +40,7 @@ describe('formatConductorPass', () => {
   it('killed row', () => {
     const row = mkRow({ endedAt: null });
     const result = formatConductorPass(row);
-    expect(result.sentence).toContain('unfinished (killed)');
+    expect(result.sentence).toContain('killed (ran out of time)');
   });
 
   it('declined-with-entity row pushes a chip', () => {
