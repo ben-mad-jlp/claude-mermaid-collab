@@ -99,3 +99,50 @@ export function formatConductorPass(row: ConductorPassJournalRow): FormattedCond
 
   return { sentence: parts.join('. ') + '.', chips };
 }
+
+export interface ConductorPassGroup<T> {
+  key: string;
+  rows: T[];
+  count: number;
+  firstStartedAt: number;
+  lastStartedAt: number;
+  representative: T;
+  formatted: FormattedConductorPass;
+  arm: string | null;
+  outcome: string | null;
+  missionId: string | null;
+}
+
+export function groupConductorPasses(rows: ConductorPassJournalRow[]): ConductorPassGroup<ConductorPassJournalRow>[] {
+  const groups: ConductorPassGroup<ConductorPassJournalRow>[] = [];
+  let current: ConductorPassGroup<ConductorPassJournalRow> | null = null;
+  let prevFp: string | null = null;
+
+  for (const row of rows) {
+    const formatted = formatConductorPass(row);
+    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}`;
+
+    if (current && fp === prevFp) {
+      current.rows.push(row);
+      current.count += 1;
+      current.lastStartedAt = row.startedAt;
+    } else {
+      current = {
+        key: fp,
+        rows: [row],
+        count: 1,
+        firstStartedAt: row.startedAt,
+        lastStartedAt: row.startedAt,
+        representative: row,
+        formatted,
+        arm: row.arm,
+        outcome: row.outcome,
+        missionId: row.missionId,
+      };
+      groups.push(current);
+    }
+    prevFp = fp;
+  }
+
+  return groups;
+}
