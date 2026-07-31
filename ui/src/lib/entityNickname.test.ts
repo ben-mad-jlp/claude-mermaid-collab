@@ -33,4 +33,25 @@ describe('humanizeIds', () => {
     const text = `see ${FULL_UUID}`;
     expect(humanizeIds(text)).toBe(text);
   });
+
+  it('humanizeIds replaces a crit_ criterion-id token with its nickname', () => {
+    const critId = 'crit_12345678_3_lz9x2k';
+    const text = `blocked on ${critId}`;
+    const result = humanizeIds(text, { [critId]: 'brave-otter' });
+    expect(result).toBe('blocked on brave-otter');
+  });
+
+  it('humanizeIds leaves an unmapped crit_ token verbatim', () => {
+    const critId = 'crit_12345678_3_lz9x2k';
+    const text = `blocked on ${critId}`;
+    const result = humanizeIds(text, {});
+    expect(result).toBe(text);
+  });
+
+  it('humanizeIds resolves a UUID and a crit_ token in the same string independently', () => {
+    const critId = 'crit_12345678_3_lz9x2k';
+    const text = `see ${FULL_UUID} and ${critId}`;
+    const result = humanizeIds(text, { [FULL_UUID]: 'happy-otter', [critId]: 'brave-otter' });
+    expect(result).toBe('see happy-otter and brave-otter');
+  });
 });
