@@ -12,5 +12,11 @@ describe('measure-shared-union-split fixture', () => {
     expect(result.parksOff).toBeGreaterThanOrEqual(3);
     expect(result.onLeaves.length).toBe(5);
     expect(result.offParkReasons.length).toBe(result.parksOff);
+    expect(result.offParkReasons.every((r) => /^epic-base-red/.test(r))).toBe(true);
+
+    const again = runSharedUnionSplitMeasurement();
+    expect(again.parksOn).toBe(result.parksOn);
+    expect(again.parksOff).toBe(result.parksOff);
+    expect(again.onLeaves.length).toBe(result.onLeaves.length);
   });
 });
