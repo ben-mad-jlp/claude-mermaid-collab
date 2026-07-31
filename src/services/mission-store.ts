@@ -150,6 +150,12 @@ export interface MissionCriterion {
   reopenCount: number;
   /** The landedSha of the most recent land-driven reopen, or null. */
   lastReopenSha: string | null;
+  /** Durable count of individual verify-panel attempts. Distinct from reopenCount, which
+   *  counts land-driven reopens, not attempts. */
+  verifyAttemptCount: number;
+  /** Durable count of individual serve-batch attempts. Distinct from reopenCount, which
+   *  counts land-driven reopens, not attempts. */
+  serveAttemptCount: number;
   /** DAG edge set: ids of criteria (on the same mission) this criterion depends on. */
   dependsOn: string[];
 }
@@ -235,6 +241,8 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   verifiedAtSha TEXT,
   evidencePaths TEXT,
   reopenCount INTEGER NOT NULL DEFAULT 0,
+  verifyAttemptCount INTEGER NOT NULL DEFAULT 0,
+  serveAttemptCount INTEGER NOT NULL DEFAULT 0,
   lastReopenSha TEXT,
   type TEXT NOT NULL DEFAULT 'capability',
   dependsOn TEXT NOT NULL DEFAULT '[]',
@@ -321,6 +329,8 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'mission_criterion', 'verifyAttemptCount', 'verifyAttemptCount INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'mission_criterion', 'serveAttemptCount', 'serveAttemptCount INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'mission_criterion', 'lastReopenSha', 'lastReopenSha TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'type', "type TEXT NOT NULL DEFAULT 'capability'");
   addColumnIfMissing(db, 'mission_criterion', 'dependsOn', "dependsOn TEXT NOT NULL DEFAULT '[]'");
@@ -849,6 +859,8 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     verifiedAtSha: (r.verifiedAtSha as string | null) ?? null,
     evidencePaths: r.evidencePaths ? (JSON.parse(r.evidencePaths as string) as string[]) : [],
     reopenCount: (r.reopenCount as number | null) ?? 0,
+    verifyAttemptCount: (r.verifyAttemptCount as number | null) ?? 0,
+    serveAttemptCount: (r.serveAttemptCount as number | null) ?? 0,
     lastReopenSha: (r.lastReopenSha as string | null) ?? null,
     type: ((r.type as string | null) ?? 'capability') as CriterionType,
     dependsOn: r.dependsOn ? (JSON.parse(r.dependsOn as string) as string[]) : [],
@@ -915,7 +927,7 @@ export function addCriterion(
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn) VALUES (?, ?, ?, 0, ?, ?, ?, ?)')
     .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn));
-  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
+  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
 }
 
 /** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
@@ -1123,6 +1135,31 @@ export function clearCriterionVerdict(
     .query('SELECT reopenCount FROM mission_criterion WHERE id = ?')
     .get(criterionId) as Record<string, unknown> | null;
   return (row?.reopenCount as number) ?? 0;
+}
+
+/** Increment and return the criterion's durable verify-attempt counter. */
+export function bumpCriterionVerifyAttempt(project: string, criterionId: string): number {
+  const db = openDb(project);
+  db.prepare('UPDATE mission_criterion SET verifyAttemptCount = verifyAttemptCount + 1, updatedAt = ? WHERE id = ?')
+    .run(nowMs(), criterionId);
+  const row = db.query('SELECT verifyAttemptCount FROM mission_criterion WHERE id = ?').get(criterionId) as Record<string, unknown> | null;
+  return (row?.verifyAttemptCount as number) ?? 0;
+}
+
+/** Increment and return the criterion's durable serve-attempt counter. */
+export function bumpCriterionServeAttempt(project: string, criterionId: string): number {
+  const db = openDb(project);
+  db.prepare('UPDATE mission_criterion SET serveAttemptCount = serveAttemptCount + 1, updatedAt = ? WHERE id = ?')
+    .run(nowMs(), criterionId);
+  const row = db.query('SELECT serveAttemptCount FROM mission_criterion WHERE id = ?').get(criterionId) as Record<string, unknown> | null;
+  return (row?.serveAttemptCount as number) ?? 0;
+}
+
+/** Zero exactly ONE of the two durable attempt counters — a verify reset must never
+ *  clear serve progress and vice versa, since the two attempt kinds are independent. */
+export function resetCriterionAttemptCounters(project: string, criterionId: string, which: 'verify' | 'serve'): void {
+  const col = which === 'verify' ? 'verifyAttemptCount' : 'serveAttemptCount';
+  openDb(project).prepare(`UPDATE mission_criterion SET ${col} = 0, updatedAt = ? WHERE id = ?`).run(nowMs(), criterionId);
 }
 
 export function listCriterionVerdictHistory(project: string, criterionId: string): CriterionVerdictHistoryEntry[] {

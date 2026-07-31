@@ -98,6 +98,32 @@ export const CONDUCTOR_NODE_TIMEOUT_MS = 1_200_000;
  *  CONDUCTOR_TIMEOUT_RECUR_CAP (default 3). */
 export const CONDUCTOR_TIMEOUT_RECUR_CAP = Math.max(1, Number(process.env.CONDUCTOR_TIMEOUT_RECUR_CAP) || 3);
 
+/** Cap on `runPanel` invocations per `runVerifyPanelArm` pass — bounds how many
+ *  independent-checker panel runs one verify-panel arm may spend in a single conductor
+ *  pass, so a criterion with many pending verifications can't burn an unbounded number
+ *  of panel runs in one tick.
+ *  Origin: src/services/conductor-verify-panel-arm.ts. */
+export const CONDUCTOR_VERIFY_BATCH_MAX = 5;
+
+/** The serve-side twin of CONDUCTOR_VERIFY_BATCH_MAX: the cap on how many `discover`
+ *  gaps get enumerated into the conductor node prompt/wake-context slate in one pass.
+ *  Same default value as CONDUCTOR_VERIFY_BATCH_MAX by design, not coincidence — both
+ *  bound the size of one pass's unit of work the same way.
+ *  Origin: src/services/conductor-wake-context.ts. */
+export const CONDUCTOR_SERVE_BATCH_MAX = 5;
+
+/** Durable per-criterion ceiling on individual verify-panel attempts, recorded on
+ *  mission_criterion.verifyAttemptCount. Distinct from CRITERION_SERVE_CAP (above),
+ *  which counts serving-epic filings, not verify-panel attempts.
+ *  Override with CRITERION_VERIFY_ATTEMPT_CAP (default 3). */
+export const CRITERION_VERIFY_ATTEMPT_CAP = Math.max(1, Number(process.env.CRITERION_VERIFY_ATTEMPT_CAP) || 3);
+
+/** Durable per-criterion ceiling on individual serve-batch attempts, recorded on
+ *  mission_criterion.serveAttemptCount. Distinct from CRITERION_SERVE_CAP (above),
+ *  which counts serving-epic filings, not serve-batch attempts.
+ *  Override with CRITERION_SERVE_ATTEMPT_CAP (default 3). */
+export const CRITERION_SERVE_ATTEMPT_CAP = Math.max(1, Number(process.env.CRITERION_SERVE_ATTEMPT_CAP) || 3);
+
 /** HARD RE-DISPATCH CAP (loop breaker). A todo re-dispatched this many times without
  *  reaching done/accepted is looping — each dispatch re-runs (and re-pays) a full
  *  blueprint. Past the cap the daemon PARKS it held + escalates instead of paying
