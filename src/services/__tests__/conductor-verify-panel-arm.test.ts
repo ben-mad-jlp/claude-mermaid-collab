@@ -15,7 +15,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { createTodo, updateTodo } from '../todo-store';
 import { recordNode } from '../worker-ledger';
 import { enqueueRecheck } from '../mission-store';
-import { CONDUCTOR_VERIFY_BATCH_MAX } from '../harness-caps';
+import { CONDUCTOR_VERIFY_BATCH_MAX, CRITERION_VERIFY_ATTEMPT_CAP } from '../harness-caps';
 
 let project: string;
 let invokeCalls: number;
@@ -515,5 +515,62 @@ describe('runVerifyPanelArm', () => {
     expect(panelCallCount).toBe(CONDUCTOR_VERIFY_BATCH_MAX);
     expect(result.carried).toEqual([crits[CONDUCTOR_VERIFY_BATCH_MAX].id]);
     expect(result.paneled.length + result.held.length + result.skipped.length).toBe(CONDUCTOR_VERIFY_BATCH_MAX);
+  });
+
+  test('raises exactly one capped escalation for a criterion stuck at not-met while a sibling criterion still records met', async () => {
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Cap-bounded verify',
+      criteria: ['criterion A', 'criterion B'],
+    });
+    const [critA, critB] = listCriteria(project, forged.missionId);
+
+    for (const crit of [critA, critB]) {
+      const epic = await createTodo(project, {
+        ownerSession: 's1',
+        title: `[EPIC] serving epic for ${crit.id}`,
+        kind: 'epic',
+        parentId: forged.missionId,
+        servesCriterionIds: [crit.id],
+      });
+      const leaf = await createTodo(project, {
+        ownerSession: 's1',
+        title: 'the leaf',
+        parentId: epic.id,
+        servesCriterionIds: [crit.id],
+      });
+      await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+      await updateTodo(project, epic.id, { status: 'done' });
+      recordNode({
+        project,
+        todoId: leaf.id,
+        epicId: epic.id,
+        leafId: leaf.id,
+        session: 's1',
+        leafOutcome: 'completed',
+      });
+    }
+
+    const keyedRunPanel = async (_p: string, criterionId: string, _deps: any) => {
+      if (criterionId === critA.id) {
+        return { skipped: undefined, hold: true, met: false, invocations: 1 };
+      }
+      return { skipped: undefined, hold: false, met: true, invocations: 1 };
+    };
+
+    let result: Awaited<ReturnType<typeof runVerifyPanelArm>> | undefined;
+    for (let i = 0; i < CRITERION_VERIFY_ATTEMPT_CAP; i++) {
+      result = await runVerifyPanelArm(project, forged.missionId, 's1', { runPanel: keyedRunPanel });
+    }
+
+    const critsAfter = listCriteria(project, forged.missionId);
+    expect(critsAfter.find((c) => c.id === critA.id)?.verifyAttemptCount).toBe(CRITERION_VERIFY_ATTEMPT_CAP);
+    expect(critsAfter.find((c) => c.id === critB.id)?.verifyAttemptCount).toBe(0);
+
+    const cappedEscalations = listEscalations().filter((e) => e.kind === 'criterion-verify-attempts-capped' && e.project === project);
+    expect(cappedEscalations.length).toBe(1);
+    expect(cappedEscalations[0].questionText).toContain(critA.id);
+
+    expect(result?.paneled).toContain(critB.id);
   });
 });
