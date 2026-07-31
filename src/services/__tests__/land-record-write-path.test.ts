@@ -34,8 +34,22 @@ import { WorktreeManager } from '../../agent/worktree-manager';
 import { recordLandCycle, getEpicLandRecord, recordEpicLand, captureLandCycleFields } from '../epic-land-record-store';
 import type { EpicLandRecord } from '../epic-land-record-store';
 import { listFriction } from '../friction-store';
-import { listSupervisorAudit } from '../supervisor-store';
-import type { Todo } from '../todo-store';
+import { listSupervisorAudit, createEscalation, addWatchedProject, setProjectDigestEnabled } from '../supervisor-store';
+import { createTodo, completeTodo, getTodo, type Todo } from '../todo-store';
+import { landEpic, type LandStageDeps, defaultLandStageDeps } from '../coordinator-land';
+import { acceptTimeAncestorGate, getWorktreeManager } from '../coordinator-live';
+import { setOrchestratorLevel } from '../orchestrator-config';
+import { upsertMission } from '../mission-store';
+import type { EpicLandGateResult } from '../epic-land-gate';
+
+const LAND_RECORD_DIFFER_COLUMNS = new Set(['epicId', 'epicTipSha', 'landedMergeSha', 'landedAt', 'landPath', 'project']);
+function comparableLandFields(rec: EpicLandRecord): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(rec)) {
+    if (!LAND_RECORD_DIFFER_COLUMNS.has(key)) out[key] = (rec as unknown as Record<string, unknown>)[key];
+  }
+  return out;
+}
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -287,326 +301,185 @@ describe('land-cycle recorder — dual-path land proof with fallback + signals',
   });
 
   it('Both land paths write the SAME epic_land_record field set for the same land shape', async () => {
-    // Shared leaf id: both fixtures use the same id so nonTerminalServingLeafIds is a parity key,
-    // not a deliberately-differing one (the fixtures are independent in-memory arrays).
-    const NT_LEAF_ID = 'leaf-nt-parity';
+    // --- Path A: escalation-land through the real landEpic() production entrypoint. ---
+    const repoA = mkdtempSync(join(tmpdir(), 'land-record-parity-a-'));
+    try {
+      await runGit(repoA, ['init', '-q', '-b', 'master']);
+      await runGit(repoA, ['config', 'user.email', 't@t']);
+      await runGit(repoA, ['config', 'user.name', 'T']);
+      writeFileSync(join(repoA, '.gitignore'), '.collab/\n');
+      writeFileSync(join(repoA, 'base.txt'), 'base\n');
+      await runGit(repoA, ['add', '-A']);
+      await runGit(repoA, ['commit', '-q', '-m', 'base']);
 
-    // Real Todo[] fixtures using the hand-built pattern from land-record-fields.test.ts.
-    // Each has an epic row + a non-terminal serving-leaf row.
-    const todosA: Todo[] = [
-      {
-        id: EPIC,
+      addWatchedProject(repoA);
+      setProjectDigestEnabled(repoA, false);
+
+      const epicA = await createTodo(repoA, {
+        allowOrphan: true,
         kind: 'epic',
-        title: EPIC,
-        status: 'in_progress',
-        acceptanceStatus: null,
-        completed: false,
-        servesCriterionId: 'crit-parity',
-        servesCriterionIds: ['crit-parity'],
-        parentId: null,
-        dependsOn: [],
-        order: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        completedAt: null,
-        ownerSession: 'test',
-        assigneeSession: null,
-        assigneeKind: 'agent',
-        description: null,
-        priority: null,
-        dueDate: null,
-        link: null,
-        asanaGid: null,
-        sessionName: null,
-        executedBySession: null,
-        blueprintId: null,
-        type: null,
-        targetProject: null,
-        claimedBy: null,
-        claimToken: null,
-        claimedAt: null,
-        claimLeaseMs: null,
-        claim: null,
-        approvedAt: null,
-        approvedBy: null,
-        heldAt: null,
-        heldReason: null,
-        retryCount: 0,
-        completedBy: null,
-        objectRef: null,
-        decisionRef: null,
-        claimProbe: null,
-        inheritedBlueprintFrom: null,
-        inheritedFiles: [],
-        isBucket: false,
-      } as unknown as Todo,
-      {
-        id: NT_LEAF_ID,
-        kind: 'leaf',
-        title: 'Non-terminal leaf serving crit-parity',
-        status: 'in_progress',
-        acceptanceStatus: null,
-        completed: false,
-        servesCriterionId: 'crit-parity',
-        servesCriterionIds: ['crit-parity'],
-        parentId: EPIC,
-        dependsOn: [],
-        order: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        completedAt: null,
-        ownerSession: 'test',
-        assigneeSession: null,
-        assigneeKind: 'agent',
-        description: null,
-        priority: null,
-        dueDate: null,
-        link: null,
-        asanaGid: null,
-        sessionName: null,
-        executedBySession: null,
-        blueprintId: null,
-        type: null,
-        targetProject: null,
-        claimedBy: null,
-        claimToken: null,
-        claimedAt: null,
-        claimLeaseMs: null,
-        claim: null,
-        approvedAt: null,
-        approvedBy: null,
-        heldAt: null,
-        heldReason: null,
-        retryCount: 0,
-        completedBy: null,
-        objectRef: null,
-        decisionRef: null,
-        claimProbe: null,
-        inheritedBlueprintFrom: null,
-        inheritedFiles: [],
-        isBucket: false,
-      } as unknown as Todo,
-    ];
+        ownerSession: 's',
+        title: '[EPIC] parity-a',
+        status: 'ready',
+      });
+      const leafA = await createTodo(repoA, {
+        parentId: epicA.id,
+        ownerSession: 's',
+        title: 'leaf',
+      });
+      await completeTodo(repoA, leafA.id, 'accepted');
 
-    await buildEpic();
+      const wmA = getWorktreeManager(repoA);
+      const epicWtA = await wmA.ensureEpic(epicA.id, undefined, 'master');
+      if (!epicWtA) throw new Error('ensureEpic returned null');
+      writeFileSync(join(epicWtA.path, 'work.txt'), 'epic work\n');
+      await runGit(epicWtA.path, ['add', '-A']);
+      await runGit(epicWtA.path, ['commit', '-q', '-m', 'epic: work']);
 
-    const land = await mgr.landEpicToMaster(EPIC);
-    expect(land.landed).toBe(true);
-    const mergeSha = land.masterSha ?? '';
+      const { escalation } = createEscalation({
+        project: repoA,
+        session: 's',
+        kind: 'epic-ready-to-land',
+        todoId: leafA.id,
+        questionText: 'ready',
+        audience: 'internal',
+      });
 
-    // Capture once for path A (escalation-land) with the real todos fixture.
-    const capA = await captureLandCycleFields({
-      epicId: EPIC,
-      todos: todosA,
-      repoRoot: repo,
-      epicHeadSha: () => mgr.epicHeadSha(EPIC).catch(() => null),
-    });
+      const mockEpicGateResult: EpicLandGateResult = {
+        status: 'pass',
+        declared: true,
+        manifestPath: '',
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: [],
+        specFiles: [],
+        epicTipSha: 'abc123',
+        baseSha: 'def456',
+      };
 
-    // Record path A with an explicit landedAt to control the timestamp.
-    const landedAtA = Date.now();
-    const resultA = await recordLandCycle(repo, {
-      epicId: EPIC,
-      epicTipSha: capA.epicTipSha,
-      landedMergeSha: mergeSha,
-      landedAt: landedAtA,
-      source: 'escalation-land',
-      session: 'test-a',
-      nonTerminalServingLeafIds: capA.nonTerminalServingLeafIds,
-      postLandClean: capA.postLandClean,
-      landPath: 'escalation-land',
-    });
-    expect(resultA.recorded).toBe(true);
+      const depsA: LandStageDeps = {
+        ...defaultLandStageDeps,
+        runStewardPrecheck: async () => ({ ok: true, epic: null, epicChildIds: [] }),
+        checkStaleness: async () => ({ ok: true }),
+        runProofStage: async () => ({ ok: true, proof: { ok: true, reason: 'ok', gate: mockEpicGateResult } }),
+      } as LandStageDeps;
 
-    const recordA = getEpicLandRecord(repo, EPIC);
-    expect(recordA).not.toBeNull();
+      const outcomeA = await landEpic(repoA, escalation.id, undefined, depsA);
+      expect(outcomeA.ok).toBe(true);
+      expect(outcomeA.landed).toBe(true);
 
-    // Clean up epic A's worktree to ensure main checkout is clean for path B.
-    await mgr.removeEpic(EPIC, repo);
+      const recordA = getEpicLandRecord(repoA, epicA.id);
+      expect(recordA).not.toBeNull();
 
-    // Capture and record path B (reconcile-land) with a different epicId to avoid PK conflict.
-    const epicB = 'epic-parity-b';
-    const wtB = await mgr.ensureEpic(epicB, undefined, 'master');
-    if (!wtB) throw new Error('ensureEpic returned null');
-    writeFileSync(join(wtB.path, 'work.txt'), 'work\n');
-    await runGit(wtB.path, ['add', '-A']);
-    await runGit(wtB.path, ['commit', '-q', '-m', 'work']);
+      // --- Path B: reconcile-land through acceptTimeAncestorGate()'s internal reconcile branch. ---
+      const repoB = mkdtempSync(join(tmpdir(), 'land-record-parity-b-'));
+      try {
+        await runGit(repoB, ['init', '-q', '-b', 'master']);
+        await runGit(repoB, ['config', 'user.email', 't@t']);
+        await runGit(repoB, ['config', 'user.name', 'T']);
+        writeFileSync(join(repoB, '.gitignore'), '.collab/\n');
+        writeFileSync(join(repoB, 'base.txt'), 'base\n');
+        await runGit(repoB, ['add', '-A']);
+        await runGit(repoB, ['commit', '-q', '-m', 'base']);
 
-    const landB = await mgr.landEpicToMaster(epicB);
-    expect(landB.landed).toBe(true);
-    const mergeShaB = landB.masterSha ?? '';
+        setOrchestratorLevel(repoB, 'on');
 
-    // Fixture B: identical structure to A but with epicB instead of EPIC.
-    const todosB: Todo[] = [
-      {
-        id: epicB,
-        kind: 'epic',
-        title: epicB,
-        status: 'in_progress',
-        acceptanceStatus: null,
-        completed: false,
-        servesCriterionId: 'crit-parity',
-        servesCriterionIds: ['crit-parity'],
-        parentId: null,
-        dependsOn: [],
-        order: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        completedAt: null,
-        ownerSession: 'test',
-        assigneeSession: null,
-        assigneeKind: 'agent',
-        description: null,
-        priority: null,
-        dueDate: null,
-        link: null,
-        asanaGid: null,
-        sessionName: null,
-        executedBySession: null,
-        blueprintId: null,
-        type: null,
-        targetProject: null,
-        claimedBy: null,
-        claimToken: null,
-        claimedAt: null,
-        claimLeaseMs: null,
-        claim: null,
-        approvedAt: null,
-        approvedBy: null,
-        heldAt: null,
-        heldReason: null,
-        retryCount: 0,
-        completedBy: null,
-        objectRef: null,
-        decisionRef: null,
-        claimProbe: null,
-        inheritedBlueprintFrom: null,
-        inheritedFiles: [],
-        isBucket: false,
-      } as unknown as Todo,
-      {
-        id: NT_LEAF_ID,
-        kind: 'leaf',
-        title: 'Non-terminal leaf serving crit-parity',
-        status: 'in_progress',
-        acceptanceStatus: null,
-        completed: false,
-        servesCriterionId: 'crit-parity',
-        servesCriterionIds: ['crit-parity'],
-        parentId: epicB,
-        dependsOn: [],
-        order: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        completedAt: null,
-        ownerSession: 'test',
-        assigneeSession: null,
-        assigneeKind: 'agent',
-        description: null,
-        priority: null,
-        dueDate: null,
-        link: null,
-        asanaGid: null,
-        sessionName: null,
-        executedBySession: null,
-        blueprintId: null,
-        type: null,
-        targetProject: null,
-        claimedBy: null,
-        claimToken: null,
-        claimedAt: null,
-        claimLeaseMs: null,
-        claim: null,
-        approvedAt: null,
-        approvedBy: null,
-        heldAt: null,
-        heldReason: null,
-        retryCount: 0,
-        completedBy: null,
-        objectRef: null,
-        decisionRef: null,
-        claimProbe: null,
-        inheritedBlueprintFrom: null,
-        inheritedFiles: [],
-        isBucket: false,
-      } as unknown as Todo,
-    ];
+        const missionB = await createTodo(repoB, {
+          allowOrphan: true,
+          ownerSession: 's',
+          kind: 'mission',
+          title: '[MISSION] parity-b',
+          status: 'planned',
+        });
+        upsertMission(repoB, missionB.id);
 
-    const capB = await captureLandCycleFields({
-      epicId: epicB,
-      todos: todosB,
-      repoRoot: repo,
-      epicHeadSha: () => mgr.epicHeadSha(epicB).catch(() => null),
-    });
+        const epicB = await createTodo(repoB, {
+          allowOrphan: true,
+          ownerSession: 's',
+          kind: 'epic',
+          title: '[EPIC] parity-b',
+          status: 'planned',
+          parentId: missionB.id,
+        });
+        const leafB = await createTodo(repoB, {
+          parentId: epicB.id,
+          ownerSession: 's',
+          title: 'leaf',
+          status: 'ready',
+        });
+        await completeTodo(repoB, leafB.id, 'accepted');
 
-    // Record path B; landedAt defaults to Date.now() via recordLandCycle.
-    const resultB = await recordLandCycle(repo, {
-      epicId: epicB,
-      epicTipSha: capB.epicTipSha,
-      landedMergeSha: mergeShaB,
-      source: 'reconcile-land',
-      session: 'test-b',
-      nonTerminalServingLeafIds: capB.nonTerminalServingLeafIds,
-      postLandClean: capB.postLandClean,
-      landPath: 'oi1-reconcile',
-    });
-    expect(resultB.recorded).toBe(true);
+        const wmB = getWorktreeManager(repoB);
+        const epicBranchB = wmB.epicBranchName(epicB.id);
+        const wtB = mkdtempSync(join(tmpdir(), 'land-record-parity-b-wt-'));
+        await runGit(repoB, ['worktree', 'add', '-q', '-b', epicBranchB, wtB, 'master']);
+        writeFileSync(join(wtB, 'leaf.txt'), 'L\n');
+        await runGit(wtB, ['add', '-A']);
+        await runGit(wtB, ['commit', '-q', '-m', `leaf\n\nCollab-Todo: ${leafB.id}`]);
+        await runGit(repoB, ['worktree', 'remove', '--force', wtB]);
 
-    const recordB = getEpicLandRecord(repo, epicB);
-    expect(recordB).not.toBeNull();
+        const gated = await acceptTimeAncestorGate(repoB, leafB.id, epicB.id, [], 'leaf', 's');
+        expect(gated).toBe(true);
+        expect(getTodo(repoB, epicB.id)!.landedAt).toBeTruthy();
 
-    // Clean up epic B's worktree after recording.
-    await mgr.removeEpic(epicB, repo);
+        const recordB = getEpicLandRecord(repoB, epicB.id);
+        expect(recordB).not.toBeNull();
 
-    // Assert exact-value captures for both paths: the shared non-terminal leaf drives count=1.
-    expect(recordA!.nonTerminalServingLeafCount).toBe(1);
-    expect(recordA!.nonTerminalServingLeafIds).toEqual([NT_LEAF_ID]);
-    expect(recordB!.nonTerminalServingLeafCount).toBe(1);
-    expect(recordB!.nonTerminalServingLeafIds).toEqual([NT_LEAF_ID]);
+        // Both epics have exactly one accepted (terminal) child leaf and no declared criteria,
+        // so nonTerminalServingLeafIds derives to the same shape symmetrically for A and B.
+        expect(comparableLandFields(recordA!)).toEqual(comparableLandFields(recordB!));
+        expect(recordA!.landPath).toBe('escalation-land');
+        expect(recordB!.landPath).toBe('oi1-reconcile');
+      } finally {
+        rmSync(repoB, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(repoA, { recursive: true, force: true });
+    }
+  });
 
-    // Assert the tmp repo is clean after landEpicToMaster (same concrete pattern as land-record-fields.test.ts:443-444).
-    expect(recordA!.postLandStatusClean).toBe(1);
-    expect(recordA!.postLandResidue).toBeNull();
-    expect(recordB!.postLandStatusClean).toBe(1);
-    expect(recordB!.postLandResidue).toBeNull();
+  it('the parity comparison fails on a deliberately diverged land record', async () => {
+    const repoM = mkdtempSync(join(tmpdir(), 'land-record-mutation-probe-'));
+    try {
+      await runGit(repoM, ['init', '-q', '-b', 'master']);
+      await runGit(repoM, ['config', 'user.email', 't@t']);
+      await runGit(repoM, ['config', 'user.name', 'T']);
+      writeFileSync(join(repoM, '.gitignore'), '.collab/\n');
+      writeFileSync(join(repoM, 'base.txt'), 'base\n');
+      await runGit(repoM, ['add', '-A']);
+      await runGit(repoM, ['commit', '-q', '-m', 'base']);
 
-    // landPath differs by design.
-    expect(recordA!.landPath).toBe('escalation-land');
-    expect(recordB!.landPath).toBe('oi1-reconcile');
+      await recordLandCycle(repoM, {
+        epicId: 'm-a',
+        epicTipSha: 'sha-a',
+        landedMergeSha: 'merge-a',
+        landedAt: Date.now(),
+        source: 'escalation-land',
+        session: 's',
+        nonTerminalServingLeafIds: [],
+        postLandClean: { clean: true, residue: null },
+        landPath: 'escalation-land',
+      });
+      await recordLandCycle(repoM, {
+        epicId: 'm-b',
+        epicTipSha: 'sha-b',
+        landedMergeSha: 'merge-b',
+        landedAt: Date.now(),
+        source: 'reconcile-land',
+        session: 's',
+        nonTerminalServingLeafIds: ['stray-leaf'],
+        postLandClean: { clean: true, residue: null },
+        landPath: 'oi1-reconcile',
+      });
 
-    // Strip and assert whole-row parity: all columns that MUST NOT differ should be identical.
-    type EpicLandRecordNonNull = Omit<typeof recordA, 'epicId' | 'epicTipSha' | 'landedMergeSha' | 'landedAt' | 'landPath'>;
-    const strip = (rec: EpicLandRecord): EpicLandRecordNonNull => {
-      const copy = { ...rec };
-      delete (copy as any).epicId;           // distinct epics
-      delete (copy as any).epicTipSha;       // distinct branch tips
-      delete (copy as any).landedMergeSha;   // distinct merge commits
-      delete (copy as any).landedAt;         // path A passes explicit Date.now(), path B defaults in recordLandCycle
-      delete (copy as any).landPath;         // routing tag, differs by design
-      return copy as EpicLandRecordNonNull;
-    };
-    expect(strip(recordA!)).toEqual(strip(recordB!));
-
-    // Call-site routing assertion (unit-test-practical substitute).
-    // Driving coordinator-land.ts:1018-1039 and coordinator-live.ts:868-884 end-to-end
-    // needs a live escalation/reconcile tick and is out of reach for this store-level test.
-    // Instead, read both production files and assert each contains all three routed fields.
-    const { readFileSync } = await import('node:fs');
-    const coordinatorLandSource = readFileSync(
-      new URL('../coordinator-land.ts', import.meta.url).pathname,
-      'utf-8'
-    );
-    const coordinatorLiveSource = readFileSync(
-      new URL('../coordinator-live.ts', import.meta.url).pathname,
-      'utf-8'
-    );
-
-    expect(coordinatorLandSource).toContain('epicTipSha: cycle.epicTipSha');
-    expect(coordinatorLandSource).toContain('nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds');
-    expect(coordinatorLandSource).toContain('postLandClean: cycle.postLandClean');
-
-    expect(coordinatorLiveSource).toContain('epicTipSha: cycle.epicTipSha');
-    expect(coordinatorLiveSource).toContain('nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds');
-    expect(coordinatorLiveSource).toContain('postLandClean: cycle.postLandClean');
+      const recA = getEpicLandRecord(repoM, 'm-a')!;
+      const recB = getEpicLandRecord(repoM, 'm-b')!;
+      expect(() => expect(comparableLandFields(recA)).toEqual(comparableLandFields(recB))).toThrow();
+    } finally {
+      rmSync(repoM, { recursive: true, force: true });
+    }
   });
 
 });
