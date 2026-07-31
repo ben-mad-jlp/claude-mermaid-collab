@@ -22,11 +22,18 @@ describe('leaf-executor LOC budget', () => {
   // delegating to diff-contract-review's `contractBallotRequirements`. +9 lines of call-site
   // wiring; the ballot-block logic lives in leaf-prompts.ts. (This ratchet is a floating
   // tripwire, not a real ceiling — down-only redesign filed as bug 0e494237.)
-  it('leaf-executor.ts should be ≤ 3997 lines', () => {
+  //
+  // Re-pinned 3997 → 4076: two landed mission-da532749 epics touched the G2 park seam.
+  // 909300e3 (behind-trunk forward-integrate + base-gate re-probe before parking base-red)
+  // and df4af584 (attribute a gate failure to the leaf's OWN diff, so a sibling's base red
+  // parks epic-base-red with the blueprint retained instead of rejecting). Both land AT the
+  // G2 decision point inside runLeaf, which is why the wiring cannot live behind the seam.
+  // Neither re-pinned this tripwire, so master self-wedged every epic base gate project-wide.
+  it('leaf-executor.ts should be ≤ 4076 lines', () => {
     const leafExecutorPath = path.join(__dirname, '../leaf-executor.ts');
     const content = fs.readFileSync(leafExecutorPath, 'utf-8');
     const lineCount = content.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(3997);
+    expect(lineCount).toBeLessThanOrEqual(4076);
   });
 
   it('should re-export all required functions', () => {
