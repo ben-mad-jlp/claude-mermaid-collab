@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTodo, _closeProject } from '../todo-store';
 import { upsertMission, addCriterion } from '../mission-store';
-import { buildMissionDiagnostic } from '../mission-diagnostic';
+import { buildMissionDiagnostic, classifyLeafTerminal } from '../mission-diagnostic';
+import type { LeafRunSummary } from '../ledger-stats';
 
 let project: string;
 
@@ -71,5 +72,38 @@ describe('buildMissionDiagnostic', () => {
     expect(Object.keys(result).sort()).toEqual(
       ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
     );
+  });
+});
+
+function makeRun(reason: string | null): LeafRunSummary {
+  return {
+    leafId: 'leaf1',
+    project: 'p',
+    epicId: 'epic1',
+    finalOutcome: 'rejected',
+    reviewVerdict: null,
+    reason,
+    pathTaken: null,
+    tier: null,
+    lastTs: 0,
+    nodesSpent: 0,
+    attempts: 0,
+    costUsd: 0,
+  };
+}
+
+describe('classifyLeafTerminal', () => {
+  test('a leaf rejected on epic-base-red classifies as epic-base-red, not gate-rejected', () => {
+    const todo = { acceptanceStatus: 'rejected', status: 'blocked' } as const;
+    const run = makeRun('epic-base-red: npx tsc --noEmit');
+    const result = classifyLeafTerminal(todo, run);
+    expect(result).toBe('epic-base-red');
+    expect(result).not.toBe('gate-rejected');
+  });
+
+  test('a leaf rejected on its own gate failure classifies as gate-rejected', () => {
+    const todo = { acceptanceStatus: 'rejected', status: 'blocked' } as const;
+    const run = makeRun('review: missing test coverage for X');
+    expect(classifyLeafTerminal(todo, run)).toBe('gate-rejected');
   });
 });
