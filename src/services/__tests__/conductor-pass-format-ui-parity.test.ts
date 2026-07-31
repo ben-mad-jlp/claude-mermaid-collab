@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { formatConductorPass as backendFormat } from '../conductor-pass-format';
-import { formatConductorPass as uiFormat } from '../../../ui/src/lib/conductorActivity';
+import { formatConductorPass as backendFormat, groupConductorPasses as backendGroup } from '../conductor-pass-format';
+import { formatConductorPass as uiFormat, groupConductorPasses as uiGroup } from '../../../ui/src/lib/conductorActivity';
 import type { ConductorPassJournalRow } from '../conductor-pass-journal';
 
 function mkRow(overrides: Partial<ConductorPassJournalRow>): ConductorPassJournalRow {
@@ -56,6 +56,24 @@ describe('backend/UI conductor-pass formatter parity', () => {
       const ui = uiFormat(row as any);
       expect(ui.sentence).toBe(backend.sentence);
       expect(ui.chips).toEqual(backend.chips);
+    }
+  });
+
+  test('backend and UI groupConductorPasses produce identical groups for the collapse/split fixtures', () => {
+    const identicalFixture: ConductorPassJournalRow[] = Array.from({ length: 27 }, (_, i) =>
+      mkRow({ id: `g${i}`, startedAt: 1000 + i * 10, missionId: 'group-mission', arm: 'node', outcome: 'ok' }),
+    );
+    const splitFixture: ConductorPassJournalRow[] = [...identicalFixture];
+    splitFixture.splice(
+      13,
+      0,
+      mkRow({ id: 'g-outlier', startedAt: 1135, missionId: 'group-mission', arm: 'node', outcome: 'different-outcome' }),
+    );
+
+    for (const fixture of [FIXTURES, identicalFixture, splitFixture]) {
+      const backend = backendGroup(fixture);
+      const ui = uiGroup(fixture as any);
+      expect(ui).toEqual(backend as any);
     }
   });
 });

@@ -1,6 +1,26 @@
 import { describe, test, expect } from 'bun:test';
-import { formatConductorPass } from '../conductor-pass-format';
+import { formatConductorPass, groupConductorPasses } from '../conductor-pass-format';
 import type { ConductorPassJournalRow } from '../conductor-pass-journal';
+
+function mkGroupRow(overrides: Partial<ConductorPassJournalRow> & { id: string; startedAt: number }): ConductorPassJournalRow {
+  return {
+    project: '/proj',
+    missionId: 'mission-group',
+    endedAt: 2000,
+    serveFp: null,
+    passFp: null,
+    selfFp: null,
+    arm: 'node',
+    criteriaActed: [],
+    filed: null,
+    declined: [],
+    outcome: 'ok',
+    ran: true,
+    failCounted: null,
+    carried: null,
+    ...overrides,
+  };
+}
 
 describe('formatConductorPass', () => {
   test('formats a fully typed modern row into the exact sentence with epic and leaf chips', () => {
@@ -167,5 +187,33 @@ describe('formatConductorPass', () => {
 
     const result = formatConductorPass(row);
     expect(result.sentence).toContain('arm: none');
+  });
+});
+
+describe('groupConductorPasses', () => {
+  test('groupConductorPasses collapses 27 identical debounced passes into one group', () => {
+    const fixture: ConductorPassJournalRow[] = Array.from({ length: 27 }, (_, i) =>
+      mkGroupRow({ id: `p${i}`, startedAt: 1000 + i * 10 }),
+    );
+
+    const result = groupConductorPasses(fixture);
+
+    expect(result.length).toBe(1);
+    expect(result[0].count).toBe(27);
+    expect(result[0].firstStartedAt).toBe(fixture[0].startedAt);
+    expect(result[0].lastStartedAt).toBe(fixture[26].startedAt);
+  });
+
+  test('groupConductorPasses splits on a differing outcome mid-run into three groups', () => {
+    const fixture: ConductorPassJournalRow[] = Array.from({ length: 27 }, (_, i) =>
+      mkGroupRow({ id: `p${i}`, startedAt: 1000 + i * 10 }),
+    );
+    const outlier = mkGroupRow({ id: 'p-outlier', startedAt: 1135, outcome: 'different-outcome' });
+    fixture.splice(13, 0, outlier);
+
+    const result = groupConductorPasses(fixture);
+
+    expect(result.length).toBe(3);
+    expect(result.reduce((sum, g) => sum + g.count, 0)).toBe(28);
   });
 });
