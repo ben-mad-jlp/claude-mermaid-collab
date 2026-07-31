@@ -22,7 +22,7 @@ export interface ConductorPassRow {
   startedAt: number;
   endedAt: number | null;
   arm: string | null;
-  criteriaActed: Array<{ criterionId: string; action: string; servedEpicId?: string | null }>;
+  criteriaActed: Array<{ criterionId: string; action: string; servedEpicId?: string | null; servedEpicNickname?: string | null }>;
   filed: ConductorFiledRef[] | unknown;
   declined: Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }>;
   outcome: string | null;
@@ -55,17 +55,47 @@ export function formatConductorPass(row: ConductorPassRow): FormattedConductorPa
   }
 
   if (row.criteriaActed.length) {
-    const clause = row.criteriaActed
-      .map((c) => {
-        let s = `acted on ${c.criterionId} (${c.action})`;
-        if (c.servedEpicId) {
-          s += ` via epic ${c.servedEpicId}`;
-          chips.push({ kind: 'epic', id: c.servedEpicId, label: c.servedEpicId });
+    const groups = new Map<string, { action: string; servedEpicId: string; label: string; count: number }>();
+    const soloClauses: string[] = [];
+
+    for (const c of row.criteriaActed) {
+      if (c.servedEpicId) {
+        const key = `${c.action}::${c.servedEpicId}`;
+        const existing = groups.get(key);
+        if (existing) {
+          existing.count += 1;
+          if (!existing.label && c.servedEpicNickname) existing.label = c.servedEpicNickname;
+        } else {
+          groups.set(key, {
+            action: c.action,
+            servedEpicId: c.servedEpicId,
+            label: c.servedEpicNickname || c.servedEpicId.slice(0, 8),
+            count: 1,
+          });
         }
-        return s;
-      })
-      .join('; ');
-    parts.push(clause);
+      } else {
+        soloClauses.push(`acted on ${c.criterionId} (${c.action})`);
+      }
+    }
+
+    const clauses: string[] = [];
+    let soloIdx = 0;
+    for (const c of row.criteriaActed) {
+      if (c.servedEpicId) {
+        const key = `${c.action}::${c.servedEpicId}`;
+        const g = groups.get(key);
+        if (g) {
+          const noun = g.count === 1 ? 'criterion' : 'criteria';
+          clauses.push(`served ${g.count} ${noun} via epic ${g.label}`);
+          chips.push({ kind: 'epic', id: g.servedEpicId, label: g.label });
+          groups.delete(key);
+        }
+      } else {
+        clauses.push(soloClauses[soloIdx]);
+        soloIdx += 1;
+      }
+    }
+    parts.push(clauses.join('; '));
   }
 
   if (row.declined.length) {
@@ -114,6 +144,6 @@ export async function fetchConductorJournal(
   if (!response.ok) {
     return [];
   }
-  const data = await response.json();
+  const data = (await response.json()) as { rows?: ConductorPassRow[] };
   return data.rows ?? [];
 }
