@@ -27,6 +27,8 @@ import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict }
 import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
+import { resolveLeafOwnChangeSet } from './gate-base-attribution';
+import type { GitRunner } from './main-checkout-invariant';
 import { findOwningMission } from './land-authority';
 import { getMission, isMissionTerminal, clearCriterionVerdict, missionIdOfCriterion, enqueueRecheck } from './mission-store';
 import { criterionEdgesOf } from './criterion-edges';
@@ -2175,9 +2177,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // from the todo's session; absent/unisolated → undefined → whole-tree fallback.
       let laneCwd: string | undefined;
       let integrationBase: string | undefined;
+      let ownChangeSet: string[] | null | undefined;
       if (workerIsolationEnabled() && todo?.sessionName) {
+        const gateWm = getWorktreeManager(gateProject);
         try {
-          const gateWm = getWorktreeManager(gateProject);
           const p = await gateWm.existingPath(todo.sessionName);
           // FBPE P2: each lane branches off ITS epic's accumulation branch
           // (collab/epic/<id8>), so the gate diff base must be THAT epic's branch —
@@ -2185,6 +2188,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // lane's change-set against its own epic, not a global trunk.
           if (p) { laneCwd = p; integrationBase = gateWm.epicBranchName(resolveEpicId(todo, project)); }
         } catch { /* fall back to whole-tree scoping */ }
+        if (laneCwd && integrationBase) {
+          try {
+            const runGit: GitRunner = (cwd, args) => execAsync(['git', '-C', cwd, ...args], { cwd, capture: true });
+            ownChangeSet = await resolveLeafOwnChangeSet({
+              cwd: laneCwd,
+              epicBranch: integrationBase,
+              baseBranch: await gateWm.detectBaseBranch(),
+              leafId: todoId,
+              runGit,
+            });
+          } catch { ownChangeSet = null; } // resolver throw ⇒ null ⇒ today's unattributed path
+        }
       }
       return runRegistryGate({
         project,
@@ -2195,6 +2210,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         exec: execAsync,
         laneCwd,
         integrationBase,
+        ownChangeSet,
       });
     },
     verifyWorkCommitted: async (project: string, todoId: string): Promise<boolean | null> => {
