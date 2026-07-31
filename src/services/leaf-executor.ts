@@ -3346,12 +3346,14 @@ export async function runLeaf(
           } else if ((cs?.length ?? 0) > 0) {
             // --- COVERAGE-WEIGHTED ADVISORY (crit 2 + 3) ---------------------------
             // A FALSIFIABLE fault claim contests a GREEN mechanical change over a real
-            // change-set. LAZILY (only here — the contested minority; a base test run is ~2×)
-            // ask whether the leaf's DECLARED tests FLIP base→branch: do they FAIL against the
-            // base impl (and pass at HEAD, already proven by the green gate)? If so, the
-            // covering tests REFUTE the finding — an independent mechanical proof the change
-            // works — so the LLM veto is ADVISORY. DEFENSIVE: only a POSITIVE `true` accepts;
-            // false / null / unknown still GATES (never wrongly accept on an unproven change).
+            // change-set. LAZILY (only here — the contested minority; the probe is ~2× a test run)
+            // ask whether the leaf's DECLARED tests genuinely FLIP base→branch: they must FAIL
+            // against the base impl AND PASS at HEAD. Both sides are verified directly by
+            // testsFlipBaseToBranch — do NOT infer the branch pass from "the green gate", because a
+            // broken test (wrong-schema fixture that errors at construction) fails on BOTH sides
+            // and would otherwise masquerade as coverage and overturn a correct review FAIL. Only
+            // a true FLIP means the covering tests REFUTE the finding, so the LLM veto is ADVISORY.
+            // DEFENSIVE: only a POSITIVE `true` accepts; false / null / unknown still GATES.
             const declaredTests = declaredFiles.filter(isTestFilePath);
             const covered = declaredTests.length > 0
               ? (await deps.testsFlipBaseToBranch?.({ cwd, testFiles: declaredTests, baseSha: deps.epicBaseSha }) ?? null)
@@ -3364,8 +3366,12 @@ export async function runLeaf(
                 outputText: `coverage: declared tests [${declaredTests.join(', ') || 'none'}] flip base→branch = ${covered === null ? 'unknown' : covered}`,
               });
             } catch { /* telemetry — never break the run */ }
-            if (covered === true && !shadow) {
+            if (covered === true && !shadow && !workingRootEscape) {
               // crit 3: covered → the covering tests refute the finding → ADVISORY, do not gate.
+              // GUARD: never fire the override while a working-root-escape FAIL is present — the
+              // node ran its self-verification OUTSIDE its worktree (e.g. `cd <main-checkout> &&
+              // pytest`), so any "green" it produced was measured where the diff wasn't. An
+              // untrustworthy verification must not overturn a correct review FAIL.
               reviewAdvisory = true;
               try {
                 deps.recordNode({
@@ -3938,7 +3944,26 @@ export async function makeLeafExecutorDeps(
           anyRan = true; if (r.status !== 0) anyFailed = true;
         }
         if (!anyRan) return null;
-        return anyFailed; // branch tests FAIL against base impl ⇒ they exercise the change ⇒ COVERED
+        // A genuine base→branch FLIP is fail-on-base AND pass-on-branch. Fail-on-base ALONE is
+        // NOT coverage: a broken test (e.g. a wrong-schema fixture that errors at construction)
+        // fails on BOTH base and branch, and must not masquerade as a "test-covered green change"
+        // that overrides a correct review FAIL. So do not assume the branch side passes —
+        // VERIFY it by running the same declared tests against the branch worktree (cwd/HEAD).
+        if (!anyFailed) return false; // tests pass on base ⇒ they don't exercise the change ⇒ unmet
+        let branchRan = false, branchFailed = false;
+        if (backend.length) {
+          const r = await runAsync(['bun', 'test', ...backend], cwd, 180000);
+          if (r.failed) return null;
+          branchRan = true; if (r.status !== 0) branchFailed = true;
+        }
+        if (uiTests.length) {
+          const r = await runAsync(['npx', 'vitest', 'run', ...uiTests.map((f) => f.replace(/^ui\//, ''))], path.join(cwd, 'ui'), 240000);
+          if (r.failed) return null;
+          branchRan = true; if (r.status !== 0) branchFailed = true;
+        }
+        if (!branchRan) return null;
+        if (branchFailed) return false; // fails on branch too ⇒ broken test, not a genuine flip ⇒ unmet
+        return true; // fail-on-base AND pass-on-branch ⇒ genuine flip ⇒ COVERED
       } catch {
         return null;
       } finally {
