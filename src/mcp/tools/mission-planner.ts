@@ -20,6 +20,8 @@ import { todoServesCriterion } from '../../services/criterion-edges.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import { isEpic } from '../../services/todo-kind.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export class ServeIntegrityError extends Error {
   readonly code = 'serve-integrity';
@@ -80,7 +82,10 @@ export function buildPlannerPrompt(project: string, missionId: string, criteria:
     '- CHAIN ONLY WHERE TRULY ORDERED: dependsOn expresses a real ordering constraint (leaf B cannot',
     '  be written until A\'s symbol/file exists), NOT tidiness. Leaves that merely touch the same file',
     '  are still parallel — each builds in its own lane worktree and overlap resolves at merge-back.',
-    '  Never emit a fully linear $0→$1→$2 chain by default.',
+    '  Never emit a fully linear $0→$1→$2 chain by default. EXCEPTION: when two or more arms extend',
+    '  the SAME exported closed type/union declared in a shared file, emit a foundation leaf for that',
+    '  file/type first and make the arms\' dependsOn point at it — this is the one case where',
+    '  same-file-touching leaves DO chain.',
     '- EVERY LEAF CARRIES A CITABLE ACCEPTANCE CRITERION: the description names the concrete,',
     '  checkable evidence a reviewer can cite (a named test, a named symbol/file state, an observable',
     '  behaviour), never a vague goal.',
@@ -149,6 +154,89 @@ export function parseEpicSpec(text: string): EpicSpec {
       dependsOn: Array.isArray(l.dependsOn) ? l.dependsOn.filter((d: unknown) => typeof d === 'string') : undefined,
     })),
   };
+}
+
+const CLOSED_UNION_RE = /export\s+type\s+(\w+)\s*=\s*((?:'[^']*'|"[^"]*")(?:\s*\|\s*(?:'[^']*'|"[^"]*"))+)\s*;?/g;
+
+function defaultReadFile(p: string): string | null {
+  try { return readFileSync(p, 'utf8'); } catch { return null; }
+}
+
+/** Deterministic normaliser: when ≥2 leaves in `spec` share a file that declares an exported
+ *  closed string-literal union, and ≥2 of those leaves name the union symbol in their
+ *  title/description, prepend a "foundation" leaf that lands the shared type and rewire the
+ *  arm leaves to depend on it. No-op when no such grouping exists. */
+export function applyFoundationFirst(
+  spec: EpicSpec,
+  deps: { readFile?: (path: string) => string | null } = {},
+): EpicSpec {
+  const readFile = deps.readFile ?? defaultReadFile;
+
+  // 1. Group leaf indices by file (only files listed by ≥2 leaves qualify).
+  const fileToIndices = new Map<string, number[]>();
+  spec.leaves.forEach((leaf, idx) => {
+    for (const file of leaf.files ?? []) {
+      const arr = fileToIndices.get(file) ?? [];
+      arr.push(idx);
+      fileToIndices.set(file, arr);
+    }
+  });
+
+  interface FoundationGroup {
+    file: string;
+    symbol: string;
+    unionRhs: string;
+    armIndices: number[];
+  }
+  const groups: FoundationGroup[] = [];
+
+  for (const [file, indices] of fileToIndices) {
+    if (indices.length < 2) continue;
+    const text = readFile(file) ?? null;
+    if (text == null) continue;
+    CLOSED_UNION_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = CLOSED_UNION_RE.exec(text))) {
+      const symbol = m[1];
+      const unionRhs = m[2];
+      const armIndices = indices.filter((idx) => {
+        const leaf = spec.leaves[idx];
+        return (leaf.title && leaf.title.includes(symbol)) || (leaf.description && leaf.description.includes(symbol));
+      });
+      if (armIndices.length >= 2) {
+        groups.push({ file, symbol, unionRhs, armIndices });
+      }
+    }
+  }
+
+  if (groups.length === 0) return spec;
+
+  const N = groups.length;
+  const foundationLeaves: PlannedLeaf[] = groups.map((g) => ({
+    title: `Land ${g.symbol} in ${g.file}`,
+    description: `${g.file}: land the shared closed type \`export type ${g.symbol} = ${g.unionRhs};\` other leaves extend.`,
+    files: [g.file],
+  }));
+
+  const shiftToken = (token: string): string => {
+    const m = /^\$(\d+)$/.exec(token);
+    if (!m) return token;
+    return `$${Number(m[1]) + N}`;
+  };
+
+  const rewrittenLeaves: PlannedLeaf[] = spec.leaves.map((leaf, idx) => {
+    const shiftedDeps = (leaf.dependsOn ?? []).map(shiftToken);
+    const belongsTo: number[] = [];
+    groups.forEach((g, k) => { if (g.armIndices.includes(idx)) belongsTo.push(k); });
+    if (belongsTo.length === 0) {
+      return leaf.dependsOn ? { ...leaf, dependsOn: shiftedDeps } : leaf;
+    }
+    const foundationTokens = belongsTo.map((k) => `$${k}`);
+    const merged = [...foundationTokens, ...shiftedDeps].filter((t, i, arr) => arr.indexOf(t) === i);
+    return { ...leaf, dependsOn: merged };
+  });
+
+  return { ...spec, leaves: [...foundationLeaves, ...rewrittenLeaves] };
 }
 
 export interface PlanCriterionInput {
@@ -341,6 +429,10 @@ export async function planMissionCriterion(
     if (!spec) {
       throw new Error(`plan_mission_criterion: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
     }
+
+    spec = applyFoundationFirst(spec, {
+      readFile: (p) => { try { return readFileSync(join(project, p), 'utf8'); } catch { return null; } },
+    });
 
     // Second serve-integrity check before instantiation: a criterion may have been served by
     // another concurrent request during the (potentially long) planner node invocation.
