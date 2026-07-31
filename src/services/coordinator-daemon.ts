@@ -1,6 +1,7 @@
 import type { Todo } from './todo-store';
 import { resolveCompletion, type ResolveCompletionOpts } from '../agent/completion-resolver';
 import { DEFAULT_LEASE_MS } from './harness-caps';
+import { partitionByFileContention } from './file-mutex';
 
 /** The Coordinator daemon: a non-LLM, per-project loop that claims ready todos and
  *  spawns workers for them, and reclaims expired leases. All I/O is injected (DI) so
@@ -53,6 +54,11 @@ export interface CoordinatorDeps {
    *  (await each launchWorker, bounded by maxConcurrency). */
   reserveLeafSlot?: (laneProject: string) => boolean;
   releaseLeafSlot?: (laneProject: string) => void;
+  /** Seeds the per-tick held-file set from in-flight leaves' `declaredFiles`, so the
+   *  fire-and-track dispatch loop serializes same-file leaves — never two same-tick
+   *  (or in-flight-plus-new) dispatches touching the same declared file. Omitted ⇒
+   *  no file-contention serialization (existing behaviour unchanged). */
+  heldFilesFor?: (project: string) => Set<string>;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
   /** P3 headless circuit-breaker exhaustion sweep: for any leaf paused on a rate cap
@@ -199,7 +205,15 @@ export async function runTick(
   //  - launchWorker did NOT fire (returned false: backoff / pool-busy / breaker / error)
   //    → the tick releases the reservation.
   if (deps.reserveLeafSlot && deps.releaseLeafSlot) {
-    for (const t of ready) {
+    // File-contention serialization: partition `ready` (already priority-sorted) into
+    // leaves that can dispatch this tick vs. leaves deferred by a same-declared-file
+    // conflict against `heldFiles` (in-flight leaves + earlier same-tick dispatches).
+    // A deferred leaf gets no status write — it simply stays ready for the next tick,
+    // same as the existing "caps full this tick" pattern below.
+    const dispatchable = deps.heldFilesFor
+      ? partitionByFileContention(ready, deps.heldFilesFor(project)).dispatch
+      : ready;
+    for (const t of dispatchable) {
       const laneProject = t.targetProject ?? project;
       if (!deps.reserveLeafSlot(laneProject)) break; // caps full this tick — rest stay ready
       let owned = true; // we hold the reservation until launchWorker fires or we release it
