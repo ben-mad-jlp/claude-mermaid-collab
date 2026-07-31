@@ -28,6 +28,7 @@ import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
+import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
 import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
@@ -126,6 +127,7 @@ export interface MissionCriterion {
   id: string;
   todoId: string;
   text: string;
+  nickname: string;
   met: boolean;
   order: number;
   updatedAt: number;
@@ -297,6 +299,42 @@ function migrateDropPhaseMachine(db: Database): void {
   db.exec('COMMIT');
 }
 
+/** Backfill `nickname` for any mission_criterion row left NULL/empty (e.g. after the
+ *  ALTER above adds the column to an existing DB). Scoped per todoId so two different
+ *  missions never collide on the same nickname, and processed in a stable `id` order
+ *  within a mission so same-text rows added in the same pass don't both resolve against
+ *  a stale `taken` set. */
+function backfillCriterionNicknames(db: Database): void {
+  const rows = db
+    .query("SELECT id, todoId, text FROM mission_criterion WHERE nickname IS NULL OR nickname = ''")
+    .all() as Array<{ id: string; todoId: string; text: string }>;
+  if (rows.length === 0) return;
+
+  const byTodoId = new Map<string, Array<{ id: string; text: string }>>();
+  for (const r of rows) {
+    const group = byTodoId.get(r.todoId);
+    if (group) group.push(r);
+    else byTodoId.set(r.todoId, [r]);
+  }
+
+  db.exec('BEGIN');
+  const update = db.prepare('UPDATE mission_criterion SET nickname = ? WHERE id = ?');
+  for (const [todoId, group] of byTodoId) {
+    const takenRows = db
+      .query("SELECT nickname FROM mission_criterion WHERE todoId = ? AND nickname IS NOT NULL AND nickname != ''")
+      .all(todoId) as Array<{ nickname: string }>;
+    const taken = new Set(takenRows.map((r) => r.nickname));
+    const sorted = [...group].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    for (const row of sorted) {
+      const base = nicknameFromTitle(row.text);
+      const nn = uniqueNickname(base, taken);
+      update.run(nn, row.id);
+      taken.add(nn);
+    }
+  }
+  db.exec('COMMIT');
+}
+
 function openDb(project: string): Database {
   const cached = dbCache.get(project);
   if (cached) return cached;
@@ -343,6 +381,8 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_mission_hot ON mission(active) WHERE archivedAt IS NULL');
   addColumnIfMissing(db, 'mission', 'queuePos', 'queuePos INTEGER');
+  addColumnIfMissing(db, 'mission_criterion', 'nickname', 'nickname TEXT');
+  backfillCriterionNicknames(db);
   migrateDropPhaseMachine(db);
   dbCache.set(project, db);
   return db;
@@ -850,6 +890,7 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     id: r.id as string,
     todoId: r.todoId as string,
     text: r.text as string,
+    nickname: (r.nickname as string | null) ?? '',
     met: (r.met as number) === 1,
     order: r.order as number,
     updatedAt: r.updatedAt as number,
@@ -924,10 +965,12 @@ export function addCriterion(
   assertAcyclicDependsOn(project, resolved, id, dependsOn);
   const order = existing.length;
   const ts = nowMs();
+  const base = nicknameFromTitle(trimmed);
+  const nickname = uniqueNickname(base, existing.map((c) => c.nickname));
   openDb(project)
-    .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn) VALUES (?, ?, ?, 0, ?, ?, ?, ?)')
-    .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn));
-  return { id, todoId: resolved, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
+    .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn, nickname) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)')
+    .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn), nickname);
+  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
 }
 
 /** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
