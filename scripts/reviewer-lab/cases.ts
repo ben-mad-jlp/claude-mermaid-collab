@@ -9,6 +9,8 @@
  * SEMANTIC check on top. "accept" cases are correct impls the reviewer must NOT over-reject;
  * "reject" cases carry a real, falsifiable defect the reviewer must catch.
  */
+import type { DiffContract } from '../../src/services/diff-contract';
+
 export interface Case {
   id: string;
   lang: string;
@@ -20,6 +22,7 @@ export interface Case {
   blueprint: string;
   base: Record<string, string>;
   after: Record<string, string | null>;
+  contract?: DiffContract;
 }
 
 const bp = (criteria: string[], prose = ''): string =>
