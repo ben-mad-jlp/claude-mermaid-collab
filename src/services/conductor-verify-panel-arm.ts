@@ -20,6 +20,7 @@ import { collectVerifyStakesInput } from './criterion-verify-facts.js';
 import { classifyVerifyStakes } from './criterion-verify-stakes.js';
 import { runCriterionVerifyPanel, type RunPanelDeps } from './criterion-verify-panel-runner.js';
 import { listOpenEscalations, type Escalation } from './supervisor-store.js';
+import { CONDUCTOR_VERIFY_BATCH_MAX } from './harness-caps.js';
 
 export interface VerifyPanelArmDeps {
   /** Panel runner: resolves criterion, classifies stakes, spawns lenses in parallel,
@@ -30,6 +31,9 @@ export interface VerifyPanelArmDeps {
   /** Current HEAD sha for unchanged-sha guard. If omitted, headSha inside RunPanelDeps
    *  defaults to repo HEAD. */
   headSha?: () => string;
+  /** Ceiling on how many verify-action criteria this pass will run through runPanel.
+   *  Defaults to CONDUCTOR_VERIFY_BATCH_MAX. Injectable for tests without env vars. */
+  batchMax?: number;
 }
 
 export interface VerifyPanelArmResult {
@@ -41,6 +45,11 @@ export interface VerifyPanelArmResult {
   held: string[];
   /** Criterion ids skipped (unchanged-sha, or panel run threw / degraded). */
   skipped: string[];
+  /** Criterion ids NOT processed this pass because the batch ceiling was hit — explicitly
+   *  deferred to a later pass, never silently dropped. They stay first in
+   *  listCriteriaWithActions' stable order since they weren't advanced, so the next pass
+   *  reaches them first once earlier criteria resolve to non-'verify' actions. */
+  carried?: string[];
 }
 
 /**
@@ -66,18 +75,24 @@ export async function runVerifyPanelArm(
   deps: VerifyPanelArmDeps = {},
 ): Promise<VerifyPanelArmResult> {
   try {
-    const result: VerifyPanelArmResult = { paneled: [], held: [], skipped: [] };
-
     const runPanel = deps.runPanel ?? runCriterionVerifyPanel;
 
     // Criteria with action === 'verify': candidates for panel staging.
     const criteriaWithActions = listCriteriaWithActions(project, missionId);
     const verifyCriteria = criteriaWithActions.filter((c) => c.action === 'verify');
 
-    if (verifyCriteria.length === 0) return result;
+    if (verifyCriteria.length === 0) return { paneled: [], held: [], skipped: [], carried: [] };
+
+    // Bound this pass to batchMax runPanel invocations; the rest carry to the next pass.
+    // Positional slice over listCriteriaWithActions' stable order — no re-sorting.
+    const batchMax = deps.batchMax ?? CONDUCTOR_VERIFY_BATCH_MAX;
+    const toProcess = verifyCriteria.slice(0, batchMax);
+    const carriedIds = verifyCriteria.slice(batchMax).map((c) => c.id);
+
+    const result: VerifyPanelArmResult = { paneled: [], held: [], skipped: [], carried: carriedIds };
 
     // For each verify criterion, classify stakes and run panel if panel===true.
-    for (const criterion of verifyCriteria) {
+    for (const criterion of toProcess) {
       try {
         const stakes = classifyVerifyStakes(collectVerifyStakesInput(project, criterion.id));
 
@@ -115,6 +130,6 @@ export async function runVerifyPanelArm(
   } catch {
     // fail-open outermost: the arm's body threw (listCriteriaWithActions failed, etc.).
     // Return a no-op result and let the pass continue.
-    return { paneled: [], held: [], skipped: [] };
+    return { paneled: [], held: [], skipped: [], carried: [] };
   }
 }

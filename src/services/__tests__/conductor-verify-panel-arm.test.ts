@@ -15,6 +15,7 @@ import { setOrchestratorLevel } from '../orchestrator-config';
 import { createTodo, updateTodo } from '../todo-store';
 import { recordNode } from '../worker-ledger';
 import { enqueueRecheck } from '../mission-store';
+import { CONDUCTOR_VERIFY_BATCH_MAX } from '../harness-caps';
 
 let project: string;
 let invokeCalls: number;
@@ -463,5 +464,56 @@ describe('runVerifyPanelArm', () => {
     expect(result.skipped).toEqual([crit.id]);
     expect(result.held).toEqual([]);
     expect(result.paneled).toEqual([]);
+  });
+
+  test('bounds runPanel invocations to CONDUCTOR_VERIFY_BATCH_MAX and returns carried ids for the remainder', async () => {
+    const criteriaTitles = Array.from({ length: CONDUCTOR_VERIFY_BATCH_MAX + 1 }, (_, i) => `verify criterion ${i}`);
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Batch-bounded verify',
+      criteria: criteriaTitles,
+    });
+    const crits = listCriteria(project, forged.missionId);
+    expect(crits.length).toBe(CONDUCTOR_VERIFY_BATCH_MAX + 1);
+
+    for (const crit of crits) {
+      const epic = await createTodo(project, {
+        ownerSession: 's1',
+        title: `[EPIC] serving epic for ${crit.id}`,
+        kind: 'epic',
+        parentId: forged.missionId,
+        servesCriterionIds: [crit.id],
+      });
+      const leaf = await createTodo(project, {
+        ownerSession: 's1',
+        title: 'the leaf',
+        parentId: epic.id,
+        servesCriterionIds: [crit.id],
+      });
+      await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+      await updateTodo(project, epic.id, { status: 'done' });
+      recordNode({
+        project,
+        todoId: leaf.id,
+        epicId: epic.id,
+        leafId: leaf.id,
+        session: 's1',
+        leafOutcome: 'completed',
+      });
+    }
+
+    let panelCallCount = 0;
+    const countingRunPanel = async (_p: string, _cid: string, _deps: any) => {
+      panelCallCount++;
+      return { skipped: undefined, hold: false, met: true, invocations: 1 };
+    };
+
+    const result = await runVerifyPanelArm(project, forged.missionId, 's1', {
+      runPanel: countingRunPanel,
+    });
+
+    expect(panelCallCount).toBe(CONDUCTOR_VERIFY_BATCH_MAX);
+    expect(result.carried).toEqual([crits[CONDUCTOR_VERIFY_BATCH_MAX].id]);
+    expect(result.paneled.length + result.held.length + result.skipped.length).toBe(CONDUCTOR_VERIFY_BATCH_MAX);
   });
 });
