@@ -64,7 +64,7 @@ describe('conductor-pass-format live store', () => {
     expect(unfinishedRow).toBeDefined();
     const unfinishedSentence = formatConductorPass(unfinishedRow!).sentence;
     expect(unfinishedSentence.length).toBeGreaterThan(0);
-    expect(unfinishedSentence.includes('unfinished (killed)')).toBe(true);
+    expect(unfinishedSentence.includes('killed (ran out of time)')).toBe(true);
   });
 
   test('formatting every returned row leaves the store rows byte-identical', () => {

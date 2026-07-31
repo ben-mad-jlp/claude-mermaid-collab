@@ -24,7 +24,7 @@ export interface ConductorPassJournalRow {
   passFp: string | null;
   selfFp: string | null;
   arm: ConductorPassArm | null;
-  criteriaActed: Array<{ criterionId: string; action: string; servedEpicId?: string | null }>;
+  criteriaActed: Array<{ criterionId: string; action: string; servedEpicId?: string | null; servedEpicNickname?: string | null }>;
   filed: ConductorFiledRef[] | unknown;
   declined: Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }>;
   outcome: string | null;
