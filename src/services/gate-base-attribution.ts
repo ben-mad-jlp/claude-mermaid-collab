@@ -88,6 +88,14 @@ export interface GateFailureClassification {
   signature: string;
 }
 
+/** Extract the failing-file list from gate output: prefer diagnostic (compiler-style) file
+ *  references, falling back to failing-test file references. */
+export function extractGateFailingFiles(output: string): string[] {
+  const diag = extractDiagnosticFiles(output);
+  if (diag.length > 0) return diag;
+  return extractFailingTests(output);
+}
+
 /** Classify a gate failure against a leaf's own change-set: `own` (at least one failing
  *  file is the leaf's own work), `epic-base-red` (every failing file is foreign), or
  *  `unattributable` (unparseable output, or no change-set to judge against — reject-closed,
@@ -98,8 +106,7 @@ export function classifyGateFailure(input: {
   ownChangeSet: readonly string[] | null;
 }): GateFailureClassification {
   const { command, output, ownChangeSet } = input;
-  let failingFiles = extractDiagnosticFiles(output);
-  if (failingFiles.length === 0) failingFiles = extractFailingTests(output);
+  const failingFiles = extractGateFailingFiles(output);
   const signature = gateFailureSignature(command, failingFiles);
 
   if (failingFiles.length === 0) {
