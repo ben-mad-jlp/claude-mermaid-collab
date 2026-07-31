@@ -40,7 +40,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
-import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow } from './conductor-pass-journal.js';
+import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
@@ -491,11 +491,28 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     }
   };
 
-  const declinedFor = (reason: ConductorPassResult['reason'], serveCapDeferredCount?: number): Array<{ what: string; why: string }> => {
+  // TYPED JOURNAL REFS. Every real write site below pushes the id-bearing summary it already
+  // holds, so the journal row names WHAT was filed instead of counting it. Both accumulators are
+  // closed over by done() and declinedFor(); every push sits inside the same fail-open try/catch
+  // as the write it records, so a throw degrades to a partial array, never a sunk pass.
+  const filedRefs: ConductorFiledRef[] = [];
+  const deferredRefs: Array<{ entityType: 'epic'; entityId: string }> = [];
+
+  const declinedFor = (
+    reason: ConductorPassResult['reason'],
+    serveCapDeferredCount?: number,
+  ): Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }> => {
     switch (reason) {
       case 'debounced': return [{ what: 'pass', why: 'fingerprint unchanged' }];
       case 'building-wait': return [{ what: 'pass', why: 'daemon already building, no gap' }];
       case 'criteria-escalated':
+        if (deferredRefs.length > 0) {
+          return deferredRefs.map((d) => ({
+            what: 'criterion', why: 'serve-cap ladder not exhausted',
+            entityType: d.entityType, entityId: d.entityId,
+          }));
+        }
+        // A deferral we could not attribute to a serving epic still has to be visible.
         return (serveCapDeferredCount ?? 0) > 0
           ? [{ what: 'criteria', why: 'serve-cap ladder not exhausted' }]
           : [];
@@ -506,11 +523,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const done = (r: ConductorPassResult): ConductorPassResult => {
     note(journalRowId, {
       arm: armFor(r.reason),
-      filed: {
-        escalationsRaised: r.escalationsRaised, infraResets: r.infraResets, infraCards: r.infraCards,
-        redecomposed: r.redecomposed, closeOutsMinted: r.closeOutsMinted,
-        verifyPaneled: r.verifyPaneled, verifyHeld: r.verifyHeld,
-      },
+      filed: filedRefs,
       declined: declinedFor(r.reason, r.serveCapDeferred),
     });
     return { ...r, rechecksDrained };
@@ -530,26 +543,24 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     const card = raiseOverBudgetRebetCard(project, missionId, session, target.summary.node.title ?? missionId, {
       createEscalation: deps.createEscalation,
     });
+    if (card.isNew && card.escalationId) {
+      filedRefs.push({
+        kind: 'card', id: card.escalationId,
+        title: `over-budget re-bet: ${target.summary.node.title ?? missionId}`,
+      });
+    }
     return done({ ran: false, reason: 'over-budget-rebet', missionId, escalationsRaised: card.isNew ? 1 : 0 });
   }
 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
-  note(journalRowId, { criteriaActed: criteriaWithActions.map((a) => ({ criterionId: a.id, action: a.action })) });
-  const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
-  // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
-  // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Gate card raise on
-  // ladder exhaustion: only raise when all rungs have been attempted. This runs BEFORE
-  // the hasGap/no-op decision so a mission whose only gaps are capped never spends a node.
-  const escalated = criteriaWithActions.filter((a) => a.action === 'escalate');
-  let escalationsRaised = 0;
-  let serveCapDeferred = 0;
-  let closeOutsMinted = 0;
-  // Hoist the serving epics read outside the loop, fail-open to []
-  let servingEpicsByComp: Map<string, typeof criteriaWithActions[number]['id'][]> = new Map();
-  let epicTargetProjectById: Map<string, string | null> = new Map();
+  // Serving epics for EVERY criterion (not just the escalated ones), from one listTodos call: the
+  // criteriaActed note below records which epic serves each criterion, and the serve-cap loop
+  // further down reads the same map.
+  const servingEpicsByComp: Map<string, string[]> = new Map();
+  const epicTargetProjectById: Map<string, string | null> = new Map();
   try {
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
-    for (const c of escalated) {
+    for (const c of criteriaWithActions) {
       const matching = allTodos.filter(
         (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
       );
@@ -559,6 +570,20 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   } catch {
     // fail-open to empty serving epics
   }
+  note(journalRowId, {
+    criteriaActed: criteriaWithActions.map((a) => ({
+      criterionId: a.id, action: a.action, servedEpicId: servingEpicsByComp.get(a.id)?.[0] ?? null,
+    })),
+  });
+  const actions = criteriaWithActions.map((a) => ({ action: a.action, id: a.id, rejectedParked: a.rejectedParkedCount }));
+  // SERVE-CAP: a criterion that has burned CRITERION_SERVE_CAP serving epics and is still
+  // unmet derives 'escalate' (not 'discover') — re-filing is thrash. Gate card raise on
+  // ladder exhaustion: only raise when all rungs have been attempted. This runs BEFORE
+  // the hasGap/no-op decision so a mission whose only gaps are capped never spends a node.
+  const escalated = criteriaWithActions.filter((a) => a.action === 'escalate');
+  let escalationsRaised = 0;
+  let serveCapDeferred = 0;
+  let closeOutsMinted = 0;
 
   if (escalated.length > 0) {
     const createEsc = deps.createEscalation ?? createEscalation;
@@ -583,6 +608,10 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         // If not exhausted, defer and skip card creation
         if (!exhausted) {
           serveCapDeferred++;
+          // Name the epic the ladder is still working through, when there is one. No serving
+          // epic yet ⇒ nothing to point at, so the aggregate fallback in declinedFor covers it.
+          const servingEpicId = servingEpicsByComp.get(c.id)?.[0];
+          if (servingEpicId) deferredRefs.push({ entityType: 'epic', entityId: servingEpicId });
           continue;
         }
 
@@ -595,6 +624,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         // exactly as a `mint-failed` result would, rather than being swallowed and skipping
         // the card entirely.
         let closeMinted = false;
+        let closeLeafId: string | undefined;
         try {
           const closeResult = await (deps.closeArm ?? runTestOnlyCloseArm)(project, session, missionId, {
             id: c.id,
@@ -604,11 +634,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
             verifiedAtSha: c.verifiedAtSha,
           });
           closeMinted = closeResult.minted;
+          closeLeafId = closeResult.leafId;
         } catch {
           closeMinted = false;
         }
         if (closeMinted) {
           closeOutsMinted++;
+          if (closeLeafId) {
+            filedRefs.push({ kind: 'leaf', id: closeLeafId, title: `test-only close: ${c.text.slice(0, 80)}` });
+          }
           continue;
         }
 
@@ -686,10 +720,14 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         });
         if (res && res.isNew) {
           escalationsRaised++;
+          filedRefs.push({ kind: 'card', id: res.escalation.id, title: `serve-cap: ${c.text.slice(0, 80)}` });
         } else if (res && !res.isNew && res.escalation.status === 'resolved') {
           const reopen = deps.reopenResolvedEscalation ?? reopenResolvedEscalationByConditionKey;
           const reopened = reopen({ project, conditionKey: serveCapConditionKey(c.id), questionText });
-          if (reopened && reopened.reopened) escalationsRaised++;
+          if (reopened && reopened.reopened) {
+            escalationsRaised++;
+            filedRefs.push({ kind: 'card', id: reopened.escalation.id, title: `serve-cap: ${c.text.slice(0, 80)}` });
+          }
         }
       } catch {
         // fail-open per criterion — one bad card must not sink the rest of the pass.
@@ -718,6 +756,14 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   } catch {
     arm = { candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] };
+  }
+  // The arm already carries the id-bearing summary of every leaf it reset — reuse it rather than
+  // re-scanning the store. `arm.cardsRaised` stays a bare count: InfraArmResult never returns the
+  // raised card's id, and inventing one would need a second scan this leaf must not add.
+  const candidateByLeaf = new Map(arm.candidates.map((c) => [c.leafId, c]));
+  for (const leafId of arm.reset) {
+    const cand = candidateByLeaf.get(leafId);
+    filedRefs.push({ kind: 'leaf', id: leafId, title: cand?.reason ?? cand?.cause ?? 'infra reset' });
   }
   if (arm.reset.length > 0) {
     // A leaf just went back to READY. Spend NOTHING on a conductor node and do NOT stamp the run:
@@ -752,6 +798,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   let redecomposed: string[] = [];
   try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
   catch { redecomposed = [] }
+  // runRedecomposeArm returns CRITERION ids, not the newly-planned epic's id; getting the real
+  // epic id would need a second listTodos scan this leaf must not add, so the criterion id stands
+  // in for the epic the redecompose produced — the same tradeoff as infra `cardsRaised` above.
+  for (const critId of redecomposed) {
+    filedRefs.push({
+      kind: 'epic', id: critId,
+      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === critId)?.text ?? critId}`,
+    });
+  }
   if (redecomposed.length > 0)
     return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: redecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });

@@ -89,6 +89,9 @@ export interface RebetCardResult {
   isNew: boolean;
   /** The briefing that was rendered onto the card, when one was rendered. */
   briefing?: RebetEconomics;
+  /** The id of the escalation carrying the card, when one was raised or bumped. Lets a caller
+   *  record a typed reference to the card it just filed without a second store read. */
+  escalationId?: string;
   /** Why nothing was raised, when raised is false. */
   skipped?: 'not-over-budget' | 'error';
 }
@@ -139,7 +142,7 @@ export function raiseOverBudgetRebetCard(
         `Answer this card to re-bet: raise the budget, park and reshape, or drop the stalled criteria.`,
     });
 
-    return { raised: true, isNew: res?.isNew === true, briefing };
+    return { raised: true, isNew: res?.isNew === true, briefing, escalationId: res?.escalation.id };
   } catch {
     // fail OPEN — a broken card path must never break the tick that called it.
     return { raised: false, isNew: false, skipped: 'error' };
