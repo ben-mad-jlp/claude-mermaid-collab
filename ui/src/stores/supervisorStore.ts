@@ -328,7 +328,7 @@ export type MissionStatus =
   | 'needs-verify' | 'needs-discovery' | 'unapproved' | 'converged' | 'closed' | 'waiting';
 
 export interface MissionSummary {
-  node: { id: string; title: string; status: string };
+  node: { id: string; title: string; status: string; nickname?: string };
   ownerSession: string | null;
   assigneeSession: string | null;
   mission: {

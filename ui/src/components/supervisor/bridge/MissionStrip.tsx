@@ -79,8 +79,12 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, o
       className="flex w-full items-center gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
     >
       {/* Mission title */}
-      <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 min-w-0 truncate">
-        {stripKindPrefix(m.node?.title ?? 'Mission')}
+      <span
+        data-testid="mission-strip-title"
+        data-mission-id={m.node?.id}
+        className="text-xs font-semibold text-gray-800 dark:text-gray-100 min-w-0 truncate"
+      >
+        {m.node?.nickname || stripKindPrefix(m.node?.title ?? 'Mission')}
       </span>
 
       {/* Status pill */}
