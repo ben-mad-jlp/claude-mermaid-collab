@@ -15,7 +15,7 @@ export interface ForwardIntegrateEpicToolResult {
   ok: boolean;
   epicId: string;          // resolved full id
   epicBranch: string;      // collab/epic/<id8>
-  baseRef: string;
+  baseRef: string | null;
   beforeSha: string | null;
   afterSha: string | null;
   advanced: boolean;       // a new --no-ff merge commit was created
@@ -57,7 +57,7 @@ export async function forwardIntegrateEpicTool(
       reason: 'epic-not-found',
       epicId: epicIdArg,
       epicBranch: '',
-      baseRef: opts?.baseRef ?? 'master',
+      baseRef: opts?.baseRef ?? null,
       beforeSha: null,
       afterSha: null,
       advanced: false,
@@ -69,7 +69,7 @@ export async function forwardIntegrateEpicTool(
 
   const targetProject = deps?.projectRoot ?? getTodo(project, epicId)?.targetProject ?? project;
   const wm = deps?.wm ?? getWorktreeManager(targetProject);
-  const baseRef = opts?.baseRef ?? await wm.detectBaseBranch().catch(() => 'master');
+  const baseRef = opts?.baseRef ?? await wm.detectBaseBranch();
 
   const epicBranch = wm.epicBranchName(epicId);
   const beforeSha = await wm.epicHeadSha(epicId);
