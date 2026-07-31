@@ -180,4 +180,64 @@ describe('forwardIntegrateEpicTool', () => {
     expect(result.epicId).toBe(EPIC_FULL_ID);
     expect(result.epicBranch).toContain(shortId);
   });
+
+  it('auto-detects trunk as main when baseRef is omitted on a main-initialised repo', async () => {
+    const mainRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'fi-tool-repo-main-'));
+    const mainPersistDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fi-tool-persist-main-'));
+    try {
+      await runGit(mainRepo, ['init', '-q', '-b', 'main']);
+      await runGit(mainRepo, ['config', 'user.email', 't@t']);
+      await runGit(mainRepo, ['config', 'user.name', 'T']);
+      await fs.writeFile(path.join(mainRepo, 'base.txt'), 'base\n');
+      await runGit(mainRepo, ['add', '-A']);
+      await runGit(mainRepo, ['commit', '-q', '-m', 'base']);
+
+      const mainWm = new WorktreeManager({
+        projectRoot: mainRepo,
+        baseDir: path.join(mainPersistDir, 'worktrees'),
+        persistDir: mainPersistDir,
+      });
+
+      const epic = await mainWm.ensureEpic(EPIC_FULL_ID, undefined, 'main');
+      expect(epic).not.toBeNull();
+
+      await fs.writeFile(path.join(mainRepo, 'trunk.txt'), 'trunk-content\n');
+      await runGit(mainRepo, ['add', '-A']);
+      await runGit(mainRepo, ['commit', '-q', '-m', 'main: add trunk.txt']);
+
+      const result = await forwardIntegrateEpicTool('dummy-project', EPIC_FULL_ID, {
+        deps: {
+          wm: mainWm,
+          projectRoot: mainRepo,
+          resolveEpicId: (_project, id) => (id === EPIC_FULL_ID || id === EPIC_FULL_ID.slice(0, 8)) ? EPIC_FULL_ID : null,
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.baseRef).toBe('main');
+      expect(result.advanced).toBe(true);
+    } finally {
+      await fs.rm(mainRepo, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(mainPersistDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('still resolves baseRef to master when omitted on a master-initialised repo', async () => {
+    const epic = await wm.ensureEpic(EPIC_FULL_ID, undefined, 'master');
+    expect(epic).not.toBeNull();
+
+    await commitOnMaster('trunk.txt', 'trunk-content\n');
+
+    const result = await forwardIntegrateEpicTool('dummy-project', EPIC_FULL_ID, {
+      deps: {
+        wm,
+        projectRoot: repo,
+        resolveEpicId: (_project, id) => (id === EPIC_FULL_ID || id === EPIC_FULL_ID.slice(0, 8)) ? EPIC_FULL_ID : null,
+      },
+    });
+
+    expect(result.baseRef).toBe('master');
+    expect(result.ok).toBe(true);
+    expect(result.advanced).toBe(true);
+  });
 });
