@@ -5,3 +5,4 @@ results/*
 # ...except recorded artifacts a mission cites as evidence, which must be committable
 # with a plain `git add` (the leaf-executor's merge step does not use -f).
 !results/*-run.json
+!results/whole-surface-4bd1329e.md
