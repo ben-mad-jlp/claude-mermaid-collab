@@ -746,10 +746,11 @@ export interface RevalidateDeps {
 export async function revalidateStaleEpic(
   project: string,
   epicId: string,
-  baseRef: string = 'master',
+  baseRef?: string,
   deps?: Partial<RevalidateDeps>,
 ): Promise<RevalidateResult> {
   const wm = getWorktreeManager(project);
+  const resolvedBaseRef = baseRef ?? await wm.detectBaseBranch().catch(() => 'master');
   const d: RevalidateDeps = {
     forwardIntegrate: (e, b) => wm.forwardIntegrateEpic(e, b),
     ensureEpicPath: async (e) => (await wm.ensureEpic(e).catch(() => null))?.path ?? null,
@@ -761,7 +762,7 @@ export async function revalidateStaleEpic(
   };
 
   // 1. Forward-integrate trunk INTO the epic branch.
-  const fi = await d.forwardIntegrate(epicId, baseRef);
+  const fi = await d.forwardIntegrate(epicId, resolvedBaseRef);
   if (fi.conflict) {
     return { ok: false, reason: 'forward-integrate-conflict', conflictedPaths: fi.conflictedPaths ?? [] };
   }
