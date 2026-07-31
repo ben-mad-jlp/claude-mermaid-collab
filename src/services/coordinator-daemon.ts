@@ -120,6 +120,9 @@ export interface GateVerdict {
   passed: boolean;
   reasons: string[];
   metrics?: Record<string, unknown>;
+  /** Base-attribution classification (gate-base-attribution.ts), when a caller has run
+   *  it. Not set by any live gate today. */
+  baseAttributed?: { command: string; failingFiles: string[]; signature: string };
 }
 
 /** One coordination tick: reclaim expired leases (retry, or park+escalate if the
