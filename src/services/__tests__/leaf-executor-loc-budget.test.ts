@@ -29,11 +29,16 @@ describe('leaf-executor LOC budget', () => {
   // parks epic-base-red with the blueprint retained instead of rejecting). Both land AT the
   // G2 decision point inside runLeaf, which is why the wiring cannot live behind the seam.
   // Neither re-pinned this tripwire, so master self-wedged every epic base gate project-wide.
-  it('leaf-executor.ts should be ≤ 4076 lines', () => {
+  //
+  // Re-pinned 4076 → 4087: landed epic a68f42f4 (f6fc0ce3) carries the gate-failure signature
+  // on the base-red park result (LeafRunResult.baseRed) — +19/-8 at the same G2 decision point
+  // inside runLeaf. It did not re-pin this tripwire, so master self-wedged every epic base gate
+  // project-wide for the SECOND time in this mission. (Down-only redesign: bug 0e494237.)
+  it('leaf-executor.ts should be ≤ 4087 lines', () => {
     const leafExecutorPath = path.join(__dirname, '../leaf-executor.ts');
     const content = fs.readFileSync(leafExecutorPath, 'utf-8');
     const lineCount = content.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(4076);
+    expect(lineCount).toBeLessThanOrEqual(4087);
   });
 
   it('should re-export all required functions', () => {
