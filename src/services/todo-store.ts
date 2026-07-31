@@ -15,6 +15,7 @@ import { topoSortSplitItems } from './split-decision';
 import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
+import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -207,6 +208,10 @@ export interface Todo {
   /** Archive stamp (ms epoch), or null = live. Archived rows are excluded from
    *  listTodos/listTodosChunked by default (see TodoFilter.includeArchived/onlyArchived). */
   archivedAt?: number | null;
+  /** Human-friendly display slug derived from the title at create time (2–4 hyphenated
+   *  lowercase tokens), uniquified project-wide. Display metadata ONLY — the raw `id`
+   *  stays the sole identity for every work-graph edge, dispatch, land and serve lookup. */
+  nickname: string;
 }
 
 export interface TodoFilter {
@@ -555,6 +560,7 @@ interface TodoRow {
   reservedByActor: string | null;
   reservedReason: string | null;
   archivedAt: number | null;
+  nickname: string | null;
 }
 
 const DDL = `
@@ -717,6 +723,9 @@ export function openDb(project: string): Database {
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'todos', 'archivedAt', 'archivedAt INTEGER');
+  // Display nickname (additive, nullable): a deterministic slug derived from the title.
+  // Pre-migration rows read NULL and are filled once by backfillNicknameV10 below.
+  addColumnIfMissing(db, 'todos', 'nickname', 'nickname TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
@@ -786,6 +795,10 @@ export function openDb(project: string): Database {
     backfillTitlePrefixV9(db);
     db.exec(`PRAGMA user_version = ${TODO_TITLE_PREFIX_V9}`);
   }
+  if (ver < TODO_NICKNAME_V10) {
+    backfillNicknameV10(db);
+    db.exec(`PRAGMA user_version = ${TODO_NICKNAME_V10}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -848,6 +861,9 @@ export const TODO_LANDED_GATE_V8 = 8;
 
 /** user_version marker for the title-prefix strip backfill. */
 export const TODO_TITLE_PREFIX_V9 = 9;
+
+/** user_version marker for the one-shot display-nickname backfill. */
+export const TODO_NICKNAME_V10 = 10;
 
 /**
  * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
@@ -1071,6 +1087,28 @@ export function backfillTitlePrefixV9(db: Database): void {
   // kind='gate' so topic tags survive. Idempotent via the LIKE guard. INSTR…']'
   // handles both [GATE] and the labelled [GATE:<kind>] form.
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), INSTR(title, ']') + 1)) WHERE kind='gate' AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`);
+}
+
+/**
+ * V10 one-shot, idempotent backfill: fill every NULL/empty `nickname` from the row's title.
+ * Row-level JS (not a bare SQL UPDATE) because uniquification needs an ACCUMULATING taken
+ * set — two rows backfilled in the same pass must never collide. Idempotent: a second run
+ * selects zero rows.
+ */
+export function backfillNicknameV10(db: Database): void {
+  const taken = new Set<string>(
+    (db.query(`SELECT nickname FROM todos WHERE nickname IS NOT NULL AND nickname != ''`)
+      .all() as { nickname: string }[]).map((r) => r.nickname),
+  );
+  const rows = db.query(
+    `SELECT id, title FROM todos WHERE nickname IS NULL OR nickname = ''`,
+  ).all() as { id: string; title: string }[];
+  const upd = db.prepare('UPDATE todos SET nickname = ? WHERE id = ?');
+  for (const row of rows) {
+    const nickname = uniqueNickname(nicknameFromTitle(row.title ?? ''), taken);
+    taken.add(nickname);
+    upd.run(nickname, row.id);
+  }
 }
 
 /**
@@ -1454,6 +1492,7 @@ function rowToTodo(row: TodoRow): Todo {
     reservedByActor: row.reservedByActor ?? null,
     reservedReason: row.reservedReason ?? null,
     archivedAt: row.archivedAt ?? null,
+    nickname: row.nickname ?? '',
   };
 }
 
@@ -1843,12 +1882,18 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const createEdges = normalizeCriterionEdges(input.servesCriterionId, input.servesCriterionIds);
     const bucketType = input._ensureBucketType ?? null;
     const isBucket = isEpicInput(input) && (input.isBucket === true || bucketType != null || isBucketEpicTitle(input.title)) ? 1 : 0;
+    // Display nickname: pure, offline, SYNCHRONOUS — no await, no network/LLM call — and
+    // uniquified against the project's current taken set inside this same lock.
+    const takenNicknames = (db.query(
+      `SELECT nickname FROM todos WHERE nickname IS NOT NULL AND nickname != ''`,
+    ).all() as { nickname: string }[]).map((r) => r.nickname);
+    const nickname = uniqueNickname(nicknameFromTitle(input.title), takenNicknames);
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair, nickname)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1860,7 +1905,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
