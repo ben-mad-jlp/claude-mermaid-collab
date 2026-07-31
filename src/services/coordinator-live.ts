@@ -24,6 +24,7 @@ import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './
  *  out of in_progress, so they self-dedup; the escalation store dedups too. */
 const budgetSoftWarned = new Set<string>();
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
+import { normaliseDeclaredPath } from './file-mutex';
 import { reserveLeafSlot, releaseLeafSlot, reconcileInflight } from './inflight-limiter';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
@@ -1994,6 +1995,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // its slot in the run continuation.
     reserveLeafSlot,
     releaseLeafSlot,
+    // File-contention serialization seam: union `declaredFiles` (normalised) over
+    // every in-flight todo, so the fire-and-track dispatch loop never launches a new
+    // leaf that declares a file an already-running leaf also declared.
+    heldFilesFor: (project: string) => {
+      const held = new Set<string>();
+      for (const t of listTodos(project, { status: 'in_progress' })) {
+        for (const p of t.declaredFiles ?? []) held.add(normaliseDeclaredPath(p));
+      }
+      return held;
+    },
     listReadyTodos,
     // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set
