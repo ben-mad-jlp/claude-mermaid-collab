@@ -21,7 +21,7 @@ import { classifyGateFailure, type GateFailureClassification } from '../gate-bas
 import { createTodo, getTodo, _closeProject } from '../todo-store';
 import { runLeaf, type LeafExecutorDeps } from '../leaf-executor';
 import type { Todo } from '../todo-store';
-import { getLeafBlueprint } from '../worker-ledger';
+import { getLeafBlueprint, recordLeafBlueprint } from '../worker-ledger';
 
 // Set ONCE at module load (not per-test): orchestrator-config.ts caches its Database
 // handle in a module singleton, so re-pointing/removing MERMAID_SUPERVISOR_DIR between
@@ -112,8 +112,9 @@ function makeSkipToGateDeps(
   ownChangeSet: string[],
   baseCommand: string,
   baseOutput: string,
-): { deps: LeafExecutorDeps; captured: GateFailureClassification[] } {
+): { deps: LeafExecutorDeps; captured: GateFailureClassification[]; completions: Array<{ effective?: string }> } {
   const captured: GateFailureClassification[] = [];
+  const completions: Array<{ effective?: string }> = [];
   const deps: LeafExecutorDeps = {
     invoker: { async invoke() { return okResult(); } },
     wm: {
@@ -127,8 +128,10 @@ function makeSkipToGateDeps(
       const cls = classifyGateFailure({ command: baseCommand, output: baseOutput, ownChangeSet });
       captured.push(cls);
       if (cls.kind === 'epic-base-red') {
+        completions.push({ effective: undefined });
         return { baseRed: { command: baseCommand, failingFiles: cls.failingFiles, signature: cls.signature } };
       }
+      completions.push({ effective: 'rejected' });
       return { effective: 'rejected' as const, gateReasons: [`own defect: ${cls.failingFiles.join(', ')}`] };
     },
     async mergeToEpic() { return {}; },
@@ -140,7 +143,7 @@ function makeSkipToGateDeps(
       status: 'pass', command: TSC_CMD, output: '', reasons: [], declared: true, fresh: true,
     }),
   };
-  return { deps, captured };
+  return { deps, captured, completions };
 }
 
 describe('composed sibling-consistency proof over one injected base failure', () => {
@@ -170,10 +173,20 @@ describe('composed sibling-consistency proof over one injected base failure', ()
       allowOrphan: true, ownerSession: 's1', title: 'beta', parentId: epic.id,
     });
 
-    const { deps: alphaDeps, captured: capturedAlpha } =
+    const { deps: alphaDeps, captured: capturedAlpha, completions: completionsAlpha } =
       makeSkipToGateDeps(['src/alpha.ts'], baseResult.command!, baseResult.output!);
-    const { deps: betaDeps, captured: capturedBeta } =
+    const { deps: betaDeps, captured: capturedBeta, completions: completionsBeta } =
       makeSkipToGateDeps(['src/beta.ts'], baseResult.command!, baseResult.output!);
+
+    recordLeafBlueprint({ leafId: alpha.id, project, specJson: JSON.stringify({ leaf: 'alpha', task: 'do-alpha-thing' }), specRev: 1 });
+    recordLeafBlueprint({ leafId: beta.id, project, specJson: JSON.stringify({ leaf: 'beta', task: 'do-beta-thing' }), specRev: 1 });
+
+    const alphaBefore = getLeafBlueprint(alpha.id);
+    const betaBefore = getLeafBlueprint(beta.id);
+    expect(alphaBefore).not.toBeNull();
+    expect(betaBefore).not.toBeNull();
+    const alphaBeforeJson = JSON.stringify(alphaBefore);
+    const betaBeforeJson = JSON.stringify(betaBefore);
 
     const alphaLeaf = makeLeaf({ id: alpha.id, title: 'alpha', parentId: epic.id, status: 'in_progress' });
     const betaLeaf = makeLeaf({ id: beta.id, title: 'beta', parentId: epic.id, status: 'in_progress' });
@@ -190,8 +203,20 @@ describe('composed sibling-consistency proof over one injected base failure', ()
 
     expect(capturedAlpha[0].signature).toBe(capturedBeta[0].signature);
 
-    expect(getLeafBlueprint(alpha.id)).toBeNull();
-    expect(getLeafBlueprint(beta.id)).toBeNull();
+    expect(resAlpha.baseRed).toBeDefined();
+    expect(resBeta.baseRed).toBeDefined();
+    expect(resAlpha.baseRed!.signature).toBe(resBeta.baseRed!.signature);
+    expect(resAlpha.baseRed!.signature.length).toBeGreaterThan(0);
+
+    const alphaAfter = getLeafBlueprint(alpha.id);
+    const betaAfter = getLeafBlueprint(beta.id);
+    expect(alphaAfter).not.toBeNull();
+    expect(betaAfter).not.toBeNull();
+    expect(JSON.stringify(alphaAfter)).toBe(alphaBeforeJson);
+    expect(JSON.stringify(betaAfter)).toBe(betaBeforeJson);
+
+    expect(completionsAlpha.some(c => c.effective === 'rejected')).toBe(false);
+    expect(completionsBeta.some(c => c.effective === 'rejected')).toBe(false);
   });
 
   test('a leaf whose own diff includes the failing file terminates gate-rejected, not epic-base-red', async () => {
