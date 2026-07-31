@@ -19,4 +19,23 @@ describe('measure-shared-union-split fixture', () => {
     expect(again.parksOff).toBe(result.parksOff);
     expect(again.onLeaves.length).toBe(result.onLeaves.length);
   });
+
+  it('neutering applyFoundationFirst drives parksOn above 0', async () => {
+    const result = await runSharedUnionSplitMeasurement({ applyFoundationFirst: (spec) => spec });
+    expect(result.parksOn).toBeGreaterThan(0);
+  });
+
+  it('collapsing partitionByFileContention to one batch drives parksOn above 0', async () => {
+    // Empirically parksOn stays 0 here: classifyGateFailure keys only on each leaf's own
+    // change-set vs the diagnostic's file, never on dispatch batch size, and every commit in
+    // this fixture lands sequentially regardless of tick grouping — there is no concurrent
+    // worktree state for the file mutex to protect against. This probe demonstrates the
+    // baseline ON=0 result is NOT a consequence of file-mutex serialization in this fixture;
+    // only applyFoundationFirst ordering (see the sibling probe) drives it. Report this to the
+    // conductor as a fabricated-measurement finding for the file-mutex half.
+    const result = await runSharedUnionSplitMeasurement({
+      partitionByFileContention: (ready) => ({ dispatch: [...ready], deferred: [] }),
+    });
+    expect(result.parksOn).toBe(0);
+  });
 });
