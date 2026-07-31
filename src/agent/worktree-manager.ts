@@ -1478,9 +1478,10 @@ export class WorktreeManager {
   // ---------------------------------------------------------------------------
   async forwardIntegrateEpic(
     epicId: string,
-    baseRef: string = 'master',
+    baseRef?: string,
     opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
   ): Promise<ForwardIntegrateResult> {
+    const effectiveBase = baseRef ?? (await this.detectBaseBranch());
     // Serialise behind the per-project worktree lock (6bc2dc36) — two leaves on the same
     // epic merging trunk into the SHARED epic worktree concurrently was the original
     // corruption trigger.
@@ -1488,7 +1489,7 @@ export class WorktreeManager {
       withMainCheckoutInvariant(
         this.opts.projectRoot,
         this.mainCheckoutGit,
-        () => this._forwardIntegrateEpicInner(epicId, baseRef, opts),
+        () => this._forwardIntegrateEpicInner(epicId, effectiveBase, opts),
         { opName: 'forward_integrate', onViolation: this.onMainCheckoutViolation },
       ),
     );
@@ -1496,7 +1497,7 @@ export class WorktreeManager {
 
   private async _forwardIntegrateEpicInner(
     epicId: string,
-    baseRef: string = 'master',
+    baseRef: string,
     opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
   ): Promise<ForwardIntegrateResult> {
     if (!(await this.isGitRepo())) return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git' };
