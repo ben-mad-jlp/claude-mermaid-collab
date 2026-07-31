@@ -28,11 +28,18 @@ import { buildNodePrompt, parseVerdict, isNonFalsifiableReviewDoubt } from '../.
 import { validateReviewGrounding } from '../../src/services/review-citations';
 import { uncitedCriteriaAreAllCommandResults } from '../../src/services/criteria-citability';
 import { buildNodeArgv } from '../../src/agent/node-invoker';
+import {
+  contractBallotRequirements,
+  groundReviewViaContract,
+  type DiffContractReviewDeps,
+  type ParsedDiff,
+} from '../../src/services/diff-contract-review';
 import { CASES as EASY, type Case } from './cases';
 import { HARD } from './cases-hard';
 import { MEAN } from './cases-mean';
 import { SONNET } from './cases-sonnet';
-const CASES: Case[] = [...EASY, ...HARD, ...MEAN, ...SONNET];
+import { TYPED } from './cases-typed';
+const CASES: Case[] = [...EASY, ...HARD, ...MEAN, ...SONNET, ...TYPED];
 
 const OUT = join(import.meta.dir, 'results');
 mkdirSync(OUT, { recursive: true });
@@ -154,16 +161,43 @@ function netVerdict(reviewText: string, changeSet: string[], cwd: string): {
   return { net: 'reject', verdict, grounding: '-', doubt, reason: 'falsifiable FAIL → gate (reject)' };
 }
 
+/** Typed net verdict — grounds a contract-carrying case via groundReviewViaContract instead of
+ *  validateReviewGrounding. The stub deps mirror the one already committed at
+ *  src/services/__tests__/diff-contract-review.test.ts:718-723; this leaf's contracts carry no
+ *  named-test/threshold requirements so the stub is never exercised for a real decision. */
+async function typedNetVerdict(
+  reviewText: string,
+  contract: import('../../src/services/diff-contract').DiffContract,
+  changeSet: string[],
+  cwd: string,
+): Promise<{ net: 'accept' | 'reject'; verdict: string; grounding: string; doubt: boolean; reason: string }> {
+  const diff: ParsedDiff = { changedFiles: changeSet };
+  const deps: DiffContractReviewDeps = {
+    cwd,
+    testsFlipBaseToBranch: async () => null,
+    readGateMetric: async () => null,
+    runGrepCount: async () => null,
+  };
+  const result = await groundReviewViaContract(reviewText, contract, diff, deps);
+  const net = result.status === 'vacuous' ? 'reject' : 'accept';
+  return { net, verdict: 'typed', grounding: result.status, doubt: false, reason: result.reasons.join('; ') };
+}
+
 async function runOne(c: Case) {
   const { cwd, changeSet } = setupRepo(c);
   const leaf: any = { id: c.id.padEnd(8, '0').slice(0, 8), title: c.title, description: c.description };
-  const prompt = buildNodePrompt('review', leaf, c.blueprint);
+  const prompt = c.contract
+    ? buildNodePrompt(
+        'review', leaf, c.blueprint, undefined, undefined,
+        contractBallotRequirements(c.contract).map((r) => ({ id: r.id, kind: r.kind, text: r.description })),
+      )
+    : buildNodePrompt('review', leaf, c.blueprint);
   const { text } = await runReviewNode(cwd, prompt);
-  const nv = netVerdict(text, changeSet, cwd);
+  const nv = c.contract ? await typedNetVerdict(text, c.contract, changeSet, cwd) : netVerdict(text, changeSet, cwd);
   const correct = nv.net === c.expected;
   writeFileSync(join(OUT, `${c.id}.review.md`), text);
   try { rmSync(cwd, { recursive: true, force: true }); } catch {}
-  return { id: c.id, lang: c.lang, concept: c.concept, complexity: c.complexity, expected: c.expected, ...nv, correct, changeSet };
+  return { id: c.id, lang: c.lang, concept: c.concept, complexity: c.complexity, expected: c.expected, ...nv, correct, changeSet, typed: !!c.contract };
 }
 
 async function main() {
@@ -193,8 +227,17 @@ async function main() {
   const correct = results.filter((r) => r.correct).length;
   const falseReject = results.filter((r) => !r.correct && r.expected === 'accept'); // over-rejection
   const falseAccept = results.filter((r) => !r.correct && r.expected === 'reject'); // missed bug
+  const typedResults = results.filter((r) => r.typed);
+  const typedAcceptRate = typedResults.length
+    ? +(typedResults.filter((r) => r.net === 'accept').length / typedResults.length).toFixed(3)
+    : null;
+  const vacuousParkRate = typedResults.length
+    ? +(typedResults.filter((r) => r.grounding === 'vacuous').length / typedResults.length).toFixed(3)
+    : null;
+  const parkReasons = typedResults.map((r) => ({ id: r.id, net: r.net, grounding: r.grounding, reason: r.reason }));
   const summary = { total: results.length, correct, accuracy: +(correct / results.length).toFixed(3),
-    overRejections: falseReject.map((r) => r.id), missedBugs: falseAccept.map((r) => r.id), results };
+    overRejections: falseReject.map((r) => r.id), missedBugs: falseAccept.map((r) => r.id),
+    typedAcceptRate, vacuousParkRate, parkReasons, results };
   writeFileSync(join(OUT, `run.json`), JSON.stringify(summary, null, 2));
   console.log(`\n=== ${correct}/${results.length} correct (${summary.accuracy}) ===`);
   console.log(`OVER-REJECTIONS (correct code failed): ${summary.overRejections.join(', ') || 'none'}`);

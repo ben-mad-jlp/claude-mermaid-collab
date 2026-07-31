@@ -1,0 +1,36 @@
+{
+  "total": 1,
+  "correct": 1,
+  "accuracy": 1,
+  "overRejections": [],
+  "missedBugs": [],
+  "typedAcceptRate": 1,
+  "vacuousParkRate": 0,
+  "parkReasons": [
+    {
+      "id": "ts-nullguard-invariant-typed",
+      "net": "accept",
+      "grounding": "ok",
+      "reason": ""
+    }
+  ],
+  "results": [
+    {
+      "id": "ts-nullguard-invariant-typed",
+      "lang": "ts",
+      "concept": "invariant-preservation",
+      "complexity": "simple",
+      "expected": "accept",
+      "net": "accept",
+      "verdict": "typed",
+      "grounding": "ok",
+      "doubt": false,
+      "reason": "",
+      "correct": true,
+      "changeSet": [
+        "src/users.invariant.test.ts"
+      ],
+      "typed": true
+    }
+  ]
+}
