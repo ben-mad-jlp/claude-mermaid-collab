@@ -6,12 +6,24 @@
  */
 import React, { useEffect, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
-import { fetchConductorJournalWithNicknames, formatConductorPass, ConductorPassRow } from '@/lib/conductorActivity';
+import {
+  fetchConductorJournalWithNicknames,
+  groupConductorPasses,
+  ConductorPassGroup,
+  ConductorPassRow,
+} from '@/lib/conductorActivity';
 import { EntityChip } from './EntityChip';
 import { humanizeIds } from '@/lib/entityNickname';
 
 const ALL_MISSIONS = '__all__';
 export const CONDUCTOR_RAW_MODE_KEY = 'collab.conductorActivity.rawMode';
+
+function formatHM(ts: number): string {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 export const ConductorActivityPanel: React.FC<{
   project: string;
@@ -116,20 +128,37 @@ export const ConductorActivityPanel: React.FC<{
         </p>
       ) : (
         <div className="px-3 pb-3">
-          {filteredRows.map((row) => {
-            const formatted = formatConductorPass(row);
+          {groupConductorPasses(filteredRows).map((group: ConductorPassGroup<ConductorPassRow>) => {
+            const formatted = group.formatted;
             return (
               <div
-                key={row.id}
+                key={group.representative.id}
                 data-testid="conductor-pass-entry"
-                data-pass-id={row.id}
-                data-mission-id={row.missionId ?? ''}
+                data-pass-id={group.representative.id}
+                data-mission-id={group.representative.missionId ?? ''}
                 className="py-1 border-b border-gray-200/50 dark:border-gray-700/50"
               >
+                <div className="flex items-center gap-1">
+                  {group.representative.endedAt === null && (
+                    <span data-testid="conductor-pass-live" className="text-3xs px-1 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
+                      live
+                    </span>
+                  )}
+                </div>
                 <div className="text-2xs text-gray-700 dark:text-gray-200">
                   {rawMode ? formatted.sentence : humanizeIds(formatted.sentence, nicknames)}
                 </div>
-                <div className="text-3xs text-gray-400">{new Date(row.startedAt).toLocaleString()}</div>
+                <div className="text-3xs text-gray-500">
+                  {group.arm ?? 'no arm'} → {group.outcome ?? 'pending'}
+                </div>
+                <div className="text-3xs text-gray-400">
+                  {new Date(group.representative.startedAt).toLocaleString()}
+                </div>
+                {group.count > 1 && (
+                  <div data-testid="conductor-pass-repeat" className="text-3xs text-gray-400">
+                    {`↻ ×${group.count} · ${formatHM(group.firstStartedAt)}–${formatHM(group.lastStartedAt)}`}
+                  </div>
+                )}
                 <div className="flex items-center gap-1 mt-1">
                   {formatted.chips.map((chip) => (
                     <EntityChip
