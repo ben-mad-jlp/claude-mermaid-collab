@@ -1450,7 +1450,7 @@ export function liveRunsOf<T extends { epicId: string | null }>(
   return runs.filter((r) => r.epicId != null && liveEpicIds.has(r.epicId));
 }
 
-export function collectMissionStatusFacts(project: string, m: MissionRow, now: number = Date.now()): MissionStatusFacts {
+export function collectMissionStatusFacts(project: string, m: MissionRow, now: number = Date.now(), opts?: { landTruth?: Map<string, boolean> }): MissionStatusFacts {
   // listTodos defaults to archivedAt IS NULL (hot-only) — archived todos never leak into
   // allTodos/epics/runs below, so an archived leaf is invisible to the facts scan.
   const allTodos = listTodos(project, { includeCompleted: true });
@@ -1572,6 +1572,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // epic must NOT fall back to "not live" — that would derive 'discover' for a criterion that
       // is actually mid-build and cause the conductor to re-file a duplicate serving epic (real
       // spend). Treat any open serving epic as live until the ledger is readable again.
+      const resolveLanded = (e: Todo) => opts?.landTruth?.get(e.id) ?? isLanded(e);
       const servingEpicLive = serving.some((e) => predServingEpicLive(e, ledgerUnavailable, runs, allTodos, byId, now));
       // LIVENESS decides 'open', not mere existence. The old rule was
       //   serving.some(e => e.status !== 'done') ? 'open' : serving.some(done) ? 'landed' : 'none'
@@ -1592,7 +1593,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       // conductor re-serves a real proof instead of the gate being handed an unproven criterion to
       // (maybe) rubber-stamp.
       const provingLanded = serving.filter((e) => {
-        if (!isLanded(e)) return false;
+        if (!resolveLanded(e)) return false;
         const pf = proofForEpic(e.id);
         return pf.proven.has(c.id) || (!pf.tagsAnyLeaf && !pf.hasUnfinishedLeaf);
       });
@@ -1622,7 +1623,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         (e) => todoServesCriterion(e, c.id) &&
           !isHollowDone(e) && countsTowardServeCap(e),
       ).length;
-      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: isLanded(e) }));
+      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: resolveLanded(e) }));
       const servingEpicIds = new Set(serving.map((e) => e.id));
       const rejectedParkedCount = runs.filter(
         (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
@@ -1677,10 +1678,11 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
 export function listCriteriaWithActions(
   project: string,
   todoId: string,
+  opts?: { landTruth?: Map<string, boolean> },
 ): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpics: { id: string; title: string; landed: boolean }[] })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
-  const facts = collectMissionStatusFacts(project, m);
+  const facts = collectMissionStatusFacts(project, m, undefined, opts);
   const byId = new Map(facts.criteria.map((c) => [c.id, c]));
   // Use the RESOLVED id (m.todoId), not the raw todoId param — a short id here used to
   // return empty criteria (listCriteria was queried on the unresolved arg).
