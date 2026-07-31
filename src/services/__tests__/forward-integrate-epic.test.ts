@@ -245,5 +245,17 @@ describe('forwardIntegrateEpicTool', () => {
     const srcPath = new URL('../forward-integrate-epic.ts', import.meta.url);
     const src = await fs.readFile(srcPath, 'utf8');
     expect(src.match(/baseRef\s*(\?\?|=)\s*'master'/g)).toBeNull();
+
+    const wmSrc = await fs.readFile(new URL('../../agent/worktree-manager.ts', import.meta.url), 'utf8');
+
+    const publicIdx = wmSrc.indexOf('async forwardIntegrateEpic(');
+    expect(publicIdx).toBeGreaterThanOrEqual(0);
+    const forwardIntegrateEpicRegion = wmSrc.slice(publicIdx, publicIdx + 400);
+    expect(forwardIntegrateEpicRegion.match(/baseRef\s*(\?\?|=)\s*'master'/)).toBeNull();
+
+    const innerIdx = wmSrc.indexOf('private async _forwardIntegrateEpicInner(');
+    expect(innerIdx).toBeGreaterThanOrEqual(0);
+    const forwardIntegrateEpicInnerRegion = wmSrc.slice(innerIdx, innerIdx + 400);
+    expect(forwardIntegrateEpicInnerRegion.match(/baseRef\s*(\?\?|=)\s*'master'/)).toBeNull();
   });
 });
