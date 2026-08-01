@@ -57,7 +57,7 @@ import { landReadiness, landAuthority, type LandActor } from '../services/land-a
 import { isEpicTodo } from '../services/invariant-check.ts';
 import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDeployStatus } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
-import { execFileSync } from 'node:child_process';
+import { modifiedTrackedCount as probeModifiedTrackedCount } from '../services/git-status-probe.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 import { fireStamp } from '../services/nudge-stamp.ts';
@@ -763,16 +763,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         status.deploy.liveVersion != null &&
         status.deploy.repoVersion != null &&
         status.deploy.liveVersion !== status.deploy.repoVersion;
-      let modifiedTrackedCount = 0;
-      try {
-        const out = execFileSync('git', ['-C', project, 'status', '--porcelain', '--untracked-files=no'], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-        });
-        modifiedTrackedCount = out.split('\n').filter((l) => l.trim().length > 0).length;
-      } catch {
-        modifiedTrackedCount = 0;
-      }
+      const modifiedTrackedCount = await probeModifiedTrackedCount(project);
       const stale = versionDrift || selfLandPending || modifiedTrackedCount > 0;
       // Outcome of the LAST deploy (deploy sidecar-death fix): surfaces a cosmetic
       // deploy that used to be silent — shadow-owned :9002 (ok:false/shadow) or a
