@@ -5,6 +5,7 @@
  * fetch pattern and ws subscription idiom.
  */
 import React, { useEffect, useState } from 'react';
+import { useLoadedState } from '@/hooks/useLoadedState';
 import { getWebSocketClient } from '@/lib/websocket';
 import {
   fetchConductorJournalWithNicknames,
@@ -30,7 +31,7 @@ export const ConductorActivityPanel: React.FC<{
   missionOptions?: { id: string; label: string }[];
   onOpenEntity: (kind: string, id: string) => void;
 }> = ({ project, missionOptions, onOpenEntity }) => {
-  const [rows, setRows] = useState<ConductorPassRow[]>([]);
+  const loaded = useLoadedState<ConductorPassRow[]>([]);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [selectedMission, setSelectedMission] = useState<string>(ALL_MISSIONS);
   const [rawMode, setRawMode] = useState<boolean>(() => {
@@ -44,16 +45,17 @@ export const ConductorActivityPanel: React.FC<{
   // Fetch on mount and whenever project changes
   useEffect(() => {
     let cancelled = false;
+    loaded.reset();
     fetchConductorJournalWithNicknames(project)
       .then((r) => {
         if (!cancelled) {
-          setRows(r.rows);
+          loaded.settle(r.rows);
           setNicknames(r.nicknames);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRows([]);
+          loaded.fail(new Error('Failed to fetch conductor journal'));
           setNicknames({});
         }
       });
@@ -67,15 +69,15 @@ export const ConductorActivityPanel: React.FC<{
     const client = getWebSocketClient();
     const sub = client.onMessage((msg: any) => {
       if (msg?.type === 'conductor_pass' && msg.project === project) {
-        setRows((prev) => [msg.row, ...prev]);
+        loaded.settle([msg.row, ...loaded.data]);
       }
     });
     return () => sub.unsubscribe();
-  }, [project]);
+  }, [project, loaded.settle]);
 
   const missionMap = new Map<string, string>();
   (missionOptions ?? []).forEach((m) => missionMap.set(m.id, m.label));
-  rows.forEach((r) => {
+  loaded.data.forEach((r) => {
     if (r.missionId && !missionMap.has(r.missionId)) {
       missionMap.set(r.missionId, r.missionId);
     }
@@ -83,7 +85,7 @@ export const ConductorActivityPanel: React.FC<{
   const missionEntries = Array.from(missionMap.entries());
 
   const filteredRows =
-    selectedMission === ALL_MISSIONS ? rows : rows.filter((r) => r.missionId === selectedMission);
+    selectedMission === ALL_MISSIONS ? loaded.data : loaded.data.filter((r) => r.missionId === selectedMission);
 
   return (
     <div data-testid="conductor-activity-panel">
@@ -122,7 +124,11 @@ export const ConductorActivityPanel: React.FC<{
         </select>
       </div>
 
-      {filteredRows.length === 0 ? (
+      {!loaded.hasLoadedOnce ? (
+        <p data-testid="conductor-activity-loading" className="text-2xs text-gray-400 dark:text-gray-500 italic px-3 pb-3">
+          Loading…
+        </p>
+      ) : filteredRows.length === 0 ? (
         <p className="text-2xs text-gray-400 dark:text-gray-500 italic px-3 pb-3">
           No conductor passes yet.
         </p>
