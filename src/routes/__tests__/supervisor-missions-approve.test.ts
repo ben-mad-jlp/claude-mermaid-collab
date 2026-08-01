@@ -9,6 +9,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 // Imports AFTER the env is set so any db opens against our temp dir.
 import { forgeMissionFromDoc } from '../../mcp/tools/mission-forge';
 import { getMission, _resetMissionDbCache } from '../../services/mission-store';
+import { getJob, _resetAsyncJobDbCache } from '../../services/async-job-store';
 import { handleSupervisorRoutes } from '../supervisor-routes';
 
 const mockDeps = () => ({
@@ -31,6 +32,7 @@ describe('POST /api/supervisor/missions/approve', () => {
   afterEach(() => {
     if (project) {
       _resetMissionDbCache(project);
+      _resetAsyncJobDbCache(project);
       rmSync(project, { recursive: true, force: true });
     }
   });
@@ -38,6 +40,16 @@ describe('POST /api/supervisor/missions/approve', () => {
   test('approves a forged unapproved mission', async () => {
     project = mkdtempSync(join(tmpdir(), 'mission-approve-'));
     const r = await forgeMissionFromDoc(project, { session: 's1', docId: 'd1' }, mockDeps());
+    expect(r.status).toBe('forging');
+    expect(getMission(project, r.missionId)?.status).toBe('forging');
+
+    // Poll job to terminal state
+    for (let i = 0; i < 50; i++) {
+      if (getJob(project, r.jobId)?.status !== 'running') break;
+      await new Promise(res => setTimeout(res, 100));
+    }
+
+    expect(getJob(project, r.jobId)?.status).toBe('succeeded');
     expect(getMission(project, r.missionId)?.status).toBe('unapproved');
 
     const res = await post({ project, todoId: r.missionId });
