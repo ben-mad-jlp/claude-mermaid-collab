@@ -255,6 +255,7 @@ export async function setupMCPServer(): Promise<Server> {
       ...WORKGRAPH_TOOL_DEFS,
       SYSTEM_TOOL_DEFS[13],                     // context_usage
       SYSTEM_TOOL_DEFS[14],                     // list_conductor_passes
+      SYSTEM_TOOL_DEFS[15],                     // get_job
       ...SPREADSHEET_TOOL_DEFS,
       ...SNIPPET_TOOL_DEFS,
       ...EMBED_TOOL_DEFS,
