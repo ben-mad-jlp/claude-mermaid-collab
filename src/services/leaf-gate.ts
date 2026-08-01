@@ -1109,7 +1109,14 @@ export function routeSpecsToLanes(specs: readonly string[], lanes: readonly Gate
 /** {file}/{files} expansion for one lane. */
 export function expandLaneCommands(lane: GateTestLane, files: readonly string[]): string[] {
   return lane.mode === 'per-file'
-    ? files.map((f) => lane.command.replace(/\{file\}/g, shellQuote(f)))
+    // Per-file mode substitutes the single file for EITHER placeholder. A lane whose
+    // template uses {files} (a batch lane) is legitimately FORCED to per-file by the epic
+    // land gate (epic-land-gate.ts runs the epic's touched files one-per-spawn). The old
+    // /\{file\}/ regex left a {files} template literal → a malformed command (e.g.
+    // `cd ui && bunx vitest {files}`) that errors and reads as a false regression →
+    // gate-failed, wedging every UI-touching land. Matching {files?} substitutes the one
+    // file for {file} OR {files}; the batch arm below is unchanged.
+    ? files.map((f) => lane.command.replace(/\{files?\}/g, shellQuote(f)))
     : [lane.command.replace(/\{files\}/g, files.map(shellQuote).join(' '))];
 }
 
