@@ -76,6 +76,31 @@ afterEach(() => {
 });
 
 describe('ConductorActivityPanel', () => {
+  it('shows the loading affordance and not the empty text while the fetch is unsettled', async () => {
+    global.fetch = vi.fn().mockImplementation(() => new Promise(() => {})) as any;
+
+    render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+    expect(screen.getByTestId('conductor-activity-loading')).toBeTruthy();
+    expect(screen.queryByText('No conductor passes yet.')).toBeNull();
+  });
+
+  it('shows the empty text once the fetch resolves with zero rows', async () => {
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ rows: [] }),
+      }),
+    ) as any;
+
+    render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No conductor passes yet.')).toBeTruthy();
+      expect(screen.queryByTestId('conductor-activity-loading')).toBeNull();
+    });
+  });
+
   it('prepends a new entry on conductor_pass WS event without refetching', async () => {
     render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
 
