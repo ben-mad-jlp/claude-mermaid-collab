@@ -6096,6 +6096,48 @@
       }
     },
     {
+      "name": "get_bridge_snapshot",
+      "description": "Read-only aggregate snapshot for the Bridge dashboard: projects, todos, missions, openEscalations, coverage, summaries. One call replaces the per-source fan-out.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "full",
+              "core"
+            ]
+          },
+          "serverIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "todosLimit": {
+                "type": "number"
+              },
+              "missionsLimit": {
+                "type": "number"
+              },
+              "missionsCursor": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
       "name": "create_mission",
       "description": "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.",
       "inputSchema": {

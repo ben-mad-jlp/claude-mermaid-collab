@@ -274,6 +274,36 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // BRIDGE SNAPSHOT — read-only aggregate snapshot for the Bridge dashboard:
+  // projects, todos, missions, openEscalations, coverage, summaries.
+  if (url.pathname === '/api/supervisor/bridge-snapshot' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      if (!project) return jsonError('project is required', 400);
+      const view = url.searchParams.get('view') ?? undefined;
+      const serverIdsRaw = url.searchParams.getAll('serverIds');
+      const serverIds = serverIdsRaw.length > 0
+        ? serverIdsRaw.flatMap((s) => s.split(',')).filter(Boolean)
+        : undefined;
+      const todosLimit = url.searchParams.get('todosLimit');
+      const missionsLimit = url.searchParams.get('missionsLimit');
+      const missionsCursor = url.searchParams.get('missionsCursor') ?? undefined;
+      const { buildBridgeSnapshot } = await import('../services/bridge-snapshot.ts');
+      const snapshot = await buildBridgeSnapshot(project, {
+        view: view as any,
+        serverIds,
+        pagination: {
+          todosLimit: todosLimit ? Number(todosLimit) : undefined,
+          missionsLimit: missionsLimit ? Number(missionsLimit) : undefined,
+          missionsCursor,
+        },
+      });
+      return Response.json(snapshot);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // HISTORY — browse the archive (todos or missions) for a project, newest-archivedAt
   // first, keyset-paginated. Read-only. Companion to the MISSIONS/todos hot-path routes
   // above; the archival sweep (archival-sweep.ts) is what populates archivedAt.
