@@ -258,6 +258,21 @@ interface SpawnResult {
 const DEFAULT_STEP_TIMEOUT_MS = 5 * 60_000;
 const QUICK_TIMEOUT_MS = 30_000;
 
+export const UNLANDED_EPICS_TTL_MS = 5000;
+const unlandedEpicsCache = new Map<
+  string,
+  { at: number; value: Array<{ branch: string; epicId8: string; ahead: number }> }
+>();
+export function _resetUnlandedEpicsCache(): void {
+  unlandedEpicsCache.clear();
+}
+function _invalidateUnlandedEpicsCacheFor(projectRoot: string): void {
+  const prefix = `${projectRoot}::`;
+  for (const key of unlandedEpicsCache.keys()) {
+    if (key.startsWith(prefix)) unlandedEpicsCache.delete(key);
+  }
+}
+
 export class WorktreeManager {
   private pendingEnsures = new Map<string, Promise<SessionWorktree>>();
   private readonly spawnFn: (cmd: string[], opts: any) => any;
@@ -1183,6 +1198,9 @@ export class WorktreeManager {
    *  readout (design-epic-landing P1). Returns [] off a non-git repo or on error. */
   async listUnlandedEpics(baseRef: string = 'master'): Promise<Array<{ branch: string; epicId8: string; ahead: number }>> {
     if (!(await this.isGitRepo())) return [];
+    const key = `${this.opts.projectRoot}::${baseRef}`;
+    const cached = unlandedEpicsCache.get(key);
+    if (cached && this.now() - cached.at < UNLANDED_EPICS_TTL_MS) return cached.value;
     const trunk = await this.resolveBase(baseRef); // main vs master — a `main` repo has no master
     const list = await this.runGit(
       this.opts.projectRoot,
@@ -1202,6 +1220,7 @@ export class WorktreeManager {
       const ahead = parseInt(res.stdout.trim() || '0', 10) || 0;
       if (ahead > 0) out.push({ branch, epicId8: branch.replace(/^collab\/epic\//, ''), ahead });
     }
+    unlandedEpicsCache.set(key, { at: this.now(), value: out });
     return out;
   }
 
@@ -2186,6 +2205,8 @@ export class WorktreeManager {
       if (updateRes.code !== 0) {
         return { landed: false, conflict: false, reason: `base-ref-cas-failed: ${updateRes.stderr.trim()}` };
       }
+
+      _invalidateUnlandedEpicsCacheFor(this.opts.projectRoot);
 
       // P0 0949289b Part 2 — PREVENT the post-land stale-checkout corruption at the SOURCE.
       // `update-ref` advanced <baseRef>, but if THIS repo (projectRoot) has <baseRef> checked out,
