@@ -21,18 +21,22 @@ const activeMission = {
 };
 
 let mockMissions: any[] = [activeMission];
+let mockHasLoadedOnce = true;
 
 // Mock useMissions to provide test data
 vi.mock('../rail/useMissions', () => ({
   useMissions: () => ({
     missions: mockMissions,
     setMissions: vi.fn(),
+    hasLoadedOnce: mockHasLoadedOnce,
+    status: mockHasLoadedOnce ? 'loaded' : 'loading',
   }),
 }));
 
 afterEach(() => {
   vi.restoreAllMocks();
   mockMissions = [activeMission];
+  mockHasLoadedOnce = true;
 });
 
 describe('MissionDetailPanel — mission list', () => {
@@ -45,6 +49,17 @@ describe('MissionDetailPanel — mission list', () => {
     expect(screen.getByTestId('mission-new-btn')).toBeTruthy();
     // With empty missions list, the empty prompt shows.
     expect(screen.getByText(/No missions yet/i)).toBeTruthy();
+  });
+
+  it('shows the loading affordance before the initial fetch resolves and hides the No missions yet text', async () => {
+    mockMissions = [];
+    mockHasLoadedOnce = false;
+    global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as any);
+    render(<MissionDetailPanel serverId="" project="/abs/p" session="design" />);
+    await waitFor(() => expect(screen.getByTestId('inspector-missions')).toBeTruthy());
+
+    expect(screen.getByTestId('mission-detail-loading')).toBeTruthy();
+    expect(screen.queryByText(/No missions yet/i)).toBeNull();
   });
 
   it('no longer renders the daemon-controls toggle or nodes matrix (moved to settings modal)', async () => {

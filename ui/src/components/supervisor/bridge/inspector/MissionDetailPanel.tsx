@@ -27,7 +27,7 @@ export interface MissionDetailPanelProps {
 }
 
 export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId, project, session }) => {
-  const { missions, setMissions } = useMissions(serverId, project);
+  const { missions, setMissions, hasLoadedOnce } = useMissions(serverId, project);
   const createMission = useSupervisorStore((s) => s.createMission);
 
   const [showCompleted, setShowCompleted] = useState(false);
@@ -72,11 +72,15 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
       </div>
 
       {/* Mission detail view — the selected mission always shows, completed or not. */}
-      {missions.length === 0 ? (
+      {!hasLoadedOnce ? (
+        <div data-testid="mission-detail-loading" className="text-3xs italic text-gray-400 dark:text-gray-500">
+          Loading missions…
+        </div>
+      ) : hasLoadedOnce && missions.length === 0 ? (
         <div className="text-3xs italic text-gray-400 dark:text-gray-500">
           No missions yet — click "+ New mission" to start a convergence loop.
         </div>
-      ) : selected ? (
+      ) : hasLoadedOnce && selected ? (
         <>
           <MissionDetail
             m={selected}
