@@ -6923,6 +6923,25 @@
       }
     },
     {
+      "name": "get_job",
+      "description": "Retrieve a specific async job by id for a project. Returns the job record with its current status, kind, target, any error, timestamps, and parsed result.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "jobId"
+        ],
+        "type": "object"
+      }
+    },
+    {
       "name": "list_spreadsheets",
       "description": "List all spreadsheets in a session.",
       "inputSchema": {
