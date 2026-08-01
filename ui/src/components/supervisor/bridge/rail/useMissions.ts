@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSupervisorStore, type MissionSummary } from '@/stores/supervisorStore';
+import { useLoadedState, type LoadStatus } from '@/hooks/useLoadedState';
 
 /** Lifts the mission fetching effect and the run wrapper.
  *  Mounts: fetch missions once, then poll every 15s with an alive guard.
@@ -8,7 +9,8 @@ import { useSupervisorStore, type MissionSummary } from '@/stores/supervisorStor
 export function useMissions(serverId: string, project: string) {
   const fetchMissions = useSupervisorStore((s) => s.fetchMissions);
   const currentKey = `${serverId}|${project}`;
-  const [state, setState] = useState<{ key: string; items: MissionSummary[] }>({ key: currentKey, items: [] });
+  const [loadedKey, setLoadedKey] = useState(currentKey);
+  const loaded = useLoadedState<MissionSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const latestKeyRef = useRef(currentKey);
 
@@ -16,14 +18,27 @@ export function useMissions(serverId: string, project: string) {
     latestKeyRef.current = currentKey;
   });
 
-  const missions = state.key === currentKey ? state.items : [];
+  const stale = loadedKey !== currentKey;
+  const missions = stale ? [] : loaded.data;
+  const hasLoadedOnce = stale ? false : loaded.hasLoadedOnce;
+  const status: LoadStatus = stale ? 'loading' : loaded.status;
 
   useEffect(() => {
     let alive = true;
     const key = currentKey;
     const load = async () => {
-      const next = await fetchMissions(serverId, project);
-      if (alive && latestKeyRef.current === key) setState({ key, items: next });
+      try {
+        const next = await fetchMissions(serverId, project);
+        if (alive && latestKeyRef.current === key) {
+          setLoadedKey(key);
+          loaded.settle(next);
+        }
+      } catch (err) {
+        if (alive && latestKeyRef.current === key) {
+          setLoadedKey(key);
+          loaded.fail(err);
+        }
+      }
     };
     void load();
     const timer = setInterval(load, 15000);
@@ -31,10 +46,11 @@ export function useMissions(serverId: string, project: string) {
       alive = false;
       clearInterval(timer);
     };
-  }, [serverId, project, fetchMissions, currentKey]);
+  }, [serverId, project, fetchMissions, currentKey, loaded]);
 
   const setMissions = (items: MissionSummary[]) => {
-    setState({ key: currentKey, items });
+    setLoadedKey(currentKey);
+    loaded.settle(items);
   };
 
   const run = async (fn: () => Promise<MissionSummary[]>) => {
@@ -46,5 +62,5 @@ export function useMissions(serverId: string, project: string) {
     }
   };
 
-  return { missions, setMissions, run, busy };
+  return { missions, setMissions, run, busy, hasLoadedOnce, status };
 }

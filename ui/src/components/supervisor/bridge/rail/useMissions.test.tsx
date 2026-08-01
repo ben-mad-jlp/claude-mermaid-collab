@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, renderHook } from '@testing-library/react';
+import { act } from '@testing-library/react';
 
 interface DeferredPromise<T> {
   promise: Promise<T>;
@@ -50,6 +51,7 @@ vi.mock('@/stores/supervisorStore', () => ({
   },
 }));
 
+import { useMissions } from './useMissions';
 import { MissionStrip } from '../MissionStrip';
 
 describe('useMissions — key-tag stale-project blanking', () => {
@@ -161,5 +163,41 @@ describe('useMissions — key-tag stale-project blanking', () => {
 
     expect(screen.queryByText('Project A Mission')).toBeNull();
     expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+  });
+});
+
+describe('useMissions hook — hasLoadedOnce key-scoped tracking', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('hasLoadedOnce is false before first fetch resolves, true after, and false again immediately after project changes', async () => {
+    deferredA = makeDeferredPromise<any[]>();
+    deferredB = makeDeferredPromise<any[]>();
+
+    const { result, rerender } = renderHook(
+      ({ serverId, project }: { serverId: string; project: string }) =>
+        useMissions(serverId, project),
+      { initialProps: { serverId: 's', project: '/projA' } }
+    );
+
+    expect(result.current.hasLoadedOnce).toBe(false);
+    expect(result.current.status).toBe('loading');
+
+    act(() => {
+      deferredA.resolve([makeMissionSummary('/projA', 'Project A Mission')]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.hasLoadedOnce).toBe(true);
+    });
+    expect(result.current.status).toBe('loaded');
+    expect(result.current.missions).toHaveLength(1);
+
+    rerender({ serverId: 's', project: '/projB' });
+
+    expect(result.current.hasLoadedOnce).toBe(false);
+    expect(result.current.status).toBe('loading');
+    expect(result.current.missions).toHaveLength(0);
   });
 });
