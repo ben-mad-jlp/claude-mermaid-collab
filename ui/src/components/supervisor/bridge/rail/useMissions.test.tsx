@@ -67,10 +67,11 @@ describe('useMissions — key-tag stale-project blanking', () => {
       <MissionStrip serverId="s" project="/projA" onOpenMissions={() => {}} />
     );
 
-    // Project A's fetch is in flight; idle label shows.
+    // Project A's fetch is in flight; the loading affordance shows, never the empty state.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
     expect(screen.queryByText('Project A Mission')).toBeNull();
 
     // Switch to project B before A resolves.
@@ -79,10 +80,11 @@ describe('useMissions — key-tag stale-project blanking', () => {
     );
 
     // Even though A's fetch was first, B's fetch is now the active one.
-    // The idle label should still show (B not yet resolved).
+    // B is not yet resolved, so the loading affordance shows — not the empty state.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
     expect(screen.queryByText('Project A Mission')).toBeNull();
     expect(screen.queryByText('Project B Mission')).toBeNull();
 
@@ -114,7 +116,7 @@ describe('useMissions — key-tag stale-project blanking', () => {
 
     // Project A fetch is in flight.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
 
     // Switch to B.
@@ -122,9 +124,9 @@ describe('useMissions — key-tag stale-project blanking', () => {
       <MissionStrip serverId="s" project="/projB" onOpenMissions={() => {}} />
     );
 
-    // B idle state.
+    // B's fetch is unsettled — loading, not empty.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
 
     // Resolve B first.
@@ -162,7 +164,9 @@ describe('useMissions — key-tag stale-project blanking', () => {
     );
 
     expect(screen.queryByText('Project A Mission')).toBeNull();
-    expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+    // B's fetch has not settled, so the strip shows loading — never the empty state.
+    expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
   });
 });
 
