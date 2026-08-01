@@ -84,6 +84,7 @@ export const SUPERVISOR_TOOL_DEFS = [
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       { name: 'set_node_profile_override', description: 'Set (or clear, by passing model/effort/provider all null) a per-project, per-node-kind model/effort/provider override.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, model: { type: ['string', 'null'] }, effort: { type: ['string', 'null'] }, provider: { type: ['string', 'null'] } }, required: ['project', 'kind'] } },
+      { name: 'get_bridge_snapshot', description: 'Read-only aggregate snapshot for the Bridge dashboard: projects, todos, missions, openEscalations, coverage, summaries. One call replaces the per-source fan-out.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, view: { type: 'string', enum: ['full', 'core'] }, serverIds: { type: 'array', items: { type: 'string' } }, pagination: { type: 'object', properties: { todosLimit: { type: 'number' }, missionsLimit: { type: 'number' }, missionsCursor: { type: 'string' } } } }, required: ['project'] } },
 ];
 
 export async function handleSupervisorTool(name: string, args: any): Promise<string | null> {
@@ -417,6 +418,13 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             if (mismatch) throw new Error(mismatch);
             oc.setNodeProfileOverride(project, kind, model ?? null, (effort ?? null) as any, (provider ?? null) as any);
             return JSON.stringify(oc.listNodeProfileOverrides(project), null, 2);
+          }
+          case 'get_bridge_snapshot': {
+            const { project, view, serverIds, pagination } = args ?? {};
+            if (!project) throw new Error('Missing required: project');
+            const { buildBridgeSnapshot } = await import('../services/bridge-snapshot.js');
+            const snapshot = await buildBridgeSnapshot(project, { view, serverIds, pagination });
+            return JSON.stringify(snapshot, null, 2);
           }
           default:
             return null;
