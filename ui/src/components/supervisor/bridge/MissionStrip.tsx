@@ -44,11 +44,29 @@ const MiniGauge: React.FC<{ label: string; met: number; total: number; tone: 'go
 };
 
 export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, onOpenMissions }) => {
-  const { missions } = useMissions(serverId, project);
+  const { missions, hasLoadedOnce } = useMissions(serverId, project);
 
   const m = missions.find((m) => m.mission?.active !== false && !isMissionCompleted(m))
     ?? missions.find((m) => !isMissionCompleted(m))
     ?? null;
+
+  // Loading state — fetch hasn't resolved yet
+  if (!hasLoadedOnce) {
+    return (
+      <button
+        type="button"
+        data-testid="mission-strip"
+        onClick={onOpenMissions}
+        title="Open missions"
+        className="flex w-full items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
+      >
+        <span className="text-3xs text-gray-400 dark:text-gray-500 italic" data-testid="mission-strip-loading">
+          Loading missions…
+        </span>
+        <span className="ml-auto shrink-0 text-3xs text-gray-400 dark:text-gray-500">Missions ›</span>
+      </button>
+    );
+  }
 
   // No active mission — still a click target so the pane (switcher + New) is reachable.
   if (!m) {

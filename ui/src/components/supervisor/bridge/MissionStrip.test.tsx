@@ -3,9 +3,17 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MissionStrip } from './MissionStrip';
 
 let mockMissions: any[] = [];
+let mockHasLoadedOnce = true;
 
 vi.mock('./rail/useMissions', () => ({
-  useMissions: () => ({ missions: mockMissions, setMissions: vi.fn(), run: vi.fn(), busy: false }),
+  useMissions: () => ({
+    missions: mockMissions,
+    hasLoadedOnce: mockHasLoadedOnce,
+    status: mockHasLoadedOnce ? 'success' : 'loading',
+    setMissions: vi.fn(),
+    run: vi.fn(),
+    busy: false,
+  }),
 }));
 
 const liveMission = {
@@ -27,6 +35,7 @@ const convergedActiveMission = {
 afterEach(() => {
   vi.restoreAllMocks();
   mockMissions = [];
+  mockHasLoadedOnce = true;
 });
 
 const nicknamedMission = {
@@ -79,6 +88,26 @@ describe('MissionStrip — terminal-skip selection', () => {
     render(<MissionStrip serverId="s" project="/p" onOpenMissions={onOpenMissions} />);
     const btn = screen.getByTestId('mission-strip');
     expect(screen.getByTestId('mission-strip-idle-label').textContent).toMatch(/No active mission/);
+    fireEvent.click(btn);
+    expect(onOpenMissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the loading affordance instead of the idle label before the fetch settles', () => {
+    mockHasLoadedOnce = false;
+    mockMissions = [];
+    const onOpenMissions = vi.fn();
+    render(<MissionStrip serverId="s" project="/p" onOpenMissions={onOpenMissions} />);
+
+    // Assert loading state is shown
+    expect(screen.getByTestId('mission-strip-loading')).toBeTruthy();
+    expect(screen.getByTestId('mission-strip-loading').textContent).toMatch(/Loading missions/);
+
+    // Assert idle label is not present
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
+    expect(screen.queryByText(/No active mission/)).toBeNull();
+
+    // Assert the button is still clickable
+    const btn = screen.getByTestId('mission-strip');
     fireEvent.click(btn);
     expect(onOpenMissions).toHaveBeenCalledTimes(1);
   });
