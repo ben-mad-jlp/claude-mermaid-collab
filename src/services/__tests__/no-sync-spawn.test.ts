@@ -71,12 +71,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'import + `git rev-parse --short HEAD` + `git status --porcelain` per status ' +
       'call — two one-shot local reads, ~100ms worst case.',
   },
-  'routes/supervisor-routes.ts': {
-    count: 2,
-    reason:
-      'import + one `git status --porcelain --untracked-files=no` per request — a ' +
-      'single one-shot index read, ~100ms worst case.',
-  },
 };
 
 /** Strip // line comments and /* *​/ block comments so documentation may still SAY
