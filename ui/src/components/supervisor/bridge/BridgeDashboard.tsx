@@ -12,7 +12,7 @@
  * not nest inside the stage.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionTodo } from '@/types/sessionTodo';
@@ -63,6 +63,11 @@ import { UnlandedStrip } from './UnlandedStrip';
 // cross-instance escalation that misses the per-process broadcast still surfaces
 // within the same window the worker card turns red.
 const ESCALATION_POLL_MS = 10_000;
+
+// Debounce window for coalescing bursty session_todos_updated broadcasts
+// (e.g. a leaf transitioning through several statuses in quick succession)
+// into a single refetchSnapshot() call.
+const TODO_NUDGE_DEBOUNCE_MS = 250;
 
 /** Graph-only view: hide finished noise. An epic is an epic BY DECLARED KIND
  *  (`kind === 'epic'`), never "a todo that has children" — a split leaf keeps its
@@ -116,7 +121,6 @@ export const BridgeDashboard: React.FC = () => {
   const unlandedEpicsByProject = useSupervisorStore((s) => s.unlandedEpicsByProject);
   const loadBridgeSnapshot = useSupervisorStore((s) => s.loadBridgeSnapshot);
   const loadUnlandedEpics = useSupervisorStore((s) => s.loadUnlandedEpics);
-  const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
   const loadAudit = useSupervisorStore((s) => s.loadAudit);
@@ -146,6 +150,7 @@ export const BridgeDashboard: React.FC = () => {
   // Bumped by the ↺ refresh button to force an immediate worker-card (session-status)
   // re-poll — otherwise the cards only refresh on useSessionStatuses' 10s interval.
   const [statusRefreshNonce, setStatusRefreshNonce] = useState(0);
+  const todoNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refetchSnapshot = useCallback(() => {
     if (project) void loadBridgeSnapshot(serverScope, project);
@@ -190,8 +195,12 @@ export const BridgeDashboard: React.FC = () => {
     // only resynced on mount/reconnect/manual-↺, so a server-side block left a stale
     // in-flight card. Targeted reload of just the affected project's todos.
     const msgSub = client.onMessage((msg: any) => {
-      if (msg?.type === 'session_todos_updated' && typeof msg.project === 'string' && msg.project) {
-        void loadProjectTodos(serverScope, msg.project);
+      if (msg?.type === 'session_todos_updated' && msg.project === project) {
+        if (todoNudgeTimerRef.current) clearTimeout(todoNudgeTimerRef.current);
+        todoNudgeTimerRef.current = setTimeout(() => {
+          todoNudgeTimerRef.current = null;
+          refetchSnapshot();
+        }, TODO_NUDGE_DEBOUNCE_MS);
       }
       // Live-update the Escalations inbox on the escalation_created broadcast —
       // the SAME on-demand re-poll d1367b0 gave the todo/worker cards. This is the
@@ -213,8 +222,12 @@ export const BridgeDashboard: React.FC = () => {
     for (const p of new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean))) {
       void useWorkerFabricStore.getState().hydrateFromServer(p);
     }
-    return () => { sub.unsubscribe(); msgSub.unsubscribe(); };
-  }, [resyncBridge, serverScope, loadProjectTodos, loadEscalations, watchedProjects]);
+    return () => {
+      sub.unsubscribe();
+      msgSub.unsubscribe();
+      if (todoNudgeTimerRef.current) clearTimeout(todoNudgeTimerRef.current);
+    };
+  }, [resyncBridge, serverScope, refetchSnapshot, project, loadEscalations, watchedProjects]);
 
   // The broadcast above only reaches clients on the SAME server process that
   // handled escalation_create. A CROSS-PROJECT worker can be served by a different

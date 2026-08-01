@@ -130,4 +130,55 @@ describe('BridgeDashboard snapshot rewire', () => {
     expect(requestPathCounter.get('/api/supervisor/todos')).toBe(1);
     expect(requestPathCounter.get('/api/supervisor/escalations')).toBe(1);
   });
+
+  describe('session_todos_updated debounce + active-project gate', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('debounces session_todos_updated for the active project into a single snapshot fetch', async () => {
+      render(<BridgeDashboard />);
+
+      // Wait for the mount resync to settle before measuring.
+      await waitFor(() => {
+        expect(requestPathCounter.get('/api/supervisor/bridge-snapshot')).toBe(1);
+      });
+
+      vi.useFakeTimers();
+      requestPathCounter.clear();
+
+      for (const handler of messageHandlers) {
+        handler({ type: 'session_todos_updated', project: 'P' });
+        handler({ type: 'session_todos_updated', project: 'P' });
+        handler({ type: 'session_todos_updated', project: 'P' });
+      }
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(requestPathCounter.get('/api/supervisor/bridge-snapshot')).toBe(1);
+      expect(requestPathCounter.get('/api/supervisor/todos')).toBeUndefined();
+      expect(requestPathCounter.get('/api/supervisor/projects')).toBeUndefined();
+      expect(requestPathCounter.get('/api/supervisor/escalations')).toBeUndefined();
+      expect(requestPathCounter.get('/api/supervisor/coverage')).toBeUndefined();
+    });
+
+    it('ignores session_todos_updated for a non-active watched project', async () => {
+      render(<BridgeDashboard />);
+
+      await waitFor(() => {
+        expect(requestPathCounter.get('/api/supervisor/bridge-snapshot')).toBe(1);
+      });
+
+      vi.useFakeTimers();
+      const before = requestPathCounter.get('/api/supervisor/bridge-snapshot') ?? 0;
+
+      for (const handler of messageHandlers) {
+        handler({ type: 'session_todos_updated', project: 'Q' });
+      }
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(requestPathCounter.get('/api/supervisor/bridge-snapshot') ?? 0).toBe(before);
+    });
+  });
 });
