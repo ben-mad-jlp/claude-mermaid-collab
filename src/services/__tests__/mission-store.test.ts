@@ -12,7 +12,7 @@ import {
   dropCriterion, undropCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveTerminalMissionPrefix, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
-  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
+  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun, setCriterionVerdict, unverifyCriteriaForLandedPaths, listPendingRechecks,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { claimReason } from '../claimability';
@@ -810,6 +810,37 @@ describe('per-criterion discovery', () => {
       met: false,
       verifiedAt: 100,
       servingWorkCompletedAt: 50,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+  });
+
+  // ── Pending recheck: re-verify NOT-met criteria whose evidence was touched ──
+  test('a NOT-met criterion with a pending recheck and servedEpicCount >= CRITERION_SERVE_CAP derives verify, not escalate', () => {
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      recheckPendingAt: 150,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('verify');
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      recheckPendingAt: 150,
+      servedEpicCount: CRITERION_SERVE_CAP + 5,
+    }))).toBe('verify');
+  });
+
+  test('the same facts with NO pending recheck still derive escalate', () => {
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      recheckPendingAt: null,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      // recheckPendingAt omitted (defaults to absent)
       servedEpicCount: CRITERION_SERVE_CAP,
     }))).toBe('escalate');
   });
@@ -1648,5 +1679,47 @@ describe('mission-store: criterion type column', () => {
 
     expect(() => addCriterion(project, missionId, 'x', 'bogus-type' as any)).toThrow();
     expect(listCriteria(project, missionId)).toHaveLength(0);
+  });
+});
+
+describe('unverifyCriteriaForLandedPaths with NOT-met criteria', () => {
+  test('unverifyCriteriaForLandedPaths enqueues a mission_recheck row for a NOT-met criterion whose evidencePaths intersect the land diff', async () => {
+    const missionId = await makeMissionNode();
+    upsertMission(project, missionId);
+    const crit = addCriterion(project, missionId, 'evidence in src/foo.ts', 'capability');
+
+    // Set a NOT-met verdict (verifiedAt != null, met === false) with evidencePaths
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'test failed',
+      verifiedBy: 'test-verifier',
+      verifiedAtSha: 'abc123',
+      evidencePaths: ['src/foo.ts', 'src/bar.ts'],
+    });
+
+    // Verify the criterion is NOT-met with verifiedAt set
+    let criteria = listCriteria(project, missionId);
+    expect(criteria[0].met).toBe(false);
+    expect(criteria[0].verifiedAt).not.toBeNull();
+    expect(criteria[0].evidencePaths).toEqual(['src/foo.ts', 'src/bar.ts']);
+
+    // Before the call, no recheck should exist
+    expect(listPendingRechecks(project)).toHaveLength(0);
+
+    // Call unverifyCriteriaForLandedPaths with a land that intersects the evidence
+    const landedPaths = ['src/foo.ts', 'src/other.ts'];
+    const affected = unverifyCriteriaForLandedPaths(project, landedPaths, { landedSha: 'xyz789' });
+
+    // Should have enqueued a recheck for this NOT-met criterion
+    expect(affected).toHaveLength(1);
+    expect(affected[0].criterionId).toBe(crit.id);
+    expect(affected[0].todoId).toBe(missionId);
+
+    // Verify the recheck row was enqueued
+    const rechecks = listPendingRechecks(project);
+    expect(rechecks).toHaveLength(1);
+    expect(rechecks[0].criterionId).toBe(crit.id);
+    expect(rechecks[0].reason).toBe('land-diff-intersects-unmet-evidence');
+    expect(rechecks[0].landedSha).toBe('xyz789');
   });
 });

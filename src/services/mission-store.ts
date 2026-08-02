@@ -30,7 +30,7 @@ import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
-import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict } from './mission-status-predicates.ts';
+import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict, recheckPendingAfterVerdict as predRecheckPendingAfterVerdict } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -1303,15 +1303,26 @@ export function unverifyCriteriaForLandedPaths(
       continue;
     }
     for (const c of listCriteria(project, m.node.id)) {
-      if (!c.met) continue;
       if (!c.evidencePaths.some((p) => landed.has(p))) continue;
       const session = 'mission-loop';
-      const reopenCount = clearCriterionVerdict(project, c.id, {
-        countReopen: true, reopenSha: opts.landedSha ?? null, reason: 'land-diff-intersects-evidence',
-      });
-      enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
-      affected.push({ criterionId: c.id, todoId: c.todoId });
-      if (reopenCount >= REOPEN_CARD_THRESHOLD) raiseReopenChurnCard(project, session, { ...c, reopenCount });
+      // MET branch: a met criterion whose evidence intersects a land re-checks (re-measure).
+      if (c.met) {
+        const reopenCount = clearCriterionVerdict(project, c.id, {
+          countReopen: true, reopenSha: opts.landedSha ?? null, reason: 'land-diff-intersects-evidence',
+        });
+        enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
+        affected.push({ criterionId: c.id, todoId: c.todoId });
+        if (reopenCount >= REOPEN_CARD_THRESHOLD) raiseReopenChurnCard(project, session, { ...c, reopenCount });
+      } else if (c.verifiedAt != null) {
+        // NOT-MET branch: a NOT-met, verified criterion whose evidence intersects a land
+        // re-checks its evidence (the work may have completed via a direct commit or sibling epic).
+        // countReopen: false — this is re-verifying completed work, not a reopen of prior success.
+        clearCriterionVerdict(project, c.id, {
+          countReopen: false, reason: 'land-diff-intersects-unmet-evidence',
+        });
+        enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-unmet-evidence', landedSha: opts.landedSha ?? null });
+        affected.push({ criterionId: c.id, todoId: c.todoId });
+      }
     }
   }
   if (skipped.length > 0) {
@@ -1359,6 +1370,11 @@ export interface MissionCriterionFacts {
    *  descendant leaves, set ONLY when that epic has no unfinished leaf. Optional so existing
    *  fact fixtures need no change. */
   servingWorkCompletedAt?: number | null;
+  /** Timestamp a recheck was enqueued for this criterion (when its evidence was touched
+   *  by a land diff or direct commit). Signals that a NOT-met criterion is being actively
+   *  re-verified, not idle in escalate. Optional (defaults to absent/null) so existing fact
+   *  fixtures need no change; set by collectMissionStatusFacts. */
+  recheckPendingAt?: number | null;
   /** Every epic serving this criterion (primary edge or servesCriterionIds), with its
    *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
@@ -1428,6 +1444,10 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   // isn't required to know the work is done — non-landing is orthogonal to whether it should be
   // graded again.
   if (predServingWorkCompletedAfterVerdict(c)) return 'verify';
+  // A NOT-met criterion with a pending recheck enqueued (evidence touched by a land or direct
+  // commit) is being actively re-evaluated. The recheck gate will decide if the work completed;
+  // don't escalate while it's in flight — that would suppress the active re-verification.
+  if (predRecheckPendingAfterVerdict(c)) return 'verify';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
   // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
   // escalate to a human once instead. ONLY the discover path caps — verify/building/met are
@@ -1656,7 +1676,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     // mission-loop stopped running cannot latch a mission at 'stalled' forever.
     stalled: isMissionStalled(project, m.todoId, now),
     queued: m.active !== true && m.queuePos != null,
-    criteria: criteria.map((c) => {
+    criteria: (() => {
+      const pendingRechecks = listPendingRechecks(project);
+      const rechecksBycriterionId = new Map(pendingRechecks.map((r) => [r.criterionId, r.enqueuedAt]));
+      return criteria.map((c) => {
       // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
       // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
       const serving = epics.filter((e) => todoServesCriterion(e, c.id));
@@ -1766,8 +1789,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         if (m == null) continue;
         servingWorkCompletedAt = servingWorkCompletedAt == null ? m : Math.max(servingWorkCompletedAt, m);
       }
-      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, servingEpics, unmetDependencyIds };
-    }),
+      const recheckPendingAt = rechecksBycriterionId.get(c.id) ?? null;
+      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, recheckPendingAt, servingEpics, unmetDependencyIds };
+      });
+    })(),
   };
 }
 
