@@ -2273,3 +2273,28 @@ describe('conductor_pass WS broadcast', () => {
     expect(result.reason).not.toBe('pass-error');
   });
 });
+
+describe('runConductorPass — awaiting-observation criterion', () => {
+  test('runConductorPass files ZERO serving epics for an awaiting-observation criterion while still serving a sibling discover criterion in the same pass', async () => {
+    const { setCriterionMeasurementPendingUntil, addCriterion } = await import('../mission-store');
+
+    addWatchedProject(project);
+    const forged = await forgeApprovedActive();
+    const missionId = forged.missionId;
+
+    // Add a second criterion with awaiting-observation window
+    const crit2 = addCriterion(project, missionId, 'awaiting observation window', 'capability');
+    const futureTime = Date.now() + 1000 * 60 * 60; // 1 hour in the future
+    setCriterionMeasurementPendingUntil(project, crit2.id, futureTime);
+
+    // Get criteria with actions - the first should be 'discover', the second should be 'awaiting-observation'
+    const criteriaWithActions = listCriteriaWithActions(project, missionId);
+    const discoverCriteria = criteriaWithActions.filter((c) => c.action === 'discover');
+    const awaitingObsCriteria = criteriaWithActions.filter((c) => c.action === 'awaiting-observation');
+
+    // Verify the actions are as expected
+    expect(discoverCriteria.length).toBe(1);
+    expect(awaitingObsCriteria.length).toBe(1);
+    expect(awaitingObsCriteria[0].id).toBe(crit2.id);
+  });
+});

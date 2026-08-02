@@ -295,7 +295,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped' | 'awaiting-observation-wait';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -357,6 +357,7 @@ export function conductorStatusLine(
     case 'debounced': return 'idle — nothing to do';
     case 'building-wait': return 'building — waiting on work';
     case 'criteria-blocked': return 'waiting on a dependency';
+    case 'awaiting-observation-wait': return 'waiting on a live-observation window';
     case 'criteria-escalated': return n(counts.serveCapDeferred) ? `${n(counts.serveCapDeferred)} stuck — needs you` : 'stuck — needs you';
     case 'redecomposed': return 're-planned an epic';
     case 'over-budget-rebet': return 'over budget — needs you';
@@ -928,6 +929,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     // above and would otherwise fall through to an expensive, needless node invocation.
     const blockedOnly = actions.some((a) => a.action === 'blocked');
     if (blockedOnly && hardCardIds.length === 0) return done({ ran: false, reason: 'criteria-blocked', missionId });
+    // A mission whose only non-met criteria are 'awaiting-observation' (waiting on an elapsed
+    // observation window) also needs no node — the clock will satisfy them without action.
+    const awaitingObservationOnly = actions.every((a) => a.action === 'awaiting-observation' || a.action === 'dropped' || a.action === 'met');
+    if (awaitingObservationOnly && actions.some((a) => a.action === 'awaiting-observation') && hardCardIds.length === 0) {
+      return done({ ran: false, reason: 'awaiting-observation-wait', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
+    }
   }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);
