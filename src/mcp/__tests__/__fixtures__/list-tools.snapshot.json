@@ -4921,7 +4921,7 @@
     },
     {
       "name": "invariant_check",
-      "description": "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no epic (kind='epic') ancestor), stranded-epic (epic whose non-dropped children are all done+accepted but `landedAt` is still null), stranded-leaf (ADVISORY: a landed epic still holding a non-dropped child that is not done+accepted), broken-depends-on (dependsOn references a missing or dropped todo), live-child-under-terminal-epic (child of a terminal epic that is itself not done/dropped), landed-at-divergence (`landedAt` and the done-land-leaf/git-ahead facts disagree). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.",
+      "description": "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no epic (kind='epic') ancestor), stranded-epic (epic whose non-dropped children are all done+accepted but `landedAt` is still null), stranded-leaf (ADVISORY: a landed epic still holding a non-dropped child that is not done+accepted), broken-depends-on (dependsOn references a missing or dropped todo), live-child-under-terminal-epic (non-terminal todo with a terminal (done/dropped) epic or mission ancestor), phantom-open-epic (non-terminal, non-mission epic whose children are all done/dropped), landed-at-divergence (`landedAt` and the done-land-leaf/git-ahead facts disagree). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.",
       "inputSchema": {
         "type": "object",
         "properties": {
