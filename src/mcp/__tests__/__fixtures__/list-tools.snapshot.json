@@ -6502,6 +6502,13 @@
               "type": "string"
             },
             "description": "Criterion ids this criterion depends on (must be met first). Optional."
+          },
+          "measurementPendingUntil": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window (null clears it)."
           }
         },
         "required": [
