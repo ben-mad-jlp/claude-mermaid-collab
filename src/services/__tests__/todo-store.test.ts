@@ -1001,9 +1001,10 @@ describe('sweepEpicRollups (54362542 — held + all-dropped)', () => {
     await updateTodo(project, c1.id, { status: 'dropped' });
     await updateTodo(project, c2.id, { status: 'dropped' });
     const { rolledUp } = await sweepEpicRollups(project);
-    expect(rolledUp).not.toContain(epic.id);
-    expect(getTodo(project, epic.id)!.status).not.toBe('done');
-    expect(getTodo(project, epic.id)!.acceptanceStatus).not.toBe('accepted');
+    const rolled = getTodo(project, epic.id)!;
+    expect(rolled.status).toBe('dropped');
+    expect(rolled.status).not.toBe('done');
+    expect(rolled.acceptanceStatus).not.toBe('accepted');
   });
 });
 
