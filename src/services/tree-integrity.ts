@@ -92,6 +92,86 @@ export async function currentHeadBranch(repoRoot: string): Promise<string | null
   return result.out || null;
 }
 
+/** Get the set of tracked files with uncommitted changes (index or worktree). */
+async function trackedDirtyPaths(repoRoot: string): Promise<string[]> {
+  const result = await git(repoRoot, ['status', '--porcelain', '--untracked-files=no']);
+  if (result.code !== 0) return [];
+  const lines = result.out.split('\n').filter(Boolean);
+  return lines.map((line) => line.slice(3).trim()); // Skip the 2-char status + space prefix
+}
+
+/** Compute the set of paths touched by a land (git diff --name-only oldBaseSha..landSha). */
+async function diffPaths(
+  repoRoot: string,
+  oldBaseSha: string,
+  landSha: string,
+): Promise<string[]> {
+  const result = await git(repoRoot, ['diff', '--name-only', `${oldBaseSha}..${landSha}`]);
+  if (result.code !== 0) return [];
+  return result.out.split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+/** Get the blob hash for a path in a commit (resolved via git rev-parse). */
+async function getBlobAtRef(repoRoot: string, ref: string, path: string): Promise<string | null> {
+  const result = await git(repoRoot, ['rev-parse', `${ref}:${path}`]);
+  if (result.code !== 0) return null;
+  return result.out || null;
+}
+
+/** Get the blob hash of a path in the index (stage 0). */
+async function getBlobInIndex(repoRoot: string, path: string): Promise<string | null> {
+  const result = await git(repoRoot, ['rev-parse', `:${path}`]);
+  if (result.code !== 0) return null;
+  return result.out || null;
+}
+
+/** Get the blob hash of a path in the worktree (via git hash-object). */
+async function getBlobInWorktree(repoRoot: string, path: string): Promise<string | null> {
+  const result = await git(repoRoot, ['hash-object', path]);
+  if (result.code !== 0) return null;
+  return result.out || null;
+}
+
+/**
+ * Compute the subset of trackedDirty paths that are PROVABLE pure reverts.
+ *
+ * A path is a pure revert iff:
+ *  1. It was touched by the land (in landedSet = diff oldBaseSha..landSha)
+ *  2. Both the index and worktree now match the blob at oldBaseSha (the pre-land state)
+ *
+ * Any resolution failure (path added by the land so absent at oldBaseSha; or deleted
+ * in the worktree) excludes that path — conservative by construction, never a false-positive.
+ */
+export async function landedRevertPaths(
+  repoRoot: string,
+  opts: { landSha: string; baseSha: string; trackedDirty: string[] },
+): Promise<string[]> {
+  // Compute the set of paths touched by the land.
+  const landedSet = new Set(await diffPaths(repoRoot, opts.baseSha, opts.landSha));
+
+  const reverted: string[] = [];
+  for (const path of opts.trackedDirty) {
+    // Only consider paths the land touched.
+    if (!landedSet.has(path)) continue;
+
+    // Resolve the base blob (pre-land).
+    const baseBlob = await getBlobAtRef(repoRoot, opts.baseSha, path);
+    if (!baseBlob) continue; // Path added by the land or git error — exclude.
+
+    // Resolve index blob.
+    const indexBlob = await getBlobInIndex(repoRoot, path);
+    if (!indexBlob || indexBlob !== baseBlob) continue; // Index changed or error — exclude.
+
+    // Resolve worktree blob.
+    const wtBlob = await getBlobInWorktree(repoRoot, path);
+    if (!wtBlob || wtBlob !== baseBlob) continue; // Worktree changed or error — exclude.
+
+    // All three match: this is a pure revert (index AND worktree both equal base blob).
+    reverted.push(path);
+  }
+  return reverted;
+}
+
 export interface PostLandGuardResult {
   /** The checkout is on the baseRef (if baseRef was provided). */
   onBaseRef: boolean;
@@ -111,17 +191,23 @@ export interface PostLandGuardResult {
   after: TreeStatus;
   /** Tracked files that diverged between worktree/index and HEAD. */
   divergentFiles: string[];
+  /** Paths that were restored via the narrow revert-repair (revertPathsRestored). */
+  revertPathsRestored: string[];
 }
 
 /** Single decision point for post-land tree restoration. Guards against unsafe resets
  *  by checking (1) whether there is tracked-dirty work, and (2) whether HEAD is on the
  *  base ref. Only resets when both are safe (no tracked dirty AND on baseRef).
+ *  When mismatch exists, dirty work is present, and baseSha is provided, attempt a
+ *  narrower repair: restore ONLY the proven-revert subset of dirty paths, leaving
+ *  unrelated dirty files untouched.
  *  Otherwise marks the outcome as skippedUnsafe and returns without modifying the tree. */
 export async function guardPostLandTree(
   repoRoot: string,
   opts: {
     masterSha?: string;
     baseRef?: string;
+    baseSha?: string;
     trackedDirty: string[];
   },
 ): Promise<PostLandGuardResult> {
@@ -142,11 +228,130 @@ export async function guardPostLandTree(
       before,
       after: before,
       divergentFiles,
+      revertPathsRestored: [],
     };
   }
 
-  // Mismatch exists. Check if safe to restore.
+  // Mismatch exists. Try narrow repair if we have baseSha and dirty work present.
   const hasDirtyWork = opts.trackedDirty.length > 0;
+  if (mismatch && hasDirtyWork && opts.baseSha && onBaseRef) {
+    // Narrow-repair path: compute proven-revert subset and restore only those.
+    const revertPaths = await landedRevertPaths(repoRoot, {
+      landSha: opts.masterSha,
+      baseSha: opts.baseSha,
+      trackedDirty: opts.trackedDirty,
+    });
+
+    if (revertPaths.length > 0) {
+      // Found proven reverts. Snapshot first, then restore only those paths.
+      let snapshotRef: string | null = null;
+      if (before.resolved) {
+        const snapshotCommitResult = await git(
+          repoRoot,
+          ['commit-tree', before.workTree, '-p', 'HEAD', '-m', 'snapshot: pre-narrow-restore tree'],
+          {
+            GIT_AUTHOR_NAME: 'mermaid-collab',
+            GIT_AUTHOR_EMAIL: 'collab@localhost',
+            GIT_COMMITTER_NAME: 'mermaid-collab',
+            GIT_COMMITTER_EMAIL: 'collab@localhost',
+          },
+        );
+
+        if (snapshotCommitResult.code === 0) {
+          const snapshotSha = snapshotCommitResult.out;
+          snapshotRef = `refs/snapshots/pre-restore-${Date.now()}`;
+          const updateRefResult = await git(repoRoot, ['update-ref', snapshotRef, snapshotSha]);
+          if (updateRefResult.code !== 0) {
+            // Snapshot failed — abort repair, keep skippedUnsafe: true.
+            return {
+              onBaseRef,
+              trackedDirtyCount: opts.trackedDirty.length,
+              mismatch,
+              restored: false,
+              skippedUnsafe: true,
+              snapshotRef: null,
+              before,
+              after: before,
+              divergentFiles,
+              revertPathsRestored: [],
+            };
+          }
+        } else {
+          // Snapshot creation failed — abort repair.
+          return {
+            onBaseRef,
+            trackedDirtyCount: opts.trackedDirty.length,
+            mismatch,
+            restored: false,
+            skippedUnsafe: true,
+            snapshotRef: null,
+            before,
+            after: before,
+            divergentFiles,
+            revertPathsRestored: [],
+          };
+        }
+      }
+
+      // Restore exactly the proven-revert paths from landSha.
+      const restoreRes = await git(
+        repoRoot,
+        ['restore', '--source', opts.masterSha, '--staged', '--worktree', '--', ...revertPaths],
+      );
+
+      if (restoreRes.code === 0) {
+        // Re-read tracked-dirty state.
+        const nowDirty = await trackedDirtyPaths(repoRoot);
+
+        if (nowDirty.length === 0) {
+          // No more tracked-dirty files — repair succeeded.
+          const after = await treeStatus(repoRoot);
+          return {
+            onBaseRef,
+            trackedDirtyCount: 0,
+            mismatch, // Mismatch is whether there WAS a mismatch before repair (always true here).
+            restored: true, // Narrow repair via git restore succeeded; tree is now restored.
+            skippedUnsafe: false,
+            snapshotRef,
+            before,
+            after,
+            divergentFiles,
+            revertPathsRestored: revertPaths,
+          };
+        } else {
+          // Residual dirty work remains outside the revert set — report partially restored.
+          const after = await treeStatus(repoRoot);
+          return {
+            onBaseRef,
+            trackedDirtyCount: nowDirty.length,
+            mismatch, // Mismatch is whether there WAS a mismatch before repair (always true here).
+            restored: false,
+            skippedUnsafe: true, // Still unsafe due to residual dirty work.
+            snapshotRef,
+            before,
+            after,
+            divergentFiles,
+            revertPathsRestored: revertPaths,
+          };
+        }
+      }
+      // restore command failed — abort and return skippedUnsafe.
+      return {
+        onBaseRef,
+        trackedDirtyCount: opts.trackedDirty.length,
+        mismatch,
+        restored: false,
+        skippedUnsafe: true,
+        snapshotRef,
+        before,
+        after: before,
+        divergentFiles,
+        revertPathsRestored: [],
+      };
+    }
+    // No proven reverts — fall through to the unsafe path below.
+  }
+
   if (hasDirtyWork || !onBaseRef) {
     // Unsafe: either tracked dirty work present or not on base ref. Skip restoration.
     return {
@@ -159,6 +364,7 @@ export async function guardPostLandTree(
       before,
       after: before,
       divergentFiles,
+      revertPathsRestored: [],
     };
   }
 
@@ -174,6 +380,7 @@ export async function guardPostLandTree(
     before: rep.before,
     after: rep.after,
     divergentFiles,
+    revertPathsRestored: [],
   };
 }
 
