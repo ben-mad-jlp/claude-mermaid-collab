@@ -9,7 +9,8 @@ export interface ConductorActionRow {
   // Mirrors mission-store's CriterionAction (kept as literals so this module stays
   // store/db/git-import-free). 'dropped' is serve-inert but still fingerprinted, so a
   // drop changes the debounce signature and wakes the conductor.
-  action: 'met' | 'building' | 'verify' | 'discover' | 'blocked' | 'dropped' | 'escalate';
+  action: 'met' | 'building' | 'verify' | 'discover' | 'blocked' | 'dropped' | 'escalate'
+    | 'awaiting-observation';
   id: string;
   rejectedParked?: number;
 }
