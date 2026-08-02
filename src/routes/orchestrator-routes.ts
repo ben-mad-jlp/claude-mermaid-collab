@@ -251,15 +251,16 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
   }
 
   // POST /api/orchestrator/node-profiles/broadcast { project }
-  // Push this project's node model+effort matrix to EVERY other registered project
-  // (replacing theirs). Returns how many projects were updated.
+  // Push this project's node model+effort matrix to EVERY other registered project,
+  // preserving any per-project pins (merge, not replace). Returns how many projects were updated,
+  // plus arrays of kinds that were preserved or overwritten per target.
   if (url.pathname === '/api/orchestrator/node-profiles/broadcast' && req.method === 'POST') {
     try {
       const { project } = (await req.json()) as { project?: string };
       if (!project) return jsonError('project is required', 400);
       const targets = (await projectRegistry.list()).map((p) => p.path);
-      const applied = copyNodeProfilesTo(project, targets);
-      return Response.json({ project, applied, totalProjects: targets.length });
+      const { applied, preserved, overwritten } = copyNodeProfilesTo(project, targets);
+      return Response.json({ project, applied, preserved, overwritten, totalProjects: targets.length });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
