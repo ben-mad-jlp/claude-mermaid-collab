@@ -540,7 +540,10 @@ export type ConductorPassReason =
   // The pass STOPPED short-circuit before invoking the node: CONDUCTOR_TIMEOUT_RECUR_CAP
   // consecutive timeouts on this MISSION's unchanged serve-state (not a criterion) — a card
   // was raised naming the serve-state; the conductor will not re-invoke until it changes.
-  | 'conductor-timeouts-capped';
+  | 'conductor-timeouts-capped'
+  // The mission's only actionable criteria are shipped but awaiting live observation — the pass
+  // returns without spending a node (nothing to serve until the observation window closes).
+  | 'awaiting-observation-wait';
 
 export interface ConductorLastPass {
   missionId: string | null;
