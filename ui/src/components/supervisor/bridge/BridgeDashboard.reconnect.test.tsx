@@ -135,12 +135,13 @@ describe('BridgeDashboard post-reconnect resync', () => {
     expect(loadEscalations).not.toHaveBeenCalled();
     expect(loadProjectTodos).not.toHaveBeenCalled();
 
-    // NON-VACUITY: those zeros are real absences, not dead stubs. Both loaders
-    // are still wired — via the WS message handler — so driving that path makes
-    // the very same counters rise.
-    messageHandlers.forEach((h) => h({ type: 'session_todos_updated', project: 'P' }));
+    // NON-VACUITY: those reconnect zeros are real absences, not dead stubs. crit_6
+    // RETIRED the per-source loadProjectTodos fan-out — session_todos_updated now drives
+    // a DEBOUNCED composite refetchSnapshot (BridgeDashboard.tsx:198-202), not
+    // loadProjectTodos — so the surviving SYNCHRONOUS per-source path is
+    // escalation_created → loadEscalations (:211-212). Driving it makes that very counter
+    // rise, proving the spy is live and the reconnect zeros are genuine (not a broken stub).
     messageHandlers.forEach((h) => h({ type: 'escalation_created' }));
-    expect(loadProjectTodos).toHaveBeenCalledTimes(1);
     expect(loadEscalations).toHaveBeenCalledTimes(1);
   });
 });
