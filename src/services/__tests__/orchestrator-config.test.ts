@@ -276,15 +276,69 @@ describe('auto-collapse notices', () => {
 });
 
 describe('copyNodeProfilesTo (push to all projects)', () => {
-  it('replaces each target with the source set and skips the source', () => {
-    setNodeProfileOverride('/proj/src', 'blueprint', 'sonnet', 'max');
-    setNodeProfileOverride('/proj/src', 'review', null, 'high');
-    setNodeProfileOverride('/proj/dst', 'implement', 'haiku', 'low'); // pre-existing → wiped
-    const n = copyNodeProfilesTo('/proj/src', ['/proj/src', '/proj/dst', '/proj/dst2']);
-    expect(n).toBe(2); // source skipped
-    const expected: ReturnType<typeof listNodeProfileOverrides> = { blueprint: { model: 'sonnet', effort: 'max', provider: null }, review: { model: null, effort: 'high', provider: null } };
-    expect(listNodeProfileOverrides('/proj/dst')).toEqual(expected);
-    expect(listNodeProfileOverrides('/proj/dst2')).toEqual(expected);
-    expect(listNodeProfileOverrides('/proj/src')).toEqual(expected); // source untouched
+  it('merges source kinds into each target, preserving target pins', () => {
+    setNodeProfileOverride('/proj/merge-src', 'blueprint', 'sonnet', 'max');
+    setNodeProfileOverride('/proj/merge-src', 'review', null, 'high');
+    setNodeProfileOverride('/proj/merge-dst', 'implement', 'haiku', 'low'); // pre-existing → preserved
+    const result = copyNodeProfilesTo('/proj/merge-src', ['/proj/merge-src', '/proj/merge-dst', '/proj/merge-dst2']);
+    expect(result.applied).toBe(2); // source skipped
+
+    // /proj/merge-dst should have source kinds (blueprint, review) + its own pin (implement)
+    const dstProfiles = listNodeProfileOverrides('/proj/merge-dst');
+    expect(dstProfiles.blueprint).toEqual({ model: 'sonnet', effort: 'max', provider: null });
+    expect(dstProfiles.review).toEqual({ model: null, effort: 'high', provider: null });
+    expect(dstProfiles.implement).toEqual({ model: 'haiku', effort: 'low', provider: null }); // preserved
+
+    // /proj/merge-dst2 should have only source kinds
+    const dst2Profiles = listNodeProfileOverrides('/proj/merge-dst2');
+    expect(dst2Profiles).toEqual({
+      blueprint: { model: 'sonnet', effort: 'max', provider: null },
+      review: { model: null, effort: 'high', provider: null },
+    });
+
+    // Source should be untouched
+    expect(listNodeProfileOverrides('/proj/merge-src')).toEqual({
+      blueprint: { model: 'sonnet', effort: 'max', provider: null },
+      review: { model: null, effort: 'high', provider: null },
+    });
+
+    // Preserved should report that /proj/merge-dst kept implement
+    expect(result.preserved).toContainEqual({ project: '/proj/merge-dst', kinds: ['implement'] });
+    expect(result.overwritten).toEqual([]); // no overwrites in default path
+  });
+
+  it('a per-project operator pin survives a global profile push', () => {
+    setNodeProfileOverride('/proj/pin-src', 'blueprint', 'sonnet', 'max');
+    setNodeProfileOverride('/proj/pin-src', 'review', 'opus', 'high');
+    setNodeProfileOverride('/proj/pin-dst', 'implement', 'haiku', 'low'); // local pin
+
+    const result = copyNodeProfilesTo('/proj/pin-src', ['/proj/pin-src', '/proj/pin-dst', '/proj/pin-dst2']);
+
+    // /proj/pin-dst's implement pin should survive
+    const dstImplement = listNodeProfileOverrides('/proj/pin-dst').implement;
+    expect(dstImplement).toEqual({ model: 'haiku', effort: 'low', provider: null });
+
+    // Preserved should report it
+    expect(result.preserved).toContainEqual({ project: '/proj/pin-dst', kinds: ['implement'] });
+  });
+
+  it('force overwrites a per-project pin and reports it', () => {
+    setNodeProfileOverride('/proj/force-src', 'blueprint', 'sonnet', 'max');
+    setNodeProfileOverride('/proj/force-src', 'review', 'opus', 'high');
+    setNodeProfileOverride('/proj/force-dst', 'implement', 'haiku', 'low'); // local pin
+
+    const result = copyNodeProfilesTo('/proj/force-src', ['/proj/force-dst'], { force: true });
+
+    // /proj/force-dst should now have ONLY source kinds (implement wiped)
+    const dstProfiles = listNodeProfileOverrides('/proj/force-dst');
+    expect(dstProfiles).toEqual({
+      blueprint: { model: 'sonnet', effort: 'max', provider: null },
+      review: { model: 'opus', effort: 'high', provider: null },
+    });
+    expect(dstProfiles.implement).toBeUndefined(); // wiped
+
+    // Overwritten should report it
+    expect(result.overwritten).toContainEqual({ project: '/proj/force-dst', kinds: ['implement'] });
+    expect(result.preserved).toEqual([]); // nothing preserved in force mode
   });
 });

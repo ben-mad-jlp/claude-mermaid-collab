@@ -158,3 +158,16 @@ export function servingWorkCompletedAfterVerdict(c: {
     c.servingWorkCompletedAt > c.verifiedAt
   );
 }
+
+/**
+ * Fail-closed: a NOT-met criterion has a pending recheck enqueued (its evidence was touched
+ * by a land or direct commit, and the recheck gate is watching for the work to complete).
+ * A pending recheck means the criterion is being actively re-evaluated, not idle in escalate.
+ * Any missing input ⇒ false.
+ */
+export function recheckPendingAfterVerdict(c: {
+  met: boolean;
+  recheckPendingAt?: number | null;
+}): boolean {
+  return !c.met && c.recheckPendingAt != null;
+}
