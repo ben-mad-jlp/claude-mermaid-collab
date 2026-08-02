@@ -9,6 +9,7 @@
  * Bounded: at most `BASE_REPAIR_ATTEMPT_CAP` repair epics per epic per `BASE_REPAIR_WINDOW_MS`.
  * Idempotent: an already-in-flight repair epic blocks a duplicate raise.
  */
+import { createHash } from 'node:crypto';
 import { listTodos, updateTodo, type Todo } from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { createEpicWithLandLeaf, addLeavesToEpic, type LeafInput } from '../mcp/workgraph-tools.js';
@@ -16,9 +17,27 @@ import { WAKE_GATE_REPROBE_TTL_MS } from './conductor-wake-gate.js';
 import { isLanded } from './epic-landedness.js';
 
 /** Stable dedupe marker embedded in the epic's description. Mirrors {@link infraRejectedMarker}
- *  shape and the epic branch's `laneSignature` format. Greppable. */
+ *  shape and the epic branch's `laneSignature` format. Greppable.
+ *  LEGACY shape — no longer produced by {@link raiseBaseRepairEpic}, but still present in live
+ *  todo rows and matched by {@link BASE_REPAIR_LEGACY_TARGET_RE}. */
 export function baseRepairMarker(epicId: string, laneSig: string): string {
   return `[base-repair:${epicId.slice(0, 8)}:${laneSig.slice(0, 8)}]`;
+}
+
+/** Stable, tip-independent lane identity for a (targetProject, trunkRef) pair. */
+export function baseRepairLaneKey(targetProject: string, trunkRef: string): string {
+  return `${targetProject.replace(/\/+$/, '')}\0${trunkRef}`;
+}
+
+/** Hashed, greppable lane marker embedded in the repair epic's description. */
+export function baseRepairLaneMarker(laneKey: string): string {
+  return `[base-repair-lane:${createHash('sha256').update(laneKey).digest('hex').slice(0, 8)}]`;
+}
+
+/** Tag identifying the surfacing epic, separate from the lane marker, so
+ *  {@link reapSettledBaseRepairEpics} can resolve the target epic without keying dedupe on it. */
+export function baseRepairTargetMarker(epicId: string): string {
+  return `[base-repair-target:${epicId.slice(0, 8)}]`;
 }
 
 /** At most this many base-repair epics per red epic per window. */
@@ -64,7 +83,8 @@ export function findBaseRepairEpics(
   return { open, attemptsInWindow };
 }
 
-const BASE_REPAIR_MARKER_RE = /\[base-repair:([0-9a-f]{8}):[0-9a-f]{8}\]/;
+const BASE_REPAIR_TARGET_RE = /\[base-repair-target:([0-9a-f]{8})\]/;
+const BASE_REPAIR_LEGACY_TARGET_RE = /\[base-repair:([0-9a-f]{8}):[0-9a-f]{8}\]/;
 
 /**
  * Reap base-repair epics whose targeted lane has already settled (landed or dropped).
@@ -92,7 +112,8 @@ export async function reapSettledBaseRepairEpics(
   for (const t of todos) {
     if (!isEpic(t) || t.baseRepair !== 1 || t.status === 'done' || t.status === 'dropped') continue;
 
-    const match = BASE_REPAIR_MARKER_RE.exec(t.description ?? '');
+    const desc = t.description ?? '';
+    const match = BASE_REPAIR_TARGET_RE.exec(desc) ?? BASE_REPAIR_LEGACY_TARGET_RE.exec(desc);
     if (!match) continue;
 
     const target = byId8.get(match[1]);
@@ -152,6 +173,7 @@ export interface RaiseBaseRepairArgs {
   epicId: string;
   targetProject: string;
   laneSignature: string;
+  trunkRef: string;
   cause: string;
   reasonTail: string;
   epicBranch: string;
@@ -193,14 +215,16 @@ export async function raiseBaseRepairEpic(
   args: RaiseBaseRepairArgs,
   io?: RaiseBaseRepairIo,
 ): Promise<RaiseBaseRepairResult> {
-  const marker = baseRepairMarker(args.epicId, args.laneSignature);
+  const laneKey = baseRepairLaneKey(args.targetProject, args.trunkRef);
+  const laneMarker = baseRepairLaneMarker(laneKey);
+  const targetMarker = baseRepairTargetMarker(args.epicId);
   const listTodosFn = io?.listTodos ?? listTodos;
   const createEpicFn = io?.createEpic ?? createEpicWithLandLeaf;
   const addLeavesFn = io?.addLeaves ?? addLeavesToEpic;
   const updateTodoFn = io?.updateTodo ?? updateTodo;
 
   const todos = listTodosFn(args.project, { includeCompleted: true });
-  const { open, attemptsInWindow } = findBaseRepairEpics(todos, marker, io?.now?.());
+  const { open, attemptsInWindow } = findBaseRepairEpics(todos, laneMarker, io?.now?.());
 
   if (open.length > 0) {
     return { created: false, reason: 'already-in-flight' };
@@ -215,7 +239,8 @@ export async function raiseBaseRepairEpic(
     home: null,
     homeProvided: true,
     baseRepair: true,
-    description: marker + '\n' + args.cause + '\n' + args.reasonTail.slice(0, 2000),
+    description:
+      laneMarker + '\n' + targetMarker + '\n' + args.cause + '\n' + args.reasonTail.slice(0, 2000),
   });
 
   const leafSpec: LeafInput = {
@@ -223,7 +248,7 @@ export async function raiseBaseRepairEpic(
     status: 'ready',
     files: args.files ?? [],
     description: buildRepairLeafSpec({
-      marker,
+      marker: laneMarker,
       cause: args.cause,
       reasonTail: args.reasonTail,
       epicBranch: args.epicBranch,
