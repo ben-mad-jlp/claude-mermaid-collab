@@ -201,12 +201,21 @@ describe('single-producer-audit', () => {
       expect(files).toEqual(['src/services/todo-store.ts']);
     });
 
-    it('has exactly 3 call sites of closeEpicIfChildrenSettled', () => {
+    it('call sites of closeEpicIfChildrenSettled live only in completeTodo and sweepEpicRollups', () => {
+      // Invariant is the single-writer property (call sites confined to these two
+      // functions), not a call-site COUNT — a count equality tripwire reds master
+      // whenever a legitimate new call site lands inside one of these functions.
       const sites = callSites(corpus, 'closeEpicIfChildrenSettled', {
         excludeFiles: CALL_SITE_SCAN_EXCLUSIONS,
       });
-      expect(sites.length).toBe(3);
+      expect(sites.length).toBeGreaterThanOrEqual(3);
       expect(sites.every((s) => s.startsWith('src/services/todo-store.ts:'))).toBe(true);
+      const enclosings = sites.map((site) => {
+        const [filePath, lineStr] = site.split(':');
+        const line = parseInt(lineStr, 10);
+        return enclosingFunction(corpus, filePath, line);
+      });
+      expect([...new Set(enclosings)].sort()).toEqual(['completeTodo', 'sweepEpicRollups']);
     });
 
     it('does not include specified non-hit locations', () => {
