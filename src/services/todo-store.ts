@@ -12,7 +12,7 @@ import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './
 import type { LeafSplitItem } from './split-decision';
 import { LANDED_LEFTOVER_GRACE_MS } from './harness-caps';
 import { topoSortSplitItems } from './split-decision';
-import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
+import { ensureBucket, isBucketEpic, type BucketType } from './bucket-registry.ts';
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
@@ -186,7 +186,7 @@ export interface Todo {
    *  bucket — uniqued by a partial index and written ONLY by bucket-registry.ensureBucket.
    *  OPTIONAL on purpose: existing Todo literals/fixtures must compile unchanged, and a
    *  pre-migration row reads null (isBucketEpic falls back to the legacy title match). */
-  bucketType?: 'inbox' | 'bugfix' | null;
+  bucketType?: BucketType | null;
   /** R2 friction-triage layer tag: discriminates recurring-friction children filed under
    *  the same `bugfix` bucket by their originating layer. OPTIONAL for the same reason as
    *  bucketType; pre-V6 rows read null. */
@@ -286,7 +286,7 @@ export interface CreateTodoInput {
   isBucket?: boolean;
   /** INTERNAL ONLY — set exclusively by bucket-registry.ensureBucket, the sole writer of
    *  a non-null `bucketType`. Never populate from a public/MCP surface. */
-  _ensureBucketType?: 'inbox' | 'bugfix';
+  _ensureBucketType?: BucketType;
   /** R2 friction-triage layer tag: set by friction-triage when filing recurring-friction
    *  children under the `bugfix` bucket. Caller-settable (unlike bucketType). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
@@ -1503,7 +1503,7 @@ function rowToTodo(row: TodoRow): Todo {
     inheritedFiles,
     declaredFiles,
     isBucket: row.isBucket === 1,
-    bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
+    bucketType: (row.bucketType as BucketType | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     promotedTo: row.promotedTo ?? null,
     landedAt: row.landedAt ?? null,
