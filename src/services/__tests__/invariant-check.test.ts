@@ -36,7 +36,7 @@ describe('findViolations', () => {
     expect(findViolations([epic, work, land])).toEqual([]);
   });
 
-  test('ACCEPTANCE: seeded orphan + LAND-less epic returns exactly those two', () => {
+  test('ACCEPTANCE: seeded orphan + LAND-less epic returns exactly those two (plus phantom-open-epic)', () => {
     // Orphan: a non-epic todo with no [EPIC] ancestor.
     const orphan = todo({ id: 'orph', title: 'floating work', parentId: null, kind: 'leaf' });
     // Stranded epic (W5 cutover redefinition): an [EPIC] whose non-dropped children are all
@@ -51,15 +51,19 @@ describe('findViolations', () => {
     const v = findViolations([orphan, epic, child, goodEpic, goodWork, goodLand]);
     const orphans = v.filter((x) => x.kind === 'orphan');
     const stranded = v.filter((x) => x.kind === 'stranded-epic');
+    const phantomOpen = v.filter((x) => x.kind === 'phantom-open-epic');
 
     expect(orphans).toHaveLength(1);
     expect(orphans[0].todoId).toBe('orph');
     expect(stranded).toHaveLength(1);
     expect(stranded[0].todoId).toBe('e1');
+    // phantom-open-epic fires on e1 (non-terminal, non-mission epic with all-terminal children)
+    expect(phantomOpen).toHaveLength(1);
+    expect(phantomOpen[0].todoId).toBe('e1');
     // child of the LAND-less epic has an epic ancestor → NOT an orphan.
     expect(v.find((x) => x.todoId === 'c1')).toBeUndefined();
-    // exactly two violations total.
-    expect(v).toHaveLength(2);
+    // three violations total: orphan + stranded-epic + phantom-open-epic
+    expect(v).toHaveLength(3);
   });
 
   test('land leaf may be a transitive (grandchild) descendant', () => {
@@ -123,6 +127,94 @@ describe('findViolations', () => {
     const childNoKind = mkLegacyTodo({ id: 'c2', title: 'child work', parentId: 'e2' });
     const landNoKind = mkLegacyTodo({ id: 'l2', title: 'to master', parentId: 'e2' });
     expect(() => findViolations([epicNoKind, childNoKind, landNoKind])).toThrow(MissingKindError);
+  });
+
+  test('transitive: dropped epic -> dropped intermediate -> planned grandchild yields live-child-under-terminal-epic', () => {
+    // Shape A: dropped epic → dropped intermediate epic/leaf child → 'planned' grandchild
+    const topEpic = todo({ id: 'e1', title: '[EPIC] top', status: 'dropped', kind: 'epic' });
+    const midEpic = todo({ id: 'e2', title: '[EPIC] mid', parentId: 'e1', status: 'dropped', kind: 'epic' });
+    const grandchild = todo({ id: 'c1', title: 'planned grandchild', parentId: 'e2', status: 'planned', kind: 'leaf' });
+
+    const v = findViolations([topEpic, midEpic, grandchild]);
+    const violations = v.filter((x) => x.kind === 'live-child-under-terminal-epic');
+    expect(violations).toHaveLength(1);
+    expect(violations[0].todoId).toBe('c1');
+    // Nearest terminal ancestor is e2 (the immediate parent is dropped)
+    expect(violations[0].reason).toContain('e2');
+  });
+
+  test('transitive: mutation probe — flip intermediate ancestor to non-terminal -> no live-child-under-terminal-epic', () => {
+    const topEpic = todo({ id: 'e1', title: '[EPIC] top', status: 'dropped', kind: 'epic' });
+    const midEpic = todo({ id: 'e2', title: '[EPIC] mid', parentId: 'e1', status: 'planned', kind: 'epic' }); // FLIPPED to planned
+    const grandchild = todo({ id: 'c1', title: 'planned grandchild', parentId: 'e2', status: 'planned', kind: 'leaf' });
+
+    const v = findViolations([topEpic, midEpic, grandchild]);
+    const violations = v.filter((x) => x.kind === 'live-child-under-terminal-epic' && x.todoId === 'c1');
+    // midEpic is now 'planned' (not terminal), topEpic is 'dropped' (terminal but not immediate parent)
+    // grandchild walks up: e2 (planned, not terminal) → e1 (dropped, terminal)
+    // So e1 becomes the nearest terminal ancestor
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toContain('e1');
+  });
+
+  test('mission-parented: dropped mission with a live planned epic child yields live-child-under-terminal-epic', () => {
+    // Shape B: dropped mission → live 'planned' epic child
+    const mission = todo({ id: 'm1', title: '[MISSION] m', status: 'dropped', kind: 'mission' });
+    const epic = todo({ id: 'e1', title: '[EPIC] child', parentId: 'm1', status: 'planned', kind: 'epic' });
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', kind: 'leaf' });
+
+    const v = findViolations([mission, epic, work]);
+    const violations = v.filter((x) => x.kind === 'live-child-under-terminal-epic');
+    // Both e1 and w1 have the dropped mission as a terminal ancestor
+    expect(violations).toHaveLength(2);
+    const e1Violation = violations.find((x) => x.todoId === 'e1');
+    expect(e1Violation).toBeDefined();
+    expect(e1Violation!.reason).toContain('m1');
+    expect(e1Violation!.reason).toContain('mission');
+  });
+
+  test('mission-parented: mutation probe — flip mission to non-terminal -> no live-child-under-terminal-epic', () => {
+    const mission = todo({ id: 'm1', title: '[MISSION] m', status: 'planned', kind: 'mission' }); // FLIPPED to planned
+    const epic = todo({ id: 'e1', title: '[EPIC] child', parentId: 'm1', status: 'planned', kind: 'epic' });
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', kind: 'leaf' });
+
+    const v = findViolations([mission, epic, work]);
+    const violations = v.filter((x) => x.kind === 'live-child-under-terminal-epic');
+    // No terminal ancestors now (mission is 'planned')
+    expect(violations).toHaveLength(0);
+  });
+
+  test('phantom-open: non-terminal epic whose children are all dropped/done yields phantom-open-epic', () => {
+    // Shape C: non-terminal, non-mission epic with all children done/dropped
+    const epic = todo({ id: 'e1', title: '[EPIC] phantom', status: 'planned', kind: 'epic' });
+    const child1 = todo({ id: 'c1', title: 'done child', parentId: 'e1', status: 'done', kind: 'leaf' });
+    const child2 = todo({ id: 'c2', title: 'dropped child', parentId: 'e1', status: 'dropped', kind: 'leaf' });
+
+    const v = findViolations([epic, child1, child2]);
+    const violations = v.filter((x) => x.kind === 'phantom-open-epic');
+    expect(violations).toHaveLength(1);
+    expect(violations[0].todoId).toBe('e1');
+    expect(violations[0].reason).toContain('all 2 child(ren) are terminal');
+  });
+
+  test('phantom-open: mutation probe — give the epic one additional live child -> no phantom-open-epic', () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] phantom', status: 'planned', kind: 'epic' });
+    const child1 = todo({ id: 'c1', title: 'done child', parentId: 'e1', status: 'done', kind: 'leaf' });
+    const child2 = todo({ id: 'c2', title: 'dropped child', parentId: 'e1', status: 'dropped', kind: 'leaf' });
+    const child3 = todo({ id: 'c3', title: 'live child', parentId: 'e1', status: 'planned', kind: 'leaf' }); // ADDED live child
+
+    const v = findViolations([epic, child1, child2, child3]);
+    const violations = v.filter((x) => x.kind === 'phantom-open-epic');
+    expect(violations).toHaveLength(0);
+  });
+
+  test('phantom-open: zero-children epic is exempt (no violation)', () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] empty', status: 'planned', kind: 'epic' });
+    // No children
+
+    const v = findViolations([epic]);
+    const violations = v.filter((x) => x.kind === 'phantom-open-epic');
+    expect(violations).toHaveLength(0);
   });
 });
 
@@ -263,6 +355,46 @@ describe('checkInvariants (DB-backed)', () => {
       const violations = await checkInvariants(project);
       const stranded = violations.filter((v) => v.kind === 'stranded-leaf');
       expect(stranded).toHaveLength(0);
+    } finally {
+      _closeProject(project);
+    }
+  });
+
+  test('checkInvariants: project with a phantom-open epic returns a non-empty phantom-open-epic violation', async () => {
+    const project = freshProject();
+    try {
+      const epic = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] phantom-open-test',
+        kind: 'epic',
+      });
+      const child1 = await createTodo(project, {
+        ownerSession: 'test',
+        title: 'done child',
+        kind: 'leaf',
+        parentId: epic.id,
+      });
+      const child2 = await createTodo(project, {
+        ownerSession: 'test',
+        title: 'dropped child',
+        kind: 'leaf',
+        parentId: epic.id,
+      });
+
+      const db = openDb(project);
+      // Mark child1 done
+      db.prepare('UPDATE todos SET status = ?, acceptanceStatus = ? WHERE id = ?')
+        .run('done', 'accepted', child1.id);
+      // Mark child2 dropped
+      db.prepare('UPDATE todos SET status = ? WHERE id = ?')
+        .run('dropped', child2.id);
+
+      _closeProject(project);
+
+      const violations = await checkInvariants(project);
+      const phantomOpen = violations.filter((v) => v.kind === 'phantom-open-epic');
+      expect(phantomOpen.length > 0).toBe(true);
+      expect(phantomOpen[0].todoId).toBe(epic.id);
     } finally {
       _closeProject(project);
     }
