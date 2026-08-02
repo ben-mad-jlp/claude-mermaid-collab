@@ -3133,8 +3133,15 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
     for (let pass = 0; pass < maxPasses; pass++) {
       const all = listTodos(project, { includeCompleted: true });
       const childrenByParent = new Map<string, Todo[]>();
+      const allChildrenByParent = new Map<string, Todo[]>();
       for (const t of all) {
-        if (t.parentId == null || t.status === 'dropped') continue;
+        if (t.parentId == null) continue;
+        // Build unfiltered map first
+        const allArr = allChildrenByParent.get(t.parentId) ?? [];
+        allArr.push(t);
+        allChildrenByParent.set(t.parentId, allArr);
+        // Then filter for non-dropped
+        if (t.status === 'dropped') continue;
         const arr = childrenByParent.get(t.parentId) ?? [];
         arr.push(t);
         childrenByParent.set(t.parentId, arr);
@@ -3154,7 +3161,37 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
         // iteration epics settle (mirrors the event-path guard in completeTodo).
         if (isMission(epic)) continue;
         const children = childrenByParent.get(epic.id);
-        if (!children || children.length === 0) continue; // not an epic / no live children
+        if (!children || children.length === 0) {
+          // No live children. Check if all children (including dropped) are terminal.
+          const allKids = allChildrenByParent.get(epic.id);
+          if (allKids && allKids.length > 0 && allKids.every((c) => c.status === 'done' || c.status === 'dropped')) {
+            // All children are terminal — terminalize the epic.
+            const ts = nowIso();
+            const doneAccepted = allKids.some((c) => c.status === 'done' && c.acceptanceStatus === 'accepted');
+            if (hasLandStamp(epic) || doneAccepted) {
+              // Close it via the standard path.
+              const closed = closeEpicIfChildrenSettled(project, db, epic, {
+                ts,
+                requireAccepted: true,
+                allowZeroChildren: true,
+              });
+              if (closed) {
+                rolledUp.push(epic.id);
+                closedThisPass++;
+              }
+            } else {
+              // No child delivered anything — drop the epic directly.
+              const fullEpicId = resolveFullId(project, epic.id);
+              db.prepare(
+                `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+              ).run(ts, fullEpicId);
+              cascadeDropDescendants(db, fullEpicId, ts);
+              rolledUp.push(epic.id);
+              closedThisPass++;
+            }
+          }
+          continue; // not an epic / no live children / already handled phantom-open
+        }
 
         const allDone = children.every((c) => c.status === 'done');
 
