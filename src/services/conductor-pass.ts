@@ -44,6 +44,7 @@ import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
+import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -288,6 +289,8 @@ export interface ConductorPassDeps {
   listLeafRuns?: typeof listLeafRuns;
   /** Injectable todo list read for the serve-cap diagnosis. Defaults to the store fn. */
   listTodos?: typeof listTodos;
+  /** Injectable conductor kill-rate exit-check arm (test spy). Defaults to runConductorKillRateArm. */
+  killRateArm?: typeof runConductorKillRateArm;
 }
 
 export interface ConductorPassResult {
@@ -803,6 +806,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       infraResets: arm.reset.length,
       infraCards: arm.cardsRaised,
     });
+  }
+
+  // Fail-open kill-rate exit check: independent signal, never perturbs the pass reason.
+  try {
+    if (shouldRunConductorKillRateArm(project)) {
+      await (deps.killRateArm ?? runConductorKillRateArm)(project, {});
+    }
+  } catch {
+    // fail-open — the kill-rate check must never break a conductor pass
   }
 
   let cardTriage: CardTriageArmResult = { parked: [], skipped: [] };

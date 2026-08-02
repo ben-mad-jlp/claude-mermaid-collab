@@ -17,6 +17,7 @@ import { recordSupervisorDecision } from './setup.js';
 import { conductorNeedsHuman } from '../services/conductor-pass.js';
 import { listConductorPasses } from '../services/conductor-pass-journal.js';
 import { getJob as getAsyncJob } from '../services/async-job-store.js';
+import { conductorKillRate, CONDUCTOR_KILL_RATE_BASELINE } from '../services/conductor-kill-rate.js';
 
 export const SYSTEM_TOOL_DEFS = [
   {"name":"check_server_health","description":"Check if MCP server, HTTP/API backend, and React UI are running","inputSchema":{"properties":{},"required":[],"type":"object"}},
@@ -94,7 +95,11 @@ export async function handleSystemTool(name: string, args: any): Promise<string 
       const lastPass = project ? supervisorStore.getConductorLastPass(project) : null;
       const needsHuman = conductorNeedsHuman(lastPass?.reason);
       const state = inflight.length > 0 ? 'working' : claimSuppression?.blocked ? 'blocked-on-decision' : (claimSuppression?.suppressed.length ?? 0) > 0 ? 'claims-suppressed' : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : needsHuman ? 'needs-attention' : 'idle';
-      return JSON.stringify({ now, state, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}), ...(project ? { conductor: lastPass ? { missionId: lastPass.missionId, timeoutKills: lastPass.timeoutKills ?? 0, status: lastPass.status ?? null, needsHuman } : null } : {}) }, null, 2);
+      let killRate: any = null;
+      try {
+        killRate = conductorKillRate({ now });
+      } catch { /* fail-open */ }
+      return JSON.stringify({ now, state, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}), ...(project ? { conductor: lastPass ? { missionId: lastPass.missionId, timeoutKills: lastPass.timeoutKills ?? 0, status: lastPass.status ?? null, needsHuman, killRate, killRateBaseline: CONDUCTOR_KILL_RATE_BASELINE } : null, killRate, killRateBaseline: CONDUCTOR_KILL_RATE_BASELINE } : {}) }, null, 2);
     }
     case 'friction_trends': {
       const { project, layer, limit } = args as { project: string; layer?: any; limit?: number };
