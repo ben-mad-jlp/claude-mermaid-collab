@@ -12,7 +12,7 @@ import {
   dropCriterion, undropCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveTerminalMissionPrefix, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
-  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun, setCriterionVerdict, unverifyCriteriaForLandedPaths, listPendingRechecks,
+  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun, setCriterionVerdict, unverifyCriteriaForLandedPaths, listPendingRechecks, setCriterionMeasurementPendingUntil,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { claimReason } from '../claimability';
@@ -1721,5 +1721,41 @@ describe('unverifyCriteriaForLandedPaths with NOT-met criteria', () => {
     expect(rechecks[0].criterionId).toBe(crit.id);
     expect(rechecks[0].reason).toBe('land-diff-intersects-unmet-evidence');
     expect(rechecks[0].landedSha).toBe('xyz789');
+  });
+});
+
+describe('deriveCriterionAction with awaiting-observation', () => {
+  test('a criterion with an unexpired measurementPendingUntil and servedEpicCount 0 derives awaiting-observation, not discover', async () => {
+    const missionId = await makeMissionNode();
+    upsertMission(project, missionId);
+    const crit = addCriterion(project, missionId, 'wait for observation window', 'capability');
+
+    // Set measurementPendingUntil to a future timestamp
+    const futureTime = Date.now() + 1000 * 60 * 60; // 1 hour in future
+    setCriterionMeasurementPendingUntil(project, crit.id, futureTime);
+
+    // Derive facts and check the action
+    const facts = collectMissionStatusFacts(project, getMission(project, missionId)!);
+    const critFact = facts.criteria.find((c) => c.id === crit.id)!;
+    expect(deriveCriterionAction(critFact)).toBe('awaiting-observation');
+  });
+
+  test('an absent or expired window still derives discover', async () => {
+    const missionId = await makeMissionNode();
+    upsertMission(project, missionId);
+    const crit = addCriterion(project, missionId, 'window expired', 'capability');
+
+    // Case 1: measurementPendingUntil is null (absent)
+    let facts = collectMissionStatusFacts(project, getMission(project, missionId)!);
+    let critFact = facts.criteria.find((c) => c.id === crit.id)!;
+    expect(deriveCriterionAction(critFact)).toBe('discover');
+
+    // Case 2: measurementPendingUntil is expired (< now)
+    const pastTime = Date.now() - 1000 * 60 * 60; // 1 hour in past
+    setCriterionMeasurementPendingUntil(project, crit.id, pastTime);
+
+    facts = collectMissionStatusFacts(project, getMission(project, missionId)!);
+    critFact = facts.criteria.find((c) => c.id === crit.id)!;
+    expect(deriveCriterionAction(critFact)).toBe('discover');
   });
 });

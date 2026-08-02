@@ -30,7 +30,7 @@ import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
-import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict, recheckPendingAfterVerdict as predRecheckPendingAfterVerdict } from './mission-status-predicates.ts';
+import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict, recheckPendingAfterVerdict as predRecheckPendingAfterVerdict, awaitingObservation as predAwaitingObservation } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -164,6 +164,8 @@ export interface MissionCriterion {
   serveAttemptCount: number;
   /** DAG edge set: ids of criteria (on the same mission) this criterion depends on. */
   dependsOn: string[];
+  /** Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window (null = not pending observation). */
+  measurementPendingUntil: number | null;
 }
 
 export interface CriterionVerdictHistoryEntry {
@@ -381,6 +383,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'droppedReason', 'droppedReason TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'droppedAt', 'droppedAt INTEGER');
   addColumnIfMissing(db, 'mission_criterion', 'droppedBy', 'droppedBy TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'measurementPendingUntil', 'measurementPendingUntil INTEGER');
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
@@ -923,6 +926,7 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     droppedReason: (r.droppedReason as string | null) ?? null,
     droppedAt: (r.droppedAt as number | null) ?? null,
     droppedBy: (r.droppedBy as string | null) ?? null,
+    measurementPendingUntil: (r.measurementPendingUntil as number | null) ?? null,
   }));
 }
 
@@ -984,7 +988,7 @@ export function addCriterion(
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn, nickname) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)')
     .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn), nickname);
-  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
+  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null, measurementPendingUntil: null };
 }
 
 /** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
@@ -1075,6 +1079,14 @@ export function updateCriterionText(project: string, criterionId: string, text: 
   const res = openDb(project)
     .prepare('UPDATE mission_criterion SET text = ?, updatedAt = ? WHERE id = ?')
     .run(trimmed, nowMs(), criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+/** Set a criterion's measurement pending window (epoch-ms until observation window expires). */
+export function setCriterionMeasurementPendingUntil(project: string, criterionId: string, measurementPendingUntil: number | null): void {
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET measurementPendingUntil = ?, updatedAt = ? WHERE id = ?')
+    .run(measurementPendingUntil, nowMs(), criterionId);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
 }
 
@@ -1383,6 +1395,8 @@ export interface MissionCriterionFacts {
    *  met — 'blocked' when non-empty. Optional so existing fact fixtures need no change;
    *  set by collectMissionStatusFacts. */
   unmetDependencyIds?: string[];
+  /** Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window. Optional so existing fact fixtures need no change. */
+  measurementPendingUntil?: number | null;
 }
 
 export interface MissionStatusFacts {
@@ -1421,6 +1435,7 @@ export type CriterionAction =
   | 'discover'  // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
   | 'blocked'   // an unmet dependsOn dependency — structurally not servable yet
   | 'dropped'   // criterion dropped — serve-inert: derives no work and is excluded from convergence
+  | 'awaiting-observation'  // implementation shipped, waiting on an elapsed live-observation window — serve-inert like 'dropped', but distinct: excluded from convergence too (unlike 'dropped' it is not yet decided met/unmet)
   | 'escalate'; // capped: CRITERION_SERVE_CAP+ serving epics filed and still unmet — stop re-filing, escalate to a human ONCE
 
 // CRITERION_SERVE_CAP moved to harness-caps.ts (the harness's single loop-breaker cap
@@ -1448,6 +1463,10 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   // commit) is being actively re-evaluated. The recheck gate will decide if the work completed;
   // don't escalate while it's in flight — that would suppress the active re-verification.
   if (predRecheckPendingAfterVerdict(c)) return 'verify';
+  // Sits below every arm that represents genuine in-flight progress (verify/met/blocked/building/recheck)
+  // and above the serve-cap escalate/discover fall-through: a criterion legitimately waiting on elapsed
+  // time never burns the serve cap or gets re-filed.
+  if (predAwaitingObservation(c, Date.now())) return 'awaiting-observation';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
   // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
   // escalate to a human once instead. ONLY the discover path caps — verify/building/met are
@@ -1480,9 +1499,9 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   const terminal = deriveTerminalMissionPrefix({ closedAt: f.closedAt, abandonedAt: f.abandonedAt, awaitingApproval: f.awaitingApproval === true, forgeState: f.forgeState });
   if (terminal != null) return terminal;
   const actions = f.criteria.map(deriveCriterionAction);
-  // Dropped criteria are serve-inert: they derive no mission-scalar action at all. Reading
-  // activeActions at EVERY arm below makes that invariant explicit per call site.
-  const activeActions = actions.filter((a) => a !== 'dropped');
+  // Serve-inert criteria (dropped and awaiting-observation) derive no mission-scalar action at all.
+  // Reading activeActions at EVERY arm below makes that invariant explicit per call site.
+  const activeActions = actions.filter((a) => a !== 'dropped' && a !== 'awaiting-observation');
   // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
   // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
   // of the open-missions list rather than linger labelled 'over-budget'. A mission that crossed
@@ -1790,7 +1809,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         servingWorkCompletedAt = servingWorkCompletedAt == null ? m : Math.max(servingWorkCompletedAt, m);
       }
       const recheckPendingAt = rechecksBycriterionId.get(c.id) ?? null;
-      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, recheckPendingAt, servingEpics, unmetDependencyIds };
+      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, recheckPendingAt, servingEpics, unmetDependencyIds, measurementPendingUntil: c.measurementPendingUntil };
       });
     })(),
   };
