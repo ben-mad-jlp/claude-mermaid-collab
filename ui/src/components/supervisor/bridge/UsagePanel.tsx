@@ -2,10 +2,10 @@
  * UsagePanel — the Bridge "Usage" tab: token-usage statistics. Two things at a glance:
  *   1. Account rate-limit quota (the 5h / 7d meters, same as Zen/header) — "are we burning the plan".
  *   2. Per-source LLM burn over a window (GET /api/usage/burn), grouped by the pass that spent it
- *      (conductor / summary / triage / forge / … / node=build) — this is where a leak SHOWS: a daemon
+ *      (conductor / summary / triage / forge / blueprint / implement / …) — this is where a leak SHOWS: a daemon
  *      overhead source accruing calls with no work.
  *
- * Build sources (node/leaf/implement/review/…) are expected spend; the daemon-overhead rows are the
+ * Build sources (forge / blueprint / implement / review / …) are expected spend; the daemon-overhead rows are the
  * ones to watch. A slow poll (15s) runs only while the tab is mounted.
  */
 import React, { useCallback, useEffect, useState } from 'react';
@@ -35,8 +35,8 @@ const WINDOWS: Array<{ label: string; ms: number }> = [
   { label: '7d', ms: 604_800_000 },
 ];
 
-/** Build/leaf sources are expected spend — dim them so the daemon-overhead rows stand out. */
-const BUILD_SOURCES = new Set(['node', 'leaf', 'implement', 'review', 'blueprint', 'verify', 'driveplan', 'driveexec', 'research', 'grok-node']);
+/** Per-node-kind build sources are expected spend — dim them so the daemon-overhead rows stand out. */
+export const BUILD_SOURCES = new Set(['blueprint', 'implement', 'review', 'verify', 'research', 'wimplement', 'fix', 'driveplan', 'driveexec', 'report', 'grok-node', 'forge']);
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -145,7 +145,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ project }) => {
         </table>
       )}
       <p className="px-1 pt-2 text-3xs text-gray-400 dark:text-gray-500 leading-snug">
-        Dimmed rows are build/leaf spend (expected). Bold rows are daemon-overhead sources — a large
+        Dimmed rows are per-node-kind build spend (expected). Bold rows are daemon-overhead sources — a large
         <span className="font-medium"> calls</span> count there with no accepted work is a leak.
       </p>
     </div>
