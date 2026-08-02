@@ -2183,4 +2183,93 @@ describe('conductor_pass WS broadcast', () => {
     expect(sealed!.endedAt).not.toBeNull();
     expect(sealed!.outcome).not.toBeNull();
   });
+
+  test('the kill-rate exit-check arm raises exactly one card, and a second pass on unchanged state raises none', async () => {
+    const { runConductorKillRateArm, _resetConductorKillRateThrottle } = await import('../conductor-kill-rate');
+    const { CONDUCTOR_KILL_RATE_SOURCE, CONDUCTOR_KILL_RATE_WINDOW_MS } = await import('../conductor-kill-rate');
+
+    _resetConductorKillRateThrottle();
+    addWatchedProject(project);
+
+    const now = Date.now();
+    const windowMs = CONDUCTOR_KILL_RATE_WINDOW_MS;
+    const insideWindow = now - windowMs / 2;
+
+    // Seed 50 conductor rows: 20 kills, 30 non-kills (40% rate, above 8.6% baseline).
+    for (let i = 0; i < 20; i++) {
+      recordNode({
+        project,
+        todoId: `todo-kill-${i}`,
+        session: 'test-session',
+        source: CONDUCTOR_KILL_RATE_SOURCE,
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: 0,
+        knownPrice: true,
+        steps: 1,
+        timedOut: true,
+      }, insideWindow);
+    }
+    for (let i = 0; i < 30; i++) {
+      recordNode({
+        project,
+        todoId: `todo-ok-${i}`,
+        session: 'test-session',
+        source: CONDUCTOR_KILL_RATE_SOURCE,
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: 0,
+        knownPrice: true,
+        steps: 1,
+        timedOut: false,
+      }, insideWindow);
+    }
+
+    // First pass: should raise a card
+    const result1 = await runConductorKillRateArm(project, { now: () => now });
+    expect(result1.cardRaised).toBe(true);
+
+    const escalations1 = listOpenEscalations();
+    const killRateCard1 = escalations1.find((e) => e.kind === 'conductor-kill-rate');
+    expect(killRateCard1).toBeDefined();
+
+    // Second pass immediately after: should not raise another card (same window, already have a card)
+    const result2 = await runConductorKillRateArm(project, { now: () => now + 1 });
+    // The second call should NOT raise because of the dedup in createEscalation (conditionKey).
+    // However, since our throttle is per-project and fires on the first call, a second immediate
+    // call will skip the arm entirely (shouldRunConductorKillRateArm returns false).
+    expect(result2.cardRaised).toBe(false);
+
+    // Verify only one card was raised
+    const escalationsFinal = listOpenEscalations();
+    const killRateCardsFinal = escalationsFinal.filter((e) => e.kind === 'conductor-kill-rate');
+    expect(killRateCardsFinal.length).toBe(1);
+  });
+
+  test('the kill-rate exit-check arm fails-open when injected to throw', async () => {
+    const { _resetConductorKillRateThrottle } = await import('../conductor-kill-rate');
+
+    _resetConductorKillRateThrottle();
+    addWatchedProject(project);
+
+    // Forge a mission so the conductor has something to serve
+    const forged = await forgeApprovedActive();
+
+    // Inject a killRateArm that throws
+    const throwingArm = async () => {
+      throw new Error('Simulated kill-rate arm failure');
+    };
+
+    // The conductor pass should NOT throw; it must catch and continue normally
+    const result = await runConductorPass(project, {
+      invoke: okInvoke,
+      killRateArm: throwingArm as any,
+    });
+
+    // The pass should complete successfully and not report an error due to the arm throw
+    expect(result).toBeDefined();
+    // The pass may report any successful outcome (conducted, debounced, etc.),
+    // but NOT an error caused by the arm
+    expect(result.reason).not.toBe('pass-error');
+  });
 });
