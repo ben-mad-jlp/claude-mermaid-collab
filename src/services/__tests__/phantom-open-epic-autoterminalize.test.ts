@@ -60,10 +60,11 @@ describe('sweepEpicRollups — phantom-open epic auto-terminalize', () => {
     await updateTodo(project, child2.id, { status: 'dropped' });
 
     // Run sweep
-    const { rolledUp } = await sweepEpicRollups(project);
+    const { rolledUp, terminalizedDropped } = await sweepEpicRollups(project);
 
-    // Epic should be dropped
-    expect(rolledUp).toContain(epic.id);
+    // Epic should be dropped and in terminalizedDropped, not rolledUp
+    expect(terminalizedDropped).toContain(epic.id);
+    expect(rolledUp).not.toContain(epic.id);
     expect(getTodo(project, epic.id)?.status).toBe('dropped');
 
     // No phantom-open violations should remain
@@ -71,6 +72,46 @@ describe('sweepEpicRollups — phantom-open epic auto-terminalize', () => {
     const violations = findViolations(all);
     const phantomOpenViolations = violations.filter((v) => v.kind === 'phantom-open-epic');
     expect(phantomOpenViolations).toHaveLength(0);
+  });
+
+  test('does NOT roll up a container whose children are ALL dropped (no vacuous accept)', async () => {
+    // Create an epic with two children
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] no vacuous accept test',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const child1 = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'child 1',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    const child2 = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'child 2',
+      parentId: epic.id,
+      status: 'ready',
+    });
+
+    // Drop both children
+    await updateTodo(project, child1.id, { status: 'dropped' });
+    await updateTodo(project, child2.id, { status: 'dropped' });
+
+    // Run sweep
+    const { rolledUp, terminalizedDropped } = await sweepEpicRollups(project);
+
+    // Epic should be dropped via terminalizedDropped, never accepted
+    expect(terminalizedDropped).toContain(epic.id);
+    expect(rolledUp).not.toContain(epic.id);
+    const epicTodo = getTodo(project, epic.id);
+    expect(epicTodo?.status).toBe('dropped');
+    expect(epicTodo?.acceptanceStatus).not.toBe('accepted');
+    expect(epicTodo?.hollowLandedAt).toBeNull();
   });
 
   test('closes a landed epic done+accepted when its only surviving child is done+accepted and the other is dropped', async () => {

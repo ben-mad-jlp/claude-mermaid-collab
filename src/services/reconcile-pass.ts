@@ -205,7 +205,7 @@ export async function runReconcilePass(project: string): Promise<void> {
   // pending HTTP callbacks get to run.
   await yieldToLoop();
   try {
-    const { rolledUp, flagged } = await sweepEpicRollups(project);
+    const { rolledUp, terminalizedDropped, flagged } = await sweepEpicRollups(project);
     for (const epicId of rolledUp) {
       await surfaceEpicLand(project, epicId, { sessionHint: 'coordinator' });
       recordSupervisorAudit({
@@ -213,6 +213,14 @@ export async function runReconcilePass(project: string): Promise<void> {
         project,
         session: 'coordinator',
         detail: JSON.stringify({ source: 'reconcile-pass', epicId, rolledUp: true, reason: 'epic-children-all-done-accepted' }),
+      });
+    }
+    for (const epicId of terminalizedDropped) {
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({ source: 'reconcile-pass', epicId, terminalizedDropped: true, reason: 'epic-terminalized-dropped' }),
       });
     }
     for (const f of flagged) {

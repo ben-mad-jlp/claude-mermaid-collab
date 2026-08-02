@@ -2939,6 +2939,8 @@ export interface EpicRollupFlag {
 export interface EpicSweepResult {
   /** Epic ids the sweep rolled up to `done` this pass (all children done+accepted). */
   rolledUp: string[];
+  /** Epic ids the sweep terminalized as DROPPED this pass (all children terminal, none done+accepted, no land stamp). */
+  terminalizedDropped: string[];
   /** Epics flagged for reasons requiring human/gate intervention. */
   flagged: EpicRollupFlag[];
   /** epicId -> ids of moot leftover children dropped by the landed-settlement path
@@ -3115,6 +3117,7 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
     const motionlessAfterMs = opts.motionlessAfterMs ?? MOTIONLESS_EPIC_AFTER_MS;
     const landedGraceMs = opts.landedGraceMs ?? LANDED_LEFTOVER_GRACE_MS;
     const rolledUp: string[] = [];
+    const terminalizedDropped: string[] = [];
     const flagged: EpicRollupFlag[] = [];
     const settledChildIds: Record<string, string[]> = {};
     const flaggedSeen = new Set<string>();
@@ -3186,7 +3189,7 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
                 `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
               ).run(ts, fullEpicId);
               cascadeDropDescendants(db, fullEpicId, ts);
-              rolledUp.push(epic.id);
+              terminalizedDropped.push(epic.id);
               closedThisPass++;
             }
           }
@@ -3301,7 +3304,7 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
       if (closedThisPass === 0) break;
     }
 
-    return { rolledUp, flagged, settledChildIds };
+    return { rolledUp, terminalizedDropped, flagged, settledChildIds };
   });
 }
 
