@@ -1428,6 +1428,23 @@ const DESCENDANTS_CTE = `WITH RECURSIVE descendants(did) AS (
     SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
   )`;
 
+function cascadeDropDescendants(db: Database, fullId: string, ts: string): void {
+  db.prepare(
+    `${DESCENDANTS_CTE}
+     UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
+       heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).run(fullId, ts);
+}
+
+function assertNoLiveDescendants(db: Database, id: string, fullId: string): void {
+  const { n: liveCount } = db.prepare(
+    `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).get(fullId) as { n: number };
+  if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
+}
+
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
@@ -2136,23 +2153,14 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       // LOUDLY. A throw here rolls back the status write above.
       if (status === 'dropped' && isContainerKind({ kind: existing.kind })) {
         if (!wasTerminal) {
-          db.prepare(
-            `${DESCENDANTS_CTE}
-             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
-               heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
-             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-          ).run(fullId, nowIso());
+          cascadeDropDescendants(db, fullId, nowIso());
         }
         // Guard, not best-effort: covers both the just-ran cascade above and the
         // already-terminal re-drop case (item 3) where no cascade ran this call but a
         // prior re-parent may have introduced a live child. Pre-cutover data fixes
         // (:739/:888/:947/:1019) are exempt by construction — they run once, before
         // any live traffic, and re-home children before tombstoning.
-        const { n: liveCount } = db.prepare(
-          `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
-           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-        ).get(fullId) as { n: number };
-        if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
+        assertNoLiveDescendants(db, id, fullId);
       }
     })();
 
@@ -3191,9 +3199,13 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
               // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
               const ts = nowIso();
               for (const leftoverChild of leftover) {
+                const fullChildId = resolveFullId(project, leftoverChild.id);
+                // Drop the leftover node itself
                 db.prepare(
                   `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
-                ).run(ts, leftoverChild.id);
+                ).run(ts, fullChildId);
+                // Cascade to any descendants if the leftover is itself a container
+                cascadeDropDescendants(db, fullChildId, ts);
               }
               settledChildIds[epic.id] = leftover.map((c) => c.id);
 
@@ -3324,10 +3336,16 @@ export function resetTodo(
         approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
         completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
     );
-    let res;
-    if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
-    else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
-    if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+    db.transaction(() => {
+      let res;
+      if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
+      else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (storedStatus === 'dropped' && isContainerKind({ kind: existing.kind })) {
+        cascadeDropDescendants(db, fullId, nowIso());
+        assertNoLiveDescendants(db, id, fullId);
+      }
+    })();
     // Re-promoting a blocked/rejected todo SUPERSEDES any escalation it raised (rejected
     // / parked / blocker / blueprint-failed) — the work is being re-attempted, so those
     // are stale. Auto-resolve them (matching by todoId + the lane session) so the project
