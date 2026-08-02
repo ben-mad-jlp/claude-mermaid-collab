@@ -171,3 +171,11 @@ export function recheckPendingAfterVerdict(c: {
 }): boolean {
   return !c.met && c.recheckPendingAt != null;
 }
+
+/**
+ * Fail-safe: implementation shipped, awaiting a live-observation window.
+ * Null or expired measurementPendingUntil returns false (serve-inert, but falls through to discover).
+ */
+export function awaitingObservation(c: { measurementPendingUntil?: number | null }, now: number): boolean {
+  return c.measurementPendingUntil != null && c.measurementPendingUntil > now;
+}
