@@ -1273,6 +1273,22 @@ export function burnBySource(q: { project?: string; since?: number } = {}): Sour
   return d.query(sql).all(...(params as never[])) as SourceBurnRow[];
 }
 
+export interface ConductorKillCounts {
+  total: number;
+  killed: number;
+}
+
+/** Aggregate count of conductor rows and how many timed out, over an optional time window. */
+export function conductorKillCounts(q: { source: string; sinceMs: number }): ConductorKillCounts {
+  const d = openDb();
+  const sql =
+    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN timedOut=1 THEN 1 ELSE 0 END),0) AS killed
+       FROM worker_ledger
+      WHERE source = ? AND ts >= ?`;
+  const row = d.query(sql).get(q.source, q.sinceMs) as { total: number; killed: number } | undefined;
+  return row ?? { total: 0, killed: 0 };
+}
+
 export interface LedgerSummary {
   rows: number;
   totalUsd: number;
