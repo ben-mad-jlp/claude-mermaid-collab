@@ -96,6 +96,17 @@ describe('drop-site cascade census — static scan', () => {
       expect(importsChokepoint).toBe(true);
     }
   });
+
+  it('resetTodo references the cascadeDropDescendants chokepoint', () => {
+    const content = readFileSync(join(REPO_ROOT, 'src/services/todo-store.ts'), 'utf8');
+    // Extract the resetTodo function body and verify it references cascadeDropDescendants
+    const resetTodoMatch = content.match(/export function resetTodo\([\s\S]*?\n\}/);
+    expect(resetTodoMatch).toBeTruthy();
+    if (resetTodoMatch) {
+      const resetTodoBody = resetTodoMatch[0];
+      expect(resetTodoBody.includes('cascadeDropDescendants')).toBe(true);
+    }
+  });
 });
 
 describe('drop-site cascade census — flow (real entry points)', () => {
@@ -296,5 +307,16 @@ describe('drop-site cascade census — flow (real entry points)', () => {
       expect(caught.id).toBe(epic.id);
       expect(caught.liveCount).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  test('reset_todo cascades and leaves zero invariant violations', async () => {
+    const { handleEpicTool } = await import('../../mcp/epic-tools');
+    const { epic, child1, child2 } = await makeLiveEpic();
+
+    await handleEpicTool('reset_todo', { project, todoId: epic.id, status: 'dropped' });
+
+    expect(getTodo(project, child1.id)?.status).toBe('dropped');
+    expect(getTodo(project, child2.id)?.status).toBe('dropped');
+    assertNoLiveDescendants(epic.id);
   });
 });

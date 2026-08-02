@@ -176,15 +176,33 @@ describe('the drop-path is the sole writer of the dropped-status cascade', () =>
 
     expect(fnSlice).toContain('DroppedEpicHasLiveChildrenError');
 
-    const matches = [...fnSlice.matchAll(rawDropSql)];
-    expect(matches.length).toBeGreaterThanOrEqual(1);
+    // The cascade is written in exactly ONE place: the cascadeDropDescendants helper.
+    // updateTodo must DELEGATE to it and hold no inline copy of the drop SQL — that
+    // inline copy was the thing the other drop paths (resetTodo, sweepEpicRollups)
+    // used to route around. Pin the delegation, not the old inline text.
+    expect([...fnSlice.matchAll(rawDropSql)].length).toBe(0);
+    expect(fnSlice).toContain('cascadeDropDescendants(');
 
-    for (const m of matches) {
-      const idx = m.index ?? -1;
-      expect(idx).toBeGreaterThan(-1);
-      const contextStart = Math.max(0, idx - 400);
-      const context = fnSlice.slice(contextStart, idx);
-      expect(context).toContain('DESCENDANTS_CTE');
+    // The helper itself is the sole writer, and it drops via the recursive CTE.
+    const helperMarker = 'function cascadeDropDescendants(';
+    const helperStart = todoStoreSrc.indexOf(helperMarker);
+    expect(helperStart).toBeGreaterThan(-1);
+    // Top-level function: slice to its column-0 closing brace.
+    const afterHelperStart = todoStoreSrc.slice(helperStart);
+    const helperEnd = afterHelperStart.indexOf('\n}');
+    expect(helperEnd).toBeGreaterThan(-1);
+    const helperSlice = afterHelperStart.slice(0, helperEnd);
+
+    const matches = [...helperSlice.matchAll(rawDropSql)];
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+    expect(helperSlice).toContain('DESCENDANTS_CTE');
+
+    // Every drop path reaches the cascade through the helper.
+    for (const caller of ['export function resetTodo(', 'function sweepEpicRollups(']) {
+      expect(todoStoreSrc).toContain(caller);
     }
+    const callCount = [...todoStoreSrc.matchAll(/cascadeDropDescendants\(/g)].length;
+    // 1 declaration + at least 3 call sites (updateTodo, sweepEpicRollups, resetTodo).
+    expect(callCount).toBeGreaterThanOrEqual(4);
   });
 });

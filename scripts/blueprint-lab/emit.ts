@@ -23,7 +23,8 @@ import { parseDiffContract, validateContractForKind, type DiffContract } from '.
 import { resolveNodeModel, resolveNodeProvider } from '../../src/services/node-provider';
 import { listNodeProfileOverrides, getProjectEffort } from '../../src/services/orchestrator-config';
 import { NODE_PROFILE, buildBlueprintRepairPrompt } from '../../src/services/leaf-executor';
-import { MANIFEST_JSON_SCHEMA_LINES, MANIFEST_SCHEMA_NOTES_LINES } from '../../src/services/leaf-prompts';
+import { MANIFEST_JSON_SCHEMA_LINES, MANIFEST_SCHEMA_NOTES_LINES, buildNodePrompt } from '../../src/services/leaf-prompts';
+import type { Todo } from '../../src/services/todo-store';
 import { CORPUS, type CorpusCase } from './corpus';
 
 const OUT = join(import.meta.dir, 'results');
@@ -33,22 +34,22 @@ const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encodi
 const PROJECT = REPO_ROOT;
 
 export function buildV2BlueprintPrompt(c: CorpusCase): string {
-  return [
-    'You are the BLUEPRINT node for ONE leaf todo. Do NOT write implementation code.',
-    `Title: ${c.spec.title}`,
-    `Description: ${c.spec.description || '(no description)'}`,
-    'Read the relevant code (Read/Grep/Glob and Bash for inspection ONLY — no mutations).',
-    'Produce a precise, self-contained implementation blueprint as your reply text (do not write a file).',
-    'The blueprint must cite the real files/symbols to touch and the exact change shape.',
-    'ACCEPTANCE CRITERIA must be POSITIVE and CITABLE: each names a concrete change a reviewer can',
-    'point a `file:line` at. NEVER write an absence or non-goal as an acceptance criterion.',
+  const todo = { id: c.id, title: c.spec.title, description: c.spec.description } as unknown as Todo;
+  const base = buildNodePrompt('blueprint', todo);
+  const noteBlock = [
+    '---',
+    'NOTE — BLUEPRINT-LAB CONTEXT (not part of the production prompt)',
     '',
-    // The v2 schema + citability teaching are SHARED VERBATIM with the production blueprint prompt
-    // (src/services/leaf-prompts.ts) so the lab measures the SAME contract the daemon actually
-    // emits — never a divergent copy (bug d9ae1c52). Drift is caught by emit-prompt-parity.test.ts.
-    ...MANIFEST_JSON_SCHEMA_LINES,
-    ...MANIFEST_SCHEMA_NOTES_LINES,
-  ].join('\n');
+    'This lab measures how the REAL buildNodePrompt materializes the blueprint prompt. Two',
+    'divergences from production are intentional:',
+    '  1. The node writes to `.collab/leaf-blueprints/<id>.md` in the production path, but',
+    '     that worktree file write is OPTIONAL here (the lab has no worktree).',
+    '  2. The node\'s FINAL REPLY text is what the lab measures — that text, extracted and',
+    '     parsed by the emit runner, is the only deliverable (the production leaf also writes',
+    '     a file, but the lab assesses the reply content).',
+    'Otherwise, the prompt is IDENTICAL to what the daemon actually emits.',
+  ];
+  return base + '\n\n' + noteBlock.join('\n');
 }
 
 function resolveBlueprintModel(): string {

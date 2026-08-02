@@ -2,6 +2,8 @@ import { describe, test, expect } from 'bun:test';
 
 import {
   baseRepairMarker,
+  baseRepairLaneKey,
+  baseRepairLaneMarker,
   BASE_REPAIR_ATTEMPT_CAP,
   BASE_REPAIR_WINDOW_MS,
   findBaseRepairEpics,
@@ -158,14 +160,14 @@ describe('raiseBaseRepairEpic', () => {
   test('returns already-in-flight when an open marked epic exists', async () => {
     const epicId = 'epic1234567890ab';
     const laneSig = 'abc123456def7890'; // 16 chars for the lane signature
-    const marker = baseRepairMarker(epicId, laneSig);
+    const laneMarker = baseRepairLaneMarker(baseRepairLaneKey('p1', 'master'));
     const todos: Todo[] = [
       {
         id: 'open-repair',
         kind: 'epic',
         title: 'Open repair',
         status: 'ready',
-        description: marker,
+        description: laneMarker,
         baseRepair: 1,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -183,6 +185,7 @@ describe('raiseBaseRepairEpic', () => {
         epicId,
         targetProject: 'p1',
         laneSignature: laneSig,
+        trunkRef: 'master',
         cause: 'epic-base-red',
         reasonTail: 'reason',
         epicBranch: 'branch',
@@ -197,14 +200,14 @@ describe('raiseBaseRepairEpic', () => {
     const now = Date.now();
     const epicId = 'epic1234567890ab';
     const laneSig = 'abc123456def7890';
-    const marker = baseRepairMarker(epicId, laneSig);
+    const laneMarker = baseRepairLaneMarker(baseRepairLaneKey('p1', 'master'));
     const todos: Todo[] = [
       {
         id: 'done1',
         kind: 'epic',
         title: 'Done 1',
         status: 'done',
-        description: marker,
+        description: laneMarker,
         baseRepair: 1,
         createdAt: new Date(now - BASE_REPAIR_WINDOW_MS / 2).toISOString(),
         updatedAt: new Date(now - BASE_REPAIR_WINDOW_MS / 2).toISOString(),
@@ -215,7 +218,7 @@ describe('raiseBaseRepairEpic', () => {
         kind: 'epic',
         title: 'Done 2',
         status: 'done',
-        description: marker,
+        description: laneMarker,
         baseRepair: 1,
         createdAt: new Date(now - BASE_REPAIR_WINDOW_MS / 3).toISOString(),
         updatedAt: new Date(now - BASE_REPAIR_WINDOW_MS / 3).toISOString(),
@@ -235,6 +238,7 @@ describe('raiseBaseRepairEpic', () => {
         epicId,
         targetProject: 'p1',
         laneSignature: laneSig,
+        trunkRef: 'master',
         cause: 'epic-base-red',
         reasonTail: 'reason',
         epicBranch: 'branch',
@@ -269,7 +273,8 @@ describe('raiseBaseRepairEpic', () => {
 
     const epicId = 'epic1234567890ab';
     const laneSig = 'abc123456def7890';
-    const expectedMarker = baseRepairMarker(epicId, laneSig);
+    const expectedLaneMarker = baseRepairLaneMarker(baseRepairLaneKey('p1', 'master'));
+    const expectedTargetMarker = `[base-repair-target:${epicId.slice(0, 8)}]`;
 
     const args: RaiseBaseRepairArgs = {
       project: 'p1',
@@ -277,6 +282,7 @@ describe('raiseBaseRepairEpic', () => {
       epicId,
       targetProject: 'p1',
       laneSignature: laneSig,
+      trunkRef: 'master',
       cause: 'epic-base-red',
       reasonTail: 'detailed reason here',
       epicBranch: 'epic-my-feature',
@@ -293,7 +299,8 @@ describe('raiseBaseRepairEpic', () => {
     expect(createdEpic!.home).toBeNull();
     expect(createdEpic!.homeProvided).toBe(true);
     expect(createdEpic!.baseRepair).toBe(true);
-    expect(createdEpic!.description).toContain(expectedMarker);
+    expect(createdEpic!.description).toContain(expectedLaneMarker);
+    expect(createdEpic!.description).toContain(expectedTargetMarker);
 
     // Verify leaf creation call
     expect(createdLeaves).not.toBeNull();
@@ -360,6 +367,7 @@ describe('raiseBaseRepairEpic', () => {
         epicId,
         targetProject: 'p1',
         laneSignature: laneSig,
+        trunkRef: 'master',
         cause: 'epic-base-red',
         reasonTail: 'reason',
         epicBranch: 'epic-my-feature',
@@ -379,5 +387,66 @@ describe('raiseBaseRepairEpic', () => {
     const unreleasedEpic: Todo = { ...epic, approvedAt: null } as unknown as Todo;
     const unreleasedById = new Map<string, Todo>([[unreleasedEpic.id, unreleasedEpic], [leaf.id, leaf]]);
     expect(claimReason(leaf, unreleasedById)).toBe('parent-unreleased');
+  });
+
+  test('dedupes across different epicId/laneSignature on the same targetProject+trunkRef lane', async () => {
+    const todos: Todo[] = [];
+    let createdEpicDesc = '';
+
+    const io: RaiseBaseRepairIo = {
+      listTodos: () => todos,
+      createEpic: async (_project, _session, opts) => {
+        createdEpicDesc = (opts as any).description;
+        return { epic: { id: 'first-epic-id', kind: 'epic' } as any };
+      },
+      addLeaves: async (_project, _session, epicId) => ({ epicId, createdIds: ['leaf-id'] }),
+      updateTodo: async () => ({} as any),
+    };
+
+    const firstResult = await raiseBaseRepairEpic(
+      {
+        project: 'p1',
+        session: 's1',
+        epicId: 'epicaaaa11111111',
+        targetProject: 'p1',
+        laneSignature: 'sigaaaa11111111',
+        trunkRef: 'master',
+        cause: 'epic-base-red',
+        reasonTail: 'reason A',
+        epicBranch: 'epic-a',
+      },
+      io,
+    );
+
+    expect(firstResult).toEqual({ created: true, epicId: 'first-epic-id' });
+
+    // Feed the created epic back into the fixture, as the already-in-flight test does.
+    todos.push({
+      id: 'first-epic-id',
+      kind: 'epic',
+      title: 'Base repair: epic-a',
+      status: 'ready',
+      description: createdEpicDesc,
+      baseRepair: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as unknown as Todo);
+
+    const secondResult = await raiseBaseRepairEpic(
+      {
+        project: 'p1',
+        session: 's1',
+        epicId: 'epicbbbb22222222',
+        targetProject: 'p1',
+        laneSignature: 'sigbbbb22222222',
+        trunkRef: 'master',
+        cause: 'epic-base-red',
+        reasonTail: 'reason B',
+        epicBranch: 'epic-b',
+      },
+      io,
+    );
+
+    expect(secondResult).toEqual({ created: false, reason: 'already-in-flight' });
   });
 });

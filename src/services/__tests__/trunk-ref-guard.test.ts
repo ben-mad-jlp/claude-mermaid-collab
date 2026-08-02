@@ -116,6 +116,10 @@ const ALLOWLIST: AllowEntry[] = [
 
   // (STRING) comment describing the off-master derivation (`git rev-list master..<branch>`).
   { file: 'src/routes/supervisor-routes.ts', count: 1, reason: 'comment describing the off-master rev-list derivation' },
+
+  // (CONSERVATIVE / FALLBACK) base-repair raise site's detectBaseBranch() fail-open
+  // default — mirrors the `.catch(() => 'master')` pattern already allowed elsewhere.
+  { file: 'src/services/conductor-infra-arm.ts', count: 1, reason: 'CONSERVATIVE/FALLBACK: detectBaseBranch() fail-open default "master" at the base-repair raise site, mirrors the .catch(() => "master") pattern already allowed elsewhere' },
 ];
 
 interface Match { file: string; line: number; text: string; }

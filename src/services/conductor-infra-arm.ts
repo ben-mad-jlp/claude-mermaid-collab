@@ -31,7 +31,7 @@ import { createEscalation, type Escalation } from './supervisor-store.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHonourCachedBaseGate } from './worker-ledger.js';
 import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
-import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, type RaiseBaseRepairArgs } from './base-repair-epic.js';
+import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, reapRecoveredLaneBaseRepairEpics, type RaiseBaseRepairArgs } from './base-repair-epic.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { loadManifestSource } from '../config/project-manifest.js';
@@ -236,6 +236,7 @@ export interface InfraArmDeps {
   now?: () => number;
   raiseBaseRepair?: typeof raiseBaseRepairEpic;
   reapSettled?: typeof reapSettledBaseRepairEpics;
+  reapRecoveredLane?: typeof reapRecoveredLaneBaseRepairEpics;
 }
 
 export interface InfraArmResult {
@@ -289,6 +290,7 @@ export async function runInfraRejectionArm(
   const nowFn = deps.now;
   const raiseRepair = deps.raiseBaseRepair ?? raiseBaseRepairEpic;
   const reapSettled = deps.reapSettled ?? reapSettledBaseRepairEpics;
+  const reapRecoveredLane = deps.reapRecoveredLane ?? reapRecoveredLaneBaseRepairEpics;
 
   const todos = listTodos(project, { includeCompleted: true });
   const byId = new Map<string, Todo>(todos.map((t) => [t.id, t]));
@@ -384,12 +386,20 @@ export async function runInfraRejectionArm(
         const sig = signatureByEpic.get(c.epicId);
         if (sig && sig !== UNKNOWN_LANE_SIGNATURE) {
           try {
+            let trunkRef = 'master';
+            try {
+              const { getWorktreeManager } = await import('./coordinator-live.js');
+              trunkRef = await getWorktreeManager(targetProject).detectBaseBranch();
+            } catch {
+              // fail-open: literal default, mirrors makeEpicBaseProbe's own import pattern
+            }
             const repairResult = await raiseRepair({
               project,
               session,
               epicId: c.epicId,
               targetProject,
               laneSignature: sig,
+              trunkRef,
               cause: c.cause,
               reasonTail: c.reason,
               epicBranch: epicBranchName(c.epicId),
@@ -436,6 +446,11 @@ export async function runInfraRejectionArm(
 
   try {
     result.reapedBaseRepairEpics = await reapSettled(project);
+  } catch {
+    // fail-open — a reap-scan hiccup must not sink the pass.
+  }
+  try {
+    result.reapedBaseRepairEpics = result.reapedBaseRepairEpics.concat(await reapRecoveredLane(project));
   } catch {
     // fail-open — a reap-scan hiccup must not sink the pass.
   }

@@ -222,13 +222,15 @@ function appendRecoveryLog(project: string, branch: string, tipSha: string, when
  */
 export async function gcEpicBranches(
   project: string,
-  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister; rescue?: (branch: string) => Promise<unknown> } = {},
+  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister; rescue?: (branch: string) => Promise<unknown>; removeEpicWorktree?: (epicId: string) => Promise<void> } = {},
 ): Promise<GcEpicBranchesResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
   const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
   const now = opts.now ?? (() => new Date().toISOString());
   const rescue = opts.rescue ?? ((branch: string) => rescueOrphanedLeafCommitsForBranch(project, branch, { baseRef }));
+  const removeEpicWorktree = opts.removeEpicWorktree
+    ?? ((epicId: string) => teardownEpic(getWorktreeManager(project), epicId, project, { epicBranch: epicBranchName(epicId) }));
 
   // Same prefilter rule as reconcileLandedEpics: with the REAL probe, enumerate
   // collab/epic/* once (via the runner, one spawn) so per-epic probing is bounded by
@@ -236,6 +238,7 @@ export async function gcEpicBranches(
   const listBranches = opts.listBranches ?? (opts.probe ? undefined : () => runner.listEpicBranches());
 
   const todos = listTodos(project, { includeCompleted: true });
+  const baseRepairIds = new Set(todos.filter((t) => t.baseRepair === 1 && isEpic(t)).map((t) => t.id));
   const report = await buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
 
   const deleted: string[] = [];
@@ -255,7 +258,11 @@ export async function gcEpicBranches(
     // re-dispatch cap; observed 2026-07-22: c72e635c deleted twice mid-build,
     // 48a3cc6e with two leaves in flight, 234f0021 four times).
     if (e.status !== 'done' && e.status !== 'dropped') { skipped++; continue; }
-    if (effectiveNewCount(e) > 0) { flagged.push(e.epicId); continue; }
+    if (effectiveNewCount(e) > 0) {
+      if (!baseRepairIds.has(e.epicId)) { flagged.push(e.epicId); continue; }
+      console.log(`[gcEpicBranches] ${e.branch} ahead-exempt: baseRepair epic, terminal — GC despite newCount>0`);
+      await removeEpicWorktree(e.epicId).catch(() => undefined);
+    }
     const tip = await runner.revParse(e.branch);
     if (tip == null) { skipped++; continue; }
     await runner.pruneWorktreeFor?.(e.branch); // remove a stale post-land worktree so the delete can succeed

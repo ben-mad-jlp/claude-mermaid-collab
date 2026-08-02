@@ -1428,6 +1428,23 @@ const DESCENDANTS_CTE = `WITH RECURSIVE descendants(did) AS (
     SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
   )`;
 
+function cascadeDropDescendants(db: Database, fullId: string, ts: string): void {
+  db.prepare(
+    `${DESCENDANTS_CTE}
+     UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
+       heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).run(fullId, ts);
+}
+
+function assertNoLiveDescendants(db: Database, id: string, fullId: string): void {
+  const { n: liveCount } = db.prepare(
+    `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).get(fullId) as { n: number };
+  if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
+}
+
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
@@ -2136,23 +2153,14 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       // LOUDLY. A throw here rolls back the status write above.
       if (status === 'dropped' && isContainerKind({ kind: existing.kind })) {
         if (!wasTerminal) {
-          db.prepare(
-            `${DESCENDANTS_CTE}
-             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
-               heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
-             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-          ).run(fullId, nowIso());
+          cascadeDropDescendants(db, fullId, nowIso());
         }
         // Guard, not best-effort: covers both the just-ran cascade above and the
         // already-terminal re-drop case (item 3) where no cascade ran this call but a
         // prior re-parent may have introduced a live child. Pre-cutover data fixes
         // (:739/:888/:947/:1019) are exempt by construction — they run once, before
         // any live traffic, and re-home children before tombstoning.
-        const { n: liveCount } = db.prepare(
-          `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
-           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-        ).get(fullId) as { n: number };
-        if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
+        assertNoLiveDescendants(db, id, fullId);
       }
     })();
 
@@ -3125,8 +3133,15 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
     for (let pass = 0; pass < maxPasses; pass++) {
       const all = listTodos(project, { includeCompleted: true });
       const childrenByParent = new Map<string, Todo[]>();
+      const allChildrenByParent = new Map<string, Todo[]>();
       for (const t of all) {
-        if (t.parentId == null || t.status === 'dropped') continue;
+        if (t.parentId == null) continue;
+        // Build unfiltered map first
+        const allArr = allChildrenByParent.get(t.parentId) ?? [];
+        allArr.push(t);
+        allChildrenByParent.set(t.parentId, allArr);
+        // Then filter for non-dropped
+        if (t.status === 'dropped') continue;
         const arr = childrenByParent.get(t.parentId) ?? [];
         arr.push(t);
         childrenByParent.set(t.parentId, arr);
@@ -3146,7 +3161,37 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
         // iteration epics settle (mirrors the event-path guard in completeTodo).
         if (isMission(epic)) continue;
         const children = childrenByParent.get(epic.id);
-        if (!children || children.length === 0) continue; // not an epic / no live children
+        if (!children || children.length === 0) {
+          // No live children. Check if all children (including dropped) are terminal.
+          const allKids = allChildrenByParent.get(epic.id);
+          if (allKids && allKids.length > 0 && allKids.every((c) => c.status === 'done' || c.status === 'dropped')) {
+            // All children are terminal — terminalize the epic.
+            const ts = nowIso();
+            const doneAccepted = allKids.some((c) => c.status === 'done' && c.acceptanceStatus === 'accepted');
+            if (hasLandStamp(epic) || doneAccepted) {
+              // Close it via the standard path.
+              const closed = closeEpicIfChildrenSettled(project, db, epic, {
+                ts,
+                requireAccepted: true,
+                allowZeroChildren: true,
+              });
+              if (closed) {
+                rolledUp.push(epic.id);
+                closedThisPass++;
+              }
+            } else {
+              // No child delivered anything — drop the epic directly.
+              const fullEpicId = resolveFullId(project, epic.id);
+              db.prepare(
+                `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+              ).run(ts, fullEpicId);
+              cascadeDropDescendants(db, fullEpicId, ts);
+              rolledUp.push(epic.id);
+              closedThisPass++;
+            }
+          }
+          continue; // not an epic / no live children / already handled phantom-open
+        }
 
         const allDone = children.every((c) => c.status === 'done');
 
@@ -3191,9 +3236,13 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
               // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
               const ts = nowIso();
               for (const leftoverChild of leftover) {
+                const fullChildId = resolveFullId(project, leftoverChild.id);
+                // Drop the leftover node itself
                 db.prepare(
                   `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
-                ).run(ts, leftoverChild.id);
+                ).run(ts, fullChildId);
+                // Cascade to any descendants if the leftover is itself a container
+                cascadeDropDescendants(db, fullChildId, ts);
               }
               settledChildIds[epic.id] = leftover.map((c) => c.id);
 
@@ -3324,10 +3373,16 @@ export function resetTodo(
         approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
         completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
     );
-    let res;
-    if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
-    else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
-    if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+    db.transaction(() => {
+      let res;
+      if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
+      else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (storedStatus === 'dropped' && isContainerKind({ kind: existing.kind })) {
+        cascadeDropDescendants(db, fullId, nowIso());
+        assertNoLiveDescendants(db, id, fullId);
+      }
+    })();
     // Re-promoting a blocked/rejected todo SUPERSEDES any escalation it raised (rejected
     // / parked / blocker / blueprint-failed) — the work is being re-attempted, so those
     // are stale. Auto-resolve them (matching by todoId + the lane session) so the project

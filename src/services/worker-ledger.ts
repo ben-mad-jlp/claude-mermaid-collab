@@ -918,6 +918,23 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
   } catch { return null; }
 }
 
+export function listPassingBaseGatesSince(project: string, sinceMs: number): EpicBaseGateRow[] {
+  try {
+    const rows = openDb()
+      .prepare(`SELECT * FROM epic_base_gate WHERE project=? AND status='pass' AND checkedAt>?`)
+      .all(project, sinceMs) as Array<Omit<EpicBaseGateRow, 'baselineFailures' | 'failAttempts'> & {
+        baselineFailures: string | null; failAttempts: number | null;
+      }>;
+    return rows.map((raw) => {
+      const safeParse = (x: string | null): LaneBaselineMap | null => {
+        if (x == null) return null;
+        try { return JSON.parse(x) as LaneBaselineMap; } catch { return null; }
+      };
+      return { ...raw, baselineFailures: safeParse(raw.baselineFailures), failAttempts: raw.failAttempts ?? 0 };
+    });
+  } catch { return []; }
+}
+
 /** Decide whether a cache HIT from {@link getEpicBaseGate} may be honoured as-is, or must be
  *  re-verified by actually re-running the base gate.
  *
