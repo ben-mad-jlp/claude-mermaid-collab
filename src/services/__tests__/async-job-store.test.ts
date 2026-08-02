@@ -46,7 +46,9 @@ describe('async-job-store', () => {
     const staleJobId = 'stale-job-abc123';
     const now = Date.now();
 
-    const testProject = '/tmp/test-project-async-job-1';
+    // Unique per run: a hard-coded path leaves residue when a run dies before its
+    // rmSync, and every later run then dies on the async_job.id PRIMARY KEY.
+    const testProject = mkdtempSync(join(tmpdir(), 'test-project-async-job-1-'));
 
     // Open the store to ensure DB and table exist.
     const { mkdirSync } = await import('node:fs');
@@ -117,7 +119,8 @@ describe('async-job-store', () => {
     const staleJobId = 'stale-job-idempotent-123';
     const now = Date.now();
 
-    const testProject = '/tmp/test-project-async-job-2';
+    // Unique per run — see the note in the sibling test above.
+    const testProject = mkdtempSync(join(tmpdir(), 'test-project-async-job-2-'));
 
     const { mkdirSync } = await import('node:fs');
     const dbPath = join(testProject, '.collab', 'async-job.db');

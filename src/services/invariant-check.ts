@@ -191,7 +191,7 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
         kind: 'live-child-under-terminal-epic',
         todoId: t.id,
         title: t.title,
-        reason: `non-terminal ancestor chain: nearest terminal ancestor ${terminalAncestor.id} (kind='${ancestorKind}', status='${terminalAncestor.status}') is not done/dropped`,
+        reason: `live child of terminal epic: this todo is still ${t.status} while its nearest terminal ancestor ${terminalAncestor.id} (kind='${ancestorKind}', status='${terminalAncestor.status}') is already done/dropped`,
       });
     }
   }
