@@ -15,7 +15,7 @@ import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { activeQuarantine, promoteQuarantineCandidates } from './flaky-quarantine';
+import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
@@ -988,7 +988,8 @@ export async function resolveBaseGreen(io: {
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
-  } catch { /* best-effort: a promotion failure must never break the gate */ }
+    await closeQuarantineOnGreen(io.targetProject, io.now?.());
+  } catch { /* best-effort: a promotion or close failure must never break the gate */ }
   let result: LeafGateResult = r;
   if (r.status === 'fail' && r.baselineFailures) {
     const union = new Set<string>();

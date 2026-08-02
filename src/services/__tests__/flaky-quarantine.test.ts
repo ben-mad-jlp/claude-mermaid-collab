@@ -12,6 +12,7 @@ import {
   classifyFlakyCandidates,
   filterActiveQuarantine,
   DEFAULT_TTL_MS,
+  closeQuarantineOnGreen,
 } from '../flaky-quarantine';
 
 describe('flaky-quarantine classifier', () => {
@@ -227,5 +228,73 @@ describe('flaky-quarantine classifier', () => {
     const active = filterActiveQuarantine([expired], now);
 
     expect(active).toHaveLength(0);
+  });
+});
+
+describe('closeQuarantineOnGreen', () => {
+  it('closes the quarantine row and its todo after a green-only observation window', async () => {
+    const now = 10000;
+    const createdAt = now - 1000;
+    const quarantineRecord: TestQuarantineRow = {
+      project: 'test-proj',
+      test: 'flaky_test.txt',
+      quarantinedAtSha: 'abc123',
+      evidence: { runs: 5, passRuns: 3, failRuns: 2 },
+      ttlExpiresAt: now + 86_400_000,
+      seededFrom: null,
+      createdAt,
+    };
+
+    const greenObservations: BaseGateTestRunRow[] = [
+      {
+        project: 'test-proj',
+        baseSha: 'abc123',
+        lane: 'base',
+        test: 'flaky_test.txt',
+        failed: false,
+        scope: 'base',
+        observedAt: now - 500,
+      },
+      {
+        project: 'test-proj',
+        baseSha: 'abc123',
+        lane: 'base',
+        test: 'flaky_test.txt',
+        failed: false,
+        scope: 'base',
+        observedAt: now - 100,
+      },
+    ];
+
+    const removeTestQuarantineCalls: Array<[string, string]> = [];
+    const updateTodoCalls: Array<[string, string, { status: string }]> = [];
+
+    await closeQuarantineOnGreen('test-proj', now, {
+      listTestQuarantine: () => [quarantineRecord],
+      listObservations: () => greenObservations,
+      removeTestQuarantine: (project, test) => {
+        removeTestQuarantineCalls.push([project, test]);
+      },
+      listTodos: () => [
+        {
+          id: 'todo-1',
+          title: '[BUG] flaky test quarantined: flaky_test.txt',
+          status: 'planned',
+          parentId: 'flaky-epic-id',
+        } as any,
+      ],
+      updateTodo: async (project, todoId, updates) => {
+        updateTodoCalls.push([project, todoId, updates as { status: string }]);
+        return { id: todoId } as any;
+      },
+    });
+
+    expect(removeTestQuarantineCalls).toHaveLength(1);
+    expect(removeTestQuarantineCalls[0]).toEqual(['test-proj', 'flaky_test.txt']);
+
+    expect(updateTodoCalls).toHaveLength(1);
+    expect(updateTodoCalls[0][0]).toBe('test-proj');
+    expect(updateTodoCalls[0][1]).toBe('todo-1');
+    expect(updateTodoCalls[0][2].status).toBe('done');
   });
 });
