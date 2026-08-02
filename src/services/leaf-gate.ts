@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
-import { lastLines, extractFailingTests, SPEC_FILE_RE, netNewFailures } from './gate-runner';
+import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
@@ -894,9 +894,13 @@ export async function runBaseGate(
         declared: true,
       };
     }
-    const fingerprints = lane.kind === 'typecheck'
+    let fingerprints = lane.kind === 'typecheck'
       ? (parseTypecheckFiles(r.output) ?? [])
       : extractFailingTests(r.output);
+    if (r.code !== 0 && lane.kind === 'tests' && fingerprints.length === 0) {
+      const synthetic = synthesizeLaneFailureIdentity(lane.key, r.output);
+      if (synthetic) fingerprints = [synthetic];
+    }
     if (r.code !== 0) {
       // RAN-but-failed: memoize this lane's fingerprints and CONTINUE — every red lane
       // must be recorded, so no short-circuit.
