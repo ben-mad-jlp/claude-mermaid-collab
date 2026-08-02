@@ -12,7 +12,9 @@ import {
   listObservations,
   listTestQuarantine,
   writeTestQuarantine,
+  removeTestQuarantine as removeTestQuarantineDefault,
 } from './worker-ledger';
+import { listTodos, updateTodo as updateTodoDefault } from './todo-store';
 
 export interface FlakyCandidate {
   test: string;
@@ -159,6 +161,62 @@ let promotionHook: QuarantinePromotionHook = () => {};
 /** Set a callback to be invoked when a candidate is newly promoted to quarantine. */
 export function setQuarantinePromotionHook(fn: QuarantinePromotionHook): void {
   promotionHook = fn;
+}
+
+/**
+ * Close a quarantine record and mark its todo as done when all recent observations
+ * for that test are passing (green-only window). Idempotent per test: if the todo
+ * is already done/dropped, it remains unchanged. Best-effort: per-record errors are
+ * caught and logged, never stopping the full loop.
+ *
+ * @param project Project identifier
+ * @param now Current timestamp (injectable for testing)
+ * @param deps Overrideable dependencies for testing
+ */
+export async function closeQuarantineOnGreen(
+  project: string,
+  now: number = Date.now(),
+  deps?: {
+    listTestQuarantine?: typeof listTestQuarantine;
+    listObservations?: typeof listObservations;
+    removeTestQuarantine?: typeof removeTestQuarantineDefault;
+    listTodos?: typeof listTodos;
+    updateTodo?: typeof updateTodoDefault;
+  },
+): Promise<void> {
+  const listTestQuarantineFn = deps?.listTestQuarantine ?? listTestQuarantine;
+  const listObservationsFn = deps?.listObservations ?? listObservations;
+  const removeTestQuarantineFn = deps?.removeTestQuarantine ?? removeTestQuarantineDefault;
+  const listTodosFn = deps?.listTodos ?? listTodos;
+  const updateTodoFn = deps?.updateTodo ?? updateTodoDefault;
+
+  const records = listTestQuarantineFn(project);
+
+  for (const r of records) {
+    try {
+      const observations = listObservationsFn(project, r.createdAt);
+      const testObs = observations.filter((o) => o.test === r.test);
+
+      if (testObs.length > 0 && !testObs.some((o) => o.failed)) {
+        removeTestQuarantineFn(project, r.test);
+
+        const title = `[BUG] flaky test quarantined: ${r.test}`;
+        const allTodos = listTodosFn(project, { includeCompleted: true });
+        const todo = allTodos.find(
+          (t) => t.title === title && t.status !== 'done' && t.status !== 'dropped',
+        );
+
+        if (todo) {
+          await updateTodoFn(project, todo.id, { status: 'done' });
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[flaky-quarantine] closeQuarantineOnGreen: ${project}: failed to process test "${r.test}":`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 }
 
 /**

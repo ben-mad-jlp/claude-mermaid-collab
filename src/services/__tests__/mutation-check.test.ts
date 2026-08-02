@@ -37,6 +37,11 @@ function runNeutralize(dir: string, neutralize: string, file: string, mutation: 
   return { code: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
 }
 
+function runPreState(dir: string, ref: string, file: string, mutation: string, ...cmd: string[]) {
+  const r = spawnSync('bash', [SCRIPT, '--pre-state', ref, file, mutation, ...cmd], { cwd: dir, encoding: 'utf8' });
+  return { code: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
+}
+
 let repos: string[] = [];
 beforeEach(() => { repos = []; });
 afterEach(() => { for (const d of repos) rmSync(d, { recursive: true, force: true }); });
@@ -125,6 +130,40 @@ describe('mutation-check.sh', () => {
     const r = runNeutralize(dir, 'delete', 'src/val.ts', 's/N = 1/N = 2/', 'bun', 'test', 'val.test.ts');
     expect(r.code).toBe(0);
     expect(r.out).not.toContain('VACUOUS FIXTURE');
+  });
+
+  it('exit 5 (PRE-SATISFIED) when the assertion already holds against the file pre-state', () => {
+    // Degenerate fixture (as in the exit-4 case): its assertion holds regardless of which
+    // commit's val.ts is checked out, so it's already satisfied on the pre-state commit too.
+    const dir = makeRepo(
+      `import {expect,test} from 'bun:test'; import * as val from './src/val'; test('degenerate', () => expect(typeof val.N === 'number' || true).toBe(true));\n`,
+    );
+    repos.push(dir);
+    const preStateRef = git(dir, 'rev-parse', 'HEAD').trim();
+    // The "change under proof": a new commit that bumps N. The fixture doesn't care.
+    writeFileSync(join(dir, 'src', 'val.ts'), 'export const N = 2;\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-qm', 'bump N');
+    const r = runPreState(dir, preStateRef, 'src/val.ts', 's/N = 2/N = 3/', 'bun', 'test', 'val.test.ts');
+    expect(r.code).toBe(5);
+    expect(r.out).toContain('PRE-SATISFIED');
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
+  });
+
+  it('does NOT exit 5 when the test correctly fails on the pre-state', () => {
+    // A sound fixture that depends on the current-HEAD value: it fails when val.ts is
+    // temporarily rewound to the pre-state commit (N=1), since the assertion expects N=2.
+    const dir = makeRepo(
+      `import {expect,test} from 'bun:test'; import {N} from './src/val'; test('n', () => expect(N).toBe(2));\n`,
+    );
+    repos.push(dir);
+    const preStateRef = git(dir, 'rev-parse', 'HEAD').trim(); // N=1 here
+    writeFileSync(join(dir, 'src', 'val.ts'), 'export const N = 2;\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-qm', 'bump N');
+    const r = runPreState(dir, preStateRef, 'src/val.ts', 's/N = 2/N = 3/', 'bun', 'test', 'val.test.ts');
+    expect(r.code).not.toBe(5);
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=no').trim()).toBe('');
   });
 
   it('backward compat: the degenerate fixture through the plain (non-neutralize) path still yields PLACEBO (exit 1)', () => {
