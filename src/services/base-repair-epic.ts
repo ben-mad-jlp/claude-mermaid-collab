@@ -15,6 +15,7 @@ import { isEpic } from './todo-kind.js';
 import { createEpicWithLandLeaf, addLeavesToEpic, type LeafInput } from '../mcp/workgraph-tools.js';
 import { WAKE_GATE_REPROBE_TTL_MS } from './conductor-wake-gate.js';
 import { isLanded } from './epic-landedness.js';
+import { listPassingBaseGatesSince } from './worker-ledger.js';
 
 /** Stable dedupe marker embedded in the epic's description. Mirrors {@link infraRejectedMarker}
  *  shape and the epic branch's `laneSignature` format. Greppable.
@@ -130,6 +131,53 @@ export async function reapSettledBaseRepairEpics(
   }
 
   return reaped;
+}
+
+const BASE_REPAIR_LANE_ANY_RE = /\[base-repair-lane:[0-9a-f]{8}\]/;
+
+export type LaneIsGreenFn = (project: string, sinceMs: number) => Promise<boolean>;
+
+/**
+ * Reap base-repair epics whose lane has self-healed (base gate passed after the epic was created).
+ *
+ * A lane that recovers without the targeted epic settling leaves the repair epic open forever
+ * (reapSettledBaseRepairEpics only keys on the target's state). This scans all open base-repair
+ * epics with a lane marker and drops them when laneIsGreen proves the lane has passed since
+ * creation — fail-open per repair epic so one bad entry doesn't stop the scan.
+ */
+export async function reapRecoveredLaneBaseRepairEpics(
+  project: string,
+  io?: { listTodos?: typeof listTodos; updateTodo?: typeof updateTodo; laneIsGreen?: LaneIsGreenFn },
+): Promise<string[]> {
+  const listTodosFn = io?.listTodos ?? listTodos;
+  const updateTodoFn = io?.updateTodo ?? updateTodo;
+  const laneIsGreenFn = io?.laneIsGreen ?? defaultLaneIsGreen;
+
+  const todos = listTodosFn(project, { includeCompleted: true });
+  const reaped: string[] = [];
+
+  for (const t of todos) {
+    if (!isEpic(t) || t.baseRepair !== 1 || t.status === 'done' || t.status === 'dropped') continue;
+    if (!BASE_REPAIR_LANE_ANY_RE.test(t.description ?? '')) continue;
+
+    const createdAtMs = typeof t.createdAt === 'number' ? t.createdAt : new Date(t.createdAt as unknown as string).getTime();
+    try {
+      if (!(await laneIsGreenFn(project, createdAtMs))) continue;
+      await updateTodoFn(project, t.id, { status: 'dropped' });
+      reaped.push(t.id);
+    } catch {
+      // fail-open: one bad repair epic must not stop the scan of the rest
+    }
+  }
+  return reaped;
+}
+
+async function defaultLaneIsGreen(project: string, sinceMs: number): Promise<boolean> {
+  try {
+    return listPassingBaseGatesSince(project, sinceMs).length > 0;
+  } catch {
+    return false; // unreadable ledger ⇒ never reap
+  }
 }
 
 /**
