@@ -3257,6 +3257,7 @@ export async function runLeaf(
                 testsFlipBaseToBranch: deps.testsFlipBaseToBranch ?? (async () => null),
                 readGateMetric: async () => null,
                 runGrepCount: async () => null,
+                citationExists: makeCitationExists(cwd),
               },
             );
             return { status: typed.status, reasons: typed.reasons, criteria: [] };
