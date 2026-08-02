@@ -4,6 +4,7 @@ import {
   summariseEpicOutcomes,
   detectEpicChurn,
   buildTighterDecompositionHint,
+  isZeroBurnGateHold,
 } from '../epic-churn';
 import { EPIC_CHURN_REJECT_THRESHOLD as THRESHOLD } from '../harness-caps';
 import type { LeafRunSummary } from '../ledger-stats';
@@ -63,10 +64,90 @@ test('summariseEpicOutcomes: counts by finalOutcome and dedupes reasons', () => 
   expect(summary.rejectedCount).toBe(3);
   expect(summary.blockedCount).toBe(1);
   expect(summary.acceptedCount).toBe(1);
+  expect(summary.gateHeldCount).toBe(0);
   expect(summary.distinctReasons).toHaveLength(3);
   expect(summary.distinctReasons[0]).toBe('boom error <sha>');
   expect(summary.distinctReasons[1]).toBe('other problem');
   expect(summary.distinctReasons[2]).toBe('timeout');
+});
+
+test('summariseEpicOutcomes: excludes zero-burn G-gate holds from blockedCount and distinctReasons, counts into gateHeldCount', () => {
+  const summary = summariseEpicOutcomes([
+    run({
+      finalOutcome: 'blocked',
+      attempts: 0,
+      nodesSpent: 0,
+      reason: 'epic-base-red: bun test --timeout 30000\nsrc/x.test.ts',
+    }),
+    run({
+      finalOutcome: 'blocked',
+      attempts: 0,
+      nodesSpent: 0,
+      reason: 'epic-base-red: different output',
+    }),
+  ]);
+  expect(THRESHOLD).toBe(2);
+  expect(summary.blockedCount).toBe(0);
+  expect(summary.gateHeldCount).toBe(2);
+  expect(summary.distinctReasons).toHaveLength(0);
+  expect(summary.rejectedCount).toBe(0);
+  expect(summary.acceptedCount).toBe(0);
+});
+
+test('detectEpicChurn: zero-burn gate holds do not exclude when burn is nonzero', () => {
+  const result = detectEpicChurn({
+    runs: [
+      run({
+        finalOutcome: 'blocked',
+        attempts: 1,
+        nodesSpent: 1,
+        reason: 'epic-base-red: bun test --timeout 30000\nsrc/x.test.ts',
+      }),
+      run({
+        finalOutcome: 'blocked',
+        attempts: 1,
+        nodesSpent: 1,
+        reason: 'epic-base-red: different output',
+      }),
+    ],
+  });
+  expect(result.churning).toBe(true);
+  expect(result.rejectedCount + result.acceptedCount).toBe(0);
+});
+
+test('detectEpicChurn: genuinely rejected runs with burn still churn', () => {
+  const result = detectEpicChurn({
+    runs: [
+      run({ finalOutcome: 'rejected' }),
+      run({ finalOutcome: 'rejected' }),
+    ],
+  });
+  expect(result.churning).toBe(true);
+  expect(result.rejectedCount).toBe(2);
+});
+
+test('detectEpicChurn: mix of zero-burn gate holds and below-threshold rejections stays non-churning and excludes the gate reason', () => {
+  const result = detectEpicChurn({
+    runs: [
+      run({
+        finalOutcome: 'blocked',
+        attempts: 0,
+        nodesSpent: 0,
+        reason: 'epic-base-red: bun test --timeout 30000\nsrc/x.test.ts',
+      }),
+      run({
+        finalOutcome: 'blocked',
+        attempts: 0,
+        nodesSpent: 0,
+        reason: 'epic-base-red: different output',
+      }),
+      run({ finalOutcome: 'rejected', reason: 'Some other problem' }),
+    ],
+  });
+  expect(result.churning).toBe(false);
+  expect(result.rejectedCount).toBe(1);
+  const gateReason = result.distinctReasons.some((r) => r.includes('epic-base-red'));
+  expect(gateReason).toBe(false);
 });
 
 test('detectEpicChurn: 5 rejected + 1 accepted ⇒ churning false', () => {
