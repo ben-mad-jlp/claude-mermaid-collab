@@ -1132,6 +1132,14 @@ export function writeTestQuarantine(r: Omit<TestQuarantineRow, 'createdAt'>, now
   } catch { /* best-effort */ }
 }
 
+/** Remove a quarantine record for a specific test. Best-effort: deletion failures are
+ *  swallowed (the record remains, caller will retry on next opportunity). */
+export function removeTestQuarantine(project: string, test: string): void {
+  try {
+    openDb().prepare('DELETE FROM test_quarantine WHERE project=? AND test=?').run(project, test);
+  } catch { /* best-effort */ }
+}
+
 // --- G10 land gate cache (epic_land_gate) --------------------------------
 export interface EpicLandGateRow {
   epicId: string;
