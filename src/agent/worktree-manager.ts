@@ -218,6 +218,8 @@ export interface LandResult {
   skippedDirtyPaths?: string[];
   /** The base ref (e.g. 'master') onto which this epic landed. Populated on success. */
   baseRef?: string;
+  /** The pre-land base sha (oldBaseSha). Used by guardPostLandTree for narrow-repair path. */
+  baseSha?: string;
 }
 
 /** Result of checking whether an epic's accumulation branch has drifted behind trunk.
@@ -2275,7 +2277,7 @@ export class WorktreeManager {
       const landedPaths = diffRes.code === 0
         ? diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
         : [];
-      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced, skippedDirtyPaths, baseRef };
+      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced, skippedDirtyPaths, baseRef, baseSha: oldBaseSha };
     } finally {
       // Always tear down the throwaway detached land worktree.
       await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
