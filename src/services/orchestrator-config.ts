@@ -350,31 +350,78 @@ export function setNodeProfileOverride(
   ).run(project, kind, m, e, p, Date.now());
 }
 
-/** Copy a source project's ENTIRE node-profile override set to each target project,
- *  replacing whatever the target had (so every target ends up matching the source —
- *  including "no override" kinds, which are cleared). Skips the source itself.
- *  Returns the number of projects updated. */
-export function copyNodeProfilesTo(sourceProject: string, targetProjects: string[]): number {
+/** Copy a source project's node-profile override set to each target project.
+ *  By default (force=false), merges: only writes a source kind's row when the target
+ *  has no override for that kind, preserving any target-specific pins and skipped source kinds.
+ *  With force=true, replaces: deletes all target overrides then re-inserts every source row.
+ *  Skips the source itself. Returns applied count and arrays of preserved/overwritten kinds per target. */
+export function copyNodeProfilesTo(
+  sourceProject: string,
+  targetProjects: string[],
+  opts?: { force?: boolean },
+): { applied: number; preserved: Array<{ project: string; kinds: string[] }>; overwritten: Array<{ project: string; kinds: string[] }> } {
   const d = openDb();
-  const rows = d
+  const sourceRows = d
     .query('SELECT kind, model, effort, provider FROM node_profile_override WHERE project = ?')
     .all(sourceProject) as Array<{ kind: string; model: string | null; effort: string | null; provider: string | null }>;
   const now = Date.now();
-  let count = 0;
+  let appliedCount = 0;
+  const preserved: Array<{ project: string; kinds: string[] }> = [];
+  const overwritten: Array<{ project: string; kinds: string[] }> = [];
+
   const apply = d.transaction((targets: string[]) => {
     for (const t of targets) {
       if (t === sourceProject) continue;
-      d.prepare('DELETE FROM node_profile_override WHERE project = ?').run(t);
-      for (const r of rows) {
-        d.prepare(
-          'INSERT INTO node_profile_override (project, kind, model, effort, provider, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
-        ).run(t, r.kind, r.model, r.effort, r.provider, now);
+
+      const existing = listNodeProfileOverrides(t);
+      const preservedKinds: string[] = [];
+      const overwrittenKinds: string[] = [];
+
+      if (opts?.force) {
+        // Force path: delete all, then re-insert every source row
+        for (const kind of Object.keys(existing)) {
+          overwrittenKinds.push(kind);
+        }
+        d.prepare('DELETE FROM node_profile_override WHERE project = ?').run(t);
+        for (const r of sourceRows) {
+          d.prepare(
+            'INSERT INTO node_profile_override (project, kind, model, effort, provider, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+          ).run(t, r.kind, r.model, r.effort, r.provider, now);
+        }
+      } else {
+        // Default path: merge-preserve
+        // Track source kinds that were skipped (target already had them)
+        for (const r of sourceRows) {
+          if (existing[r.kind] !== undefined) {
+            // Target already has this kind pinned, preserve it
+            preservedKinds.push(r.kind);
+          } else {
+            // Target doesn't have this kind, insert the source row
+            d.prepare(
+              'INSERT INTO node_profile_override (project, kind, model, effort, provider, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+            ).run(t, r.kind, r.model, r.effort, r.provider, now);
+          }
+        }
+        // Also track target-only kinds that survive (not in source, not being deleted)
+        for (const kind of Object.keys(existing)) {
+          if (!sourceRows.some(r => r.kind === kind) && !preservedKinds.includes(kind)) {
+            // This is a target-only kind that wasn't in source and wasn't a preserved source kind
+            preservedKinds.push(kind);
+          }
+        }
       }
-      count++;
+
+      if (preservedKinds.length > 0) {
+        preserved.push({ project: t, kinds: preservedKinds });
+      }
+      if (overwrittenKinds.length > 0) {
+        overwritten.push({ project: t, kinds: overwrittenKinds });
+      }
+      appliedCount++;
     }
   });
   apply(targetProjects);
-  return count;
+  return { applied: appliedCount, preserved, overwritten };
 }
 
 /** Steward kill-switch (one-way): force a project's level to 'off' and return the

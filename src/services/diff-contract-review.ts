@@ -38,6 +38,10 @@ export interface DiffContractReviewDeps {
   readGateMetric: (metric: string) => Promise<number | null>;
   /** source==='grep-count': count matches for metric → number|null. */
   runGrepCount: (metric: string) => Promise<number | null>;
+  /** Worktree-existence fallback for a 'met' ballot citation that misses the change-set (retained-
+   *  code tolerance) — same predicate leaf-executor's prose gate uses via makeCitationExists.
+   *  Absent ⇒ strict change-set-only grounding, unchanged from today. */
+  citationExists?: (path: string, line: number) => boolean;
 }
 
 /** One undecided requirement forwarded to the closed LLM ballot, carrying its declared id. */
@@ -224,7 +228,7 @@ export async function groundReviewViaContract(
   const ballotVerdicts = parseBallotVerdicts(reviewText);
 
   // Closed-ballot grounding: reject fabricated ids and uncited 'met' verdicts (constraint 3bfda28e).
-  const ballot = validateBallotGrounding(ballotVerdicts, declaredIds, diff.changedFiles);
+  const ballot = validateBallotGrounding(ballotVerdicts, declaredIds, diff.changedFiles, { citationExists: deps.citationExists });
   if (ballot.status !== 'ok') {
     return { status: ballot.status, reasons: ballot.reasons.map((r) => `typed-review-grounding: ${r}`), verdicts, ballotInput };
   }
