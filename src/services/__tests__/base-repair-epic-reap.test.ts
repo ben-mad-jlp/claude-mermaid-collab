@@ -88,4 +88,19 @@ describe('reapSettledBaseRepairEpics', () => {
     expect(reaped).not.toContain(repair.id);
     expect(updateCalled).toBe(false);
   });
+
+  test('resolves and reaps a legacy [base-repair:<epic8>:<lane8>] marker via the fallback regex', async () => {
+    const target = makeTargetEpic('eeee5555', { landedAt: new Date().toISOString() });
+    // makeRepairEpic embeds the LEGACY baseRepairMarker(targetId, laneSig) shape, not the
+    // new [base-repair-target:...] tag — proves BASE_REPAIR_LEGACY_TARGET_RE still resolves it.
+    const repair = makeRepairEpic('repairepic05', target.id);
+    expect(repair.description).toBe(baseRepairMarker(target.id, 'ab12cd34ef56'));
+
+    const reaped = await reapSettledBaseRepairEpics('proj', {
+      listTodos: () => [repair, target],
+      updateTodo: async (_project, _id, patch) => ({ ...repair, ...patch } as Todo),
+    });
+
+    expect(reaped).toContain(repair.id);
+  });
 });

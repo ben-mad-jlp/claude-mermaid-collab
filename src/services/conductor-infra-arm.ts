@@ -384,12 +384,20 @@ export async function runInfraRejectionArm(
         const sig = signatureByEpic.get(c.epicId);
         if (sig && sig !== UNKNOWN_LANE_SIGNATURE) {
           try {
+            let trunkRef = 'master';
+            try {
+              const { getWorktreeManager } = await import('./coordinator-live.js');
+              trunkRef = await getWorktreeManager(targetProject).detectBaseBranch();
+            } catch {
+              // fail-open: literal default, mirrors makeEpicBaseProbe's own import pattern
+            }
             const repairResult = await raiseRepair({
               project,
               session,
               epicId: c.epicId,
               targetProject,
               laneSignature: sig,
+              trunkRef,
               cause: c.cause,
               reasonTail: c.reason,
               epicBranch: epicBranchName(c.epicId),
