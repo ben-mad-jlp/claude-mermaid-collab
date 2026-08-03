@@ -344,6 +344,14 @@ describe('bucket epics stay roots', () => {
     expect(e.parentId).toBe(m.id);
   });
 
+  test('deliverable epic homes under the active mission even when created by a different session', async () => {
+    const m = await mission();
+    setMissionActive(project, m.id, true);
+
+    const e = await createTodo(project, { ownerSession: 's2', title: 'Deliverable', kind: 'epic' });
+    expect(e.parentId).toBe(m.id);
+  });
+
   test('explicit opt-out (missionId: null) beats default parenting', async () => {
     const m = await mission();
     setMissionActive(project, m.id, true);
