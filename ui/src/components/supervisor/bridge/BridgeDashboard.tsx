@@ -51,6 +51,8 @@ import { SignalsStrip } from './SignalsStrip';
 import { BridgeRail } from './rail/BridgeRail';
 import type { RailKey } from './rail/RailNav';
 import { ProjectFooter } from './rail/ProjectFooter';
+import { useMissions } from './rail/useMissions';
+import { selectActiveMissionProgress } from '@/lib/missionProgress';
 import { WorkPanel } from './rail/panels/WorkPanel';
 import { BridgeStage } from './stage/BridgeStage';
 import { BridgeInspector } from './inspector/BridgeInspector';
@@ -249,6 +251,7 @@ export const BridgeDashboard: React.FC = () => {
   // its todo's local status, so an actively-building project read 0). Prefer the daemon's
   // numbers; fall back to the local derivation until the first poll lands.
   const { daemon: leafDaemonStatus } = useLeafDaemon(project, serverScope);
+  const { missions } = useMissions(serverScope, project);
   const daemonCounts = useMemo(() => {
     if (!project || !leafDaemonStatus) return { claimable: null, inflight: null, claimableIds: null };
     const d = leafDaemonStatus;
@@ -258,6 +261,8 @@ export const BridgeDashboard: React.FC = () => {
       claimableIds: Array.isArray(d.claimSuppression?.claimableIds) ? d.claimSuppression.claimableIds : null,
     };
   }, [project, leafDaemonStatus]);
+
+  const critProgress = useMemo(() => selectActiveMissionProgress(missions), [missions]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
@@ -558,6 +563,8 @@ export const BridgeDashboard: React.FC = () => {
             inProgressCount={planStats.inProgress}
             blockedCount={planStats.blocked}
             parked={planStats.idleWithWork}
+            critMet={critProgress?.total ? critProgress.met : undefined}
+            critTotal={critProgress?.total}
             project={project}
             onRefresh={onManualRefresh}
             onOpenSettings={() => setSettingsOpen(true)}

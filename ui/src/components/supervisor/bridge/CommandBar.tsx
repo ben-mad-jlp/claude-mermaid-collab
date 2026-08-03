@@ -28,6 +28,10 @@ export interface CommandBarProps {
   inProgressCount?: number;
   blockedCount?: number;
   parked?: boolean;
+  /** Active mission acceptance criteria met. */
+  critMet?: number;
+  /** Active mission total acceptance criteria. */
+  critTotal?: number;
   /** Active project. */
   project?: string;
   /** Re-fetch all Bridge data for the current scope. */
@@ -45,6 +49,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   inProgressCount = 0,
   blockedCount = 0,
   parked = false,
+  critMet,
+  critTotal,
   project,
   onRefresh,
   onOpenSettings,
@@ -127,6 +133,15 @@ export const CommandBar: React.FC<CommandBarProps> = ({
               <path d="M3 14a1 1 0 011 1v1a1 1 0 001 1h10a1 1 0 001-1v-1a1 1 0 112 0v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-1a1 1 0 011-1z" />
             </svg>
             {landReadyCount} to land
+          </span>
+        )}
+        {typeof critTotal === 'number' && critTotal > 0 && (
+          <span
+            data-testid="bridge-crit-progress"
+            title="Active mission: acceptance criteria met / total"
+            className="text-gray-600 dark:text-gray-300 tabular-nums"
+          >
+            crit {critMet}/{critTotal}
           </span>
         )}
         {openCount > 0 && <span className="text-gray-600 dark:text-gray-300">{openCount} open</span>}
