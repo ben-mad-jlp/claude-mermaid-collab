@@ -17,6 +17,7 @@ import { upsertMission, addCriterion, CRITERION_SERVE_CAP, _resetMissionDbCache 
 import { recordStatus, setRecycleState } from '../../session-status-store';
 import { recordNode } from '../../worker-ledger';
 import { _resetMissionSpendMemo } from '../../ledger-stats';
+import { CONDUCTOR_SESSION } from '../../nudge-target';
 
 export interface StalledFixtureOpts {
   /** Create an extra unresolved 'discover' gap criterion (rollup.gaps > 0). */
@@ -32,8 +33,9 @@ export interface StalledFixtureOpts {
   /** Set mission.budgetUsd to a value already crossed by spend (budgetPaused). Drives real
    *  deriveMissionStatus to 'over-budget' via a recorded ledger spend past the ceiling. */
   budgetPaused?: boolean;
-  /** Owner session for the mission node. Pass `null` to leave the mission ownerless
-   *  (drives planMissionLoopStep's 'no-owner-session' STALLED reason). Defaults to 's1'. */
+  /** Owner session for the mission node (for todo schema). The resolved nudge target for
+   *  recycling is read via resolveNudgeTarget(project), not from ownerSession/assigneeSession.
+   *  Defaults to 's1'. */
   session?: string | null;
   /** Session status to record for `session` (recordStatus). `false` records 'working'
    *  (busy — not idle); anything else (default) records 'waiting' (idle). */
@@ -67,9 +69,9 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
   const project = join(dir, 'p');
 
   const session = opts.session === undefined ? 's1' : opts.session;
-  // ownerSession is NOT NULL in the todos schema — an ownerless mission (drives
-  // planMissionLoopStep's 'no-owner-session' reason) is expressed as '' (falsy, so
-  // `m.ownerSession ?? m.assigneeSession ?? null` in mission-loop.ts still reads null-ish).
+  // ownerSession is NOT NULL in the todos schema but no longer drives the nudge target.
+  // The mission's ownerSession is written for the todo schema itself; the resolved nudge
+  // target is read via resolveNudgeTarget(project) once per mission-loop pass.
   const ownerSessionForCreate = session ?? '';
 
   const m = await createTodo(project, {
@@ -167,7 +169,7 @@ export async function makeStalledMissionProject(opts: StalledFixtureOpts = {}): 
   }
 
   if (opts.recycling) {
-    setRecycleState(project, ownerSessionForCreate || 's1', 'recovering');
+    setRecycleState(project, CONDUCTOR_SESSION, 'recovering');
   }
 
   if (opts.budgetPaused) {
