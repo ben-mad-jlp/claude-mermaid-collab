@@ -20,6 +20,7 @@ import type { MissionStatus, MissionSummary } from './mission-store.ts';
 import { listMissions, stampMissionNudge, isMissionTerminal, collectMissionStatusFacts, getMission, listCriteriaWithActions } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { fireStamp } from './nudge-stamp.ts';
+import { resolveNudgeTarget, CONDUCTOR_SESSION } from './nudge-target.ts';
 import {
   MISSION_STALLED_KIND,
   buildStallCardText,
@@ -102,7 +103,7 @@ export type MissionLoopAction =
 export interface MissionLoopStepInput {
   mission: { todoId: string; status: MissionStatus; lastNudgeAt: number | null; lastNudgeKey: string | null; title: string; active: boolean };
   rollup: { capability: { met: number; total: number }; gaps?: number; awaitingVerify?: number };
-  ownerSession: string | null;
+  target: string | null;
   /** Is the conductor session idle (safe to nudge without interrupting active work)? */
   idle: boolean;
   now: number;
@@ -161,7 +162,7 @@ function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'],
  * NOT a per-project mode. The orchestrator only calls the pass for WATCHED projects.
  */
 export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAction {
-  const { mission, rollup, ownerSession, idle, now, cooldownMs, escalationMs } = input;
+  const { mission, rollup, target, idle, now, cooldownMs, escalationMs } = input;
   if (!mission.active) return { kind: 'none', reason: 'inactive' };
   if (mission.status === 'converged') return { kind: 'none', reason: 'converged' };
   if (mission.status === 'closed') return { kind: 'none', reason: 'closed' };
@@ -173,7 +174,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
   if (mission.status === 'stalled') return { kind: 'none', reason: 'stalled' };
   if (mission.status === 'building') return { kind: 'none', reason: 'building' };
 
-  if (!ownerSession) return { kind: 'none', reason: 'no-owner-session' };
+  if (!target) return { kind: 'none', reason: 'no-nudge-target' };
   if (!idle) return { kind: 'none', reason: 'session-busy' };
 
   // blocked: nudge once, then silence (never re-nudge blocked until it changes)
@@ -181,7 +182,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
     if (mission.lastNudgeAt != null) return { kind: 'none', reason: 'blocked-silenced' };
     return {
       kind: 'nudge',
-      session: ownerSession,
+      session: target,
       message: nudgeMessage(mission.status, mission, rollup, now),
       reason: 'nudge:blocked',
       key: fingerprint(mission, rollup),
@@ -196,7 +197,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
     if (mission.lastNudgeAt == null) {
       return {
         kind: 'nudge',
-        session: ownerSession,
+        session: target,
         message: nudgeMessage(mission.status, mission, rollup, now),
         reason: `nudge:${mission.status}`,
         key,
@@ -211,7 +212,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
     if (pastCooldown && (changed || escalated)) {
       return {
         kind: 'nudge',
-        session: ownerSession,
+        session: target,
         message: nudgeMessage(mission.status, mission, rollup, now),
         reason: `nudge:${mission.status}`,
         key,
@@ -242,6 +243,8 @@ export interface MissionLoopDeps {
   /** Test seam: override forward-progress resolution of an open stall escalation.
    *  Defaults to the listOpenEscalations + resolveEscalation lookup below. */
   resolveStallEscalation?: (project: string, conditionKey: string) => void;
+  /** Test seam: override project-scoped target resolution. Defaults to resolveNudgeTarget. */
+  resolveTarget?: (project: string) => string;
 }
 
 /**
@@ -267,8 +270,8 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
 
   let recycling = 0;
   try {
-    const session = m.ownerSession ?? m.assigneeSession ?? '';
-    if (session && getStatus(project, session)?.recycleState === 'recovering') recycling = 1;
+    const session = resolveNudgeTarget(project);
+    if (getStatus(project, session)?.recycleState === 'recovering') recycling = 1;
   } catch { /* fail closed to 0 */ }
 
   const conditionKey = missionStallConditionKey(missionId, blockedCriterionIds);
@@ -342,6 +345,7 @@ function handleNoneReason(
   now: number,
   deps: MissionLoopDeps,
   result: MissionLoopResult,
+  target: string | null,
 ): void {
   const missionId = m.node.id;
   try {
@@ -351,7 +355,7 @@ function handleNoneReason(
       const card = (deps.raiseRebetCard ?? raiseOverBudgetRebetCard)(
         project,
         missionId,
-        m.ownerSession ?? m.assigneeSession ?? 'mission-loop',
+        target ?? 'mission-loop',
         m.node.title,
       );
       if (card.raised) result.overBudget.push(missionId);
@@ -382,6 +386,7 @@ function evaluateStallAndMaybeRaise(
   now: number,
   deps: MissionLoopDeps,
   result: MissionLoopResult,
+  target: string | null,
 ): boolean {
   const missionId = m.node.id;
   try {
@@ -413,7 +418,7 @@ function evaluateStallAndMaybeRaise(
 
     (deps.createEscalation ?? createEscalation)({
       project,
-      session: m.ownerSession ?? m.assigneeSession ?? 'mission-loop',
+      session: target ?? 'mission-loop',
       kind: MISSION_STALLED_KIND,
       todoId: missionId,
       operatorGated: true,
@@ -443,20 +448,25 @@ function evaluateStallAndMaybeRaise(
  */
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
   const list = deps.list ?? listMissions;
-  const isIdle = deps.isIdle ?? ((p: string, s: string) => getStatus(p, s)?.status === 'waiting');
+  const isIdle = deps.isIdle ?? ((p: string, s: string) => {
+    const row = getStatus(p, s);
+    return row === null || row.status === 'waiting';
+  });
   const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'undeliverable' as const);
   const stampNudge = deps.stampNudge ?? stampMissionNudge;
   const now = deps.now ?? Date.now();
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;
   const escalationMs = deps.escalationMs ?? MISSION_NUDGE_ESCALATION_MS;
+  const resolveTarget = deps.resolveTarget ?? resolveNudgeTarget;
 
   const result: MissionLoopResult = { project, nudged: [], skipped: 0, stalled: [], overBudget: [] };
 
   let missions: MissionSummary[];
   try { missions = list(project); } catch { return result; }
 
+  const target = resolveTarget(project);
+
   for (const m of missions) {
-    const session = m.ownerSession ?? m.assigneeSession ?? null;
     const action = planMissionLoopStep({
       mission: {
         todoId: m.node.id, status: m.mission.status ?? 'needs-discovery',
@@ -464,8 +474,8 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
         title: m.node.title, active: m.mission.active !== false,
       },
       rollup: { capability: m.rollup.capability },
-      ownerSession: session,
-      idle: session ? isIdle(project, session) : false,
+      target,
+      idle: target ? isIdle(project, target) : false,
       now,
       cooldownMs,
       escalationMs,
@@ -475,7 +485,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
       if (action.kind === 'nudge') {
         // A nudge is motion, but the stall conjunction may STILL hold (e.g. an in-flight
         // land or over-budget re-bet) — only clear the episode when it genuinely does not.
-        const stillStalled = evaluateStallAndMaybeRaise(project, m, now, deps, result);
+        const stillStalled = evaluateStallAndMaybeRaise(project, m, now, deps, result, target);
         if (!stillStalled) {
           clearMissionStall(project, m.node.id);
           clearStallObservation(project, m.node.id);
@@ -486,8 +496,8 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
       } else {
         // NO SILENT STOP: classify this no-op and, if it means the mission is stuck,
         // make it visible (stall clock → derived status → exactly one human card).
-        handleNoneReason(project, m, action.reason, now, deps, result);
-        evaluateStallAndMaybeRaise(project, m, now, deps, result);
+        handleNoneReason(project, m, action.reason, now, deps, result, target);
+        evaluateStallAndMaybeRaise(project, m, now, deps, result, target);
         result.skipped++;
       }
     } catch {

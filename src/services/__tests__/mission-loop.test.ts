@@ -8,7 +8,7 @@ function inp(over: Partial<MissionLoopStepInput> = {}): MissionLoopStepInput {
   return {
     mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, lastNudgeKey: null, title: '[MISSION] ship X', active: true },
     rollup: { capability: { met: 0, total: 2 } },
-    ownerSession: 'design',
+    target: 'design',
     idle: true,
     now: NOW,
     cooldownMs: 15 * 60 * 1000,
@@ -104,8 +104,8 @@ test('past cooldown → nudge again', () => {
   expect(a.kind).toBe('nudge');
 });
 
-test('no owner session → none', () => {
-  expect(planMissionLoopStep(inp({ ownerSession: null })).kind).toBe('none');
+test('no nudge target → none', () => {
+  expect(planMissionLoopStep(inp({ target: null })).kind).toBe('none');
 });
 
 // ---- runner ----
@@ -149,6 +149,38 @@ test('runner: skips a building mission', async () => {
   });
   expect(r.nudged).toEqual([]);
   expect(r.skipped).toBe(1);
+});
+
+test('runner: nudges an active needs-discovery mission with no ownerSession or assigneeSession', async () => {
+  const nudgedSessions: string[] = [];
+  let stamped = 0;
+  const r = await runMissionLoopPass('/p', {
+    list: () => [summary({ ownerSession: null, assigneeSession: null, mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, lastNudgeKey: null, active: true } })],
+    isIdle: () => true,
+    nudge: async (_p: string, s: string) => { nudgedSessions.push(s); return 'sent'; },
+    stampNudge: () => { stamped++; },
+    now: NOW,
+    resolveTarget: () => 'conductor-resolved',
+  });
+  expect(r.nudged).toEqual(['m1']);
+  expect(nudgedSessions).toEqual(['conductor-resolved']);
+  expect(stamped).toBe(1);
+});
+
+test('runner: an ownerSession different from the resolved target does not change the delivered nudge target', async () => {
+  const nudgedSessions: string[] = [];
+  let stamped = 0;
+  const r = await runMissionLoopPass('/p', {
+    list: () => [summary({ ownerSession: 'stale-design', assigneeSession: 'stale-design', mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, lastNudgeKey: null, active: true } })],
+    isIdle: () => true,
+    nudge: async (_p: string, s: string) => { nudgedSessions.push(s); return 'sent'; },
+    stampNudge: () => { stamped++; },
+    now: NOW,
+    resolveTarget: () => 'conductor-current',
+  });
+  expect(r.nudged).toEqual(['m1']);
+  expect(nudgedSessions).toEqual(['conductor-current']);
+  expect(stamped).toBe(1);
 });
 
 // ---- fingerprint-gated nudge tests ----
