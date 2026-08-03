@@ -106,6 +106,40 @@ async function createServingEpicWithRuns(
   return epic;
 }
 
+/**
+ * Seed two DISTINCT, restorable non-terminal leaves under an epic:
+ *  - a held leaf (updateTodo{status:'blocked'} → heldAt+heldReason='manual', non-terminal), and
+ *  - a leaf carrying acceptanceStatus:'pending'.
+ * These are exactly the rows the drop cascade clobbers (status→dropped, hold/acceptance→NULL),
+ * so a correct rollback must bring both back. Returns their ids for assertions.
+ */
+async function seedRestorableChildren(epicId: string) {
+  const blocked = await createTodo(project, {
+    ownerSession: 's1',
+    title: 'blocked child (held)',
+    parentId: epicId,
+    status: 'ready',
+  });
+  await updateTodo(project, blocked.id, { status: 'blocked' }); // heldAt=now, heldReason='manual'
+
+  const pending = await createTodo(project, {
+    ownerSession: 's1',
+    title: 'pending child',
+    parentId: epicId,
+    status: 'ready',
+  });
+  await updateTodo(project, pending.id, { acceptanceStatus: 'pending' });
+
+  return { blockedId: blocked.id, pendingId: pending.id };
+}
+
+/** Non-terminal (not done/dropped) children of an epic, live from the store. */
+function nonTerminalChildren(epicId: string) {
+  return listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === epicId && t.status !== 'done' && t.status !== 'dropped',
+  );
+}
+
 describe('findServingEpicForCriterion', () => {
   test('returns the newest epic serving a criterion', async () => {
     const { forged, criteria } = await seedMission();
@@ -380,6 +414,8 @@ describe('runRedecomposeArm', () => {
       rejectedThreshold,
       0,
     );
+    const { blockedId, pendingId } = await seedRestorableChildren(epic.id);
+    const preCount = nonTerminalChildren(epic.id).length;
 
     const deps: RedecomposeArmDeps = {
       planMissionCriterion: async () => {
@@ -395,9 +431,20 @@ describe('runRedecomposeArm', () => {
       true,
     );
 
-    // Verify epic status was rolled back
-    const updatedEpic = listTodos(project, { includeCompleted: true }).find((t) => t.id === epic.id);
+    // (a) epic status rolled back
+    const all = listTodos(project, { includeCompleted: true });
+    const updatedEpic = all.find((t) => t.id === epic.id);
     expect(updatedEpic?.status).toBe(epic.status);
+
+    // (b) NO child left dropped — the cascade-dropped children were restored
+    expect(nonTerminalChildren(epic.id).length).toBe(preCount);
+
+    // (c) the held child's hold survived and the pending child's acceptance survived
+    const blocked = all.find((t) => t.id === blockedId);
+    expect(blocked?.heldAt).toBeTruthy();
+    expect(blocked?.heldReason).toBe('manual');
+    const pending = all.find((t) => t.id === pendingId);
+    expect(pending?.acceptanceStatus).toBe('pending');
 
     // Verify criterion is still served (servedEpicCount unchanged or includes the rolled-back epic)
     const crits = listCriteriaWithActions(project, forged.missionId);
@@ -416,6 +463,8 @@ describe('runRedecomposeArm', () => {
       rejectedThreshold,
       0,
     );
+    const { blockedId, pendingId } = await seedRestorableChildren(epic.id);
+    const preCount = nonTerminalChildren(epic.id).length;
 
     const deps: RedecomposeArmDeps = {
       planMissionCriterion: async () => {
@@ -433,9 +482,20 @@ describe('runRedecomposeArm', () => {
       true,
     );
 
-    // Verify epic status was rolled back
-    const updatedEpic = listTodos(project, { includeCompleted: true }).find((t) => t.id === epic.id);
+    // (a) epic status rolled back
+    const all = listTodos(project, { includeCompleted: true });
+    const updatedEpic = all.find((t) => t.id === epic.id);
     expect(updatedEpic?.status).toBe(epic.status);
+
+    // (b) NO child left dropped — the cascade-dropped children were restored
+    expect(nonTerminalChildren(epic.id).length).toBe(preCount);
+
+    // (c) the held child's hold survived and the pending child's acceptance survived
+    const blocked = all.find((t) => t.id === blockedId);
+    expect(blocked?.heldAt).toBeTruthy();
+    expect(blocked?.heldReason).toBe('manual');
+    const pending = all.find((t) => t.id === pendingId);
+    expect(pending?.acceptanceStatus).toBe('pending');
 
     // Verify criterion is still served
     const crits = listCriteriaWithActions(project, forged.missionId);
@@ -454,6 +514,8 @@ describe('runRedecomposeArm', () => {
       rejectedThreshold,
       0,
     );
+    const { blockedId, pendingId } = await seedRestorableChildren(epic.id);
+    const preCount = nonTerminalChildren(epic.id).length;
 
     const deps: RedecomposeArmDeps = {
       planMissionCriterion: async () => {
@@ -470,9 +532,20 @@ describe('runRedecomposeArm', () => {
       true,
     );
 
-    // Verify epic status was rolled back
-    const updatedEpic = listTodos(project, { includeCompleted: true }).find((t) => t.id === epic.id);
+    // (a) epic status rolled back
+    const all = listTodos(project, { includeCompleted: true });
+    const updatedEpic = all.find((t) => t.id === epic.id);
     expect(updatedEpic?.status).toBe(epic.status);
+
+    // (b) NO child left dropped — the cascade-dropped children were restored
+    expect(nonTerminalChildren(epic.id).length).toBe(preCount);
+
+    // (c) the held child's hold survived and the pending child's acceptance survived
+    const blocked = all.find((t) => t.id === blockedId);
+    expect(blocked?.heldAt).toBeTruthy();
+    expect(blocked?.heldReason).toBe('manual');
+    const pending = all.find((t) => t.id === pendingId);
+    expect(pending?.acceptanceStatus).toBe('pending');
 
     // Verify criterion is still served
     const crits = listCriteriaWithActions(project, forged.missionId);
