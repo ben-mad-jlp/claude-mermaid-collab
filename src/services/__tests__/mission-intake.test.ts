@@ -68,14 +68,16 @@ const trendsOf = (...groups: FrictionNote[][]) => () => summarizeFrictionTrends(
 function realForgeDep(calls: IntakeCandidate[] = []): MissionIntakeDeps['forge'] {
   return async (proj, candidate, brief) => {
     calls.push(candidate);
-    const { forgeMissionFromDoc } = await import('../../mcp/tools/mission-forge');
+    // AWAITED variant: forgeMissionFromDoc acks at `forging` and finishes in the background, so a
+    // test that asserts on the drafted mission must await the continuation.
+    const { forgeMissionFromDocAndWait } = await import('../../mcp/tools/mission-forge');
     const spec = {
       title: `Fix recurring ${candidate.retryReason}`,
       description: `From cluster ${candidate.sig}`,
       criteria: [`the ${candidate.retryReason} friction no longer recurs`, 'a regression test proves it'],
       constraints: [{ rule: 'fix the root cause, not the symptom', rationale: 'anti-whack-a-mole' }],
     };
-    const res = await forgeMissionFromDoc(
+    const res = await forgeMissionFromDocAndWait(
       proj,
       { session: INTAKE_SESSION, docId: 'intake-doc' },
       { readDoc: async () => brief, invoke: async () => ({ ok: true, rateLimited: false, text: '```json\n' + JSON.stringify(spec) + '\n```' } as any) },
