@@ -1129,6 +1129,38 @@ describe('mission handoffDocId (constitution link)', () => {
   });
 });
 
+describe('listMissions cheap-path capability rollup parity', () => {
+  test('listMissions(withFacts:false) capability deep-equals getMissionRollup capability', async () => {
+    const m = await makeMissionNode();
+    upsertMission(project, m);
+    const c1 = addCriterion(project, m, 'first criterion');
+    const c2 = addCriterion(project, m, 'second criterion');
+    const c3 = addCriterion(project, m, 'third criterion');
+
+    // Mark one met
+    setCriterionMet(project, c1.id, true);
+
+    // Drop one
+    dropCriterion(project, c2.id, { reason: 'out of scope', by: 'test' });
+
+    // Leave one unmet
+
+    // Cheap path (withFacts:false)
+    const cheapRows = listMissions(project, { withFacts: false });
+    const cheapMission = cheapRows.find((r) => r.node.id === m);
+    expect(cheapMission).toBeDefined();
+    const cheapCapability = cheapMission!.rollup.capability;
+
+    // Full path (withFacts:true, default)
+    const fullRollup = getMissionRollup(project, m);
+    const fullCapability = fullRollup.capability;
+
+    // Both should have: met=1, total=2, dropped=1
+    expect(cheapCapability).toEqual(fullCapability);
+    expect(cheapCapability).toEqual({ met: 1, total: 2, dropped: 1 });
+  });
+});
+
 // ── Multi-criterion epic edges (e7d3c02b) ─────────────────────────────────────
 // Land-leaf self-heal (healMissionEpicLandLeaves / ensureMissionEpicLandLeaf) was
 // retired by the land-property cutover (mission 48e1a624): landedAt is the durable
