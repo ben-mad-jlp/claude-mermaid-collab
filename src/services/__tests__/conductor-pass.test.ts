@@ -24,7 +24,7 @@ import { recordApproachAttempt } from '../criterion-approach-store';
 import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
 import { initializeWebSocketHandler } from '../ws-handler-manager';
-import { listConductorPasses } from '../conductor-pass-journal';
+import { listConductorPasses, _closeConductorJournalDb } from '../conductor-pass-journal';
 
 let project: string;
 let invokeCalls: number;
@@ -52,6 +52,7 @@ beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'conductor-'));
   invokeCalls = 0;
   _resetMissionDbCache(project);
+  _closeConductorJournalDb();
 });
 
 async function forgeApprovedActive() {
@@ -1413,7 +1414,7 @@ describe('runConductorPass — recovery arms run BEFORE the escalate return (mis
     }) as any;
     const redecomposeArmSpy = (async () => {
       redecomposeCalled = true;
-      return { redecomposed: ['epic-1'] };
+      return { redecomposed: [{ criterionId: 'crit-1', epicId: 'epic-1' }] };
     }) as any;
 
     const r = await runConductorPass(project, {
@@ -1461,6 +1462,49 @@ describe('runConductorPass — recovery arms run BEFORE the escalate return (mis
     expect(redecomposeCalled).toBe(true);
     expect(r.reason).toBe('criteria-escalated');
     expect(invokeCalls).toBe(0); // node NOT spawned because critB is building (not discover/verify)
+  });
+
+  test('filed epic ref uses the arm\'s epicId, not the criterionId', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA } = await forgeCappedPlusHoldingMission();
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: (async () => ({ candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] })) as any,
+      cardTriageArm: (async () => ({ parked: [], skipped: [] })) as any,
+      redecomposeArm: (async () => ({ redecomposed: [{ criterionId: critA.id, epicId: 'e-new' }], skipped: [] })) as any,
+    });
+
+    expect(r.reason).toBe('redecomposed');
+    expect(r.redecomposed).toBe(1);
+
+    const row = listConductorPasses(project)[0];
+    const filedArray = Array.isArray(row.filed) ? row.filed : [];
+    const redecomposedRef = filedArray.find((f: any) => f.title?.startsWith('re-decomposed:'));
+    expect(redecomposedRef).toEqual(
+      { kind: 'epic', id: 'e-new', title: `re-decomposed: ${critA.text}` }
+    );
+  });
+
+  test('an all-skipped redecompose result does not short-circuit as redecomposed', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA } = await forgeCappedPlusHoldingMission();
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: (async () => ({ candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] })) as any,
+      cardTriageArm: (async () => ({ parked: [], skipped: [] })) as any,
+      redecomposeArm: (async () => ({ redecomposed: [], skipped: [{ criterionId: critA.id, why: 'plan-failed' }] })) as any,
+    });
+
+    expect(r.reason).not.toBe('redecomposed');
+
+    const row = listConductorPasses(project)[0];
+    const filedArray = Array.isArray(row.filed) ? row.filed : [];
+    const redecomposedTitle = filedArray.some((f) => (f as any).title?.startsWith('re-decomposed:'));
+    expect(redecomposedTitle).toBe(false);
   });
 });
 

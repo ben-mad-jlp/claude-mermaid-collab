@@ -832,20 +832,21 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   }
 
-  let redecomposed: string[] = [];
-  try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
+  let redecomposed: RedecomposeArmResult['redecomposed'] = [];
+  try {
+    redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {}))
+      .redecomposed;
+  }
   catch { redecomposed = [] }
-  // runRedecomposeArm returns CRITERION ids, not the newly-planned epic's id; getting the real
-  // epic id would need a second listTodos scan this leaf must not add, so the criterion id stands
-  // in for the epic the redecompose produced — the same tradeoff as infra `cardsRaised` above.
-  for (const critId of redecomposed) {
+  const filedRedecomposed = redecomposed.filter((r) => r.epicId);
+  for (const entry of filedRedecomposed) {
     filedRefs.push({
-      kind: 'epic', id: critId,
-      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === critId)?.text ?? critId}`,
+      kind: 'epic', id: entry.epicId,
+      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === entry.criterionId)?.text ?? entry.criterionId}`,
     });
   }
-  if (redecomposed.length > 0)
-    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: redecomposed.length,
+  if (filedRedecomposed.length > 0)
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: filedRedecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
