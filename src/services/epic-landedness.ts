@@ -188,5 +188,33 @@ export async function isEpicLandedInGit(
   }
 }
 
+export interface EpicLandCommit {
+  status: GitLandStatus;
+  sha: string | null;
+  committedAtIso: string | null;
+}
+
+export async function getEpicLandCommit(
+  project: string,
+  epicId: string,
+  deps?: { runGit?: GitRunner; trunk?: string },
+): Promise<EpicLandCommit> {
+  try {
+    const runGit = deps?.runGit ?? defaultRunGit;
+    const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
+    if (!trunk) return { status: 'indeterminate', sha: null, committedAtIso: null };
+    const res = await runGit(project, ['log', trunk, `--grep=Collab-Epic: ${epicId}`, '--format=%H%x09%cI', '-1']).catch(() => null);
+    if (res === null) return { status: 'indeterminate', sha: null, committedAtIso: null };
+    if (res.code !== 0) return { status: 'indeterminate', sha: null, committedAtIso: null };
+    const trimmed = res.stdout.trim();
+    if (trimmed.length === 0) return { status: 'not-landed', sha: null, committedAtIso: null };
+    const parts = trimmed.split('\x09');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return { status: 'indeterminate', sha: null, committedAtIso: null };
+    return { status: 'landed', sha: parts[0], committedAtIso: parts[1] };
+  } catch {
+    return { status: 'indeterminate', sha: null, committedAtIso: null };
+  }
+}
+
 // Re-export LandFinding for use in EpicWorkReachability interface.
 export type { LandFinding } from './epic-land-readiness.js';
