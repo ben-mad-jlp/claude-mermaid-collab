@@ -93,7 +93,7 @@ const ALLOWLIST: AllowEntry[] = [
 
   // (FALLBACK) both sweep entrypoints now resolve baseRef via
   // detectBaseBranch().catch(()=>"master") (trunk-ref Part B).
-  { file: 'src/services/landed-epic-sweep.ts', count: 2, reason: 'reconcileLandedEpics + gcEpicBranches resolve baseRef via detectBaseBranch fallback (Part B)' },
+  { file: 'src/services/landed-epic-sweep.ts', count: 3, reason: 'reconcileLandedEpics + terminalizeLandedEpics + gcEpicBranches resolve baseRef via detectBaseBranch fallback (Part B)' },
 
   // (FALLBACK + STRING) conductor-wake-gate pickBaseRef fallback arg + the comment
   // explaining why a literal master would signature-freeze.
