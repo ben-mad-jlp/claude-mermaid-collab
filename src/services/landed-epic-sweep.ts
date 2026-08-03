@@ -107,6 +107,7 @@ export async function reconcileLandedEpics(
 export interface TerminalizeLandedEpicsResult {
   terminalized: string[];
   skipped: number;
+  droppedChildren: string[];
 }
 
 export async function terminalizeLandedEpics(
@@ -120,6 +121,7 @@ export async function terminalizeLandedEpics(
 
   const todos = listTodos(project, { includeCompleted: true });
   const terminalized: string[] = [];
+  const droppedChildren: string[] = [];
   let skipped = 0;
 
   for (const epic of todos) {
@@ -139,6 +141,14 @@ export async function terminalizeLandedEpics(
     });
     if (hasInflightChild) { skipped++; continue; }
 
+    const staleChildren = childLeaves.filter((c) => c.status !== 'done');
+    const droppedThisEpic: string[] = [];
+    for (const child of staleChildren) {
+      await updateTodo(project, child.id, { status: 'dropped' });
+      droppedThisEpic.push(child.id);
+    }
+    droppedChildren.push(...droppedThisEpic);
+
     const { stamped } = await stampEpicLandedAtGated(project, epic.id, land.committedAtIso!, { probe, baseRef });
     if (!stamped) { skipped++; continue; }
 
@@ -146,7 +156,7 @@ export async function terminalizeLandedEpics(
     terminalized.push(epic.id);
   }
 
-  return { terminalized, skipped };
+  return { terminalized, skipped, droppedChildren };
 }
 
 /** A git delete/tip-read runner — injected so branch deletion is hermetically
@@ -460,7 +470,7 @@ export async function runLandedEpicSweep(
 ): Promise<RunLandedEpicSweepResult> {
   const now = opts.now ?? Date.now();
   if (!opts.force && !shouldRunLandedEpicSweep(project, now)) {
-    return { terminalize: { terminalized: [], skipped: 0 }, reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
+    return { terminalize: { terminalized: [], skipped: 0, droppedChildren: [] }, reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
   }
   const doYield = opts.yieldFn ?? yieldToLoop;
 
