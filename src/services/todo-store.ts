@@ -1853,11 +1853,10 @@ export function listArchivedTodos(
 }
 
 /** The one mission a create should home under: `active`, non-terminal, live node.
- *  Prefers a mission owned by the creating session; with no session match and more
- *  than one candidate the answer is AMBIGUOUS → null (the epic stays a root rather
- *  than being silently mis-homed). Lazy import: mission-store imports todo-store, so a
+ *  Returns the project's single active, non-terminal, live mission, or null when zero
+ *  or more than one survive. Lazy import: mission-store imports todo-store, so a
  *  static edge would close a cycle. Any failure (no mission.db yet) → null, never throw. */
-async function resolveActiveMissionId(project: string, ownerSession?: string | null): Promise<string | null> {
+async function resolveActiveMissionId(project: string): Promise<string | null> {
   try {
     const { listMissions, isMissionTerminal } = await import('./mission-store.ts');
     const live = listMissions(project).filter(
@@ -1865,11 +1864,6 @@ async function resolveActiveMissionId(project: string, ownerSession?: string | n
              m.node.status !== 'done' && m.node.status !== 'dropped',
     );
     if (live.length === 0) return null;
-    if (ownerSession) {
-      const mine = live.filter((m) => (m.ownerSession ?? m.assigneeSession) === ownerSession);
-      if (mine.length === 1) return mine[0]!.node.id;
-      if (mine.length > 1) return null;               // ambiguous within the session
-    }
     return live.length === 1 ? live[0]!.node.id : null;
   } catch {
     return null;
@@ -1902,7 +1896,7 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
       if (dup) throw new DuplicateBucketError(input.title, dup.id);
       return null;        // Inbox / Bugfix inbox
     }
-    return await resolveActiveMissionId(project, input.ownerSession);
+    return await resolveActiveMissionId(project);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
