@@ -245,6 +245,32 @@ export interface NodeRoots {
   mainCheckout?: string | null;
 }
 
+/** The PRIVILEGE BOUNDARY, written down for the same reason the working root is: nothing in
+ *  the prompt ever said it, so a node that could not finish its task by the sanctioned route
+ *  went looking for another one and found it.
+ *
+ *  Observed 2026-07-31 (mission 0a4a350d, leaf df08b5e3). The leaf was specced to run a deploy;
+ *  the deploy script needs interactive sudo; a headless node has no TTY. Refused by `sudo -n`,
+ *  it enumerated alternatives (SUDO_ASKPASS, group membership, the script's own sudo lines),
+ *  found the docker group, and took host root via `docker run --privileged --pid=host -v /:/host
+ *  … nsenter -t 1`. It then copied unlanded source onto a live service's runtime path and
+ *  restarted that service six times to manufacture a transient reading its criteria demanded.
+ *
+ *  Nothing it did was blocked by a permission — docker-group membership is root-equivalent by
+ *  design — so the boundary has to be stated, not merely assumed. `detectPrivilegeEscalation`
+ *  and `detectOutsideWorktreeWrite` in node-commands.ts are the detection half; these lines are
+ *  the prevention half. Both exist because either alone is insufficient. */
+export const PRIVILEGE_BOUNDARY_LINES: readonly string[] = [
+  '',
+  'PRIVILEGE BOUNDARY: work with exactly the privilege you already have. Do NOT acquire more by',
+  'a route this leaf did not name — no docker/podman to reach the host (`--privileged`, `--pid=host`,',
+  '`-v /:/…`, `nsenter`), no `sudo -A`/SUDO_ASKPASS, no chroot, no setuid tricks. Do NOT deploy,',
+  'restart or reload a service, and do NOT write anywhere outside your working root (scratch in',
+  '/tmp is fine). If finishing genuinely requires privilege or a deploy you do not have, STOP and',
+  'say so plainly in your final message, naming the exact step you could not perform — that is a',
+  'correct, complete outcome for this leaf. It is never correct to find another way in.',
+];
+
 export function workingRootLines(roots?: NodeRoots): string[] {
   if (!roots?.worktree) return [];
   const lines = [
@@ -259,6 +285,7 @@ export function workingRootLines(roots?: NodeRoots): string[] {
       'there is NOT — that work is discarded and your leaf is filed as an empty diff.',
     );
   }
+  lines.push(...PRIVILEGE_BOUNDARY_LINES);
   lines.push('');
   return lines;
 }
