@@ -130,6 +130,9 @@ export interface LeafGateResult {
    *  step actually cleaned (empty when no restore dep or restore failed). Reporting only —
    *  never affects status semantics. */
   poisonedCheckout?: { paths: string[]; restored: string[] };
+  /** Leaf-gate only: true when the diff contains ONLY spec (test) files and a lane failed.
+   *  A leaf that ships no production change must not be accepted on a red test. */
+  hollow?: boolean;
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -561,6 +564,7 @@ export async function runLeafGate(
   spawn: GateSpawn,
   baselines?: LaneBaselineMap | null,
   resolveLaneBaseline?: (laneKey: string, commands: readonly string[], laneCwd?: string) => Promise<string[] | null>,
+  opts?: { testOnlyTyped?: boolean },
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: ['gate: none declared'], declared: false };
 
@@ -622,6 +626,9 @@ export async function runLeafGate(
   }
 
   const normalizedChangeSet = changeSet !== null ? changeSet.map(normPathLocal) : null;
+  const hollow = normalizedChangeSet !== null
+    && normalizedChangeSet.some((p) => SPEC_FILE_RE.test(p))
+    && normalizedChangeSet.every((p) => SPEC_FILE_RE.test(p));
 
   // Test section: either multi-lane or legacy single-test form.
   const lanes = resolveLanes(cfg);
@@ -697,6 +704,22 @@ export async function runLeafGate(
       const output = laneFailures.map((f) => f.output).join('\n').slice(0, 8000);
       const failing = laneFailures.flatMap((f) => extractFailingTests(f.output));
       const { netNew } = classifyRedLane(failing, resolved ?? []);
+      // A hollow diff (test-only) with failing tests must be rejected, even if the failures
+      // are baseline-only. This is distinct from citability (blueprint-prose validation);
+      // a hollow verdict always resolves 'rejected' in the completion layer as well.
+      if (hollow && !opts?.testOnlyTyped) {
+        return {
+          status: 'fail',
+          command: laneFailures[0].command,
+          output,
+          reasons: [
+            'hollow-test-only-diff: the diff changes only test files and its tests fail; a leaf that ships no production change may not be accepted on a red test',
+            `${laneFailures.length} failing spec file(s)`,
+          ],
+          declared: true,
+          hollow: true,
+        };
+      }
       if (netNew.length === 0) {
         baselineOnly.push(...failing);
       } else {

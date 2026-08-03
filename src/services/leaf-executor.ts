@@ -627,7 +627,7 @@ export interface LeafExecutorDeps {
    *  'fail' ⇒ the leaf's work is bad (a FINDING). 'error' ⇒ the gate could not run (an
    *  INCIDENT → park blocked + escalate; NEVER reported as the leaf failing). Unwired ⇒
    *  undefined ⇒ no mechanical signal (pre-G2 behaviour). */
-  runGate?: (cwd: string) => Promise<LeafGateResult>;
+  runGate?: (cwd: string, opts?: { testOnlyTyped?: boolean }) => Promise<LeafGateResult>;
   /** crit 2 (edit-coverage): LAZILY compute whether the leaf's DECLARED test files FLIP
    *  base→branch — i.e. do those tests FAIL against the base implementation (and pass at HEAD,
    *  already proven by the green mechanical gate)? TRUE ⇒ the tests genuinely exercise the
@@ -3058,7 +3058,7 @@ export async function runLeaf(
       // proven green once per epic, so any failure here is BY CONSTRUCTION this leaf's
       // own — no baseline diff, no per-file test selection heuristics.
       let mech: LeafGateResult;
-      const gateRun = await deps.runGate?.(cwd);
+      const gateRun = await deps.runGate?.(cwd, { testOnlyTyped: leafContract?.leafKind === 'test' });
       if (gateRun) {
         mech = gateRun;
       } else {
@@ -4025,7 +4025,7 @@ export async function makeLeafExecutorDeps(
     },
     // G2 mechanical gate at leaf HEAD. Scoped to this leaf's own change-set (against the
     // epic branch base) so the per-file test command only runs specs this leaf touched.
-    runGate: async (cwd) => {
+    runGate: async (cwd, opts) => {
       const early = gateResultForDeclaration(gateDecl);
       if (early) return early; // misconfigured → mech.status==='error' → parkBlocked+escalate
       if (gateDecl.kind === 'absent') {
@@ -4051,7 +4051,7 @@ export async function makeLeafExecutorDeps(
       }
       const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
       const baseGate = getEpicBaseGate(epicId, epicBaseSha);
-      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null, resolveLaneBaseline);
+      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn, baseGate?.baselineFailures ?? null, resolveLaneBaseline, opts);
     },
     // G2 once-per-epic base gate, cached in the epic_base_gate ledger table keyed by
     // epicId ALONE (never the moving tip). A cached `pass` is terminal for its sha; a
