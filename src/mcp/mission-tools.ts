@@ -243,7 +243,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const updated = await updateTodoStore(project, todoId, patch);
       let abandoned = node && isMission(node) ? getMission(project, todoId)?.abandonedAt ?? null : null;
       if (abandonedAt !== undefined) {
-        abandoned = setMissionAbandoned(project, todoId, abandonedAt).abandonedAt;
+        abandoned = (await setMissionAbandoned(project, todoId, abandonedAt)).abandonedAt;
       }
       let budget = getMission(project, todoId)?.budgetUsd ?? null;
       if (budgetUsd !== undefined) {
