@@ -55,6 +55,7 @@ let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let conductorKickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
+let startupBackfillDone = false;
 export const CONDUCTOR_INTERVAL_MS = CONDUCTOR_BEAT_MS;
 
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
@@ -231,6 +232,41 @@ export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): 
     archival: active,
     landedEpicSweep: active,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Startup landed-epic backfill
+// ---------------------------------------------------------------------------
+
+/** Run the landed-epic sweep for every configured project on daemon startup,
+ *  bypassing LANDED_EPIC_SWEEP_INTERVAL_MS. Ensures [LAND] leaves and epic
+ *  branches are reconciled immediately at boot instead of waiting up to 5 minutes.
+ *  Idempotent per process-lifetime via the startupBackfillDone latch. */
+export async function runLandedEpicStartupBackfill(
+  deps: {
+    listConfigured?: () => Array<{ project: string }>;
+    sweep?: (project: string) => Promise<unknown>;
+  } = {},
+): Promise<string[]> {
+  if (startupBackfillDone) return [];
+  startupBackfillDone = true;
+  const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
+  const sweep = deps.sweep ?? ((p: string) => runLandedEpicSweep(p, { force: true }));
+  const swept: string[] = [];
+  for (const { project } of listConfigured()) {
+    try {
+      await sweep(project);
+      swept.push(project);
+    } catch (err) {
+      console.warn(`[orchestrator] startup landed-epic backfill failed for ${project}:`, err);
+    }
+  }
+  return swept;
+}
+
+/** @internal testing only — reset the startup backfill latch */
+export function _resetStartupBackfillForTesting(): void {
+  startupBackfillDone = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +634,12 @@ export function startOrchestrator(intervalMs = 30_000): void {
   } catch (err) {
     console.warn('[orchestrator] Failed to emit auto-collapse notices:', err);
   }
+
+  // Startup backfill: reconcile [LAND] leaves and GC branches for all configured projects
+  // immediately, bypassing the periodic sweep interval (fire-and-forget).
+  void runLandedEpicStartupBackfill().catch((err) => {
+    console.warn('[orchestrator] runLandedEpicStartupBackfill failed:', err);
+  });
 
   // The interval is now the TIME-BASED safety net; the latency-sensitive claim path
   // is driven by kickOrchestrator() on ready-todo events. Both funnel through the
