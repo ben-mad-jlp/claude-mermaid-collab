@@ -37,6 +37,7 @@ export interface PlanKanbanProps {
   inflightLeafIds?: Set<string>;
   onPromoteToEpic?: (todo: SessionTodo) => void;
   criterionTagIndex?: Map<string, { missionTitle: string; criterionOrder: number; criterionText: string }>;
+  onOpenEpicGraph?: (epicId: string) => void;
 }
 
 /**
@@ -190,7 +191,7 @@ interface Lane {
   rank: number; // min child wave, for lane ordering
 }
 
-export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted, inflightLeafIds, onPromoteToEpic, criterionTagIndex }) => {
+export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted, inflightLeafIds, onPromoteToEpic, criterionTagIndex, onOpenEpicGraph }) => {
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
@@ -401,6 +402,24 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   </button>
                 ) : null;
               })()}
+              {lane.epic && onOpenEpicGraph && (
+                <button
+                  type="button"
+                  data-testid="open-epic-graph"
+                  data-epic-id={lane.epic.id}
+                  title={`Open graph for "${lane.title}"`}
+                  aria-label={`Open graph for "${lane.title}"`}
+                  onClick={() => onOpenEpicGraph(lane.epic!.id)}
+                  className="shrink-0 p-0.5 rounded text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="5" cy="15" r="1.75" fill="currentColor" stroke="none" />
+                    <circle cx="15" cy="5" r="1.75" fill="currentColor" stroke="none" />
+                    <circle cx="15" cy="15" r="1.75" fill="currentColor" stroke="none" />
+                    <path d="M6.2 13.8 13.5 6.5M6.5 15h7" />
+                  </svg>
+                </button>
+              )}
             </header>
             <div className="overflow-x-auto p-1.5">
               <div className="flex gap-2 items-start">

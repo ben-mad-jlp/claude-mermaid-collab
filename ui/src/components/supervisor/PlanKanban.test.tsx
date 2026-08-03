@@ -260,4 +260,27 @@ describe('PlanKanban', () => {
 
     expect(within(laneB).queryByTestId('epic-criterion-tag')).toBeNull();
   });
+
+  it('renders an open-graph control in the epic lane header and calls onOpenEpicGraph with the epic id', () => {
+    const withEpic = [
+      todo({ id: 'E', title: 'Epic-E', kind: 'epic' }),
+      todo({ id: 'E1', status: 'planned', parentId: 'E' }),
+    ];
+    const onOpenEpicGraph = vi.fn();
+    render(<PlanKanban todos={withEpic} showCompleted={false} onOpenEpicGraph={onOpenEpicGraph} />);
+    const lane = screen.getByTestId('epic-lane-E');
+    const button = within(lane).getByTestId('open-epic-graph');
+    expect(button).toBeInTheDocument();
+    expect(button.getAttribute('data-epic-id')).toBe('E');
+    fireEvent.click(button);
+    expect(onOpenEpicGraph).toHaveBeenCalledTimes(1);
+    expect(onOpenEpicGraph).toHaveBeenCalledWith('E');
+  });
+
+  it('renders no open-graph control in the orphan lane', () => {
+    const onOpenEpicGraph = vi.fn();
+    render(<PlanKanban todos={TODOS} showCompleted={false} onOpenEpicGraph={onOpenEpicGraph} />);
+    const lane = screen.getByTestId('orphan-lane');
+    expect(within(lane).queryByTestId('open-epic-graph')).toBeNull();
+  });
 });
