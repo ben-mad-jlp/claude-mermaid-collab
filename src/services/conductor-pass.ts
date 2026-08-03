@@ -833,11 +833,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   }
 
   let redecomposed: string[] = [];
-  try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
+  try {
+    // The arm now reports {criterionId, epicId} pairs; the journal ref below still keys off the
+    // criterion, so flatten to criterion ids here.
+    redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {}))
+      .redecomposed.map((r) => (typeof r === 'string' ? r : r.criterionId));
+  }
   catch { redecomposed = [] }
-  // runRedecomposeArm returns CRITERION ids, not the newly-planned epic's id; getting the real
-  // epic id would need a second listTodos scan this leaf must not add, so the criterion id stands
-  // in for the epic the redecompose produced — the same tradeoff as infra `cardsRaised` above.
+  // The filed ref carries the CRITERION id, not the newly-planned epic's id — the criterion stands
+  // in for the epic the redecompose produced, the same tradeoff as infra `cardsRaised` above.
   for (const critId of redecomposed) {
     filedRefs.push({
       kind: 'epic', id: critId,
