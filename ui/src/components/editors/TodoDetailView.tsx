@@ -3,7 +3,7 @@
  *
  * Shows the todo's title + markdown-rendered description (read-only), with an
  * Edit mode that lets you edit BOTH the title and the (raw markdown) description.
- * Status / assignee / attached blueprint stay editable in the header.
+ * Status / attached blueprint stay editable in the header.
  *
  * Styling: matches the rest of the app (text-sm, gray-toned, no chromatic
  * status badges) — the detail pane should feel like a document, not a Jira card.
@@ -108,18 +108,6 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
   // The single status control's dropdown (approve/hold/lifecycle actions).
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
 
-  // Sibling sessions in this project — for the assignee picker.
-  const [siblings, setSiblings] = useState<string[]>([]);
-  useEffect(() => {
-    const project = currentSession?.project;
-    if (!project) return;
-    let cancelled = false;
-    api.getSessions(project)
-      .then((sessions) => { if (!cancelled) setSiblings(sessions.map((s) => s.name)); })
-      .catch(() => { /* picker just shows assign/unassign */ });
-    return () => { cancelled = true; };
-  }, [currentSession?.project]);
-
   // The daemon's per-todo leaf blueprint (tasks → files), rendered as a React Flow graph.
   // GET /api/leaf-executor/blueprint/:leafId returns { manifest } when the leaf ran + persisted one.
   const [blueprint, setBlueprint] = useState<BlueprintManifest | null>(null);
@@ -202,22 +190,6 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
     }
   }, [todo, currentSession, upsertSessionTodo]);
 
-  const changeAssignee = useCallback(async (value: string) => {
-    if (!todo || !currentSession) return;
-    const assigneeSession = value || null;
-    const optimistic: SessionTodo = { ...todo, assigneeSession };
-    upsertSessionTodo(optimistic);
-    try {
-      const updated = await api.patchSessionTodo(
-        currentSession.project, currentSession.name, todo.id, { assigneeSession },
-      );
-      upsertSessionTodo(updated);
-    } catch (err) {
-      upsertSessionTodo(todo);
-      setError(err instanceof Error ? err.message : 'Failed to update assignee.');
-    }
-  }, [todo, currentSession, upsertSessionTodo]);
-
   const save = useCallback(async () => {
     if (!todo || !currentSession) return;
     const title = draftTitle.trim();
@@ -280,7 +252,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
     dropped: 'bg-gray-300',
   };
 
-  // Shared chrome-less control styling so status/assignee read as plain text.
+  // Shared chrome-less control styling so status reads as plain text.
   const plainControl =
     'shrink-0 bg-transparent border-none rounded px-1 py-0.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600';
 
@@ -290,7 +262,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
       data-testid={`todo-detail-${todo.id}`}
     >
       {/* Header — wraps at narrow width (e.g. the Plan detail dock) so the
-          status/assignee selects and edit controls never push past the edge. */}
+          status select and edit controls never push past the edge. */}
       <div
         data-testid="todo-detail-header"
         className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-sm min-w-0"
@@ -375,23 +347,6 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
         >
           {held ? '⏸ Held' : 'Hold'}
         </button>
-        <select
-          value={todo.assigneeSession ?? ''}
-          onChange={(e) => changeAssignee(e.target.value)}
-          aria-label="Assignee"
-          title={todo.assigneeSession ? `Assigned to ${todo.assigneeSession}` : 'Assign to a session'}
-          className={`${plainControl} max-w-[200px] truncate`}
-        >
-          <option value="">{todo.assigneeSession ? 'Assignee · ✕' : 'Assignee · –'}</option>
-          {todo.assigneeSession && !siblings.includes(todo.assigneeSession) && (
-            <option value={todo.assigneeSession}>{todo.assigneeSession}</option>
-          )}
-          {siblings.map((name) => (
-            <option key={name} value={name}>
-              {name}{name === currentSession?.name ? ' (me)' : ''}
-            </option>
-          ))}
-        </select>
         {todo.link && (
           <span
             data-testid="todo-detail-link-chip"
@@ -495,7 +450,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                 </span>
               )}
               {todo.assigneeSession && (
-                <span className="inline-flex items-center gap-1.5">
+                <span data-testid="todo-detail-assignee" className="inline-flex items-center gap-1.5">
                   <span className="text-gray-400 dark:text-gray-500">Assignee</span>
                   <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
                     {todo.assigneeSession}{todo.assigneeSession === currentSession?.name ? ' (me)' : ''}
