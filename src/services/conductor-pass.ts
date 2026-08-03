@@ -832,24 +832,21 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   }
 
-  let redecomposed: string[] = [];
+  let redecomposed: RedecomposeArmResult['redecomposed'] = [];
   try {
-    // The arm now reports {criterionId, epicId} pairs; the journal ref below still keys off the
-    // criterion, so flatten to criterion ids here.
     redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {}))
-      .redecomposed.map((r) => (typeof r === 'string' ? r : r.criterionId));
+      .redecomposed;
   }
   catch { redecomposed = [] }
-  // The filed ref carries the CRITERION id, not the newly-planned epic's id — the criterion stands
-  // in for the epic the redecompose produced, the same tradeoff as infra `cardsRaised` above.
-  for (const critId of redecomposed) {
+  const filedRedecomposed = redecomposed.filter((r) => r.epicId);
+  for (const entry of filedRedecomposed) {
     filedRefs.push({
-      kind: 'epic', id: critId,
-      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === critId)?.text ?? critId}`,
+      kind: 'epic', id: entry.epicId,
+      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === entry.criterionId)?.text ?? entry.criterionId}`,
     });
   }
-  if (redecomposed.length > 0)
-    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: redecomposed.length,
+  if (filedRedecomposed.length > 0)
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: filedRedecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
