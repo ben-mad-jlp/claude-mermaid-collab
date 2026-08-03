@@ -152,6 +152,25 @@ describe('criterion-approach-store', () => {
     expect(result.exhausted).toBe(false);
   });
 
+  test('ladderExhausted stays not-exhausted when servedEpicCount reflects only refunded zero-burn epics', () => {
+    const result = ladderExhausted({
+      attempts: [],
+      servedEpicCount: 0,
+    });
+    expect(result.exhausted).toBe(false);
+
+    const action = deriveCriterionAction({
+      id: 'c1',
+      met: false,
+      verifiedAt: null,
+      servingEpicState: 'none',
+      servingEpicLive: false,
+      servedEpicCount: 0,
+      rejectedParkedCount: 0,
+    } satisfies MissionCriterionFacts);
+    expect(action).toBe('discover');
+  });
+
   test('invariant: deriveCriterionAction escalate implies ladderExhausted exhausted, across servedEpicCount range', () => {
     for (let servedEpicCount = 0; servedEpicCount <= CRITERION_SERVE_CAP + 2; servedEpicCount++) {
       const action = deriveCriterionAction({
