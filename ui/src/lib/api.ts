@@ -166,7 +166,7 @@ export interface ApiClient {
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
   getSessionTodos(project: string, session: string, includeCompleted?: boolean, status?: TodoStatus, assigneeSession?: string): Promise<SessionTodo[]>;
   fileToBucket(project: string, session: string, title: string, opts?: { bucket?: 'inbox' | 'bugfix'; description?: string; priority?: 0 | 1 | 2 | 3 | 4; status?: 'backlog' | 'planned'; link?: SessionTodoLink }): Promise<SessionTodo>;
-  patchSessionTodo(project: string, session: string, id: string, updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string | null; priority?: number; dueDate?: string; description?: string }): Promise<SessionTodo>;
+  patchSessionTodo(project: string, session: string, id: string, updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; priority?: number; dueDate?: string; description?: string }): Promise<SessionTodo>;
   resetTodo(project: string, id: string): Promise<SessionTodo>;
   removeSessionTodo(project: string, session: string, id: string): Promise<void>;
   reorderSessionTodos(project: string, session: string, orderedIds: string[]): Promise<SessionTodo[]>;
@@ -736,7 +736,7 @@ export const api: ApiClient = {
     project: string,
     session: string,
     id: string,
-    updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string | null; priority?: number; dueDate?: string; description?: string }
+    updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; priority?: number; dueDate?: string; description?: string }
   ): Promise<SessionTodo> {
     const response = await fetch(`/api/session-todos/${id}`, {
       method: 'PATCH',
