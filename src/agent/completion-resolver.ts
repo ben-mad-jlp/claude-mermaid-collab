@@ -66,6 +66,11 @@ export interface ResolveCompletionOpts {
  *  paths call it. */
 function classifyGateVerdict(verdict: GateVerdict | null): CompletionResolution | null {
   if (!verdict || verdict.passed) return null;
+  // A hollow verdict (test-only diff with failing tests) always resolves to rejection,
+  // never pending — even if baseAttributed is also present, it does not downgrade.
+  if (verdict.hollow) {
+    return { effective: 'rejected', gateOverride: verdict };
+  }
   if (verdict.baseAttributed) {
     return {
       effective: 'pending',

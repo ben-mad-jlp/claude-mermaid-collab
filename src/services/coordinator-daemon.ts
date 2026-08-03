@@ -129,6 +129,9 @@ export interface GateVerdict {
   /** Base-attribution classification (gate-base-attribution.ts), when a caller has run
    *  it. Not set by any live gate today. */
   baseAttributed?: { command: string; failingFiles: string[]; signature: string };
+  /** Hollow verdict: the diff contains only test files and a lane failed. A hollow
+   *  verdict always resolves to rejection, never pending. */
+  hollow?: boolean;
 }
 
 /** One coordination tick: reclaim expired leases (retry, or park+escalate if the
