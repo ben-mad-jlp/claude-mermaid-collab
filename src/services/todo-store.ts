@@ -1437,6 +1437,65 @@ function cascadeDropDescendants(db: Database, fullId: string, ts: string): void 
   ).run(fullId, ts);
 }
 
+/** One non-terminal descendant row as it stood BEFORE a drop cascade clobbered it —
+ *  exactly the fields `cascadeDropDescendants` nulls/rewrites (status + hold + acceptance). */
+export type DroppedDescendantSnapshot = {
+  id: string;
+  status: TodoStatus;
+  heldAt: string | null;
+  heldReason: string | null;
+  acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
+};
+
+/** Capture every non-terminal transitive descendant of `epicId` BEFORE a drop, so a
+ *  compensating restore can undo the cascade if a follow-on step (e.g. re-plan) fails.
+ *  Uses the SAME `DESCENDANTS_CTE` + `status NOT IN ('done','dropped')` filter as
+ *  `cascadeDropDescendants`, so it snapshots exactly the rows the cascade will clobber. */
+export function snapshotDroppedDescendants(
+  project: string,
+  epicId: string,
+): DroppedDescendantSnapshot[] {
+  const db = openDb(project);
+  const rows = db.prepare(
+    `${DESCENDANTS_CTE}
+     SELECT id, status, heldAt, heldReason, acceptanceStatus FROM todos
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).all(epicId) as Array<{
+    id: string;
+    status: string;
+    heldAt: string | null;
+    heldReason: string | null;
+    acceptanceStatus: string | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    status: r.status as TodoStatus,
+    heldAt: r.heldAt ?? null,
+    heldReason: r.heldReason ?? null,
+    acceptanceStatus: (r.acceptanceStatus as DroppedDescendantSnapshot['acceptanceStatus']) ?? null,
+  }));
+}
+
+/** Inverse of `cascadeDropDescendants`: for each snapshot row the cascade actually clobbered
+ *  (i.e. is CURRENTLY `status='dropped'`), restore status/heldAt/heldReason/acceptanceStatus
+ *  and bump updatedAt. The claim is left cleared — a fresh claim is correct after a drop. */
+export function restoreDroppedDescendants(
+  project: string,
+  snapshot: DroppedDescendantSnapshot[],
+): void {
+  if (snapshot.length === 0) return;
+  const db = openDb(project);
+  const stmt = db.prepare(
+    `UPDATE todos SET status=?, heldAt=?, heldReason=?, acceptanceStatus=?, updatedAt=?
+     WHERE id=? AND status='dropped'`
+  );
+  db.transaction(() => {
+    for (const row of snapshot) {
+      stmt.run(row.status, row.heldAt, row.heldReason, row.acceptanceStatus, nowIso(), row.id);
+    }
+  })();
+}
+
 function assertNoLiveDescendants(db: Database, id: string, fullId: string): void {
   const { n: liveCount } = db.prepare(
     `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos

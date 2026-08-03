@@ -17,7 +17,13 @@
  * short-circuited by the ladder store and never fired again (one per criterion ever).
  */
 import { listCriteriaWithActions } from './mission-store.js';
-import { listTodos, updateTodo, type Todo } from './todo-store.js';
+import {
+  listTodos,
+  updateTodo,
+  snapshotDroppedDescendants,
+  restoreDroppedDescendants,
+  type Todo,
+} from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { detectEpicChurn, buildTighterDecompositionHint } from './epic-churn.js';
@@ -50,6 +56,8 @@ export interface RedecomposeArmDeps {
   hasAttemptedRung?: typeof hasAttemptedRung;
   recordApproachAttempt?: typeof recordApproachAttempt;
   updateTodo?: typeof updateTodo;
+  snapshotDroppedDescendants?: typeof snapshotDroppedDescendants;
+  restoreDroppedDescendants?: typeof restoreDroppedDescendants;
   planMissionCriterion?: (project: string, opts: any) => Promise<any>;
   planTimeoutMs?: number;
   now?: () => number;
@@ -107,6 +115,8 @@ export async function runRedecomposeArm(
   const hasAttemptedFn = deps.hasAttemptedRung ?? hasAttemptedRung;
   const recordAttemptFn = deps.recordApproachAttempt ?? recordApproachAttempt;
   const updateTodoFn = deps.updateTodo ?? updateTodo;
+  const snapshotFn = deps.snapshotDroppedDescendants ?? snapshotDroppedDescendants;
+  const restoreFn = deps.restoreDroppedDescendants ?? restoreDroppedDescendants;
   const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_PLAN_TIMEOUT_MS;
   const nowFn = deps.now ?? (() => Date.now());
 
@@ -193,8 +203,11 @@ export async function runRedecomposeArm(
         continue;
       }
 
-      // 5. Capture prior status for rollback
+      // 5. Capture prior status + child subtree for rollback. The drop below runs a cascade
+      //    that drops every non-terminal descendant and clears their hold/acceptance; the
+      //    snapshot lets the rollback restore those children, not just the epic row.
       const priorStatus = epic.status;
+      const childSnapshot = snapshotFn(project, epic.id);
 
       // 6. Drop the epic
       try {
@@ -233,6 +246,7 @@ export async function runRedecomposeArm(
           } catch {
             // Fail-open: do not let rollback failure mask the original skip
           }
+          try { restoreFn(project, childSnapshot); } catch { /* fail-open: rollback restore must not mask the skip */ }
 
           // Record the attempt as failed so rung stays claimed
           recordAttemptFn({
@@ -263,6 +277,7 @@ export async function runRedecomposeArm(
         } catch {
           // Fail-open: do not let rollback failure mask the original skip
         }
+        try { restoreFn(project, childSnapshot); } catch { /* fail-open: rollback restore must not mask the skip */ }
 
         // Record the attempt as failed so rung stays claimed
         const errorDetail = isTimeout ? 'plan-timeout' : 'plan-failed';
