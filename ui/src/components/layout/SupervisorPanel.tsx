@@ -41,6 +41,7 @@ import { isScopeRed } from '@/lib/humanRedDerivation';
 import { AddProjectDialog } from '@/components/dialogs';
 import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
 import { useFleetStatus, useFleetStatusByProject, fleetKey, fleetStateToStatus } from '@/hooks/useFleetStatus';
+import { useActiveMissionProgressByProject } from '@/hooks/useActiveMissionProgress';
 
 /**
  * Reduce a project's session-card statuses to ONE combined health status — the
@@ -487,6 +488,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // workers in the Bridge" bug). cardDataFor falls back to this when no fresh sub.
   const projectPaths = useMemo(() => byProject.map((r) => r.project), [byProject]);
   const fleetByProject = useFleetStatusByProject(serverScope, projectPaths);
+  const missionProgressByProject = useActiveMissionProgressByProject(serverScope, projectPaths);
 
   // Display labels, parent-qualified only where basenames collide.
   const projectLabels = useMemo(
@@ -717,6 +719,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const visibleCount = projSessions.filter(isVisibleSession).length;
               // Plan stats (open work) + most-recent session activity for the sub-line.
               const stats = projectPlanStats(todosByProject[project] ?? []);
+              const critProgress = missionProgressByProject[project] ?? null;
               const lastActive = cards.reduce(
                 (m, c) => Math.max(m, (c as { lastUpdate?: number }).lastUpdate ?? 0),
                 0,
@@ -768,11 +771,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                 stats.inProgress > 0 ? `${stats.inProgress} ▶  in progress` : null,
                 stats.blocked > 0 ? `${stats.blocked} ⊘  blocked` : null,
                 stats.idleWithWork ? `⚠ parked  ${stats.ready} ready todo${stats.ready === 1 ? '' : 's'} queued, but nothing is running them` : null,
+                critProgress ? `crit ${critProgress.met}/${critProgress.total} acceptance criteria met (active mission)` : null,
                 lastActive > 0 ? `last active ${relAge(lastActive, now)} ago (${new Date(lastActive).toLocaleString()})` : null,
               ]
                 .filter(Boolean)
                 .join('\n');
-              const hasIndicators = escalationCount > 0 || visibleCount > 0 || stats.open > 0 || lastActive > 0;
+              const hasIndicators = escalationCount > 0 || visibleCount > 0 || stats.open > 0 || lastActive > 0 || critProgress !== null;
               const rowServerLabel = serverLabelById.get(rowServerId) ?? rowServerId;
               return (
                 <div key={`${rowServerId}:${project}`} className={i > 0 ? 'mt-2' : ''}>
@@ -876,6 +880,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           {stats.inProgress > 0 && <span className="text-info-700">{stats.inProgress}▶</span>}
                           {stats.blocked > 0 && <span className="text-warning-700">{stats.blocked}⊘</span>}
                           {stats.idleWithWork && <span className="text-warning-700">⚠ parked</span>}
+                          {critProgress && (
+                            <span data-testid="supervisor-project-crit" className="text-success-700" title="Active mission: acceptance criteria met / total">
+                              crit {critProgress.met}/{critProgress.total}
+                            </span>
+                          )}
                           {lastActive > 0 && <span className="ml-auto tabular-nums">{relAge(lastActive, now)}</span>}
                         </div>
                       )}
