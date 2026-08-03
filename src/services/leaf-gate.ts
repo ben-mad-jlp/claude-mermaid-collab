@@ -9,13 +9,13 @@
  */
 import { join } from 'node:path';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
-import { lastLines, extractFailingTests, SPEC_FILE_RE, netNewFailures } from './gate-runner';
+import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { activeQuarantine, promoteQuarantineCandidates } from './flaky-quarantine';
+import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
@@ -130,6 +130,9 @@ export interface LeafGateResult {
    *  step actually cleaned (empty when no restore dep or restore failed). Reporting only —
    *  never affects status semantics. */
   poisonedCheckout?: { paths: string[]; restored: string[] };
+  /** Leaf-gate only: true when the diff contains ONLY spec (test) files and a lane failed.
+   *  A leaf that ships no production change must not be accepted on a red test. */
+  hollow?: boolean;
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -561,6 +564,7 @@ export async function runLeafGate(
   spawn: GateSpawn,
   baselines?: LaneBaselineMap | null,
   resolveLaneBaseline?: (laneKey: string, commands: readonly string[], laneCwd?: string) => Promise<string[] | null>,
+  opts?: { testOnlyTyped?: boolean },
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: ['gate: none declared'], declared: false };
 
@@ -622,6 +626,9 @@ export async function runLeafGate(
   }
 
   const normalizedChangeSet = changeSet !== null ? changeSet.map(normPathLocal) : null;
+  const hollow = normalizedChangeSet !== null
+    && normalizedChangeSet.some((p) => SPEC_FILE_RE.test(p))
+    && normalizedChangeSet.every((p) => SPEC_FILE_RE.test(p));
 
   // Test section: either multi-lane or legacy single-test form.
   const lanes = resolveLanes(cfg);
@@ -697,6 +704,22 @@ export async function runLeafGate(
       const output = laneFailures.map((f) => f.output).join('\n').slice(0, 8000);
       const failing = laneFailures.flatMap((f) => extractFailingTests(f.output));
       const { netNew } = classifyRedLane(failing, resolved ?? []);
+      // A hollow diff (test-only) with failing tests must be rejected, even if the failures
+      // are baseline-only. This is distinct from citability (blueprint-prose validation);
+      // a hollow verdict always resolves 'rejected' in the completion layer as well.
+      if (hollow && !opts?.testOnlyTyped) {
+        return {
+          status: 'fail',
+          command: laneFailures[0].command,
+          output,
+          reasons: [
+            'hollow-test-only-diff: the diff changes only test files and its tests fail; a leaf that ships no production change may not be accepted on a red test',
+            `${laneFailures.length} failing spec file(s)`,
+          ],
+          declared: true,
+          hollow: true,
+        };
+      }
       if (netNew.length === 0) {
         baselineOnly.push(...failing);
       } else {
@@ -894,9 +917,13 @@ export async function runBaseGate(
         declared: true,
       };
     }
-    const fingerprints = lane.kind === 'typecheck'
+    let fingerprints = lane.kind === 'typecheck'
       ? (parseTypecheckFiles(r.output) ?? [])
       : extractFailingTests(r.output);
+    if (r.code !== 0 && lane.kind === 'tests' && fingerprints.length === 0) {
+      const synthetic = synthesizeLaneFailureIdentity(lane.key, r.output);
+      if (synthetic) fingerprints = [synthetic];
+    }
     if (r.code !== 0) {
       // RAN-but-failed: memoize this lane's fingerprints and CONTINUE — every red lane
       // must be recorded, so no short-circuit.
@@ -988,7 +1015,8 @@ export async function resolveBaseGreen(io: {
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
-  } catch { /* best-effort: a promotion failure must never break the gate */ }
+    await closeQuarantineOnGreen(io.targetProject, io.now?.());
+  } catch { /* best-effort: a promotion or close failure must never break the gate */ }
   let result: LeafGateResult = r;
   if (r.status === 'fail' && r.baselineFailures) {
     const union = new Set<string>();

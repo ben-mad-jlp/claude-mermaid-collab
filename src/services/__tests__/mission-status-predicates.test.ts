@@ -27,8 +27,9 @@ function makeRun(
   finalOutcome: LeafRunSummary['finalOutcome'],
   nodesSpent = 0,
   attempts = 0,
-): Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'> {
-  return { leafId: 'leaf', epicId, finalOutcome, nodesSpent, attempts };
+  reason: string | null = null,
+): Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'> {
+  return { leafId: 'leaf', epicId, finalOutcome, nodesSpent, attempts, reason };
 }
 
 describe('mission-status-predicates', () => {
@@ -315,7 +316,7 @@ describe('mission-status-predicates', () => {
         status: 'todo',
         acceptanceStatus: null,
       });
-      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[] = [
         makeRun('epic', 'accepted', 0, 1),
       ];
 
@@ -332,7 +333,7 @@ describe('mission-status-predicates', () => {
         status: 'todo',
         acceptanceStatus: null,
       });
-      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[] = [
         makeRun('epic', 'accepted', 5),
       ];
 
@@ -361,8 +362,8 @@ describe('mission-status-predicates', () => {
         kind: 'leaf',
         acceptanceStatus: 'rejected',
       });
-      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
-        { leafId: 'leaf', epicId: 'epic', finalOutcome: 'rejected', attempts: 0, nodesSpent: 0 },
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[] = [
+        { leafId: 'leaf', epicId: 'epic', finalOutcome: 'rejected', attempts: 0, nodesSpent: 0, reason: null },
       ];
 
       const result = countsTowardServeCap(epic, [leaf], capRuns, false);
@@ -377,8 +378,40 @@ describe('mission-status-predicates', () => {
         kind: 'leaf',
         acceptanceStatus: 'rejected',
       });
-      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[] = [
-        { leafId: 'leaf', epicId: 'epic', finalOutcome: 'rejected', attempts: 1, nodesSpent: 0 },
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[] = [
+        { leafId: 'leaf', epicId: 'epic', finalOutcome: 'rejected', attempts: 1, nodesSpent: 0, reason: null },
+      ];
+
+      const result = countsTowardServeCap(epic, [leaf], capRuns, false);
+
+      expect(result).toBe(true);
+    });
+
+    it('returns false for an epic-attributable all-zero-burn base-red hold even when the leaf itself has no matching ledger row', () => {
+      const epic = makeTodo('epic', { kind: 'epic' });
+      const leaf = makeTodo('leaf', {
+        parentId: 'epic',
+        kind: 'leaf',
+        acceptanceStatus: 'rejected',
+      });
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[] = [
+        { leafId: 'other-leaf', epicId: 'epic', finalOutcome: 'blocked', attempts: 0, nodesSpent: 0, reason: 'epic-base-red: bun test' },
+      ];
+
+      const result = countsTowardServeCap(epic, [leaf], capRuns, false);
+
+      expect(result).toBe(false);
+    });
+
+    it('returns true when the epic-attributable run shows a genuine attempt (attempts>=1)', () => {
+      const epic = makeTodo('epic', { kind: 'epic' });
+      const leaf = makeTodo('leaf', {
+        parentId: 'epic',
+        kind: 'leaf',
+        acceptanceStatus: 'rejected',
+      });
+      const capRuns: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[] = [
+        { leafId: 'other-leaf', epicId: 'epic', finalOutcome: 'blocked', attempts: 1, nodesSpent: 0, reason: 'epic-base-red: bun test' },
       ];
 
       const result = countsTowardServeCap(epic, [leaf], capRuns, false);

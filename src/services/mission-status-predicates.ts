@@ -8,6 +8,7 @@ import { criterionEdgesOf } from './criterion-edges.ts';
 import { isLanded } from './epic-landedness.ts';
 import { derivedStatus } from './claimability.ts';
 import { isHollowLand } from './todo-store.ts';
+import { isZeroBurnGateHold } from './epic-churn.ts';
 import { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import type { Todo } from './todo-store.ts';
 import type { LeafRunSummary } from './ledger-stats.ts';
@@ -96,12 +97,15 @@ export function isHollowDone(e: Todo, allTodos: readonly Todo[]): boolean {
 export function countsTowardServeCap(
   e: Todo,
   allTodos: readonly Todo[],
-  capRuns: readonly Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[],
+  capRuns: readonly Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[],
   ledgerUnavailable: boolean,
 ): boolean {
   const leaves = allTodos.filter((t) => t.parentId === e.id && !isEpic(t));
   if (leaves.length === 0) return true;
   if (ledgerUnavailable) return true;
+  const leafIds = new Set(leaves.map((t) => t.id));
+  const attributable = capRuns.filter((r) => r.epicId === e.id || (r.leafId != null && leafIds.has(r.leafId)));
+  if (attributable.length > 0 && attributable.every((r) => isZeroBurnGateHold(r))) return false;
   const isGenuineAttempt = (
     r: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'> | undefined,
   ) => r == null || (r.attempts ?? 0) >= 1 || (r.nodesSpent ?? 0) > 0;

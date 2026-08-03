@@ -1,19 +1,21 @@
 import { setQuarantinePromotionHook, type FlakyCandidate } from './flaky-quarantine';
 import { recordFrictionOnce } from './friction-store';
-import { createTodo } from './todo-store';
+import { createTodo, listTodos, updateTodo } from './todo-store';
 import { ensureBucket } from './bucket-registry';
 
 interface QuarantineReportDeps {
   recordFrictionOnce?: typeof recordFrictionOnce;
   createTodo?: typeof createTodo;
+  listTodos?: typeof listTodos;
+  updateTodo?: typeof updateTodo;
   ensureBucket?: typeof ensureBucket;
 }
 
 /**
  * Best-effort side effects for a newly-promoted flaky-test quarantine candidate: a
- * deduplicated friction note (idempotency key = test@sha) and, only on the FIRST
- * promotion of that (test, sha) pair, a [BUG] todo under the project's bugfix inbox
- * epic so the promotion is never silent.
+ * deduplicated friction note (idempotency key = test) and, on the first promotion of
+ * that test, a [BUG] todo under the project's flaky bucket epic; on re-promotion at a
+ * different sha, the existing non-terminal todo is refreshed with new evidence and TTL.
  */
 export async function runQuarantinePromotionReport(
   c: FlakyCandidate & { project: string },
@@ -21,10 +23,12 @@ export async function runQuarantinePromotionReport(
 ): Promise<void> {
   const recordFrictionOnceFn = deps.recordFrictionOnce ?? recordFrictionOnce;
   const createTodoFn = deps.createTodo ?? createTodo;
+  const listTodosFn = deps.listTodos ?? listTodos;
+  const updateTodoFn = deps.updateTodo ?? updateTodo;
   const ensureBucketFn = deps.ensureBucket ?? ensureBucket;
 
   try {
-    const key = `quarantine:${c.test}@${c.quarantinedAtSha}`;
+    const key = `quarantine:${c.test}`;
     const inserted = await recordFrictionOnceFn(c.project, {
       layer: 'operational',
       retryReason: 'flaky-test-quarantined',
@@ -39,19 +43,30 @@ export async function runQuarantinePromotionReport(
 
     if (!inserted) return;
 
-    const epicId = await ensureBucketFn(c.project, 'bugfix');
-    await createTodoFn(c.project, {
-      ownerSession: '__quarantine_report__',
-      parentId: epicId,
-      title: `[BUG] flaky test quarantined: ${c.test}`,
-      description:
-        `Auto-filed when a flaky test was promoted to quarantine.\n\n` +
-        `Test: ${c.test}\nQuarantined at sha: ${c.quarantinedAtSha}\n` +
-        `Evidence: ${c.evidence.runs} runs (${c.evidence.passRuns} pass / ${c.evidence.failRuns} fail)\n` +
-        `TTL expires at: ${new Date(c.ttlExpiresAt).toISOString()}\n\n` +
-        `The base gate excludes this test from gating until the TTL expires; fix it or it re-enters gating.`,
-      status: 'planned',
-    });
+    const epicId = await ensureBucketFn(c.project, 'flaky');
+    const title = `[BUG] flaky test quarantined: ${c.test}`;
+    const description =
+      `Auto-filed when a flaky test was promoted to quarantine.\n\n` +
+      `Test: ${c.test}\nQuarantined at sha: ${c.quarantinedAtSha}\n` +
+      `Evidence: ${c.evidence.runs} runs (${c.evidence.passRuns} pass / ${c.evidence.failRuns} fail)\n` +
+      `TTL expires at: ${new Date(c.ttlExpiresAt).toISOString()}\n\n` +
+      `The base gate excludes this test from gating until the TTL expires; fix it or it re-enters gating.`;
+
+    const existing = listTodosFn(c.project, { includeCompleted: true }).find(
+      (t) => t.parentId === epicId && t.title === title && t.status !== 'done' && t.status !== 'dropped',
+    );
+
+    if (existing) {
+      await updateTodoFn(c.project, existing.id, { description });
+    } else {
+      await createTodoFn(c.project, {
+        ownerSession: '__quarantine_report__',
+        parentId: epicId,
+        title,
+        description,
+        status: 'planned',
+      });
+    }
   } catch (err) {
     console.warn(
       `[flaky-quarantine-report] ${c.project}: failed to report quarantine promotion for "${c.test}":`,

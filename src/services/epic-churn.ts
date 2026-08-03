@@ -12,7 +12,9 @@ export interface EpicOutcomeSummary {
 /** Identify a zero-burn G-gate hold: a blocked run with no attempt budget spent,
  *  due to an epic-base-red or epic-base-gate-could-not-run reason. These are
  *  infrastructure holds, not rejection churn, and are excluded from churn detection. */
-export function isZeroBurnGateHold(run: LeafRunSummary): boolean {
+export function isZeroBurnGateHold(
+  run: Pick<LeafRunSummary, 'finalOutcome' | 'attempts' | 'nodesSpent' | 'reason'>,
+): boolean {
   if (run.finalOutcome !== 'blocked') return false;
   if (run.attempts !== 0) return false;
   if (run.nodesSpent !== 0) return false;
