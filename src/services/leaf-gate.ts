@@ -704,25 +704,26 @@ export async function runLeafGate(
       const output = laneFailures.map((f) => f.output).join('\n').slice(0, 8000);
       const failing = laneFailures.flatMap((f) => extractFailingTests(f.output));
       const { netNew } = classifyRedLane(failing, resolved ?? []);
-      // A hollow diff (test-only) with failing tests must be rejected, even if the failures
-      // are baseline-only. This is distinct from citability (blueprint-prose validation);
-      // a hollow verdict always resolves 'rejected' in the completion layer as well.
-      if (hollow && !opts?.testOnlyTyped) {
-        return {
-          status: 'fail',
-          command: laneFailures[0].command,
-          output,
-          reasons: [
-            'hollow-test-only-diff: the diff changes only test files and its tests fail; a leaf that ships no production change may not be accepted on a red test',
-            `${laneFailures.length} failing spec file(s)`,
-          ],
-          declared: true,
-          hollow: true,
-        };
-      }
       if (netNew.length === 0) {
         baselineOnly.push(...failing);
       } else {
+        // A hollow diff (test-only) with net-new failing tests must be rejected. This is
+        // distinct from citability (blueprint-prose validation); a hollow verdict always
+        // resolves 'rejected' in the completion layer as well.
+        if (hollow && !opts?.testOnlyTyped) {
+          return {
+            status: 'fail',
+            command: laneFailures[0].command,
+            output,
+            reasons: [
+              'hollow-test-only-diff: the diff changes only test files and its tests fail; a leaf that ships no production change may not be accepted on a red test',
+              `${laneFailures.length} failing spec file(s)`,
+              ...netNew.slice(0, 20),
+            ],
+            declared: true,
+            hollow: true,
+          };
+        }
         return {
           status: 'fail',
           command: laneFailures[0].command,
