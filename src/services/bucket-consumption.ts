@@ -15,6 +15,7 @@ import { isBucketEpic, type BucketBearing } from './bucket-registry.ts';
 import { openDb, getTodo, listTodos, updateTodo } from './todo-store.ts';
 import { getMission } from './mission-store.ts';
 import { isEpic } from './todo-kind.ts';
+import { hasLandStamp } from './epic-landedness.ts';
 
 /** Check if a todo (by id) is a bucket item: a non-container descendant of a bucket epic.
  *
@@ -122,7 +123,8 @@ export function reopenConsumedFor(project: string, consumerId: string): string[]
 
 /** Check if a consumer (epic or mission) is delivered and its bucket items should stay terminal.
  *
- * An epic consumer is delivered when its `landedAt` is non-null.
+ * An epic consumer is delivered when it carries the land-intent stamp — asked through the
+ * canonical producer `hasLandStamp` (epic-landedness.ts), never by re-deriving the field here.
  * A mission consumer is delivered when its mission row's `closedAt` is non-null OR its
  * derived status is 'converged'.
  * A delivered consumer's bucket items stay terminal — an undelivered one's are reopened
@@ -133,7 +135,7 @@ export function reopenConsumedFor(project: string, consumerId: string): string[]
 export function consumerDelivered(project: string, consumerId: string): boolean {
   const epicTodo = getTodo(project, consumerId);
   if (epicTodo && isEpic(epicTodo)) {
-    return epicTodo.landedAt != null;
+    return hasLandStamp(epicTodo);
   }
 
   const mission = getMission(project, consumerId);
