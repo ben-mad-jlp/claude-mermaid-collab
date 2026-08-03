@@ -212,8 +212,8 @@ export async function reserveLeaf(
   // Under the cap → clone the leaf's spec to a FRESH todo id. Copy the structural fields
   // that define the same unit of work; leave run-state (claim/ledger/blueprintId) behind.
   const clone: Todo = await createTodo(project, {
-    ownerSession: old.ownerSession,
-    assigneeSession: old.assigneeSession,
+    ownerSession: old.ownerSession, // attribution-only
+    assigneeSession: old.assigneeSession, // attribution-only
     assigneeKind: old.assigneeKind,
     title: old.title,
     description: old.description,
