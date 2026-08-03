@@ -16,7 +16,7 @@ import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { yieldToLoop } from './loop-yield.js';
 import { syncMissionSubscription } from './mission-subscription.js';
-import { hasLandStamp } from './epic-landedness.js';
+import { hasLandStamp, getEpicLandCommit, type EpicLandCommit } from './epic-landedness.js';
 
 /** Minimum spacing between PERIODIC landed-epic sweeps for a single project. Same
  *  throttle shape as ARCHIVAL_SWEEP_INTERVAL_MS (archival-sweep.ts) — hygiene, not
@@ -102,6 +102,51 @@ export async function reconcileLandedEpics(
   }
 
   return { reconciled, skipped };
+}
+
+export interface TerminalizeLandedEpicsResult {
+  terminalized: string[];
+  skipped: number;
+}
+
+export async function terminalizeLandedEpics(
+  project: string,
+  opts: { probe?: GitProbe; baseRef?: string; landCommit?: typeof getEpicLandCommit; trunk?: string } = {},
+): Promise<TerminalizeLandedEpicsResult> {
+  const probe = opts.probe ?? makeGitProbe(project);
+  const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
+  const landCommit = opts.landCommit ?? getEpicLandCommit;
+  const trunk = opts.trunk ?? baseRef;
+
+  const todos = listTodos(project, { includeCompleted: true });
+  const terminalized: string[] = [];
+  let skipped = 0;
+
+  for (const epic of todos) {
+    if (!isEpic(epic) || epic.isBucket || epic.status === 'done' || epic.status === 'dropped') {
+      if (isEpic(epic)) skipped++;
+      continue;
+    }
+
+    const land = await landCommit(project, epic.id, { trunk });
+    if (land.status !== 'landed' || land.sha == null) { skipped++; continue; }
+
+    const childLeaves = todos.filter((t) => t.parentId === epic.id && t.status !== 'dropped');
+    const hasInflightChild = childLeaves.some((leaf) => {
+      const isTerminal = leaf.status === 'done' || leaf.status === 'dropped';
+      const isClaimable = leaf.claim != null || leaf.claimedBy != null;
+      return !isTerminal && isClaimable;
+    });
+    if (hasInflightChild) { skipped++; continue; }
+
+    const { stamped } = await stampEpicLandedAtGated(project, epic.id, land.committedAtIso!, { probe, baseRef });
+    if (!stamped) { skipped++; continue; }
+
+    await completeTodo(project, epic.id, 'accepted');
+    terminalized.push(epic.id);
+  }
+
+  return { terminalized, skipped };
 }
 
 /** A git delete/tip-read runner — injected so branch deletion is hermetically
@@ -384,6 +429,7 @@ export async function reapTerminalMissionEpics(
 }
 
 export interface RunLandedEpicSweepResult {
+  terminalize: TerminalizeLandedEpicsResult;
   reconcile: LandedEpicSweepResult;
   gc: GcEpicBranchesResult;
   reap: ReapTerminalMissionEpicsResult;
@@ -414,10 +460,12 @@ export async function runLandedEpicSweep(
 ): Promise<RunLandedEpicSweepResult> {
   const now = opts.now ?? Date.now();
   if (!opts.force && !shouldRunLandedEpicSweep(project, now)) {
-    return { reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
+    return { terminalize: { terminalized: [], skipped: 0 }, reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
   }
   const doYield = opts.yieldFn ?? yieldToLoop;
 
+  const terminalize = await terminalizeLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
+  await doYield();
   const reconcile = await reconcileLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
   await doYield();
   const gc = await gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
@@ -443,5 +491,5 @@ export async function runLandedEpicSweep(
     );
   }
 
-  return { reconcile, gc, reap, promoted };
+  return { terminalize, reconcile, gc, reap, promoted };
 }
