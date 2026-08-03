@@ -46,7 +46,7 @@ export const STATUS_STYLE: Record<MissionStatus, string> = {
   'over-budget':    'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
   stalled:          'bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300',
   abandoned:        'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-  closed:           'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  closed:           'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300',
   waiting:          'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
 };
 
@@ -60,7 +60,7 @@ export const STATUS_LABEL: Record<MissionStatus, string> = {
   'over-budget':    'Over budget',
   stalled:          'Stalled',
   abandoned:        'Abandoned',
-  closed:           'Closed',
+  closed:           'Converged ✓',
   waiting:          'Waiting',
 };
 
