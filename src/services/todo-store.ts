@@ -12,7 +12,7 @@ import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './
 import type { LeafSplitItem } from './split-decision';
 import { LANDED_LEFTOVER_GRACE_MS } from './harness-caps';
 import { topoSortSplitItems } from './split-decision';
-import { ensureBucket, isBucketEpic } from './bucket-registry.ts';
+import { ensureBucket, isBucketEpic, type BucketType } from './bucket-registry.ts';
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
@@ -186,7 +186,7 @@ export interface Todo {
    *  bucket — uniqued by a partial index and written ONLY by bucket-registry.ensureBucket.
    *  OPTIONAL on purpose: existing Todo literals/fixtures must compile unchanged, and a
    *  pre-migration row reads null (isBucketEpic falls back to the legacy title match). */
-  bucketType?: 'inbox' | 'bugfix' | null;
+  bucketType?: BucketType | null;
   /** R2 friction-triage layer tag: discriminates recurring-friction children filed under
    *  the same `bugfix` bucket by their originating layer. OPTIONAL for the same reason as
    *  bucketType; pre-V6 rows read null. */
@@ -194,6 +194,9 @@ export interface Todo {
   /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
    *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
   promotedTo?: string | null;
+  /** Bucket-item consumption stamp (ISO string) when this bucket item was marked done and
+   *  promoted to a consumer (epic/mission). OPTIONAL for backward compat. */
+  consumedAt?: string | null;
   /** B5 poison-loop re-serve: how many times this leaf's LINEAGE has been re-cut to a
    *  fresh todo id (0/absent = the original leaf). Capped at 2 by reserveLeaf, then
    *  escalated. OPTIONAL — pre-migration rows / fixtures read undefined ⇒ treat as 0. */
@@ -286,7 +289,7 @@ export interface CreateTodoInput {
   isBucket?: boolean;
   /** INTERNAL ONLY — set exclusively by bucket-registry.ensureBucket, the sole writer of
    *  a non-null `bucketType`. Never populate from a public/MCP surface. */
-  _ensureBucketType?: 'inbox' | 'bugfix';
+  _ensureBucketType?: BucketType;
   /** R2 friction-triage layer tag: set by friction-triage when filing recurring-friction
    *  children under the `bugfix` bucket. Caller-settable (unlike bucketType). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
@@ -490,6 +493,8 @@ export type UpdateTodoPatch = Partial<{
   declaredFiles: string[];
   /** R5 bucket promotion link: set when promoting a bucket item to a real epic. */
   promotedTo: string | null;
+  /** Bucket-item consumption stamp (ISO string). */
+  consumedAt: string | null;
   tier: LeafTier | null;
   /** Base-repair exemption (epics): 1 exempts this epic's leaves from the epic-base-red
    *  hold, gating them net-new-vs-base instead (bug 65345589). Explicit opt-in only. */
@@ -558,6 +563,7 @@ interface TodoRow {
   bucketType: string | null;
   triageTag: string | null;
   promotedTo: string | null;
+  consumedAt: string | null;
   tier: string | null;
   reserveCount: number | null;
   supersedes: string | null;
@@ -702,6 +708,9 @@ export function openDb(project: string): Database {
   // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
   // the epic's id. Nullable; non-null only on promoted items.
   addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
+  // Bucket-item consumption stamp: ISO string when this item was marked done and promoted.
+  // Nullable; non-null only when consumed.
+  addColumnIfMissing(db, 'todos', 'consumedAt', 'consumedAt TEXT');
   // Executor recipe tier (full|small|test-pinned). Additive, nullable; rowToTodo
   // coalesces null → 'full'. Existing DBs never re-run CREATE TABLE, so this ALTER
   // is the only path the column reaches an already-created todos table.
@@ -1428,6 +1437,82 @@ const DESCENDANTS_CTE = `WITH RECURSIVE descendants(did) AS (
     SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
   )`;
 
+function cascadeDropDescendants(db: Database, fullId: string, ts: string): void {
+  db.prepare(
+    `${DESCENDANTS_CTE}
+     UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
+       heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).run(fullId, ts);
+}
+
+/** One non-terminal descendant row as it stood BEFORE a drop cascade clobbered it —
+ *  exactly the fields `cascadeDropDescendants` nulls/rewrites (status + hold + acceptance). */
+export type DroppedDescendantSnapshot = {
+  id: string;
+  status: TodoStatus;
+  heldAt: string | null;
+  heldReason: string | null;
+  acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
+};
+
+/** Capture every non-terminal transitive descendant of `epicId` BEFORE a drop, so a
+ *  compensating restore can undo the cascade if a follow-on step (e.g. re-plan) fails.
+ *  Uses the SAME `DESCENDANTS_CTE` + `status NOT IN ('done','dropped')` filter as
+ *  `cascadeDropDescendants`, so it snapshots exactly the rows the cascade will clobber. */
+export function snapshotDroppedDescendants(
+  project: string,
+  epicId: string,
+): DroppedDescendantSnapshot[] {
+  const db = openDb(project);
+  const rows = db.prepare(
+    `${DESCENDANTS_CTE}
+     SELECT id, status, heldAt, heldReason, acceptanceStatus FROM todos
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).all(epicId) as Array<{
+    id: string;
+    status: string;
+    heldAt: string | null;
+    heldReason: string | null;
+    acceptanceStatus: string | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    status: r.status as TodoStatus,
+    heldAt: r.heldAt ?? null,
+    heldReason: r.heldReason ?? null,
+    acceptanceStatus: (r.acceptanceStatus as DroppedDescendantSnapshot['acceptanceStatus']) ?? null,
+  }));
+}
+
+/** Inverse of `cascadeDropDescendants`: for each snapshot row the cascade actually clobbered
+ *  (i.e. is CURRENTLY `status='dropped'`), restore status/heldAt/heldReason/acceptanceStatus
+ *  and bump updatedAt. The claim is left cleared — a fresh claim is correct after a drop. */
+export function restoreDroppedDescendants(
+  project: string,
+  snapshot: DroppedDescendantSnapshot[],
+): void {
+  if (snapshot.length === 0) return;
+  const db = openDb(project);
+  const stmt = db.prepare(
+    `UPDATE todos SET status=?, heldAt=?, heldReason=?, acceptanceStatus=?, updatedAt=?
+     WHERE id=? AND status='dropped'`
+  );
+  db.transaction(() => {
+    for (const row of snapshot) {
+      stmt.run(row.status, row.heldAt, row.heldReason, row.acceptanceStatus, nowIso(), row.id);
+    }
+  })();
+}
+
+function assertNoLiveDescendants(db: Database, id: string, fullId: string): void {
+  const { n: liveCount } = db.prepare(
+    `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
+     WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+  ).get(fullId) as { n: number };
+  if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
+}
+
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
@@ -1486,9 +1571,10 @@ function rowToTodo(row: TodoRow): Todo {
     inheritedFiles,
     declaredFiles,
     isBucket: row.isBucket === 1,
-    bucketType: (row.bucketType as 'inbox' | 'bugfix' | null) ?? null,
+    bucketType: (row.bucketType as BucketType | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     promotedTo: row.promotedTo ?? null,
+    consumedAt: row.consumedAt ?? null,
     landedAt: row.landedAt ?? null,
     hollowLandedAt: row.hollowLandedAt ?? null,
     reserveCount: row.reserveCount ?? 0,
@@ -1777,11 +1863,10 @@ export function listArchivedTodos(
 }
 
 /** The one mission a create should home under: `active`, non-terminal, live node.
- *  Prefers a mission owned by the creating session; with no session match and more
- *  than one candidate the answer is AMBIGUOUS → null (the epic stays a root rather
- *  than being silently mis-homed). Lazy import: mission-store imports todo-store, so a
+ *  Returns the project's single active, non-terminal, live mission, or null when zero
+ *  or more than one survive. Lazy import: mission-store imports todo-store, so a
  *  static edge would close a cycle. Any failure (no mission.db yet) → null, never throw. */
-async function resolveActiveMissionId(project: string, ownerSession?: string | null): Promise<string | null> {
+async function resolveActiveMissionId(project: string): Promise<string | null> {
   try {
     const { listMissions, isMissionTerminal } = await import('./mission-store.ts');
     const live = listMissions(project).filter(
@@ -1789,11 +1874,6 @@ async function resolveActiveMissionId(project: string, ownerSession?: string | n
              m.node.status !== 'done' && m.node.status !== 'dropped',
     );
     if (live.length === 0) return null;
-    if (ownerSession) {
-      const mine = live.filter((m) => (m.ownerSession ?? m.assigneeSession) === ownerSession);
-      if (mine.length === 1) return mine[0]!.node.id;
-      if (mine.length > 1) return null;               // ambiguous within the session
-    }
     return live.length === 1 ? live[0]!.node.id : null;
   } catch {
     return null;
@@ -1826,7 +1906,7 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
       if (dup) throw new DuplicateBucketError(input.title, dup.id);
       return null;        // Inbox / Bugfix inbox
     }
-    return await resolveActiveMissionId(project, input.ownerSession);
+    return await resolveActiveMissionId(project);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
@@ -1934,7 +2014,7 @@ function hasTerminalEpicAncestor(project: string, startParentId: string | null):
 }
 
 export function updateTodo(project: string, id: string, patch: UpdateTodoPatch): Promise<Todo> {
-  return withLock(project, () => {
+  return withLock(project, async () => {
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
     const fullId = resolveFullId(project, id);
@@ -2071,6 +2151,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
       declaredFiles: patch.declaredFiles ?? existing.declaredFiles,
       promotedTo: patch.promotedTo !== undefined ? patch.promotedTo : (existing.promotedTo ?? null),
+      consumedAt: patch.consumedAt !== undefined ? patch.consumedAt : (existing.consumedAt ?? null),
       tier: patch.tier !== undefined ? patch.tier : (existing.tier ?? null),
       baseRepair: patch.baseRepair !== undefined ? patch.baseRepair : (existing.baseRepair ?? 0),
     };
@@ -2103,13 +2184,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.transaction(() => {
       const res = db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, tier=?, baseRepair=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, consumedAt=?, tier=?, baseRepair=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
           completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, declaredFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.tier, next.baseRepair,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.criterionEdges.single, next.criterionEdges.idsJson, next.decisionRef, next.claimProbe, next.promotedTo, next.consumedAt, next.tier, next.baseRepair,
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), JSON.stringify(next.declaredFiles), patch.retryCount ?? existing.retryCount, fullId
       );
@@ -2136,23 +2217,14 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       // LOUDLY. A throw here rolls back the status write above.
       if (status === 'dropped' && isContainerKind({ kind: existing.kind })) {
         if (!wasTerminal) {
-          db.prepare(
-            `${DESCENDANTS_CTE}
-             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
-               heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
-             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-          ).run(fullId, nowIso());
+          cascadeDropDescendants(db, fullId, nowIso());
         }
         // Guard, not best-effort: covers both the just-ran cascade above and the
         // already-terminal re-drop case (item 3) where no cascade ran this call but a
         // prior re-parent may have introduced a live child. Pre-cutover data fixes
         // (:739/:888/:947/:1019) are exempt by construction — they run once, before
         // any live traffic, and re-home children before tombstoning.
-        const { n: liveCount } = db.prepare(
-          `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
-           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
-        ).get(fullId) as { n: number };
-        if (liveCount > 0) throw new DroppedEpicHasLiveChildrenError(id, liveCount);
+        assertNoLiveDescendants(db, id, fullId);
       }
     })();
 
@@ -2166,6 +2238,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     }
     if (nowTerminal && !wasTerminal) {
       try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
+    }
+    if (status === 'dropped' && isContainerKind({ kind: existing.kind }) && !wasTerminal) {
+      try {
+        const { reopenConsumedFor, consumerDelivered } = await import('./bucket-consumption.ts');
+        if (!consumerDelivered(project, fullId)) reopenConsumedFor(project, fullId);
+      } catch { /* best-effort cleanup */ }
     }
     return getTodo(project, id)!;
   });
@@ -2931,6 +3009,8 @@ export interface EpicRollupFlag {
 export interface EpicSweepResult {
   /** Epic ids the sweep rolled up to `done` this pass (all children done+accepted). */
   rolledUp: string[];
+  /** Epic ids the sweep terminalized as DROPPED this pass (all children terminal, none done+accepted, no land stamp). */
+  terminalizedDropped: string[];
   /** Epics flagged for reasons requiring human/gate intervention. */
   flagged: EpicRollupFlag[];
   /** epicId -> ids of moot leftover children dropped by the landed-settlement path
@@ -3107,6 +3187,7 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
     const motionlessAfterMs = opts.motionlessAfterMs ?? MOTIONLESS_EPIC_AFTER_MS;
     const landedGraceMs = opts.landedGraceMs ?? LANDED_LEFTOVER_GRACE_MS;
     const rolledUp: string[] = [];
+    const terminalizedDropped: string[] = [];
     const flagged: EpicRollupFlag[] = [];
     const settledChildIds: Record<string, string[]> = {};
     const flaggedSeen = new Set<string>();
@@ -3125,8 +3206,15 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
     for (let pass = 0; pass < maxPasses; pass++) {
       const all = listTodos(project, { includeCompleted: true });
       const childrenByParent = new Map<string, Todo[]>();
+      const allChildrenByParent = new Map<string, Todo[]>();
       for (const t of all) {
-        if (t.parentId == null || t.status === 'dropped') continue;
+        if (t.parentId == null) continue;
+        // Build unfiltered map first
+        const allArr = allChildrenByParent.get(t.parentId) ?? [];
+        allArr.push(t);
+        allChildrenByParent.set(t.parentId, allArr);
+        // Then filter for non-dropped
+        if (t.status === 'dropped') continue;
         const arr = childrenByParent.get(t.parentId) ?? [];
         arr.push(t);
         childrenByParent.set(t.parentId, arr);
@@ -3146,7 +3234,37 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
         // iteration epics settle (mirrors the event-path guard in completeTodo).
         if (isMission(epic)) continue;
         const children = childrenByParent.get(epic.id);
-        if (!children || children.length === 0) continue; // not an epic / no live children
+        if (!children || children.length === 0) {
+          // No live children. Check if all children (including dropped) are terminal.
+          const allKids = allChildrenByParent.get(epic.id);
+          if (allKids && allKids.length > 0 && allKids.every((c) => c.status === 'done' || c.status === 'dropped')) {
+            // All children are terminal — terminalize the epic.
+            const ts = nowIso();
+            const doneAccepted = allKids.some((c) => c.status === 'done' && c.acceptanceStatus === 'accepted');
+            if (hasLandStamp(epic) || doneAccepted) {
+              // Close it via the standard path.
+              const closed = closeEpicIfChildrenSettled(project, db, epic, {
+                ts,
+                requireAccepted: true,
+                allowZeroChildren: true,
+              });
+              if (closed) {
+                rolledUp.push(epic.id);
+                closedThisPass++;
+              }
+            } else {
+              // No child delivered anything — drop the epic directly.
+              const fullEpicId = resolveFullId(project, epic.id);
+              db.prepare(
+                `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+              ).run(ts, fullEpicId);
+              cascadeDropDescendants(db, fullEpicId, ts);
+              terminalizedDropped.push(epic.id);
+              closedThisPass++;
+            }
+          }
+          continue; // not an epic / no live children / already handled phantom-open
+        }
 
         const allDone = children.every((c) => c.status === 'done');
 
@@ -3191,9 +3309,13 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
               // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
               const ts = nowIso();
               for (const leftoverChild of leftover) {
+                const fullChildId = resolveFullId(project, leftoverChild.id);
+                // Drop the leftover node itself
                 db.prepare(
                   `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
-                ).run(ts, leftoverChild.id);
+                ).run(ts, fullChildId);
+                // Cascade to any descendants if the leftover is itself a container
+                cascadeDropDescendants(db, fullChildId, ts);
               }
               settledChildIds[epic.id] = leftover.map((c) => c.id);
 
@@ -3252,7 +3374,7 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
       if (closedThisPass === 0) break;
     }
 
-    return { rolledUp, flagged, settledChildIds };
+    return { rolledUp, terminalizedDropped, flagged, settledChildIds };
   });
 }
 
@@ -3324,10 +3446,16 @@ export function resetTodo(
         approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
         completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
     );
-    let res;
-    if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
-    else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
-    if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+    db.transaction(() => {
+      let res;
+      if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
+      else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
+      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (storedStatus === 'dropped' && isContainerKind({ kind: existing.kind })) {
+        cascadeDropDescendants(db, fullId, nowIso());
+        assertNoLiveDescendants(db, id, fullId);
+      }
+    })();
     // Re-promoting a blocked/rejected todo SUPERSEDES any escalation it raised (rejected
     // / parked / blocker / blueprint-failed) — the work is being re-attempted, so those
     // are stale. Auto-resolve them (matching by todoId + the lane session) so the project

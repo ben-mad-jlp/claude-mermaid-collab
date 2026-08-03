@@ -93,7 +93,7 @@ const ALLOWLIST: AllowEntry[] = [
 
   // (FALLBACK) both sweep entrypoints now resolve baseRef via
   // detectBaseBranch().catch(()=>"master") (trunk-ref Part B).
-  { file: 'src/services/landed-epic-sweep.ts', count: 2, reason: 'reconcileLandedEpics + gcEpicBranches resolve baseRef via detectBaseBranch fallback (Part B)' },
+  { file: 'src/services/landed-epic-sweep.ts', count: 3, reason: 'reconcileLandedEpics + terminalizeLandedEpics + gcEpicBranches resolve baseRef via detectBaseBranch fallback (Part B)' },
 
   // (FALLBACK + STRING) conductor-wake-gate pickBaseRef fallback arg + the comment
   // explaining why a literal master would signature-freeze.
@@ -116,6 +116,10 @@ const ALLOWLIST: AllowEntry[] = [
 
   // (STRING) comment describing the off-master derivation (`git rev-list master..<branch>`).
   { file: 'src/routes/supervisor-routes.ts', count: 1, reason: 'comment describing the off-master rev-list derivation' },
+
+  // (CONSERVATIVE / FALLBACK) base-repair raise site's detectBaseBranch() fail-open
+  // default — mirrors the `.catch(() => 'master')` pattern already allowed elsewhere.
+  { file: 'src/services/conductor-infra-arm.ts', count: 1, reason: 'CONSERVATIVE/FALLBACK: detectBaseBranch() fail-open default "master" at the base-repair raise site, mirrors the .catch(() => "master") pattern already allowed elsewhere' },
 ];
 
 interface Match { file: string; line: number; text: string; }

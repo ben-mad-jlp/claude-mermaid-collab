@@ -13,7 +13,7 @@ import { listTodos, type Todo } from './todo-store.ts';
 import { isEpic } from './todo-kind.ts';
 import { getConfig } from './config-service.ts';
 import { getIntakeEnabled } from './supervisor-store.ts';
-import { forgeMissionFromDoc, type ForgeFromDocResult } from '../mcp/tools/mission-forge.ts';
+import { forgeMissionFromDocAndWait, type ForgeFromDocResult } from '../mcp/tools/mission-forge.ts';
 
 /**
  * MISSION A — friction → forge intake pipeline.
@@ -221,7 +221,10 @@ function defaultWriteBrief(project: string, sig: string, content: string): strin
   return path;
 }
 
-/** Default escalation: reuse forgeMissionFromDoc VERBATIM (no second forge implementation). The brief
+/** Default escalation: reuse the forge path VERBATIM (no second forge implementation). Intake takes
+ *  the AWAITED variant — the pass's contract is that it returns a fully drafted UNAPPROVED mission,
+ *  and the async ack variant would leave the row at `forging` and break the pending-drafts ceiling.
+ *  The brief
  *  is fed in via the readDoc dep, so the forge node reads OUR synthesized doc and emits a spec that
  *  forgeMission instantiates as UNAPPROVED (inactive, constraints proposed). */
 async function defaultForge(
@@ -229,7 +232,7 @@ async function defaultForge(
   candidate: IntakeCandidate,
   briefContent: string,
 ): Promise<{ missionId: string }> {
-  const res: ForgeFromDocResult = await forgeMissionFromDoc(
+  const res: ForgeFromDocResult = await forgeMissionFromDocAndWait(
     project,
     { session: INTAKE_SESSION, docId: `intake-${sanitizeSigForFilename(candidate.sig)}` },
     { readDoc: async () => briefContent },

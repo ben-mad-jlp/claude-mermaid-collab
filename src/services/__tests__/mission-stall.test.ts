@@ -52,7 +52,7 @@ describe('mission-loop none-reason classification', () => {
       .filter((r) => MISSION_LOOP_REASON_CLASS[r] === 'stalled')
       .sort();
     expect(stalled).toEqual(
-      (['over-budget', 'no-owner-session', 'blocked-silenced', 'stalled', 'no-action'] as MissionLoopReasonBase[]).sort(),
+      (['over-budget', 'no-nudge-target', 'blocked-silenced', 'stalled', 'no-action'] as MissionLoopReasonBase[]).sort(),
     );
   });
 
@@ -71,7 +71,7 @@ describe('mission-loop none-reason classification', () => {
     const base: MissionLoopStepInput = {
       mission: { todoId: 'm1', status: 'needs-discovery', lastNudgeAt: null, lastNudgeKey: null, title: 'goal', active: true },
       rollup: { capability: { met: 0, total: 2 } },
-      ownerSession: 'design', idle: true, now: NOW, cooldownMs: 15 * 60_000, escalationMs: 2 * 3600_000,
+      target: 'design', idle: true, now: NOW, cooldownMs: 15 * 60_000, escalationMs: 2 * 3600_000,
     };
     const cases: MissionLoopStepInput[] = [
       { ...base, mission: { ...base.mission, active: false } },
@@ -81,7 +81,7 @@ describe('mission-loop none-reason classification', () => {
       { ...base, mission: { ...base.mission, status: 'stalled' } },
       { ...base, mission: { ...base.mission, status: 'building' } },
       { ...base, mission: { ...base.mission, status: 'unapproved' } },
-      { ...base, ownerSession: null },
+      { ...base, target: null },
       { ...base, idle: false },
       { ...base, mission: { ...base.mission, status: 'blocked', lastNudgeAt: NOW - 1 } },
       { ...base, mission: { ...base.mission, lastNudgeAt: NOW - 1, lastNudgeKey: 'needs-discovery:0/2:g0:v0' } },
@@ -102,17 +102,17 @@ describe('mission-loop none-reason classification', () => {
 
 describe('stall clock', () => {
   test('a QUIET reason opens no episode and clears an open one', () => {
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW);
     expect(getStallEpisode(PROJECT, 'm1', NOW)).not.toBeNull();
     expect(noteMissionLoopReason(PROJECT, 'm1', 'building', NOW + 1000)).toBeNull();
     expect(getStallEpisode(PROJECT, 'm1', NOW + 1000)).toBeNull();
   });
 
   test('a stalled mission is not "stalled" until the grace window elapses', () => {
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW);
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW + MISSION_STALL_GRACE_MS - 1);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW + MISSION_STALL_GRACE_MS - 1);
     expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS - 1)).toBe(false);
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW + MISSION_STALL_GRACE_MS);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW + MISSION_STALL_GRACE_MS);
     expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS)).toBe(true);
     expect(stalledForMs(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS)).toBe(MISSION_STALL_GRACE_MS);
   });
@@ -125,34 +125,34 @@ describe('stall clock', () => {
   });
 
   test('an un-observed episode expires (TTL) instead of latching a mission at stalled forever', () => {
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW);
     const later = NOW + MISSION_STALL_FLAG_TTL_MS + 1;
     expect(isMissionStalled(PROJECT, 'm1', later)).toBe(false);
     expect(getStallEpisode(PROJECT, 'm1', later)).toBeNull();
     // …and a stall observed after the TTL starts a FRESH clock, not an instant card.
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', later);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', later);
     expect(isMissionStalled(PROJECT, 'm1', later)).toBe(false);
   });
 
   test('clearMissionStall ends the episode (the mission demonstrably moved)', () => {
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW);
     clearMissionStall(PROJECT, 'm1');
     expect(getStallEpisode(PROJECT, 'm1', NOW)).toBeNull();
   });
 
   test('claimStallCard bounds an episode to exactly one card', () => {
-    noteMissionLoopReason(PROJECT, 'm1', 'no-owner-session', NOW);
+    noteMissionLoopReason(PROJECT, 'm1', 'no-nudge-target', NOW);
     expect(claimStallCard(PROJECT, 'm1')).toBe(true);
     expect(claimStallCard(PROJECT, 'm1')).toBe(false);
   });
 
   test('the card text names the mission, the reason, the duration and a remedy', () => {
     const text = buildStallCardText({
-      missionId: 'm1', missionTitle: 'ship X', reason: 'no-owner-session', stalledForMs: 105 * 60_000,
+      missionId: 'm1', missionTitle: 'ship X', reason: 'no-nudge-target', stalledForMs: 105 * 60_000,
     });
     expect(text).toContain('ship X');
     expect(text).toContain('m1');
-    expect(text).toContain('no-owner-session');
+    expect(text).toContain('no-nudge-target');
     expect(text).toContain('1h45m');
     expect(text).toContain('set_active_mission');
   });
@@ -255,10 +255,11 @@ describe('runMissionLoopPass — no silent stop', () => {
 
   test('a STALLED reason alone never cards — the conjunction is not satisfied', async () => {
     const calls: EscCall[] = [];
-    const stuck = () => [summary({ ownerSession: null, assigneeSession: null })]; // → no-owner-session
+    const stuck = () => [summary()]; // no target → no-nudge-target
     const tick = (now: number) => runMissionLoopPass(PROJECT, {
       list: stuck, isIdle: () => true, nudge: async () => 'sent', now,
       createEscalation: spyEscalation(calls),
+      resolveTarget: () => '', // Empty string acts as falsy target, triggering no-nudge-target
     });
 
     // Inside the grace window: silent (a session blip must not card a human).
@@ -280,23 +281,24 @@ describe('runMissionLoopPass — no silent stop', () => {
 
   test('recovery then a NEW stall episode re-arms the episode clock (still no card)', async () => {
     const calls: EscCall[] = [];
-    let owner: string | null = null;
+    let resolvedTarget = '';
     const tick = (now: number) => runMissionLoopPass(PROJECT, {
-      list: () => [summary({ ownerSession: owner, assigneeSession: owner })],
+      list: () => [summary()],
       isIdle: () => true, nudge: async () => 'sent', now,
       createEscalation: spyEscalation(calls),
+      resolveTarget: () => resolvedTarget,
     });
     await tick(NOW);
     await tick(NOW + MISSION_STALL_GRACE_MS);
     expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS)).toBe(true);
 
-    // The mission gets an owner and is nudged → the episode ends.
-    owner = 'design';
+    // The mission gets a target and is nudged → the episode ends.
+    resolvedTarget = 'design';
     await tick(NOW + MISSION_STALL_GRACE_MS + 60_000);
     expect(isMissionStalled(PROJECT, 'm1', NOW + MISSION_STALL_GRACE_MS + 60_000)).toBe(false);
 
-    // It loses the owner again → a fresh episode after a fresh grace window.
-    owner = null;
+    // It loses the target again → a fresh episode after a fresh grace window.
+    resolvedTarget = '';
     const t2 = NOW + MISSION_STALL_GRACE_MS + 120_000;
     await tick(t2);
     expect(isMissionStalled(PROJECT, 'm1', t2)).toBe(false); // inside the new grace window

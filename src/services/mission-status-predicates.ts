@@ -8,6 +8,7 @@ import { criterionEdgesOf } from './criterion-edges.ts';
 import { isLanded } from './epic-landedness.ts';
 import { derivedStatus } from './claimability.ts';
 import { isHollowLand } from './todo-store.ts';
+import { isZeroBurnGateHold } from './epic-churn.ts';
 import { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import type { Todo } from './todo-store.ts';
 import type { LeafRunSummary } from './ledger-stats.ts';
@@ -96,12 +97,15 @@ export function isHollowDone(e: Todo, allTodos: readonly Todo[]): boolean {
 export function countsTowardServeCap(
   e: Todo,
   allTodos: readonly Todo[],
-  capRuns: readonly Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'>[],
+  capRuns: readonly Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts' | 'reason'>[],
   ledgerUnavailable: boolean,
 ): boolean {
   const leaves = allTodos.filter((t) => t.parentId === e.id && !isEpic(t));
   if (leaves.length === 0) return true;
   if (ledgerUnavailable) return true;
+  const leafIds = new Set(leaves.map((t) => t.id));
+  const attributable = capRuns.filter((r) => r.epicId === e.id || (r.leafId != null && leafIds.has(r.leafId)));
+  if (attributable.length > 0 && attributable.every((r) => isZeroBurnGateHold(r))) return false;
   const isGenuineAttempt = (
     r: Pick<LeafRunSummary, 'leafId' | 'epicId' | 'finalOutcome' | 'nodesSpent' | 'attempts'> | undefined,
   ) => r == null || (r.attempts ?? 0) >= 1 || (r.nodesSpent ?? 0) > 0;
@@ -157,4 +161,25 @@ export function servingWorkCompletedAfterVerdict(c: {
     c.servingWorkCompletedAt != null &&
     c.servingWorkCompletedAt > c.verifiedAt
   );
+}
+
+/**
+ * Fail-closed: a NOT-met criterion has a pending recheck enqueued (its evidence was touched
+ * by a land or direct commit, and the recheck gate is watching for the work to complete).
+ * A pending recheck means the criterion is being actively re-evaluated, not idle in escalate.
+ * Any missing input ⇒ false.
+ */
+export function recheckPendingAfterVerdict(c: {
+  met: boolean;
+  recheckPendingAt?: number | null;
+}): boolean {
+  return !c.met && c.recheckPendingAt != null;
+}
+
+/**
+ * Fail-safe: implementation shipped, awaiting a live-observation window.
+ * Null or expired measurementPendingUntil returns false (serve-inert, but falls through to discover).
+ */
+export function awaitingObservation(c: { measurementPendingUntil?: number | null }, now: number): boolean {
+  return c.measurementPendingUntil != null && c.measurementPendingUntil > now;
 }

@@ -4527,7 +4527,7 @@
     },
     {
       "name": "land_epic",
-      "description": "LAND an epic onto master (FBPE P4 — human-gated, irreversible). Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at click time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.",
+      "description": "LAND an epic onto master (FBPE P4 — human-gated, irreversible). The call ACKNOWLEDGES IMMEDIATELY with {jobId, status:'landing'} and runs the gated merge as a BACKGROUND JOB. Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at call time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Poll the returned jobId (via async-job-store) or watch the escalation / master advance to learn the outcome. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4921,7 +4921,7 @@
     },
     {
       "name": "invariant_check",
-      "description": "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no epic (kind='epic') ancestor), stranded-epic (epic whose non-dropped children are all done+accepted but `landedAt` is still null), stranded-leaf (ADVISORY: a landed epic still holding a non-dropped child that is not done+accepted), broken-depends-on (dependsOn references a missing or dropped todo), live-child-under-terminal-epic (child of a terminal epic that is itself not done/dropped), landed-at-divergence (`landedAt` and the done-land-leaf/git-ahead facts disagree). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.",
+      "description": "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no epic (kind='epic') ancestor), stranded-epic (epic whose non-dropped children are all done+accepted but `landedAt` is still null), stranded-leaf (ADVISORY: a landed epic still holding a non-dropped child that is not done+accepted), broken-depends-on (dependsOn references a missing or dropped todo), live-child-under-terminal-epic (non-terminal todo with a terminal (done/dropped) epic or mission ancestor), phantom-open-epic (non-terminal, non-mission epic whose children are all done/dropped), landed-at-divergence (`landedAt` and the done-land-leaf/git-ahead facts disagree). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6096,6 +6096,48 @@
       }
     },
     {
+      "name": "get_bridge_snapshot",
+      "description": "Read-only aggregate snapshot for the Bridge dashboard: projects, todos, missions, openEscalations, coverage, summaries. One call replaces the per-source fan-out.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "full",
+              "core"
+            ]
+          },
+          "serverIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "todosLimit": {
+                "type": "number"
+              },
+              "missionsLimit": {
+                "type": "number"
+              },
+              "missionsCursor": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
       "name": "create_mission",
       "description": "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.",
       "inputSchema": {
@@ -6223,6 +6265,13 @@
           "activate": {
             "type": "boolean",
             "description": "Activate for the conductor session (default true); respects one-active-per-session."
+          },
+          "consumesTodoIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Inbox/bugfix bucket todo ids this mission's criteria address — marked consumed (done + promotedTo) on forge."
           }
         },
         "required": [
@@ -6235,7 +6284,7 @@
     },
     {
       "name": "forge_mission_from_doc",
-      "description": "FORGE a mission FROM a collab document via a server-side `forge` NODE. The node (model/effort configurable per-project via node_profile_override for kind 'forge' — like blueprint/implement/review — and overridable per call) reads the doc, surveys the repo, and emits a structured mission spec (criteria, constraints, rejected alternatives, digest); forge_mission then instantiates it as an UNAPPROVED mission (status 'unapproved', inactive, constraints left PROPOSED) that sits in the list until a human runs approve_mission. Judgment is the node's; instantiation is machinery. The source doc becomes the mission's handoff/constitution. Returns the forged mission + the parsed spec + the model/effort used.",
+      "description": "FORGE a mission FROM a collab document via a server-side `forge` NODE — the call ACKNOWLEDGES IMMEDIATELY with {missionId, jobId, status:'forging'} and runs the forge + instantiation as a BACKGROUND JOB. The node (model/effort configurable per-project via node_profile_override for kind 'forge' — like blueprint/implement/review — and overridable per call) reads the doc, surveys the repo, and emits a structured mission spec (criteria, constraints, rejected alternatives, digest); forge_mission then instantiates it as an UNAPPROVED mission (status 'unapproved', inactive, constraints left PROPOSED) that sits in the list until a human runs approve_mission. Judgment is the node's; instantiation is machinery. The source doc becomes the mission's handoff/constitution. On forge success the mission reads 'unapproved' (or 'forge-failed' on error, with a human-facing escalation filed). The mission title stays a placeholder while forgeState==='forging'; poll get_mission or list_missions to see the forged title + criteria, or watch the jobId via async-job-store.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6343,6 +6392,13 @@
           "baseRepair": {
             "type": "boolean",
             "description": "Opt-in only, for an epic whose purpose is greening a red base lane. Disables the epic-base-red hold (G2) for this epic's leaves. Never auto-inferred."
+          },
+          "consumesTodoIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Inbox/bugfix bucket todo ids this epic's leaves address — marked consumed (done + promotedTo) once the epic instantiates."
           }
         },
         "required": [
@@ -6460,6 +6516,13 @@
               "type": "string"
             },
             "description": "Criterion ids this criterion depends on (must be met first). Optional."
+          },
+          "measurementPendingUntil": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window (null clears it)."
           }
         },
         "required": [
@@ -6918,6 +6981,25 @@
         },
         "required": [
           "project"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Retrieve a specific async job by id for a project. Returns the job record with its current status, kind, target, any error, timestamps, and parsed result.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "jobId"
         ],
         "type": "object"
       }

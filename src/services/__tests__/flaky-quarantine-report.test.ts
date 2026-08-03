@@ -96,4 +96,59 @@ describe('runQuarantinePromotionReport', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it('files exactly one todo when the same test is promoted at three different shas', async () => {
+    let createTodoCount = 0;
+    let listTodosReturnValue: any[] = [];
+    const candidate = makeCandidate();
+    const candidate2 = makeCandidate({ quarantinedAtSha: 'sha2' });
+    const candidate3 = makeCandidate({ quarantinedAtSha: 'sha3' });
+
+    const deps = {
+      recordFrictionOnce: async () => true,
+      ensureBucket: async () => 'flaky-epic-id',
+      listTodos: () => listTodosReturnValue,
+      updateTodo: async () => ({ id: 'todo-1' } as any),
+      createTodo: async () => {
+        createTodoCount += 1;
+        return { id: 'todo-1' } as any;
+      },
+    };
+
+    await runQuarantinePromotionReport(candidate, deps);
+    // Simulate finding the existing todo on the second call
+    listTodosReturnValue = [
+      {
+        id: 'todo-1',
+        parentId: 'flaky-epic-id',
+        title: `[BUG] flaky test quarantined: ${candidate.test}`,
+        status: 'planned',
+      },
+    ];
+
+    await runQuarantinePromotionReport(candidate2, deps);
+    await runQuarantinePromotionReport(candidate3, deps);
+
+    expect(createTodoCount).toBe(1);
+  });
+
+  it('files the quarantine todo under the flaky bucket, not the bugfix bucket', async () => {
+    const candidate = makeCandidate();
+    let ensureBucketArg: string | undefined;
+
+    await runQuarantinePromotionReport(candidate, {
+      recordFrictionOnce: async () => true,
+      ensureBucket: async (project, type) => {
+        ensureBucketArg = type;
+        return `${type}-epic-id`;
+      },
+      listTodos: () => [],
+      createTodo: async (project, input) => {
+        expect(input.parentId).toBe('flaky-epic-id');
+        return { id: 'todo-1' } as any;
+      },
+    });
+
+    expect(ensureBucketArg).toBe('flaky');
+  });
 });

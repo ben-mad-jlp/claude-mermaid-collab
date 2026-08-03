@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, renderHook } from '@testing-library/react';
+import { act } from '@testing-library/react';
 
 interface DeferredPromise<T> {
   promise: Promise<T>;
@@ -50,6 +51,7 @@ vi.mock('@/stores/supervisorStore', () => ({
   },
 }));
 
+import { useMissions } from './useMissions';
 import { MissionStrip } from '../MissionStrip';
 
 describe('useMissions — key-tag stale-project blanking', () => {
@@ -65,10 +67,11 @@ describe('useMissions — key-tag stale-project blanking', () => {
       <MissionStrip serverId="s" project="/projA" onOpenMissions={() => {}} />
     );
 
-    // Project A's fetch is in flight; idle label shows.
+    // Project A's fetch is in flight; the loading affordance shows, never the empty state.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
     expect(screen.queryByText('Project A Mission')).toBeNull();
 
     // Switch to project B before A resolves.
@@ -77,10 +80,11 @@ describe('useMissions — key-tag stale-project blanking', () => {
     );
 
     // Even though A's fetch was first, B's fetch is now the active one.
-    // The idle label should still show (B not yet resolved).
+    // B is not yet resolved, so the loading affordance shows — not the empty state.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
     expect(screen.queryByText('Project A Mission')).toBeNull();
     expect(screen.queryByText('Project B Mission')).toBeNull();
 
@@ -112,7 +116,7 @@ describe('useMissions — key-tag stale-project blanking', () => {
 
     // Project A fetch is in flight.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
 
     // Switch to B.
@@ -120,9 +124,9 @@ describe('useMissions — key-tag stale-project blanking', () => {
       <MissionStrip serverId="s" project="/projB" onOpenMissions={() => {}} />
     );
 
-    // B idle state.
+    // B's fetch is unsettled — loading, not empty.
     await waitFor(() => {
-      expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+      expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
     });
 
     // Resolve B first.
@@ -160,6 +164,44 @@ describe('useMissions — key-tag stale-project blanking', () => {
     );
 
     expect(screen.queryByText('Project A Mission')).toBeNull();
-    expect(screen.getByTestId('mission-strip-idle-label')).toBeInTheDocument();
+    // B's fetch has not settled, so the strip shows loading — never the empty state.
+    expect(screen.getByTestId('mission-strip-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('mission-strip-idle-label')).toBeNull();
+  });
+});
+
+describe('useMissions hook — hasLoadedOnce key-scoped tracking', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('hasLoadedOnce is false before first fetch resolves, true after, and false again immediately after project changes', async () => {
+    deferredA = makeDeferredPromise<any[]>();
+    deferredB = makeDeferredPromise<any[]>();
+
+    const { result, rerender } = renderHook(
+      ({ serverId, project }: { serverId: string; project: string }) =>
+        useMissions(serverId, project),
+      { initialProps: { serverId: 's', project: '/projA' } }
+    );
+
+    expect(result.current.hasLoadedOnce).toBe(false);
+    expect(result.current.status).toBe('loading');
+
+    act(() => {
+      deferredA.resolve([makeMissionSummary('/projA', 'Project A Mission')]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.hasLoadedOnce).toBe(true);
+    });
+    expect(result.current.status).toBe('loaded');
+    expect(result.current.missions).toHaveLength(1);
+
+    rerender({ serverId: 's', project: '/projB' });
+
+    expect(result.current.hasLoadedOnce).toBe(false);
+    expect(result.current.status).toBe('loading');
+    expect(result.current.missions).toHaveLength(0);
   });
 });

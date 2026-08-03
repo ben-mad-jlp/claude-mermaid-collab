@@ -5,7 +5,22 @@ export interface EpicOutcomeSummary {
   rejectedCount: number;
   blockedCount: number;
   acceptedCount: number;
+  gateHeldCount: number;
   distinctReasons: string[];
+}
+
+/** Identify a zero-burn G-gate hold: a blocked run with no attempt budget spent,
+ *  due to an epic-base-red or epic-base-gate-could-not-run reason. These are
+ *  infrastructure holds, not rejection churn, and are excluded from churn detection. */
+export function isZeroBurnGateHold(
+  run: Pick<LeafRunSummary, 'finalOutcome' | 'attempts' | 'nodesSpent' | 'reason'>,
+): boolean {
+  if (run.finalOutcome !== 'blocked') return false;
+  if (run.attempts !== 0) return false;
+  if (run.nodesSpent !== 0) return false;
+  if (!run.reason) return false;
+  const r = run.reason.toLowerCase();
+  return r.includes('epic-base-red') || r.includes('epic-base-gate-could-not-run');
 }
 
 /** Normalize a reason string by trimming, lowercasing, collapsing whitespace runs to
@@ -22,11 +37,13 @@ export function normaliseReason(raw: string | null | undefined): string | null {
 
 /** Summarize leaf run outcomes by rejection/block/accept counts and deduplicated
  *  reasons (from rejected+blocked leaves only). Order of distinctReasons is
- *  first-seen (stable for diffable prompts). */
+ *  first-seen (stable for diffable prompts). Zero-burn G-gate holds are excluded
+ *  from blockedCount and distinctReasons, counted separately in gateHeldCount. */
 export function summariseEpicOutcomes(runs: LeafRunSummary[]): EpicOutcomeSummary {
   let rejectedCount = 0;
   let blockedCount = 0;
   let acceptedCount = 0;
+  let gateHeldCount = 0;
   const reasonSet = new Map<string, boolean>(); // tracks first-seen order
   const reasonOrder: string[] = [];
 
@@ -39,6 +56,10 @@ export function summariseEpicOutcomes(runs: LeafRunSummary[]): EpicOutcomeSummar
         reasonOrder.push(normalized);
       }
     } else if (r.finalOutcome === 'blocked') {
+      if (isZeroBurnGateHold(r)) {
+        gateHeldCount += 1;
+        continue;
+      }
       blockedCount += 1;
       const normalized = normaliseReason(r.reason);
       if (normalized && !reasonSet.has(normalized)) {
@@ -54,6 +75,7 @@ export function summariseEpicOutcomes(runs: LeafRunSummary[]): EpicOutcomeSummar
     rejectedCount,
     blockedCount,
     acceptedCount,
+    gateHeldCount,
     distinctReasons: reasonOrder,
   };
 }

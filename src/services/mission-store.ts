@@ -30,7 +30,7 @@ import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
-import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict } from './mission-status-predicates.ts';
+import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict, recheckPendingAfterVerdict as predRecheckPendingAfterVerdict, awaitingObservation as predAwaitingObservation } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
@@ -39,6 +39,8 @@ export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 export type MissionStatus =
   | 'unapproved'      // awaitingApprovalSince set — forged (e.g. from a doc) but not yet human-approved
   | 'abandoned'       // abandonedAt set
+  | 'forge-failed'    // forgeState==='forge-failed' — the doc→mission forge node failed; terminal
+  | 'forging'         // forgeState==='forging' — a doc→mission forge node is running; not yet a real mission
   | 'over-budget'     // spendUsd >= budgetUsd
   | 'stalled'         // the mission loop has taken no action for a STALLED reason past the grace window
   | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
@@ -54,7 +56,7 @@ export type MissionStatus =
 export function isMissionTerminal(
   m: Pick<MissionRow, 'status' | 'abandonedAt'> & { closedAt?: number | null },
 ): boolean {
-  return m.closedAt != null || m.abandonedAt != null || m.status === 'converged' || m.status === 'closed';
+  return m.closedAt != null || m.abandonedAt != null || m.status === 'converged' || m.status === 'closed' || m.status === 'forge-failed';
 }
 
 export interface MissionRow {
@@ -104,6 +106,8 @@ export interface MissionRow {
    *  forge). Null = approved / not applicable (all hand-created + legacy missions). While set the
    *  derived status is 'unapproved' and the mission-loop never drives it. approve_mission clears it. */
   awaitingApprovalSince: number | null;
+  /** Tracks the state of a forge operation: 'forging' = in progress, 'forge-failed' = failed, null = not forged or completed. */
+  forgeState: 'forging' | 'forge-failed' | null;
   /** Per-mission USD budget ceiling, or null = project default. */
   budgetUsd: number | null;
   /** The mission's CONSTITUTION: the handoff/brief document id (session doc) carrying the
@@ -160,6 +164,8 @@ export interface MissionCriterion {
   serveAttemptCount: number;
   /** DAG edge set: ids of criteria (on the same mission) this criterion depends on. */
   dependsOn: string[];
+  /** Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window (null = not pending observation). */
+  measurementPendingUntil: number | null;
 }
 
 export interface CriterionVerdictHistoryEntry {
@@ -362,6 +368,7 @@ function openDb(project: string): Database {
   // every time and no-ops once the column already exists.
   addColumnIfMissing(db, 'mission', 'closedAt', 'closedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
+  addColumnIfMissing(db, 'mission', 'forgeState', 'forgeState TEXT');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
   addColumnIfMissing(db, 'mission', 'handoffDocId', 'handoffDocId TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
@@ -376,6 +383,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'droppedReason', 'droppedReason TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'droppedAt', 'droppedAt INTEGER');
   addColumnIfMissing(db, 'mission_criterion', 'droppedBy', 'droppedBy TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'measurementPendingUntil', 'measurementPendingUntil INTEGER');
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
@@ -417,6 +425,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     closedAt: (row.closedAt as number | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
+    forgeState: (row.forgeState as 'forging' | 'forge-failed' | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
     handoffDocId: (row.handoffDocId as string | null) ?? null,
     archivedAt: (row.archivedAt as number | null) ?? null,
@@ -532,17 +541,17 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
 export function upsertMission(
   project: string,
   todoId: string,
-  opts: { budgetUsd?: number | null; handoffDocId?: string | null; awaitingApprovalSince?: number | null } = {},
+  opts: { budgetUsd?: number | null; handoffDocId?: string | null; awaitingApprovalSince?: number | null; forgeState?: 'forging' | 'forge-failed' | null } = {},
 ): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId, awaitingApprovalSince)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd, handoffDocId, awaitingApprovalSince, forgeState)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null, opts.awaitingApprovalSince ?? null);
+    .run(todoId, ts, ts, opts.budgetUsd ?? null, opts.handoffDocId ?? null, opts.awaitingApprovalSince ?? null, opts.forgeState ?? null);
   return getMission(project, todoId)!;
 }
 
@@ -590,7 +599,7 @@ export function backfillMissionNodeApproval(project: string, approvedBy = 'backf
  *  active flag (a mission you're "done with" is not being driven) — see deactivateIfTerminal;
  *  clearing abandonedAt does NOT auto-reactivate (use activateMission to drive it again, which
  *  preserves the one-active-per-session invariant). */
-export function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): MissionRow {
+export async function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): Promise<MissionRow> {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const id = m.todoId; // canonical — a short id must behave identically from here on
@@ -598,6 +607,10 @@ export function setMissionAbandoned(project: string, todoId: string, abandonedAt
     .prepare('UPDATE mission SET abandonedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(abandonedAt, nowMs(), id);
   deactivateIfTerminal(project, id);
+  if (abandonedAt != null) {
+    const { reopenConsumedFor, consumerDelivered } = await import('./bucket-consumption.ts');
+    if (!consumerDelivered(project, id)) reopenConsumedFor(project, id);
+  }
   return getMission(project, id)!;
 }
 
@@ -611,6 +624,14 @@ export function setMissionClosed(project: string, todoId: string, at: number | n
   const res = openDb(project)
     .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(at, nowMs(), id);
+  if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+}
+
+export function setMissionForgeState(project: string, todoId: string, state: 'forging' | 'forge-failed' | null): void {
+  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const res = openDb(project)
+    .prepare('UPDATE mission SET forgeState = ?, updatedAt = ? WHERE todoId = ?')
+    .run(state, nowMs(), id);
   if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
 }
 
@@ -725,6 +746,9 @@ export function restoreMission(project: string, todoId: string): MissionRow {
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
   const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { reopenConsumedFor } = require('./bucket-consumption.ts');
+  reopenConsumedFor(project, id);
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
   import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
@@ -909,6 +933,7 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     droppedReason: (r.droppedReason as string | null) ?? null,
     droppedAt: (r.droppedAt as number | null) ?? null,
     droppedBy: (r.droppedBy as string | null) ?? null,
+    measurementPendingUntil: (r.measurementPendingUntil as number | null) ?? null,
   }));
 }
 
@@ -970,7 +995,7 @@ export function addCriterion(
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn, nickname) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)')
     .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn), nickname);
-  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null };
+  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null, measurementPendingUntil: null };
 }
 
 /** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
@@ -1064,6 +1089,14 @@ export function updateCriterionText(project: string, criterionId: string, text: 
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
 }
 
+/** Set a criterion's measurement pending window (epoch-ms until observation window expires). */
+export function setCriterionMeasurementPendingUntil(project: string, criterionId: string, measurementPendingUntil: number | null): void {
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET measurementPendingUntil = ?, updatedAt = ? WHERE id = ?')
+    .run(measurementPendingUntil, nowMs(), criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
 export function removeCriterion(project: string, criterionId: string): void {
   const missionId = missionIdOfCriterion(project, criterionId);
   openDb(project).prepare('DELETE FROM mission_criterion WHERE id = ?').run(criterionId);
@@ -1097,6 +1130,8 @@ export async function dropCriterion(
       && todoServesCriterion(t, criterionId),
   );
   for (const epic of liveServingEpics) await updateTodo(project, epic.id, { status: 'dropped' });
+  const { reopenConsumedFor, consumerDelivered } = await import('./bucket-consumption.ts');
+  if (!consumerDelivered(project, criterionId)) reopenConsumedFor(project, criterionId);
 }
 
 /** Re-arm a dropped criterion to active, clearing its drop stamps. Deliberately does NOT
@@ -1289,15 +1324,26 @@ export function unverifyCriteriaForLandedPaths(
       continue;
     }
     for (const c of listCriteria(project, m.node.id)) {
-      if (!c.met) continue;
       if (!c.evidencePaths.some((p) => landed.has(p))) continue;
       const session = 'mission-loop';
-      const reopenCount = clearCriterionVerdict(project, c.id, {
-        countReopen: true, reopenSha: opts.landedSha ?? null, reason: 'land-diff-intersects-evidence',
-      });
-      enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
-      affected.push({ criterionId: c.id, todoId: c.todoId });
-      if (reopenCount >= REOPEN_CARD_THRESHOLD) raiseReopenChurnCard(project, session, { ...c, reopenCount });
+      // MET branch: a met criterion whose evidence intersects a land re-checks (re-measure).
+      if (c.met) {
+        const reopenCount = clearCriterionVerdict(project, c.id, {
+          countReopen: true, reopenSha: opts.landedSha ?? null, reason: 'land-diff-intersects-evidence',
+        });
+        enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
+        affected.push({ criterionId: c.id, todoId: c.todoId });
+        if (reopenCount >= REOPEN_CARD_THRESHOLD) raiseReopenChurnCard(project, session, { ...c, reopenCount });
+      } else if (c.verifiedAt != null) {
+        // NOT-MET branch: a NOT-met, verified criterion whose evidence intersects a land
+        // re-checks its evidence (the work may have completed via a direct commit or sibling epic).
+        // countReopen: false — this is re-verifying completed work, not a reopen of prior success.
+        clearCriterionVerdict(project, c.id, {
+          countReopen: false, reason: 'land-diff-intersects-unmet-evidence',
+        });
+        enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-unmet-evidence', landedSha: opts.landedSha ?? null });
+        affected.push({ criterionId: c.id, todoId: c.todoId });
+      }
     }
   }
   if (skipped.length > 0) {
@@ -1345,6 +1391,11 @@ export interface MissionCriterionFacts {
    *  descendant leaves, set ONLY when that epic has no unfinished leaf. Optional so existing
    *  fact fixtures need no change. */
   servingWorkCompletedAt?: number | null;
+  /** Timestamp a recheck was enqueued for this criterion (when its evidence was touched
+   *  by a land diff or direct commit). Signals that a NOT-met criterion is being actively
+   *  re-verified, not idle in escalate. Optional (defaults to absent/null) so existing fact
+   *  fixtures need no change; set by collectMissionStatusFacts. */
+  recheckPendingAt?: number | null;
   /** Every epic serving this criterion (primary edge or servesCriterionIds), with its
    *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
@@ -1353,6 +1404,8 @@ export interface MissionCriterionFacts {
    *  met — 'blocked' when non-empty. Optional so existing fact fixtures need no change;
    *  set by collectMissionStatusFacts. */
   unmetDependencyIds?: string[];
+  /** Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window. Optional so existing fact fixtures need no change. */
+  measurementPendingUntil?: number | null;
 }
 
 export interface MissionStatusFacts {
@@ -1362,6 +1415,8 @@ export interface MissionStatusFacts {
   /** Optional (defaults falsy) so existing fact fixtures need no change; set by
    *  collectMissionStatusFacts from the mission row's closedAt column. */
   closedAt?: number | null;
+  /** Optional so existing fact fixtures need no change; set by collectMissionStatusFacts. */
+  forgeState?: 'forging' | 'forge-failed' | null;
   budgetUsd: number | null;
   spendUsd: number;
   hasBlockedLeaf: boolean;   // a leaf run rejected or blocked (parked/rejected/escalation/unapproved-split)
@@ -1389,6 +1444,7 @@ export type CriterionAction =
   | 'discover'  // no live serving epic (none filed, filed-but-stalled, or landed-and-verify-said-no) — file/approve an epic
   | 'blocked'   // an unmet dependsOn dependency — structurally not servable yet
   | 'dropped'   // criterion dropped — serve-inert: derives no work and is excluded from convergence
+  | 'awaiting-observation'  // implementation shipped, waiting on an elapsed live-observation window — serve-inert like 'dropped', but distinct: excluded from convergence too (unlike 'dropped' it is not yet decided met/unmet)
   | 'escalate'; // capped: CRITERION_SERVE_CAP+ serving epics filed and still unmet — stop re-filing, escalate to a human ONCE
 
 // CRITERION_SERVE_CAP moved to harness-caps.ts (the harness's single loop-breaker cap
@@ -1412,6 +1468,14 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
   // isn't required to know the work is done — non-landing is orthogonal to whether it should be
   // graded again.
   if (predServingWorkCompletedAfterVerdict(c)) return 'verify';
+  // A NOT-met criterion with a pending recheck enqueued (evidence touched by a land or direct
+  // commit) is being actively re-evaluated. The recheck gate will decide if the work completed;
+  // don't escalate while it's in flight — that would suppress the active re-verification.
+  if (predRecheckPendingAfterVerdict(c)) return 'verify';
+  // Sits below every arm that represents genuine in-flight progress (verify/met/blocked/building/recheck)
+  // and above the serve-cap escalate/discover fall-through: a criterion legitimately waiting on elapsed
+  // time never burns the serve cap or gets re-filed.
+  if (predAwaitingObservation(c, Date.now())) return 'awaiting-observation';
   // Would be 'discover' — but if we have already filed CRITERION_SERVE_CAP serving epics
   // for this criterion and it is STILL unmet with no live serving epic, re-filing is thrash:
   // escalate to a human once instead. ONLY the discover path caps — verify/building/met are
@@ -1425,10 +1489,12 @@ export function deriveCriterionAction(c: MissionCriterionFacts): CriterionAction
  *  Post-prefix arms deliberately differ: deriveMissionStatus is a facts-backed capability
  *  gauge; deriveCheapMissionStatus is a list-badge proxy. Precedence: closed > abandoned > unapproved. */
 export function deriveTerminalMissionPrefix(
-  t: { closedAt?: number | null; abandonedAt?: number | null; awaitingApproval: boolean },
+  t: { closedAt?: number | null; abandonedAt?: number | null; awaitingApproval: boolean; forgeState?: 'forging' | 'forge-failed' | null },
 ): MissionStatus | null {
   if (t.closedAt != null) return 'closed';
   if (t.abandonedAt != null) return 'abandoned';
+  if (t.forgeState === 'forge-failed') return 'forge-failed';
+  if (t.forgeState === 'forging') return 'forging';
   if (t.awaitingApproval) return 'unapproved';
   return null;
 }
@@ -1439,12 +1505,12 @@ export function deriveTerminalMissionPrefix(
  *  conductor can serve every open gap concurrently. 'building' is now the QUIETEST
  *  non-terminal state — it only surfaces when nothing is left to discover or verify. */
 export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
-  const terminal = deriveTerminalMissionPrefix({ ...f, awaitingApproval: f.awaitingApproval === true });
+  const terminal = deriveTerminalMissionPrefix({ closedAt: f.closedAt, abandonedAt: f.abandonedAt, awaitingApproval: f.awaitingApproval === true, forgeState: f.forgeState });
   if (terminal != null) return terminal;
   const actions = f.criteria.map(deriveCriterionAction);
-  // Dropped criteria are serve-inert: they derive no mission-scalar action at all. Reading
-  // activeActions at EVERY arm below makes that invariant explicit per call site.
-  const activeActions = actions.filter((a) => a !== 'dropped');
+  // Serve-inert criteria (dropped and awaiting-observation) derive no mission-scalar action at all.
+  // Reading activeActions at EVERY arm below makes that invariant explicit per call site.
+  const activeActions = actions.filter((a) => a !== 'dropped' && a !== 'awaiting-observation');
   // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
   // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
   // of the open-missions list rather than linger labelled 'over-budget'. A mission that crossed
@@ -1488,12 +1554,12 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
  * `withFacts: true`.
  */
 export function deriveCheapMissionStatus(
-  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null; active?: boolean | number; queuePos?: number | null },
+  m: Pick<MissionRow, 'abandonedAt' | 'awaitingApprovalSince'> & { closedAt?: number | null; active?: boolean | number; queuePos?: number | null; forgeState?: 'forging' | 'forge-failed' | null },
   _epics: readonly { status: string }[],
   criteria: readonly { met: boolean; status?: string }[] = [],
   stalled: boolean = false,
 ): MissionStatus {
-  const terminal = deriveTerminalMissionPrefix({ closedAt: m.closedAt, abandonedAt: m.abandonedAt, awaitingApproval: m.awaitingApprovalSince != null });
+  const terminal = deriveTerminalMissionPrefix({ closedAt: m.closedAt, abandonedAt: m.abandonedAt, awaitingApproval: m.awaitingApprovalSince != null, forgeState: m.forgeState });
   if (terminal != null) return terminal;
   // Converged = the CAPABILITY gauge: every acceptance criterion met (stored verdicts — cheap, no
   // facts scan), NOT "all epics done". Keying off epics gave the wrong badge both ways: a
@@ -1619,6 +1685,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
     closedAt: m.closedAt,
+    forgeState: m.forgeState,
     budgetUsd: m.budgetUsd,
     spendUsd,
     // Ledger unavailable: we cannot see the leaf runs that would normally reveal a blocked
@@ -1637,7 +1704,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     // mission-loop stopped running cannot latch a mission at 'stalled' forever.
     stalled: isMissionStalled(project, m.todoId, now),
     queued: m.active !== true && m.queuePos != null,
-    criteria: criteria.map((c) => {
+    criteria: (() => {
+      const pendingRechecks = listPendingRechecks(project);
+      const rechecksBycriterionId = new Map(pendingRechecks.map((r) => [r.criterionId, r.enqueuedAt]));
+      return criteria.map((c) => {
       // MULTI-EDGE (e7d3c02b): an epic serves a criterion via the primary edge OR the
       // servesCriterionIds set — one right-sized epic can serve several aspect criteria.
       const serving = epics.filter((e) => todoServesCriterion(e, c.id));
@@ -1747,8 +1817,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         if (m == null) continue;
         servingWorkCompletedAt = servingWorkCompletedAt == null ? m : Math.max(servingWorkCompletedAt, m);
       }
-      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, servingEpics, unmetDependencyIds };
-    }),
+      const recheckPendingAt = rechecksBycriterionId.get(c.id) ?? null;
+      return { id: c.id, met: c.met, status: c.status, verifiedAt: c.verifiedAt, verifiedAtSha: c.verifiedAtSha, servingEpicState, servingEpicLive, servedEpicCount, rejectedParkedCount, servingEpicLandSha, servingEpicLandedAt, servingWorkCompletedAt, recheckPendingAt, servingEpics, unmetDependencyIds, measurementPendingUntil: c.measurementPendingUntil };
+      });
+    })(),
   };
 }
 

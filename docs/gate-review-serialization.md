@@ -2,6 +2,40 @@
 
 DECISION: serial — gate ‖ review is not verdict-neutral and is NOT enabled; the serial order stands.
 
+## Measured Achievable Saving
+
+Per-leaf saving from gate ‖ review is bounded by `min(gateDuration, reviewDuration)`. A real
+measurement from this worktree (commit `e2ad16edd17c43b3cc1989f59b5a8649d13156b1`) observed
+223 review rows with a median saving of 4805.0 ms and a distribution at percentiles
+p10/p50/p90 of 4805.0 / 4805.0 / 4805.0 ms. These percentiles coincide because the mechanical
+gate duration (4805 ms) is the smaller operand at every sample: the smallest observed review
+duration in the ledger is 17537 ms, which still exceeds the gate's 4805 ms. Expressed as a
+share of the serial gate + review wall-clock, the achievable gate share is p10 ≈ 14.8%,
+p50 ≈ 9.1%, and p90 ≈ 4.2% — the share shrinks as review duration increases, since the
+numerator is capped at the fixed gate duration while the denominator grows.
+
+**Provenance:**
+- Ledger path: `~/.mermaid-collab/worker-ledger.db`
+- Project filter: `/Users/benmaderazo/Code/claude-mermaid-collab`
+- Review rows: 223 (date range 2026-07-30T04:07:27.619Z to 2026-08-03T15:24:08.077Z)
+- Gate lanes timed:
+  - `npx tsc --noEmit -p tsconfig.json` (cwd = repo root), 3 repeats, observed [4554, 4614, 4552] ms
+  - `bun test src/services/__tests__/worker-ledger.test.ts` (cwd = repo root), 3 repeats, observed [267, 256, 253] ms
+  - Composite gate ms (sum of last-observed per lane): 4805
+- Git HEAD: `e2ad16edd17c43b3cc1989f59b5a8649d13156b1`
+- Measurement date: 2026-08-03
+
+To re-derive this measurement: `bun run scripts/measure-gate-review-overlap.ts`
+
+This measured saving does not discharge any of the four cited dependences (control-flow
+short-circuit, fail-branch guard, optimistic-merge ordering, demotion sentinel) and therefore
+does not change the `DECISION: serial` verdict.
+
+**Note:** The gate duration (4805 ms) is a directly-timed measurement from this run, not
+recorded in the worker ledger, because the mechanical gate is not a `runNode` and records
+no `durationMs` entry in the worker ledger (unlike the review node, which is read from
+`queryLedgerThin`).
+
 ## Summary
 
 The mechanical gate and review node must execute serially (in that order), not in parallel.

@@ -51,6 +51,8 @@ import { BindingSweeper } from './services/binding-sweeper.ts';
 import { BindingReconciler } from './services/binding-reconciler.ts';
 import { startBonjourAdvertiser, stopBonjourAdvertiser } from './services/bonjour-advertiser.ts';
 import { startDocDropbox, shouldStartDocDropbox } from './services/doc-dropbox.ts';
+import { recoverStaleJobs } from './services/async-job-store.ts';
+import { projectRegistry } from './services/project-registry.ts';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -368,6 +370,17 @@ sweeper.start();
 // register paths. See design-session-binding (sibling of decision 9cd01858).
 const bindingReconciler = new BindingReconciler();
 bindingReconciler.start();
+
+// Sweep stale async jobs (forge-mission, land-epic) from a prior boot. Each
+// project's sweep is independently try/catch'd so one project's failure never
+// blocks boot or skips the remaining projects.
+for (const { path } of await projectRegistry.list()) {
+  try {
+    await recoverStaleJobs(path);
+  } catch (err) {
+    console.error(`mermaid-collab: async-job recovery sweep failed for ${path} —`, err);
+  }
+}
 
 // Initialize status manager with WebSocket handler
 statusManager.setWebSocketHandler(wsHandler);

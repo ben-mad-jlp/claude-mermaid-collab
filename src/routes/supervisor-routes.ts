@@ -57,7 +57,7 @@ import { landReadiness, landAuthority, type LandActor } from '../services/land-a
 import { isEpicTodo } from '../services/invariant-check.ts';
 import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDeployStatus } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
-import { execFileSync } from 'node:child_process';
+import { modifiedTrackedCount as probeModifiedTrackedCount } from '../services/git-status-probe.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 import { fireStamp } from '../services/nudge-stamp.ts';
@@ -269,6 +269,36 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const { buildMissionDiagnostic } = await import('../services/mission-diagnostic.ts');
       const diagnostic = await buildMissionDiagnostic(project, missionId);
       return Response.json(diagnostic);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // BRIDGE SNAPSHOT — read-only aggregate snapshot for the Bridge dashboard:
+  // projects, todos, missions, openEscalations, coverage, summaries.
+  if (url.pathname === '/api/supervisor/bridge-snapshot' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      if (!project) return jsonError('project is required', 400);
+      const view = url.searchParams.get('view') ?? undefined;
+      const serverIdsRaw = url.searchParams.getAll('serverIds');
+      const serverIds = serverIdsRaw.length > 0
+        ? serverIdsRaw.flatMap((s) => s.split(',')).filter(Boolean)
+        : undefined;
+      const todosLimit = url.searchParams.get('todosLimit');
+      const missionsLimit = url.searchParams.get('missionsLimit');
+      const missionsCursor = url.searchParams.get('missionsCursor') ?? undefined;
+      const { buildBridgeSnapshot } = await import('../services/bridge-snapshot.ts');
+      const snapshot = await buildBridgeSnapshot(project, {
+        view: view as any,
+        serverIds,
+        pagination: {
+          todosLimit: todosLimit ? Number(todosLimit) : undefined,
+          missionsLimit: missionsLimit ? Number(missionsLimit) : undefined,
+          missionsCursor,
+        },
+      });
+      return Response.json(snapshot);
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
@@ -763,16 +793,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         status.deploy.liveVersion != null &&
         status.deploy.repoVersion != null &&
         status.deploy.liveVersion !== status.deploy.repoVersion;
-      let modifiedTrackedCount = 0;
-      try {
-        const out = execFileSync('git', ['-C', project, 'status', '--porcelain', '--untracked-files=no'], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-        });
-        modifiedTrackedCount = out.split('\n').filter((l) => l.trim().length > 0).length;
-      } catch {
-        modifiedTrackedCount = 0;
-      }
+      const modifiedTrackedCount = await probeModifiedTrackedCount(project);
       const stale = versionDrift || selfLandPending || modifiedTrackedCount > 0;
       // Outcome of the LAST deploy (deploy sidecar-death fix): surfaces a cosmetic
       // deploy that used to be silent — shadow-owned :9002 (ok:false/shadow) or a

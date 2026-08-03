@@ -370,6 +370,53 @@ export function extractFailingTests(out: string): string[] {
   return [...new Set(fails)];
 }
 
+/** Detect nameless vitest unhandled-rejection failures and return a stable synthetic
+ *  test identity or null. Recognizes markers: 'Unhandled Rejection', 'Unhandled Error',
+ *  'ERR_UNHANDLED_REJECTION'. Normalizes the error message so transcripts of the same
+ *  underlying failure collapse to the same string, returning `${laneKey}::unhandled-rejection[:${normalizedHead}]`. */
+export function synthesizeLaneFailureIdentity(laneKey: string, output: string): string | null {
+  const markers = ['Unhandled Rejection', 'Unhandled Error', 'ERR_UNHANDLED_REJECTION'];
+  const lines = output.split('\n');
+  let markerIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (markers.some((m) => lines[i].includes(m))) {
+      markerIndex = i;
+      break;
+    }
+  }
+
+  if (markerIndex === -1) return null;
+
+  let head = lines[markerIndex].trim();
+  for (let i = markerIndex + 1; i < lines.length; i++) {
+    const nextLine = lines[i].trim();
+    if (nextLine) {
+      head = head + ' ' + nextLine;
+      break;
+    }
+  }
+
+  const normalize = (s: string): string => {
+    let normalized = s;
+    normalized = normalized.replace(/[/\\][^\s'"]*(?::\d+)+/g, '<loc>');
+    normalized = normalized.replace(/\/[^\s'"]+/g, '<path>');
+    normalized = normalized.replace(/\d+(?:\.\d+)?\s?m?s\b/g, '<dur>');
+    normalized = normalized.replace(/\bpid\s*\d+\b/gi, 'pid');
+    normalized = normalized.replace(/\b[0-9a-fA-F]{8,}\b/g, '<id>');
+    normalized = normalized.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, '<id>');
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+    if (normalized.length > 160) normalized = normalized.slice(0, 160);
+    return normalized;
+  };
+
+  const normalizedHead = normalize(head);
+  if (normalizedHead) {
+    return `${laneKey}::unhandled-rejection:${normalizedHead}`;
+  }
+  return `${laneKey}::unhandled-rejection`;
+}
+
 /** Failing descriptors that match NONE of the baseline substrings — the net-new
  *  regressions this leaf is responsible for. */
 export function netNewFailures(failing: readonly string[], baseline: readonly string[]): string[] {

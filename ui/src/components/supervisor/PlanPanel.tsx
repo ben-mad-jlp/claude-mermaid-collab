@@ -410,7 +410,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </div>
         ) : (
           <div className="h-full p-2">
-            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} onPromoteToEpic={handlePromoteToEpic} inflightLeafIds={inflightLeafIds} criterionTagIndex={criterionTagIndex} />
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} onPromoteToEpic={handlePromoteToEpic} inflightLeafIds={inflightLeafIds} criterionTagIndex={criterionTagIndex} onOpenEpicGraph={(epicId) => { setGraphEpicId(epicId); setMode('graph'); }} />
           </div>
         )}
       </div>

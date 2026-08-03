@@ -1,6 +1,33 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import type { FleetNode } from '../bridge/fleet/types';
+
+// Mock @xyflow/react so each node renders as a testable button (same pattern as FleetGraph.test.tsx)
+vi.mock('@xyflow/react', () => ({
+  Background: () => null,
+  Controls: () => null,
+  MiniMap: () => null,
+  Panel: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  ReactFlowProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  useReactFlow: () => ({ fitView: () => {} }),
+  ReactFlow: ({
+    nodes,
+    onNodeClick,
+  }: {
+    nodes: FleetNode[];
+    onNodeClick: (e: unknown, n: FleetNode) => void;
+  }) => (
+    <div>
+      {nodes.map((n) => (
+        <button key={n.id} data-testid={`node-${n.id}`} onClick={(e) => onNodeClick(e, n)}>
+          {n.id}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
 import PlanPanel from '../PlanPanel';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import type { SessionTodo } from '@/types/sessionTodo';
@@ -61,5 +88,33 @@ describe('PlanPanel list mode', () => {
     expect(screen.queryByText('Converge X')).toBeNull();
     expect(screen.getByText('Regular task')).toBeTruthy();
     expect(screen.getAllByTestId('plan-card')).toHaveLength(1);
+  });
+});
+
+describe('PlanPanel graph mode with epic targeting', () => {
+  beforeEach(() => {
+    useSupervisorStore.setState({
+      todosByProject: {
+        '/p': [
+          todo({ id: 'E1', title: 'Epic-E1', kind: 'epic' }),
+          todo({ id: 'E1a', status: 'ready', parentId: 'E1' }),
+          todo({ id: 'E2', title: 'Epic-E2', kind: 'epic' }),
+          todo({ id: 'E2a', status: 'ready', parentId: 'E2' }),
+        ],
+      },
+    });
+  });
+
+  it('opening the epic graph control from the kanban lane focuses the graph on that epic, not the first epic', () => {
+    render(<PlanPanel serverId="local" project="/p" />);
+    // Default mode is kanban — click the open-epic-graph button on E2's lane
+    const e2Lane = screen.getByTestId('epic-lane-E2');
+    const openGraphBtn = within(e2Lane).getByTestId('open-epic-graph');
+    fireEvent.click(openGraphBtn);
+    // After clicking, mode should be 'graph' and graphEpicId should be 'E2'
+    // The graph should render nodes for E2 and E2a, but not E1a
+    expect(screen.getByTestId('node-E2')).toBeInTheDocument();
+    expect(screen.getByTestId('node-E2a')).toBeInTheDocument();
+    expect(screen.queryByTestId('node-E1a')).toBeNull();
   });
 });

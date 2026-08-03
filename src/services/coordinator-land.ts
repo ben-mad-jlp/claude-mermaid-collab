@@ -1061,6 +1061,7 @@ async function runPostLandGuard(
   const guard = await guardPostLandTree(targetProject, {
     masterSha: land.masterSha,
     baseRef: land.baseRef,
+    baseSha: land.baseSha,
     trackedDirty,
   });
 

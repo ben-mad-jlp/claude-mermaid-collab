@@ -185,7 +185,7 @@ export const CHILDLESS_SERVE_GRACE_MS =
   (Number(process.env.MERMAID_CHILDLESS_SERVE_GRACE_MIN) || 5) * 60 * 1000;
 
 /** NO-SILENT-STOP grace: how long a mission may sit in a STALLED mission-loop reason
- *  (see mission-stall.ts's classification table — over-budget, no-owner-session,
+ *  (see mission-stall.ts's classification table — over-budget, no-nudge-target,
  *  blocked-silenced, an unhandled no-action:<status>) before the loop raises ONE
  *  human-visible card and the mission's derived status flips to 'stalled'.
  *

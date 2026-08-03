@@ -44,6 +44,7 @@ import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
+import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -288,11 +289,13 @@ export interface ConductorPassDeps {
   listLeafRuns?: typeof listLeafRuns;
   /** Injectable todo list read for the serve-cap diagnosis. Defaults to the store fn. */
   listTodos?: typeof listTodos;
+  /** Injectable conductor kill-rate exit-check arm (test spy). Defaults to runConductorKillRateArm. */
+  killRateArm?: typeof runConductorKillRateArm;
 }
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped' | 'awaiting-observation-wait';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -354,6 +357,7 @@ export function conductorStatusLine(
     case 'debounced': return 'idle — nothing to do';
     case 'building-wait': return 'building — waiting on work';
     case 'criteria-blocked': return 'waiting on a dependency';
+    case 'awaiting-observation-wait': return 'waiting on a live-observation window';
     case 'criteria-escalated': return n(counts.serveCapDeferred) ? `${n(counts.serveCapDeferred)} stuck — needs you` : 'stuck — needs you';
     case 'redecomposed': return 're-planned an epic';
     case 'over-budget-rebet': return 'over budget — needs you';
@@ -805,6 +809,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   }
 
+  // Fail-open kill-rate exit check: independent signal, never perturbs the pass reason.
+  try {
+    if (shouldRunConductorKillRateArm(project)) {
+      await (deps.killRateArm ?? runConductorKillRateArm)(project, {});
+    }
+  } catch {
+    // fail-open — the kill-rate check must never break a conductor pass
+  }
+
   let cardTriage: CardTriageArmResult = { parked: [], skipped: [] };
   try {
     cardTriage = await (deps.cardTriageArm ?? runCardTriageArm)(project, missionId, session, {});
@@ -819,20 +832,21 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   }
 
-  let redecomposed: string[] = [];
-  try { redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {})).redecomposed }
+  let redecomposed: RedecomposeArmResult['redecomposed'] = [];
+  try {
+    redecomposed = (await (deps.redecomposeArm ?? runRedecomposeArm)(project, missionId, session, {}))
+      .redecomposed;
+  }
   catch { redecomposed = [] }
-  // runRedecomposeArm returns CRITERION ids, not the newly-planned epic's id; getting the real
-  // epic id would need a second listTodos scan this leaf must not add, so the criterion id stands
-  // in for the epic the redecompose produced — the same tradeoff as infra `cardsRaised` above.
-  for (const critId of redecomposed) {
+  const filedRedecomposed = redecomposed.filter((r) => r.epicId);
+  for (const entry of filedRedecomposed) {
     filedRefs.push({
-      kind: 'epic', id: critId,
-      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === critId)?.text ?? critId}`,
+      kind: 'epic', id: entry.epicId,
+      title: `re-decomposed: ${criteriaWithActions.find((c) => c.id === entry.criterionId)?.text ?? entry.criterionId}`,
     });
   }
-  if (redecomposed.length > 0)
-    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: redecomposed.length,
+  if (filedRedecomposed.length > 0)
+    return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: filedRedecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
   const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
@@ -916,6 +930,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     // above and would otherwise fall through to an expensive, needless node invocation.
     const blockedOnly = actions.some((a) => a.action === 'blocked');
     if (blockedOnly && hardCardIds.length === 0) return done({ ran: false, reason: 'criteria-blocked', missionId });
+    // A mission whose only non-met criteria are 'awaiting-observation' (waiting on an elapsed
+    // observation window) also needs no node — the clock will satisfy them without action.
+    const awaitingObservationOnly = actions.every((a) => a.action === 'awaiting-observation' || a.action === 'dropped' || a.action === 'met');
+    if (awaitingObservationOnly && actions.some((a) => a.action === 'awaiting-observation') && hardCardIds.length === 0) {
+      return done({ ran: false, reason: 'awaiting-observation-wait', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
+    }
   }
 
   const provider = resolveNodeProvider(project, 'conductor', CONDUCTOR_ALLOWED_TOOLS);

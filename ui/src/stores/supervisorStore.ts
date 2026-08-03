@@ -507,6 +507,9 @@ interface SupervisorState {
    *  branches with commits not on master = accepted work stranded off-master.
    *  Refreshed alongside todos on the existing per-project load (no new poll). */
   unlandedEpicsByProject: Record<string, UnlandedEpic[]>;
+  /** Per-project bridge snapshot load state (ephemeral, not persisted). Tracks
+   *  loading/loaded/error status and whether data has been loaded once. */
+  bridgeSnapshotStateByProject: Record<string, { status: 'loading' | 'loaded' | 'error'; hasLoadedOnce: boolean }>;
   /** The live "needs you" set (status==='open'), each item server-stamped. THE
    *  single open-escalation source every surface selects over (design-ui-status-
    *  coherence §0/§4). Loaded/ingested independently of `resolvedEscalations` so a
@@ -581,6 +584,8 @@ interface SupervisorState {
   addProject: (serverId: string, project: string) => Promise<void>;
   removeProject: (serverId: string, project: string) => Promise<void>;
   loadProjectTodos: (serverId: string, project: string) => Promise<void>;
+  loadUnlandedEpics: (serverId: string, project: string) => Promise<void>;
+  loadBridgeSnapshot: (serverId: string, project: string) => Promise<void>;
   /** Convergence-loop missions for a project (GET /api/supervisor/missions).
    *  Returns the mission summaries, or [] on any failure (fail open — the Plan
    *  board still renders without the missions strip). */
@@ -700,6 +705,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
   todosByProject: hydrateTodosByProject(),
   unlandedEpicsByProject: {},
+  bridgeSnapshotStateByProject: {},
   sessionSummaries: {},
   pendingClears: {},
   openEscalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
@@ -919,12 +925,72 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     });
     // Fold the unlanded-epic readout into the same per-project refresh (no new
     // poll) — surfaces accepted work stranded off-master (design-epic-landing P1).
+    await get().loadUnlandedEpics(serverId, project);
+  },
+
+  loadUnlandedEpics: async (serverId, project) => {
     const ue = await invoke(serverId, `/api/supervisor/unlanded-epics?project=${encodeURIComponent(project)}`, 'GET');
-    if (ue?.ok) {
+    if (!ue?.ok) return;
+    set((state) => ({ unlandedEpicsByProject: { ...state.unlandedEpicsByProject, [project]: ue.body?.unlandedEpics ?? [] } }));
+  },
+
+  loadBridgeSnapshot: async (serverId, project) => {
+    set((state) => ({
+      bridgeSnapshotStateByProject: {
+        ...state.bridgeSnapshotStateByProject,
+        [project]: { status: 'loading', hasLoadedOnce: state.bridgeSnapshotStateByProject[project]?.hasLoadedOnce ?? false },
+      },
+    }));
+    const res = await invoke(serverId, `/api/supervisor/bridge-snapshot?project=${encodeURIComponent(project)}`, 'GET');
+    if (!res?.ok) {
       set((state) => ({
-        unlandedEpicsByProject: { ...state.unlandedEpicsByProject, [project]: ue.body?.unlandedEpics ?? [] },
+        bridgeSnapshotStateByProject: {
+          ...state.bridgeSnapshotStateByProject,
+          [project]: { status: 'error', hasLoadedOnce: true },
+        },
       }));
+      return;
     }
+
+    set((state) => {
+      const nextState: Partial<SupervisorState> = {
+        bridgeSnapshotStateByProject: {
+          ...state.bridgeSnapshotStateByProject,
+          [project]: { status: 'loaded', hasLoadedOnce: true },
+        },
+      };
+
+      // Mirror loadProjects: body.projects → watchedProjects
+      if (res.body?.projects) {
+        const watchedProjects: WatchedProject[] = res.body.projects;
+        localStorage.setItem(PROJECTS_KEY, JSON.stringify(watchedProjects));
+        nextState.watchedProjects = watchedProjects;
+      }
+
+      // Mirror loadProjectTodos: body.todos → todosByProject[project]
+      if (res.body?.todos) {
+        const todosByProject = { ...state.todosByProject, [project]: res.body.todos };
+        localStorage.setItem(TODOS_KEY, JSON.stringify(todosByProject));
+        nextState.todosByProject = todosByProject;
+      }
+
+      // Mirror loadEscalations: body.openEscalations → normalize, filter, write with epoch bump
+      if (res.body?.openEscalations) {
+        const fetched: Escalation[] = (res.body.openEscalations).map(normalizeEscalationAudience);
+        const open = fetched.filter(isOpen);
+        const partial = writeOpen(open);
+        nextState.openEscalations = partial.openEscalations;
+        nextState.escalations = partial.escalations;
+        nextState.hydrateEpoch = state.hydrateEpoch + 1;
+      }
+
+      // Guard and write coverage
+      if (res.body?.coverage) {
+        nextState.coverageByProject = { ...state.coverageByProject, [project]: res.body.coverage };
+      }
+
+      return nextState;
+    });
   },
 
   fetchMissions: async (serverId, project, session) => {

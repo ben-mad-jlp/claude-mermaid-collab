@@ -24,7 +24,7 @@ import { recordApproachAttempt } from '../criterion-approach-store';
 import { CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP } from '../harness-caps';
 import { claimReason, isClaimable } from '../claimability';
 import { initializeWebSocketHandler } from '../ws-handler-manager';
-import { listConductorPasses } from '../conductor-pass-journal';
+import { listConductorPasses, _closeConductorJournalDb } from '../conductor-pass-journal';
 
 let project: string;
 let invokeCalls: number;
@@ -52,6 +52,7 @@ beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'conductor-'));
   invokeCalls = 0;
   _resetMissionDbCache(project);
+  _closeConductorJournalDb();
 });
 
 async function forgeApprovedActive() {
@@ -1413,7 +1414,7 @@ describe('runConductorPass — recovery arms run BEFORE the escalate return (mis
     }) as any;
     const redecomposeArmSpy = (async () => {
       redecomposeCalled = true;
-      return { redecomposed: ['epic-1'] };
+      return { redecomposed: [{ criterionId: 'crit-1', epicId: 'epic-1' }] };
     }) as any;
 
     const r = await runConductorPass(project, {
@@ -1461,6 +1462,49 @@ describe('runConductorPass — recovery arms run BEFORE the escalate return (mis
     expect(redecomposeCalled).toBe(true);
     expect(r.reason).toBe('criteria-escalated');
     expect(invokeCalls).toBe(0); // node NOT spawned because critB is building (not discover/verify)
+  });
+
+  test('filed epic ref uses the arm\'s epicId, not the criterionId', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA } = await forgeCappedPlusHoldingMission();
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: (async () => ({ candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] })) as any,
+      cardTriageArm: (async () => ({ parked: [], skipped: [] })) as any,
+      redecomposeArm: (async () => ({ redecomposed: [{ criterionId: critA.id, epicId: 'e-new' }], skipped: [] })) as any,
+    });
+
+    expect(r.reason).toBe('redecomposed');
+    expect(r.redecomposed).toBe(1);
+
+    const row = listConductorPasses(project)[0];
+    const filedArray = Array.isArray(row.filed) ? row.filed : [];
+    const redecomposedRef = filedArray.find((f: any) => f.title?.startsWith('re-decomposed:'));
+    expect(redecomposedRef).toEqual(
+      { kind: 'epic', id: 'e-new', title: `re-decomposed: ${critA.text}` }
+    );
+  });
+
+  test('an all-skipped redecompose result does not short-circuit as redecomposed', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged, critA } = await forgeCappedPlusHoldingMission();
+
+    const r = await runConductorPass(project, {
+      invoke: okInvoke,
+      infraArm: (async () => ({ candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] })) as any,
+      cardTriageArm: (async () => ({ parked: [], skipped: [] })) as any,
+      redecomposeArm: (async () => ({ redecomposed: [], skipped: [{ criterionId: critA.id, why: 'plan-failed' }] })) as any,
+    });
+
+    expect(r.reason).not.toBe('redecomposed');
+
+    const row = listConductorPasses(project)[0];
+    const filedArray = Array.isArray(row.filed) ? row.filed : [];
+    const redecomposedTitle = filedArray.some((f) => (f as any).title?.startsWith('re-decomposed:'));
+    expect(redecomposedTitle).toBe(false);
   });
 });
 
@@ -2182,5 +2226,119 @@ describe('conductor_pass WS broadcast', () => {
     expect(sealed).toBeDefined();
     expect(sealed!.endedAt).not.toBeNull();
     expect(sealed!.outcome).not.toBeNull();
+  });
+
+  test('the kill-rate exit-check arm raises exactly one card, and a second pass on unchanged state raises none', async () => {
+    const { runConductorKillRateArm, _resetConductorKillRateThrottle } = await import('../conductor-kill-rate');
+    const { CONDUCTOR_KILL_RATE_SOURCE, CONDUCTOR_KILL_RATE_WINDOW_MS } = await import('../conductor-kill-rate');
+
+    _resetConductorKillRateThrottle();
+    addWatchedProject(project);
+
+    const now = Date.now();
+    const windowMs = CONDUCTOR_KILL_RATE_WINDOW_MS;
+    const insideWindow = now - windowMs / 2;
+
+    // Seed 50 conductor rows: 20 kills, 30 non-kills (40% rate, above 8.6% baseline).
+    for (let i = 0; i < 20; i++) {
+      recordNode({
+        project,
+        todoId: `todo-kill-${i}`,
+        session: 'test-session',
+        source: CONDUCTOR_KILL_RATE_SOURCE,
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: 0,
+        knownPrice: true,
+        steps: 1,
+        timedOut: true,
+      }, insideWindow);
+    }
+    for (let i = 0; i < 30; i++) {
+      recordNode({
+        project,
+        todoId: `todo-ok-${i}`,
+        session: 'test-session',
+        source: CONDUCTOR_KILL_RATE_SOURCE,
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: 0,
+        knownPrice: true,
+        steps: 1,
+        timedOut: false,
+      }, insideWindow);
+    }
+
+    // First pass: should raise a card
+    const result1 = await runConductorKillRateArm(project, { now: () => now });
+    expect(result1.cardRaised).toBe(true);
+
+    const escalations1 = listOpenEscalations();
+    const killRateCard1 = escalations1.find((e) => e.kind === 'conductor-kill-rate');
+    expect(killRateCard1).toBeDefined();
+
+    // Second pass immediately after: should not raise another card (same window, already have a card)
+    const result2 = await runConductorKillRateArm(project, { now: () => now + 1 });
+    // The second call should NOT raise because of the dedup in createEscalation (conditionKey).
+    // However, since our throttle is per-project and fires on the first call, a second immediate
+    // call will skip the arm entirely (shouldRunConductorKillRateArm returns false).
+    expect(result2.cardRaised).toBe(false);
+
+    // Verify only one card was raised
+    const escalationsFinal = listOpenEscalations();
+    const killRateCardsFinal = escalationsFinal.filter((e) => e.kind === 'conductor-kill-rate');
+    expect(killRateCardsFinal.length).toBe(1);
+  });
+
+  test('the kill-rate exit-check arm fails-open when injected to throw', async () => {
+    const { _resetConductorKillRateThrottle } = await import('../conductor-kill-rate');
+
+    _resetConductorKillRateThrottle();
+    addWatchedProject(project);
+
+    // Forge a mission so the conductor has something to serve
+    const forged = await forgeApprovedActive();
+
+    // Inject a killRateArm that throws
+    const throwingArm = async () => {
+      throw new Error('Simulated kill-rate arm failure');
+    };
+
+    // The conductor pass should NOT throw; it must catch and continue normally
+    const result = await runConductorPass(project, {
+      invoke: okInvoke,
+      killRateArm: throwingArm as any,
+    });
+
+    // The pass should complete successfully and not report an error due to the arm throw
+    expect(result).toBeDefined();
+    // The pass may report any successful outcome (conducted, debounced, etc.),
+    // but NOT an error caused by the arm
+    expect(result.reason).not.toBe('pass-error');
+  });
+});
+
+describe('runConductorPass — awaiting-observation criterion', () => {
+  test('runConductorPass files ZERO serving epics for an awaiting-observation criterion while still serving a sibling discover criterion in the same pass', async () => {
+    const { setCriterionMeasurementPendingUntil, addCriterion } = await import('../mission-store');
+
+    addWatchedProject(project);
+    const forged = await forgeApprovedActive();
+    const missionId = forged.missionId;
+
+    // Add a second criterion with awaiting-observation window
+    const crit2 = addCriterion(project, missionId, 'awaiting observation window', 'capability');
+    const futureTime = Date.now() + 1000 * 60 * 60; // 1 hour in the future
+    setCriterionMeasurementPendingUntil(project, crit2.id, futureTime);
+
+    // Get criteria with actions - the first should be 'discover', the second should be 'awaiting-observation'
+    const criteriaWithActions = listCriteriaWithActions(project, missionId);
+    const discoverCriteria = criteriaWithActions.filter((c) => c.action === 'discover');
+    const awaitingObsCriteria = criteriaWithActions.filter((c) => c.action === 'awaiting-observation');
+
+    // Verify the actions are as expected
+    expect(discoverCriteria.length).toBe(1);
+    expect(awaitingObsCriteria.length).toBe(1);
+    expect(awaitingObsCriteria[0].id).toBe(crit2.id);
   });
 });

@@ -12,7 +12,7 @@ import {
   dropCriterion, undropCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, setMissionApproved, backfillMissionNodeApproval, _resetMissionDbCache,
   liveRunsOf, deriveMissionStatus, deriveCheapMissionStatus, deriveTerminalMissionPrefix, deriveCriterionAction, collectMissionStatusFacts, type MissionCriterionFacts,
-  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun,
+  CRITERION_SERVE_CAP, CHILDLESS_SERVE_GRACE_MS, stampConductorRun, setCriterionVerdict, unverifyCriteriaForLandedPaths, listPendingRechecks, setCriterionMeasurementPendingUntil,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { claimReason } from '../claimability';
@@ -814,6 +814,37 @@ describe('per-criterion discovery', () => {
     }))).toBe('escalate');
   });
 
+  // ── Pending recheck: re-verify NOT-met criteria whose evidence was touched ──
+  test('a NOT-met criterion with a pending recheck and servedEpicCount >= CRITERION_SERVE_CAP derives verify, not escalate', () => {
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      recheckPendingAt: 150,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('verify');
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      recheckPendingAt: 150,
+      servedEpicCount: CRITERION_SERVE_CAP + 5,
+    }))).toBe('verify');
+  });
+
+  test('the same facts with NO pending recheck still derive escalate', () => {
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      recheckPendingAt: null,
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+    expect(deriveCriterionAction(crit({
+      met: false,
+      verifiedAt: 100,
+      // recheckPendingAt omitted (defaults to absent)
+      servedEpicCount: CRITERION_SERVE_CAP,
+    }))).toBe('escalate');
+  });
+
   test('collectMissionStatusFacts.servedEpicCount counts DROPPED serving epics (the thrash history the non-dropped list misses)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mission-servecap-'));
     const prevEnv = process.env.MERMAID_SUPERVISOR_DIR;
@@ -1095,6 +1126,38 @@ describe('mission handoffDocId (constitution link)', () => {
       if (prevEnv === undefined) delete process.env.MERMAID_SUPERVISOR_DIR; else process.env.MERMAID_SUPERVISOR_DIR = prevEnv;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('listMissions cheap-path capability rollup parity', () => {
+  test('listMissions(withFacts:false) capability deep-equals getMissionRollup capability', async () => {
+    const m = await makeMissionNode();
+    upsertMission(project, m);
+    const c1 = addCriterion(project, m, 'first criterion');
+    const c2 = addCriterion(project, m, 'second criterion');
+    const c3 = addCriterion(project, m, 'third criterion');
+
+    // Mark one met
+    setCriterionMet(project, c1.id, true);
+
+    // Drop one
+    dropCriterion(project, c2.id, { reason: 'out of scope', by: 'test' });
+
+    // Leave one unmet
+
+    // Cheap path (withFacts:false)
+    const cheapRows = listMissions(project, { withFacts: false });
+    const cheapMission = cheapRows.find((r) => r.node.id === m);
+    expect(cheapMission).toBeDefined();
+    const cheapCapability = cheapMission!.rollup.capability;
+
+    // Full path (withFacts:true, default)
+    const fullRollup = getMissionRollup(project, m);
+    const fullCapability = fullRollup.capability;
+
+    // Both should have: met=1, total=2, dropped=1
+    expect(cheapCapability).toEqual(fullCapability);
+    expect(cheapCapability).toEqual({ met: 1, total: 2, dropped: 1 });
   });
 });
 
@@ -1648,5 +1711,83 @@ describe('mission-store: criterion type column', () => {
 
     expect(() => addCriterion(project, missionId, 'x', 'bogus-type' as any)).toThrow();
     expect(listCriteria(project, missionId)).toHaveLength(0);
+  });
+});
+
+describe('unverifyCriteriaForLandedPaths with NOT-met criteria', () => {
+  test('unverifyCriteriaForLandedPaths enqueues a mission_recheck row for a NOT-met criterion whose evidencePaths intersect the land diff', async () => {
+    const missionId = await makeMissionNode();
+    upsertMission(project, missionId);
+    const crit = addCriterion(project, missionId, 'evidence in src/foo.ts', 'capability');
+
+    // Set a NOT-met verdict (verifiedAt != null, met === false) with evidencePaths
+    setCriterionVerdict(project, crit.id, {
+      met: false,
+      evidence: 'test failed',
+      verifiedBy: 'test-verifier',
+      verifiedAtSha: 'abc123',
+      evidencePaths: ['src/foo.ts', 'src/bar.ts'],
+    });
+
+    // Verify the criterion is NOT-met with verifiedAt set
+    let criteria = listCriteria(project, missionId);
+    expect(criteria[0].met).toBe(false);
+    expect(criteria[0].verifiedAt).not.toBeNull();
+    expect(criteria[0].evidencePaths).toEqual(['src/foo.ts', 'src/bar.ts']);
+
+    // Before the call, no recheck should exist
+    expect(listPendingRechecks(project)).toHaveLength(0);
+
+    // Call unverifyCriteriaForLandedPaths with a land that intersects the evidence
+    const landedPaths = ['src/foo.ts', 'src/other.ts'];
+    const affected = unverifyCriteriaForLandedPaths(project, landedPaths, { landedSha: 'xyz789' });
+
+    // Should have enqueued a recheck for this NOT-met criterion
+    expect(affected).toHaveLength(1);
+    expect(affected[0].criterionId).toBe(crit.id);
+    expect(affected[0].todoId).toBe(missionId);
+
+    // Verify the recheck row was enqueued
+    const rechecks = listPendingRechecks(project);
+    expect(rechecks).toHaveLength(1);
+    expect(rechecks[0].criterionId).toBe(crit.id);
+    expect(rechecks[0].reason).toBe('land-diff-intersects-unmet-evidence');
+    expect(rechecks[0].landedSha).toBe('xyz789');
+  });
+});
+
+describe('deriveCriterionAction with awaiting-observation', () => {
+  test('a criterion with an unexpired measurementPendingUntil and servedEpicCount 0 derives awaiting-observation, not discover', async () => {
+    const missionId = await makeMissionNode();
+    upsertMission(project, missionId);
+    const crit = addCriterion(project, missionId, 'wait for observation window', 'capability');
+
+    // Set measurementPendingUntil to a future timestamp
+    const futureTime = Date.now() + 1000 * 60 * 60; // 1 hour in future
+    setCriterionMeasurementPendingUntil(project, crit.id, futureTime);
+
+    // Derive facts and check the action
+    const facts = collectMissionStatusFacts(project, getMission(project, missionId)!);
+    const critFact = facts.criteria.find((c) => c.id === crit.id)!;
+    expect(deriveCriterionAction(critFact)).toBe('awaiting-observation');
+  });
+
+  test('an absent or expired window still derives discover', async () => {
+    const missionId = await makeMissionNode();
+    upsertMission(project, missionId);
+    const crit = addCriterion(project, missionId, 'window expired', 'capability');
+
+    // Case 1: measurementPendingUntil is null (absent)
+    let facts = collectMissionStatusFacts(project, getMission(project, missionId)!);
+    let critFact = facts.criteria.find((c) => c.id === crit.id)!;
+    expect(deriveCriterionAction(critFact)).toBe('discover');
+
+    // Case 2: measurementPendingUntil is expired (< now)
+    const pastTime = Date.now() - 1000 * 60 * 60; // 1 hour in past
+    setCriterionMeasurementPendingUntil(project, crit.id, pastTime);
+
+    facts = collectMissionStatusFacts(project, getMission(project, missionId)!);
+    critFact = facts.criteria.find((c) => c.id === crit.id)!;
+    expect(deriveCriterionAction(critFact)).toBe('discover');
   });
 });

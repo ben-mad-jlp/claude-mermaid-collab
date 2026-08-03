@@ -97,7 +97,7 @@ describe('conductor-pass-journal wiring', () => {
       invoke: okInvoke,
       infraArm: (async () => ({ candidates: [], reset: [], cardsRaised: 0, skipped: [], baseRepairEpics: [], reapedBaseRepairEpics: [] })) as any,
       cardTriageArm: (async () => ({ parked: [], skipped: [] })) as any,
-      redecomposeArm: (async () => ({ redecomposed: [crit.id], skipped: [] })) as any,
+      redecomposeArm: (async () => ({ redecomposed: [{ criterionId: crit.id, epicId: 'epic-redec-1' }], skipped: [] })) as any,
     });
     expect(r.reason).toBe('redecomposed');
 
@@ -105,7 +105,7 @@ describe('conductor-pass-journal wiring', () => {
     expect(row.arm).toBe('redecompose');
     expect(Array.isArray(row.filed)).toBe(true);
     expect(row.filed).toEqual([
-      { kind: 'epic', id: crit.id, title: `re-decomposed: ${crit.text}` },
+      { kind: 'epic', id: 'epic-redec-1', title: `re-decomposed: ${crit.text}` },
     ]);
   });
 

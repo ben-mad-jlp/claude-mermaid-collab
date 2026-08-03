@@ -106,6 +106,40 @@ async function createServingEpicWithRuns(
   return epic;
 }
 
+/**
+ * Seed two DISTINCT, restorable non-terminal leaves under an epic:
+ *  - a held leaf (updateTodo{status:'blocked'} → heldAt+heldReason='manual', non-terminal), and
+ *  - a leaf carrying acceptanceStatus:'pending'.
+ * These are exactly the rows the drop cascade clobbers (status→dropped, hold/acceptance→NULL),
+ * so a correct rollback must bring both back. Returns their ids for assertions.
+ */
+async function seedRestorableChildren(epicId: string) {
+  const blocked = await createTodo(project, {
+    ownerSession: 's1',
+    title: 'blocked child (held)',
+    parentId: epicId,
+    status: 'ready',
+  });
+  await updateTodo(project, blocked.id, { status: 'blocked' }); // heldAt=now, heldReason='manual'
+
+  const pending = await createTodo(project, {
+    ownerSession: 's1',
+    title: 'pending child',
+    parentId: epicId,
+    status: 'ready',
+  });
+  await updateTodo(project, pending.id, { acceptanceStatus: 'pending' });
+
+  return { blockedId: blocked.id, pendingId: pending.id };
+}
+
+/** Non-terminal (not done/dropped) children of an epic, live from the store. */
+function nonTerminalChildren(epicId: string) {
+  return listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === epicId && t.status !== 'done' && t.status !== 'dropped',
+  );
+}
+
 describe('findServingEpicForCriterion', () => {
   test('returns the newest epic serving a criterion', async () => {
     const { forged, criteria } = await seedMission();
@@ -173,6 +207,15 @@ describe('runRedecomposeArm', () => {
     const deps: RedecomposeArmDeps = {
       planMissionCriterion: async (project, opts) => {
         planCalls.push({ project, opts });
+        // Create replacement epic inside plan so it's not found by findServingEpicForCriterion first
+        const replacementEpic = await createTodo(project, {
+          ownerSession: 's1',
+          title: '[EPIC] replacement epic',
+          kind: 'epic',
+          parentId: forged.missionId,
+          servesCriterionIds: [crit.id],
+        });
+        return { epicId: replacementEpic.id };
       },
       updateTodo: async (project, id, patch) => {
         updateCalls.push({ project, id, patch });
@@ -182,7 +225,9 @@ describe('runRedecomposeArm', () => {
 
     const result = await runRedecomposeArm(project, forged.missionId, 's1', deps);
 
-    expect(result.redecomposed).toContain(crit.id);
+    expect(result.redecomposed).toHaveLength(1);
+    expect(result.redecomposed[0].criterionId).toBe(crit.id);
+    expect(result.redecomposed[0].epicId).toBeTruthy();
     expect(planCalls.length).toBe(1);
     expect(planCalls[0].opts.criterionIds).toEqual([crit.id]);
     expect(planCalls[0].opts.decompositionHint).toBeTruthy();
@@ -210,20 +255,20 @@ describe('runRedecomposeArm', () => {
       planMissionCriterion: async (project, opts) => {
         planCallCount++;
         // Create a replacement epic with churning runs so it remains actionable for the second run
-        if (opts.criterionIds?.includes(crit.id)) {
-          await createServingEpicWithRuns(
-            forged.missionId,
-            crit.id,
-            rejectedThreshold,
-            0, // also churning
-          );
-        }
+        const replacementEpic = await createServingEpicWithRuns(
+          forged.missionId,
+          crit.id,
+          rejectedThreshold,
+          0, // also churning
+        );
+        return { epicId: replacementEpic.id };
       },
       updateTodo: updateTodo,
     };
 
     const result1 = await runRedecomposeArm(project, forged.missionId, 's1', deps);
-    expect(result1.redecomposed).toContain(crit.id);
+    expect(result1.redecomposed).toHaveLength(1);
+    expect(result1.redecomposed[0].criterionId).toBe(crit.id);
     expect(planCallCount).toBe(1);
 
     // Re-run with identical state. The replacement epic is also churning, so it would normally
@@ -250,6 +295,7 @@ describe('runRedecomposeArm', () => {
     const deps: RedecomposeArmDeps = {
       planMissionCriterion: async () => {
         planCallCount++;
+        return { epicId: 'dummy-id' };
       },
     };
 
@@ -281,15 +327,18 @@ describe('runRedecomposeArm', () => {
     const deps: RedecomposeArmDeps = {
       planMissionCriterion: async (project, opts) => {
         // Simulate planner creating a new serving epic
+        let replacementEpicId: string | undefined;
         if (opts.criterionIds?.includes(crit.id)) {
-          await createTodo(project, {
+          const epic = await createTodo(project, {
             ownerSession: 's1',
             title: '[EPIC] replacement epic (redecomposed)',
             kind: 'epic',
             parentId: opts.missionId ?? forged.missionId,
             servesCriterionIds: [crit.id],
           });
+          replacementEpicId = epic.id;
         }
+        return { epicId: replacementEpicId };
       },
       updateTodo: updateTodo,
     };
@@ -302,5 +351,205 @@ describe('runRedecomposeArm', () => {
 
     // The dropped epic + the new epic both count (dropped epics are NOT excluded)
     expect(countAfter).toBe(countBefore + 1);
+  });
+
+  test('default deps invoke planMissionCriterion with expected parameters', async () => {
+    const { forged, criteria } = await seedMission();
+    const crit = criteria[0];
+    const rejectedThreshold = EPIC_CHURN_REJECT_THRESHOLD;
+
+    const epic = await createServingEpicWithRuns(
+      forged.missionId,
+      crit.id,
+      rejectedThreshold,
+      0,
+    );
+
+    const planCalls: any[] = [];
+
+    // Provide a spy on the planMissionCriterion dep to verify it's called correctly
+    const deps: RedecomposeArmDeps = {
+      planMissionCriterion: async (proj: string, opts: any) => {
+        planCalls.push({ project: proj, opts });
+        // Create replacement epic inside plan so it's not found by findServingEpicForCriterion first
+        const replacementEpic = await createTodo(project, {
+          ownerSession: 's1',
+          title: '[EPIC] replacement via default planner',
+          kind: 'epic',
+          parentId: forged.missionId,
+          servesCriterionIds: [crit.id],
+        });
+        return { epicId: replacementEpic.id };
+      },
+      updateTodo,
+    };
+
+    const result = await runRedecomposeArm(project, forged.missionId, 's1', deps);
+
+    expect(planCalls.length).toBe(1);
+    expect(planCalls[0]).toEqual(
+      expect.objectContaining({
+        project,
+        opts: expect.objectContaining({
+          missionId: forged.missionId,
+          session: 's1',
+          criterionIds: [crit.id],
+          decompositionHint: expect.any(String),
+        }),
+      }),
+    );
+    expect(result.redecomposed).toHaveLength(1);
+    expect(result.redecomposed[0].criterionId).toBe(crit.id);
+    expect(result.redecomposed[0].epicId).toBeTruthy();
+  });
+
+  test('plan failure rolls the epic status back and leaves the criterion served', async () => {
+    const { forged, criteria } = await seedMission();
+    const crit = criteria[0];
+    const rejectedThreshold = EPIC_CHURN_REJECT_THRESHOLD;
+
+    const epic = await createServingEpicWithRuns(
+      forged.missionId,
+      crit.id,
+      rejectedThreshold,
+      0,
+    );
+    const { blockedId, pendingId } = await seedRestorableChildren(epic.id);
+    const preCount = nonTerminalChildren(epic.id).length;
+
+    const deps: RedecomposeArmDeps = {
+      planMissionCriterion: async () => {
+        throw new Error('Plan failed');
+      },
+      updateTodo,
+    };
+
+    const result = await runRedecomposeArm(project, forged.missionId, 's1', deps);
+
+    expect(result.redecomposed).toHaveLength(0);
+    expect(result.skipped.some((s) => s.criterionId === crit.id && s.why === 'plan-failed')).toBe(
+      true,
+    );
+
+    // (a) epic status rolled back
+    const all = listTodos(project, { includeCompleted: true });
+    const updatedEpic = all.find((t) => t.id === epic.id);
+    expect(updatedEpic?.status).toBe(epic.status);
+
+    // (b) NO child left dropped — the cascade-dropped children were restored
+    expect(nonTerminalChildren(epic.id).length).toBe(preCount);
+
+    // (c) the held child's hold survived and the pending child's acceptance survived
+    const blocked = all.find((t) => t.id === blockedId);
+    expect(blocked?.heldAt).toBeTruthy();
+    expect(blocked?.heldReason).toBe('manual');
+    const pending = all.find((t) => t.id === pendingId);
+    expect(pending?.acceptanceStatus).toBe('pending');
+
+    // Verify criterion is still served (servedEpicCount unchanged or includes the rolled-back epic)
+    const crits = listCriteriaWithActions(project, forged.missionId);
+    const updatedCrit = crits.find((c) => c.id === crit.id);
+    expect(updatedCrit?.servingEpicState).not.toBe('none');
+  });
+
+  test('plan timeout rolls the epic status back via planTimeoutMs', async () => {
+    const { forged, criteria } = await seedMission();
+    const crit = criteria[0];
+    const rejectedThreshold = EPIC_CHURN_REJECT_THRESHOLD;
+
+    const epic = await createServingEpicWithRuns(
+      forged.missionId,
+      crit.id,
+      rejectedThreshold,
+      0,
+    );
+    const { blockedId, pendingId } = await seedRestorableChildren(epic.id);
+    const preCount = nonTerminalChildren(epic.id).length;
+
+    const deps: RedecomposeArmDeps = {
+      planMissionCriterion: async () => {
+        // Return a never-settling promise
+        return new Promise(() => {});
+      },
+      updateTodo,
+      planTimeoutMs: 10, // 10ms timeout
+    };
+
+    const result = await runRedecomposeArm(project, forged.missionId, 's1', deps);
+
+    expect(result.redecomposed).toHaveLength(0);
+    expect(result.skipped.some((s) => s.criterionId === crit.id && s.why === 'plan-timeout')).toBe(
+      true,
+    );
+
+    // (a) epic status rolled back
+    const all = listTodos(project, { includeCompleted: true });
+    const updatedEpic = all.find((t) => t.id === epic.id);
+    expect(updatedEpic?.status).toBe(epic.status);
+
+    // (b) NO child left dropped — the cascade-dropped children were restored
+    expect(nonTerminalChildren(epic.id).length).toBe(preCount);
+
+    // (c) the held child's hold survived and the pending child's acceptance survived
+    const blocked = all.find((t) => t.id === blockedId);
+    expect(blocked?.heldAt).toBeTruthy();
+    expect(blocked?.heldReason).toBe('manual');
+    const pending = all.find((t) => t.id === pendingId);
+    expect(pending?.acceptanceStatus).toBe('pending');
+
+    // Verify criterion is still served
+    const crits = listCriteriaWithActions(project, forged.missionId);
+    const updatedCrit = crits.find((c) => c.id === crit.id);
+    expect(updatedCrit?.servingEpicState).not.toBe('none');
+  });
+
+  test('plan resolving without epicId rolls back instead of recording a false redecompose', async () => {
+    const { forged, criteria } = await seedMission();
+    const crit = criteria[0];
+    const rejectedThreshold = EPIC_CHURN_REJECT_THRESHOLD;
+
+    const epic = await createServingEpicWithRuns(
+      forged.missionId,
+      crit.id,
+      rejectedThreshold,
+      0,
+    );
+    const { blockedId, pendingId } = await seedRestorableChildren(epic.id);
+    const preCount = nonTerminalChildren(epic.id).length;
+
+    const deps: RedecomposeArmDeps = {
+      planMissionCriterion: async () => {
+        // Return an empty result (no epicId)
+        return {};
+      },
+      updateTodo,
+    };
+
+    const result = await runRedecomposeArm(project, forged.missionId, 's1', deps);
+
+    expect(result.redecomposed).toHaveLength(0);
+    expect(result.skipped.some((s) => s.criterionId === crit.id && s.why === 'plan-failed')).toBe(
+      true,
+    );
+
+    // (a) epic status rolled back
+    const all = listTodos(project, { includeCompleted: true });
+    const updatedEpic = all.find((t) => t.id === epic.id);
+    expect(updatedEpic?.status).toBe(epic.status);
+
+    // (b) NO child left dropped — the cascade-dropped children were restored
+    expect(nonTerminalChildren(epic.id).length).toBe(preCount);
+
+    // (c) the held child's hold survived and the pending child's acceptance survived
+    const blocked = all.find((t) => t.id === blockedId);
+    expect(blocked?.heldAt).toBeTruthy();
+    expect(blocked?.heldReason).toBe('manual');
+    const pending = all.find((t) => t.id === pendingId);
+    expect(pending?.acceptanceStatus).toBe('pending');
+
+    // Verify criterion is still served
+    const crits = listCriteriaWithActions(project, forged.missionId);
+    const updatedCrit = crits.find((c) => c.id === crit.id);
+    expect(updatedCrit?.servingEpicState).not.toBe('none');
   });
 });

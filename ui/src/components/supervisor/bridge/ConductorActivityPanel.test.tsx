@@ -76,6 +76,31 @@ afterEach(() => {
 });
 
 describe('ConductorActivityPanel', () => {
+  it('shows the loading affordance and not the empty text while the fetch is unsettled', async () => {
+    global.fetch = vi.fn().mockImplementation(() => new Promise(() => {})) as any;
+
+    render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+    expect(screen.getByTestId('conductor-activity-loading')).toBeTruthy();
+    expect(screen.queryByText('No conductor passes yet.')).toBeNull();
+  });
+
+  it('shows the empty text once the fetch resolves with zero rows', async () => {
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ rows: [] }),
+      }),
+    ) as any;
+
+    render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No conductor passes yet.')).toBeTruthy();
+      expect(screen.queryByTestId('conductor-activity-loading')).toBeNull();
+    });
+  });
+
   it('prepends a new entry on conductor_pass WS event without refetching', async () => {
     render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
 
@@ -129,6 +154,96 @@ describe('ConductorActivityPanel', () => {
 
     fireEvent.click(screen.getByTestId('entity-chip-leaf-leaf-bbb22222'));
     expect(onOpenEntity).toHaveBeenCalledWith('leaf', 'leaf-bbb22222');
+  });
+
+  describe('grouped rendering', () => {
+    function mkGroupRow(overrides: Partial<typeof ROW_A> & { id: string; startedAt: number }) {
+      return {
+        project: 'proj1',
+        missionId: 'mission-group',
+        endedAt: 2000,
+        arm: 'node',
+        criteriaActed: [],
+        filed: [],
+        declined: [],
+        outcome: 'ok',
+        ran: true,
+        ...overrides,
+      };
+    }
+
+    it('collapses 27 identical rows into one entry with ×27 repeat annotation and first/last times', async () => {
+      const fixture = Array.from({ length: 27 }, (_, i) => mkGroupRow({ id: `p${i}`, startedAt: 1000 + i * 10 }));
+      global.fetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ rows: fixture }),
+        }),
+      ) as any;
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(1);
+      });
+
+      const repeat = screen.getByTestId('conductor-pass-repeat');
+      expect(repeat.textContent).toContain('×27');
+      const firstHM = new Date(fixture[0].startedAt).toTimeString().slice(0, 5);
+      const lastHM = new Date(fixture[26].startedAt).toTimeString().slice(0, 5);
+      expect(repeat.textContent).toContain(firstHM);
+      expect(repeat.textContent).toContain(lastHM);
+    });
+
+    it('splits the mid-sequence differing-outcome fixture into exactly three entries', async () => {
+      const fixture = Array.from({ length: 27 }, (_, i) => mkGroupRow({ id: `p${i}`, startedAt: 1000 + i * 10 }));
+      const outlier = mkGroupRow({ id: 'p-outlier', startedAt: 1135, outcome: 'different-outcome' });
+      fixture.splice(13, 0, outlier);
+
+      global.fetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ rows: fixture }),
+        }),
+      ) as any;
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(3);
+      });
+    });
+
+    it('renders a live in-flight entry showing arm, outcome and humanized nickname when rawMode is off', async () => {
+      const liveRow = mkGroupRow({
+        id: 'p-live',
+        startedAt: 5000,
+        endedAt: null,
+        arm: 'serve',
+        outcome: 'in-flight',
+        criteriaActed: [{ criterionId: 'crit-1', action: 'serve', servedEpicId: 'epic-live1111' }],
+      });
+
+      global.fetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              rows: [liveRow],
+              nicknames: { 'epic-live1111': 'brave-fox' },
+            }),
+        }),
+      ) as any;
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      const entry = await screen.findByTestId('conductor-pass-entry');
+      expect(screen.getByTestId('conductor-pass-live')).toBeTruthy();
+      expect(entry.textContent).toContain('serve');
+      expect(entry.textContent).toContain('in-flight');
+      expect(entry.textContent).toContain('brave-fox');
+      expect(entry.textContent).not.toContain('epic-live1111');
+    });
   });
 
   describe('with nicknames', () => {

@@ -36,6 +36,7 @@ export type InvariantKind =
   | 'broken-depends-on'
   | 'landed-at-divergence'
   | 'live-child-under-terminal-epic'
+  | 'phantom-open-epic'
   | 'stranded-leaf';
 
 export interface InvariantViolation {
@@ -155,22 +156,61 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
     // value whose deps are all done is just legacy noise the predicate ignores, not a violation.
   }
 
-  // Check: no live child under terminal epic. Independent loop, not nested in the
-  // `isTerminalStatus(t.status) continue` guard above, because a terminal epic must not
-  // retain any live children regardless of how it became terminal.
+  // Check: no live child under terminal ancestor (transitive). Walk each non-terminal
+  // todo's parentId upward and flag if it has a terminal epic or terminal mission
+  // ancestor. Stop at the first terminal ancestor found (nearest wins).
   for (const t of todos) {
-    if (!isEpicTodo(t)) continue;
-    const terminalEpic = isTerminalEpic(t);
-    if (!terminalEpic) continue;
-    for (const c of childrenOf.get(t.id) ?? []) {
-      if (!isTerminalStatus(c.status)) {
-        violations.push({
-          kind: 'live-child-under-terminal-epic',
-          todoId: c.id,
-          title: c.title,
-          reason: `child of terminal epic ${t.id} (status='${t.status}', landedAt=${t.landedAt ?? 'null'}) is not done/dropped (status='${c.status}')`,
-        });
+    if (isTerminalStatus(t.status)) continue;
+
+    // Walk parentId ancestry; return the nearest terminal ancestor (epic or mission), if any.
+    // Cycle-safe using the same seen-set pattern.
+    const findNearestTerminalAncestor = (): Todo | undefined => {
+      const seen = new Set<string>();
+      let cur: Todo | undefined = byId.get(t.parentId ?? '');
+      while (cur) {
+        if (seen.has(cur.id)) break;
+        seen.add(cur.id);
+
+        // Check if this ancestor is terminal
+        if (isEpicTodo(cur) && isTerminalEpic(cur)) {
+          return cur;
+        }
+        if (isMission(cur) && isTerminalStatus(cur.status)) {
+          return cur;
+        }
+
+        cur = byId.get(cur.parentId ?? '');
       }
+      return undefined;
+    };
+
+    const terminalAncestor = findNearestTerminalAncestor();
+    if (terminalAncestor) {
+      const ancestorKind = isMission(terminalAncestor) ? 'mission' : 'epic';
+      violations.push({
+        kind: 'live-child-under-terminal-epic',
+        todoId: t.id,
+        title: t.title,
+        reason: `live child of terminal epic: this todo is still ${t.status} while its nearest terminal ancestor ${terminalAncestor.id} (kind='${ancestorKind}', status='${terminalAncestor.status}') is already done/dropped`,
+      });
+    }
+  }
+
+  // Check: phantom-open-epic — a non-terminal, non-mission epic whose children are all
+  // done/dropped (terminal). This fires even when every child is simply dropped
+  // (stranded-epic cannot see this because it filters dropped children out).
+  for (const t of todos) {
+    if (isTerminalStatus(t.status)) continue;
+    if (!isEpicTodo(t) || isMission(t)) continue;
+
+    const children = childrenOf.get(t.id) ?? [];
+    if (children.length > 0 && children.every((c) => isTerminalStatus(c.status))) {
+      violations.push({
+        kind: 'phantom-open-epic',
+        todoId: t.id,
+        title: t.title,
+        reason: `epic is status='${t.status}' (open) but all ${children.length} child(ren) are terminal (done/dropped)`,
+      });
     }
   }
 

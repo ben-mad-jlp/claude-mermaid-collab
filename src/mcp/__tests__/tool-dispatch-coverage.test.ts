@@ -190,7 +190,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every SUPERVISOR_TOOL_DEFS name is wired in handleSupervisorTool', async () => {
-    expect(SUPERVISOR_TOOL_DEFS.length).toBe(23);
+    expect(SUPERVISOR_TOOL_DEFS.length).toBe(24);
     for (const def of SUPERVISOR_TOOL_DEFS) {
       expect(await isRecognized(handleSupervisorTool, def.name)).toBe(true);
     }
@@ -255,17 +255,17 @@ describe('tool dispatch coverage', () => {
         'check_server_health', 'fleet_status', 'deploy_self', 'instance_topology',
         'launch_remote_server', 'system_status', 'daemon_status', 'friction_trends',
         'orchestrator_off', 'runtime_config', 'orchestrator_status', 'set_watchdog_threshold',
-        'set_context_recycle', 'context_usage', 'list_conductor_passes',
+        'set_context_recycle', 'context_usage', 'list_conductor_passes', 'get_job',
       ]),
     );
   });
 
-  // Drives all 15 real system-tool handlers sequentially (health probes, fleet/daemon
+  // Drives all 16 real system-tool handlers sequentially (health probes, fleet/daemon
   // status, topology), so it sits right at bun's 5s default and intermittently timed out
   // at ~5001ms — which reds the epic BASE gate project-wide, blocking every leaf. Give it
   // headroom explicitly rather than let a slow-but-passing check wedge the daemon.
   it('every SYSTEM_TOOL_DEFS name is wired in handleSystemTool', async () => {
-    expect(SYSTEM_TOOL_DEFS.length).toBe(15);
+    expect(SYSTEM_TOOL_DEFS.length).toBe(16);
     for (const def of SYSTEM_TOOL_DEFS) {
       expect(await isRecognized(handleSystemTool, def.name)).toBe(true);
     }

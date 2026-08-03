@@ -6,17 +6,24 @@
  * >= EPIC_CHURN_REJECT_THRESHOLD with zero acceptedCount) is spinning its wheels. The arm
  * drops it and re-plans the criterion with a tighter decomposition hint to break the loop.
  *
- * Order is load-bearing: recordApproachAttempt → drop → plan, so a crash between drop and
- * plan cannot re-fire the rung on the next tick. And plan must follow drop or every
- * re-serve throws ServeIntegrityError (assertServeIntegrity + findServingEpic both skip
- * dropped status).
+ * Order constraint: recordApproachAttempt → drop BEFORE plan. Drop must precede plan because
+ * plan-before-drop would throw ServeIntegrityError (assertServeIntegrity checks
+ * findServingEpic, which skips dropped status). This arm compensates with a rollback on plan
+ * failure/timeout/missing epicId (§2 below): the epic status is restored if plan does not
+ * succeed, keeping the criterion actionable for retry.
  *
  * Fail OPEN: each criterion in its own try/catch — one bad probe or card-store hiccup must
  * never sink the conductor pass. A criterion that has already attempted re-decompose is
  * short-circuited by the ladder store and never fired again (one per criterion ever).
  */
 import { listCriteriaWithActions } from './mission-store.js';
-import { listTodos, updateTodo, type Todo } from './todo-store.js';
+import {
+  listTodos,
+  updateTodo,
+  snapshotDroppedDescendants,
+  restoreDroppedDescendants,
+  type Todo,
+} from './todo-store.js';
 import { isEpic } from './todo-kind.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { detectEpicChurn, buildTighterDecompositionHint } from './epic-churn.js';
@@ -24,13 +31,23 @@ import { hasAttemptedRung, recordApproachAttempt } from './criterion-approach-st
 import { todoServesCriterion } from './criterion-edges.js';
 import { raiseCriterionDropCard } from './criterion-drop-card.js';
 
+const DEFAULT_PLAN_TIMEOUT_MS = 120_000;
+
+class PlanTimeoutError extends Error {
+  constructor() {
+    super('Plan operation timed out');
+    this.name = 'PlanTimeoutError';
+  }
+}
+
 export type RedecomposeSkipReason =
   | 'no-serving-epic'
   | 'not-churning'
   | 'rung-already-attempted'
   | 'record-failed'
   | 'drop-failed'
-  | 'plan-failed';
+  | 'plan-failed'
+  | 'plan-timeout';
 
 export interface RedecomposeArmDeps {
   listCriteriaWithActions?: typeof listCriteriaWithActions;
@@ -39,12 +56,18 @@ export interface RedecomposeArmDeps {
   hasAttemptedRung?: typeof hasAttemptedRung;
   recordApproachAttempt?: typeof recordApproachAttempt;
   updateTodo?: typeof updateTodo;
+  snapshotDroppedDescendants?: typeof snapshotDroppedDescendants;
+  restoreDroppedDescendants?: typeof restoreDroppedDescendants;
   planMissionCriterion?: (project: string, opts: any) => Promise<any>;
+  planTimeoutMs?: number;
   now?: () => number;
 }
 
 export interface RedecomposeArmResult {
-  redecomposed: string[];
+  redecomposed: Array<{
+    criterionId: string;
+    epicId: string;
+  }>;
   skipped: Array<{
     criterionId: string;
     why: RedecomposeSkipReason;
@@ -92,11 +115,17 @@ export async function runRedecomposeArm(
   const hasAttemptedFn = deps.hasAttemptedRung ?? hasAttemptedRung;
   const recordAttemptFn = deps.recordApproachAttempt ?? recordApproachAttempt;
   const updateTodoFn = deps.updateTodo ?? updateTodo;
-  const planFn = deps.planMissionCriterion ?? (async () => {
-    const { planMissionCriterion: plan } = await import('../mcp/tools/mission-planner.js');
-    return plan;
-  });
+  const snapshotFn = deps.snapshotDroppedDescendants ?? snapshotDroppedDescendants;
+  const restoreFn = deps.restoreDroppedDescendants ?? restoreDroppedDescendants;
+  const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_PLAN_TIMEOUT_MS;
   const nowFn = deps.now ?? (() => Date.now());
+
+  // Resolve the real planMissionCriterion if not provided
+  let planFn = deps.planMissionCriterion;
+  if (!planFn) {
+    const { planMissionCriterion } = await import('../mcp/tools/mission-planner.js');
+    planFn = planMissionCriterion;
+  }
 
   const result: RedecomposeArmResult = { redecomposed: [], skipped: [] };
 
@@ -174,7 +203,13 @@ export async function runRedecomposeArm(
         continue;
       }
 
-      // 5. Drop the epic
+      // 5. Capture prior status + child subtree for rollback. The drop below runs a cascade
+      //    that drops every non-terminal descendant and clears their hold/acceptance; the
+      //    snapshot lets the rollback restore those children, not just the epic row.
+      const priorStatus = epic.status;
+      const childSnapshot = snapshotFn(project, epic.id);
+
+      // 6. Drop the epic
       try {
         await updateTodoFn(project, epic.id, { status: 'dropped' });
       } catch {
@@ -183,29 +218,83 @@ export async function runRedecomposeArm(
       }
       raiseCriterionDropCard({}, { subject: 'epic', project, session, missionId, reason: `re-decompose churn: ${detail}` });
 
-      // 6. Plan with tighter decomposition hint
+      // 7. Plan with tighter decomposition hint + timeout race
       try {
-        const plan = typeof planFn === 'function'
-          ? planFn
-          : (await planFn);
-
-        await plan(project, {
-          session,
-          missionId,
-          criterionIds: [criterion.id],
-          decompositionHint: buildTighterDecompositionHint({
-            priorEpicTitle: epic.title,
-            priorLeafCount,
-            distinctReasons: churn.distinctReasons,
-          }),
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new PlanTimeoutError()), planTimeoutMs);
         });
-      } catch {
-        result.skipped.push({ criterionId: criterion.id, why: 'plan-failed' });
+
+        const plan = await Promise.race([
+          planFn(project, {
+            session,
+            missionId,
+            criterionIds: [criterion.id],
+            decompositionHint: buildTighterDecompositionHint({
+              priorEpicTitle: epic.title,
+              priorLeafCount,
+              distinctReasons: churn.distinctReasons,
+            }),
+          }),
+          timeoutPromise,
+        ]);
+
+        // Check if plan result has a valid epicId
+        if (!plan?.epicId) {
+          // Rollback: restore epic status
+          try {
+            await updateTodoFn(project, epic.id, { status: priorStatus });
+          } catch {
+            // Fail-open: do not let rollback failure mask the original skip
+          }
+          try { restoreFn(project, childSnapshot); } catch { /* fail-open: rollback restore must not mask the skip */ }
+
+          // Record the attempt as failed so rung stays claimed
+          recordAttemptFn({
+            criterionId: criterion.id,
+            missionId,
+            project,
+            rung: 're-decompose',
+            epicId: epic.id,
+            outcome: 'failed',
+            detail: 'no-epic-id: plan resolved without epicId',
+            attemptedAt: nowFn(),
+          });
+
+          result.skipped.push({ criterionId: criterion.id, why: 'plan-failed' });
+          continue;
+        }
+
+        // 8. Success: push to redecomposed with the new epic id
+        result.redecomposed.push({ criterionId: criterion.id, epicId: plan.epicId });
+      } catch (err) {
+        // Determine if it's a timeout or other failure
+        const isTimeout = err instanceof PlanTimeoutError;
+        const skipReason = isTimeout ? 'plan-timeout' : 'plan-failed';
+
+        // Rollback: restore epic status
+        try {
+          await updateTodoFn(project, epic.id, { status: priorStatus });
+        } catch {
+          // Fail-open: do not let rollback failure mask the original skip
+        }
+        try { restoreFn(project, childSnapshot); } catch { /* fail-open: rollback restore must not mask the skip */ }
+
+        // Record the attempt as failed so rung stays claimed
+        const errorDetail = isTimeout ? 'plan-timeout' : 'plan-failed';
+        recordAttemptFn({
+          criterionId: criterion.id,
+          missionId,
+          project,
+          rung: 're-decompose',
+          epicId: epic.id,
+          outcome: 'failed',
+          detail: `${errorDetail}: ${err instanceof Error ? err.message : String(err)}`,
+          attemptedAt: nowFn(),
+        });
+
+        result.skipped.push({ criterionId: criterion.id, why: skipReason });
         continue;
       }
-
-      // 7. Success: push to redecomposed
-      result.redecomposed.push(criterion.id);
     } catch {
       // Fail-open per criterion — one bad iteration must not sink the arm
     }

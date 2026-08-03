@@ -942,6 +942,23 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
   } catch { return null; }
 }
 
+export function listPassingBaseGatesSince(project: string, sinceMs: number): EpicBaseGateRow[] {
+  try {
+    const rows = openDb()
+      .prepare(`SELECT * FROM epic_base_gate WHERE project=? AND status='pass' AND checkedAt>?`)
+      .all(project, sinceMs) as Array<Omit<EpicBaseGateRow, 'baselineFailures' | 'failAttempts'> & {
+        baselineFailures: string | null; failAttempts: number | null;
+      }>;
+    return rows.map((raw) => {
+      const safeParse = (x: string | null): LaneBaselineMap | null => {
+        if (x == null) return null;
+        try { return JSON.parse(x) as LaneBaselineMap; } catch { return null; }
+      };
+      return { ...raw, baselineFailures: safeParse(raw.baselineFailures), failAttempts: raw.failAttempts ?? 0 };
+    });
+  } catch { return []; }
+}
+
 /** Decide whether a cache HIT from {@link getEpicBaseGate} may be honoured as-is, or must be
  *  re-verified by actually re-running the base gate.
  *
@@ -1139,6 +1156,14 @@ export function writeTestQuarantine(r: Omit<TestQuarantineRow, 'createdAt'>, now
   } catch { /* best-effort */ }
 }
 
+/** Remove a quarantine record for a specific test. Best-effort: deletion failures are
+ *  swallowed (the record remains, caller will retry on next opportunity). */
+export function removeTestQuarantine(project: string, test: string): void {
+  try {
+    openDb().prepare('DELETE FROM test_quarantine WHERE project=? AND test=?').run(project, test);
+  } catch { /* best-effort */ }
+}
+
 // --- G10 land gate cache (epic_land_gate) --------------------------------
 export interface EpicLandGateRow {
   epicId: string;
@@ -1278,6 +1303,22 @@ export function burnBySource(q: { project?: string; since?: number } = {}): Sour
       GROUP BY source
       ORDER BY calls DESC`;
   return d.query(sql).all(...(params as never[])) as SourceBurnRow[];
+}
+
+export interface ConductorKillCounts {
+  total: number;
+  killed: number;
+}
+
+/** Aggregate count of conductor rows and how many timed out, over an optional time window. */
+export function conductorKillCounts(q: { source: string; sinceMs: number }): ConductorKillCounts {
+  const d = openDb();
+  const sql =
+    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN timedOut=1 THEN 1 ELSE 0 END),0) AS killed
+       FROM worker_ledger
+      WHERE source = ? AND ts >= ?`;
+  const row = d.query(sql).get(q.source, q.sinceMs) as { total: number; killed: number } | undefined;
+  return row ?? { total: 0, killed: 0 };
 }
 
 export interface LedgerSummary {

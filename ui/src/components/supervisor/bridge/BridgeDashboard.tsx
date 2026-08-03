@@ -12,7 +12,7 @@
  * not nest inside the stage.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionTodo } from '@/types/sessionTodo';
@@ -51,6 +51,8 @@ import { SignalsStrip } from './SignalsStrip';
 import { BridgeRail } from './rail/BridgeRail';
 import type { RailKey } from './rail/RailNav';
 import { ProjectFooter } from './rail/ProjectFooter';
+import { useMissions } from './rail/useMissions';
+import { selectActiveMissionProgress } from '@/lib/missionProgress';
 import { WorkPanel } from './rail/panels/WorkPanel';
 import { BridgeStage } from './stage/BridgeStage';
 import { BridgeInspector } from './inspector/BridgeInspector';
@@ -63,6 +65,11 @@ import { UnlandedStrip } from './UnlandedStrip';
 // cross-instance escalation that misses the per-process broadcast still surfaces
 // within the same window the worker card turns red.
 const ESCALATION_POLL_MS = 10_000;
+
+// Debounce window for coalescing bursty session_todos_updated broadcasts
+// (e.g. a leaf transitioning through several statuses in quick succession)
+// into a single refetchSnapshot() call.
+const TODO_NUDGE_DEBOUNCE_MS = 250;
 
 /** Graph-only view: hide finished noise. An epic is an epic BY DECLARED KIND
  *  (`kind === 'epic'`), never "a todo that has children" — a split leaf keeps its
@@ -112,10 +119,10 @@ export const BridgeDashboard: React.FC = () => {
   const escalations = useSupervisorStore((s) => s.escalations);
   const supervised = useSupervisorStore((s) => s.supervised);
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
-  const loadProjects = useSupervisorStore((s) => s.loadProjects);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const unlandedEpicsByProject = useSupervisorStore((s) => s.unlandedEpicsByProject);
-  const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
+  const loadBridgeSnapshot = useSupervisorStore((s) => s.loadBridgeSnapshot);
+  const loadUnlandedEpics = useSupervisorStore((s) => s.loadUnlandedEpics);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
   const loadAudit = useSupervisorStore((s) => s.loadAudit);
@@ -123,7 +130,6 @@ export const BridgeDashboard: React.FC = () => {
   const requirementsByProject = useSupervisorStore((s) => s.requirementsByProject);
   const loadRequirements = useSupervisorStore((s) => s.loadRequirements);
   const coverageByProject = useSupervisorStore((s) => s.coverageByProject);
-  const loadCoverage = useSupervisorStore((s) => s.loadCoverage);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
 
@@ -132,41 +138,36 @@ export const BridgeDashboard: React.FC = () => {
 
   const project = activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? '';
 
-  // Load the watched-project list for the active server (the unified Bridge tree
-  // in the left column reads watchedProjects; this keeps it fresh from here too).
-  useEffect(() => {
-    void loadProjects(serverScope);
-  }, [serverScope, loadProjects]);
-
   // Single place that re-fetches every Bridge store for the current scope. Run
   // on scope/project change AND on every WebSocket (re)connect — see below.
   //
   // Multi-project (design-tabbed-bridge §6 phase 2): the Project Rail + FLEET
   // status grid need per-project data for EVERY watched project, not just the
-  // active one. `loadEscalations` is one global fetch (drives all rail badges via
-  // selectOpenEscalationsByProject). The rail/grid essentials — coordinator state
-  // (dots) + todos (ready counts / idle-with-work) — are looped over every watched
-  // project so the rail is live without visiting each. The heavier detail-only
-  // loaders (audit/requirements/coverage) stay scoped to the ACTIVE project to
-  // keep resync cheap at 15+ projects (doc risk #2).
+  // active one. `loadBridgeSnapshot` is one global fetch (drives watched-projects,
+  // todos, escalations, and coverage). The rail/grid essentials — coordinator state
+  // (dots) + todos (ready counts / idle-with-work) — are loaded via the snapshot
+  // so the rail is live without visiting each. The heavier detail-only loaders
+  // (audit/requirements) stay scoped to the ACTIVE project to keep resync cheap at
+  // 15+ projects (doc risk #2).
   // Bumped by the ↺ refresh button to force an immediate worker-card (session-status)
   // re-poll — otherwise the cards only refresh on useSessionStatuses' 10s interval.
   const [statusRefreshNonce, setStatusRefreshNonce] = useState(0);
+  const todoNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refetchSnapshot = useCallback(() => {
+    if (project) void loadBridgeSnapshot(serverScope, project);
+  }, [serverScope, project, loadBridgeSnapshot]);
+
   const resyncBridge = useCallback(() => {
-    void loadEscalations(serverScope, 'open');
-    const railProjects = new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean));
-    if (project) railProjects.add(project);
-    for (const p of railProjects) {
-      void loadProjectTodos(serverScope, p);
-    }
+    refetchSnapshot();
     if (project) {
       void loadAudit(serverScope, project);
       void loadRequirements(serverScope, project);
-      void loadCoverage(serverScope, project);
+      void loadUnlandedEpics(serverScope, project);
     }
     // Force the worker cards (polled session statuses) to refresh now, not in ≤10s.
     setStatusRefreshNonce((n) => n + 1);
-  }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadAudit, loadRequirements, loadCoverage]);
+  }, [refetchSnapshot, serverScope, project, loadAudit, loadRequirements, loadUnlandedEpics]);
 
   // EXPLICIT refresh (the ↺ button) — kept separate from the automatic
   // resyncBridge effect so a deliberate click is distinguishable from
@@ -196,8 +197,12 @@ export const BridgeDashboard: React.FC = () => {
     // only resynced on mount/reconnect/manual-↺, so a server-side block left a stale
     // in-flight card. Targeted reload of just the affected project's todos.
     const msgSub = client.onMessage((msg: any) => {
-      if (msg?.type === 'session_todos_updated' && typeof msg.project === 'string' && msg.project) {
-        void loadProjectTodos(serverScope, msg.project);
+      if (msg?.type === 'session_todos_updated' && msg.project === project) {
+        if (todoNudgeTimerRef.current) clearTimeout(todoNudgeTimerRef.current);
+        todoNudgeTimerRef.current = setTimeout(() => {
+          todoNudgeTimerRef.current = null;
+          refetchSnapshot();
+        }, TODO_NUDGE_DEBOUNCE_MS);
       }
       // Live-update the Escalations inbox on the escalation_created broadcast —
       // the SAME on-demand re-poll d1367b0 gave the todo/worker cards. This is the
@@ -219,8 +224,12 @@ export const BridgeDashboard: React.FC = () => {
     for (const p of new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean))) {
       void useWorkerFabricStore.getState().hydrateFromServer(p);
     }
-    return () => { sub.unsubscribe(); msgSub.unsubscribe(); };
-  }, [resyncBridge, serverScope, loadProjectTodos, loadEscalations, watchedProjects]);
+    return () => {
+      sub.unsubscribe();
+      msgSub.unsubscribe();
+      if (todoNudgeTimerRef.current) clearTimeout(todoNudgeTimerRef.current);
+    };
+  }, [resyncBridge, serverScope, refetchSnapshot, project, loadEscalations, watchedProjects]);
 
   // The broadcast above only reaches clients on the SAME server process that
   // handled escalation_create. A CROSS-PROJECT worker can be served by a different
@@ -242,6 +251,7 @@ export const BridgeDashboard: React.FC = () => {
   // its todo's local status, so an actively-building project read 0). Prefer the daemon's
   // numbers; fall back to the local derivation until the first poll lands.
   const { daemon: leafDaemonStatus } = useLeafDaemon(project, serverScope);
+  const { missions } = useMissions(serverScope, project);
   const daemonCounts = useMemo(() => {
     if (!project || !leafDaemonStatus) return { claimable: null, inflight: null, claimableIds: null };
     const d = leafDaemonStatus;
@@ -251,6 +261,8 @@ export const BridgeDashboard: React.FC = () => {
       claimableIds: Array.isArray(d.claimSuppression?.claimableIds) ? d.claimSuppression.claimableIds : null,
     };
   }, [project, leafDaemonStatus]);
+
+  const critProgress = useMemo(() => selectActiveMissionProgress(missions), [missions]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
@@ -551,6 +563,8 @@ export const BridgeDashboard: React.FC = () => {
             inProgressCount={planStats.inProgress}
             blockedCount={planStats.blocked}
             parked={planStats.idleWithWork}
+            critMet={critProgress?.total ? critProgress.met : undefined}
+            critTotal={critProgress?.total}
             project={project}
             onRefresh={onManualRefresh}
             onOpenSettings={() => setSettingsOpen(true)}

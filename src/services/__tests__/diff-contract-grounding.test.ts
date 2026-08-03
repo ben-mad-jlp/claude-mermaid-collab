@@ -102,6 +102,21 @@ describe('groundReviewViaContract', () => {
     // named-test is mechanical, not a ballot requirement, so grounding needs no REQ line ⇒ ok.
     expect(g.status).toBe('ok');
   });
+
+  it('OK: a met invariant verdict citing an unchanged file resolves via a citationExists dep', async () => {
+    const c = makeContract([{ kind: 'invariant', id: 'inv-1', description: 'x' }]);
+    const deps = { ...makeDeps(), citationExists: () => true };
+    const g = await groundReviewViaContract('- [MET] REQ:inv-1 — src/services/unchanged.ts:42', c, diff(['src/a.test.ts']), deps);
+    expect(g.status).toBe('ok');
+  });
+
+  it('REJECTS (vacuous) the same citation when citationExists returns false, naming the offender', async () => {
+    const c = makeContract([{ kind: 'invariant', id: 'inv-1', description: 'x' }]);
+    const deps = { ...makeDeps(), citationExists: () => false };
+    const g = await groundReviewViaContract('- [MET] REQ:inv-1 — src/services/unchanged.ts:42', c, diff(['src/a.test.ts']), deps);
+    expect(g.status).toBe('vacuous');
+    expect(g.reasons.join(' ')).toMatch(/inv-1/);
+  });
 });
 
 describe('contractBallotRequirements', () => {

@@ -33,6 +33,7 @@ import {
   listCriteria,
   getMissionRollup,
   assertMissionCreationAllowed,
+  setMissionForgeState,
   type MissionCriterion,
   type MissionRollup,
   type MissionRow,
@@ -45,7 +46,8 @@ import {
 } from '../../services/decision-record-store.js';
 import { writeMissionDigest } from '../../services/mission-digest.js';
 import { stripLabel } from '../../services/todo-kind.js';
-import { deriveTodoViews, type Todo } from '../../services/todo-store.js';
+import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
+import { consumeBucketItems } from '../../services/bucket-consumption.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { recordSpend } from '../../services/spend-ledger.js';
 import { detectForwardAccrual, toOneShot, ForwardAccrualCriterionError } from '../../services/criterion-closeability.js';
@@ -87,6 +89,11 @@ export interface ForgeMissionInput {
    *  'unapproved', INACTIVE, and its constraints left PROPOSED — it sits in the list until a human
    *  approves it (approve_mission), which activates it AND ratifies the constraints so they inject. */
   approved?: boolean;
+  /** Reuse an existing `createForgeShell` mission instead of minting a new node — the async-forge seam. */
+  intoMissionId?: string;
+  /** Inbox/bugfix bucket todo ids this mission's criteria address — marked consumed (done +
+   *  promotedTo) on forge. */
+  consumesTodoIds?: string[];
 }
 
 export interface ForgeMissionResult {
@@ -98,6 +105,29 @@ export interface ForgeMissionResult {
   digestWritten: boolean;
   rollup: MissionRollup;
   ratificationMessage: string;
+  consumedBucketItems: Awaited<ReturnType<typeof consumeBucketItems>>;
+}
+
+export interface ForgeShellInput { session: string; docId: string; title?: string }
+export interface ForgeShellResult { missionId: string; node: ReturnType<typeof deriveTodoViews>[number] }
+
+export async function createForgeShell(project: string, input: ForgeShellInput): Promise<ForgeShellResult> {
+  const { session, docId } = input;
+  if (!project || !session || !docId) throw new Error('createForgeShell: project, session, and docId are required');
+  assertMissionCreationAllowed(project);
+  const placeholderTitle = stripLabel(input.title?.trim() || `Forging mission from doc ${docId}`);
+  const node = await addSessionTodo(project, session, placeholderTitle, undefined, {
+    kind: 'mission',
+    assigneeSession: session,
+  });
+  const missionId = node.id;
+  upsertMission(project, missionId, {
+    handoffDocId: docId,
+    awaitingApprovalSince: Date.now(),
+    forgeState: 'forging',
+  });
+  enqueueMission(project, missionId);
+  return { missionId, node: deriveTodoViews(project, [node as Todo])[0] };
 }
 
 /** Validate + atomically instantiate a mission and its full constitution. Throws on invalid input
@@ -122,21 +152,29 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     if (hit) throw new ForwardAccrualCriterionError(c, hit.matched);
   }
 
-  assertMissionCreationAllowed(project);
+  if (!input.intoMissionId) assertMissionCreationAllowed(project);
 
   // 1. Mission node + row + criteria (same core as create_mission).
   const approved = input.approved ?? true;
-  const node = await addSessionTodo(project, session, missionTitle, undefined, {
-    kind: 'mission',
-    assigneeSession: session,
-    description: input.description,
-  });
-  const missionId = node.id;
-  upsertMission(project, missionId, {
-    budgetUsd: input.budgetUsd ?? null,
-    handoffDocId: input.handoffDocId ?? null,
-    awaitingApprovalSince: approved ? null : Date.now(), // unapproved mission → status 'unapproved'
-  });
+  let node: Todo;
+  let missionId: string;
+  if (input.intoMissionId) {
+    missionId = input.intoMissionId;
+    if (!getMission(project, missionId)) throw new Error(`forge_mission: intoMissionId not found: ${missionId}`);
+    node = await updateTodo(project, missionId, { title: missionTitle, description: input.description });
+  } else {
+    node = await addSessionTodo(project, session, missionTitle, undefined, {
+      kind: 'mission',
+      assigneeSession: session,
+      description: input.description,
+    });
+    missionId = node.id;
+    upsertMission(project, missionId, {
+      budgetUsd: input.budgetUsd ?? null,
+      handoffDocId: input.handoffDocId ?? null,
+      awaitingApprovalSince: approved ? null : Date.now(),
+    });
+  }
   if (approved) stampMissionNodeApproved(project, missionId, session);
   const activate = (input.activate ?? true) && approved; // an unapproved mission is never the active driven one
   // One-active-per-project: never steal focus unless explicitly told to activate.
@@ -183,6 +221,10 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     digestWritten = true;
   }
 
+  const consumedBucketItems = await consumeBucketItems(project, input.consumesTodoIds ?? [], { id: missionId, kind: 'mission' });
+
+  if (input.intoMissionId) setMissionForgeState(project, missionId, null);
+
   return {
     node: deriveTodoViews(project, [node as Todo])[0],
     missionId,
@@ -192,6 +234,7 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     digestWritten,
     rollup: getMissionRollup(project, missionId),
     ratificationMessage: approved ? `forged APPROVED (self-ratified by ${session})` : 'awaiting approval',
+    consumedBucketItems,
   };
 }
 
@@ -297,6 +340,7 @@ export function buildForgePrompt(docContent: string): string {
     '  the rejected designs verbatim). Omit if none.',
     '- digest: ≤ ~2k tokens of ORIENTATION facts — where the subsystems live, the key seams, what is',
     '  vestigial. Headline facts only; every byte is a per-leaf tax. Omit if the doc is self-contained.',
+    '- consumes: inbox/bugfix bucket todo ids this mission\'s criteria address, if any. Omit if none.',
     '',
     'Emit EXACTLY ONE JSON object as your FINAL reply (optionally in a ```json fence), nothing after it:',
     '{',
@@ -305,13 +349,14 @@ export function buildForgePrompt(docContent: string): string {
     '  "criteria": ["<falsifiable capability assertion>", ...],',
     '  "constraints": [ { "rule": "<one-line hard rule>", "rationale": "<why>" } ],',
     '  "rejectedAlternatives": [ { "title": "<decision>", "rationale": "<why>", "alternatives": ["<killed design>"] } ],',
-    '  "digest": "<orientation facts, or omit>"',
+    '  "digest": "<orientation facts, or omit>",',
+    '  "consumes": ["<bucket todo id>"]',
     '}',
   ].join('\n');
 }
 
 /** Extract the mission spec JSON from the node's final text, tolerant of a ```json fence or prose. */
-export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 'description' | 'criteria' | 'constraints' | 'rejectedAlternatives' | 'digest'> {
+export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 'description' | 'criteria' | 'constraints' | 'rejectedAlternatives' | 'digest' | 'consumesTodoIds'> {
   const t = (text ?? '').trim();
   const fenced = t.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
   let jsonStr = fenced && fenced[1].includes('{') ? fenced[1] : t;
@@ -344,6 +389,7 @@ export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 
     constraints: Array.isArray(raw.constraints) ? raw.constraints.filter((c: any) => c && typeof c.rule === 'string') : [],
     rejectedAlternatives: Array.isArray(raw.rejectedAlternatives) ? raw.rejectedAlternatives.filter((r: any) => r && typeof r.title === 'string' && Array.isArray(r.alternatives)) : [],
     digest: typeof raw.digest === 'string' ? raw.digest : undefined,
+    consumesTodoIds: Array.isArray(raw.consumes) ? raw.consumes.filter((c: unknown) => typeof c === 'string' && c.trim()) : undefined,
   };
 }
 
@@ -370,6 +416,12 @@ export interface ForgeFromDocResult extends ForgeMissionResult {
   effortUsed: EffortLevel;
 }
 
+export interface ForgeFromDocAck {
+  missionId: string;
+  jobId: string;
+  status: 'forging';
+}
+
 async function defaultReadDoc(project: string, session: string, docId: string): Promise<string> {
   const { sessionRegistry } = await import('../../services/session-registry.js');
   const { DocumentManager } = await import('../../services/document-manager.js');
@@ -382,71 +434,151 @@ async function defaultReadDoc(project: string, session: string, docId: string): 
   return doc.content;
 }
 
-/** Forge a mission FROM a collab doc via a server-side `forge` node (configurable model/effort like
- *  the other daemon nodes). The node reads the doc + surveys the repo and emits a structured spec,
- *  which forgeMission instantiates as an UNAPPROVED mission (inactive, constraints proposed) that
- *  sits in the list until a human runs approve_mission. Judgment is the node's; instantiation is
- *  machinery. */
-export async function forgeMissionFromDoc(
+/** Validate inputs and set up the forge shell + background job. Returns missionId, jobId, and
+ *  the document content for the continuation to use. Throws if doc is missing/empty (no half-started job). */
+async function startForge(
   project: string,
   input: ForgeFromDocInput,
   deps: ForgeFromDocDeps = {},
-): Promise<ForgeFromDocResult> {
+): Promise<{ missionId: string; jobId: string; docContent: string }> {
   if (!project || !input.session || !input.docId) {
     throw new Error('forge_mission_from_doc: project, session, and docId are required');
   }
   const docContent = await (deps.readDoc ?? defaultReadDoc)(project, input.session, input.docId);
   if (!docContent || !docContent.trim()) throw new Error('forge_mission_from_doc: the source document is empty');
 
-  const provider = resolveNodeProvider(project, 'forge', ORCHESTRATION_NODE_PROFILE.forge.allowedTools);
-  const model = input.model ?? resolveNodeModel(project, 'forge', provider, ORCHESTRATION_NODE_PROFILE.forge.model);
-  const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'forge');
+  const shell = await createForgeShell(project, { session: input.session, docId: input.docId });
+  const { createJob, markJobRunning } = await import('../../services/async-job-store.js');
+  const job = createJob(project, { kind: 'forge-mission', targetId: shell.missionId });
+  markJobRunning(project, job.id);
 
-  const res = await (deps.invoke ?? invokeNode)({
-    prompt: buildForgePrompt(docContent),
-    model,
-    effort,
-    allowedTools: ORCHESTRATION_NODE_PROFILE.forge.allowedTools,
-    strictMcpConfig: true,
-    permissionMode: 'bypassPermissions',
-    cwd: project,
-    project,
-    transcriptLabel: 'forge',
-    skipAutoLedger: true,
-    ledgerSource: 'forge',
-  });
-  if (!res.ok || !res.text || !res.text.trim()) {
-    throw new Error(`forge_mission_from_doc: the forge node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
-  }
+  return { missionId: shell.missionId, jobId: job.id, docContent };
+}
 
-  // The mission doesn't exist until forgeMission returns, so the forge node's spend row
-  // can't be keyed to a missionId at the invoke call site above (hence skipAutoLedger).
-  // Record it here instead, in a `finally` so exactly one row is written whether or not
-  // the parse+instantiate below succeeds (todoId falls back to 'forge' on failure).
+/** The forge continuation: invoke → parse → forgeMission → recordSpend. On any error, marks the
+ *  mission forge-failed, marks the job failed, raises an escalation, and re-throws. On success,
+ *  marks the job succeeded and returns the complete result. */
+async function runForgeContinuation(
+  project: string,
+  input: ForgeFromDocInput,
+  missionId: string,
+  jobId: string,
+  deps: ForgeFromDocDeps = {},
+  docContent: string,
+): Promise<ForgeFromDocResult> {
   let spec: ReturnType<typeof parseForgeSpec> | undefined;
   let forged: ForgeMissionResult | undefined;
+  let model: string = '';
+  let effort: EffortLevel = 'high';
+
   try {
+    const provider = resolveNodeProvider(project, 'forge', ORCHESTRATION_NODE_PROFILE.forge.allowedTools);
+    model = input.model ?? resolveNodeModel(project, 'forge', provider, ORCHESTRATION_NODE_PROFILE.forge.model);
+    effort = input.effort ?? resolveOrchestrationEffort(project, 'forge');
+
+    const res = await (deps.invoke ?? invokeNode)({
+      prompt: buildForgePrompt(docContent),
+      model,
+      effort,
+      allowedTools: ORCHESTRATION_NODE_PROFILE.forge.allowedTools,
+      strictMcpConfig: true,
+      permissionMode: 'bypassPermissions',
+      cwd: project,
+      project,
+      transcriptLabel: 'forge',
+      skipAutoLedger: true,
+      ledgerSource: 'forge',
+    });
+    if (!res.ok || !res.text || !res.text.trim()) {
+      throw new Error(`forge_mission_from_doc: the forge node failed or returned no text${res.rateLimited ? ' (rate-limited)' : ''}`);
+    }
+
     spec = parseForgeSpec(res.text);
     forged = await forgeMission(project, {
       session: input.session,
       ...spec,
-      handoffDocId: input.docId, // the source doc IS the mission's constitution
-      approved: false,           // UNAPPROVED: sits in the list, inactive, constraints proposed
+      handoffDocId: input.docId,
+      approved: false,
       activate: false,
+      intoMissionId: missionId,
     });
+  } catch (err) {
+    await failForge(project, missionId, jobId, input.docId, err, input.session);
+    throw err;
   } finally {
     recordSpend({
       project,
       source: 'forge',
       nodeKind: 'forge',
       session: input.session,
-      todoId: forged?.missionId ?? 'forge',
+      todoId: forged?.missionId ?? missionId,
       model,
-      usage: res.usage,
-      durationMs: res.durationMs,
-      rateLimited: res.rateLimited,
-      ok: res.ok,
+      usage: forged ? undefined : {},
+      durationMs: 0,
+      rateLimited: false,
+      ok: !!forged,
     });
   }
+
+  const { markJobSucceeded } = await import('../../services/async-job-store.js');
+  markJobSucceeded(project, jobId, JSON.stringify({ missionId }));
   return { ...forged!, spec: spec!, modelUsed: model, effortUsed: effort };
+}
+
+/** On forge failure: mark the mission forge-failed, mark the job failed, and raise an escalation. */
+async function failForge(
+  project: string,
+  missionId: string,
+  jobId: string,
+  docId: string,
+  err: unknown,
+  session: string,
+): Promise<void> {
+  const { markJobFailed } = await import('../../services/async-job-store.js');
+  const message = err instanceof Error ? err.message : String(err);
+
+  setMissionForgeState(project, missionId, 'forge-failed');
+  markJobFailed(project, jobId, message);
+
+  try {
+    const { createEscalation } = await import('../../services/supervisor-store.js');
+    createEscalation({
+      project,
+      session,
+      kind: 'mission-forge-failed',
+      questionText: `Forge mission from doc ${docId} failed: ${message}`,
+      audience: 'human',
+      todoId: missionId,
+      conditionKey: `forge-failed:${missionId}`,
+    });
+  } catch (escalationErr) {
+    console.error('failForge: escalation creation failed:', escalationErr instanceof Error ? escalationErr.message : String(escalationErr));
+  }
+}
+
+/** Forge a mission FROM a collab doc via a server-side `forge` node (configurable model/effort like
+ *  the other daemon nodes). Acks IMMEDIATELY with {missionId, jobId, status:'forging'}; the node
+ *  reads the doc + surveys the repo and emits a structured spec, which forgeMission instantiates
+ *  as an UNAPPROVED mission (inactive, constraints proposed) that sits in the list until a human
+ *  runs approve_mission. Judgment is the node's; instantiation is machinery. Poll the jobId via
+ *  async-job-store or watch the mission's status to learn the outcome. */
+export async function forgeMissionFromDoc(
+  project: string,
+  input: ForgeFromDocInput,
+  deps: ForgeFromDocDeps = {},
+): Promise<ForgeFromDocAck> {
+  const { missionId, jobId, docContent } = await startForge(project, input, deps);
+  void runForgeContinuation(project, input, missionId, jobId, deps, docContent).catch(() => {});
+  return { missionId, jobId, status: 'forging' };
+}
+
+/** Deterministic awaited variant for tests and internal callers. Same as forgeMissionFromDoc but
+ *  awaits the background continuation. */
+export async function forgeMissionFromDocAndWait(
+  project: string,
+  input: ForgeFromDocInput,
+  deps: ForgeFromDocDeps = {},
+): Promise<ForgeFromDocResult> {
+  const { missionId, jobId, docContent } = await startForge(project, input, deps);
+  return runForgeContinuation(project, input, missionId, jobId, deps, docContent);
 }

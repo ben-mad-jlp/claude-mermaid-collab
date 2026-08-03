@@ -155,12 +155,21 @@ async function main(): Promise<void> {
 
   console.log(`Running ${files.length} backend test file(s) under bun, ${concurrency} at a time (per-file isolation)…\n`);
 
+  const PER_TEST_TIMEOUT_MS = Number(
+    args.find((a) => a.startsWith('--timeout='))?.split('=')[1] ?? process.env.BACKEND_TEST_TIMEOUT_MS ?? '30000',
+  );
+
   const failed: { file: string; output: string }[] = [];
   let done = 0;
 
   async function runOne(file: string): Promise<void> {
     const rel = path.relative(ROOT, file);
-    const proc = Bun.spawn(['bun', 'test', '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    // bun's default per-test timeout is 5000ms. This pool runs `concurrency` bun processes at
+    // once, and the git/subprocess-heavy suites (rescue-ref, mutation-check, reconcile-pass,
+    // leaf-executor) routinely exceed 5s purely from machine contention — producing a RED base
+    // gate whose failing test NAMES rotate run to run. Raise the per-test ceiling so a timeout
+    // means "hung", not "the box was busy".
+    const proc = Bun.spawn(['bun', 'test', '--timeout', String(PER_TEST_TIMEOUT_MS), '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     const code = await proc.exited;
     done++;

@@ -9,13 +9,13 @@
  */
 import { join } from 'node:path';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
-import { lastLines, extractFailingTests, SPEC_FILE_RE, netNewFailures } from './gate-runner';
+import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { activeQuarantine, promoteQuarantineCandidates } from './flaky-quarantine';
+import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
@@ -130,6 +130,9 @@ export interface LeafGateResult {
    *  step actually cleaned (empty when no restore dep or restore failed). Reporting only —
    *  never affects status semantics. */
   poisonedCheckout?: { paths: string[]; restored: string[] };
+  /** Leaf-gate only: true when the diff contains ONLY spec (test) files and a lane failed.
+   *  A leaf that ships no production change must not be accepted on a red test. */
+  hollow?: boolean;
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -561,6 +564,7 @@ export async function runLeafGate(
   spawn: GateSpawn,
   baselines?: LaneBaselineMap | null,
   resolveLaneBaseline?: (laneKey: string, commands: readonly string[], laneCwd?: string) => Promise<string[] | null>,
+  opts?: { testOnlyTyped?: boolean },
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: ['gate: none declared'], declared: false };
 
@@ -622,6 +626,9 @@ export async function runLeafGate(
   }
 
   const normalizedChangeSet = changeSet !== null ? changeSet.map(normPathLocal) : null;
+  const hollow = normalizedChangeSet !== null
+    && normalizedChangeSet.some((p) => SPEC_FILE_RE.test(p))
+    && normalizedChangeSet.every((p) => SPEC_FILE_RE.test(p));
 
   // Test section: either multi-lane or legacy single-test form.
   const lanes = resolveLanes(cfg);
@@ -700,6 +707,23 @@ export async function runLeafGate(
       if (netNew.length === 0) {
         baselineOnly.push(...failing);
       } else {
+        // A hollow diff (test-only) with net-new failing tests must be rejected. This is
+        // distinct from citability (blueprint-prose validation); a hollow verdict always
+        // resolves 'rejected' in the completion layer as well.
+        if (hollow && !opts?.testOnlyTyped) {
+          return {
+            status: 'fail',
+            command: laneFailures[0].command,
+            output,
+            reasons: [
+              'hollow-test-only-diff: the diff changes only test files and its tests fail; a leaf that ships no production change may not be accepted on a red test',
+              `${laneFailures.length} failing spec file(s)`,
+              ...netNew.slice(0, 20),
+            ],
+            declared: true,
+            hollow: true,
+          };
+        }
         return {
           status: 'fail',
           command: laneFailures[0].command,
@@ -894,9 +918,13 @@ export async function runBaseGate(
         declared: true,
       };
     }
-    const fingerprints = lane.kind === 'typecheck'
+    let fingerprints = lane.kind === 'typecheck'
       ? (parseTypecheckFiles(r.output) ?? [])
       : extractFailingTests(r.output);
+    if (r.code !== 0 && lane.kind === 'tests' && fingerprints.length === 0) {
+      const synthetic = synthesizeLaneFailureIdentity(lane.key, r.output);
+      if (synthetic) fingerprints = [synthetic];
+    }
     if (r.code !== 0) {
       // RAN-but-failed: memoize this lane's fingerprints and CONTINUE — every red lane
       // must be recorded, so no short-circuit.
@@ -988,7 +1016,8 @@ export async function resolveBaseGreen(io: {
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
-  } catch { /* best-effort: a promotion failure must never break the gate */ }
+    await closeQuarantineOnGreen(io.targetProject, io.now?.());
+  } catch { /* best-effort: a promotion or close failure must never break the gate */ }
   let result: LeafGateResult = r;
   if (r.status === 'fail' && r.baselineFailures) {
     const union = new Set<string>();
@@ -1109,7 +1138,14 @@ export function routeSpecsToLanes(specs: readonly string[], lanes: readonly Gate
 /** {file}/{files} expansion for one lane. */
 export function expandLaneCommands(lane: GateTestLane, files: readonly string[]): string[] {
   return lane.mode === 'per-file'
-    ? files.map((f) => lane.command.replace(/\{file\}/g, shellQuote(f)))
+    // Per-file mode substitutes the single file for EITHER placeholder. A lane whose
+    // template uses {files} (a batch lane) is legitimately FORCED to per-file by the epic
+    // land gate (epic-land-gate.ts runs the epic's touched files one-per-spawn). The old
+    // /\{file\}/ regex left a {files} template literal → a malformed command (e.g.
+    // `cd ui && bunx vitest {files}`) that errors and reads as a false regression →
+    // gate-failed, wedging every UI-touching land. Matching {files?} substitutes the one
+    // file for {file} OR {files}; the batch arm below is unchanged.
+    ? files.map((f) => lane.command.replace(/\{files?\}/g, shellQuote(f)))
     : [lane.command.replace(/\{files\}/g, files.map(shellQuote).join(' '))];
 }
 

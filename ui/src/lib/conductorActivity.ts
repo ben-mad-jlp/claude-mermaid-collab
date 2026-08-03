@@ -129,6 +129,53 @@ export function formatConductorPass(row: ConductorPassRow): FormattedConductorPa
   return { sentence: parts.join('. ') + '.', chips };
 }
 
+export interface ConductorPassGroup<T> {
+  key: string;
+  rows: T[];
+  count: number;
+  firstStartedAt: number;
+  lastStartedAt: number;
+  representative: T;
+  formatted: FormattedConductorPass;
+  arm: string | null;
+  outcome: string | null;
+  missionId: string | null;
+}
+
+export function groupConductorPasses(rows: ConductorPassRow[]): ConductorPassGroup<ConductorPassRow>[] {
+  const groups: ConductorPassGroup<ConductorPassRow>[] = [];
+  let current: ConductorPassGroup<ConductorPassRow> | null = null;
+  let prevFp: string | null = null;
+
+  for (const row of rows) {
+    const formatted = formatConductorPass(row);
+    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}`;
+
+    if (current && fp === prevFp) {
+      current.rows.push(row);
+      current.count += 1;
+      current.lastStartedAt = row.startedAt;
+    } else {
+      current = {
+        key: fp,
+        rows: [row],
+        count: 1,
+        firstStartedAt: row.startedAt,
+        lastStartedAt: row.startedAt,
+        representative: row,
+        formatted,
+        arm: row.arm,
+        outcome: row.outcome,
+        missionId: row.missionId,
+      };
+      groups.push(current);
+    }
+    prevFp = fp;
+  }
+
+  return groups;
+}
+
 export async function fetchConductorJournal(
   project: string,
   opts?: { missionId?: string; limit?: number },
