@@ -47,6 +47,7 @@ import {
 import { writeMissionDigest } from '../../services/mission-digest.js';
 import { stripLabel } from '../../services/todo-kind.js';
 import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
+import { consumeBucketItems } from '../../services/bucket-consumption.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { recordSpend } from '../../services/spend-ledger.js';
 import { detectForwardAccrual, toOneShot, ForwardAccrualCriterionError } from '../../services/criterion-closeability.js';
@@ -90,6 +91,9 @@ export interface ForgeMissionInput {
   approved?: boolean;
   /** Reuse an existing `createForgeShell` mission instead of minting a new node — the async-forge seam. */
   intoMissionId?: string;
+  /** Inbox/bugfix bucket todo ids this mission's criteria address — marked consumed (done +
+   *  promotedTo) on forge. */
+  consumesTodoIds?: string[];
 }
 
 export interface ForgeMissionResult {
@@ -101,6 +105,7 @@ export interface ForgeMissionResult {
   digestWritten: boolean;
   rollup: MissionRollup;
   ratificationMessage: string;
+  consumedBucketItems: Awaited<ReturnType<typeof consumeBucketItems>>;
 }
 
 export interface ForgeShellInput { session: string; docId: string; title?: string }
@@ -216,6 +221,8 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     digestWritten = true;
   }
 
+  const consumedBucketItems = await consumeBucketItems(project, input.consumesTodoIds ?? [], { id: missionId, kind: 'mission' });
+
   if (input.intoMissionId) setMissionForgeState(project, missionId, null);
 
   return {
@@ -227,6 +234,7 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     digestWritten,
     rollup: getMissionRollup(project, missionId),
     ratificationMessage: approved ? `forged APPROVED (self-ratified by ${session})` : 'awaiting approval',
+    consumedBucketItems,
   };
 }
 
@@ -332,6 +340,7 @@ export function buildForgePrompt(docContent: string): string {
     '  the rejected designs verbatim). Omit if none.',
     '- digest: ≤ ~2k tokens of ORIENTATION facts — where the subsystems live, the key seams, what is',
     '  vestigial. Headline facts only; every byte is a per-leaf tax. Omit if the doc is self-contained.',
+    '- consumes: inbox/bugfix bucket todo ids this mission\'s criteria address, if any. Omit if none.',
     '',
     'Emit EXACTLY ONE JSON object as your FINAL reply (optionally in a ```json fence), nothing after it:',
     '{',
@@ -340,13 +349,14 @@ export function buildForgePrompt(docContent: string): string {
     '  "criteria": ["<falsifiable capability assertion>", ...],',
     '  "constraints": [ { "rule": "<one-line hard rule>", "rationale": "<why>" } ],',
     '  "rejectedAlternatives": [ { "title": "<decision>", "rationale": "<why>", "alternatives": ["<killed design>"] } ],',
-    '  "digest": "<orientation facts, or omit>"',
+    '  "digest": "<orientation facts, or omit>",',
+    '  "consumes": ["<bucket todo id>"]',
     '}',
   ].join('\n');
 }
 
 /** Extract the mission spec JSON from the node's final text, tolerant of a ```json fence or prose. */
-export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 'description' | 'criteria' | 'constraints' | 'rejectedAlternatives' | 'digest'> {
+export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 'description' | 'criteria' | 'constraints' | 'rejectedAlternatives' | 'digest' | 'consumesTodoIds'> {
   const t = (text ?? '').trim();
   const fenced = t.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
   let jsonStr = fenced && fenced[1].includes('{') ? fenced[1] : t;
@@ -379,6 +389,7 @@ export function parseForgeSpec(text: string): Pick<ForgeMissionInput, 'title' | 
     constraints: Array.isArray(raw.constraints) ? raw.constraints.filter((c: any) => c && typeof c.rule === 'string') : [],
     rejectedAlternatives: Array.isArray(raw.rejectedAlternatives) ? raw.rejectedAlternatives.filter((r: any) => r && typeof r.title === 'string' && Array.isArray(r.alternatives)) : [],
     digest: typeof raw.digest === 'string' ? raw.digest : undefined,
+    consumesTodoIds: Array.isArray(raw.consumes) ? raw.consumes.filter((c: unknown) => typeof c === 'string' && c.trim()) : undefined,
   };
 }
 

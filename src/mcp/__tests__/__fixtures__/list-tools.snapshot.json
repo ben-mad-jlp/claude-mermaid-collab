@@ -6265,6 +6265,13 @@
           "activate": {
             "type": "boolean",
             "description": "Activate for the conductor session (default true); respects one-active-per-session."
+          },
+          "consumesTodoIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Inbox/bugfix bucket todo ids this mission's criteria address — marked consumed (done + promotedTo) on forge."
           }
         },
         "required": [
@@ -6385,6 +6392,13 @@
           "baseRepair": {
             "type": "boolean",
             "description": "Opt-in only, for an epic whose purpose is greening a red base lane. Disables the epic-base-red hold (G2) for this epic's leaves. Never auto-inferred."
+          },
+          "consumesTodoIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Inbox/bugfix bucket todo ids this epic's leaves address — marked consumed (done + promotedTo) once the epic instantiates."
           }
         },
         "required": [
