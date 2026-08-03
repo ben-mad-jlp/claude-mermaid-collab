@@ -2014,7 +2014,7 @@ function hasTerminalEpicAncestor(project: string, startParentId: string | null):
 }
 
 export function updateTodo(project: string, id: string, patch: UpdateTodoPatch): Promise<Todo> {
-  return withLock(project, () => {
+  return withLock(project, async () => {
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
     const fullId = resolveFullId(project, id);
@@ -2238,6 +2238,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     }
     if (nowTerminal && !wasTerminal) {
       try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
+    }
+    if (status === 'dropped' && isContainerKind({ kind: existing.kind }) && !wasTerminal) {
+      try {
+        const { reopenConsumedFor, consumerDelivered } = await import('./bucket-consumption.ts');
+        if (!consumerDelivered(project, fullId)) reopenConsumedFor(project, fullId);
+      } catch { /* best-effort cleanup */ }
     }
     return getTodo(project, id)!;
   });

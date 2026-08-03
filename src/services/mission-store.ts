@@ -599,7 +599,7 @@ export function backfillMissionNodeApproval(project: string, approvedBy = 'backf
  *  active flag (a mission you're "done with" is not being driven) — see deactivateIfTerminal;
  *  clearing abandonedAt does NOT auto-reactivate (use activateMission to drive it again, which
  *  preserves the one-active-per-session invariant). */
-export function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): MissionRow {
+export async function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): Promise<MissionRow> {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const id = m.todoId; // canonical — a short id must behave identically from here on
@@ -607,6 +607,10 @@ export function setMissionAbandoned(project: string, todoId: string, abandonedAt
     .prepare('UPDATE mission SET abandonedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(abandonedAt, nowMs(), id);
   deactivateIfTerminal(project, id);
+  if (abandonedAt != null) {
+    const { reopenConsumedFor, consumerDelivered } = await import('./bucket-consumption.ts');
+    if (!consumerDelivered(project, id)) reopenConsumedFor(project, id);
+  }
   return getMission(project, id)!;
 }
 
@@ -742,6 +746,9 @@ export function restoreMission(project: string, todoId: string): MissionRow {
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
   const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { reopenConsumedFor } = require('./bucket-consumption.ts');
+  reopenConsumedFor(project, id);
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
   import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
@@ -1123,6 +1130,8 @@ export async function dropCriterion(
       && todoServesCriterion(t, criterionId),
   );
   for (const epic of liveServingEpics) await updateTodo(project, epic.id, { status: 'dropped' });
+  const { reopenConsumedFor, consumerDelivered } = await import('./bucket-consumption.ts');
+  if (!consumerDelivered(project, criterionId)) reopenConsumedFor(project, criterionId);
 }
 
 /** Re-arm a dropped criterion to active, clearing its drop stamps. Deliberately does NOT
