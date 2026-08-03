@@ -16,6 +16,7 @@ import { config } from '../../config.js';
 import type { EffortLevel } from '../../agent/contracts.js';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, type CriterionAction } from '../../services/mission-store.js';
 import { listTodos, updateTodo, type Todo } from '../../services/todo-store.js';
+import { consumeBucketItems } from '../../services/bucket-consumption.js';
 import { todoServesCriterion } from '../../services/criterion-edges.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
@@ -54,6 +55,8 @@ export interface EpicSpec {
   title: string;
   description?: string;
   leaves: PlannedLeaf[];
+  /** Inbox/bugfix bucket todo ids this epic's leaves address, if any. */
+  consumes?: string[];
 }
 
 /** The planner NODE prompt: decompose the given criteria into ONE right-sized epic + leaves. */
@@ -79,6 +82,8 @@ export function buildPlannerPrompt(project: string, missionId: string, criteria:
     '  already delivers the criterion — grep the real code and git log, not just the todo graph. If a',
     '  leaf\'s change is already present, say so in the epic description and DROP the leaf rather than',
     '  re-planning an empty diff (the empty-diff/park failure mode).',
+    '- CONSUMES: report, via `consumes`, which inbox/bugfix bucket todo ids this epic\'s leaves',
+    '  address (or omit if none).',
     '- CHAIN ONLY WHERE TRULY ORDERED: dependsOn expresses a real ordering constraint (leaf B cannot',
     '  be written until A\'s symbol/file exists), NOT tidiness. Leaves that merely touch the same file',
     '  are still parallel — each builds in its own lane worktree and overlap resolves at merge-back.',
@@ -98,7 +103,8 @@ export function buildPlannerPrompt(project: string, missionId: string, criteria:
     '  "title": "<epic goal, bare — no role prefix>",',
     '  "description": "<what this epic delivers, one or two sentences>",',
     '  "leaves": [ { "title": "<leaf>", "description": "<files/symbols + change shape>",',
-    '               "files": ["<path>"], "dependsOn": ["$0"] } ]',
+    '               "files": ["<path>"], "dependsOn": ["$0"] } ],',
+    '  "consumes": ["<bucket todo id>"]',
     '}',
   ].join('\n');
 }
@@ -153,6 +159,7 @@ export function parseEpicSpec(text: string): EpicSpec {
       files: Array.isArray(l.files) ? l.files.filter((f: unknown) => typeof f === 'string') : undefined,
       dependsOn: Array.isArray(l.dependsOn) ? l.dependsOn.filter((d: unknown) => typeof d === 'string') : undefined,
     })),
+    consumes: Array.isArray(raw.consumes) ? raw.consumes.filter((c: unknown) => typeof c === 'string' && c.trim()) : undefined,
   };
 }
 
@@ -251,6 +258,9 @@ export interface PlanCriterionInput {
   /** Opt-in only, for an epic whose purpose is greening a red base lane. Disables the
    *  epic-base-red hold (G2) for this epic's leaves. Never auto-inferred. */
   baseRepair?: boolean;
+  /** Inbox/bugfix bucket todo ids this epic's leaves address — marked consumed (done +
+   *  promotedTo) once the epic instantiates. */
+  consumesTodoIds?: string[];
 }
 export interface PlanCriterionDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
@@ -264,6 +274,7 @@ export interface PlanCriterionResult {
   spec: EpicSpec;
   modelUsed: string;
   effortUsed: EffortLevel;
+  consumedBucketItems: Awaited<ReturnType<typeof consumeBucketItems>>;
 }
 
 function defaultResolveCriteria(project: string, missionId: string, criterionIds: string[]): { id: string; text: string }[] {
@@ -460,7 +471,12 @@ export async function planMissionCriterion(
         spec.leaves.map((l) => ({ title: l.title, description: l.description, files: l.files, dependsOn: l.dependsOn, status: 'ready' as const })),
       );
       await updateTodo(project, epic.id, { status: 'ready' }); // approve the epic for the daemon
-      return { epicId: epic.id, epic, leafIds: createdIds, spec, modelUsed: model, effortUsed: effort };
+      const consumedBucketItems = await consumeBucketItems(
+        project,
+        [...(input.consumesTodoIds ?? []), ...(spec.consumes ?? [])],
+        { id: epic.id, kind: 'epic' },
+      );
+      return { epicId: epic.id, epic, leafIds: createdIds, spec, modelUsed: model, effortUsed: effort, consumedBucketItems };
     } catch (err) {
       // On any failure during instantiation, drop the epic. Dropping cascades to every
       // non-terminal descendant, cleaning up any partially-created leaves automatically.
