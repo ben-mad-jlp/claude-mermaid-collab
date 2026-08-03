@@ -1062,17 +1062,16 @@ describe('runLeafGate — lazy per-epic base memo for the tests lane (resolveLan
     ],
   };
 
-  it('a red lane whose failures all appear in the resolver baseline ⇒ HOLLOW REJECT (not softened)', async () => {
+  it('a hollow lane whose failures all appear in the resolver baseline ⇒ softened (baseline-only, not rejected)', async () => {
     const { spawn } = stubSpawn({
       "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
     });
     const resolveLaneBaseline = async () => ['src/a.test.ts'];
     const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, null, resolveLaneBaseline);
-    // Hollow rejection takes precedence: test-only diff with failing tests is always rejected,
-    // even if the failures are baseline-only
-    expect(r.status).toBe('fail');
-    expect(r.hollow).toBe(true);
-    expect(r.reasons.some((reason) => reason.includes('hollow-test-only-diff'))).toBe(true);
+    // Baseline-only failures pass through baselineOnly path even in a hollow diff
+    expect(r.status).toBe('pass');
+    expect(r.baselineOnly).toContain('src/a.test.ts');
+    expect(r.hollow).toBeUndefined();
   });
 
   it('a lane with one net-new failure in a mixed (test+production) diff ⇒ fail naming only the new spec', async () => {
@@ -1112,15 +1111,37 @@ describe('hollow test-only diff rejection', () => {
     expect(r.reasons.some((reason) => reason.includes('hollow-test-only-diff'))).toBe(true);
   });
 
-  it('still rejects hollow when the failure is baseline-only', async () => {
+  it('softens hollow when the failure is baseline-only', async () => {
     const { spawn } = stubSpawn({
       "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
     });
     const resolveLaneBaseline = async () => ['src/a.test.ts']; // the failure is in the baseline
     const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, null, resolveLaneBaseline);
-    expect(r.status).toBe('fail');
-    expect(r.hollow).toBe(true); // hollow takes precedence over baseline-only softening
-    expect(r.reasons.some((reason) => reason.includes('hollow-test-only-diff'))).toBe(true);
+    expect(r.status).toBe('pass');
+    expect(r.baselineOnly).toContain('src/a.test.ts');
+    expect(r.hollow).toBeUndefined();
+  });
+
+  it('hollow test-only diff: baseline-only passes, net-new rejects naming the new spec, not the baseline spec', async () => {
+    const { spawn } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL src/a.test.ts' },
+      "bun test 'src/b.test.ts'": { ran: true, code: 1, output: 'FAIL src/b.test.ts' },
+    });
+    const resolveLaneBaseline = async () => ['src/a.test.ts']; // baseline covers only one
+
+    // Case 1: when all failures are in baseline, pass (hollow softened)
+    const r1 = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn, null, resolveLaneBaseline);
+    expect(r1.status).toBe('pass');
+    expect(r1.baselineOnly).toContain('src/a.test.ts');
+    expect(r1.hollow).toBeUndefined();
+
+    // Case 2: when a net-new failure exists, reject with hollow and name the net-new spec only
+    const r2 = await runLeafGate('/wt', cfg, ['src/a.test.ts', 'src/b.test.ts'], spawn, null, resolveLaneBaseline);
+    expect(r2.status).toBe('fail');
+    expect(r2.hollow).toBe(true);
+    expect(r2.reasons.some((reason) => reason.includes('hollow-test-only-diff'))).toBe(true);
+    expect(r2.reasons.some((reason) => reason.includes('src/b.test.ts'))).toBe(true);
+    expect(r2.reasons.some((reason) => reason.includes('src/a.test.ts'))).toBe(false);
   });
 
   it('ordinary netNew fail leaves hollow unset when a production file is also changed', async () => {
