@@ -98,6 +98,40 @@ function isUniqueViolation(e: unknown): boolean {
   return /UNIQUE constraint|SQLITE_CONSTRAINT/i.test(msg);
 }
 
+/** ISO timestamp generator. */
+const nowIso = () => new Date().toISOString();
+
+/**
+ * Revive a bucket row from a terminal state (done/dropped) to planned, clearing all
+ * completion and acceptance markers. Idempotent: calling on an already-planned row
+ * changes only the `updatedAt` timestamp.
+ *
+ * If `type` is non-null, also sets `bucketType` (e.g., when stamping a legacy row).
+ * If `type` is null, leaves the existing `bucketType` untouched.
+ */
+export function reviveBucketRow(
+  db: ReturnType<typeof import('./todo-store.ts').openDb>,
+  id: string,
+  type: BucketType | null,
+): void {
+  const binds: (string | null)[] = [];
+  let sql = `UPDATE todos SET
+    status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL,
+    hollowLandedAt=NULL, isBucket=1, heldAt=NULL, heldReason=NULL, updatedAt=?`;
+
+  binds.push(nowIso());
+
+  if (type != null) {
+    sql += `, bucketType=?`;
+    binds.push(type);
+  }
+
+  sql += ` WHERE id=?`;
+  binds.push(id);
+
+  db.prepare(sql).run(...binds);
+}
+
 /**
  * Find-or-create the singleton bucket epic for (project, type) and return its id.
  * This is the ONLY runtime writer of a non-null `bucketType` (the migration backfill is
@@ -140,13 +174,11 @@ export async function ensureBucket(project: string, type: BucketType): Promise<s
   };
   const hit = typed();
   if (hit) {
-    // Revive if terminal: drop to planned and clear completion/acceptance/land markers.
-    if (hit.status === 'done' || hit.status === 'dropped') {
-      const db = store.openDb(project);
-      db.prepare(
-        `UPDATE todos SET status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL WHERE id=?`
-      ).run(hit.id);
-    }
+    // Always revive: idempotent operation that ensures bucket is planned, clears all
+    // terminal markers, and updates updatedAt. Idempotent — calling on an already-planned
+    // row changes only updatedAt.
+    const db = store.openDb(project);
+    reviveBucketRow(db, hit.id, null);
     verifyNotTerminal(hit.id);
     return hit.id;
   }
@@ -168,13 +200,7 @@ export async function ensureBucket(project: string, type: BucketType): Promise<s
                  legacy.find((x) => x.status === 'dropped');
   if (chosen) {
     const db = store.openDb(project);
-    db.prepare(`UPDATE todos SET bucketType = ?, isBucket = 1 WHERE id = ?`).run(type, chosen.id);
-    // Revive if terminal (status 'done' or 'dropped').
-    if (chosen.status === 'done' || chosen.status === 'dropped') {
-      db.prepare(
-        `UPDATE todos SET status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL WHERE id=?`
-      ).run(chosen.id);
-    }
+    reviveBucketRow(db, chosen.id, type);
     verifyNotTerminal(chosen.id);
     return chosen.id;
   }
@@ -198,9 +224,7 @@ export async function ensureBucket(project: string, type: BucketType): Promise<s
         // Defensive: revive if race-condition created a terminal singleton.
         if (again.status === 'done' || again.status === 'dropped') {
           const db = store.openDb(project);
-          db.prepare(
-            `UPDATE todos SET status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL WHERE id=?`
-          ).run(again.id);
+          reviveBucketRow(db, again.id, null);
         }
         verifyNotTerminal(again.id);
         return again.id;
