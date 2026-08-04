@@ -154,6 +154,12 @@ function coerce(raw: unknown): OrchestratorLevel {
   return coalesceLevel(raw);
 }
 
+/** True when `project` is a transient path (e.g. /tmp junk, a worktree lane) that must
+ *  never receive a durable orchestrator_config / node_profile_override write. */
+function refuseTransient(project: string): boolean {
+  return isTransientProjectPath(project);
+}
+
 /** Return the persisted autonomy level for a project. Defaults to 'build' when unset. */
 export function getOrchestratorLevel(project: string): OrchestratorLevel {
   const d = openDb();
@@ -174,6 +180,7 @@ export function listOrchestratorProjects(): Array<{ project: string; level: Orch
 
 /** Persist the autonomy level for a project. Unknown values are clamped to 'build'. */
 export function setOrchestratorLevel(project: string, level: OrchestratorLevel): void {
+  if (refuseTransient(project)) return;
   const safe = coerce(level);
   const d = openDb();
   d.prepare(
@@ -197,6 +204,7 @@ export function getProjectPoolSize(project: string): number | null {
 /** Persist a per-project pool size. Pass null to clear (revert to the global
  *  default). Stored clamped to [1, MAX_POOL_SIZE]. */
 export function setProjectPoolSize(project: string, size: number | null): void {
+  if (refuseTransient(project)) return;
   const d = openDb();
   const value = size == null ? null : clampPoolSize(size);
   // Upsert: keep the existing level (or its 'on' default) when inserting a fresh row.
@@ -234,6 +242,7 @@ export function getProjectInflightCap(project: string): number | null {
  *  Kept in LOCKSTEP with poolSize by the caller so the worker pool never bottlenecks
  *  below the concurrency cap. Stored clamped to [1, 32]. */
 export function setProjectInflightCap(project: string, cap: number | null): void {
+  if (refuseTransient(project)) return;
   const d = openDb();
   const value = cap == null ? null : clampInflightCap(cap);
   d.prepare(
@@ -265,6 +274,7 @@ export function getProjectNodeProvider(project: string): NodeProviderId | null {
 /** Persist a per-project default provider. Pass null to clear (revert to env/config/claude).
  *  Rejects anything other than 'claude' | 'grok-build' by clearing. */
 export function setProjectNodeProvider(project: string, provider: NodeProviderId | null): void {
+  if (refuseTransient(project)) return;
   const d = openDb();
   const value = asNodeProvider(provider);
   d.prepare(
@@ -289,6 +299,7 @@ export function getProjectEffort(project: string): EffortLevel | null {
 /** Persist a per-project effort override. Pass null to clear (→ 'auto'/defaults).
  *  An invalid level is treated as null. */
 export function setProjectEffort(project: string, effort: EffortLevel | null): void {
+  if (refuseTransient(project)) return;
   const d = openDb();
   const value = effort != null && (EFFORT_LEVELS as string[]).includes(effort) ? effort : null;
   d.prepare(
@@ -337,6 +348,7 @@ export function setNodeProfileOverride(
   effort: EffortLevel | null,
   provider: NodeProviderId | null = null,
 ): void {
+  if (refuseTransient(project)) return;
   const d = openDb();
   const m = model && model.trim() ? model.trim() : null;
   const e = effort != null && (EFFORT_LEVELS as string[]).includes(effort) ? effort : null;
@@ -372,7 +384,7 @@ export function copyNodeProfilesTo(
 
   const apply = d.transaction((targets: string[]) => {
     for (const t of targets) {
-      if (t === sourceProject) continue;
+      if (t === sourceProject || refuseTransient(t)) continue;
 
       const existing = listNodeProfileOverrides(t);
       const preservedKinds: string[] = [];
