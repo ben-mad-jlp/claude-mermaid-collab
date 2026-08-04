@@ -5882,6 +5882,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "project": {
+            "type": "string",
+            "description": "Optional: scope the id to this project so an unknown id reports where it actually lives."
+          },
           "leafId": {
             "type": "string",
             "description": "Leaf/todo id or prefix is NOT accepted — pass the full id (same value as todoId)."
