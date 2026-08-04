@@ -4504,7 +4504,7 @@
     },
     {
       "name": "escalation_resolve",
-      "description": "Resolve an escalation by id with a status. When status is \"acknowledged\", routes to acknowledgeEscalation instead of resolveEscalation.",
+      "description": "Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is \"acknowledged\", routes to acknowledgeEscalation instead of resolveEscalation.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4513,6 +4513,10 @@
           },
           "status": {
             "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "Free-text resolution note/prose — put explanatory text here, not in status."
           },
           "supervisorEpoch": {
             "type": "number",

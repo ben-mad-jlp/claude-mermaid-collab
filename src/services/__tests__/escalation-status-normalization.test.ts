@@ -230,4 +230,40 @@ describe('escalation-status-normalization', () => {
     expect(status).toBe('resolved');
     expect(note).toBe('some garbage status | plus explicit note');
   });
+
+  it('escalation_resolve stores note as resolutionNote via handleSupervisorTool', async () => {
+    const { handleSupervisorTool } = await import('../../mcp/supervisor-tools.js');
+    const project = '/test/project-tool';
+    const session = 'tool-test-session';
+
+    // Create an escalation
+    const createResponse = await handleSupervisorTool('escalation_create', {
+      project,
+      session,
+      kind: 'test-resolution-note',
+      questionText: 'Does this tool work?',
+      audience: 'human',
+    });
+
+    const createParsed = JSON.parse(createResponse!);
+    const id = createParsed.id;
+
+    // Resolve it with a note via the tool handler
+    const resolveResponse = await handleSupervisorTool('escalation_resolve', {
+      id,
+      status: 'resolved',
+      note: 'This is my resolution note',
+    });
+
+    const resolveParsed = JSON.parse(resolveResponse!);
+    expect(resolveParsed.success).toBe(true);
+    expect(resolveParsed.status).toBe('resolved');
+    expect(resolveParsed.note).toBe('This is my resolution note');
+
+    // Verify the stored escalation has the note
+    const stored = getEscalation(id);
+    expect(stored).toBeDefined();
+    expect(stored!.status).toBe('resolved');
+    expect(stored!.resolutionNote).toBe('This is my resolution note');
+  });
 });
