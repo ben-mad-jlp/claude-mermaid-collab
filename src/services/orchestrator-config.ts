@@ -9,12 +9,13 @@
  */
 
 import Database from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { POOL_CONFIG, poolConfigForSize, clampPoolSize, type PoolConfig } from './worker-pool';
 import type { EffortLevel } from '../agent/contracts';
 import { createEscalation, recordSupervisorAudit } from './supervisor-store.js';
+import { isTransientProjectPath } from './project-registry.js';
 
 /** Valid reasoning-effort levels (mirrors the CLI --effort scale). */
 export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -462,4 +463,88 @@ export function emitAutoCollapseNotices(): void {
       console.warn(`[orchestrator-config] Failed to emit auto-collapse notice for ${project}:`, err);
     }
   }
+}
+
+/** Delete orchestrator_config and node_profile_override rows for a project and all
+ *  its worktree children (path and path + '/.collab/agent-sessions/%'). Returns the
+ *  number of rows deleted from each table. */
+export function pruneProjectConfig(project: string): { orchestratorConfig: number; nodeProfileOverride: number } {
+  const d = openDb();
+
+  // Delete orchestrator_config for the project and its worktree children
+  const pattern = project + '/.collab/agent-sessions/%';
+  const configResult = d
+    .prepare('DELETE FROM orchestrator_config WHERE project = ? OR project LIKE ?')
+    .run(project, pattern);
+  const configDeleted = configResult.changes;
+
+  // Delete node_profile_override for the project and its worktree children
+  const npoResult = d
+    .prepare('DELETE FROM node_profile_override WHERE project = ? OR project LIKE ?')
+    .run(project, pattern);
+  const npoDeleted = npoResult.changes;
+
+  return { orchestratorConfig: configDeleted, nodeProfileOverride: npoDeleted };
+}
+
+/** Sweep stale and transient projects from orchestrator_config and node_profile_override.
+ *  Deletes:
+ *  - orchestrator_config rows where (isTransientProjectPath || !existsSync) AND coalesceLevel === 'off'
+ *  - node_profile_override rows for the same project set when orchestrator_config is absent
+ *    OR orchestrator_config.level coalesces to 'off'
+ *  Returns the number of rows deleted from each table and the list of pruned project paths. */
+export function sweepTransientProjectConfig(): { orchestratorConfig: number; nodeProfileOverride: number; projects: string[] } {
+  const d = openDb();
+
+  // Union of all distinct projects from both tables
+  const configProjects = d
+    .query('SELECT DISTINCT project FROM orchestrator_config')
+    .all() as Array<{ project: string }>;
+  const npoProjects = d
+    .query('SELECT DISTINCT project FROM node_profile_override')
+    .all() as Array<{ project: string }>;
+
+  const allProjects = new Set([
+    ...configProjects.map(r => r.project),
+    ...npoProjects.map(r => r.project),
+  ]);
+
+  let configDeleted = 0;
+  let npoDeleted = 0;
+  const prunedProjects: string[] = [];
+
+  for (const project of allProjects) {
+    const configRow = d
+      .query('SELECT level FROM orchestrator_config WHERE project = ?')
+      .get(project) as { level: string } | undefined;
+
+    const level = coalesceLevel(configRow?.level);
+    const isTransient = isTransientProjectPath(project);
+    const missing = !existsSync(project);
+    const shouldDeleteConfig = (isTransient || missing) && level === 'off';
+
+    if (shouldDeleteConfig) {
+      const result = d
+        .prepare('DELETE FROM orchestrator_config WHERE project = ?')
+        .run(project);
+      configDeleted += result.changes;
+      prunedProjects.push(project);
+    }
+
+    // Delete node_profile_override rows when:
+    // (transient or missing) AND (no orchestrator_config row OR level === 'off')
+    if (isTransient || missing) {
+      if (configRow === undefined || level === 'off') {
+        const result = d
+          .prepare('DELETE FROM node_profile_override WHERE project = ?')
+          .run(project);
+        npoDeleted += result.changes;
+        if (!prunedProjects.includes(project)) {
+          prunedProjects.push(project);
+        }
+      }
+    }
+  }
+
+  return { orchestratorConfig: configDeleted, nodeProfileOverride: npoDeleted, projects: prunedProjects };
 }
