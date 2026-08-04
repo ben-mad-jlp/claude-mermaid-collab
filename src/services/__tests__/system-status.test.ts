@@ -59,6 +59,7 @@ function inputs(overrides: Partial<SystemStatusInputs> = {}): SystemStatusInputs
     coldStartsInFlight: 0,
     fleet: fleet(),
     violations: [],
+    sessionVisibility: { checkedSessions: 0, liveSessions: 0, invisible: [], violationCount: 0 },
     topology: topology(),
     repoVersion: '5.92.19',
     repoHead: 'abc1234',
@@ -158,5 +159,30 @@ describe('summarizeSystemStatus', () => {
     const s = summarizeSystemStatus(inputs());
     expect(s.pointers.orchestrator).toBe('orchestrator_status');
     expect(s.pointers.instances).toBe('instance_topology');
+  });
+
+  test('summarizeSystemStatus surfaces an invisible live session count and key', () => {
+    const invisibleSession = {
+      project: '/p',
+      session: 'invisible-session',
+      status: 'active' as const,
+      updatedAt: 800,
+      ageMs: 200,
+      surfaces: { watchingList: false, supervisorPanel: false, picker: false },
+      reason: 'not in watched_session; not in session-registry list()',
+    };
+    const s = summarizeSystemStatus(
+      inputs({
+        sessionVisibility: {
+          checkedSessions: 5,
+          liveSessions: 3,
+          invisible: [invisibleSession],
+          violationCount: 1,
+        },
+      }),
+    );
+    expect(s.sessionVisibility.liveChecked).toBe(3);
+    expect(s.sessionVisibility.invisibleCount).toBe(1);
+    expect(s.sessionVisibility.sessions).toContain('/p:invisible-session');
   });
 });

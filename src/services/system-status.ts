@@ -37,6 +37,7 @@ import { join } from 'node:path';
 
 import { getFleetStatus, type FleetStatus } from './fleet-status';
 import { checkInvariants, type InvariantViolation } from './invariant-check';
+import { checkSessionVisibility, type SessionVisibilityReport } from './session-visibility-invariant';
 import { instanceTopology, type InstanceTopology } from './instance-topology';
 import { getOrchestratorHealth } from './orchestrator-live.js';
 import { getColdStartsInFlight } from './coordinator-live';
@@ -98,6 +99,12 @@ export interface SystemStatus {
     violationCount: number;
     /** the distinct violation kinds present (for a one-glance read). */
     kinds: string[];
+  };
+  /** session_visibility_invariant rollup. */
+  sessionVisibility: {
+    liveChecked: number;
+    invisibleCount: number;
+    sessions: string[];
   };
   /** instance_topology rollup — canonical-server confirmation vs shadows. */
   instances: {
@@ -167,6 +174,7 @@ export interface SystemStatusInputs {
   coldStartsInFlight: number;
   fleet: FleetStatus;
   violations: InvariantViolation[];
+  sessionVisibility: SessionVisibilityReport;
   topology: InstanceTopology;
   repoVersion: string | null;
   repoHead: string | null;
@@ -224,6 +232,11 @@ export function summarizeSystemStatus(inp: SystemStatusInputs): SystemStatus {
       violationCount: inp.violations.length,
       kinds,
     },
+    sessionVisibility: {
+      liveChecked: inp.sessionVisibility.liveSessions,
+      invisibleCount: inp.sessionVisibility.violationCount,
+      sessions: inp.sessionVisibility.invisible.map((v) => `${v.project}:${v.session}`),
+    },
     instances: {
       canonicalConfirmed: topology.canonicalHolder != null,
       canonicalHolder: topology.canonicalHolder,
@@ -251,6 +264,7 @@ export function summarizeSystemStatus(inp: SystemStatusInputs): SystemStatus {
       orchestrator: 'orchestrator_status',
       fleet: 'fleet_status',
       invariants: 'invariant_check',
+      sessionVisibility: 'list_subscriptions / list_sessions',
       instances: 'instance_topology',
       inbox: 'escalation_list / supervisor_next_decision',
       pause: 'supervisor_pause_status',
@@ -280,6 +294,7 @@ export async function systemStatus(project: string, deps: SystemStatusDeps = {})
   const coldStartsInFlight = getColdStartsInFlight();
   const fleet = await getFleetStatus(project, now);
   const violations = await checkInvariants(project);
+  const sessionVisibility = await checkSessionVisibility(project);
   const topology = await instanceTopology();
   const repoVersion = repoVersionFn(project);
   const { head: repoHead, uncommittedCount } = gitInfoFn(project);
@@ -292,6 +307,7 @@ export async function systemStatus(project: string, deps: SystemStatusDeps = {})
     coldStartsInFlight,
     fleet,
     violations,
+    sessionVisibility,
     topology,
     repoVersion,
     repoHead,
