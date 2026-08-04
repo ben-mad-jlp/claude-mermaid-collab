@@ -58,6 +58,20 @@ describe('deriveSystemNodes', () => {
     expect(nodes.some((n) => n.kind === 'supervisor')).toBe(false);
     expect(nodes.find((n) => n.session === 'w1')?.parentId).toBeUndefined();
   });
+
+  it('a stale membership row still produces its worker node', () => {
+    const input: DeriveInput = {
+      ...base,
+      supervised: [
+        ...base.supervised,
+        { project: '/p', session: 'w4', stale: true },
+      ],
+    };
+    const nodes = deriveSystemNodes(input);
+    const w4 = nodes.find((n) => n.session === 'w4');
+    expect(w4?.kind).toBe('worker');
+    expect(w4?.status).toBe('unknown'); // mapStatus(undefined) → 'unknown' (no subscription)
+  });
 });
 
 describe('supervisorLiveness', () => {

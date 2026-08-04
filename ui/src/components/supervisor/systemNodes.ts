@@ -28,7 +28,7 @@ import { selectSessionStatus, type SessionStatus } from '@/lib/statusSelectors';
 export interface DeriveInput {
   config: { supervisorProject?: string; supervisorSession?: string } | null;
   /** Pure MEMBERSHIP list — which sessions are watched. Never a liveness source. */
-  supervised: Array<{ project: string; session: string; serverId?: string }>;
+  supervised: Array<{ project: string; session: string; serverId?: string; stale?: boolean }>;
   /** The subscriptionStore map (`serverId:project:session` → status) — the one liveness truth. */
   subscriptions: Record<string, SessionStatus>;
   /** The open "needs you" set (supervisorStore.openEscalations slice). */
