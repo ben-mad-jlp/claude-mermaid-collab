@@ -171,6 +171,9 @@ export interface Escalation {
   lastSeenAt: number | null;
   /** How many times this condition has recurred while open/acknowledged. Defaults 0. */
   recurrenceCount: number;
+  /** Trailing prose note attached to a resolved escalation, preserving context from
+   *  prose-status legacy rows or explicit caller notes. Null while open or before resolution. */
+  resolutionNote: string | null;
 }
 
 export const ESCALATION_KINDS = [
@@ -380,6 +383,37 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'conditionHash', 'conditionHash TEXT');
   addColumnIfMissing(db, 'escalation', 'lastSeenAt', 'lastSeenAt INTEGER');
   addColumnIfMissing(db, 'escalation', 'recurrenceCount', 'recurrenceCount INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'escalation', 'resolutionNote', 'resolutionNote TEXT');
+  // One-shot backfill: migrate legacy prose-status rows to canonical status + resolutionNote.
+  // Guard with `WHERE resolutionNote IS NULL` so a second run (already backfilled) touches 0 rows.
+  // This query handles both `:` and ` - ` delimiters commonly found in prose status strings.
+  const unmigratedRows = db.query(
+    "SELECT id, status FROM escalation WHERE resolutionNote IS NULL AND status NOT IN ('open','acknowledged','resolved','stale','decided','superseded','obsolete','linear') AND (status LIKE '%:%' OR status LIKE '% - %')"
+  ).all() as Array<{ id: string; status: string }>;
+  for (const row of unmigratedRows) {
+    const status = row.status as string;
+    let colonIdx = status.indexOf(':');
+    let dashIdx = status.indexOf(' - ');
+    let canonical = '';
+    let note = '';
+    if (colonIdx > 0 && (dashIdx < 0 || colonIdx < dashIdx)) {
+      canonical = status.slice(0, colonIdx).trim();
+      note = status.slice(colonIdx + 1).trim();
+    } else if (dashIdx > 0) {
+      canonical = status.slice(0, dashIdx).trim();
+      note = status.slice(dashIdx + 3).trim();
+    } else {
+      canonical = 'resolved';
+      note = status;
+    }
+    const isValidCanonical = ['open','acknowledged','resolved','stale','decided','superseded','obsolete','linear'].includes(canonical);
+    const finalCanonical = isValidCanonical ? canonical : 'resolved';
+    db.prepare('UPDATE escalation SET status = ?, resolutionNote = ? WHERE id = ?').run(
+      finalCanonical,
+      note || null,
+      row.id,
+    );
+  }
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_condition ON escalation(project, conditionKey, status)');
   // Steward role model (design §2): relax the supervisor_identity singleton
@@ -703,7 +737,7 @@ export function isWatchedSession(project: string, session: string): boolean {
 
 /** Raw DB row shape: structured options live in a JSON column (`optionsJson`),
  *  parsed into `options` by mapEscalationRow before crossing the store boundary. */
-type EscalationRow = Omit<Escalation, 'options' | 'ui' | 'suggestedAction'> & { optionsJson: string | null; uiJson: string | null; suggestedActionJson: string | null };
+type EscalationRow = Omit<Escalation, 'options' | 'ui' | 'suggestedAction'> & { optionsJson: string | null; uiJson: string | null; suggestedActionJson: string | null; resolutionNote: string | null };
 
 /** Parse a stored ui blob, re-validating against the closed catalog (defensive). */
 function parseUi(json: string | null): JsonRenderSpec | null {
@@ -756,7 +790,7 @@ function parseSuggestedAction(json: string | null): SuggestedAction | null {
 
 /** Map a raw DB row to the public Escalation shape (optionsJson → options[]). */
 function mapEscalationRow(row: EscalationRow): Escalation {
-  const { optionsJson, uiJson, suggestedActionJson, triageInFlight, ...rest } = row;
+  const { optionsJson, uiJson, suggestedActionJson, triageInFlight, resolutionNote, ...rest } = row;
   return {
     ...rest,
     options: parseOptions(optionsJson),
@@ -766,10 +800,14 @@ function mapEscalationRow(row: EscalationRow): Escalation {
     // Stored 0/1; surface as a boolean. Coerce defensively (older rows / null).
     triageInFlight: !!triageInFlight,
     resolvedBy: row.resolvedBy ?? null,
+    briefingMd: row.briefingMd ?? null,
+    briefingModel: row.briefingModel ?? null,
+    briefingAt: row.briefingAt ?? null,
     conditionKey: row.conditionKey ?? null,
     conditionHash: row.conditionHash ?? null,
     lastSeenAt: row.lastSeenAt ?? null,
     recurrenceCount: row.recurrenceCount ?? 0,
+    resolutionNote: resolutionNote ?? null,
     audience: (row.audience as 'human' | 'internal' | null) ?? 'human',
   };
 }
@@ -823,6 +861,48 @@ export function deriveAudience(kind: string, operatorGated: boolean): 'human' | 
   return 'human';
 }
 
+/** Canonical status values for escalations. */
+export const ESCALATION_STATUSES = ['open','acknowledged','resolved','stale','decided','superseded','obsolete','linear'] as const;
+
+/**
+ * Normalize an escalation status to canonical form + extract trailing prose as resolutionNote.
+ *
+ * Returns `{ status, note }` where:
+ * - If `status` is already canonical, returns it unchanged (note defaults to explicit param or null).
+ * - If `status` starts with `${canonical}: ` or `${canonical} - `, splits into canonical+prose.
+ * - Else falls back to `{ status: 'resolved', note: <original status string> }`.
+ *
+ * When explicit `note` param is passed, it is appended after any split prose (separated by ' | '),
+ * so explicit notes always appear second and callers can distinguish original text from additions.
+ * Never throws; always returns a canonical status + a note (or null).
+ */
+export function normalizeEscalationStatus(status: string, note?: string | null): { status: string; note: string | null } {
+  // If already canonical, return with explicit note or null.
+  if ((ESCALATION_STATUSES as unknown as string[]).includes(status)) {
+    return { status, note: note ?? null };
+  }
+  // Try to split on ':' or ' - ' delimiter.
+  let colonIdx = status.indexOf(':');
+  let dashIdx = status.indexOf(' - ');
+  let canonical = '';
+  let splitNote = '';
+  if (colonIdx > 0 && (dashIdx < 0 || colonIdx < dashIdx)) {
+    canonical = status.slice(0, colonIdx).trim();
+    splitNote = status.slice(colonIdx + 1).trim();
+  } else if (dashIdx > 0) {
+    canonical = status.slice(0, dashIdx).trim();
+    splitNote = status.slice(dashIdx + 3).trim();
+  }
+  // Validate the extracted canonical token.
+  if (canonical && (ESCALATION_STATUSES as unknown as string[]).includes(canonical)) {
+    const combined = splitNote && note ? `${splitNote} | ${note}` : (splitNote || note);
+    return { status: canonical, note: combined || null };
+  }
+  // Fallback: treat the entire input as a note and return 'resolved'.
+  const fallbackNote = note ? `${status} | ${note}` : status;
+  return { status: 'resolved', note: fallbackNote };
+}
+
 export function createEscalation(input: {
   project: string;
   session: string;
@@ -870,7 +950,7 @@ export function createEscalation(input: {
       return { escalation: mapEscalationRow(refreshed), isNew: false };
     }
     const resolvedRow = d
-      .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND status = 'resolved' ORDER BY createdAt DESC LIMIT 1")
+      .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND (status = 'resolved' OR status LIKE 'resolved:%' OR status LIKE 'resolved - %') ORDER BY createdAt DESC LIMIT 1")
       .get(project, conditionKey) as EscalationRow | null;
     // A null incoming hash must not equal a null stored hash — a missing hash on
     // either side means "differs", so unhashable callers always re-raise.
@@ -908,8 +988,8 @@ export function createEscalation(input: {
   }
   const audience = operatorGated === 1 ? 'human' : input.audience;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, audience);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, resolutionNote, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, null, audience);
   return {
     escalation: {
       id,
@@ -939,6 +1019,7 @@ export function createEscalation(input: {
       conditionHash,
       lastSeenAt: createdAt,
       recurrenceCount: 0,
+      resolutionNote: null,
     },
     isNew: true,
   };
@@ -1033,13 +1114,16 @@ function resolveFullEscalationId(id: string): string {
   return resolved;
 }
 
-export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human'): void {
+export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human', note?: string | null): void {
   const fullId = resolveFullEscalationId(id);
   const d = openDb();
+  // Normalize status to canonical form + extract trailing prose into resolutionNote.
+  const { status: normalizedStatus, note: normalizedNote } = normalizeEscalationStatus(status, note);
   // Stamp who resolved it (fd934fb7) so the UI can show an AI-resolved outcome
   // briefly instead of letting it silently vanish. Also clear any in-flight flag.
-  const info = d.prepare('UPDATE escalation SET status = ?, resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
-    status,
+  const info = d.prepare('UPDATE escalation SET status = ?, resolutionNote = COALESCE(?, resolutionNote), resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
+    normalizedStatus,
+    normalizedNote,
     Date.now(),
     resolvedBy ?? null,
     fullId
@@ -1062,7 +1146,7 @@ export function acknowledgeEscalation(id: string, acknowledgedBy?: 'ai' | 'human
   const d = openDb();
   const info = d
     .prepare('UPDATE escalation SET status = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?')
-    .run('acknowledged', acknowledgedBy ?? null, fullId);
+    .run(ESCALATION_STATUSES[1], acknowledgedBy ?? null, fullId);
   if (info.changes === 0) throw new Error(`escalation acknowledge matched no row: ${id}`);
   return getEscalation(fullId);
 }
@@ -1109,7 +1193,7 @@ export function reopenResolvedEscalationByConditionKey(input: {
     return { escalation: mapEscalationRow(openRow), reopened: false };
   }
   const resolvedRow = d
-    .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND status = 'resolved' ORDER BY createdAt DESC LIMIT 1")
+    .query("SELECT * FROM escalation WHERE project = ? AND conditionKey = ? AND (status = 'resolved' OR status LIKE 'resolved:%' OR status LIKE 'resolved - %') ORDER BY createdAt DESC LIMIT 1")
     .get(project, input.conditionKey) as EscalationRow | null;
   if (!resolvedRow) return null;
   const now = Date.now();
@@ -1205,9 +1289,11 @@ export function resolveEscalationsForTodo(
   const matched = open.filter((e) => e.todoId === todoId || sessionSet.has(e.session));
   if (matched.length === 0) return [];
   const resolvedAt = Date.now();
-  const stmt = d.prepare('UPDATE escalation SET status = ?, resolvedAt = ? WHERE id = ?');
-  for (const e of matched) stmt.run(status, resolvedAt, e.id);
-  return matched.map((e) => ({ ...e, status, resolvedAt }));
+  // Normalize status to canonical form + extract trailing prose into resolutionNote.
+  const { status: normalizedStatus, note: normalizedNote } = normalizeEscalationStatus(status);
+  const stmt = d.prepare('UPDATE escalation SET status = ?, resolutionNote = COALESCE(?, resolutionNote), resolvedAt = ? WHERE id = ?');
+  for (const e of matched) stmt.run(normalizedStatus, normalizedNote, resolvedAt, e.id);
+  return matched.map((e) => ({ ...e, status: normalizedStatus, resolutionNote: normalizedNote || e.resolutionNote, resolvedAt }));
 }
 
 // --- Supervisor audit log (durable decision/action trail) ---
