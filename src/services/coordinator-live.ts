@@ -15,7 +15,7 @@ import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInf
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
-import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
 import { coordinatorCondition, COORDINATOR_CONDITION_REASONS } from './coordinator-condition-keys';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
 

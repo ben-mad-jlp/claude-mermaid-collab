@@ -90,7 +90,7 @@ export const SUPERVISOR_TOOL_DEFS = [
 export async function handleSupervisorTool(name: string, args: any): Promise<string | null> {
   switch (name) {
           case 'supervisor_list_supervised': {
-            return JSON.stringify(supervisorStore.listSupervised(), null, 2);
+            return JSON.stringify(supervisorStore.listWatchedSessions(), null, 2);
           }
           case 'supervisor_nudge': {
             const { project, session, serverId, text, supervisorEpoch } = args as { project: string; session: string; serverId?: string; text: string; supervisorEpoch?: number };
@@ -116,17 +116,17 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
               // Unified read model owns the status/liveness join; the supervisor
               // overlay (supervised + open-todo count) stays a supervisor concern.
               for (const rt of listSessionRuntimes(wp.project)) {
-                const supervised = supervisorStore.isSupervised(wp.project, rt.session);
+                const supervised = supervisorStore.isWatchedSession(wp.project, rt.session);
                 const openTodos = supervised ? listTodos(wp.project, { session: rt.session, includeCompleted: false }).length : 0;
                 out.push({ project: wp.project, session: rt.session, status: rt.status, updatedAt: rt.updatedAt, openTodos, supervised, serverId: '' });
               }
             }
             // Remote supervised sessions: fetch each peer's session-status once per (serverId, project).
             const remotePairs = new Map<string, { serverId: string; project: string }>();
-            for (const sup of supervisorStore.listSupervised()) {
+            for (const sup of supervisorStore.listWatchedSessions()) {
               if (sup.serverId && supervisorStore.getPeer(sup.serverId)) remotePairs.set(sup.serverId + '|' + sup.project, { serverId: sup.serverId, project: sup.project });
             }
-            const supervisedRemote = new Set(supervisorStore.listSupervised().filter(s => s.serverId).map(s => s.serverId + '|' + s.project + '|' + s.session));
+            const supervisedRemote = new Set(supervisorStore.listWatchedSessions().filter(s => s.serverId).map(s => s.serverId + '|' + s.project + '|' + s.session));
             for (const { serverId: sid, project: proj } of remotePairs.values()) {
               try {
                 const resp = await peerFetch(sid, '/api/session-status?project=' + encodeURIComponent(proj), { method: 'GET' });
