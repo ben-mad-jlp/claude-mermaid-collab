@@ -174,28 +174,66 @@ export async function memoizedTscClean(deps: {
   return pass;
 }
 
-/** Async execFile: resolves { code, stdout } — code 0 = success. NEVER a *Sync spawn:
- *  every realRunners predicate executes in the sidecar process (land / steward-proof
- *  paths), and a sync tsc or merge trial held its event loop for the full run. */
-function execAsync(
+/** Async execFile: resolves { code, stdout, notFound } — code 0 = success. NEVER a *Sync
+ *  spawn: every realRunners predicate executes in the sidecar process (land / steward-proof
+ *  paths), and a sync tsc or merge trial held its event loop for the full run.
+ *
+ *  `notFound` distinguishes "the tool is not installed" (spawn ENOENT, or a shell's 127)
+ *  from "the tool ran and reported failure". Callers that gate on a compiler MUST branch on
+ *  it: a missing binary is INAPPLICABLE, not a red build. Without this the two are the same
+ *  non-zero code — see the tscClean comment for the incident that bought this field. */
+export function execAsync(
   bin: string,
   args: string[],
   opts: { cwd?: string } = {},
-): Promise<{ code: number; stdout: string }> {
+): Promise<{ code: number; stdout: string; notFound: boolean }> {
   return new Promise((resolvePromise) => {
     try {
       execFile(bin, args, { cwd: opts.cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
         if (err) {
-          const code = typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1;
-          resolvePromise({ code: code || 1, stdout: stdout ?? '' });
+          const raw = (err as { code?: unknown }).code;
+          const code = typeof raw === 'number' ? raw : 1;
+          // execFile surfaces a missing binary as the STRING 'ENOENT' (not a numeric exit),
+          // so the numeric coercion above would flatten it to a plain failure. 127 is the
+          // shell's command-not-found for the same condition.
+          const notFound = raw === 'ENOENT' || code === 127;
+          resolvePromise({ code: code || 1, stdout: stdout ?? '', notFound });
         } else {
-          resolvePromise({ code: 0, stdout: stdout ?? '' });
+          resolvePromise({ code: 0, stdout: stdout ?? '', notFound: false });
         }
       });
     } catch {
-      resolvePromise({ code: 1, stdout: '' });
+      resolvePromise({ code: 1, stdout: '', notFound: false });
     }
   });
+}
+
+/** Resolve the repo's trunk ref instead of assuming `master`.
+ *
+ *  WHY (incident 2026-08-04, mission db089158): the epic dry-merge trial ran
+ *  `git worktree add --detach <trial> master`. qbs has NO `master` — its trunk is `main` —
+ *  so worktree-add failed, the trial returned `{ clean: false }`, and every epic was blocked
+ *  by a `merge-conflict` verdict. `git merge-tree main <epic>` was CLEAN for both epics the
+ *  whole time. A conflict verdict with no conflicting hunks is a base-ref fault, not a code
+ *  fault; this makes the probe agree with reality.
+ *
+ *  Order: origin/HEAD is authoritative when present (it names the real default branch even
+ *  in a repo carrying both `main` and `master`); only then fall back to probing. Returns
+ *  'master' when nothing resolves, preserving the historical default for master-trunk repos. */
+export async function resolveTrunkRef(cwd: string): Promise<string> {
+  const sym = await execAsync('git', ['-C', cwd, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  if (sym.code === 0) {
+    const short = sym.stdout.trim().replace(/^origin\//, '');
+    if (short) {
+      const ok = await execAsync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', short]);
+      if (ok.code === 0) return short;
+    }
+  }
+  for (const cand of ['main', 'master']) {
+    const r = await execAsync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', cand]);
+    if (r.code === 0) return cand;
+  }
+  return 'master';
 }
 
 export const realRunners: ProofRunners = {
@@ -226,6 +264,25 @@ export const realRunners: ProofRunners = {
         if (!check) return { pass: true, cacheable: true };
         const [bin, ...args] = check.cmd.split(' ');
         const r = await execAsync(bin, args, { cwd });
+        // ABSTAIN when the COMPILER ITSELF is absent (incident 2026-08-04, mission db089158).
+        // qbs has a qbs.sln at its root, so detectCompileCheck selects `dotnet build` — but
+        // `dotnet` is not installed on this host. execFile returned ENOENT, which the old
+        // numeric coercion flattened to code 1, so "no compiler" read identically to "the
+        // build is red". Every land of every epic was blocked by a `tsc-failed` blocker on
+        // changes containing zero C# and zero TypeScript (the ros-api epic is nine .js/.sh
+        // files). Seven epic branches stranded, $47.53 spent, nothing landed.
+        //
+        // A gate that CANNOT RUN must report INAPPLICABLE, never FAILURE — the same rule the
+        // `!check` branch above already follows for a language with no compile step. NOT
+        // cacheable: installing the toolchain must take effect immediately, without waiting
+        // out a memo keyed on an unchanged HEAD.
+        if (r.notFound) {
+          console.warn(
+            `[steward-proof] compile gate ABSTAIN in ${cwd}: ${check.label} check \`${check.cmd}\` ` +
+            `could not run (binary not installed). Treating as not-applicable, not as a failure.`,
+          );
+          return { pass: true, cacheable: false };
+        }
         return { pass: r.code === 0, cacheable: true };
       },
     });
@@ -236,7 +293,8 @@ export const realRunners: ProofRunners = {
     // rev-parse keys the memo; the expensive worktree trial only runs on a real change.
     return memoizedMergeClean({
       resolveKey: async () => {
-        const mR = await execAsync('git', ['-C', masterCwd, 'rev-parse', 'master']);
+        const trunk = await resolveTrunkRef(masterCwd);
+        const mR = await execAsync('git', ['-C', masterCwd, 'rev-parse', trunk]);
         const eR = await execAsync('git', ['-C', masterCwd, 'rev-parse', epicBranch]);
         const m = mR.code === 0 ? mR.stdout.trim() : '';
         const e = eR.code === 0 ? eR.stdout.trim() : '';
@@ -253,9 +311,12 @@ export const realRunners: ProofRunners = {
           await execAsync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial]); // best-effort
           await execAsync('git', ['-C', masterCwd, 'worktree', 'prune']); // best-effort
         };
-        // Detached worktree off master HEAD (do NOT check out the `master` branch — it is
-        // live in the main tree; `git worktree add master` would fail "already checked out").
-        const add = await execAsync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master']);
+        // Detached worktree off the TRUNK head (do NOT check out the trunk BRANCH — it is
+        // live in the main tree; `git worktree add main` would fail "already checked out").
+        // The ref is resolved, never hardcoded: assuming `master` on a `main` repo made
+        // worktree-add fail and every epic report a phantom merge-conflict.
+        const trunk = await resolveTrunkRef(masterCwd);
+        const add = await execAsync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, trunk]);
         if (add.code !== 0) {
           await teardown(); // path may have been partially created
           return { clean: false, cacheable: false }; // setup failure is TRANSIENT — never cache it

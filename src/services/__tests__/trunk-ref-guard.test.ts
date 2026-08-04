@@ -60,10 +60,17 @@ const ALLOWLIST: AllowEntry[] = [
   // rev-list git commands now use the RESOLVED trunk, not a literal.
   { file: 'src/services/adopt-branch-as-epic.ts', count: 6, reason: 'detectBaseTrunk main→master probe + literal fallback + doc/flow comments; git commands use the resolved trunk' },
 
-  // (DEFAULT + STRING) steward-proof git helpers: commitsBehindMaster baseRef default
-  // + a real-repo master rev-parse/worktree-add in the proof harness + doc comments.
-  // Steward proofs run against the tracking checkout; not a general base resolver.
-  { file: 'src/services/steward-proof.ts', count: 5, reason: 'steward proof harness: commitsBehindMaster default + master rev-parse/worktree-add + doc comments (tracking-checkout proof, not a base resolver)' },
+  // (RESOLVER + DEFAULT) steward-proof now RESOLVES the trunk (resolveTrunkRef: origin/HEAD,
+  // then a main→master probe, then a literal fallback). The previous hardcoded
+  // `rev-parse master` and `worktree add … master` in the epic dry-merge trial are GONE.
+  // What remains: the resolver's own probe + fallback, commitsBehindMaster's baseRef
+  // default, and doc comments. Count rose 5→6 while real hardcoded git commands went 2→0.
+  // WHY (incident 2026-08-04, mission db089158): the trial pinned its trial worktree at the
+  // literal ref `master` on qbs, whose trunk is `main` and which has NO master ref at all —
+  // worktree-add failed, the trial returned not-clean, and every epic reported a phantom
+  // merge-conflict while `git merge-tree main <epic>` was clean the whole time. Seven epic
+  // branches stranded, $47.53 spent, zero commits landed.
+  { file: 'src/services/steward-proof.ts', count: 6, reason: 'resolveTrunkRef origin/HEAD→main→master probe + literal fallback + commitsBehindMaster default + doc comments; the dry-merge trial now uses the RESOLVED trunk (was a hardcoded master rev-parse/worktree-add)' },
 
   // (FALLBACK + DEFAULT + STRING) epic-branch-status is the LIGHT trunk-resolution
   // module (todo-store only). detectTrunkRef's main→master probe list + its
