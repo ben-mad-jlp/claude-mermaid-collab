@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, screen } from '@testing-library/react';
 
 // --- Fake WS client. ---
 const connectHandlers = new Set<() => void>();
@@ -179,6 +179,29 @@ describe('BridgeDashboard snapshot rewire', () => {
       await vi.advanceTimersByTimeAsync(250);
 
       expect(requestPathCounter.get('/api/supervisor/bridge-snapshot') ?? 0).toBe(before);
+    });
+  });
+
+  it('resolves the default project from a stale-only supervised row instead of falling to empty', async () => {
+    // Seed the store with activeProject and currentSession both absent,
+    // so the fallback chain reaches supervised[0]?.project
+    useUIStore.setState({ activeProject: null } as any);
+    useSessionStore.setState({ currentSession: null } as any);
+    useSupervisorStore.setState({
+      supervised: [{ project: 'R', session: 'sess-1', serverId: 'remote', stale: true }],
+    } as any);
+
+    render(<BridgeDashboard />);
+
+    // Assert it does NOT fall through to the empty state
+    await waitFor(() => {
+      expect(screen.queryByText(/No project in scope/i)).toBeNull();
+    });
+
+    // Assert the bridge-snapshot fetch fires for project R, proving the
+    // fallback resolved to 'R' and not ''
+    await waitFor(() => {
+      expect(requestPathCounter.get('/api/supervisor/bridge-snapshot')).toBe(1);
     });
   });
 });
