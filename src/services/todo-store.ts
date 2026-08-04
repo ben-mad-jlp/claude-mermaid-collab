@@ -8,7 +8,7 @@ import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { hostname } from 'node:os';
-import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './project-registry';
+import { trackingProjectRoot, isTransientProjectPath, projectRegistry, listRegisteredProjectPathsSync } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
 import { LANDED_LEFTOVER_GRACE_MS } from './harness-caps';
 import { topoSortSplitItems } from './split-decision';
@@ -1727,11 +1727,34 @@ export function resolveShortId(project: string, prefix: string): string | null {
   return rows[0].id;
 }
 
+export function todoNotFoundMessage(project: string, id: string): string {
+  const base = `todo not found: ${id} in project ${project}`;
+  const self = trackingProjectRoot(project);
+  for (const candidate of listRegisteredProjectPathsSync()) {
+    const root = trackingProjectRoot(candidate);
+    if (root === self) continue;
+    try {
+      if (!existsSync(join(root, '.collab', 'todos.db'))) continue;
+      const db = openDb(root);
+      if (db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) {
+        return `${base} — it exists in ${root} (pass project=${root})`;
+      }
+      const escaped = id.replace(/[%_\\]/g, '\\$&');
+      if (db.query("SELECT 1 FROM todos WHERE id LIKE ? ESCAPE '\\'").get(`${escaped}%`)) {
+        return `${base} — it exists in ${root} (pass project=${root})`;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return base;
+}
+
 function resolveFullId(project: string, id: string): string {
   const db = openDb(project);
   if (db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) return id;
   const resolved = resolveShortId(project, id);
-  if (resolved === null) throw new Error(`todo not found: ${id}`);
+  if (resolved === null) throw new Error(todoNotFoundMessage(project, id));
   return resolved;
 }
 
@@ -2016,7 +2039,7 @@ function hasTerminalEpicAncestor(project: string, startParentId: string | null):
 export function updateTodo(project: string, id: string, patch: UpdateTodoPatch): Promise<Todo> {
   return withLock(project, async () => {
     const existing = getTodo(project, id);
-    if (!existing) throw new Error(`todo not found: ${id}`);
+    if (!existing) throw new Error(todoNotFoundMessage(project, id));
     const fullId = resolveFullId(project, id);
 
     // De-conflate S3 — WRITE-SIDE TRANSLATION SEAM. A caller setting `status` to a
@@ -2743,7 +2766,7 @@ export function restoreTodo(project: string, id: string): Todo {
   let resolvedId = id;
   if (!db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) {
     const resolved = resolveShortId(project, id);
-    if (resolved === null) throw new Error(`todo not found: ${id}`);
+    if (resolved === null) throw new Error(todoNotFoundMessage(project, id));
     resolvedId = resolved;
   }
   db.prepare('UPDATE todos SET archivedAt = NULL WHERE id = ?').run(resolvedId);
@@ -2763,7 +2786,7 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     assertProjectLocal(project);
     const db = openDb(project);
     const existing = getTodo(project, id);
-    if (!existing) throw new Error(`todo not found: ${id}`);
+    if (!existing) throw new Error(todoNotFoundMessage(project, id));
     const fullId = resolveFullId(project, id);
     // E2 ownership-CAS (opt-in via requireInProgress; only the fire-and-track
     // worker continuation passes it). A leaf run launched against a claim can finish
@@ -3424,7 +3447,7 @@ export function resetTodo(
   return withLock(project, () => {
     assertProjectLocal(project);
     const existing = getTodo(project, id);
-    if (!existing) throw new Error(`todo not found: ${id}`);
+    if (!existing) throw new Error(todoNotFoundMessage(project, id));
     const fullId = resolveFullId(project, id);
     const db = openDb(project);
     // Optionally REROUTE while unsticking: a cross-project todo created without a
@@ -3505,7 +3528,7 @@ export function removeTodo(project: string, id: string): Promise<void> {
   return withLock(project, () => {
     const db = openDb(project);
     const res = db.prepare('DELETE FROM todos WHERE id = ?').run(id);
-    if (res.changes === 0) throw new Error(`todo not found: ${id}`);
+    if (res.changes === 0) throw new Error(todoNotFoundMessage(project, id));
   });
 }
 
