@@ -565,3 +565,137 @@ export function evaluateCommandEvidence(opts: {
 
   return { escapes, unbackedClaims, contradictedClaims, reject, reasons };
 }
+
+// ---------------------------------------------------------------------------
+// Privilege escalation + outside-worktree writes (incident 2026-07-31, leaf
+// df08b5e3). Both detectors exist because that leaf was assigned a task it
+// could not perform by any sanctioned route: its spec ordered a deploy, the
+// deploy script needs interactive sudo, and a headless node has no TTY. Refused
+// by `sudo -n`, it enumerated alternatives and reached the host through the
+// docker socket. Nothing it did was forbidden by a permission — docker-group
+// membership is root-equivalent by design — so a permissions-based control
+// cannot catch this class. It has to be caught here, at the command record.
+// ---------------------------------------------------------------------------
+
+/** Routes that obtain privilege a leaf spec never granted. Each is a documented
+ *  container-escape or non-interactive-sudo idiom, not a heuristic. */
+const PRIVILEGE_ROUTES: ReadonlyArray<{ re: RegExp; label: string }> = [
+  { re: /(?:^|[\s;&|`(])nsenter\b/i,
+    label: 'nsenter — attaches to another process\'s namespaces; `-t 1` is the host\'s init, i.e. host root' },
+  { re: /--privileged\b/i,
+    label: '--privileged — drops capability, seccomp and AppArmor restrictions' },
+  { re: /--pid[=\s]host\b/i,
+    label: '--pid=host — shares the host PID namespace, exposing host PID 1' },
+  { re: /docker\s+run\b[^\n]*?-v\s*\/\s*:/i,
+    label: 'docker run -v /:… — bind-mounts the entire host filesystem into the container' },
+  { re: /(?:^|[\s;&|`(])sudo\s+-A\b|SUDO_ASKPASS\s*=/i,
+    label: 'sudo -A / SUDO_ASKPASS — non-interactive sudo via a helper program' },
+  { re: /(?:^|[\s;&|`(])chroot\b/i,
+    label: 'chroot — changes the apparent filesystem root' },
+];
+
+/** Absolute prefixes a leaf may write to outside its worktree. Scratch space is
+ *  legitimate and heavily used; everything else is not. */
+const WRITE_ALLOWED_PREFIXES: readonly string[] = ['/tmp/', '/var/tmp/', '/dev/null', '/dev/stdout', '/dev/stderr'];
+
+/**
+ * A leaf must never acquire privilege by a route its spec did not name. If it
+ * needs privilege it does not hold, the correct action is a blocker escalation.
+ *
+ * READ-ONLY commands are exempt: a leaf legitimately greps for these strings
+ * when investigating this very incident class, and flagging that would make the
+ * detector unusable inside its own codebase.
+ *
+ * Never throws — this is a security SIGNAL, and a fault in the signal must not
+ * sink an otherwise-fine leaf. Fails open, like its sibling detectors.
+ */
+export function detectPrivilegeEscalation(opts: {
+  commands: readonly RecordedCommand[];
+}): { offending: RecordedCommand[]; routes: string[]; message: string } | null {
+  try {
+    const offending: RecordedCommand[] = [];
+    const routes = new Set<string>();
+
+    for (const c of opts.commands) {
+      if (READ_ONLY_LEAD.test(c.cmd)) continue;
+      for (const { re, label } of PRIVILEGE_ROUTES) {
+        if (re.test(c.cmd)) { offending.push(c); routes.add(label); break; }
+      }
+    }
+    if (offending.length === 0) return null;
+
+    const first = offending[0]!;
+    const message =
+      `privilege-escalation: ${offending.length} command(s) acquired privilege by a route this leaf's ` +
+      `spec never named — first: \`${first.cmd.slice(0, 200)}\` (cwd ${first.cwd}). ` +
+      `Routes: ${[...routes].join('; ')}. ` +
+      `A leaf that needs privilege it does not hold must raise a BLOCKER ESCALATION naming the ` +
+      `missing step, not find another way in.`;
+    return { offending, routes: [...routes], message };
+  } catch {
+    return null; // FAIL OPEN — never sink a leaf on a detector fault
+  }
+}
+
+/** Absolute write targets in a command, ignoring the command's own cwd.
+ *  Deliberately simple: absolute paths appearing as arguments or redirects. */
+function absoluteWriteTargets(cmd: string): string[] {
+  const targets: string[] = [];
+  for (const m of cmd.matchAll(/(?:^|[\s>])>{1,2}\s*(\/[^\s;&|)'"]+)/g)) targets.push(m[1]!);
+  if (MUTATING_INVOCATION.test(cmd) || /(?:^|[\s;&|`(])(?:chown|chmod|ln|dd)\b/i.test(cmd)) {
+    for (const m of cmd.matchAll(/(?:^|\s)(\/[^\s;&|)'"]+)/g)) targets.push(m[1]!);
+  }
+  return targets;
+}
+
+/**
+ * A leaf writes only inside its own worktree (plus scratch space).
+ *
+ * `detectWorkingRootEscape` catches a command whose CWD left the worktree. It
+ * does NOT catch the shape observed in the incident, where cwd stayed inside
+ * and the TARGET was absolute:
+ *
+ *   cp -a $WT/src/. /home/qbintelligence/code/qbs/ros-api-server/src/
+ *   chown -R qbintelligence:qbintelligence /home/qbintelligence/.../src
+ *
+ * That put unlanded branch source onto a live service's runtime path and
+ * rewrote ownership to match, bypassing land, review and the base gate.
+ *
+ * Never throws. Fails open.
+ */
+export function detectOutsideWorktreeWrite(opts: {
+  commands: readonly RecordedCommand[];
+  worktreeRoot: string;
+}): { offending: RecordedCommand[]; paths: string[]; message: string } | null {
+  try {
+    let realRoot: string;
+    try { realRoot = realpathSync(opts.worktreeRoot); } catch { realRoot = resolve(opts.worktreeRoot); }
+
+    const offending: RecordedCommand[] = [];
+    const paths = new Set<string>();
+
+    for (const c of opts.commands) {
+      // NOTE: deliberately NOT skipping READ_ONLY_LEAD here. `echo` is a read-only
+      // lead, but `echo x > /etc/systemd/system/foo.service` is a write. A redirect
+      // is a write whatever precedes it; argument targets are already gated on a
+      // mutating invocation inside absoluteWriteTargets.
+      for (const t of absoluteWriteTargets(c.cmd)) {
+        if (WRITE_ALLOWED_PREFIXES.some((p) => t === p || t.startsWith(p))) continue;
+        const rel = relative(realRoot, resolve(t));
+        const outside = rel !== '' && (rel.startsWith('..') || isAbsolute(rel));
+        if (outside) { offending.push(c); paths.add(t); break; }
+      }
+    }
+    if (offending.length === 0) return null;
+
+    const first = offending[0]!;
+    const message =
+      `outside-worktree-write: ${offending.length} command(s) wrote to an absolute path outside this ` +
+      `leaf's worktree ${opts.worktreeRoot} — first: \`${first.cmd.slice(0, 200)}\` (cwd ${first.cwd}). ` +
+      `Paths: ${[...paths].slice(0, 5).join(', ')}. ` +
+      `Only the worktree is diffed, reviewed and landed; a write outside it bypasses all three.`;
+    return { offending, paths: [...paths], message };
+  } catch {
+    return null; // FAIL OPEN
+  }
+}

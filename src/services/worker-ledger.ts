@@ -820,6 +820,30 @@ export function getLatestSuccessfulNodeOutput(leafId: string, nodeKind: string):
   } catch { return null; }
 }
 
+/** How many nodes of `nodeKind` this leaf has recorded across EVERY dispatch, optionally
+ *  restricted to one verdict. The ledger is the only per-leaf state that survives a
+ *  re-dispatch, so a counter that must span dispatches is derived here rather than held
+ *  in a `let` inside runLeaf.
+ *
+ *  WHY (incident 2026-07-31, leaf df08b5e3): the no-silent-park contested card counts
+ *  uncovered-contested review cycles and raises on the 2nd. Its counter lived in a
+ *  process-local variable, so it reset every time the daemon re-dispatched the parked leaf.
+ *  The card fired once (dispatch 1, cycle 2), timed out unanswered, and then five further
+ *  dispatches each ran exactly ONE cycle — count 1, never 2 — so it never fired again.
+ *  Three of those were opus implements of 255s, 369s and 812s with no human signal at all.
+ *  Counting from the ledger makes the threshold reachable no matter how the cycles are
+ *  split across dispatches. Returns 0 on any fault — this must never sink a leaf. */
+export function countLeafNodes(leafId: string, nodeKind: string, verdict?: string): number {
+  try {
+    const sql = verdict === undefined
+      ? 'SELECT COUNT(*) AS n FROM worker_ledger WHERE leafId=? AND nodeKind=?'
+      : 'SELECT COUNT(*) AS n FROM worker_ledger WHERE leafId=? AND nodeKind=? AND verdict=?';
+    const args = verdict === undefined ? [leafId, nodeKind] : [leafId, nodeKind, verdict];
+    const r = openDb().query(sql).get(...args) as { n?: number } | undefined;
+    return r?.n ?? 0;
+  } catch { return 0; }
+}
+
 // --- G2 once-per-epic base gate cache (epic_base_gate) ------------------------
 /** Per-lane baseline failure fingerprints memoized at the base gate (mirrors
  *  leaf-gate's `LaneBaselineMap`; declared locally to avoid an import cycle). */

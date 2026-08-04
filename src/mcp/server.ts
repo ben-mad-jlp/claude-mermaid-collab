@@ -14,7 +14,7 @@ import { setupMCPServer } from './setup.js';
 import { apiFetch } from './tools/http-util.js';
 
 // Version is synced with package.json via npm version command
-export const SERVER_VERSION = '6.20.0';
+export const SERVER_VERSION = '6.21.0';
 
 async function main() {
   // Check if API server is running

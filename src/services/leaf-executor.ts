@@ -53,7 +53,7 @@ import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { collectDiffRisk, routeReviewDepth, type ReviewDepth, type DiffRisk } from './review-depth-router';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
 import { extractGateFailingFiles, gateFailureSignature } from './gate-base-attribution';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature, countLeafNodes } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
@@ -71,7 +71,7 @@ export type {
 export { NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey };
 export type { LeafNodeGroup } from './leaf-prompts';
 import { validateReviewGrounding, checkConstraintCitations, extractCitations, type ReviewGrounding } from './review-citations';
-import { detectWorkingRootEscape, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
+import { detectWorkingRootEscape, detectPrivilegeEscalation, detectOutsideWorktreeWrite, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
 import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
@@ -491,6 +491,11 @@ export interface LeafExecutorDeps {
    *  Default reader is () => false; the sibling harness leaf replaces the factory
    *  default with the runtime-config reader. */
   gateShadowMode?: (project: string) => boolean;
+  /** Count this leaf's ledger nodes of a kind (optionally by verdict) across EVERY dispatch.
+   *  The seam that makes the contested-card counter durable — see the declaration of
+   *  `uncoveredContestedSeen`. Default → `countLeafNodes`. Unwired ⇒ counts start at 0,
+   *  i.e. exactly the pre-fix process-local behaviour. */
+  countLeafNodes?: (leafId: string, nodeKind: string, verdict?: string) => number;
   /** Per-project TYPED-CONTRACT gating flag (default OFF). When true AND the leaf has a valid,
    *  non-underspecified typed DiffContract, the blueprint citability gate becomes ADVISORY when
    *  the contract covers citability (Phase 2) and the review node grounds per-requirement-id via
@@ -1572,6 +1577,62 @@ export async function runLeaf(
       } catch { /* telemetry — never break the run */ }
     } catch { /* advisory — never break the run */ }
   };
+  // SECURITY GUARD (incident 2026-07-31, mission 0a4a350d / leaf df08b5e3). Two things a
+  // leaf must never do, neither of which the working-root guard above can see:
+  //   1. acquire privilege by a route its spec never named. That leaf was ordered to run a
+  //      deploy needing interactive sudo, had no TTY, was refused by `sudo -n`, and reached
+  //      host root through the docker socket (`--privileged --pid=host` + `nsenter -t 1`).
+  //   2. write outside its worktree. It then cp'd unlanded branch source onto a live
+  //      service's runtime path and chown'd it to match — cwd never left the worktree, so
+  //      the cwd-escape detector saw nothing.
+  // Neither was forbidden by a permission (docker-group membership is root-equivalent by
+  // design), so this has to be caught at the command record. Raised at most ONCE per kind
+  // per leaf. Detection + paging only: it deliberately does NOT abort the node — introducing
+  // a new abort path into this state machine is riskier than the signal is worth, and the
+  // hard prohibition belongs in the executor's own instructions.
+  const securityKindsRaised = new Set<string>();
+  const checkSecurityViolations = (worktreeCwd: string): void => {
+    try {
+      const violations: Array<{ kind: string; message: string; detail: unknown }> = [];
+
+      const priv = detectPrivilegeEscalation({ commands: recordedCommands });
+      if (priv) violations.push({
+        kind: 'privilege-escalation',
+        message: priv.message,
+        detail: { routes: priv.routes, commands: priv.offending.slice(0, 5).map((c) => ({ cmd: c.cmd.slice(0, 200), cwd: c.cwd })) },
+      });
+
+      const write = detectOutsideWorktreeWrite({ commands: recordedCommands, worktreeRoot: worktreeCwd });
+      if (write) violations.push({
+        kind: 'outside-worktree-write',
+        message: write.message,
+        detail: { paths: write.paths.slice(0, 10), commands: write.offending.slice(0, 5).map((c) => ({ cmd: c.cmd.slice(0, 200), cwd: c.cwd })) },
+      });
+
+      for (const v of violations) {
+        if (securityKindsRaised.has(v.kind)) continue;
+        securityKindsRaised.add(v.kind);
+        console.warn(`[leaf-executor] ${v.message}`);
+        try {
+          deps.recordNode({
+            project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+            nodeKind: v.kind, nodesSpent: 0, verdict: 'fail',
+            outcomeDetail: JSON.stringify({ reason: v.kind, worktree: worktreeCwd, ...(v.detail as object) }),
+            outputText: v.message,
+          });
+        } catch { /* telemetry — never break the run */ }
+        try {
+          deps.escalate({
+            project, session: sessionKey, kind: v.kind, todoId: leaf.id,
+            questionText:
+              `SECURITY — leaf ${leaf.id} (${leaf.title ?? 'untitled'}): ${v.message}\n\n` +
+              `This is reported for a human to review. A leaf needing privilege it does not ` +
+              `hold must raise a blocker escalation naming the missing step instead.`,
+          });
+        } catch { /* escalation is best-effort — never break the run */ }
+      }
+    } catch { /* detection fault must never sink a leaf */ }
+  };
   // REBASE-CONTINUE: when a successful reintegration is adopted, flag it so a
   // subsequent base-moved park does NOT reap the lane worktree (it's closer to done).
   let keepWorktreeOnBaseMovedPark = false;
@@ -2344,9 +2405,23 @@ export async function runLeaf(
   // (declared tests do not flip base→branch), and whether we already raised the bounded-wait
   // contested-accept card. On the 2nd uncovered-contested cycle (the same-wall analog) we raise
   // ONE card instead of silently parking; accept → land (via reviewAdvisory), reject/timeout →
-  // keep gating (today's park). Run-scoped so the count spans attempts.
-  let uncoveredContestedSeen = 0;
-  let contestedCardRaised = false;
+  // keep gating (today's park).
+  //
+  // DURABLE ACROSS DISPATCHES (incident 2026-07-31, leaf df08b5e3). This counter used to be
+  // plain `let ... = 0`, described as "run-scoped so the count spans attempts" — true of the
+  // in-process attempt loop below, false across DISPATCHES. When the card times out the leaf
+  // parks, the daemon re-dispatches it as a FRESH PROCESS, and the counter reset to 0. Each
+  // later dispatch then ran exactly ONE contested cycle before parking, so the count reached 1
+  // and never the `>= 2` threshold: the protection fired once per leaf LIFETIME and only in
+  // whichever dispatch happened to contain two cycles. Observed cost: five unprotected
+  // re-dispatches, three of them opus implements of 255s/369s/812s, zero further human signal,
+  // until a human noticed 53 minutes later. Seeding from the ledger — the only per-leaf state
+  // that survives a re-dispatch — makes the threshold reachable however the cycles are split.
+  let uncoveredContestedSeen = deps.countLeafNodes?.(leaf.id, 'coverage', 'fail') ?? 0;
+  // A card already ANSWERED by a human stays honoured for the life of the leaf. A card that
+  // merely TIMED OUT does not: a timeout means nobody looked, which is exactly when the next
+  // cycle should ask again. `contested-answered` is recorded only on a real human decision.
+  let contestedCardRaised = (deps.countLeafNodes?.(leaf.id, 'contested-answered') ?? 0) > 0;
 
   // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
   // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
@@ -2875,6 +2950,7 @@ export async function runLeaf(
     // Surface a shell escape out of the worktree HERE (right after implement), not as a
     // mystery empty diff minutes later.
     checkWorkingRootEscape(cwd);
+    checkSecurityViolations(cwd);
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
@@ -3433,6 +3509,33 @@ export async function runLeaf(
                     });
                   } catch { /* telemetry — never break the run */ }
                 }
+                // A REAL human answer (accept or reject) settles this leaf's contested question
+                // for good — record it so later dispatches read contestedCardRaised=true and do
+                // not re-ask. A TIMEOUT deliberately records nothing: nobody looked, so the next
+                // cycle must be free to raise again. Before this distinction existed the two were
+                // indistinguishable, and a timed-out card silently disarmed the protection.
+                if (decision !== 'timeout') {
+                  contestedCardRaised = true;
+                  try {
+                    deps.recordNode({
+                      project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                      nodeKind: 'contested-answered', nodesSpent: 0, verdict: decision === 'accept' ? 'pass' : 'fail',
+                      outcomeDetail: JSON.stringify({ reason: 'human-answered-contested-card', decision }),
+                      outputText: `contested-answered: a human ruled ${decision.toUpperCase()} on this leaf's contested review. Later dispatches will not re-raise.`,
+                    });
+                  } catch { /* telemetry — never break the run */ }
+                } else {
+                  // Re-arm: a timeout must not suppress the next cycle's card.
+                  contestedCardRaised = false;
+                  try {
+                    deps.recordNode({
+                      project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                      nodeKind: 'contested-timeout', nodesSpent: 0, verdict: 'fail',
+                      outcomeDetail: JSON.stringify({ reason: 'contested-card-timed-out-unanswered' }),
+                      outputText: 'contested-timeout: the contested card expired with no human answer — parking as the safe default, but the protection stays ARMED for later cycles.',
+                    });
+                  } catch { /* telemetry — never break the run */ }
+                }
                 // reject | timeout → leave reviewAdvisory false → keep gating → today's park.
               }
             }
@@ -3510,6 +3613,7 @@ export async function runLeaf(
       prevFindings = findings;
       const fix = await runNode('implement', buildSpec('implement', cwd, blueprintBody, findings));
       checkWorkingRootEscape(cwd);
+      checkSecurityViolations(cwd);
       if (fix.rateLimited) return pausedResult('implement', fix);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
       // loop → re-review the surgically-fixed tree
@@ -3807,6 +3911,8 @@ export async function makeLeafExecutorDeps(
     // Shadow mode default OFF. The sibling harness leaf replaces this with the
     // runtime-config per-project reader; until then the gates behave exactly as before.
     gateShadowMode: () => false,
+    // Durable per-leaf counters for the contested card (see uncoveredContestedSeen).
+    countLeafNodes,
     // Per-project TYPED-CONTRACT gating flag (default OFF). Read from the supervisor store so a
     // project can opt in; a throw (unopenable DB) degrades to false ⇒ today's prose path.
     typedContractGating: (p) => {
