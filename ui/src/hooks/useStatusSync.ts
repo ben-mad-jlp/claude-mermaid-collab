@@ -56,6 +56,7 @@ export function useStatusSync(serverIds: string[]) {
       // Defensive summaries hydrate — covers cold start (before the first WS tick)
       // and reconnects. Monotonic-guarded ingest, so it never clobbers live state.
       void useSupervisorStore.getState().hydrateSessionSummaries(serverIdsRef.current);
+      void useSupervisorStore.getState().hydrateWatchedSessions(serverIdsRef.current);
     };
 
     hydrate(); // once on mount

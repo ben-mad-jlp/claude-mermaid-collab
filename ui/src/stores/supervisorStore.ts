@@ -248,6 +248,7 @@ export interface SupervisedSession {
   session: string;
   addedAt?: number;
   serverId?: string;
+  stale?: boolean;
 }
 
 export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
@@ -635,6 +636,7 @@ interface SupervisorState {
    *  cold start (before WS) and reconnects. Best-effort per server; the ingest is
    *  monotonic-guarded so a stale snapshot can't clobber a newer live WS tick. */
   hydrateSessionSummaries: (serverIds: string[]) => Promise<void>;
+  hydrateWatchedSessions: (serverIds: string[]) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
   /** FBPE P4: the land click — land a green 'epic-ready-to-land' escalation onto
@@ -698,6 +700,45 @@ interface SupervisorState {
     objectId: string | null | undefined,
     reqId: string,
   ) => Promise<boolean>;
+}
+
+/** Merge supervised sessions by server. For each id in results:
+ *  - if res.ok: replace all prior rows whose serverId === id with fresh rows (stale:false)
+ *  - else: keep prior rows, each marked stale:true
+ *  Rows whose serverId is not in the ids list pass through unchanged.
+ */
+function mergeSupervisedByServer(
+  prior: SupervisedSession[],
+  results: Array<{ id: string; res: InvokeResult | null }>,
+): SupervisedSession[] {
+  const ids = new Set(results.map((r) => r.id));
+  const priorForOtherServers = prior.filter((s) => !ids.has(s.serverId || ''));
+
+  const merged: SupervisedSession[] = [];
+  for (const { id, res } of results) {
+    if (res?.ok) {
+      // Fresh result: take the body, stamp serverId, mark stale:false
+      const raw: SupervisedSession[] = res.body?.supervised ?? [];
+      for (const s of raw) {
+        merged.push({
+          ...s,
+          serverId: s.serverId || id,
+          stale: false,
+        });
+      }
+    } else {
+      // Failed result: keep prior rows for this server, mark stale:true
+      const priorForThisServer = prior.filter((s) => (s.serverId || '') === id);
+      for (const s of priorForThisServer) {
+        merged.push({
+          ...s,
+          stale: true,
+        });
+      }
+    }
+  }
+
+  return [...merged, ...priorForOtherServers];
 }
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
@@ -853,20 +894,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
   loadSupervised: async (serverId) => {
     const res = await invoke(serverId, '/api/supervisor/supervised', 'GET');
-    if (!res?.ok) return; // keep prior (cached) state on failure
-    // Stamp the serverId we fetched FROM as authoritative. Coordinator-spawned
-    // rows are persisted with serverId='' (the backend daemon has no serverId —
-    // it's a client/desktop concept), so without this the Supervisor cards show
-    // the wrong server icon and clicking routes to the active server instead of
-    // the one this session actually lives on. The fetching server is, by
-    // definition, the session's server.
-    const raw: SupervisedSession[] = res.body?.supervised ?? [];
-    const supervised: SupervisedSession[] = raw.map((s) => ({
-      ...s,
-      serverId: s.serverId || serverId,
-    }));
-    localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
-    set({ supervised });
+    set((state) => {
+      const supervised = mergeSupervisedByServer(state.supervised, [{ id: serverId, res }]);
+      localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
+      return { supervised };
+    });
   },
 
   // Optimistically add/remove a supervised session so the Supervisor panel
@@ -1175,6 +1207,16 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         });
       }
     }
+  },
+
+  hydrateWatchedSessions: async (serverIds) => {
+    const ids = serverIds.length ? serverIds : ['local'];
+    const results = await Promise.all(ids.map((id) => invoke(id, '/api/supervisor/supervised', 'GET')));
+    set((state) => {
+      const supervised = mergeSupervisedByServer(state.supervised, ids.map((id, i) => ({ id, res: results[i] })));
+      localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
+      return { supervised };
+    });
   },
 
   nudge: async (serverId, project, session, text) => {
