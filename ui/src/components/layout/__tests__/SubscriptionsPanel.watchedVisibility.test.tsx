@@ -12,18 +12,26 @@ import { useSupervisorStore } from '@/stores/supervisorStore';
  * projectSubscriptions (all subscriptions) rather than a filtered subset.
  */
 
+// `supervised` is surfaced as data-supervised so the test can wait for the
+// supervised set to have ACTUALLY populated before asserting. Without that
+// signal the assertions race the async supervised poll and pass against a
+// still-empty set — which is what made the earlier version of this test
+// survive re-introduction of the hide-filter it exists to prevent.
 vi.mock('@/components/layout/SessionCard', () => ({
   SessionCard: ({
     sub,
     subKey,
+    supervised,
   }: {
     sub: { session: string; project: string; serverId: string };
     subKey?: string;
+    supervised?: boolean;
   }) => (
     <div
       data-testid="session-card"
       data-session={sub.session}
       data-subkey={subKey}
+      data-supervised={String(!!supervised)}
     >
       {sub.session}
     </div>
@@ -106,11 +114,22 @@ describe('SubscriptionsPanel.watchedVisibility', () => {
 
     render(<SubscriptionsPanel />);
 
-    // (a) Watching-list render: session-card with data-session="sessA" is present,
-    // and the Watching-count text reads '1'
+    // (a) Watching-list render: the session STAYS rendered after it is known to be
+    // supervised. Gate on data-supervised="true" — that is the only proof the async
+    // supervised poll has landed. Asserting before it lands tests nothing: the
+    // pre-fix hide-filter keys off `supervised.set`, so against an empty set it
+    // removes nothing and a green test would prove only that the race was won.
+    //
+    // MUTATION CONTRACT: re-introduce the hide-filter on the Watching rows —
+    //   projectSubscriptions.filter(([key, sub]) =>
+    //     !staleKeysSet.has(key) && !supervised.set.has(`${sub.project}:${sub.session}`))
+    // — and this waitFor MUST time out, because the row is removed at the very moment
+    // it becomes supervised. If this test still passes under that mutation it is
+    // vacuous and does not satisfy the criterion it claims to prove.
     await waitFor(() => {
       const card = screen.queryByTestId('session-card');
-      expect(card).toBeDefined();
+      expect(card).not.toBeNull();
+      expect(card?.getAttribute('data-supervised')).toBe('true');
       expect(card?.getAttribute('data-session')).toBe('sessA');
     });
 
