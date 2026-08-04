@@ -243,3 +243,42 @@ describe('supervisorStore.hydrateSessionSummaries', () => {
     expect(useSupervisorStore.getState().sessionSummaries['/repo::s1'].summaryText).toBe('KEEP');
   });
 });
+
+describe('supervisorStore.hydrateWatchedSessions', () => {
+  beforeEach(() => {
+    useSupervisorStore.setState({ supervised: [] });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const okRes = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+
+  it('keeps a failed server\'s rows with stale:true while a succeeding server\'s rows refresh clean', async () => {
+    // Seed with rows from both srvA and srvB
+    useSupervisorStore.setState({
+      supervised: [
+        sess('srvA-sess', { serverId: 'srvA' }),
+        sess('srvB-sess', { serverId: 'srvB' }),
+      ],
+    });
+
+    // Stub fetch: srvA resolves ok, srvB rejects
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(okRes({ supervised: [{ project: '/repo', session: 'srvA-new', serverId: 'srvA' }] }))
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) }));
+
+    await useSupervisorStore.getState().hydrateWatchedSessions(['srvA', 'srvB']);
+
+    const supervised = useSupervisorStore.getState().supervised;
+    // srvA rows: fresh, stale:false (or falsy)
+    const srvARows = supervised.filter((s) => s.serverId === 'srvA');
+    expect(srvARows).toHaveLength(1);
+    expect(srvARows[0].session).toBe('srvA-new');
+    expect(srvARows[0].stale).toBeFalsy();
+
+    // srvB rows: retained from prior, stale:true
+    const srvBRows = supervised.filter((s) => s.serverId === 'srvB');
+    expect(srvBRows).toHaveLength(1);
+    expect(srvBRows[0].session).toBe('srvB-sess');
+    expect(srvBRows[0].stale).toBe(true);
+  });
+});
