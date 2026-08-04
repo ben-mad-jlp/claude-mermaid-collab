@@ -28,6 +28,7 @@ vi.mock('@/stores/supervisorStore', () => {
     supervised: [
       { project: '/proj', session: 'sess-a', serverId: 'local' },
       { project: '/proj', session: 'sess-b', serverId: 'local' },
+      { project: '/proj', session: 'sess-stale', serverId: 'other-server', stale: true },
     ],
     escalations: [],
     watchedProjects: [{ project: '/proj' }],
@@ -151,5 +152,19 @@ describe('SupervisorPanel — per-project collapsible group', () => {
     await waitFor(() => {
       expect(screen.getByTestId('claudepix').getAttribute('data-status')).toBe('permission');
     });
+  });
+
+  it('renders a retained stale session\'s row indicator and marks it stale without counting it as live', () => {
+    // The mock now includes a third stale session with no matching subscription
+    // (sess-stale from 'other-server'), so it resolves to status: 'unknown' and is
+    // filtered out of the visible count but marked as stale in a separate badge.
+    render(<SupervisorPanel />);
+    const header = screen.getByTestId('supervisor-project-header');
+    // The stale badge exists and is marked with data-stale="true".
+    const staleBadge = screen.getByTestId('supervisor-project-stale');
+    expect(staleBadge).toBeTruthy();
+    expect(staleBadge.getAttribute('data-stale')).toBe('true');
+    // The live count remains 2 (sess-a + sess-b), excluding the stale session.
+    expect(screen.getByText('2λ')).toBeTruthy();
   });
 });

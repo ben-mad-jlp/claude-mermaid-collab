@@ -711,12 +711,17 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
-              // Visible sessions = those NOT hidden by the gray-declutter filter
-              // below (gray worker lanes are dropped; orchestrator/role sessions
-              // always show). The row count must match what's actually listed.
-              const isVisibleSession = (s: SupervisedSession, idx: number) =>
+              // Live sessions = those NOT hidden by the gray-declutter filter
+              // (gray worker lanes are dropped; orchestrator/role sessions always show).
+              // A live session is either an orchestrator or one with a known status.
+              const isLiveSession = (s: SupervisedSession, idx: number) =>
                 isOrchestratorSession(s.session) || cards[idx].status !== 'unknown';
-              const visibleCount = projSessions.filter(isVisibleSession).length;
+              const visibleCount = projSessions.filter(isLiveSession).length;
+              // Stale-retained sessions = gray-decluttered but marked stale from an
+              // unreachable peer. These are counted separately and rendered as a badge.
+              const isStaleRetained = (s: SupervisedSession, idx: number) =>
+                !isOrchestratorSession(s.session) && s.stale === true && cards[idx].status === 'unknown';
+              const staleCount = projSessions.filter(isStaleRetained).length;
               // Plan stats (open work) + most-recent session activity for the sub-line.
               const stats = projectPlanStats(todosByProject[project] ?? []);
               const critProgress = missionProgressByProject[project] ?? null;
@@ -776,7 +781,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               ]
                 .filter(Boolean)
                 .join('\n');
-              const hasIndicators = escalationCount > 0 || visibleCount > 0 || stats.open > 0 || lastActive > 0 || critProgress !== null;
+              const hasIndicators = escalationCount > 0 || visibleCount > 0 || stats.open > 0 || lastActive > 0 || critProgress !== null || staleCount > 0;
               const rowServerLabel = serverLabelById.get(rowServerId) ?? rowServerId;
               return (
                 <div key={`${rowServerId}:${project}`} className={i > 0 ? 'mt-2' : ''}>
@@ -875,6 +880,16 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           )}
                           {visibleCount > 0 && (
                             <span className="text-accent-700 font-semibold">{visibleCount}λ</span>
+                          )}
+                          {staleCount > 0 && (
+                            <span
+                              data-testid="supervisor-project-stale"
+                              data-stale="true"
+                              className="text-gray-400 dark:text-gray-500 italic"
+                              title={`${staleCount} stale session${staleCount === 1 ? '' : 's'} from an unreachable peer`}
+                            >
+                              {staleCount}⋯
+                            </span>
                           )}
                           {stats.open > 0 && <span>{stats.open} open</span>}
                           {stats.inProgress > 0 && <span className="text-info-700">{stats.inProgress}▶</span>}
