@@ -79,6 +79,16 @@ if (!process.env.MERMAID_SUPERVISOR_DIR) {
   process.env.MERMAID_SUPERVISOR_DIR = hermeticSupervisorDir;
 }
 
+// Default MERMAID_ALLOW_TRANSIENT_PROJECT_CONFIG to '1' so isTransientProjectPath
+// keeps its pre-widening (worktree-only) behavior under `bun test`: tests
+// legitimately register/write project config at mkdtemp tmpdir roots, and widening
+// the predicate unguarded would make ProjectRegistry.register/list/migrateProjectKinds
+// silently no-op for every such suite. A strictness test that wants the widened
+// (tmpdir-excluding) behavior opts back in by clearing the env var itself.
+if (!process.env.MERMAID_ALLOW_TRANSIENT_PROJECT_CONFIG) {
+  process.env.MERMAID_ALLOW_TRANSIENT_PROJECT_CONFIG = '1';
+}
+
 // Ensure idempotent patching — guard against double-wrapping on re-import
 if ((fs.writeFileSync as any).__hermeticTripwire !== true) {
   // Save originals
