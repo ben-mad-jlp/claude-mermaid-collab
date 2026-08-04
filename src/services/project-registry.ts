@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import * as fs from 'fs';
 import { join, isAbsolute, basename } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { createHash } from 'crypto';
 
 export interface Project {
@@ -30,9 +30,22 @@ function projectsPath(): string {
 /** A worker worktree (and the __integration__/supervisor scratch dirs) lives under
  *  <repo>/.collab/agent-sessions/ — a per-todo isolation checkout, never a project.
  *  Such paths must never enter the registry (they'd flood the Bridge picker every
- *  time an isolation worker makes an MCP call with project=its-own-cwd). */
+ *  time an isolation worker makes an MCP call with project=its-own-cwd).
+ *
+ *  Also transient: OS-temp directories (/tmp, /var/tmp, and platform-specific tmpdir).
+ *  A lazy escape hatch (MERMAID_ALLOW_TRANSIENT_PROJECT_CONFIG='1') narrows the check to
+ *  worktrees only — used by tests which legitimately create project configs in tmpdir. */
 export function isTransientProjectPath(path: string): boolean {
-  return /[/\\]\.collab[/\\]agent-sessions[/\\]/.test(path);
+  const WORKTREE_RE = /[/\\]\.collab[/\\]agent-sessions[/\\]/;
+  if (process.env.MERMAID_ALLOW_TRANSIENT_PROJECT_CONFIG === '1') {
+    return WORKTREE_RE.test(path);
+  }
+  if (WORKTREE_RE.test(path)) return true;
+  const tmpPrefixes = [tmpdir(), join('/private', tmpdir()), '/tmp', '/private/tmp', '/var/tmp'];
+  return tmpPrefixes.some(prefix => {
+    const norm = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+    return path === norm || path.startsWith(norm + '/') || path.startsWith(norm + '\\');
+  });
 }
 
 /** Sync read-only enumerator of registered project paths. Filters out transient
