@@ -246,7 +246,6 @@ export interface BomLine {
 export interface SupervisedSession {
   project: string;
   session: string;
-  source?: string;
   addedAt?: number;
   serverId?: string;
 }
