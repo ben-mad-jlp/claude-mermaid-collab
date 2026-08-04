@@ -33,6 +33,7 @@ import {
   getConductorLastPass,
   getTypedContractGating,
   setTypedContractGating,
+  isWorkerSessionName,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
 import { applyRebetDecision, OVER_BUDGET_REBET_KIND } from '../services/mission-budget-gate.ts';
@@ -499,6 +500,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         source?: string;
       };
       if (!project || !session) return jsonError('project and session are required', 400);
+      if (isWorkerSessionName(session)) return jsonError('worker sessions are not watchable', 400);
       addWatchedSession(project, session);
       // Ensure the supervisor actually monitors this session's project.
       // supervisor_reconcile iterates watched projects to fetch session

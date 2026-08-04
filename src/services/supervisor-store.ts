@@ -658,11 +658,19 @@ export function setTypedContractGating(project: string, on: boolean): void {
 
 // --- Watched sessions ---
 
+/** Detect ephemeral coordinator-spawned worker sessions by name prefix.
+ *  Mirrors ui/src/lib/liveness.ts:113 isWorkerSession — server-side twin
+ *  since backend cannot import ui/ code. */
+export function isWorkerSessionName(session: string): boolean {
+  return (session.split(/[-_]/)[0]?.toLowerCase() ?? '') === 'worker';
+}
+
 export function addWatchedSession(
   project: string,
   session: string,
   serverId = ''
 ): void {
+  if (isWorkerSessionName(session)) return;
   const d = openDb();
   d.prepare(
     'INSERT OR IGNORE INTO watched_session (project, session, addedAt, serverId) VALUES (?,?,?,?)'
