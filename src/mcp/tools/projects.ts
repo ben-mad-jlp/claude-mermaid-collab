@@ -10,6 +10,7 @@
 
 import { isAbsolute } from 'path';
 import { projectRegistry, type Project } from '../../services/project-registry.js';
+import { pruneProjectConfig } from '../../services/orchestrator-config.js';
 
 /**
  * Tool: list_projects
@@ -84,7 +85,9 @@ export const unregisterProjectSchema = {
 
 export async function handleUnregisterProject(args: { path: string }): Promise<{
   success: boolean;
+  pruned?: { orchestratorConfig: number; nodeProfileOverride: number };
 }> {
   const removed = await projectRegistry.unregister(args.path);
-  return { success: removed };
+  const pruned = pruneProjectConfig(args.path);
+  return { success: removed, pruned: { orchestratorConfig: pruned.orchestratorConfig, nodeProfileOverride: pruned.nodeProfileOverride } };
 }
