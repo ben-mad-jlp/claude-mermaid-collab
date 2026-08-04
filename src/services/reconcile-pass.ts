@@ -32,7 +32,7 @@ import {
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
-import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren } from './todo-store.ts';
+import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren, reviveTerminalBuckets } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
 import { claimReason, danglingDeps, resolveDepId, hasTerminalEpicAncestor } from './claimability.ts';
@@ -377,6 +377,22 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] bucket-hygiene sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3i. DEAD-BUCKET REVIVAL: a bucket epic (Inbox/Bugfix inbox/Flaky quarantine)
+  // terminalized by the drop cascade is a silent sink for every future file_to_bucket
+  // call. Revive it to planned and restore the collateral children the cascade
+  // clobbered. Idempotent; only done/dropped buckets are selected.
+  // -------------------------------------------------------------------------
+  await yieldToLoop();
+  try {
+    await reviveTerminalBuckets(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] dead-bucket revival sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
