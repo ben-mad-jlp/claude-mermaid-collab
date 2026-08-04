@@ -113,40 +113,69 @@ export async function ensureBucket(project: string, type: BucketType): Promise<s
   const store = await import('./todo-store.ts');
   const root = trackingProjectRoot(project);
 
-  // 1. Existing structural singleton — reopen it if it went terminal.
+  // Helper: verify the resolved bucket is not terminal.
+  const verifyNotTerminal = (bucketId: string): void => {
+    const db = store.openDb(project);
+    const row = db
+      .query(`SELECT id, status FROM todos WHERE id = ?`)
+      .get(bucketId) as { id: string; status: string } | null;
+    if (row && (row.status === 'done' || row.status === 'dropped')) {
+      throw new Error(
+        `ensureBucket: internal error — resolved bucket ${bucketId.slice(0, 8)} is terminal ` +
+        `(${row.status}). Buckets must never be terminal.`,
+      );
+    }
+  };
+
+  // 1. Existing structural singleton — find it even if terminal, and revive it.
   const typed = (): { id: string; status: string } | null => {
     const db = store.openDb(project);
     return db
       .query(
         `SELECT id, status FROM todos
-           WHERE targetProject = ? AND bucketType = ? AND status != 'dropped'
+           WHERE targetProject = ? AND bucketType = ?
            ORDER BY rowid ASC LIMIT 1`,
       )
       .get(root, type) as { id: string; status: string } | null;
   };
   const hit = typed();
   if (hit) {
-    if (hit.status === 'done') await store.updateTodo(project, hit.id, { status: 'planned' });
+    // Revive if terminal: drop to planned and clear completion/acceptance/land markers.
+    if (hit.status === 'done' || hit.status === 'dropped') {
+      const db = store.openDb(project);
+      db.prepare(
+        `UPDATE todos SET status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL WHERE id=?`
+      ).run(hit.id);
+    }
+    verifyNotTerminal(hit.id);
     return hit.id;
   }
 
   // 2. Adopt a LEGACY bucket epic of this type (bucketType never stamped) — a GENUINE
   //    bucket (isBucketEpic, not a prefix-title deliverable) of the matching type. Prefer a
-  //    live row, reopen a terminal one, and stamp bucketType so it becomes the singleton.
+  //    live row; revive terminal ones; prefer done > dropped when both terminal.
   const legacy = store
     .listTodos(project, { includeCompleted: true })
     .filter(
       (x) =>
         (x.bucketType ?? null) == null &&
-        x.status !== 'dropped' &&
         bucketTypeOfTitle(x.title) === type &&
         isBucketEpic(x),
     );
-  const chosen = legacy.find((x) => x.status !== 'done') ?? legacy[0];
+  // Prefer: live (any non-terminal status) > done > dropped (defensive ranking among terminals).
+  const chosen = legacy.find((x) => x.status !== 'done' && x.status !== 'dropped') ??
+                 legacy.find((x) => x.status === 'done') ??
+                 legacy.find((x) => x.status === 'dropped');
   if (chosen) {
     const db = store.openDb(project);
     db.prepare(`UPDATE todos SET bucketType = ?, isBucket = 1 WHERE id = ?`).run(type, chosen.id);
-    if (chosen.status === 'done') await store.updateTodo(project, chosen.id, { status: 'planned' });
+    // Revive if terminal (status 'done' or 'dropped').
+    if (chosen.status === 'done' || chosen.status === 'dropped') {
+      db.prepare(
+        `UPDATE todos SET status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL WHERE id=?`
+      ).run(chosen.id);
+    }
+    verifyNotTerminal(chosen.id);
     return chosen.id;
   }
 
@@ -160,11 +189,22 @@ export async function ensureBucket(project: string, type: BucketType): Promise<s
       missionId: null, // buckets are always roots
       _ensureBucketType: type, // internal: the sole path that stamps a non-null bucketType
     });
+    verifyNotTerminal(created.id);
     return created.id;
   } catch (e) {
     if (store.isDuplicateBucketError?.(e) || isUniqueViolation(e)) {
       const again = typed();
-      if (again) return again.id;
+      if (again) {
+        // Defensive: revive if race-condition created a terminal singleton.
+        if (again.status === 'done' || again.status === 'dropped') {
+          const db = store.openDb(project);
+          db.prepare(
+            `UPDATE todos SET status='planned', completedAt=NULL, acceptanceStatus=NULL, landedAt=NULL WHERE id=?`
+          ).run(again.id);
+        }
+        verifyNotTerminal(again.id);
+        return again.id;
+      }
     }
     throw e;
   }

@@ -8,6 +8,7 @@
  */
 
 import { stampEpicLandedAt, listTodos } from './todo-store';
+import { isBucketEpic } from './bucket-registry';
 import {
   makeGitProbe,
   epicBranchName,
@@ -51,6 +52,14 @@ export async function stampEpicLandedAtGated(
     const session = opts?.session ?? 'coordinator';
     const branch = epicBranchName(epicId);
 
+    // Bucket refusal: buckets are structural intake containers and never land.
+    // A bucket has no branch and never lands, so any attempt to stamp it is a gate error.
+    const listTodosFn = opts?.listTodos ?? listTodos;
+    const epic = listTodosFn(project, { includeCompleted: true }).find((t) => t.id === epicId);
+    if (epic && isBucketEpic(epic)) {
+      return { stamped: false, reason: 'gate-error' };
+    }
+
     // ALL-LEAVES-DONE gate (partial-land churn, bugfix 4ff59283): an epic whose branch
     // reaches master but whose sibling implementation leaves have not all run is only
     // PARTIALLY built. Stamping landedAt now makes the serving criterion read 'landed'
@@ -59,7 +68,6 @@ export async function stampEpicLandedAtGated(
     // kind='leaf' child done (status 'done' && not rejected) before ANY stamp path. Land
     // leaves (kind='land') are deliberately excluded — they complete AS PART of landing,
     // so requiring them would be circular. An epic with zero impl leaves is vacuously done.
-    const listTodosFn = opts?.listTodos ?? listTodos;
     const implLeaves = listTodosFn(project, { includeCompleted: true }).filter(
       (t) => t.parentId === epicId && t.kind === 'leaf' && t.status !== 'dropped',
     );
