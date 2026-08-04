@@ -86,6 +86,16 @@ function countNpoRows(project: string): number {
   return result.count;
 }
 
+/** Seed an orchestrator_config row directly. Transient paths (worktree lanes) are
+ *  REFUSED by setOrchestratorLevel — that guard is the point of the transient-path
+ *  criterion — so the only way to stand up the legacy rows the sweep/prune exist to
+ *  clean is to write them behind the guard, exactly as they got there historically. */
+function seedConfigRow(project: string, level: string, poolSize: number | null = null): void {
+  testDb!.prepare(
+    'INSERT OR REPLACE INTO orchestrator_config (project, level, updatedAt, poolSize) VALUES (?, ?, ?, ?)',
+  ).run(project, level, Date.now(), poolSize);
+}
+
 describe('basic db operations', () => {
   it('can insert and count node_profile_override rows', () => {
     const testPath = '/Users/test/repo/.collab/agent-sessions/worktrees/db-test';
@@ -110,7 +120,7 @@ describe('sweepTransientProjectConfig', () => {
   it('sweep removes a transient orchestrator_config row at level off', () => {
     // Use a worktree path which is always transient
     const transientPath = '/Users/test/repo/.collab/agent-sessions/worktrees/sweep-me-off';
-    setOrchestratorLevel(transientPath, 'off');
+    seedConfigRow(transientPath, 'off');
     expect(countConfigRows(transientPath)).toBe(1);
 
     const result = sweepTransientProjectConfig();
@@ -121,7 +131,7 @@ describe('sweepTransientProjectConfig', () => {
 
   it('sweep never removes a transient row at level on', () => {
     const transientPath = '/Users/test/repo/.collab/agent-sessions/worktrees/sweep-keep-on';
-    setOrchestratorLevel(transientPath, 'on');
+    seedConfigRow(transientPath, 'on');
     expect(countConfigRows(transientPath)).toBe(1);
 
     sweepTransientProjectConfig();
@@ -170,10 +180,11 @@ describe('pruneProjectConfig', () => {
 
     // Seed both tables with rows
     setOrchestratorLevel(project, 'on');
-    setOrchestratorLevel(worktreeChild, 'on');
+    // worktreeChild is transient — setOrchestratorLevel refuses it by design, so seed
+    // the legacy row directly (that is precisely the row prune has to reach).
+    seedConfigRow(worktreeChild, 'on', 5);
     setOrchestratorLevel(controlProject, 'on');
     setProjectPoolSize(project, 4);
-    setProjectPoolSize(worktreeChild, 5);
     setProjectPoolSize(controlProject, 6);
 
     // Also seed node_profile_override for the project and child
