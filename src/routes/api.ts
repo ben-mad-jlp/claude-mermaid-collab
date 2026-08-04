@@ -51,7 +51,7 @@ import { recordUsage, getUsage } from '../services/usage-store';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
 import type { ClaimSuppressionReport } from '../services/coordinator-live';
-import { addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
+import { addWatchedProject, removeWatchedProject, removeWatchedSession } from '../services/supervisor-store.ts';
 import { lastAssistantTurn, recentTurns } from '../services/transcript-reader.ts';
 import {
   listDesignsHandler,
@@ -116,7 +116,7 @@ function expandPath(path: string): string {
  * Full session de-registration cleanup shared by every delete/archive path.
  * `sessionRegistry.unregister()` only removes the sessions.json entry; this clears
  * the TWO registrations that were otherwise left DANGLING when a session is deleted:
- *  1. the supervisor's supervised-session row (`removeSupervised`), so a deleted
+ *  1. the supervisor's watched-session row (`removeWatchedSession`), so a deleted
  *     session no longer lingers as a ghost in the supervised list; and
  *  2. the Claude-session binding file `/tmp/.mermaid-collab-binding-<id>.json` written
  *     by `register_claude_session` — keyed by claudeSessionId, so we match on its
@@ -124,7 +124,7 @@ function expandPath(path: string): string {
  * All best-effort: a failure here NEVER blocks the delete (the registry row is gone).
  */
 async function cleanupSessionRegistrations(project: string, session: string): Promise<void> {
-  try { removeSupervised(project, session); } catch { /* best-effort: supervisor row */ }
+  try { removeWatchedSession(project, session); } catch { /* best-effort: supervisor row */ }
   try {
     const { dropSubscriptionsForSession } = await import('../services/session-subscriptions');
     dropSubscriptionsForSession(project, session);

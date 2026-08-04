@@ -34,7 +34,7 @@ mock.module('../todo-store', () => ({
 }));
 
 import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, buildChildrenIndex, displayTitle, strandedEpicCandidates } from '../coordinator-live';
-import { isSupervised, removeSupervised, listSupervised, listSupervisorAudit } from '../supervisor-store';
+import { isWatchedSession, removeWatchedSession, listWatchedSessions, listSupervisorAudit } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
 import type { Todo } from '../todo-store';
