@@ -51,6 +51,7 @@ import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
 import type { ClaimSuppressionReport } from '../services/coordinator-live';
 import { addWatchedProject, removeWatchedProject, removeWatchedSession } from '../services/supervisor-store.ts';
+import { pruneProjectConfig } from '../services/orchestrator-config.js';
 import { lastAssistantTurn, recentTurns } from '../services/transcript-reader.ts';
 import {
   listDesignsHandler,
@@ -665,7 +666,8 @@ export async function handleAPI(
         return Response.json({ success: false, error: 'Project not found' }, { status: 404 });
       }
 
-      return Response.json({ success: true });
+      const pruned = pruneProjectConfig(projectPath);
+      return Response.json({ success: true, pruned: { orchestratorConfig: pruned.orchestratorConfig, nodeProfileOverride: pruned.nodeProfileOverride } });
     } catch (error: any) {
       return Response.json({ success: false, error: error.message }, { status: 400 });
     }

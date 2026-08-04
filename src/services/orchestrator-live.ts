@@ -17,7 +17,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig } from './orchestrator-config.js';
 import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped } from './coordinator-live.js';
 import { runConductorPass } from './conductor-pass.js';
@@ -633,6 +633,14 @@ export function startOrchestrator(intervalMs = 30_000): void {
     emitAutoCollapseNotices();
   } catch (err) {
     console.warn('[orchestrator] Failed to emit auto-collapse notices:', err);
+  }
+
+  // Sweep stale and transient project config at startup (best-effort; independent try/catch).
+  try {
+    const swept = sweepTransientProjectConfig();
+    console.log('[orchestrator] Swept stale/transient project config:', swept.orchestratorConfig, 'orchestrator_config,', swept.nodeProfileOverride, 'node_profile_override rows for', swept.projects.length, 'projects');
+  } catch (err) {
+    console.warn('[orchestrator] sweepTransientProjectConfig failed:', err);
   }
 
   // Startup backfill: reconcile [LAND] leaves and GC branches for all configured projects
