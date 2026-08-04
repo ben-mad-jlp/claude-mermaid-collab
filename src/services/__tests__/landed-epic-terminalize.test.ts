@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, completeTodo, getTodo, listTodos, _closeProject,
+  createTodo, completeTodo, getTodo, listTodos, updateTodo, claimTodo, _closeProject,
 } from '../todo-store';
 import { _resetMissionDbCache } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
@@ -280,9 +280,11 @@ describe('terminalizeLandedEpics', () => {
     // Complete only one leaf; leave the other in_progress via a claim
     await completeTodo(project, completedLeaf.id, 'accepted');
 
-    // Claim the in-flight leaf to mark it as in-flight
-    const inFlightReloaded = getTodo(project, inFlightLeaf.id)!;
-    inFlightReloaded.claimedBy = 's1'; // Simulate a claim
+    // Claim the in-flight leaf to mark it as in-flight. This must be a PERSISTED claim:
+    // assigning claimedBy on the reloaded row only mutates a detached object, so the guard
+    // under test never saw an in-flight child and the case passed for the wrong reason.
+    await updateTodo(project, inFlightLeaf.id, { approvedAt: '2026-08-03T12:00:00Z', approvedBy: 's1' });
+    await claimTodo(project, inFlightLeaf.id, 's1', 30_000);
 
     const before = getTodo(project, epic.id)!;
     const landCommit = async (proj: string, id: string, deps?: any): Promise<EpicLandCommit> => ({
