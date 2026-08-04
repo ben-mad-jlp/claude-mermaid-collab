@@ -76,6 +76,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const { servers } = useServers();
   const activeId = currentSession?.serverId ?? null;
   const supervised = useSupervisedSessions();
+  const watched = useSupervisorStore((s) => s.supervised);
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -128,6 +129,48 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     () => projectSubscriptions.filter(([, sub]) => !supervised.set.has(`${sub.project}:${sub.session}`)),
     [projectSubscriptions, supervised.set],
   );
+
+  // Fold stale-retained peer rows into the Watching list so they render dimmed
+  // even when their underlying peer server is offline. Stale rows are those where
+  // watched.stale === true (a hydration failure that retained prior state).
+  // For each stale row: look it up in projectSubscriptions; if found, re-use that
+  // entry with stale:true; if not found, synthesize a row with status:'unknown'.
+  // Result: all visibleSubscriptions entries that are not in the stale set, plus
+  // the stale rows (no duplicates).
+  const rowsWithStalePeers = useMemo(() => {
+    const staleRows: Array<[string, SubscribedSession]> = [];
+    const staleKeysSet = new Set<string>();
+
+    for (const w of watched) {
+      if (!w.stale) continue;
+      const key = `${w.serverId ?? ''}:${w.project}:${w.session}`;
+      staleKeysSet.add(key);
+
+      // Try to find this key in projectSubscriptions
+      const found = projectSubscriptions.find(([k]) => k === key);
+      if (found) {
+        // Case a: found in subscriptions, stamp it as stale
+        staleRows.push([key, { ...found[1], stale: true }]);
+      } else {
+        // Case b: not in subscriptions, synthesize a row
+        staleRows.push([
+          key,
+          {
+            serverId: w.serverId ?? '',
+            project: w.project,
+            session: w.session,
+            status: 'unknown',
+            lastUpdate: 0,
+            stale: true,
+          } as SubscribedSession,
+        ]);
+      }
+    }
+
+    // Combine: visibleSubscriptions entries that are NOT stale + all stale rows
+    const nonStale = visibleSubscriptions.filter(([key]) => !staleKeysSet.has(key));
+    return [...nonStale, ...staleRows];
+  }, [watched, visibleSubscriptions, projectSubscriptions]);
 
   const handleDragStart = useCallback((e: React.DragEvent, key: string) => {
     dragKeyRef.current = key;
@@ -701,10 +744,10 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       {/* Subscription items */}
       {!collapsed && (
         <div className="px-2 pb-2 space-y-1">
-          {visibleSubscriptions.map(([key, sub]) => (
+          {rowsWithStalePeers.map(([key, sub]) => (
             <SessionCard
               key={key}
-              subKey={key}
+              subKey={subscriptions[key] ? key : undefined}
               sub={sub}
               serverLabel={serverLabelById.get(sub.serverId)}
               serverIcon={serverIconById.get(sub.serverId)}
