@@ -12,7 +12,7 @@ import { trackingProjectRoot, isTransientProjectPath, projectRegistry, listRegis
 import type { LeafSplitItem } from './split-decision';
 import { LANDED_LEFTOVER_GRACE_MS } from './harness-caps';
 import { topoSortSplitItems } from './split-decision';
-import { ensureBucket, isBucketEpic, type BucketType } from './bucket-registry.ts';
+import { ensureBucket, isBucketEpic, reviveBucketRow, type BucketType } from './bucket-registry.ts';
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
@@ -3454,6 +3454,36 @@ export function sweepTerminalBucketChildren(project: string, olderThanMs = BUCKE
       }
     }
     return archived;
+  });
+}
+
+/** Idempotent: revive (status→'planned', clear completion/acceptance markers) bucket
+ *  epics that are 'done' or 'dropped', and restore any children that were dropped by
+ *  the cascade when the bucket was terminated (matching the exact cascade-drop
+ *  signature: status='dropped', completedAt=NULL, acceptanceStatus=NULL). The bucket's
+ *  true kill-time is captured BEFORE reviveBucketRow clears completedAt, so the cascade
+ *  children can be found via their matching updatedAt stamp. Only done/dropped buckets
+ *  are selected, so re-running is a no-op. */
+export function reviveTerminalBuckets(project: string): Promise<string[]> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    const buckets = listTodos(project, { includeCompleted: true }).filter((t) => isBucketEpic(t));
+    const revived: string[] = [];
+    for (const bucket of buckets) {
+      if (bucket.status !== 'done' && bucket.status !== 'dropped') continue;
+      const killedAt = bucket.completedAt; // capture BEFORE reviveBucketRow nulls it
+      if (killedAt != null) {
+        const ts = nowIso();
+        db.prepare(
+          `UPDATE todos SET status='planned', updatedAt=?
+             WHERE parentId=? AND status='dropped' AND completedAt IS NULL
+               AND acceptanceStatus IS NULL AND updatedAt=?`,
+        ).run(ts, bucket.id, killedAt);
+      }
+      reviveBucketRow(db, bucket.id, null); // type MUST be null — never derive/stamp bucketType here
+      revived.push(bucket.id);
+    }
+    return revived;
   });
 }
 
