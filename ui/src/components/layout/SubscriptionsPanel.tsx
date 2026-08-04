@@ -121,21 +121,15 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     return [...orderedKeys, ...unorderedKeys].map((k) => [k, subscriptions[k]] as [string, typeof subscriptions[string]]);
   }, [subscriptions, order]);
 
-  // Rows shown in the Watching list. A supervised session is surfaced in the
-  // Supervisor panel instead, so hide it here (the underlying subscription
-  // stays — it's what feeds the supervisor card's live status). Stop
-  // supervising and it reappears here.
-  const visibleSubscriptions = useMemo(
-    () => projectSubscriptions.filter(([, sub]) => !supervised.set.has(`${sub.project}:${sub.session}`)),
-    [projectSubscriptions, supervised.set],
-  );
+  // Every subscription renders in the Watching list, supervised or not — a supervised
+  // row is marked by the per-row `supervised` prop, never hidden.
 
   // Fold stale-retained peer rows into the Watching list so they render dimmed
   // even when their underlying peer server is offline. Stale rows are those where
   // watched.stale === true (a hydration failure that retained prior state).
   // For each stale row: look it up in projectSubscriptions; if found, re-use that
   // entry with stale:true; if not found, synthesize a row with status:'unknown'.
-  // Result: all visibleSubscriptions entries that are not in the stale set, plus
+  // Result: all projectSubscriptions entries that are not in the stale set, plus
   // the stale rows (no duplicates).
   const rowsWithStalePeers = useMemo(() => {
     const staleRows: Array<[string, SubscribedSession]> = [];
@@ -167,10 +161,10 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       }
     }
 
-    // Combine: visibleSubscriptions entries that are NOT stale + all stale rows
-    const nonStale = visibleSubscriptions.filter(([key]) => !staleKeysSet.has(key));
+    // Combine: projectSubscriptions entries that are NOT stale + all stale rows
+    const nonStale = projectSubscriptions.filter(([key]) => !staleKeysSet.has(key));
     return [...nonStale, ...staleRows];
-  }, [watched, visibleSubscriptions, projectSubscriptions]);
+  }, [watched, projectSubscriptions]);
 
   const handleDragStart = useCallback((e: React.DragEvent, key: string) => {
     dragKeyRef.current = key;
@@ -474,7 +468,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
         >
           <span>Watching</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">
-            {visibleSubscriptions.length}
+            {rowsWithStalePeers.length}
           </span>
           <svg
             className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
