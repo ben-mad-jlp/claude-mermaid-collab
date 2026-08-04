@@ -277,6 +277,46 @@ export function namesScopeGuardCheck(text: string): boolean {
   return hasResult;
 }
 
+/** True when the criterion names a TEST INVOCATION in the citable three-part shape:
+ *  (a) the runner invocation, (b) a test FILE that resolves into the declared change-set, and
+ *  (c) the NAME of an assertion inside it (`it('…')` / `test('…')` / `describe('…')`, or an
+ *  `asserting/asserts "<name>"` phrase). All three are checkable against the produced diff, so
+ *  such a criterion is CITABLE and must be acquitted before the command-result conviction.
+ *
+ *  WHY (friction d08de44a, mission 0a4a350d, leaf 54ebddd7): "`npx vitest run
+ *  src/lib/__tests__/ros-store.test.ts` passes" was convicted as an uncitable command-result and
+ *  the author was told to "restate as a named zero-match check — e.g. `grep -rn 'npx vitest run
+ *  …' src/` returns no matches", i.e. to grep the SOURCE TREE for the literal text of the test
+ *  command. Complying literally yields a criterion that is trivially true and proves nothing — a
+ *  placebo. Two blueprint nodes burned, zero implement nodes reached. Missions whose criteria say
+ *  "proven by test" could not state their own chosen form of proof.
+ *
+ *  The bar is deliberately three-part: naming a runner alone would re-admit the bare "tests pass"
+ *  prose Rule 2 exists to reject. A test file NOT in the change-set still falls through to the
+ *  conviction — an untouched suite proves nothing about this leaf. */
+export function namesTestInvocation(text: string, declaredFiles: readonly string[]): boolean {
+  // (i) a test-runner invocation
+  const hasInvocation =
+    /(?:^|[\s`(])(?:npx\s+)?(?:vitest|jest|mocha|ava|playwright)\b/i.test(text) ||
+    /(?:^|[\s`(])(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b/i.test(text) ||
+    /(?:^|[\s`(])(?:bun|node|deno)\s+(?:--)?test\b/i.test(text) ||
+    /(?:^|[\s`(])(?:go|cargo)\s+test\b/i.test(text);
+  if (!hasInvocation) return false;
+
+  // (ii) a test file named in the text that resolves into the declared change-set. Without a
+  // manifest we cannot check membership, so we abstain from acquitting rather than acquit blind.
+  if (declaredFiles.length === 0) return false;
+  const paths = text.match(/[\w./-]*[\w-]+\.(?:[jt]sx?|mjs|cjs|py|go|rs|swift|kt|rb)\b/g) ?? [];
+  const namesDeclaredTestFile = paths.some((p) => resolvesIntoDeclaredChangeSet(p, declaredFiles));
+  if (!namesDeclaredTestFile) return false;
+
+  // (iii) the NAME of an assertion inside that file
+  const namesAssertion =
+    /\b(?:it|test|describe)\s*\(\s*['"`]/.test(text) ||
+    /\bassert(?:s|ing)?\b[^.]{0,40}['"`][^'"`]{3,}['"`]/i.test(text);
+  return namesAssertion;
+}
+
 /** A criterion that asserts a positive, readable property of a concrete OUTPUT-ARTIFACT file (a
  *  report/score/data file — .md/.json/.csv/.log/…, NOT source code) is CITABLE: the review reads
  *  that artifact, regardless of which command produced it. This is the measurement/spike shape
@@ -321,8 +361,10 @@ function pickSubject(text: string): string {
 export function compliantShapeFor(kind: UncitableKind, offendingText: string): string {
   switch (kind) {
     case 'command-result': {
+      // NEVER suggest grepping the source tree for the text of a command (friction d08de44a):
+      // that yields a criterion which is trivially true and asserts nothing about the code.
       const term = pickTerm(offendingText);
-      return `Compliant shape: restate as a named zero-match check — e.g. \`grep -rn '${term}' src/\` returns no matches.`;
+      return `Compliant shape: name what the command PRODUCES, not that it succeeds — for a test, cite the test file (declared in filesToEdit/filesToCreate) and the assertion inside it, e.g. \`${term}\` passes, asserting \`it('<test name>')\` in <declared test file>; for a build or report, assert a readable property of the produced artifact, e.g. <artifact>.json contains <field>. If neither is available, drop the criterion rather than restating the command.`;
     }
     case 'absence': {
       const subject = pickSubject(offendingText);
@@ -371,6 +413,14 @@ export function classifyCriterion(
   // Rule 1.5: ACQUIT on a named runnable read-only verification command with a checkable result.
   // Reuse the 'command-result' kind so the review-time defer predicate accepts it too.
   if (namesVerificationCommand(text) || namesScopeGuardCheck(text)) {
+    return { text, citable: true, kind: 'command-result' };
+  }
+
+  // Rule 1.6: ACQUIT a TEST INVOCATION stated in the citable three-part shape (runner + declared
+  // test file + named assertion) — see namesTestInvocation. Must precede Rule 2, which would
+  // otherwise convict it and hand back placebo advice (friction d08de44a). Reuses the
+  // 'command-result' kind so the review-time defer predicate honours it like the other acquittals.
+  if (namesTestInvocation(text, declaredFiles)) {
     return { text, citable: true, kind: 'command-result' };
   }
 
