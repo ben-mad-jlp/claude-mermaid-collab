@@ -153,16 +153,10 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
   // The fleet graph flows left→right (LR): dependency waves read as columns
   // advancing rightward, which suits the full-width bottom graph strip.
   const direction = 'LR';
-  // G3: only the coordinator-spawned sessions count as "working fleet" workers
-  // (plus any session currently holding a claimed in_progress todo, derived in
-  // the hook). Foreground operators registered in the subscription store are
-  // filtered out so they don't show up as idle worker nodes.
-  const supervised = useSupervisorStore((s) => s.supervised);
-  const spawnedSessions = useMemo(
-    () => new Set(supervised.filter((s) => s.source === 'spawn').map((s) => s.session)),
-    [supervised],
-  );
-  const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now, direction, spawnedSessions, inflightLeafIds });
+  // G3: only sessions currently holding a claimed in_progress todo count as
+  // "working fleet" workers. Foreground operators registered in the subscription
+  // store are filtered out so they don't show up as idle worker nodes.
+  const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now, direction, inflightLeafIds });
 
   // Fit the graph to its pane once nodes populate and after each relayout — the
   // <ReactFlow fitView> prop only fires on the initial (empty) mount, which left

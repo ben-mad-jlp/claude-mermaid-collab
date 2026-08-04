@@ -394,7 +394,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       // up front, then reconciled with the server below.
       supervised.setOptimistic(sub.project, sub.session, next);
       useSupervisorStore.getState().setSupervisedLocal(
-        { project: sub.project, session: sub.session, source: 'manual', serverId: sub.serverId },
+        { project: sub.project, session: sub.session, serverId: sub.serverId },
         next,
       );
       if (mc?.invokeOnServer) {

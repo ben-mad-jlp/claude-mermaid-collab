@@ -194,24 +194,18 @@ describe('useFleetGraph', () => {
     expect(b.position.y).toBeGreaterThan(a.position.y);
   });
 
-  it('G3: worker nodes only for the working fleet (spawned OR holding a claimed in_progress todo)', () => {
+  it('G3: worker nodes only for sessions holding a claimed in_progress todo', () => {
     const todos = [todo({ id: 'T', status: 'in_progress', claimedBy: 'worker-x' })];
     const subs = [sub('worker-x'), sub('planner-1')];
 
-    // No session spawned: worker-x holds a claimed in_progress todo → node;
+    // worker-x holds a claimed in_progress todo → node;
     // planner-1 is an idle foreground operator → NO node.
     const { result } = renderHook(() =>
-      useFleetGraph({ ...base, todos, subs, expandedEpics: new Set(), spawnedSessions: new Set() }),
+      useFleetGraph({ ...base, todos, subs, expandedEpics: new Set() }),
     );
     const ids = result.current.nodes.map((n) => n.id);
     expect(ids).toContain('worker:worker-x');
     expect(ids).not.toContain('worker:planner-1');
-
-    // Mark planner-1 as coordinator-spawned → it now qualifies as a worker node.
-    const spawned = renderHook(() =>
-      useFleetGraph({ ...base, todos, subs, expandedEpics: new Set(), spawnedSessions: new Set(['planner-1']) }),
-    );
-    expect(spawned.result.current.nodes.map((n) => n.id)).toContain('worker:planner-1');
   });
 
   it('omits a mission node from the fleet graph', () => {
