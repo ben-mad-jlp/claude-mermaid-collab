@@ -41,14 +41,6 @@ export interface UseFleetGraphInput {
   /** dagre rankdir, mirrors the deck orientation (LR wide / TB narrow). */
   direction?: LayoutDirection;
   /**
-   * G3: the sessions the coordinator SPAWNED (supervised source='spawn'). A sub
-   * becomes a worker node only if it's in here OR currently holds a claimed
-   * in_progress todo — so foreground operators (planner/supervisor/steward) that
-   * are merely registered don't leak in as idle worker nodes. Absent → treated
-   * as empty (only claim-holders qualify).
-   */
-  spawnedSessions?: Set<string>;
-  /**
    * Leaf/todo ids the daemon reports as RUNNING RIGHT NOW (the headless
    * leaf-executor `inflight[]` ledger, keyed by leafId === todoId). Headless
    * runs leave no tmux and never flip the todo's `claimedBy`/`in_progress`, so
@@ -118,7 +110,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
-  const { todos: inputTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions, inflightLeafIds } = input;
+  const { todos: inputTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', inflightLeafIds } = input;
 
   // Drop missions before ANY structural derivation (see isMissionTodo).
   const rawTodos = useMemo(() => inputTodos.filter((t) => !isMissionTodo(t)), [inputTodos]);
@@ -160,14 +152,13 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
   }, [rawTodos]);
 
   // G3: restrict the worker nodes to the WORKING fleet. A session qualifies if
-  // it was coordinator-spawned (spawnedSessions) OR it currently holds a claimed
-  // in_progress todo (currentTodoFor returns non-null only for in_progress work).
-  // Everything else — idle foreground operators merely registered in the
-  // subscription store — is excluded. Done once here so the layout, nodes and
-  // claim edges all derive from the same filtered set.
+  // it currently holds a claimed in_progress todo. Everything else — idle
+  // foreground operators merely registered in the subscription store — is excluded.
+  // Done once here so the layout, nodes and claim edges all derive from the same
+  // filtered set.
   const subs = useMemo(
-    () => rawSubs.filter((s) => spawnedSessions?.has(s.session) || currentTodoFor(s.session, todos) != null),
-    [rawSubs, spawnedSessions, todos],
+    () => rawSubs.filter((s) => currentTodoFor(s.session, todos) != null),
+    [rawSubs, todos],
   );
 
   // Structure: parent/child relationships (who is whose parent). An EPIC is a todo
