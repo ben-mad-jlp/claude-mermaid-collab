@@ -35,6 +35,26 @@ export function isTransientProjectPath(path: string): boolean {
   return /[/\\]\.collab[/\\]agent-sessions[/\\]/.test(path);
 }
 
+/** Sync read-only enumerator of registered project paths. Filters out transient
+ *  (worktree) paths and missing directories, falling through to [] on missing file
+ *  or invalid JSON (matching load()'s own tolerance without its async/self-heal
+ *  side effects). Used by todoNotFoundMessage to probe other projects for a missing
+ *  todo id and suggest the correct project parameter. */
+export function listRegisteredProjectPathsSync(): string[] {
+  try {
+    const raw = fs.readFileSync(projectsPath(), 'utf-8');
+    const data = JSON.parse(raw);
+    if (!data?.projects || !Array.isArray(data.projects)) return [];
+    return data.projects
+      .map((p: Project) => p?.path)
+      .filter((p: unknown): p is string => typeof p === 'string' && p.length > 0)
+      .filter((p: string) => !isTransientProjectPath(p) && fs.existsSync(p));
+  } catch {
+    return [];
+  }
+}
+
+
 /** Map a worker-worktree path back to its tracking repo root. A worktree lives at
  *  <repo>/.collab/agent-sessions/worktrees/<lane>; the durable per-project stores
  *  (todos.db, decision-records.db, …) are owned by <repo>, NOT the per-todo
