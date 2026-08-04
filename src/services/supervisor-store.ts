@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { validateUiSpec, type JsonRenderSpec } from './escalation-ui-schema';
-import { trackingProjectRoot } from './project-registry';
+import { trackingProjectRoot, isTransientProjectPath } from './project-registry';
 
 /**
  * GLOBAL supervisor store (single connection).
@@ -934,6 +934,9 @@ export function createEscalation(input: {
   // Mirrors the todo-store fix. Same-repo (non-isolated) callers pass the root
   // already, so trackingProjectRoot is an identity no-op for them.
   const project = trackingProjectRoot(input.project);
+  if (isTransientProjectPath(project)) {
+    throw new Error(`createEscalation: refusing transient project path ${project}`);
+  }
   const conditionKey = input.conditionKey ?? null;
   const conditionHash = conditionKey != null && input.conditionTuple ? hashTuple(input.conditionTuple) : null;
 
