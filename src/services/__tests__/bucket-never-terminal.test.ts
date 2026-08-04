@@ -153,4 +153,60 @@ describe('bucket-never-terminal', () => {
     expect(result.stamped).toBe(false);
     expect(result.reason).toBe('gate-error');
   });
+
+  it('ensureBucket revives a fully-terminal bucket (status, completedAt, acceptanceStatus, landedAt, hollowLandedAt) and is idempotent on a second call', async () => {
+    // Create a bucket.
+    const bucketId = await ensureBucket(PROJECT, 'inbox');
+    const bucket1 = getTodo(PROJECT, bucketId)!;
+    expect(bucket1.status).toBe('planned');
+    expect(bucket1.bucketType).toBe('inbox');
+
+    // Manually mark it fully terminal: status='done', completedAt, acceptanceStatus='accepted',
+    // landedAt, and hollowLandedAt.
+    const db = openDb(PROJECT);
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE todos SET status='done', completedAt=?, acceptanceStatus='accepted', landedAt=?, hollowLandedAt=? WHERE id=?`,
+    ).run(now, now, now, bucketId);
+
+    let terminal = getTodo(PROJECT, bucketId)!;
+    expect(terminal.status).toBe('done');
+    expect(terminal.completedAt).not.toBeNull();
+    expect(terminal.acceptanceStatus).toBe('accepted');
+    expect(terminal.landedAt).not.toBeNull();
+    expect(terminal.hollowLandedAt).not.toBeNull();
+
+    // Call ensureBucket again — it should revive the bucket.
+    const revived = await ensureBucket(PROJECT, 'inbox');
+    expect(revived).toBe(bucketId);
+
+    // Verify it's now planned and all terminal markers are cleared.
+    const revivified = getTodo(PROJECT, bucketId)!;
+    expect(revivified.status).toBe('planned');
+    expect(revivified.completedAt).toBeNull();
+    expect(revivified.acceptanceStatus).toBeNull();
+    expect(revivified.landedAt).toBeNull();
+    expect(revivified.hollowLandedAt).toBeNull();
+    expect(revivified.isBucket).toBeTruthy();
+    expect(revivified.bucketType).toBe('inbox');
+
+    // Record the state after first ensureBucket revive call.
+    const revivifiedUpdatedAt = revivified.updatedAt;
+
+    // Second call to ensureBucket on the same bucket should be idempotent (only updatedAt changes).
+    await new Promise((resolve) => setTimeout(resolve, 10)); // Small delay to ensure updatedAt changes.
+    const secondResult = await ensureBucket(PROJECT, 'inbox');
+    expect(secondResult).toBe(bucketId);
+
+    const secondCall = getTodo(PROJECT, bucketId)!;
+    expect(secondCall.status).toBe(revivified.status);
+    expect(secondCall.completedAt).toBe(revivified.completedAt);
+    expect(secondCall.acceptanceStatus).toBe(revivified.acceptanceStatus);
+    expect(secondCall.landedAt).toBe(revivified.landedAt);
+    expect(secondCall.hollowLandedAt).toBe(revivified.hollowLandedAt);
+    expect(secondCall.isBucket).toBe(revivified.isBucket);
+    expect(secondCall.bucketType).toBe(revivified.bucketType);
+    // updatedAt must have changed (it's set to the current time on each call).
+    expect(secondCall.updatedAt).not.toBe(revivifiedUpdatedAt);
+  });
 });
