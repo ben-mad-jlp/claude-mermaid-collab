@@ -8,6 +8,7 @@ import { listTodos, completeTodo, updateTodo, type Todo } from './todo-store.js'
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
 import { isEpic } from './todo-kind.js';
+import { isBucketEpic } from './bucket-registry.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, effectiveNewCount, type BranchLister, type GitProbe } from './epic-branch-status.js';
 import { rescueOrphanedLeafCommitsForBranch } from './rescue-ref.js';
 import { teardownEpic } from './epic-teardown.js';
@@ -125,7 +126,7 @@ export async function terminalizeLandedEpics(
   let skipped = 0;
 
   for (const epic of todos) {
-    if (!isEpic(epic) || epic.isBucket || epic.status === 'done' || epic.status === 'dropped') {
+    if (!isEpic(epic) || isBucketEpic(epic) || epic.status === 'done' || epic.status === 'dropped') {
       if (isEpic(epic)) skipped++;
       continue;
     }
