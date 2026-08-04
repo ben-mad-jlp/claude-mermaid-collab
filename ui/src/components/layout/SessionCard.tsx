@@ -285,6 +285,16 @@ export const SessionCard: React.FC<{
                 {elapsed}
               </span>
             )}
+            {sub.stale === true && sub.status === 'unknown' && (
+              <span
+                data-testid="session-card-stale"
+                data-stale="true"
+                className="text-gray-400 dark:text-gray-500 italic flex-shrink-0"
+                title="peer unreachable — last known state"
+              >
+                ⋯
+              </span>
+            )}
           </div>
         </div>
         {/* Context bar — pinned to bottom of card */}
