@@ -346,13 +346,27 @@ export async function fileToBucketLeaf(
 ): Promise<Todo> {
   const bucketType: BucketType = opts.bucket === 'bugfix' ? 'bugfix' : 'inbox';
   const parentId = await ensureBucket(project, bucketType);
-  return addSessionTodo(project, session, opts.title, opts.link, {
+  const leaf = await addSessionTodo(project, session, opts.title, opts.link, {
     kind: 'leaf',
     parentId,
     description: opts.description,
     priority: opts.priority,
     status: opts.status ?? 'backlog',
   });
+
+  // Post-condition: verify the bucket parent is not terminal after filing the leaf.
+  // If a sweep-drop raced and already terminated the bucket, the leaf would have been
+  // dropped too, leaving us with an orphan. Fail loudly rather than hand back a
+  // success response for a leaf whose parent is dead.
+  const parentNow = getTodo(project, parentId);
+  if (parentNow && (parentNow.status === 'done' || parentNow.status === 'dropped')) {
+    throw new Error(
+      `fileToBucketLeaf: bucket parent ${parentId.slice(0, 8)} is terminal (${parentNow.status}) ` +
+      `after leaf creation. The leaf was orphaned by a concurrent sweep-drop.`,
+    );
+  }
+
+  return leaf;
 }
 
 // ============= Tool definitions =============

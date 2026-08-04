@@ -456,6 +456,20 @@ export class TerminalParentApproveError extends Error {
   }
 }
 
+/** A live child cannot be created under a terminal bucket epic. Buckets are structural
+ *  intake containers and never terminate — a terminal bucket is a data inconsistency
+ *  that must be revived (or re-assigned) before new children are added. */
+export class TerminalBucketParentError extends Error {
+  constructor(public readonly childTitle: string, public readonly bucketId: string) {
+    super(
+      `Cannot create todo "${childTitle}": it is parented under a terminal bucket epic ` +
+      `${bucketId.slice(0, 8)} (done/dropped). Buckets must be revived (status=planned) ` +
+      `or this child must be re-homed under a live epic.`,
+    );
+    this.name = 'TerminalBucketParentError';
+  }
+}
+
 export type UpdateTodoPatch = Partial<{
   title: string;
   description: string | null;
@@ -1056,9 +1070,11 @@ export function backfillLandedAtAndGateV8(db: Database): void {
   // 'done' epic predating per-land stamping is terminal history, not pending work —
   // stamp landedAt from its own completion time. WHERE landedAt IS NULL keeps re-runs
   // zero-row; epics landing today are stamped at land time and never reach this.
+  // Exclude buckets (bucketType IS NOT NULL) and Collab-gaps legacy buckets (isBucket=0 rows
+  // with bucketType=NULL that never received the structural singleton marker).
   db.exec(`
     UPDATE todos SET landedAt = COALESCE(completedAt, updatedAt)
-    WHERE kind = 'epic' AND status = 'done' AND landedAt IS NULL
+    WHERE kind = 'epic' AND status = 'done' AND landedAt IS NULL AND bucketType IS NULL AND isBucket = 0
   `);
   // One-shot backfill (W4 cutover): create_epic no longer mints a [LAND] leaf and
   // checkLandDeps/missionLandLeafPromotion no longer require one — drop (never
@@ -1677,6 +1693,9 @@ export function closeEpicIfChildrenSettled(
   if (isMission(epic)) {
     return false;
   }
+  if (isBucketEpic(epic)) {
+    return false;
+  }
 
   // Collect all children, then filter to non-dropped (live).
   const allChildren = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === epic.id);
@@ -1975,6 +1994,14 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
+    // Bucket-scoped guard: a live child cannot be created under a terminal bucket.
+    // Buckets are structural and must never be terminal, so this is always a data error.
+    if (resolvedParentId) {
+      const parent = getTodo(project, resolvedParentId);
+      if (parent && isBucketEpic(parent) && (parent.status === 'done' || parent.status === 'dropped')) {
+        throw new TerminalBucketParentError(input.title, parent.id);
+      }
+    }
     if (approvedAt != null) {
       const terminalAncestorId = hasTerminalEpicAncestor(project, resolvedParentId);
       if (terminalAncestorId) throw new TerminalParentApproveError(id, terminalAncestorId);
@@ -3256,6 +3283,8 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
         // Phase 2a: a `[MISSION]` root is durable — never rolled up even when all its
         // iteration epics settle (mirrors the event-path guard in completeTodo).
         if (isMission(epic)) continue;
+        // Buckets are structural intake containers — never terminalized by a rollup sweep.
+        if (isBucketEpic(epic)) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) {
           // No live children. Check if all children (including dropped) are terminal.
