@@ -220,6 +220,38 @@ export function execAsync(
  *  Order: origin/HEAD is authoritative when present (it names the real default branch even
  *  in a repo carrying both `main` and `master`); only then fall back to probing. Returns
  *  'master' when nothing resolves, preserving the historical default for master-trunk repos. */
+/**
+ * Would the compile gate ABSTAIN in `cwd` — i.e. is a compile check selected for this
+ * project but its compiler absent? Cheap: one detectCompileCheck + one `--version` spawn.
+ *
+ * This exists so an abstain is REPORTED rather than silent. An abstaining gate is a gate
+ * that has stopped checking: trading a false blocker for a false green is the worse trade,
+ * and the console.warn in tscClean goes to the sidecar's stdout where nobody reads it.
+ * The land path surfaces this on the card (LandReadinessVerdict.compileGateAbstained).
+ *
+ * NOTE this is usually an ENVIRONMENT fault, not a missing toolchain. On the host that
+ * produced incident 2026-08-04, `dotnet` WAS installed — at /home/qbintelligence/.dotnet,
+ * executable by the daemon's user, just absent from its PATH. `dotnet build` on qbs.sln
+ * then succeeds in ~63s with 0 errors. So the FIRST remedy is always to make the compiler
+ * reachable (DOTNET_ROOT / PATH on the server process); abstaining is the safety net for a
+ * genuinely toolless machine, never the resting answer for a repo that has real code to
+ * compile. Never throws. */
+export async function compileGateWouldAbstain(cwd: string): Promise<boolean> {
+  try {
+    // A MISSING CWD also spawns ENOENT, which would otherwise read as "compiler absent" and
+    // fire this warning on every fixture/torn-down worktree. Require the directory first so
+    // the flag means what it says.
+    if (!existsSync(cwd)) return false;
+    const check = detectCompileCheck(cwd);
+    if (!check) return false; // no compile step at all → not an abstain, just N/A by language
+    const [bin] = check.cmd.split(' ');
+    const r = await execAsync(bin, ['--version'], { cwd });
+    return r.notFound;
+  } catch {
+    return false; // never let the reporter break a land
+  }
+}
+
 export async function resolveTrunkRef(cwd: string): Promise<string> {
   const sym = await execAsync('git', ['-C', cwd, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
   if (sym.code === 0) {

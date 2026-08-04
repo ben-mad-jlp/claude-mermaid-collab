@@ -20,7 +20,7 @@ import { isBucketEpic as registryIsBucketEpic } from './bucket-registry.ts';
 import { epicBranchName } from './epic-branch-status';
 import { isMission, stripLabel } from './todo-kind.ts';
 import { getMission, isMissionTerminal } from './mission-store';
-import { realRunners } from './steward-proof';
+import { realRunners, compileGateWouldAbstain } from './steward-proof';
 import { hasLandStamp } from './epic-landedness';
 import { epicGatingChildren } from './coordinator-live';
 
@@ -62,6 +62,14 @@ export interface LandReadinessVerdict {
   presence: LandReadinessReport;
   gate: EpicLandGateResult | null;
   inheritedRed: boolean;
+  /** REPORTED, NOT BLOCKING (mirrors inheritedRed). True when a compile check IS selected
+   *  for this project but its compiler could not be found, so the compile gate abstained
+   *  instead of running. The land is not blocked — but this epic landed WITHOUT a compile
+   *  check, and that must be visible rather than reading as a clean pass. The usual remedy
+   *  is ENVIRONMENT (PATH / DOTNET_ROOT on the daemon process), not code: in incident
+   *  2026-08-04 dotnet was installed and executable, merely off the daemon's PATH, and the
+   *  solution built green in ~63s once it was reachable. */
+  compileGateAbstained: boolean;
   summary: string;
 }
 
@@ -498,6 +506,20 @@ export async function landReadiness(
     summary = `[LAND] leaf deps unsatisfied; ${summary}`;
   }
 
+  // REPORTED, NOT BLOCKING: a compile check was selected for this project but its compiler
+  // could not be found, so the gate abstained rather than ran. Say so in the summary — this
+  // epic is landing with NO compile check, and a silent abstain reads exactly like a clean
+  // pass. The fix is normally the daemon's PATH/DOTNET_ROOT, not the code.
+  //
+  // APPENDED, never prepended: the summary's leading position is a contract held by BLOCKING
+  // reasons (the [LAND]-deps prefix asserts it). A non-blocking warning must not displace a
+  // blocker at the front — a reader scanning the first clause has to see what actually stops
+  // the land.
+  const compileGateAbstained = await compileGateWouldAbstain(epicWorktreeCwd);
+  if (compileGateAbstained) {
+    summary += ' ⚠ COMPILE GATE ABSTAINED — compiler not on the daemon\'s PATH; this epic is NOT compile-checked';
+  }
+
   const green = blockers.length === 0;
 
   return {
@@ -509,6 +531,7 @@ export async function landReadiness(
     presence,
     gate,
     inheritedRed,
+    compileGateAbstained,
     summary,
   };
 }
