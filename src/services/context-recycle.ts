@@ -28,10 +28,10 @@ import { fireStamp } from './nudge-stamp';
  *   detect high context  →  /vibe-checkpoint  →  (session writes ## Checkpoint,
  *   calls checkpoint_ready)  →  /clear  →  settle  →  /collab <session>  (RESUME)
  *
- * The resume is ONE prompt by design. Role restoration rides the `register_claude_session`
- * round-trip that /collab already makes (server returns `sessionRole`, the skill loads it) —
- * NOT a second injection, which would race the TUI's stdin. The `recover` case body still
- * contains exactly one `nudge(...)` call (the acceptance criterion is preserved).
+ * The resume is ONE prompt by design — NOT a second injection, which would race the TUI's
+ * stdin. The `recover` case body still contains exactly one `nudge(...)` call (the
+ * acceptance criterion is preserved). There is no role to restore: the conductor is a
+ * daemon node, so a recycled session always comes back as a plain vibe session.
  *
  * Gated by the per-project `contextRecycleMode` (off | notify | force). A Claude
  * session cannot `/clear` itself (slash commands are client-side user input), so the
