@@ -49,10 +49,9 @@ export type ContextRecycleMode = 'off' | 'notify' | 'force';
 export const CONTEXT_RECYCLE_MODES: ContextRecycleMode[] = ['off', 'notify', 'force'];
 
 
-export interface SupervisedSession {
+export interface WatchedSession {
   project: string;
   session: string;
-  source: 'roadmap' | 'manual' | 'spawn';
   addedAt: number;
   serverId: string;
 }
@@ -214,13 +213,11 @@ CREATE TABLE IF NOT EXISTS watched_project (
   gateShadowMode INTEGER,
   typedContractGating INTEGER
 );
-CREATE TABLE IF NOT EXISTS supervised_session (
+CREATE TABLE IF NOT EXISTS watched_session (
   project TEXT NOT NULL,
   session TEXT NOT NULL,
-  source TEXT NOT NULL,
   addedAt INTEGER NOT NULL,
   serverId TEXT NOT NULL DEFAULT '',
-  launchProject TEXT, -- legacy (tmux naming); no longer written
   PRIMARY KEY (project, session)
 );
 CREATE TABLE IF NOT EXISTS escalation (
@@ -322,9 +319,18 @@ function openDb(): Database {
   db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  // One-shot migration: if supervised_session exists, migrate rows to watched_session.
+  const supervisedExists = db.query(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='supervised_session'"
+  ).get();
+  if (supervisedExists) {
+    db.exec(
+      'INSERT OR IGNORE INTO watched_session (project, session, addedAt, serverId) ' +
+      'SELECT project, session, addedAt, serverId FROM supervised_session'
+    );
+    db.exec('DROP TABLE supervised_session');
+  }
   // Idempotent migrations for existing DBs.
-  addColumnIfMissing(db, 'supervised_session', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, 'supervised_session', 'launchProject', 'launchProject TEXT');
   addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'epoch', 'epoch INTEGER NOT NULL DEFAULT 0');
@@ -650,37 +656,44 @@ export function setTypedContractGating(project: string, on: boolean): void {
 // built, will be a single global stance, not a per-project setting. The dormant
 // `missionLoopMode` column is left in the table (harmless) for back-compat.
 
-// --- Supervised sessions ---
+// --- Watched sessions ---
 
-export function addSupervised(
-  project: string,
-  session: string,
-  source: 'roadmap' | 'manual' | 'spawn',
-  serverId = ''
-): void {
-  const d = openDb();
-  d.prepare(
-    'INSERT OR IGNORE INTO supervised_session (project, session, source, addedAt, serverId) VALUES (?,?,?,?,?)'
-  ).run(project, session, source, Date.now(), serverId);
+/** Detect ephemeral coordinator-spawned worker sessions by name prefix.
+ *  Mirrors ui/src/lib/liveness.ts:113 isWorkerSession — server-side twin
+ *  since backend cannot import ui/ code. */
+export function isWorkerSessionName(session: string): boolean {
+  return (session.split(/[-_]/)[0]?.toLowerCase() ?? '') === 'worker';
 }
 
-export function removeSupervised(project: string, session: string): void {
+export function addWatchedSession(
+  project: string,
+  session: string,
+  serverId = ''
+): void {
+  if (isWorkerSessionName(session)) return;
   const d = openDb();
-  d.prepare('DELETE FROM supervised_session WHERE project = ? AND session = ?').run(
+  d.prepare(
+    'INSERT OR IGNORE INTO watched_session (project, session, addedAt, serverId) VALUES (?,?,?,?)'
+  ).run(project, session, Date.now(), serverId);
+}
+
+export function removeWatchedSession(project: string, session: string): void {
+  const d = openDb();
+  d.prepare('DELETE FROM watched_session WHERE project = ? AND session = ?').run(
     project,
     session
   );
 }
 
-export function listSupervised(): SupervisedSession[] {
+export function listWatchedSessions(): WatchedSession[] {
   const d = openDb();
-  return d.query('SELECT * FROM supervised_session ORDER BY addedAt').all() as SupervisedSession[];
+  return d.query('SELECT * FROM watched_session ORDER BY addedAt').all() as WatchedSession[];
 }
 
-export function isSupervised(project: string, session: string): boolean {
+export function isWatchedSession(project: string, session: string): boolean {
   const d = openDb();
   const row = d
-    .query('SELECT 1 FROM supervised_session WHERE project = ? AND session = ?')
+    .query('SELECT 1 FROM watched_session WHERE project = ? AND session = ?')
     .get(project, session);
   return !!row;
 }

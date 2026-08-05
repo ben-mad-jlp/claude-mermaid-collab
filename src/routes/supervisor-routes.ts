@@ -2,9 +2,9 @@ import {
   addWatchedProject,
   removeWatchedProject,
   listWatchedProjects,
-  addSupervised,
-  removeSupervised,
-  listSupervised,
+  addWatchedSession,
+  removeWatchedSession,
+  listWatchedSessions,
   listOpenEscalations,
   listEscalations,
   resolveEscalation,
@@ -33,6 +33,7 @@ import {
   getConductorLastPass,
   getTypedContractGating,
   setTypedContractGating,
+  isWorkerSessionName,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
 import { applyRebetDecision, OVER_BUDGET_REBET_KIND } from '../services/mission-budget-gate.ts';
@@ -488,7 +489,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
 
   // SUPERVISED
   if (url.pathname === '/api/supervisor/supervised' && req.method === 'GET') {
-    return Response.json({ supervised: listSupervised() });
+    return Response.json({ supervised: listWatchedSessions() });
   }
 
   if (url.pathname === '/api/supervisor/supervised' && req.method === 'POST') {
@@ -499,13 +500,14 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         source?: string;
       };
       if (!project || !session) return jsonError('project and session are required', 400);
-      addSupervised(project, session, (source ?? 'manual') as 'roadmap' | 'manual' | 'spawn');
+      if (isWorkerSessionName(session)) return jsonError('worker sessions are not watchable', 400);
+      addWatchedSession(project, session);
       // Ensure the supervisor actually monitors this session's project.
       // supervisor_reconcile iterates watched projects to fetch session
       // statuses; without this, supervising a session in an unwatched project
       // leaves it invisible to reconcile (it'd be treated as not-supervised).
       addWatchedProject(project);
-      return Response.json({ supervised: listSupervised() });
+      return Response.json({ supervised: listWatchedSessions() });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
@@ -515,8 +517,8 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     try {
       const { project, session } = (await req.json()) as { project?: string; session?: string };
       if (!project || !session) return jsonError('project and session are required', 400);
-      removeSupervised(project, session);
-      return Response.json({ supervised: listSupervised() });
+      removeWatchedSession(project, session);
+      return Response.json({ supervised: listWatchedSessions() });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

@@ -76,6 +76,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const { servers } = useServers();
   const activeId = currentSession?.serverId ?? null;
   const supervised = useSupervisedSessions();
+  const watched = useSupervisorStore((s) => s.supervised);
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -120,14 +121,50 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     return [...orderedKeys, ...unorderedKeys].map((k) => [k, subscriptions[k]] as [string, typeof subscriptions[string]]);
   }, [subscriptions, order]);
 
-  // Rows shown in the Watching list. A supervised session is surfaced in the
-  // Supervisor panel instead, so hide it here (the underlying subscription
-  // stays — it's what feeds the supervisor card's live status). Stop
-  // supervising and it reappears here.
-  const visibleSubscriptions = useMemo(
-    () => projectSubscriptions.filter(([, sub]) => !supervised.set.has(`${sub.project}:${sub.session}`)),
-    [projectSubscriptions, supervised.set],
-  );
+  // Every subscription renders in the Watching list, supervised or not — a supervised
+  // row is marked by the per-row `supervised` prop, never hidden.
+
+  // Fold stale-retained peer rows into the Watching list so they render dimmed
+  // even when their underlying peer server is offline. Stale rows are those where
+  // watched.stale === true (a hydration failure that retained prior state).
+  // For each stale row: look it up in projectSubscriptions; if found, re-use that
+  // entry with stale:true; if not found, synthesize a row with status:'unknown'.
+  // Result: all projectSubscriptions entries that are not in the stale set, plus
+  // the stale rows (no duplicates).
+  const rowsWithStalePeers = useMemo(() => {
+    const staleRows: Array<[string, SubscribedSession]> = [];
+    const staleKeysSet = new Set<string>();
+
+    for (const w of watched) {
+      if (!w.stale) continue;
+      const key = `${w.serverId ?? ''}:${w.project}:${w.session}`;
+      staleKeysSet.add(key);
+
+      // Try to find this key in projectSubscriptions
+      const found = projectSubscriptions.find(([k]) => k === key);
+      if (found) {
+        // Case a: found in subscriptions, stamp it as stale
+        staleRows.push([key, { ...found[1], stale: true }]);
+      } else {
+        // Case b: not in subscriptions, synthesize a row
+        staleRows.push([
+          key,
+          {
+            serverId: w.serverId ?? '',
+            project: w.project,
+            session: w.session,
+            status: 'unknown',
+            lastUpdate: 0,
+            stale: true,
+          } as SubscribedSession,
+        ]);
+      }
+    }
+
+    // Combine: projectSubscriptions entries that are NOT stale + all stale rows
+    const nonStale = projectSubscriptions.filter(([key]) => !staleKeysSet.has(key));
+    return [...nonStale, ...staleRows];
+  }, [watched, projectSubscriptions]);
 
   const handleDragStart = useCallback((e: React.DragEvent, key: string) => {
     dragKeyRef.current = key;
@@ -394,7 +431,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       // up front, then reconciled with the server below.
       supervised.setOptimistic(sub.project, sub.session, next);
       useSupervisorStore.getState().setSupervisedLocal(
-        { project: sub.project, session: sub.session, source: 'manual', serverId: sub.serverId },
+        { project: sub.project, session: sub.session, serverId: sub.serverId },
         next,
       );
       if (mc?.invokeOnServer) {
@@ -431,7 +468,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
         >
           <span>Watching</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">
-            {visibleSubscriptions.length}
+            {rowsWithStalePeers.length}
           </span>
           <svg
             className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
@@ -701,10 +738,10 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       {/* Subscription items */}
       {!collapsed && (
         <div className="px-2 pb-2 space-y-1">
-          {visibleSubscriptions.map(([key, sub]) => (
+          {rowsWithStalePeers.map(([key, sub]) => (
             <SessionCard
               key={key}
-              subKey={key}
+              subKey={subscriptions[key] ? key : undefined}
               sub={sub}
               serverLabel={serverLabelById.get(sub.serverId)}
               serverIcon={serverIconById.get(sub.serverId)}

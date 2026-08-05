@@ -49,6 +49,10 @@ function inputsFor(project: string, health: ReturnType<typeof getOrchestratorHea
     project,
     now: 1_000,
     orchestratorHealth: health,
+    // Required since the session-visibility invariant was wired into the rollup
+    // (6002bea0). Zeroed: this fixture exercises orchestrator-health reconciliation
+    // only, so a clean visibility report is the correct neutral value here.
+    sessionVisibility: { checkedSessions: 0, liveSessions: 0, invisible: [], violationCount: 0 },
     poolOccupancy: 0,
     coldStartsInFlight: 0,
     fleet: {

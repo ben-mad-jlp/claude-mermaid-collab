@@ -121,7 +121,7 @@ export const StudioSessionPicker: React.FC = () => {
       : { project: sub.project, session: sub.session };
     const method = next ? 'POST' : 'DELETE';
     useSupervisorStore.getState().setSupervisedLocal(
-      { project: sub.project, session: sub.session, source: 'manual', serverId: sub.serverId },
+      { project: sub.project, session: sub.session, serverId: sub.serverId },
       next,
     );
     if (mc?.invokeOnServer) {

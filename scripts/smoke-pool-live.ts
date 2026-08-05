@@ -40,7 +40,7 @@ function tmuxBaseName(project: string, session: string): string {
   const basename = root.split('/').filter(Boolean).pop() ?? 'project';
   return `mc-${slug(basename)}-${slug(session)}`;
 }
-import { listSupervised } from '../src/services/supervisor-store';
+import { listWatchedSessions } from '../src/services/supervisor-store';
 
 const log = (s: string) => console.log(s);
 let pass = 0, fail = 0;
@@ -133,7 +133,7 @@ try {
   check("frontend-1.status === 'busy'", pool4['frontend-1']?.status === 'busy');
   check("frontend todo.sessionName === 'frontend-1'", getTodo(project, fe1.id)?.sessionName === 'frontend-1');
 
-  const watched = listSupervised().filter((s) => s.project === project);
+  const watched = listWatchedSessions().filter((s) => s.project === project);
   const watchedNames = watched.map((s) => s.session);
   check("'backend-1' in supervised/Watching list", watchedNames.includes('backend-1'), `watching=[${watchedNames.join(',')}]`);
   check("'frontend-1' in supervised/Watching list", watchedNames.includes('frontend-1'), `watching=[${watchedNames.join(',')}]`);

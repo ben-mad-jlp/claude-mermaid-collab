@@ -56,13 +56,13 @@ mock.module('../supervisor-store', () => ({
   createEscalation: (opts: any) => { createEscalationCalls.push(opts); },
   resolveEscalationsForTodo: () => {},
   recordSupervisorAudit: () => {},
-  addSupervised: () => {},
+  addWatchedSession: () => {},
   addWatchedProject: () => {},
   getEscalation: () => null,
   resolveEscalation: () => {},
-  isSupervised: () => false,
-  removeSupervised: () => {},
-  listSupervised: () => [],
+  isWatchedSession: () => false,
+  removeWatchedSession: () => {},
+  listWatchedSessions: () => [],
 }));
 
 // ── mock claude-launch (no tmux) ──────────────────────────────────────────────
