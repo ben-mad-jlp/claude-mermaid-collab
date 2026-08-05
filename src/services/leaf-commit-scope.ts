@@ -183,7 +183,40 @@ export async function stageAndCommitScoped(
       const chunk = paths.slice(i, i + CHUNK_SIZE);
       const res = await run(['add', '-A', '--', ...chunk]);
       if (res.code !== 0) {
-        throw new Error(`git add failed: ${res.stderr.trim()}`);
+        if (!/did not match any files/.test(res.stderr)) {
+          throw new Error(`git add failed: ${res.stderr.trim()}`);
+        }
+        // `git add -A -- <path>` is FATAL when the pathspec matches nothing in EITHER the
+        // worktree or the index. That is precisely a deletion the agent already staged
+        // itself with `git rm`: the file is gone from disk AND gone from the index, so the
+        // pathspec matches nothing — even though the deletion is correctly staged and will
+        // be committed. One such path aborted the whole chunk, so a leaf that removed a
+        // file passed review and then died at merge-to-epic (2026-08-05, leaf 1ba46e0f:
+        // `git rm ros-api-server/.deployment-state` → "merge-to-epic-failed: git add
+        // failed: pathspec did not match any files", $1.57 of accepted work discarded).
+        //
+        // `ls-files --cached --others` enumerates index ∪ worktree — exactly the paths
+        // `git add` can act on. Anything else in the chunk is a no-op for staging, so drop
+        // it and retry. Dropping is safe: an already-staged deletion is ALREADY in the
+        // index and lands in the commit regardless (verified — the commit still carries
+        // the `D` entry). A genuinely bogus path contributes nothing either way.
+        const live = await run(['ls-files', '--cached', '--others', '--', ...chunk]);
+        if (live.code !== 0) {
+          throw new Error(`git add failed: ${res.stderr.trim()}`);
+        }
+        const liveSet = new Set(live.stdout.split('\n').map((l) => l.trim()).filter(Boolean));
+        const keep = chunk.filter((p) => liveSet.has(p));
+        if (keep.length === chunk.length) {
+          // Nothing was actually unmatched — the failure is something else. Do not retry
+          // an identical command; surface the original error.
+          throw new Error(`git add failed: ${res.stderr.trim()}`);
+        }
+        if (keep.length > 0) {
+          const retry = await run(['add', '-A', '--', ...keep]);
+          if (retry.code !== 0) {
+            throw new Error(`git add failed: ${retry.stderr.trim()}`);
+          }
+        }
       }
     }
 

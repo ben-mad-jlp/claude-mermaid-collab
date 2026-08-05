@@ -500,4 +500,80 @@ describe('leaf-commit-scope', () => {
     const tracked = git(repo, 'ls-files', 'src/gone.ts');
     expect(tracked.trim()).toBe('');
   });
+
+  // Regression (2026-08-05, leaf 1ba46e0f). The test above deletes with a plain rm, which
+  // leaves the path in the INDEX — `git add -A -- <path>` then stages the deletion fine.
+  // An agent that removes a file the normal way, `git rm`, leaves it in NEITHER the index
+  // nor the worktree, and `git add -A -- <path>` on a pathspec matching nothing is FATAL
+  // (exit 128). One such path aborted the whole chunk, so the leaf passed review and then
+  // died at merge-to-epic — "git add failed: fatal: pathspec 'ros-api-server/
+  // .deployment-state' did not match any files" — discarding $1.57 of accepted work.
+  it('stages a change-set whose deletion the agent ALREADY staged via git rm', async () => {
+    const srcDir = join(repo, 'src');
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, 'keep.ts'), 'export const keep = 1;');
+    writeFileSync(join(srcDir, 'gone.ts'), 'export const gone = 1;');
+    git(repo, 'add', 'src/keep.ts', 'src/gone.ts');
+    git(repo, 'commit', '-m', 'init');
+
+    const untrackedAtStart = listUntrackedPaths(repo);
+
+    writeFileSync(join(srcDir, 'keep.ts'), 'export const keep = 2;');
+    git(repo, 'rm', '-q', 'src/gone.ts'); // ← the incident's move: index AND worktree
+
+    // Precondition: the deletion is already staged, so the pathspec matches nothing.
+    expect(git(repo, 'status', '--porcelain').trim()).toContain('D  src/gone.ts');
+
+    const decision = computeCommitScope(repo, {
+      declaredFiles: ['src/keep.ts', 'src/gone.ts'],
+      untrackedAtStart,
+    });
+
+    const run = (args: string[]) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        try {
+          const stdout = git(repo, ...args);
+          resolve({ code: 0, stdout, stderr: '' });
+        } catch (e) {
+          resolve({
+            code: (e as any).status || 1,
+            stdout: '',
+            stderr: (e as any).stderr?.toString() || String(e),
+          });
+        }
+      });
+
+    // Pre-fix this threw `git add failed: ... did not match any files`.
+    await stageAndCommitScoped(run, {
+      stage: decision.stage,
+      outOfScope: decision.outOfScope,
+      message: 'edit+git-rm',
+    });
+
+    // The edit landed AND the deletion survived into the commit — skipping the no-op
+    // `add` must not drop the already-staged deletion.
+    expect(git(repo, 'show', 'HEAD:src/keep.ts').trim()).toBe('export const keep = 2;');
+    expect(git(repo, 'ls-files', 'src/gone.ts').trim()).toBe('');
+    expect(git(repo, 'show', '--name-status', '--format=', 'HEAD')).toContain('D\tsrc/gone.ts');
+  });
+
+  it('still throws on a git add failure that is NOT an unmatched pathspec', async () => {
+    writeFileSync(join(repo, 'a.txt'), 'a');
+    git(repo, 'add', 'a.txt');
+    git(repo, 'commit', '-m', 'init');
+    writeFileSync(join(repo, 'a.txt'), 'b');
+
+    // A runner whose `add` always fails for an unrelated reason must not be swallowed by
+    // the unmatched-pathspec recovery.
+    const run = (args: string[]) =>
+      Promise.resolve(
+        args[0] === 'add'
+          ? { code: 128, stdout: '', stderr: 'fatal: index file corrupt' }
+          : { code: 0, stdout: '', stderr: '' },
+      );
+
+    await expect(
+      stageAndCommitScoped(run, { stage: ['a.txt'], outOfScope: [], message: 'x' }),
+    ).rejects.toThrow(/index file corrupt/);
+  });
 });
