@@ -314,7 +314,8 @@ export async function approveMissionAndConstitution(project: string, missionId: 
 
 /** The mission-forge NODE prompt: read a problem/design doc (inlined), survey the repo, and emit a
  *  structured mission spec as JSON. Encodes the /mission-forge discipline (criteria = falsifiable
- *  capability assertions, sequenced by risk, one measured-outcome last; constraints = hard rules;
+ *  capability assertions on TWO independent axes — weakest assertion, strongest check — sequenced by
+ *  risk, one measured-outcome last; constraints = hard rules;
  *  rejected alternatives; a ≤2k orientation digest). Self-contained — references nothing in skills/. */
 export function buildForgePrompt(docContent: string): string {
   return [
@@ -329,7 +330,17 @@ export function buildForgePrompt(docContent: string): string {
     'Produce a mission spec with this DISCIPLINE:',
     '- criteria: 3–7 ACCEPTANCE CRITERIA = the VERIFY gate. Each is a CAPABILITY assertion (not a task)',
     '  that an independent reviewer can check against ground truth. Make them FALSIFIABLE — name the',
-    '  regression test, the observable state, or the measured threshold. SEQUENCE by risk (each de-risks',
+    '  regression test, the observable state, or the measured threshold.',
+    '  WHAT it asserts and HOW it is checked are INDEPENDENT axes — max BOTH, never trade one off:',
+    '    * WEAKEST assertion: assert the observable BEHAVIOUR, admitting every implementation that',
+    '      produces it. Naming a function/call-site/file as the requirement is a CITABILITY WALL — it',
+    '      fails work that solved the problem another way. Weakest, NOT shortest: a long criterion that',
+    '      admits many implementations beats a terse one that admits one.',
+    '    * STRONGEST check: the named observation must FAIL on a broken build. A check that passes',
+    '      either way is a vacuous falsifier and grades nothing.',
+    '  The trap: reaching for falsifiability by specifying the implementation. "X no longer happens,',
+    '  proven by test T" is right; "module M calls guard G before every write" is the same intent',
+    '  authored as a wall. SEQUENCE by risk (each de-risks',
     '  the next). Every criterion must be closeable by a SINGLE observation at a point in time — name',
     '  the test, state, or measured value on a recorded sample. Do NOT emit a criterion asserting',
     '  accrual over future passes/events/missions (e.g. "holds over ≥N runs", "continues to X") — the',
