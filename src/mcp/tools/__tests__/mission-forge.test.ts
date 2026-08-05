@@ -133,6 +133,25 @@ describe('buildForgePrompt', () => {
     expect(prompt).not.toMatch(/over\s+(?:≥|>=|at least\s+)?\d+\s+runs/i);
     expect(prompt).toContain('SINGLE observation');
   });
+
+  // MUTATION CONTRACT: criterion quality is TWO independent axes, and the node must be told to max
+  // BOTH. Deleting either bullet from buildForgePrompt must red this test. Asserting only
+  // "FALSIFIABLE" (the pre-existing wording) does NOT satisfy it — that is the strong-check axis
+  // alone, and reaching for it by naming an implementation is exactly the citability wall this
+  // guidance exists to prevent.
+  test('instructs BOTH axes: weakest assertion AND strongest check', () => {
+    const prompt = buildForgePrompt('doc');
+    // Weak-assertion axis: behaviour over implementation, and weakest is not shortest.
+    expect(prompt).toContain('WEAKEST assertion');
+    expect(prompt).toMatch(/CITABILITY WALL/);
+    expect(prompt).toMatch(/Weakest,\s*NOT\s*shortest/i);
+    // Strong-check axis: the observation must discriminate a broken build.
+    expect(prompt).toContain('STRONGEST check');
+    expect(prompt).toMatch(/FAIL on a broken build/);
+    expect(prompt).toMatch(/vacuous falsifier/i);
+    // The axes are stated as independent, not as a tradeoff to balance.
+    expect(prompt).toMatch(/INDEPENDENT axes/);
+  });
 });
 
 describe('missionConstitutionHealth — enforcement teeth', () => {
