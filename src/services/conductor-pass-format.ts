@@ -1,4 +1,5 @@
 import type { ConductorPassJournalRow, ConductorFiledRef } from './conductor-pass-journal';
+import { CONDUCTOR_NODE_TIMEOUT_MS } from './harness-caps';
 
 export interface ConductorPassChip { kind: string; id: string; label: string }
 export interface FormattedConductorPass { sentence: string; chips: ConductorPassChip[] }
@@ -11,7 +12,31 @@ function isTypedFiledRef(x: unknown): x is ConductorFiledRef {
   );
 }
 
-export function formatConductorPass(row: ConductorPassJournalRow): FormattedConductorPass {
+/**
+ * Describe an unfinished (endedAt === null) pass.
+ *
+ * The journal row is written at pass START, so `endedAt === null` covers THREE states:
+ * still running, orphaned, and genuinely timed out. This used to report all three as
+ * 'killed (ran out of time)' — so a healthy pass 3 minutes into a 20-minute budget was
+ * announced as a corpse. On 2026-08-05 that text sent someone investigating a mission
+ * that was succeeding: the pass it called killed finished 20 seconds later with outcome
+ * 'conducted', having served 5 of 7 criteria.
+ *
+ * Age against the node budget separates them. Under budget it is in flight and says so;
+ * at or past budget it cannot still be legitimately running, which is the only case the
+ * original wording was ever right about.
+ */
+export function describeUnfinishedPass(startedAt: number, now: number): string {
+  const ageMs = Math.max(0, now - startedAt);
+  if (ageMs >= CONDUCTOR_NODE_TIMEOUT_MS) return 'killed (ran out of time)';
+  const mins = Math.floor(ageMs / 60_000);
+  return mins >= 1 ? `in flight (${mins}m)` : `in flight (${Math.floor(ageMs / 1000)}s)`;
+}
+
+export function formatConductorPass(
+  row: ConductorPassJournalRow,
+  now: number = Date.now(),
+): FormattedConductorPass {
   const parts: string[] = [];
   const chips: ConductorPassChip[] = [];
 
@@ -22,7 +47,7 @@ export function formatConductorPass(row: ConductorPassJournalRow): FormattedCond
   }
 
   if (row.endedAt === null) {
-    parts.push('killed (ran out of time)');
+    parts.push(describeUnfinishedPass(row.startedAt, now));
   }
 
   if (row.criteriaActed.length) {
@@ -113,13 +138,18 @@ export interface ConductorPassGroup<T> {
   missionId: string | null;
 }
 
-export function groupConductorPasses(rows: ConductorPassJournalRow[]): ConductorPassGroup<ConductorPassJournalRow>[] {
+export function groupConductorPasses(
+  rows: ConductorPassJournalRow[],
+  now: number = Date.now(),
+): ConductorPassGroup<ConductorPassJournalRow>[] {
   const groups: ConductorPassGroup<ConductorPassJournalRow>[] = [];
   let current: ConductorPassGroup<ConductorPassJournalRow> | null = null;
   let prevFp: string | null = null;
 
   for (const row of rows) {
-    const formatted = formatConductorPass(row);
+    // One clock for the whole grouping pass: sampling Date.now() per row would let two
+    // in-flight rows straddle a minute boundary and stop collapsing into one group.
+    const formatted = formatConductorPass(row, now);
     const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}`;
 
     if (current && fp === prevFp) {

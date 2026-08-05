@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { formatConductorPass, groupConductorPasses } from '../conductor-pass-format';
 import type { ConductorPassJournalRow } from '../conductor-pass-journal';
+import { CONDUCTOR_NODE_TIMEOUT_MS } from '../harness-caps';
 
 function mkGroupRow(overrides: Partial<ConductorPassJournalRow> & { id: string; startedAt: number }): ConductorPassJournalRow {
   return {
@@ -104,9 +105,19 @@ describe('formatConductorPass', () => {
       carried: null,
     };
 
-    const result = formatConductorPass(row);
-    expect(result.sentence).toBe('No mission. killed (ran out of time).');
-    expect(result.chips.length).toBe(0);
+    // An unfinished row is only a corpse once it is PAST the node budget. Under it, the
+    // pass is still running and must say so — reporting a live pass as killed is the bug
+    // this covers (2026-08-05: a healthy 3-minute pass announced as having run out of time).
+    const inFlight = formatConductorPass(row, row.startedAt + 3 * 60_000);
+    expect(inFlight.sentence).toBe('No mission. in flight (3m).');
+    expect(inFlight.chips.length).toBe(0);
+
+    const subMinute = formatConductorPass(row, row.startedAt + 42_000);
+    expect(subMinute.sentence).toBe('No mission. in flight (42s).');
+
+    const killed = formatConductorPass(row, row.startedAt + CONDUCTOR_NODE_TIMEOUT_MS);
+    expect(killed.sentence).toBe('No mission. killed (ran out of time).');
+    expect(killed.chips.length).toBe(0);
   });
 
   test('dedupes 7 identical-epic criteria into one grouped clause naming the nickname once', () => {
