@@ -113,7 +113,18 @@ export interface SupervisorOpts {
   /** Startup-progress callback — fired while the sidecar comes up so the loading
    *  screen can show live info (phase, elapsed, the latest sidecar.log line)
    *  instead of a bare spinner during the cold-start window. Best-effort. */
-  onStartupProgress?: (info: { phase: 'spawning' | 'attached' | 'waiting'; elapsedMs: number; lastLog?: string }) => void;
+  onStartupProgress?: (info: {
+    phase: 'spawning' | 'attached' | 'waiting';
+    elapsedMs: number;
+    lastLog?: string;
+    /** 1-based spawn attempt and the cap, so the loading screen can say "attempt 2 of 3". */
+    attempt?: number;
+    attempts?: number;
+  }) => void;
+  /** Number of spawn attempts before surfacing a startup failure (mainly for tests). */
+  startupAttempts?: number;
+  /** Backoff between startup attempts (mainly for tests). */
+  startupRetryDelayMs?: number;
 }
 
 // Give the sidecar a generous startup window before surfacing the health-timeout
@@ -121,6 +132,14 @@ export interface SupervisorOpts {
 // DB migrations) can take well past 25s on a busy machine.
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_POLL_MS = 300;
+
+// A startup failure used to be terminal: start() threw on the first failed health
+// wait, so the liveness watchdog (armed only AFTER a successful start) never got to
+// run and nothing ever tried again. Retry the spawn a bounded number of times before
+// surfacing the error. Cheap now that a dead child fails in ~a poll interval instead
+// of burning the full 60s health window.
+const STARTUP_ATTEMPTS = 3;
+const STARTUP_RETRY_DELAY_MS = 750;
 
 // Health-based liveness watchdog (drive-wedge recovery). Poll cadence, the
 // alive-but-unresponsive window that triggers a kill+respawn, the startup grace
@@ -436,9 +455,36 @@ export class ServerSupervisor {
     // action === 'proceed' → boundPort is ours (was free, a stale holder was
     // evicted, or a per-user fallback when :9002 belonged to another user); spawn.
     this.stopped = false;
-    this.opts.onStartupProgress?.({ phase: 'spawning', elapsedMs: 0 });
-    this.spawnChild(boundPort);
-    await this.waitForHealth(boundPort);
+    // Bounded spawn retry. A single failed health wait used to be terminal: start()
+    // threw, so this.port stayed null and the liveness watchdog below — the thing
+    // that recovers a sick sidecar — was never armed. The app then sat on its error
+    // panel until a human noticed and relaunched. Retry here so a transient failure
+    // (a slow cold start that tripped the window, a port freed a moment later, a
+    // child that died on a one-off) heals itself with no user action.
+    const attempts = Math.max(1, this.opts.startupAttempts ?? STARTUP_ATTEMPTS);
+    const retryDelayMs = this.opts.startupRetryDelayMs ?? STARTUP_RETRY_DELAY_MS;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      this.opts.onStartupProgress?.({ phase: 'spawning', elapsedMs: 0, attempt, attempts });
+      this.spawnChild(boundPort);
+      try {
+        await this.waitForHealth(boundPort);
+        lastErr = undefined;
+        break;
+      } catch (err) {
+        lastErr = err;
+        // Reap before respawning: waitForHealth SIGTERMs on the timeout path but not
+        // on the fail-fast path (already dead), and a survivor would hold the port
+        // against our own next attempt.
+        this.killReason = 'startup-failed';
+        try { this.child?.kill('SIGKILL'); } catch { /* already gone */ }
+        this.child = null;
+        if (attempt < attempts) await new Promise((res) => setTimeout(res, retryDelayMs));
+      }
+    }
+    // Every attempt failed — surface the last error, unchanged in shape so the
+    // loading screen's error panel (message + stderr detail + log path) still works.
+    if (lastErr) throw lastErr;
 
     this.port = boundPort;
     this.attached = false;
@@ -589,6 +635,19 @@ export class ServerSupervisor {
       } catch {
         // not up yet
       }
+      // FAIL FAST on a dead child. A process that has already exited is never going
+      // to answer, so continuing to poll just burns the remaining health window —
+      // and that wait IS the "app locks up" symptom: the jsdom-path sidecar died in
+      // under a second, and the user still sat through the full 60s before seeing an
+      // error, then another 60s for every Retry. Check AFTER the probe so a server
+      // that answered and then exited still counts as up.
+      const child = this.child;
+      if (child && (child.exitCode != null || child.signalCode != null)) {
+        throw this.startupError(
+          `The collaboration server exited during startup ` +
+          `(code=${child.exitCode} signal=${child.signalCode}).`,
+        );
+      }
       // Surface live startup info to the loading screen — the latest sidecar.log
       // line (what the server is actually doing) + elapsed, so it isn't a bare
       // spinner through the cold-start window.
@@ -600,14 +659,21 @@ export class ServerSupervisor {
     } catch {
       // ignore
     }
-    const tail = this.stderrTail.join('\n').trim();
+    throw this.startupError(
+      `The collaboration server did not respond within ${Math.round(timeoutMs / 1000)}s.`,
+    );
+  }
+
+  /** Build a startup error carrying the stderr tail + log path, so the loading
+   *  screen's error panel shows WHY rather than a bare timeout. Shared by the
+   *  fail-fast exit path and the health-window timeout. */
+  private startupError(message: string): Error & { detail?: string; logPath?: string } {
     const where = this.opts.logFilePath ? ` See ${this.opts.logFilePath}.` : '';
-    const err = new Error(
-      `The collaboration server did not respond within ${Math.round(timeoutMs / 1000)}s.${where}`,
-    ) as Error & { detail?: string; logPath?: string };
+    const err = new Error(`${message}${where}`) as Error & { detail?: string; logPath?: string };
+    const tail = this.stderrTail.join('\n').trim();
     if (tail) err.detail = tail;
     if (this.opts.logFilePath) err.logPath = this.opts.logFilePath;
-    throw err;
+    return err;
   }
 
   // --- Health-based liveness watchdog (drive-wedge recovery) ---------------------

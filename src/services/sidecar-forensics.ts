@@ -2,7 +2,10 @@ import { appendFileSync, writeFileSync, readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type ExitReason = 'watchdog-unresponsive' | 'unexpected-exit' | 'hot-swap' | 'shutdown';
+/** Why a sidecar process ended. 'startup-failed' is the supervisor reaping a child
+ *  that never came up, before retrying the spawn — distinct from 'unexpected-exit'
+ *  (it died on its own) so a crash-loop at BOOT is legible in the forensics log. */
+export type ExitReason = 'watchdog-unresponsive' | 'unexpected-exit' | 'hot-swap' | 'shutdown' | 'startup-failed';
 
 export const DEFAULT_CRASH_LOOP_N = 3;
 export const DEFAULT_CRASH_LOOP_WINDOW_MS = 10 * 60 * 1000;
