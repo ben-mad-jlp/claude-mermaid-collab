@@ -216,6 +216,64 @@ describe('findViolations', () => {
     const violations = v.filter((x) => x.kind === 'phantom-open-epic');
     expect(violations).toHaveLength(0);
   });
+
+  test('bucket epic with all-terminal children yields no phantom-open-epic', () => {
+    // Test 1: isBucket:1/bucketType:'inbox' epic with only terminal children
+    const bucketEpic = todo({ id: 'b1', title: '[EPIC] Inbox', status: 'planned', kind: 'epic', isBucket: true, bucketType: 'inbox' });
+    const child1 = todo({ id: 'c1', title: 'done child', parentId: 'b1', status: 'done', kind: 'leaf' });
+    const child2 = todo({ id: 'c2', title: 'dropped child', parentId: 'b1', status: 'dropped', kind: 'leaf' });
+
+    const v = findViolations([bucketEpic, child1, child2]);
+    const violations = v.filter((x) => x.kind === 'phantom-open-epic');
+    expect(violations).toHaveLength(0);
+  });
+
+  test('byte-equivalent non-bucket epic still yields phantom-open-epic', () => {
+    // Test 2: non-bucket epic (no isBucket, no bucketType) with the same terminal children
+    const nonBucketEpic = todo({ id: 'e2', title: '[EPIC] Regular Work', status: 'planned', kind: 'epic' });
+    const child1 = todo({ id: 'c1', title: 'done child', parentId: 'e2', status: 'done', kind: 'leaf' });
+    const child2 = todo({ id: 'c2', title: 'dropped child', parentId: 'e2', status: 'dropped', kind: 'leaf' });
+
+    const v = findViolations([nonBucketEpic, child1, child2]);
+    const violations = v.filter((x) => x.kind === 'phantom-open-epic');
+    expect(violations).toHaveLength(1);
+    expect(violations[0].todoId).toBe('e2');
+  });
+});
+
+describe('dead-bucket', () => {
+  test('terminal structural bucket and live bucket under terminal ancestor each yield dead-bucket', () => {
+    // Test 3a: terminal structural bucket (status='dropped', isBucket:1)
+    const terminalBucket = todo({ id: 'b1', title: '[EPIC] Bugfix inbox', status: 'dropped', kind: 'epic', isBucket: true, bucketType: 'bugfix' });
+
+    // Test 3b: live bucket under terminal ancestor (mission/epic)
+    const mission = todo({ id: 'm1', title: '[MISSION] m', status: 'dropped', kind: 'mission' });
+    const liveBucket = todo({ id: 'b2', title: '[EPIC] Inbox', parentId: 'm1', status: 'planned', kind: 'epic', bucketType: 'inbox' });
+
+    const v = findViolations([terminalBucket, mission, liveBucket]);
+    const violations = v.filter((x) => x.kind === 'dead-bucket');
+    expect(violations).toHaveLength(2);
+
+    const terminalBucketViolation = violations.find((x) => x.todoId === 'b1');
+    expect(terminalBucketViolation).toBeDefined();
+    expect(terminalBucketViolation!.reason).toContain('bucket is terminal');
+    expect(terminalBucketViolation!.reason).toContain("status='dropped'");
+
+    const liveBucketViolation = violations.find((x) => x.todoId === 'b2');
+    expect(liveBucketViolation).toBeDefined();
+    expect(liveBucketViolation!.reason).toContain('bucket is live but nearest ancestor');
+    expect(liveBucketViolation!.reason).toContain('m1');
+  });
+
+  test('retired duplicate bucket (isBucket=false, title fallback only) yields no dead-bucket', () => {
+    // Test 4: Retired duplicate with bucket-looking title but explicit isBucket=false
+    // and no bucketType — should NOT be flagged (only structural markers matter)
+    const retiredDuplicate = todo({ id: 'b3', title: '[EPIC] Bugfix inbox', status: 'dropped', kind: 'epic', isBucket: false });
+
+    const v = findViolations([retiredDuplicate]);
+    const violations = v.filter((x) => x.kind === 'dead-bucket');
+    expect(violations).toHaveLength(0);
+  });
 });
 
 describe('stranded-leaf', () => {
