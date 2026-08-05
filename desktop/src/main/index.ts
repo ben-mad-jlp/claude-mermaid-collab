@@ -203,7 +203,7 @@ function registerIpc(): void {
   });
   // The loading screen calls this when the user clicks Retry after a failed
   // sidecar startup. Re-runs the bring-up using the opts captured in bootstrap.
-  ipcMain.handle('mc:retry-bootstrap', () => { void startServicesGuarded(); });
+  ipcMain.handle('mc:retry-bootstrap', () => { void startServicesGuarded({ manual: true }); });
 }
 
 // Per-server invoke (module-scope so main-process logic can call it directly,
@@ -585,10 +585,15 @@ async function bootstrap(): Promise<void> {
  * loading screen (mc:bootstrap-error) instead of leaving the window hung — the
  * renderer's Retry button calls back in via mc:retry-bootstrap.
  */
-async function startServicesGuarded(): Promise<void> {
+async function startServicesGuarded(opts: { manual?: boolean } = {}): Promise<void> {
   if (!serviceOpts) return;
+  if (opts.manual) cancelBootstrapRetry(); // a hand-pressed Retry restarts the ladder
   try {
     await startServices(serviceOpts);
+    // startServices ends by navigating the window to the real UI, which replaces
+    // the error panel — so a background attempt that succeeds needs no extra signal.
+    cancelBootstrapRetry();
+    bootstrapAttempts = 0;
   } catch (err) {
     const e = err as Error & { detail?: string; logPath?: string };
     console.error('[bootstrap] service startup failed:', err);
@@ -597,7 +602,40 @@ async function startServicesGuarded(): Promise<void> {
       detail: e?.detail,
       logPath: e?.logPath,
     });
+    scheduleBootstrapRetry();
   }
+}
+
+// Background bootstrap retry. The supervisor's own bounded retry covers a failure
+// that clears in seconds; this covers the one that clears MINUTES later because a
+// human fixed the cause — on 2026-08-05 a user's app sat on its error panel from
+// 08:57 while the binary that fixed it was installed at 09:12, and it stayed dead
+// until someone thought to relaunch. Keep trying, slowly, so the app comes up on
+// its own once the world is repaired. Bounded: past the cap it is not transient and
+// the error panel's Retry button is the honest surface.
+const BOOTSTRAP_RETRY_DELAY_MS = 30_000;
+const BOOTSTRAP_MAX_ATTEMPTS = 20; // ~10 minutes
+let bootstrapRetryTimer: NodeJS.Timeout | null = null;
+let bootstrapAttempts = 0;
+
+function cancelBootstrapRetry(): void {
+  if (bootstrapRetryTimer) clearTimeout(bootstrapRetryTimer);
+  bootstrapRetryTimer = null;
+  bootstrapAttempts = 0;
+}
+
+function scheduleBootstrapRetry(): void {
+  if (bootstrapRetryTimer) return; // one in flight is enough
+  if (++bootstrapAttempts > BOOTSTRAP_MAX_ATTEMPTS) {
+    console.error(`[bootstrap] giving up after ${BOOTSTRAP_MAX_ATTEMPTS} background retries; use Retry`);
+    return;
+  }
+  bootstrapRetryTimer = setTimeout(() => {
+    bootstrapRetryTimer = null;
+    console.log(`[bootstrap] background retry ${bootstrapAttempts}/${BOOTSTRAP_MAX_ATTEMPTS}`);
+    void startServicesGuarded();
+  }, BOOTSTRAP_RETRY_DELAY_MS);
+  bootstrapRetryTimer.unref?.(); // never hold the app open just to retry
 }
 
 async function startServices(opts: { cdpPort: number; controlUrl: string; controlToken: string }): Promise<void> {

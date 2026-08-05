@@ -6,6 +6,7 @@ import {
   uncitedCriteriaAreAllCommandResults,
   compliantShapeFor,
   namesScopeGuardCheck,
+  namesTestInvocation,
 } from '../criteria-citability';
 
 // FLOOR-PATH FIX: an uncited command-result criterion defers to the command-evidence gate
@@ -641,10 +642,9 @@ test('namesScopeGuardCheck: false when no git diff invocation at all', () => {
 
 // --- compliantShapeFor: per-arm compliant-shape template -------------------------------------
 
-test('compliantShapeFor: command-result carries the marker and a grep example drawn from the input', () => {
+test('compliantShapeFor: command-result carries the marker and the offending command', () => {
   const shape = compliantShapeFor('command-result', 'the `npm test` suite passes');
-  expect(shape).toContain('restate as a named zero-match check');
-  expect(shape).toContain('grep -rn');
+  expect(shape).toContain('name what the command PRODUCES');
   expect(shape).toContain('npm test');
 });
 
@@ -666,7 +666,7 @@ test('classifyCriterion: convicted command-result reason contains the compliant-
   const v = classifyCriterion('the `npm test` suite passes', []);
   expect(v.citable).toBe(false);
   expect(v.kind).toBe('command-result');
-  expect(v.reason).toContain('restate as a named zero-match check');
+  expect(v.reason).toContain('name what the command PRODUCES');
   expect(v.reason).toContain('npm test');
 });
 
@@ -823,4 +823,102 @@ test('surviving conviction: scope-guard criterion citing a file outside declared
   );
   expect(v.citable).toBe(false);
   expect(v.kind).toBe('out-of-diff-location');
+});
+
+// --- TEST-INVOCATION criteria (friction d08de44a) --------------------------------------------
+//
+// INCIDENT [2026-07-31], mission 0a4a350d, leaf 54ebddd7. The criterion
+//   "`npx vitest run src/lib/__tests__/ros-store.test.ts` (run from automation_controller_react) passes"
+// was convicted as an uncitable command-result, and the remediation told the author to
+// "restate as a named zero-match check — e.g. `grep -rn 'npx vitest run …' src/` returns no
+// matches" — i.e. to grep the SOURCE TREE for the literal text of the test command. A blueprint
+// complying literally produces a criterion that is trivially true and proves nothing. Two
+// blueprint nodes burned (473s, 41k output tokens), zero implement nodes reached. Missions whose
+// criteria say "proven by test" verbatim could not state their own form of proof.
+
+const ROS_STORE_FILES = ['src/lib/ros-store.ts', 'src/lib/__tests__/ros-store.test.ts'];
+
+test('namesTestInvocation: acquits runner + declared test file + named assertion', () => {
+  expect(
+    namesTestInvocation(
+      "`npx vitest run src/lib/__tests__/ros-store.test.ts` passes, asserting `it('routes SSE device payloads into the store')`",
+      ROS_STORE_FILES,
+    ),
+  ).toBe(true);
+});
+
+test('namesTestInvocation: false when the named test file is NOT in the change-set', () => {
+  // An untouched suite proves nothing about THIS leaf — it must fall through to the conviction.
+  expect(
+    namesTestInvocation(
+      "`npx vitest run src/lib/__tests__/ros-store.test.ts` passes, asserting `it('routes SSE device payloads into the store')`",
+      ['src/lib/unrelated.ts'],
+    ),
+  ).toBe(false);
+});
+
+test('namesTestInvocation: false for a bare suite-pass claim with no file and no assertion', () => {
+  // This is the prose Rule 2 exists to reject; the new arm must not re-admit it.
+  expect(namesTestInvocation('the vitest suite passes', ROS_STORE_FILES)).toBe(false);
+});
+
+test('namesTestInvocation: false when the file is declared but no assertion is named', () => {
+  expect(
+    namesTestInvocation('`npx vitest run src/lib/__tests__/ros-store.test.ts` passes', ROS_STORE_FILES),
+  ).toBe(false);
+});
+
+test('namesTestInvocation: abstains (never acquits blind) when there is no manifest', () => {
+  expect(
+    namesTestInvocation(
+      "`npx vitest run src/lib/__tests__/ros-store.test.ts` passes, asserting `it('x routes y')`",
+      [],
+    ),
+  ).toBe(false);
+});
+
+test('classifyCriterion: the incident criterion in three-part shape is CITABLE', () => {
+  const v = classifyCriterion(
+    "`npx vitest run src/lib/__tests__/ros-store.test.ts` passes, asserting `it('routes SSE device payloads into the store')`",
+    ROS_STORE_FILES,
+  );
+  expect(v.citable).toBe(true);
+  // Reuses the command-result kind so the review-time defer predicate honours it.
+  expect(v.kind).toBe('command-result');
+});
+
+test('classifyCriterion: same criterion WITHOUT the test file in the diff is still flagged', () => {
+  const v = classifyCriterion(
+    "`npx vitest run src/lib/__tests__/ros-store.test.ts` passes, asserting `it('routes SSE device payloads into the store')`",
+    ['src/lib/unrelated.ts'],
+  );
+  expect(v.citable).toBe(false);
+});
+
+test('classifyCriterion: a build-then-diff criterion naming its assertion is CITABLE', () => {
+  // Mission db089158 criterion 4 shape: build the library, then assert a named check.
+  const v = classifyCriterion(
+    "`bun test src/services/__tests__/dist-parity.test.ts` passes, asserting `it('dist matches a fresh build')`",
+    ['src/services/__tests__/dist-parity.test.ts'],
+  );
+  expect(v.citable).toBe(true);
+});
+
+test('no remediation string ever suggests grepping the source tree for a shell command', () => {
+  // The placebo-teaching advice must be GONE, not merely deprioritized.
+  const kinds = ['command-result', 'absence', 'out-of-diff-location'] as const;
+  const samples = [
+    'the `npm test` suite passes',
+    '`npx vitest run src/lib/foo.test.ts` passes',
+    'no changes to `ZenMode`',
+    'criterion cites src/services/foo.ts:42',
+  ];
+  for (const kind of kinds) {
+    for (const s of samples) {
+      const shape = compliantShapeFor(kind, s);
+      expect(shape).not.toContain('zero-match check');
+      // The absence arm legitimately mentions `git diff`; nothing may pair grep with a runner.
+      expect(/grep[^.]*(?:npm|npx|vitest|jest|bun\s+test|tsc)\b/.test(shape)).toBe(false);
+    }
+  }
 });
