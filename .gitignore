@@ -32,6 +32,11 @@ Thumbs.db
 /.collab/*.db
 /.collab/*.db-shm
 /.collab/*.db-wal
+# Same stores under the .sqlite suffix — the *.db globs above miss these, so a
+# `git add -A` would otherwise sweep a live runtime DB into a commit.
+/.collab/*.sqlite
+/.collab/*.sqlite-shm
+/.collab/*.sqlite-wal
 /.collab/todos.json
 /.collab/agent-sessions/
 # Coordinator attempt records (runtime provenance; not source)
