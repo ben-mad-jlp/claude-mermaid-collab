@@ -2,6 +2,7 @@ import type { Todo, TodoStatus } from './todo-store';
 import { listTodos, listTodosChunked } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
+import { isBucketEpic } from './bucket-registry.js';
 import { yieldToLoop } from './loop-yield.ts';
 import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe, detectTrunkRef } from './epic-branch-status.ts';
 import { hasLandStamp, isLanded } from './epic-landedness';
@@ -37,6 +38,7 @@ export type InvariantKind =
   | 'landed-at-divergence'
   | 'live-child-under-terminal-epic'
   | 'phantom-open-epic'
+  | 'dead-bucket'
   | 'stranded-leaf';
 
 export interface InvariantViolation {
@@ -65,6 +67,30 @@ export function isTerminalStatus(status: TodoStatus): boolean {
 /** True when an epic is terminal (via status or landedAt stamp). */
 export function isTerminalEpic(t: Todo): boolean {
   return isTerminalStatus(t.status) || hasLandStamp(t);
+}
+
+/**
+ * Walk parentId ancestry and return the nearest terminal ancestor (epic or mission).
+ * Cycle-safe using a seen-set. Returns undefined if no terminal ancestor is found.
+ */
+function findNearestTerminalAncestor(t: Todo, byId: Map<string, Todo>): Todo | undefined {
+  const seen = new Set<string>();
+  let cur: Todo | undefined = byId.get(t.parentId ?? '');
+  while (cur) {
+    if (seen.has(cur.id)) break;
+    seen.add(cur.id);
+
+    // Check if this ancestor is terminal
+    if (isEpicTodo(cur) && isTerminalEpic(cur)) {
+      return cur;
+    }
+    if (isMission(cur) && isTerminalStatus(cur.status)) {
+      return cur;
+    }
+
+    cur = byId.get(cur.parentId ?? '');
+  }
+  return undefined;
 }
 
 /**
@@ -162,29 +188,7 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   for (const t of todos) {
     if (isTerminalStatus(t.status)) continue;
 
-    // Walk parentId ancestry; return the nearest terminal ancestor (epic or mission), if any.
-    // Cycle-safe using the same seen-set pattern.
-    const findNearestTerminalAncestor = (): Todo | undefined => {
-      const seen = new Set<string>();
-      let cur: Todo | undefined = byId.get(t.parentId ?? '');
-      while (cur) {
-        if (seen.has(cur.id)) break;
-        seen.add(cur.id);
-
-        // Check if this ancestor is terminal
-        if (isEpicTodo(cur) && isTerminalEpic(cur)) {
-          return cur;
-        }
-        if (isMission(cur) && isTerminalStatus(cur.status)) {
-          return cur;
-        }
-
-        cur = byId.get(cur.parentId ?? '');
-      }
-      return undefined;
-    };
-
-    const terminalAncestor = findNearestTerminalAncestor();
+    const terminalAncestor = findNearestTerminalAncestor(t, byId);
     if (terminalAncestor) {
       const ancestorKind = isMission(terminalAncestor) ? 'mission' : 'epic';
       violations.push({
@@ -202,6 +206,7 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   for (const t of todos) {
     if (isTerminalStatus(t.status)) continue;
     if (!isEpicTodo(t) || isMission(t)) continue;
+    if (isBucketEpic(t)) continue;
 
     const children = childrenOf.get(t.id) ?? [];
     if (children.length > 0 && children.every((c) => isTerminalStatus(c.status))) {
@@ -210,6 +215,27 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
         todoId: t.id,
         title: t.title,
         reason: `epic is status='${t.status}' (open) but all ${children.length} child(ren) are terminal (done/dropped)`,
+      });
+    }
+  }
+
+  // Check: dead-bucket — a structural bucket (bucketType != null || isBucket === true) that
+  // is itself terminal (status in (done, dropped)), OR a live bucket whose nearest ancestor is
+  // terminal. Structural marker only (never the canonical-title fallback used by isBucketEpic),
+  // so a retired duplicate with title matching but isBucket === false is correctly NOT flagged.
+  for (const t of todos) {
+    const isStructuralBucket = (t.bucketType ?? null) != null || t.isBucket === true;
+    if (!isStructuralBucket) continue;
+    const terminalSelf = isTerminalStatus(t.status);
+    const terminalAncestor = findNearestTerminalAncestor(t, byId);
+    if (terminalSelf || terminalAncestor) {
+      violations.push({
+        kind: 'dead-bucket',
+        todoId: t.id,
+        title: t.title,
+        reason: terminalSelf
+          ? `bucket is terminal (status='${t.status}') — dropped-bucket wedges ensureBucket`
+          : `bucket is live but nearest ancestor ${terminalAncestor!.id} is terminal (status='${terminalAncestor!.status}')`,
       });
     }
   }
