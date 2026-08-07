@@ -21,7 +21,7 @@ import type { GateDeclaration } from './leaf-gate';
 import { resolveGateDeclaration } from './leaf-gate';
 import { loadManifestSource } from '../config/project-manifest';
 import { defaultGateSpawn } from './leaf-gate';
-import { recordEpicLandGate, getEpicLandGate } from './worker-ledger';
+import { recordEpicLandGate, getEpicLandGate, listObservations } from './worker-ledger';
 
 export type LandGateStatus = 'pass' | 'fail' | 'error' | 'abstain';
 
@@ -58,6 +58,61 @@ export interface EpicLandGateResult {
  *  full spec path so `.../source-guard.test.ts`, `...snapshot.test.ts`, `...invariant.test.ts`
  *  all qualify. */
 export const SOURCE_GUARD_SWEEP_RE = /source[-_]?guard|snapshot|invariant/i;
+
+/** Floor failure names carry a run-position prefix — "(218/501) src/…/x.test.ts" — whose
+ *  numbers differ between runs. Strip it so a branch failure and the same base failure
+ *  compare equal. Everything else (including a " > test name" suffix) is left intact. */
+export function normalizeFloorTestName(name: string): string {
+  return name.replace(/^\s*\(\d+\/\d+\)\s*/, '').trim();
+}
+
+/** Tests already failing at `baseSha` on the BASE, from the observation ledger. */
+export function baseFailingTests(project: string, baseSha: string | null): Set<string> {
+  if (!baseSha) return new Set();
+  const out = new Set<string>();
+  try {
+    // 14 days is well past any base's useful life; rows are keyed by baseSha, so an old
+    // window only ever adds rows for OTHER shas, which the filter drops.
+    for (const r of listObservations(project, Date.now() - 14 * 24 * 60 * 60_000)) {
+      if (r.scope === 'base' && r.failed && r.baseSha === baseSha) {
+        out.add(normalizeFloorTestName(r.test));
+      }
+    }
+  } catch { /* fail-open to an empty set: unknown base ⇒ treat every failure as net-new */ }
+  return out;
+}
+
+/** Split a floor's failing set into net-new regressions vs failures inherited from the base. */
+export function partitionFloorAgainstBase(
+  project: string,
+  baseSha: string | null,
+  failing: string[],
+): { regressed: string[]; inherited: string[] } {
+  const base = baseFailingTests(project, baseSha);
+  const regressed: string[] = [];
+  const inherited: string[] = [];
+  for (const f of failing) {
+    (base.has(normalizeFloorTestName(f)) ? inherited : regressed).push(f);
+  }
+  return { regressed, inherited };
+}
+
+/** Wrap a floor failure name as a gate unit so it can populate regressions/inherited. */
+function floorUnit(
+  command: string,
+  file: string,
+  classification: 'inherited' | 'regression',
+): LandGateUnit {
+  return {
+    key: `floor:${file}`,
+    command,
+    laneCwd: '',
+    files: [file],
+    branch: 'fail',
+    baseline: classification === 'inherited' ? 'fail' : 'pass',
+    classification,
+  };
+}
 
 export interface SweepUnit {
   file: string;
@@ -347,6 +402,10 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   const changedFiles = diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const specFiles = changedFiles.filter((p) => SPEC_FILE_RE.test(p));
 
+  // Floor failures that are pre-existing at the base: carried into every downstream
+  // result as `inherited` so the land is reported inheritedRed rather than blocked.
+  let floorInherited: LandGateUnit[] = [];
+
   // --- regression floor ---
   const floor = await runRegressionFloor({ epicWorktreeCwd: o.epicWorktreeCwd, floors: cfg.floors, changedFiles, spawn });
   if (floor?.status === 'error') {
@@ -358,7 +417,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       floor,
       units: [],
       regressions: [],
-      inherited: [],
+      inherited: [...floorInherited],
       incidents: [],
       reasons: [`land gate: regression floor could not run: ${floor.command}`],
       specFiles,
@@ -366,28 +425,62 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       baseSha,
     };
   }
+  // The regression floor runs ONLY in the epic worktree and fails on any non-zero exit —
+  // an ABSOLUTE check, not a differential one. So a suite that is already red on the base
+  // fails here too, and the short-circuit below reports status:'fail' with EMPTY
+  // regressions/inherited/incidents. land-authority.ts then hits its catch-all and blocks
+  // with the opaque `gate-failed`, bypassing the regressions-vs-inherited machinery that
+  // exists precisely to tell "this branch broke something" from "this was already broken".
+  //
+  // The consequence is a deadlock: while the base is red NOTHING can land, including the
+  // epic whose entire purpose is to green the base. Observed 2026-08-07 — epic a84acd18
+  // (the three phantom-'vitest' typecheck fixes) failed to land three times, its branch was
+  // lost, and the mission sat stalled for hours with six leaves parked epic-base-red on the
+  // very errors that epic would have fixed.
+  //
+  // So: partition the floor's failing set against what ALREADY fails at this baseSha (the
+  // ledger records those as scope:'base'). Failures present on the base are INHERITED —
+  // reported, never blocking, exactly as the unit path already treats them. Only failures
+  // the branch introduces are regressions. A branch that is merely no-worse-than-base is
+  // allowed through, which is what makes a base repair landable.
   if (floor?.status === 'fail') {
-    const reasons = [
-      `REGRESSION FLOOR FAILED: ${floor.command}`,
-      ...(floor.failing.length ? floor.failing : [lastLines(floor.output ?? '', 20)]),
-    ];
-    const res: EpicLandGateResult = {
-      status: 'fail',
-      declared: true,
-      manifestPath: decl.manifestPath,
-      typecheck,
-      floor,
-      units: [],
-      regressions: [],
-      inherited: [],
-      incidents: [],
-      reasons,
-      specFiles,
-      epicTipSha,
-      baseSha,
-    };
-    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
-    return res;
+    const inheritedFloor = partitionFloorAgainstBase(o.project, baseSha, floor.failing);
+    if (inheritedFloor.regressed.length === 0 && floor.failing.length > 0) {
+      // Every floor failure is pre-existing at the base. Fall THROUGH to the normal unit
+      // path with the failures recorded as inherited, so the land is reported inheritedRed
+      // rather than blocked. Not a silent pass: land-authority surfaces inheritedRed.
+      floorInherited = inheritedFloor.inherited.map((f) => floorUnit(floor.command, f, 'inherited'));
+    } else {
+      const reasons = [
+        `REGRESSION FLOOR FAILED: ${floor.command}`,
+        ...(inheritedFloor.regressed.length
+          ? [`net-new failures (not failing at base ${String(baseSha).slice(0, 8)}):`, ...inheritedFloor.regressed]
+          : []),
+        ...(inheritedFloor.inherited.length
+          ? [`inherited (already failing at base): ${inheritedFloor.inherited.length}`]
+          : []),
+        ...(floor.failing.length ? floor.failing : [lastLines(floor.output ?? '', 20)]),
+      ];
+      const res: EpicLandGateResult = {
+        status: 'fail',
+        declared: true,
+        manifestPath: decl.manifestPath,
+        typecheck,
+        floor,
+        units: [],
+        // Name the NET-NEW failures as regressions so land-authority reports the accurate
+        // `gate-regression` with a count, instead of the opaque catch-all `gate-failed`.
+        regressions: inheritedFloor.regressed.map((f) => floorUnit(floor.command, f, 'regression')),
+        inherited: inheritedFloor.inherited.map((f) => floorUnit(floor.command, f, 'inherited')),
+        incidents: [],
+        reasons,
+        specFiles,
+        epicTipSha,
+        baseSha,
+      };
+      recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+      return res;
+    }
   }
 
   if (specFiles.length === 0) {
@@ -400,7 +493,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       floor,
       units: [],
       regressions: [],
-      inherited: [],
+      inherited: [...floorInherited],
       incidents: [],
       reasons: ['land gate: no spec files in the epic diff'],
       specFiles: [],
@@ -425,7 +518,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       floor,
       units: [],
       regressions: [],
-      inherited: [],
+      inherited: [...floorInherited],
       incidents: [],
       reasons: ['land gate: no test lanes declared'],
       specFiles,
@@ -447,7 +540,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       floor,
       units: [],
       regressions: [],
-      inherited: [],
+      inherited: [...floorInherited],
       incidents: unmatched.map((f, i) => ({
         key: `unmatched:${i}`,
         command: '',
@@ -535,7 +628,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
         typecheck,
         units,
         regressions: [],
-        inherited: [],
+        inherited: [...floorInherited],
         incidents: failingUnits,
         reasons: ['land gate: baseline worktree setup failed'],
         specFiles,
@@ -635,7 +728,9 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     floor,
     units,
     regressions,
-    inherited,
+    // Unit-level inherited PLUS any floor failures that were already red at the base —
+    // both are "already broken here", and both must be reported rather than blocking.
+    inherited: [...inherited, ...floorInherited],
     incidents,
     reasons,
     specFiles,

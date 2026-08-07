@@ -52,6 +52,21 @@ export class MainCheckoutResidueError extends Error {
   }
 }
 
+/** The PATH inside a `git status --porcelain` entry: the 2-char status prefix removed, and
+ *  a rename's `old -> new` reduced to the destination. Entries are pre-trimmed by
+ *  readMainCheckoutHead, so the prefix may already have lost its leading space — handle both
+ *  " M path" and "M  path". Quoted paths (core.quotePath) are left as-is; they compare
+ *  consistently because both snapshots quote identically. */
+export function residuePath(entry: string): string {
+  // Trim FIRST: readMainCheckoutHead pre-trims, so the unstaged form arrives as "M path"
+  // (leading space already gone) while the staged form keeps its inner gap, "M  path".
+  // Anchoring on the raw string would fail to match the untrimmed " M path" and leave the
+  // status letter glued to the path.
+  const withoutStatus = entry.trim().replace(/^[MADRCU?!]{1,2}\s+/, '').trim();
+  const arrow = withoutStatus.lastIndexOf(' -> ');
+  return arrow === -1 ? withoutStatus : withoutStatus.slice(arrow + 4).trim();
+}
+
 /** Read the current HEAD of the main checkout (branch name, sha, and porcelain residue).
  *  On any git error, treats branch/sha/residue as null/''/[] (non-git fallback tolerance,
  *  mirrors isGitRepo/detectBaseBranch at worktree-manager.ts:2337-2352).
@@ -116,8 +131,23 @@ export async function withMainCheckoutInvariant<T>(
     throw err;
   }
 
-  const beforeSet = new Set(before.residue);
-  const addedResidue = after.residue.filter(r => !beforeSet.has(r));
+  // Compare by PATH, not by the whole porcelain line. A porcelain entry carries a 2-char
+  // status prefix — " M path" unstaged vs "M  path" staged — so a file that merely moves
+  // between staged and unstaged yields a DIFFERENT string for the SAME path and reads as
+  // newly-introduced residue.
+  //
+  // Not hypothetical: land_epic's tree/index restore re-stages what it finds dirty, so every
+  // pre-existing dirty file flips " M" -> "M " across the operation. On 2026-08-07 a land
+  // that had ALREADY MERGED (master advanced to 7e1ff0cf, the fix present on master, gate
+  // verdict PASS) was then reported FAILED — "residue introduced by land_epic" naming four
+  // files that were dirty before it started and had been explicitly waved through with
+  // allowDirty. The land succeeded and the caller was told it failed, which is the worst
+  // possible answer: a retry re-runs an irreversible merge.
+  //
+  // Path-level comparison keeps the guard's real purpose — catching files the operation
+  // genuinely ADDED — while ignoring a staged/unstaged transition on something already dirty.
+  const beforeSet = new Set(before.residue.map(residuePath));
+  const addedResidue = after.residue.filter(r => !beforeSet.has(residuePath(r)));
   if (addedResidue.length > 0) {
     const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after);
     try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
