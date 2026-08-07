@@ -3981,6 +3981,36 @@
       "name": "list_friction"
     },
     {
+      "description": "RETRACT a friction note whose ANALYSIS WAS WRONG — not one that was merely fixed (a fixed problem is still real evidence and must keep counting). Sets retractedAt/retractedReason/supersededBy so the note stops surfacing in list_friction and friction_trends, which default to excluding retracted notes; pass includeRetracted on list_friction to see them. Exists because friction_notes was append-only: a confidently-argued but incorrect note stayed queryable and indistinguishable from a correct one, was counted as recurrence signal, and biased every mission-forge survey that touched it — its only correction was ANOTHER note that a reader had to happen to find. THROWS if the id matches no note (a zero-row write must never report success). Idempotent: re-retracting returns the existing state without overwriting the original reason.",
+      "inputSchema": {
+        "properties": {
+          "id": {
+            "description": "The friction note id to retract.",
+            "type": "string"
+          },
+          "project": {
+            "description": "Absolute path to project root",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the note is INVALID. Required — a retraction without a stated reason is not reviewable.",
+            "type": "string"
+          },
+          "supersededBy": {
+            "description": "Optional id of the note or record that supersedes this one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "id",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "retract_friction"
+    },
+    {
       "description": "Convenience: log a systemic dogfood/operational friction note that ANY agent (worker/daemon/watcher/human) can emit — records an operational-LAYER friction note. Thin wrapper over record_friction with layer=\"operational\" and retryReason=reason; todoId optional (operational notes are not leaf-scoped). Surfaces in list_friction / friction_trends alongside orchestration & domain.",
       "inputSchema": {
         "properties": {

@@ -72,6 +72,9 @@ export { NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, lea
 export type { LeafNodeGroup } from './leaf-prompts';
 import { validateReviewGrounding, checkConstraintCitations, extractCitations, type ReviewGrounding } from './review-citations';
 import { detectWorkingRootEscape, detectPrivilegeEscalation, detectOutsideWorktreeWrite, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
+import { checkContestedHypothesis } from './contested-hypothesis.js';
+import { leafExecutionMode, leafRunKinds } from './leaf-execution-mode.js';
+export { leafExecutionMode, leafRunKinds } from './leaf-execution-mode.js';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
 import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
@@ -459,6 +462,10 @@ export interface LeafExecutorDeps {
   }) => Promise<'split' | 'linear' | 'timeout'>;
   /** SR-3: close the proposal card once the run has acted on it. Default → `resolveEscalation`. */
   resolveProposal?: (escalationId: string, status: string, resolvedBy?: 'ai' | 'human') => void;
+  /** Count call sites of `symbol` under `cwd` — the one-command falsifier for a contested
+   *  reviewer's "X was dropped" claim. Optional: absent means the hypothesis check is skipped
+   *  (advisory only, it must never gate a run). See contested-hypothesis.ts. */
+  countCallSites?: (cwd: string, symbol: string) => Promise<number>;
   /** crit 4: raise a bounded-wait CONTESTED-ACCEPT decision card for a GREEN-mechanical change
    *  whose falsifiable review FAIL is UNCOVERED and same-walled — instead of a silent park.
    *  Default → `proposeContested`. Unwired ⇒ the caller falls straight through to today's park. */
@@ -948,34 +955,6 @@ export {
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
 } from './leaf-prompts';
 export type { NodeRoots } from './leaf-prompts';
-
-/** Which EXECUTION SHAPE a leaf runs (epic f5c7fc46). 'code' (default) is the proven
- *  blueprint→implement/waves→tsc-review AUTHORING pipeline; 'verify' is the non-code
- *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report);
- *  'review' (epic d8ac1a18 dogfood) is a completeness review over an epic's union change-set
- *  (one LLM judgment node → committed report → file gap todos). Both verify and review are
- *  NON-AUTHORING shapes whose deliverable is a COMMITTED report (so they survive the
- *  completion gate's work-committed re-verify, exactly like the code path's commit).
- *  Keyed off the leaf's `type`: 'verify'/'cad-dogfood'/'dogfood' → verify; 'reviewer' →
- *  review; else code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only a few
- *  real shapes; see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
-export function leafExecutionMode(leaf: Todo): 'code' | 'verify' | 'review' {
-  const t = (leaf.type ?? '').toLowerCase();
-  if (t === 'verify' || t === 'cad-dogfood' || t === 'dogfood') return 'verify';
-  if (t === 'reviewer') return 'review';
-  return 'code';
-}
-
-/** The node kinds a leaf's run will actually execute, keyed off leafExecutionMode. Drives the
- *  kind-scoped grok/xai auth pre-flight (bug 3764675c) so a dead-kind override can't gate a
- *  floor leaf. Pure. */
-export function leafRunKinds(leaf: Todo): LeafNodeKind[] {
-  switch (leafExecutionMode(leaf)) {
-    case 'verify': return ['driveplan', 'driveexec', 'report'];
-    case 'review': return ['review'];
-    default: return ['blueprint', 'implement', 'review']; // floor
-  }
-}
 
 /** One warning per (project, epic): an undeclared gate is a legitimate config, but its absence must
  *  never be invisible — a 1.00 accept rate looks identical with and without a mechanical gate. */
@@ -2422,6 +2401,7 @@ export async function runLeaf(
   // merely TIMED OUT does not: a timeout means nobody looked, which is exactly when the next
   // cycle should ask again. `contested-answered` is recorded only on a real human decision.
   let contestedCardRaised = (deps.countLeafNodes?.(leaf.id, 'contested-answered') ?? 0) > 0;
+  let contestedHypothesisNote: string | null = null; // falsified cause → next implement cycle
 
   // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
   // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
@@ -3527,14 +3507,26 @@ export async function runLeaf(
                 } else {
                   // Re-arm: a timeout must not suppress the next cycle's card.
                   contestedCardRaised = false;
+                  // FALSIFY THE STATED CAUSE BEFORE RE-ARMING. A timed-out card used to park
+                  // leaving the reviewer's hypothesis standing as the leaf's working theory, so
+                  // cycle 2 acted on cycle 1's unexamined guess and re-hit the identical wall
+                  // (yolox-markup 9acbb620: "the merge dropped the capture_service and
+                  // ssh_service imports" — both had ZERO call sites, so restoring them was a
+                  // no-op). One grep decides it. A falsified cause is appended to the findings
+                  // the next implement cycle reads, so it starts somewhere else.
+                  // Falsify the stated cause before re-arming — see contested-hypothesis.ts.
+                  const hypothesisNote = await checkContestedHypothesis(review.text, deps.countCallSites ? (sym) => deps.countCallSites!(cwd, sym) : undefined,
+                    (r) => deps.recordNode({ project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id, nodeKind: 'contested-hypothesis-check', nodesSpent: 0, verdict: r.verdict, outcomeDetail: r.detail, outputText: r.text }));
                   try {
                     deps.recordNode({
                       project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
                       nodeKind: 'contested-timeout', nodesSpent: 0, verdict: 'fail',
                       outcomeDetail: JSON.stringify({ reason: 'contested-card-timed-out-unanswered' }),
-                      outputText: 'contested-timeout: the contested card expired with no human answer — parking as the safe default, but the protection stays ARMED for later cycles.',
+                      outputText: 'contested-timeout: the contested card expired with no human answer — parking as the safe default, but the protection stays ARMED for later cycles.'
+                        + (hypothesisNote ? `\n\n${hypothesisNote}` : ''),
                     });
                   } catch { /* telemetry — never break the run */ }
+                  if (hypothesisNote) contestedHypothesisNote = hypothesisNote;
                 }
                 // reject | timeout → leave reviewAdvisory false → keep gating → today's park.
               }
@@ -3549,6 +3541,14 @@ export async function runLeaf(
           llm = 'fail';
         } else {
           findings = (review.text ?? '').trim();
+        }
+        // APPEND (never substitute) the falsified cause to the findings implement reads next
+        // cycle — in telemetry alone it would not stop cycle 2 restarting from the disproven guess.
+        if (contestedHypothesisNote) {
+          findings = `${findings}\n\n${contestedHypothesisNote}`.trim();
+          contestedHypothesisNote = null; // one cycle only
+        }
+        if (proseRetryFindings === null) {
           // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive
           // constraint id. Pairs Payload C's injected ACTIVE CONSTRAINTS block with a
           // warn-only enforcement half. Result is surfaced/recorded ONLY — it does not

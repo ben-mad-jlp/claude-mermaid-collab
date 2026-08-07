@@ -56,6 +56,29 @@ export function isLanded(epic: Todo): boolean {
  * e.g., invariant-check.ts:172 (landedAt-divergence checks). Using isLanded there
  * would make a status-done, never-stamped epic read as stamped (false positive).
  */
+/** WHY `landed` can be true while `landedAt` is NULL — and why we do NOT backfill.
+ *  `isLanded` is a DUAL predicate — status-done OR stamp-present — because a land path
+ *  can leave an epic landed while its status lags, AND a direct-commit completion can set status
+ *  without ever stamping. epic-landedness.ts states the doctrine outright: these notions "must
+ *  NEVER be collapsed into one boolean". A watcher comparing `landed:true` against a NULL
+ *  `landedAt` therefore sees a contradiction that is really two different questions being asked.
+ *  Backfilling the stamp would collapse them and destroy the distinction that module exists to
+ *  preserve; naming the PROVENANCE keeps both readable. */
+export type LandedVia = 'status' | 'stamp' | 'both' | 'neither';
+
+export function landedVia(epic: Todo): LandedVia {
+  // COMPOSES the two existing producers rather than re-reading `status`/`landedAt` itself.
+  // single-producer-audit enforces EXACTLY two landedness producers (isLanded, hasLandStamp);
+  // a third raw reader would be a third source of truth for the same question, which is the
+  // drift this module exists to prevent.
+  const byStatus = isEpicStatusDone(epic);
+  const byStamp = hasLandStamp(epic);
+  if (byStatus && byStamp) return 'both';
+  if (byStatus) return 'status';
+  if (byStamp) return 'stamp';
+  return 'neither';
+}
+
 export function hasLandStamp(epic: Todo): boolean {
   return epic.landedAt != null;
 }
