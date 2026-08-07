@@ -276,7 +276,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every SESSION_TOOL_DEFS name is wired in handleSessionTool', async () => {
-    expect(SESSION_TOOL_DEFS.length).toBe(40);
+    expect(SESSION_TOOL_DEFS.length).toBe(41);
     for (const def of SESSION_TOOL_DEFS) {
       expect(await isRecognized(handleSessionTool, def.name)).toBe(true);
     }

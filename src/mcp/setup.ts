@@ -223,6 +223,7 @@ export async function setupMCPServer(): Promise<Server> {
       ...DESKTOP_TOOL_DEFS,
       ...SESSION_TOOL_DEFS.slice(22, 29),      // update_task_status..record_friction
       SESSION_TOOL_DEFS[30],                   // list_friction (module order: report_dogfood before list_friction)
+      SESSION_TOOL_DEFS[40],                   // retract_friction (appended LAST: setup.ts indexes SESSION_TOOL_DEFS positionally, so a def inserted mid-array silently rewires every later index)
       SESSION_TOOL_DEFS[29],                   // report_dogfood
       SESSION_TOOL_DEFS[31],                   // list_session_todos
       ...SESSION_TOOL_DEFS.slice(33, 38),      // update/toggle/remove/clear/reorder_session_todos (skips add_session_todo@32)

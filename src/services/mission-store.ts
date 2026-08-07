@@ -26,7 +26,8 @@ import { recordAutonomousMutation } from './autonomy-log.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
-import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
+import { isLanded, isEpicStatusDone, landedVia, type LandedVia } from './epic-landedness.ts';
+
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
@@ -1399,7 +1400,7 @@ export interface MissionCriterionFacts {
   /** Every epic serving this criterion (primary edge or servesCriterionIds), with its
    *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
-  servingEpics?: { id: string; title: string; landed: boolean }[];
+  servingEpics?: { id: string; title: string; landed: boolean; landedVia: LandedVia }[];
   /** ids from this criterion's `dependsOn` that exist on the same mission and are not yet
    *  met — 'blocked' when non-empty. Optional so existing fact fixtures need no change;
    *  set by collectMissionStatusFacts. */
@@ -1773,7 +1774,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         (e) => todoServesCriterion(e, c.id) &&
           !isHollowDone(e) && countsTowardServeCap(e),
       ).length;
-      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: resolveLanded(e) }));
+      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: resolveLanded(e), landedVia: landedVia(e) }));
       const servingEpicIds = new Set(serving.map((e) => e.id));
       const rejectedParkedCount = runs.filter(
         (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
@@ -1831,7 +1832,7 @@ export function listCriteriaWithActions(
   project: string,
   todoId: string,
   opts?: { landTruth?: Map<string, boolean> },
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpics: { id: string; title: string; landed: boolean }[] })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m, undefined, opts);
@@ -1871,7 +1872,7 @@ export interface MissionSummary {
   mission: MissionRow;
   rollup: MissionRollup;
   /** Acceptance criteria (the CAPABILITY gauge's underlying items). */
-  criteria: (MissionCriterion & { servingEpics: { id: string; title: string; landed: boolean }[] })[];
+  criteria: (MissionCriterion & { servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[];
   /** The mission's direct `[EPIC]` children (the MECHANICAL gauge's items). */
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus: string | null }>;
 }
@@ -1916,7 +1917,7 @@ export function listMissions(
       ...c,
       servingEpics: epicRows
         .filter((e) => todoServesCriterion(e, c.id))
-        .map((e) => ({ id: e.id, title: e.title, landed: isLanded(e) })),
+        .map((e) => ({ id: e.id, title: e.title, landed: isLanded(e), landedVia: landedVia(e) })),
     })); // cheap indexed lookup — the capability gauge
     const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
     let mission = raw && !withFacts

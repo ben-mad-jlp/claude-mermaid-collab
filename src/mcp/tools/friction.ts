@@ -7,8 +7,7 @@ import {
   recordFriction,
   listFriction,
   type FrictionLayer,
-  type FrictionNote,
-} from '../../services/friction-store.js';
+  type FrictionNote, retractFriction } from '../../services/friction-store.js';
 
 export const recordFrictionSchema = {
   type: 'object',
@@ -68,11 +67,13 @@ export function listFrictionTool(args: {
   todoId?: string;
   session?: string;
   layer?: FrictionLayer;
+  includeRetracted?: boolean;
 }): { notes: FrictionNote[]; count: number } {
   const notes = listFriction(args.project, {
     todoId: args.todoId,
     session: args.session,
     layer: args.layer,
+    includeRetracted: args.includeRetracted,
   });
   return { notes, count: notes.length };
 }
@@ -101,4 +102,20 @@ export async function reportDogfoodTool(args: {
     detail: args.detail ?? null,
   });
   return { success: true, note };
+}
+
+/** RETRACT a friction note whose analysis was wrong. Thin wrapper over the store, which throws
+ *  on an unknown id rather than reporting a zero-row success. */
+export function retractFrictionTool(args: {
+  project: string;
+  id: string;
+  reason: string;
+  supersededBy?: string;
+}): { note: FrictionNote } {
+  const note = retractFriction(args.project, {
+    id: args.id,
+    reason: args.reason,
+    supersededBy: args.supersededBy,
+  });
+  return { note };
 }

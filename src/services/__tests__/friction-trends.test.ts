@@ -15,6 +15,9 @@ function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; r
     session: null,
     attempt: 1,
     detail: null,
+    retractedAt: null,
+    retractedReason: null,
+    supersededBy: null,
     createdAt: partial.createdAt ?? '2026-06-11T00:00:00.000Z',
     ...partial,
   };
