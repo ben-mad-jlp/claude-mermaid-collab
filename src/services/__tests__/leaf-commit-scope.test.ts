@@ -35,6 +35,11 @@ function git(cwd: string, ...args: string[]) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' });
 }
 
+const GIT_ADD_ALL_PATTERN =
+  "\\[.add.\\s*(,\\s*)?['\\\"]?-[Au]|exec.*git.*add\\s+(-A|-u|\\\\.)\\b|git\\s+add\\s+(-A|-u|\\\\.)\\b";
+const GIT_ADD_ALL_FILTER =
+  "grep -vE ':[0-9]+:[[:space:]]*//' | grep -viE '(never|forbidden|must not).{0,30}git[[:space:]]+add'";
+
 function createJunkFiles(repo: string) {
   // Seed 110 junk files like the bug report
   const junkFiles: string[] = [];
@@ -405,11 +410,22 @@ describe('leaf-commit-scope', () => {
       'bash',
       [
         '-c',
-        `git grep -nE "\\[.add.\\s*(,\\s*)?['\\\"]?-[Au]|exec.*git.*add\\s+(-A|-u|\\\\.)\\b|git\\s+add\\s+(-A|-u|\\\\.)\\b" -- 'src/**' ':!src/**/__tests__/**' ':!src/**/*.test.ts' ':!src/**/*.test.js' ':!src/services/leaf-commit-scope.ts' || true`,
+        `git grep -nE "${GIT_ADD_ALL_PATTERN}" -- 'src/**' ':!src/**/__tests__/**' ':!src/**/*.test.ts' ':!src/**/*.test.js' ':!src/services/leaf-commit-scope.ts' | ${GIT_ADD_ALL_FILTER} || true`,
       ],
       { encoding: 'utf8', cwd: process.cwd() }
     );
     expect(hits.trim()).toBe('');
+
+    // Positive control: prove the filters are scoped to prose, not invocations.
+    writeFileSync(join(repo, 'offender.ts'), "execFileSync('git', ['add', '-A']);\n");
+    git(repo, 'add', 'offender.ts');
+    git(repo, 'commit', '-m', 'init');
+    const controlHits = execFileSync(
+      'bash',
+      ['-c', `git grep -nE "${GIT_ADD_ALL_PATTERN}" -- '.' | ${GIT_ADD_ALL_FILTER} || true`],
+      { encoding: 'utf8', cwd: repo }
+    );
+    expect(controlHits).toContain('offender.ts');
   });
 
   it('delete-only change-set stages and commits the deletion', async () => {
