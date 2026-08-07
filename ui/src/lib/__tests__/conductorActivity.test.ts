@@ -37,10 +37,16 @@ describe('formatConductorPass', () => {
     expect(result.sentence).toContain('filed items (legacy record)');
   });
 
-  it('killed row', () => {
+  it('unfinished row reads as in-flight while under the node budget', () => {
     const row = mkRow({ endedAt: null });
-    const result = formatConductorPass(row);
-    expect(result.sentence).toContain('killed (ran out of time)');
+    // The journal row is written at pass START, so endedAt===null also means "running".
+    expect(formatConductorPass(row, row.startedAt + 60_000).sentence).toContain('in flight (1m)');
+    expect(formatConductorPass(row, row.startedAt + 60_000).sentence).not.toContain('killed');
+  });
+
+  it('unfinished row reads as killed once past the node budget', () => {
+    const row = mkRow({ endedAt: null });
+    expect(formatConductorPass(row, row.startedAt + 1_200_000).sentence).toContain('killed (ran out of time)');
   });
 
   it('declined-with-entity row pushes a chip', () => {
@@ -80,9 +86,12 @@ describe('formatConductorPass', () => {
       mkRow({ arm: 'none' }),
       mkRow({ arm: null }),
     ];
+    // Fixed clock on BOTH sides: the unfinished-row sentence is age-derived, so letting
+    // each default to its own Date.now() compares two instants and flakes on a boundary.
+    const now = 100 + 5 * 60_000;
     for (const row of rows) {
-      const uiResult = formatConductorPass(row);
-      const serverResult = serverFormatConductorPass(row as any);
+      const uiResult = formatConductorPass(row, now);
+      const serverResult = serverFormatConductorPass(row as any, now);
       expect(uiResult).toEqual(serverResult);
     }
   });

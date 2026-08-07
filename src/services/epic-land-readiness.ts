@@ -35,8 +35,21 @@ export interface CommitProbeResult {
 }
 export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<CommitProbeResult>;
 
-export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic';
-export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof';
+export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic' | 'dup-settled';
+export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified';
+
+/** Provenance handle written by settleDupOfLanded: `dup-of-landed:<sha8>[:<landedTodoId8>]`. */
+const DUP_OF_LANDED_RE = /^dup-of-landed:([0-9a-fA-F]{4,40})(?::([0-9a-fA-F]{4,40}))?$/;
+
+/** Parse a leaf's `completedBy` for dup-of-landed provenance, or null. */
+export function parseDupOfLanded(completedBy: string | null | undefined): { sha: string; landedTodoId: string | null } | null {
+  if (typeof completedBy !== 'string') return null;
+  const m = DUP_OF_LANDED_RE.exec(completedBy.trim());
+  return m ? { sha: m[1], landedTodoId: m[2] ?? null } : null;
+}
+
+/** Is `sha` reachable from the epic tip? Used to VERIFY a dup-of-landed claim. */
+export type ReachProbe = (sha: string) => boolean | Promise<boolean>;
 
 export interface LandFinding {
   todoId: string;
@@ -112,6 +125,7 @@ export async function buildLandReadiness(
   epicId: string,
   probe: CommitProbe,
   project: string = '',
+  reachProbe?: ReachProbe,
 ): Promise<LandReadinessReport> {
   const epicBranch = epicBranchName(epicId);
 
@@ -228,6 +242,48 @@ export async function buildLandReadiness(
       continue;
     }
 
+    // 5. Dup-of-landed — settled as a duplicate of work that landed under ANOTHER leaf's
+    //    id (settleDupOfLanded). Such a leaf can NEVER carry a `Collab-Todo: <own id>`
+    //    commit — the work exists under the landed leaf's trailer, in a different epic —
+    //    so the trailer check below would flag it 'missing' forever and block the land
+    //    permanently. Observed 2026-08-05 on epic d7dca481: four leaves settled as
+    //    dup-of-landed within 7 seconds, every one reported "accepted with no commit on
+    //    any ref", blocking:true, while the work was demonstrably on main.
+    //
+    //    But the handle is an UNVERIFIED CALLER ASSERTION: settleDupOfLanded writes
+    //    whatever sha it is handed without checking that the commit exists, is reachable,
+    //    or relates to this leaf at all. Exempting on the handle's mere presence would
+    //    convert an agent's claim into a gate pass — the exact thing this gate exists to
+    //    prevent. So VERIFY it: exempt only when the cited sha is reachable from the epic
+    //    tip, which is the same standard of proof the trailer check applies, and is a real
+    //    demonstration that the work is present in what this epic would land. An
+    //    unreachable or unresolvable sha stays BLOCKING under its own finding kind.
+    const dup = parseDupOfLanded(desc.completedBy);
+    if (dup) {
+      const reachable = reachProbe ? await reachProbe(dup.sha) : false;
+      if (reachable) {
+        exemptions.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          reason: 'dup-settled',
+          childCount: 0,
+        });
+      } else {
+        findings.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          kind: 'dup-unverified',
+          strayShas: [dup.sha],
+          reason:
+            `settled as dup-of-landed at ${dup.sha}` +
+            (dup.landedTodoId ? ` (leaf ${dup.landedTodoId})` : '') +
+            `, but that commit is not reachable from ${epicBranch}` +
+            (reachProbe ? '' : ' (no reach probe supplied)'),
+        });
+      }
+      continue;
+    }
+
     // Otherwise it is a code leaf.
     checked++;
     const p = await probe(desc.id);
@@ -308,9 +364,28 @@ export function makeCommitProbe(project: string, epicBranch: string): CommitProb
   };
 }
 
+/**
+ * A real reachability probe: is `sha` an ancestor of the epic tip? `merge-base
+ * --is-ancestor` exits 0 for yes, non-zero for no AND for a sha that does not resolve —
+ * both of which must read as "not verified", so the non-zero collapse is correct here.
+ */
+export function makeReachProbe(project: string, epicBranch: string): ReachProbe {
+  return async (sha: string): Promise<boolean> => {
+    if (!/^[0-9a-fA-F]{4,40}$/.test(sha)) return false; // never hand an arbitrary string to git
+    const res = await runGit(project, ['merge-base', '--is-ancestor', sha, `refs/heads/${epicBranch}`]);
+    return res.code === 0;
+  };
+}
+
 /** DB-backed wrapper: load the project's work-graph and report land readiness. */
 export async function getEpicLandReadiness(project: string, epicId: string): Promise<LandReadinessReport> {
   const todos = listTodos(project, { includeCompleted: true });
   const epicBranch = epicBranchName(epicId);
-  return buildLandReadiness(todos, epicId, makeCommitProbe(project, epicBranch), project);
+  return buildLandReadiness(
+    todos,
+    epicId,
+    makeCommitProbe(project, epicBranch),
+    project,
+    makeReachProbe(project, epicBranch),
+  );
 }

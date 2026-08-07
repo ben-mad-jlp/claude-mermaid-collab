@@ -10,6 +10,7 @@ import {
   _closeConductorJournalDb,
 } from '../conductor-pass-journal';
 import { formatConductorPass } from '../conductor-pass-format';
+import { CONDUCTOR_NODE_TIMEOUT_MS } from '../harness-caps';
 
 let dir: string;
 beforeEach(() => {
@@ -62,9 +63,24 @@ describe('conductor-pass-format live store', () => {
 
     const unfinishedRow = rows.find((r) => r.endedAt === null);
     expect(unfinishedRow).toBeDefined();
-    const unfinishedSentence = formatConductorPass(unfinishedRow!).sentence;
-    expect(unfinishedSentence.length).toBeGreaterThan(0);
-    expect(unfinishedSentence.includes('killed (ran out of time)')).toBe(true);
+    // This row was opened moments ago and never finalized — i.e. a pass STILL RUNNING.
+    // It must read as in-flight. Asserting 'killed (ran out of time)' here (as this test
+    // used to) enshrined the bug: the formatter called every unfinished row a corpse, and
+    // a live 3-minute pass on a converging mission got reported as a failure.
+    const sentence = formatConductorPass(
+      unfinishedRow!,
+      unfinishedRow!.startedAt + 90_000, // 1.5 min in, far under the 20-minute node budget
+    ).sentence;
+    expect(sentence.length).toBeGreaterThan(0);
+    expect(sentence).toContain('in flight');
+    expect(sentence).not.toContain('killed');
+
+    // Past the budget the same row IS a corpse, and the original wording is right.
+    const aged = formatConductorPass(
+      unfinishedRow!,
+      unfinishedRow!.startedAt + CONDUCTOR_NODE_TIMEOUT_MS,
+    ).sentence;
+    expect(aged).toContain('killed (ran out of time)');
   });
 
   test('formatting every returned row leaves the store rows byte-identical', () => {

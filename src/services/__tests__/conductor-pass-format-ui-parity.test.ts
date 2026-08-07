@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { formatConductorPass as backendFormat, groupConductorPasses as backendGroup } from '../conductor-pass-format';
 import { formatConductorPass as uiFormat, groupConductorPasses as uiGroup } from '../../../ui/src/lib/conductorActivity';
 import type { ConductorPassJournalRow } from '../conductor-pass-journal';
+import { CONDUCTOR_NODE_TIMEOUT_MS } from '../harness-caps';
 
 function mkRow(overrides: Partial<ConductorPassJournalRow>): ConductorPassJournalRow {
   return {
@@ -49,14 +50,35 @@ const FIXTURES: ConductorPassJournalRow[] = [
   }),
 ];
 
+// A FIXED clock, passed to both sides. The unfinished-row sentence is age-derived, so
+// letting each side default to its own Date.now() would compare two different instants
+// and flake whenever the pair straddles a second/minute boundary.
+const NOW = 1000 + 3 * 60_000; // 3 minutes into the fixture's startedAt: 1000
+
 describe('backend/UI conductor-pass formatter parity', () => {
   test('backend and UI formatConductorPass produce identical sentences for every fixture', () => {
     for (const row of FIXTURES) {
-      const backend = backendFormat(row);
-      const ui = uiFormat(row as any);
+      const backend = backendFormat(row, NOW);
+      const ui = uiFormat(row as any, NOW);
       expect(ui.sentence).toBe(backend.sentence);
       expect(ui.chips).toEqual(backend.chips);
     }
+  });
+
+  test('the two CONDUCTOR_NODE_TIMEOUT_MS copies agree — the in-flight/killed boundary', () => {
+    // The UI duplicates the constant (it cannot import the bun:sqlite-bearing chain), so
+    // a drift would silently move the boundary on one side only. Probe it from outside:
+    // one ms under the backend's budget must read in-flight on BOTH, and exactly at it
+    // must read killed on BOTH.
+    const started = 0;
+    const justUnder = mkRow({ startedAt: started, endedAt: null, arm: null, missionId: null });
+    const under = CONDUCTOR_NODE_TIMEOUT_MS - 1;
+    expect(uiFormat(justUnder as any, under).sentence).toBe(backendFormat(justUnder, under).sentence);
+    expect(backendFormat(justUnder, under).sentence).toContain('in flight');
+
+    const at = CONDUCTOR_NODE_TIMEOUT_MS;
+    expect(uiFormat(justUnder as any, at).sentence).toBe(backendFormat(justUnder, at).sentence);
+    expect(backendFormat(justUnder, at).sentence).toContain('killed (ran out of time)');
   });
 
   test('backend and UI groupConductorPasses produce identical groups for the collapse/split fixtures', () => {

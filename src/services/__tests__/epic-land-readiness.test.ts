@@ -6,6 +6,7 @@ import type { Todo, TodoStatus } from '../todo-store';
 import {
   buildLandReadiness,
   isGateTodo,
+  parseDupOfLanded,
   type CommitProbe,
   type CommitProbeResult,
 } from '../epic-land-readiness';
@@ -526,5 +527,91 @@ describe('steward-proof land_epic gate integration', () => {
     expect(result.reason).toBe('epic-leaves-unlanded');
     expect(result.detail).toContain('w1');
     expect(result.detail).toContain('missing');
+  });
+});
+
+/**
+ * A leaf settled by settleDupOfLanded carries `completedBy = dup-of-landed:<sha8>[:<leaf8>]`
+ * and can NEVER carry a `Collab-Todo: <own id>` commit — its work landed under a DIFFERENT
+ * leaf's trailer, in a different epic. Without an exemption the trailer check calls it
+ * 'missing' forever and the epic can never land (observed 2026-08-05 on epic d7dca481: four
+ * dup-settled leaves, all "accepted with no commit on any ref", blocking:true, while the
+ * work was demonstrably on main).
+ *
+ * But the handle is an UNVERIFIED caller assertion — settleDupOfLanded writes whatever sha
+ * it is handed, checking nothing. So the exemption is conditional on the cited sha actually
+ * being reachable from the epic tip.
+ */
+describe('dup-of-landed settlement', () => {
+  const dupLeaf = (over: Partial<Todo> = {}) =>
+    todo({
+      id: 'd1',
+      title: 'work that already landed elsewhere',
+      parentId: 'e1',
+      status: 'done',
+      acceptanceStatus: 'accepted',
+      completedBy: 'dup-of-landed:ce584be8:a9628f45',
+      ...over,
+    });
+  const epic = () => todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
+  const noCommits = probeFrom({});
+
+  test('parseDupOfLanded reads sha and landed leaf, and rejects anything else', () => {
+    expect(parseDupOfLanded('dup-of-landed:ce584be8:a9628f45')).toEqual({ sha: 'ce584be8', landedTodoId: 'a9628f45' });
+    expect(parseDupOfLanded('dup-of-landed:ce584be8')).toEqual({ sha: 'ce584be8', landedTodoId: null });
+    expect(parseDupOfLanded(null)).toBeNull();
+    expect(parseDupOfLanded('accepted-by-human')).toBeNull();
+    // Not a sha — must never reach a git command.
+    expect(parseDupOfLanded('dup-of-landed:$(rm -rf /)')).toBeNull();
+  });
+
+  test('EXEMPT when the cited commit is reachable from the epic tip', async () => {
+    const report = await buildLandReadiness([epic(), dupLeaf()], 'e1', noCommits, '', async (sha) => {
+      expect(sha).toBe('ce584be8');
+      return true;
+    });
+    expect(report.blocking).toBe(false);
+    expect(report.findings).toEqual([]);
+    expect(report.exemptions.map((e) => e.reason)).toContain('dup-settled');
+    // Not counted as a leaf required to carry its own commit.
+    expect(report.checked).toBe(0);
+  });
+
+  test('BLOCKS when the cited commit is NOT reachable — the claim is unverified', async () => {
+    const report = await buildLandReadiness([epic(), dupLeaf()], 'e1', noCommits, '', async () => false);
+    expect(report.blocking).toBe(true);
+    expect(report.findings.length).toBe(1);
+    expect(report.findings[0].kind).toBe('dup-unverified');
+    expect(report.findings[0].strayShas).toEqual(['ce584be8']);
+    expect(report.findings[0].reason).toContain('not reachable');
+  });
+
+  test('BLOCKS when no reach probe is supplied — fail safe, never exempt on the bare handle', async () => {
+    // The handle alone is an agent's word. A caller that cannot verify must not pass.
+    const report = await buildLandReadiness([epic(), dupLeaf()], 'e1', noCommits);
+    expect(report.blocking).toBe(true);
+    expect(report.findings[0].kind).toBe('dup-unverified');
+  });
+
+  test('a normal leaf with no dup handle is unaffected by the reach probe', async () => {
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
+    let reachCalls = 0;
+    const report = await buildLandReadiness(
+      [epic(), work],
+      'e1',
+      probeFrom({ w1: { onEpicTip: ['abc'], anyRef: ['abc'] } }),
+      '',
+      async () => { reachCalls++; return true; },
+    );
+    expect(report.blocking).toBe(false);
+    expect(report.checked).toBe(1);
+    expect(reachCalls).toBe(0); // the reach probe is only for dup-settled leaves
+  });
+
+  test('a genuinely missing leaf still blocks — the exemption must not widen to it', async () => {
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
+    const report = await buildLandReadiness([epic(), work], 'e1', noCommits, '', async () => true);
+    expect(report.blocking).toBe(true);
+    expect(report.findings[0].kind).toBe('missing');
   });
 });
