@@ -14,6 +14,7 @@
 import { getTodo, updateTodo, overrideAcceptTodo, type Todo } from './todo-store.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../mcp/workgraph-tools.js';
+import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.js';
 
 export interface AdoptBranchAsEpicOpts {
   source: string;
@@ -53,21 +54,14 @@ export async function runGit(
 }
 
 /**
- * Resolve the repo's trunk branch by probing local refs: `main` first, then
- * `master`, else the literal fallback `'master'`. This mirrors
- * WorktreeManager.detectBaseBranch()'s local-ref preference so a repo whose trunk
- * is `main` (no `master` ref) resolves correctly, while a `master`-trunk repo
- * resolves to `'master'` unchanged (behaviour-preserving). Never throws.
+ * Resolve the repo's trunk branch: delegates to the shared origin/HEAD-first resolver in
+ * trunk-ref.ts, injecting this module's own git runner. Never throws.
  */
 export async function detectBaseTrunk(
   gitRoot: string,
   runGitFn: typeof runGit,
 ): Promise<string> {
-  for (const cand of ['main', 'master']) {
-    const r = await runGitFn(gitRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${cand}`]);
-    if (r.code === 0 && r.stdout.trim()) return cand;
-  }
-  return 'master';
+  return sharedResolveTrunkRef(gitRoot, runGitFn);
 }
 
 export interface AdoptBranchAsEpicDeps {
@@ -145,8 +139,9 @@ export async function adoptBranchAsEpic(
 ): Promise<AdoptBranchAsEpicResult> {
   const gitRoot = opts.targetProject ?? project;
 
-  // Resolve the trunk ONCE (main-then-master probe; 'master' on a master-trunk repo,
-  // so all downstream git commands are behaviour-preserving there). Injectable for tests.
+  // Resolve the trunk ONCE (origin/HEAD, then main, then master; the historical
+  // master-trunk default when nothing resolves) so all downstream git commands agree
+  // with the real default branch. Injectable for tests.
   const trunk = await (deps.detectBase ?? detectBaseTrunk)(gitRoot, deps.runGit);
 
   // 1. Resolve source to SHA
