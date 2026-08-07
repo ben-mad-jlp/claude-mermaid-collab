@@ -102,16 +102,14 @@ export function createJob(
   };
 }
 
-export function markJobRunning(project: string, id: string): AsyncJobRow {
+export function markJobRunning(project: string, id: string): AsyncJobRow | null {
   const db = openDb(project);
   const now = Date.now();
   db.prepare(`UPDATE async_job SET status = ?, updatedAt = ? WHERE id = ?`).run('running', now, id);
-  const row = db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow;
-  if (!row) throw new Error(`async job not found: ${id}`);
-  return row;
+  return (db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow) ?? null;
 }
 
-export function markJobSucceeded(project: string, id: string, resultJson?: string | null): AsyncJobRow {
+export function markJobSucceeded(project: string, id: string, resultJson?: string | null): AsyncJobRow | null {
   const db = openDb(project);
   const now = Date.now();
   db.prepare(`UPDATE async_job SET status = ?, updatedAt = ?, resultJson = ? WHERE id = ?`).run(
@@ -120,18 +118,14 @@ export function markJobSucceeded(project: string, id: string, resultJson?: strin
     resultJson ?? null,
     id,
   );
-  const row = db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow;
-  if (!row) throw new Error(`async job not found: ${id}`);
-  return row;
+  return (db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow) ?? null;
 }
 
-export function markJobFailed(project: string, id: string, error: string): AsyncJobRow {
+export function markJobFailed(project: string, id: string, error: string): AsyncJobRow | null {
   const db = openDb(project);
   const now = Date.now();
   db.prepare(`UPDATE async_job SET status = ?, updatedAt = ?, error = ? WHERE id = ?`).run('failed', now, error, id);
-  const row = db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow;
-  if (!row) throw new Error(`async job not found: ${id}`);
-  return row;
+  return (db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow) ?? null;
 }
 
 export function getJob(project: string, id: string): AsyncJobRow | null {
