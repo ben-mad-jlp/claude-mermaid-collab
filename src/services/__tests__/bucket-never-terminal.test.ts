@@ -6,7 +6,7 @@
  * rollup sweep even when its bucket parent is marked done or dropped.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { createTodo, listTodos, getTodo, sweepEpicRollups, completeTodo, openDb } from '../todo-store';
 import { ensureBucket } from '../bucket-registry';
 import { stampEpicLandedAtGated } from '../epic-landed-stamp-gate';
