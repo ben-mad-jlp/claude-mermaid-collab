@@ -285,6 +285,21 @@ export function workingRootLines(roots?: NodeRoots): string[] {
       'there is NOT — that work is discarded and your leaf is filed as an empty diff.',
     );
   }
+  // A leaf that cannot find an interpreter WILL go looking for one, and the only one that
+  // exists is in the main checkout — so it `cd`s there, trips the working-root gate, and is
+  // blocked for a scope incident it had no way to avoid (yolox-markup mission 6e7ef04d: 5
+  // escapes, 2 leaves, one morning; one reached reviewVerdict:"pass" and was blocked anyway).
+  // The worktree is now PROVISIONED with the interpreter (worktree-manager linkSharedDeps),
+  // so say where it is. Provisioning without telling the leaf just leaves it guessing.
+  lines.push(
+    'DEPENDENCIES ARE ALREADY PROVISIONED IN YOUR WORKING ROOT. Dependency directories that are',
+    'gitignored (node_modules, .venv/venv) are symlinked in for every project dir that has them,',
+    'so run tools from HERE, never from the tracking root: e.g. `./backend/.venv/bin/python -m',
+    'pytest ...` or `./.venv/bin/python -m pytest ...` (relative to this working root), and the',
+    'repo\'s usual node/bun commands. If a tool seems missing, look for its dependency dir inside',
+    'the working root FIRST — `cd`-ing to the tracking root to borrow one is a scope violation that',
+    'discards your work, even when the change itself is correct.',
+  );
   lines.push(...PRIVILEGE_BOUNDARY_LINES);
   lines.push('');
   return lines;
