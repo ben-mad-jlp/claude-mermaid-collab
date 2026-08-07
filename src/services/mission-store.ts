@@ -17,7 +17,8 @@
 import Database from 'bun:sqlite';
 import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, updateTodo, type Todo } from './todo-store.ts';
+import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, updateTodo, getTodo, type Todo } from './todo-store.ts';
+import { retireDecisionRecordsForTodo } from './decision-record-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
@@ -741,6 +742,18 @@ export function restoreMission(project: string, todoId: string): MissionRow {
   return rowToMission(row);
 }
 
+/** Retire decision-record constraints solely linked to a deleted/dropped todo, fail-open
+ *  so a decision-record-store failure never breaks the caller (deleteMission / pruneOrphanMissions). */
+function retireConstraintsForDeletedTodo(project: string, todoId: string): void {
+  try {
+    retireDecisionRecordsForTodo(project, todoId, {
+      isLive: (tid) => { const t = getTodo(project, tid); return t != null && t.status !== 'dropped'; },
+    });
+  } catch (e) {
+    console.warn(`[mission] retireDecisionRecordsForTodo failed for ${todoId}:`, (e as Error).message);
+  }
+}
+
 /** Delete a mission's control state (does NOT touch the graph node). Resolves a short
  *  id; a not-found id is a silent no-op (unchanged prior behavior — this never threw). */
 export function deleteMission(project: string, todoId: string): void {
@@ -749,6 +762,7 @@ export function deleteMission(project: string, todoId: string): void {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { reopenConsumedFor } = require('./bucket-consumption.ts');
   reopenConsumedFor(project, id);
+  retireConstraintsForDeletedTodo(project, id);
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
   import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
@@ -763,6 +777,7 @@ export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): 
   let pruned = 0;
   for (const { todoId } of rows) {
     if (!liveNodeIds.has(todoId)) {
+      retireConstraintsForDeletedTodo(project, todoId);
       db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(todoId);
       db.prepare('DELETE FROM mission WHERE todoId = ?').run(todoId);
       pruned++;

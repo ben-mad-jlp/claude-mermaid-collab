@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createDecisionRecord, getDecisionRecord, listDecisionRecords,
-  approveDecisionRecord, supersedeDecisionRecord, getActiveConstraints, getActiveRequirements, _closeProject,
+  approveDecisionRecord, supersedeDecisionRecord, retireDecisionRecordsForTodo,
+  getActiveConstraints, getActiveRequirements, _closeProject,
 } from '../decision-record-store';
 
 let project: string;
@@ -91,5 +92,47 @@ describe('decision-record-store', () => {
     const inScope = getActiveConstraints(project, 'X').map((r) => r.title).sort();
     expect(inScope).toEqual(['X', 'proj']); // not 'Y', not the decision
     void aDecision;
+  });
+
+  describe('retireDecisionRecordsForTodo', () => {
+    it('retireDecisionRecordsForTodo supersedes a record whose sole linked todo is removed', () => {
+      const c = createDecisionRecord(project, { kind: 'constraint', title: 'c', linkedTodos: ['t1'] });
+      approveDecisionRecord(project, c.id, 'h');
+      const result = retireDecisionRecordsForTodo(project, 't1');
+      expect(result.superseded).toContain(c.id);
+      const got = getDecisionRecord(project, c.id)!;
+      expect(got).not.toBeNull();
+      expect(got.status).toBe('superseded');
+      expect(got.supersededBy).toBeNull();
+      expect(getActiveConstraints(project).map((r) => r.id)).not.toContain(c.id);
+    });
+
+    it('retireDecisionRecordsForTodo prunes linkedTodos but keeps status when a link survives', () => {
+      const c = createDecisionRecord(project, { kind: 'constraint', title: 'c', linkedTodos: ['t1', 't2'] });
+      approveDecisionRecord(project, c.id, 'h');
+      const result = retireDecisionRecordsForTodo(project, 't1');
+      expect(result.unlinked).toContain(c.id);
+      const got = getDecisionRecord(project, c.id)!;
+      expect(got.status).toBe('active');
+      expect(got.linkedTodos).toEqual(['t2']);
+      expect(getActiveConstraints(project).map((r) => r.id)).toContain(c.id);
+    });
+
+    it('retireDecisionRecordsForTodo supersedes when isLive marks all surviving links dead', () => {
+      const c = createDecisionRecord(project, { kind: 'constraint', title: 'c', linkedTodos: ['t1', 't2'] });
+      approveDecisionRecord(project, c.id, 'h');
+      const result = retireDecisionRecordsForTodo(project, 't1', { isLive: () => false });
+      expect(result.superseded).toContain(c.id);
+      const got = getDecisionRecord(project, c.id)!;
+      expect(got.status).toBe('superseded');
+    });
+
+    it('retireDecisionRecordsForTodo is idempotent on repeat calls', () => {
+      const c = createDecisionRecord(project, { kind: 'constraint', title: 'c', linkedTodos: ['t1'] });
+      approveDecisionRecord(project, c.id, 'h');
+      retireDecisionRecordsForTodo(project, 't1');
+      const result = retireDecisionRecordsForTodo(project, 't1');
+      expect(result).toEqual({ superseded: [], unlinked: [] });
+    });
   });
 });
