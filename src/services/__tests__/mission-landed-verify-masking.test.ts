@@ -81,6 +81,7 @@ describe('landed serving epic → verify (masking regression)', () => {
       const landed = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] delivered', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
       await updateTodo(proj, landed.id, { status: 'done' });
       const live = await createTodo(proj, { ownerSession: 's1', title: '[EPIC] still building', kind: 'epic', parentId: m.id, servesCriterionIds: [c1.id] });
+      await updateTodo(proj, live.id, { status: 'ready' });
       // 'ready' (approved) is the live signal a manual write may set — status:'in_progress'
       // is daemon-only (claims come from claimTodo), and derivedStatus counts ready as motion.
       const leaf = await createTodo(proj, { ownerSession: 's1', title: 'in-flight leaf', kind: 'leaf', parentId: live.id });
