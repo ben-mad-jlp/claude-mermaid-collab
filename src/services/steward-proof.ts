@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectCompileCheck } from './compile-gate.ts';
 import { getEpicLandReadiness } from './epic-land-readiness.ts';
+import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.ts';
 
 export type StewardVerb = 'reset_todo' | 'override_accept_todo' | 'land_epic';
 
@@ -208,18 +209,9 @@ export function execAsync(
   });
 }
 
-/** Resolve the repo's trunk ref instead of assuming `master`.
- *
- *  WHY (incident 2026-08-04, mission db089158): the epic dry-merge trial ran
- *  `git worktree add --detach <trial> master`. qbs has NO `master` — its trunk is `main` —
- *  so worktree-add failed, the trial returned `{ clean: false }`, and every epic was blocked
- *  by a `merge-conflict` verdict. `git merge-tree main <epic>` was CLEAN for both epics the
- *  whole time. A conflict verdict with no conflicting hunks is a base-ref fault, not a code
- *  fault; this makes the probe agree with reality.
- *
- *  Order: origin/HEAD is authoritative when present (it names the real default branch even
- *  in a repo carrying both `main` and `master`); only then fall back to probing. Returns
- *  'master' when nothing resolves, preserving the historical default for master-trunk repos. */
+/** Resolve the repo's trunk ref instead of assuming the trunk name. Delegates to the
+ *  shared origin/HEAD-first resolver in trunk-ref.ts; see that module's docblock for
+ *  the incident 2026-08-04 (mission db089158) WHY. */
 /**
  * Would the compile gate ABSTAIN in `cwd` — i.e. is a compile check selected for this
  * project but its compiler absent? Cheap: one detectCompileCheck + one `--version` spawn.
@@ -253,19 +245,7 @@ export async function compileGateWouldAbstain(cwd: string): Promise<boolean> {
 }
 
 export async function resolveTrunkRef(cwd: string): Promise<string> {
-  const sym = await execAsync('git', ['-C', cwd, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
-  if (sym.code === 0) {
-    const short = sym.stdout.trim().replace(/^origin\//, '');
-    if (short) {
-      const ok = await execAsync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', short]);
-      if (ok.code === 0) return short;
-    }
-  }
-  for (const cand of ['main', 'master']) {
-    const r = await execAsync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', cand]);
-    if (r.code === 0) return cand;
-  }
-  return 'master';
+  return sharedResolveTrunkRef(cwd);
 }
 
 export const realRunners: ProofRunners = {
