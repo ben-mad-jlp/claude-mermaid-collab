@@ -295,6 +295,12 @@ export async function gcEpicBranches(
 
   const todos = listTodos(project, { includeCompleted: true });
   const baseRepairIds = new Set(todos.filter((t) => t.baseRepair === 1 && isEpic(t)).map((t) => t.id));
+  // Epics a land path actually STAMPED. `status: done` is not evidence of landing — an epic
+  // whose land failed can still be terminal — so the baseRepair ahead-exemption below keys on
+  // this instead (see the incident note there). Uses hasLandStamp, the entitled predicate for
+  // "did a land path set intent?" — reading the stamp column directly here would make this a
+  // second landedness producer, which the single-producer audit forbids.
+  const landStampedEpicIds = new Set(todos.filter((t) => isEpic(t) && hasLandStamp(t)).map((t) => t.id));
   const report = await buildEpicBranchStatus(todos, probe, baseRef, project, listBranches);
 
   const deleted: string[] = [];
@@ -316,7 +322,21 @@ export async function gcEpicBranches(
     if (e.status !== 'done' && e.status !== 'dropped') { skipped++; continue; }
     if (effectiveNewCount(e) > 0) {
       if (!baseRepairIds.has(e.epicId)) { flagged.push(e.epicId); continue; }
-      console.log(`[gcEpicBranches] ${e.branch} ahead-exempt: baseRepair epic, terminal — GC despite newCount>0`);
+      // The baseRepair exemption GCs a terminal base-repair epic despite newCount>0 —
+      // but ONLY once it has actually landed. An epic that is terminal-but-never-landed
+      // still holds its work solely on this branch, and tearing it down destroys it.
+      //
+      // 2026-08-07, a84acd18: baseRepair=1, status=done, landedAt=NULL after three failed
+      // land attempts. The exemption fired, teardown deleted the branch, and a reviewed +
+      // accepted three-line base fix (392b077f) was left on no ref. Base tsc stayed red on
+      // the very errors it fixed, parking six leaves for hours. `status: done` is NOT
+      // evidence of landing — landedAt is.
+      if (!landStampedEpicIds.has(e.epicId)) {
+        console.log(`[gcEpicBranches] ${e.branch} ahead-exempt DECLINED: baseRepair epic has no land stamp — flagging instead`);
+        flagged.push(e.epicId);
+        continue;
+      }
+      console.log(`[gcEpicBranches] ${e.branch} ahead-exempt: baseRepair epic, terminal AND landed — GC despite newCount>0`);
       await removeEpicWorktree(e.epicId).catch(() => undefined);
     }
     const tip = await runner.revParse(e.branch);
