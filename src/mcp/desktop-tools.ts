@@ -24,6 +24,27 @@ try {
   console.warn('[mcp] electron-agent-bridge unavailable — desktop_* tools disabled:', (e as Error).message);
 }
 
+const DESKTOP_OP_TIMEOUT_MS = 10_000;
+class DesktopOpTimeoutError extends Error {}
+
+function withDesktopTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new DesktopOpTimeoutError(`Desktop operation timed out after ${ms}ms`));
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 const desktopSelectTarget = (t: any) => t.type === 'page' && /Mermaid Collab/i.test(t.title || '');
 let _dd: ElectronDriverT | null = null;
 async function getDesktopDriver(): Promise<ElectronDriverT> {
@@ -48,11 +69,15 @@ function isDesktopConnError(e: unknown): boolean {
 
 async function withDesktopRetry<T>(op: () => Promise<T>): Promise<T> {
   try {
-    return await op();
+    return await withDesktopTimeout(op(), DESKTOP_OP_TIMEOUT_MS);
   } catch (e) {
+    if (e instanceof DesktopOpTimeoutError) {
+      resetDesktopDriver();
+      throw e;
+    }
     if (!isDesktopConnError(e)) throw e;
     resetDesktopDriver();
-    return await op();
+    return await withDesktopTimeout(op(), DESKTOP_OP_TIMEOUT_MS);
   }
 }
 
@@ -65,6 +90,11 @@ const desktopScreenshotDef = {
   inputSchema: { type: 'object' as const, properties: { format: { type: 'string', enum: ['png', 'jpeg'] }, project: { type: 'string' }, session: { type: 'string' } } },
 };
 const DESKTOP_TOOL_DEFS = _bridge ? [...desktopDefsForList, desktopScreenshotDef] : [];
+
+export const DESKTOP_TOOL_HANDLER_NAMES: Set<string> = new Set([
+  'desktop_screenshot',
+  ...Object.keys(desktopHandlers),
+]);
 
 export { DESKTOP_TOOL_DEFS };
 
