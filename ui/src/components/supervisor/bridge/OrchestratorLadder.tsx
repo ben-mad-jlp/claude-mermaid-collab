@@ -6,7 +6,7 @@
  * GET /api/orchestrator/level?project=<abs> → { project, level }
  * POST /api/orchestrator/level body { project, level } → { project, level }
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 
 export type OrchestratorLevel = 'off' | 'on';
 
@@ -35,6 +35,9 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
   const [busy, setBusy] = useState(false);
   // Single daemon-health signal (the daemon is global; the dot just reflects it).
   const [daemonUp, setDaemonUp] = useState<boolean | null>(null);
+  // Guards against a project-change GET or a superseded GET landing after a newer
+  // request (project swap or user click) has taken over.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +59,9 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
   // Fetch current level on mount / project change.
   useEffect(() => {
     if (!project) return;
+    setLoaded(false);
     let cancelled = false;
+    const myId = ++requestIdRef.current;
     void (async () => {
       try {
         const mc = (window as any).mc;
@@ -69,7 +74,7 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
           const r = await fetch(path);
           if (r.ok) data = await r.json();
         }
-        if (!cancelled && data.level && LEVELS.includes(data.level)) {
+        if (!cancelled && requestIdRef.current === myId && data.level && LEVELS.includes(data.level)) {
           setLevel(data.level);
         }
       } catch { /* best-effort */ }
@@ -81,6 +86,8 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
   const handleSelect = useCallback(
     (next: OrchestratorLevel) => {
       if (busy || !project) return;
+      // Supersede any in-flight GET so its resolution can't clobber this click.
+      requestIdRef.current++;
       // Optimistic update.
       const prev = level;
       setLevel(next);
