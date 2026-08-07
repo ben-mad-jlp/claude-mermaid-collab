@@ -182,9 +182,9 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
           case 'epic_branch_status': {
             const { project, baseRef } = args as { project: string; baseRef?: string };
             if (!project) throw new Error('Missing required: project');
-            // getEpicBranchStatus resolves the trunk internally via detectTrunkRef
-            // (main→master→origin/HEAD), so a literal 'master' fallback is correct on a
-            // main-trunk repo (it probes past a nonexistent master).
+            // getEpicBranchStatus resolves the trunk internally via the shared
+            // origin/HEAD-first resolver in trunk-ref.ts, so a literal 'master' fallback
+            // is correct on a main-trunk repo (it probes past a nonexistent master).
             const report = await getEpicBranchStatus(project, baseRef || 'master');
             return JSON.stringify(report, null, 2);
           }

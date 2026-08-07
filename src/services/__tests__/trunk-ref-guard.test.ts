@@ -61,39 +61,29 @@ const ALLOWLIST: AllowEntry[] = [
   // param through many callers — deliberately LEFT per the Part B conservative rule.
   { file: 'src/services/leaf-executor.ts', count: 7, reason: 'CONSERVATIVE: baseBranch ?? "master" on the hot leaf dispatch path (:1260/:2951) + doc comments; wiring detectBaseBranch would async-refactor a hot path' },
 
-  // (FALLBACK + STRING) detectBaseTrunk is now a thin delegate to trunk-ref.ts's
-  // resolveTrunkRef, injecting this module's own runGit. What remains: the flow-header
-  // comment's "ahead of master (rev-list master..<source>)" prose.
-  { file: 'src/services/adopt-branch-as-epic.ts', count: 1, reason: 'detectBaseTrunk delegates to trunk-ref.ts; flow-header comment ("ahead of master (rev-list master..<source>)") is the only literal-matching line left' },
+  // (STRING) the flow-header comment's "ahead of master (rev-list master..<source>)"
+  // prose is the only literal-matching line left in this file.
+  { file: 'src/services/adopt-branch-as-epic.ts', count: 1, reason: 'flow-header comment ("ahead of master (rev-list master..<source>)") is the only literal-matching line' },
 
-  // (RESOLVER + DEFAULT + STRING) steward-proof's resolveTrunkRef is now a thin delegate
-  // to trunk-ref.ts's shared resolver — the previous hardcoded `rev-parse master` and
-  // `worktree add … master` in the epic dry-merge trial were fixed there and stay GONE.
-  // What remains: commitsBehindMaster's baseRef default + two `HEAD..master` doc-comment
-  // mentions in the predicate table.
-  // WHY (incident 2026-08-04, mission db089158): the trial pinned its trial worktree at the
-  // literal ref `master` on qbs, whose trunk is `main` and which has NO master ref at all —
-  // worktree-add failed, the trial returned not-clean, and every epic reported a phantom
-  // merge-conflict while `git merge-tree main <epic>` was clean the whole time. Seven epic
-  // branches stranded, $47.53 spent, zero commits landed.
-  { file: 'src/services/steward-proof.ts', count: 3, reason: 'resolveTrunkRef delegates to trunk-ref.ts; commitsBehindMaster baseRef default + two HEAD..master doc-comment mentions remain' },
+  // (DEFAULT + STRING) commitsBehindMaster's baseRef default param + two
+  // `HEAD..master` doc-comment mentions in the predicate table.
+  { file: 'src/services/steward-proof.ts', count: 3, reason: 'commitsBehindMaster baseRef default param + two HEAD..master doc-comment mentions in the predicate table' },
 
   // (FALLBACK + DEFAULT + STRING) epic-branch-status is the LIGHT trunk-resolution
-  // module (todo-store only) — detectTrunkRef now delegates the default path to
-  // trunk-ref.ts, keeping only its own non-default-requested-wins special case. What
-  // remains: DEFAULT_REQUESTED_REF (the un-threaded default, named once); two
-  // `baseRef = 'master'` default params on helpers whose callers thread the resolved
-  // ref; pickBaseRef's own main→master probe list + its build123d doc comment
-  // (pickBaseRef is untouched — conductor-wake-gate.ts and epic-branch-status.test.ts
-  // call it directly). Low-level services import detectTrunkRef from HERE (not the
-  // heavy coordinator-live hub) to avoid a module-init TDZ cycle.
-  { file: 'src/services/epic-branch-status.ts', count: 5, reason: 'detectTrunkRef delegates to trunk-ref.ts + DEFAULT_REQUESTED_REF; two baseRef="master" default params; pickBaseRef main→master probe + build123d doc comment (pickBaseRef untouched)' },
+  // module (todo-store only). What remains: DEFAULT_REQUESTED_REF (the un-threaded
+  // default, named once); two `baseRef = 'master'` default params on helpers whose
+  // callers thread the resolved ref; pickBaseRef's own SEPARATE, deliberately
+  // un-migrated main→master probe list + its build123d doc comment — pickBaseRef is
+  // called DIRECTLY by conductor-wake-gate.ts and epic-branch-status.test.ts and is
+  // not part of the resolver collapse. Low-level services import detectTrunkRef from
+  // HERE (not the heavy coordinator-live hub) to avoid a module-init TDZ cycle.
+  { file: 'src/services/epic-branch-status.ts', count: 5, reason: 'DEFAULT_REQUESTED_REF; two baseRef="master" default params; pickBaseRef (a separate, un-migrated picker used directly by conductor-wake-gate.ts and its own tests) main→master probe + build123d doc comment' },
 
   // (FALLBACK + STRING) epic_branch_status passes baseRef||"master" into
-  // getEpicBranchStatus, which resolves the trunk INTERNALLY via detectTrunkRef
-  // (main→master→origin/HEAD) — correct on a main-trunk repo. Plus a comment and
-  // three tool DESCRIPTION strings mentioning "master".
-  { file: 'src/mcp/epic-tools.ts', count: 5, reason: 'baseRef||"master" resolved internally by getEpicBranchStatus→detectTrunkRef + comment + tool description strings' },
+  // getEpicBranchStatus, which resolves the trunk internally via the shared resolver in
+  // trunk-ref.ts — correct on a main-trunk repo. Plus a comment and three tool
+  // DESCRIPTION strings mentioning "master".
+  { file: 'src/mcp/epic-tools.ts', count: 5, reason: 'baseRef||"master" resolved internally by getEpicBranchStatus via the shared resolver in trunk-ref.ts + comment + tool description strings' },
 
   // (FALLBACK + STRING) impacted-suite baseline worktree now resolves the trunk via a
   // ctx.exec main→master probe (literal fallback) + a comment.
