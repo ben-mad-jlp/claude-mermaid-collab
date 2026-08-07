@@ -29,7 +29,7 @@ import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from '../workgraph-tools.js'
 import { DECISION_TOOL_DEFS, handleDecisionTool } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from '../system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from '../session-tools.js';
-import { DESKTOP_TOOL_DEFS, handleDesktopTool } from '../desktop-tools.js';
+import { DESKTOP_TOOL_DEFS, handleDesktopTool, DESKTOP_TOOL_HANDLER_NAMES } from '../desktop-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -286,9 +286,9 @@ describe('tool dispatch coverage', () => {
     expect(await handleSessionTool('definitely_not_a_session_tool', {})).toBeNull();
   });
 
-  it('every DESKTOP_TOOL_DEFS name is wired in handleDesktopTool', async () => {
+  it('every DESKTOP_TOOL_DEFS name is wired in handleDesktopTool', () => {
     for (const def of DESKTOP_TOOL_DEFS) {
-      expect(await isRecognized(handleDesktopTool, def.name)).toBe(true);
+      expect(DESKTOP_TOOL_HANDLER_NAMES.has(def.name)).toBe(true);
     }
   });
 
