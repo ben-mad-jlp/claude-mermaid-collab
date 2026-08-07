@@ -16,6 +16,7 @@ import {
 } from '../services/main-checkout-invariant';
 import { escalateMainCheckoutViolation } from '../services/main-checkout-escalation';
 import { rescueOrphanedLeafCommitsForEpic } from '../services/rescue-ref';
+import { PYTHON_PROJECT_MARKERS } from './python-env';
 
 export interface WorktreeManagerOpts {
   projectRoot: string; // absolute path to the project (git) root
@@ -508,7 +509,7 @@ export class WorktreeManager {
   }> = [
     { markers: ['package.json'], deps: ['node_modules'] },
     {
-      markers: ['pyproject.toml', 'requirements.txt', 'setup.py', 'setup.cfg', 'Pipfile'],
+      markers: PYTHON_PROJECT_MARKERS,
       deps: ['.venv', 'venv', 'env'],
     },
   ];
