@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { detectForwardAccrual, toOneShot } from '../criterion-closeability';
 
 const POSITIVE: string[] = [
