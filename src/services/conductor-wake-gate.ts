@@ -20,6 +20,7 @@
  *     is seconds-to-minutes, so a 30-minute floor still collapses ~19 probes to 1.
  */
 import { pickBaseRef } from './epic-branch-status.js';
+import { resolveOriginHeadRef } from './trunk-ref.js';
 import {
   getEpicProbeSignature,
   BASE_GATE_FAIL_TTL_MS,
@@ -73,11 +74,7 @@ export function makeLaneSignatureIo(io?: Partial<LaneSignatureIo>): LaneSignatur
     const ref = await pickBaseRef(
       'master',
       async (r) => (await runGit(targetProject, ['rev-parse', '--verify', '--quiet', `refs/heads/${r}`])).code === 0,
-      async () => {
-        const r = await runGit(targetProject, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-        const short = r.code === 0 ? r.stdout.trim().replace(/^origin\//, '') : '';
-        return short || null;
-      },
+      () => resolveOriginHeadRef(targetProject, runGit),
     );
     const r = await runGit(targetProject, ['rev-parse', ref]);
     if (r.code !== 0) return null;

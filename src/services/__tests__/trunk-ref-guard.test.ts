@@ -42,6 +42,12 @@ interface AllowEntry {
 }
 
 const ALLOWLIST: AllowEntry[] = [
+  // (FALLBACK + DEFAULT + STRING) the shared trunk-ref.ts resolver itself: its own
+  // origin/HEAD-then-main-then-master probe array + literal fallback (twice — the
+  // early-return inside the try and the catch-block return) + two doc-comment mentions.
+  // All four call sites below delegate here.
+  { file: 'src/services/trunk-ref.ts', count: 5, reason: 'resolveTrunkRef main→master probe array + two literal-fallback returns + two doc-comment mentions' },
+
   // (FALLBACK + DEFAULT + STRING) the canonical resolver itself + the many
   // `baseRef: string = 'master'` default params on WorktreeManager git helpers
   // whose real callers pass a resolved ref, plus detectBaseBranch's main→master
@@ -55,30 +61,33 @@ const ALLOWLIST: AllowEntry[] = [
   // param through many callers — deliberately LEFT per the Part B conservative rule.
   { file: 'src/services/leaf-executor.ts', count: 7, reason: 'CONSERVATIVE: baseBranch ?? "master" on the hot leaf dispatch path (:1260/:2951) + doc comments; wiring detectBaseBranch would async-refactor a hot path' },
 
-  // (FALLBACK + STRING) the extracted detectBaseTrunk resolver (main→master probe +
-  // literal fallback) + its doc comments + the flow-header comment. The refuse/
-  // rev-list git commands now use the RESOLVED trunk, not a literal.
-  { file: 'src/services/adopt-branch-as-epic.ts', count: 6, reason: 'detectBaseTrunk main→master probe + literal fallback + doc/flow comments; git commands use the resolved trunk' },
+  // (FALLBACK + STRING) detectBaseTrunk is now a thin delegate to trunk-ref.ts's
+  // resolveTrunkRef, injecting this module's own runGit. What remains: the flow-header
+  // comment's "ahead of master (rev-list master..<source>)" prose.
+  { file: 'src/services/adopt-branch-as-epic.ts', count: 1, reason: 'detectBaseTrunk delegates to trunk-ref.ts; flow-header comment ("ahead of master (rev-list master..<source>)") is the only literal-matching line left' },
 
-  // (RESOLVER + DEFAULT) steward-proof now RESOLVES the trunk (resolveTrunkRef: origin/HEAD,
-  // then a main→master probe, then a literal fallback). The previous hardcoded
-  // `rev-parse master` and `worktree add … master` in the epic dry-merge trial are GONE.
-  // What remains: the resolver's own probe + fallback, commitsBehindMaster's baseRef
-  // default, and doc comments. Count rose 5→6 while real hardcoded git commands went 2→0.
+  // (RESOLVER + DEFAULT + STRING) steward-proof's resolveTrunkRef is now a thin delegate
+  // to trunk-ref.ts's shared resolver — the previous hardcoded `rev-parse master` and
+  // `worktree add … master` in the epic dry-merge trial were fixed there and stay GONE.
+  // What remains: commitsBehindMaster's baseRef default + two `HEAD..master` doc-comment
+  // mentions in the predicate table.
   // WHY (incident 2026-08-04, mission db089158): the trial pinned its trial worktree at the
   // literal ref `master` on qbs, whose trunk is `main` and which has NO master ref at all —
   // worktree-add failed, the trial returned not-clean, and every epic reported a phantom
   // merge-conflict while `git merge-tree main <epic>` was clean the whole time. Seven epic
   // branches stranded, $47.53 spent, zero commits landed.
-  { file: 'src/services/steward-proof.ts', count: 6, reason: 'resolveTrunkRef origin/HEAD→main→master probe + literal fallback + commitsBehindMaster default + doc comments; the dry-merge trial now uses the RESOLVED trunk (was a hardcoded master rev-parse/worktree-add)' },
+  { file: 'src/services/steward-proof.ts', count: 3, reason: 'resolveTrunkRef delegates to trunk-ref.ts; commitsBehindMaster baseRef default + two HEAD..master doc-comment mentions remain' },
 
   // (FALLBACK + DEFAULT + STRING) epic-branch-status is the LIGHT trunk-resolution
-  // module (todo-store only). detectTrunkRef's main→master probe list + its
-  // `requested = 'master'` default + doc comment; two `baseRef = 'master'` default
-  // params on helpers whose callers thread the resolved ref; the build123d no-master
-  // doc comment. Low-level services import detectTrunkRef from HERE (not the heavy
-  // coordinator-live hub) to avoid a module-init TDZ cycle.
-  { file: 'src/services/epic-branch-status.ts', count: 6, reason: 'detectTrunkRef main→master probe + "master" default + doc comment; baseRef="master" default params (callers thread resolved ref); build123d doc comment' },
+  // module (todo-store only) — detectTrunkRef now delegates the default path to
+  // trunk-ref.ts, keeping only its own non-default-requested-wins special case. What
+  // remains: DEFAULT_REQUESTED_REF (the un-threaded default, named once); two
+  // `baseRef = 'master'` default params on helpers whose callers thread the resolved
+  // ref; pickBaseRef's own main→master probe list + its build123d doc comment
+  // (pickBaseRef is untouched — conductor-wake-gate.ts and epic-branch-status.test.ts
+  // call it directly). Low-level services import detectTrunkRef from HERE (not the
+  // heavy coordinator-live hub) to avoid a module-init TDZ cycle.
+  { file: 'src/services/epic-branch-status.ts', count: 5, reason: 'detectTrunkRef delegates to trunk-ref.ts + DEFAULT_REQUESTED_REF; two baseRef="master" default params; pickBaseRef main→master probe + build123d doc comment (pickBaseRef untouched)' },
 
   // (FALLBACK + STRING) epic_branch_status passes baseRef||"master" into
   // getEpicBranchStatus, which resolves the trunk INTERNALLY via detectTrunkRef
@@ -116,10 +125,6 @@ const ALLOWLIST: AllowEntry[] = [
   // (baseRefResolved falls through to refs/heads/main), so it is correct on a
   // main-trunk repo without importing detectBaseBranch. Safest un-touched.
   { file: 'src/services/rescue-ref.ts', count: 1, reason: 'CONSERVATIVE: baseRef default "master" but the function already probes main-then-master right after — correct on main-trunk without detectBaseBranch' },
-
-  // (FALLBACK) leaf-worktree-reaper picks master when it EXISTS else main — an
-  // existence-driven choice, not a hardcode (returns 'main' on a main-only repo).
-  { file: 'src/services/leaf-worktree-reaper.ts', count: 1, reason: 'existence-driven: returns "master" only when refs/heads/master exists, else "main" — not a hardcode' },
 
   // (STRING) comment describing the off-master derivation (`git rev-list master..<branch>`).
   { file: 'src/routes/supervisor-routes.ts', count: 1, reason: 'comment describing the off-master rev-list derivation' },

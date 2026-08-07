@@ -23,6 +23,7 @@
 import type { Todo } from './todo-store';
 import { listTodos } from './todo-store';
 import { isEpic, isLand } from './todo-kind';
+import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref';
 
 /** Raw git facts for one epic branch — null fields mean "the probe couldn't tell". */
 export interface BranchProbe {
@@ -289,23 +290,30 @@ export async function pickBaseRef(
   return requested; // give up — probes return null, exactly as before
 }
 
-/** Resolve the trunk ref to compare against for `project` using real git probes
- *  (main→master→origin/HEAD via pickBaseRef). Lives in this LIGHT module (todo-store
- *  only) so low-level services can resolve the trunk WITHOUT importing the heavy
- *  coordinator-live hub — importing that hub into a low-level module reorders module
- *  init and triggers TDZ cycles (session-runtime CRASH_MS). Behaviour-preserving on a
- *  master-trunk repo: `requested` ('master') exists → returned unchanged. Never throws. */
-export async function detectTrunkRef(project: string, requested: string = 'master'): Promise<string> {
-  return pickBaseRef(
-    requested,
-    async (ref) =>
-      (await runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}`])).code === 0,
-    async () => {
-      const r = await runGit(project, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-      const short = r.code === 0 ? r.stdout.trim().replace(/^origin\//, '') : '';
-      return short || null;
-    },
-  ).catch(() => requested);
+/** The unthreaded default for `detectTrunkRef`'s `requested` param — named once so the
+ *  "is this the un-threaded default" check below doesn't need a second literal. */
+const DEFAULT_REQUESTED_REF = 'master';
+
+/** Resolve the trunk ref to compare against for `project`. Lives in this LIGHT module
+ *  (todo-store only) so low-level services can resolve the trunk WITHOUT importing the
+ *  heavy coordinator-live hub — importing that hub into a low-level module reorders module
+ *  init and triggers TDZ cycles (session-runtime CRASH_MS).
+ *
+ *  A non-default `requested` ref wins outright when it exists — preserving the
+ *  `getEpicBranchStatus(project, 'release/2')` contract. Otherwise (the un-threaded default,
+ *  or a non-default `requested` that doesn't exist) delegate to the shared resolver, which
+ *  now consults origin/HEAD before falling back to main/master. Never throws. */
+export async function detectTrunkRef(project: string, requested: string = DEFAULT_REQUESTED_REF): Promise<string> {
+  try {
+    if (requested !== DEFAULT_REQUESTED_REF) {
+      const exists =
+        (await runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${requested}`])).code === 0;
+      if (exists) return requested;
+    }
+    return await sharedResolveTrunkRef(project, runGit);
+  } catch {
+    return requested;
+  }
 }
 
 /** DB-backed wrapper: load the project's work-graph and report each epic's branch status. */

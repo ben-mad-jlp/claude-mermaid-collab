@@ -9,6 +9,7 @@ import { recordFrictionOnce } from './friction-store.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
 import { getStatuses } from './session-status-store.js';
 import { CRASH_MS } from './session-runtime.js';
+import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -238,13 +239,10 @@ function epicWorktreeId8(name: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Resolve trunk's base ref for the `merge-base --is-ancestor` check: `master` if the
- *  branch exists in `projectRoot`, else `main` (mirrors WorktreeManager's private
- *  resolveBase/detectBaseBranch fallback — not reachable from here, so duplicated as a
- *  small local helper rather than assuming `master` always exists). */
+/** Resolve trunk's base ref for the `merge-base --is-ancestor` check: delegates to the
+ *  shared origin/HEAD-first resolver, injecting this module's own read-only git runner. */
 async function resolveTrunkRef(projectRoot: string): Promise<string> {
-  const res = await gcGitRead(projectRoot, ['rev-parse', '--verify', '--quiet', 'refs/heads/master']);
-  return res.code === 0 && res.stdout.trim() ? 'master' : 'main';
+  return sharedResolveTrunkRef(projectRoot, gcGitRead);
 }
 
 /** Best-effort: is any live process's cwd (or an open fd) under `dir`? Shells out to
