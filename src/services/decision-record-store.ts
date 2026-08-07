@@ -196,6 +196,40 @@ export function supersedeDecisionRecord(project: string, id: string, bySupersedi
 }
 
 /**
+ * Retire all decision records linked to `todoId` (mission/todo deleted, no
+ * replacement record). For each matching record, prune `todoId` from
+ * linkedTodos; if no surviving links remain live, supersede the record —
+ * `supersededBy` is left untouched (not set) because there is no superseding
+ * record: the owning mission was deleted, not replaced.
+ */
+export function retireDecisionRecordsForTodo(
+  project: string,
+  todoId: string,
+  opts?: { isLive?: (todoId: string) => boolean },
+): { superseded: string[]; unlinked: string[] } {
+  const db = openDb(project);
+  const isLive = opts?.isLive ?? (() => true);
+  const candidates = listDecisionRecords(project).filter((r) => r.linkedTodos.includes(todoId));
+  const superseded: string[] = [];
+  const unlinked: string[] = [];
+  const now = Date.now();
+  for (const rec of candidates) {
+    const pruned = rec.linkedTodos.filter((t) => t !== todoId);
+    const surviving = pruned.filter(isLive);
+    if (surviving.length === 0) {
+      db.prepare(`UPDATE decision_record SET status='superseded', linkedTodos=?, updatedAt=? WHERE id=?`)
+        .run(JSON.stringify(pruned), now, rec.id);
+      superseded.push(rec.id);
+    } else {
+      db.prepare(`UPDATE decision_record SET linkedTodos=?, updatedAt=? WHERE id=?`)
+        .run(JSON.stringify(pruned), now, rec.id);
+      unlinked.push(rec.id);
+    }
+  }
+  return { superseded, unlinked };
+}
+
+/**
  * Active constraints in scope for an epic: epic-level + project-level (epicId
  * null). The decision-record half of `/focus <epic>` (the todo-subtree queries
  * live in todo-store). Only kind='constraint', status='active'.
