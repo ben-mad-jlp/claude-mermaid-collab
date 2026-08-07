@@ -460,12 +460,13 @@ export class WorktreeManager {
     }
 
     // Provisioning (decision c4a8bf40): isolate SOURCE, share DEPENDENCIES. A git
-    // worktree starts WITHOUT node_modules (gitignored) → JS/Bun workers die at a
-    // bare shell. Symlink the main repo's node_modules into the worktree for every
-    // dir that has a package.json (root + nested, e.g. ui/) so deps resolve
-    // instantly with zero disk. Best-effort: a link failure must not fail worktree
-    // creation (the worker can still run; deps just won't resolve for that dir).
-    await this.linkNodeModules(wtPath).catch(() => {});
+    // worktree starts WITHOUT its dependency dirs (they are gitignored) → workers
+    // die at a bare shell. Symlink the main repo's dep dir into the worktree for
+    // every project dir of each ecosystem (root + nested, e.g. ui/, backend/) so
+    // deps resolve instantly with zero disk. Best-effort: a link failure must not
+    // fail worktree creation (the worker can still run; deps just won't resolve
+    // for that dir).
+    await this.linkSharedDeps(wtPath).catch(() => {});
 
     const info: WorktreeInfo = {
       sessionId,
@@ -480,43 +481,79 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
-  // linkNodeModules — symlink the main repo's node_modules into a fresh worktree
-  // for every package.json dir (root + nested). AUTO-DETECT: no manifest needed.
+  // linkSharedDeps — symlink the main repo's gitignored DEPENDENCY dirs into a
+  // fresh worktree, for every project dir of every ecosystem (root + nested).
+  // AUTO-DETECT: no manifest needed.
+  //
+  // Originally node_modules-only (decision c4a8bf40). Generalised 2026-08-07:
+  // Python was the identical failure and was never covered. `backend/.venv` is
+  // gitignored, so a fresh worktree has NO interpreter, and a Python leaf whose
+  // acceptance requires pytest has exactly two options — `cd` into the main
+  // checkout and borrow its interpreter (a scope violation that BLOCKS the leaf),
+  // or not run its tests at all. Observed in yolox-markup mission 6e7ef04d:
+  // 5 `working-root-escape` incidents across 2 leaves in one morning, one of
+  // which ran `git stash` in the MAIN checkout (shared stack), and one leaf
+  // reached reviewVerdict:"pass" and was still blocked as `scope-incident`.
+  // The escape is not misbehaviour — it is the only path the environment leaves
+  // open. Provision the interpreter and the reason to escape disappears.
   // ---------------------------------------------------------------------------
-  private async linkNodeModules(worktreePath: string): Promise<void> {
-    const pkgDirs = await this.findPackageJsonDirs(worktreePath);
+
+  /** Ecosystems whose dependency dir is gitignored and therefore ABSENT in a fresh
+   *  worktree. `markers` identify a project dir; `deps` are the candidate dir names
+   *  to share (first match wins per project dir — a repo has one venv layout, not
+   *  three). Adding an ecosystem is a row here, not a new code path. */
+  private static readonly SHARED_DEP_ECOSYSTEMS: ReadonlyArray<{
+    markers: readonly string[];
+    deps: readonly string[];
+  }> = [
+    { markers: ['package.json'], deps: ['node_modules'] },
+    {
+      markers: ['pyproject.toml', 'requirements.txt', 'setup.py', 'setup.cfg', 'Pipfile'],
+      deps: ['.venv', 'venv', 'env'],
+    },
+  ];
+
+  private async linkSharedDeps(worktreePath: string): Promise<void> {
     const linkedRels: string[] = [];
-    for (const rel of pkgDirs) {
-      const srcNM = path.join(this.opts.projectRoot, rel, 'node_modules');
-      const dstNM = path.join(worktreePath, rel, 'node_modules');
-      // Only link where the MAIN repo actually has deps installed for that dir.
-      if (!(await this.pathExists(srcNM))) continue;
-      // Never overwrite whatever is already there. `lpathExists` is an `lstat`, so this is
-      // true for BOTH a real node_modules directory (a developer's install — clobbering it
-      // is data loss) and an existing symlink (idempotent re-run → no-op).
-      if (await this.lpathExists(dstNM)) continue;
-      try {
-        await fs.symlink(srcNM, dstNM, 'dir');
-        linkedRels.push(rel);
-      } catch {
-        // best-effort per dir — one missing/failed link shouldn't abort the rest
+    for (const eco of WorktreeManager.SHARED_DEP_ECOSYSTEMS) {
+      const projDirs = await this.findDirsWithMarker(worktreePath, eco.markers);
+      for (const rel of projDirs) {
+        for (const dep of eco.deps) {
+          const src = path.join(this.opts.projectRoot, rel, dep);
+          const dst = path.join(worktreePath, rel, dep);
+          // Only link where the MAIN repo actually has deps installed for that dir.
+          if (!(await this.pathExists(src))) continue;
+          // Never overwrite whatever is already there. `lpathExists` is an `lstat`, so this
+          // is true for BOTH a real dependency directory (a developer's install — clobbering
+          // it is data loss) and an existing symlink (idempotent re-run → no-op).
+          if (await this.lpathExists(dst)) continue;
+          try {
+            await fs.symlink(src, dst, 'dir');
+            linkedRels.push(rel ? `${rel.split(path.sep).join('/')}/${dep}` : dep);
+            break; // one dep dir per project dir — don't link .venv AND venv
+          } catch {
+            // best-effort per dir — one missing/failed link shouldn't abort the rest
+          }
+        }
       }
     }
     // Belt-and-suspenders: regardless of what the repo .gitignore matches, write
-    // every symlinked node_modules path into THIS worktree's git exclude so a
+    // every symlinked dependency path into THIS worktree's git exclude so a
     // worker can never `git add` it. A node_modules SYMLINK staged + merged to
     // master once corrupted the main repo (ELOOP self-referential symlink); see
-    // the [COORD] worktree-isolation hardening. This is independent of the
-    // `node_modules/` vs `node_modules` (trailing-slash) ignore semantics.
-    await this.excludeNodeModules(worktreePath, linkedRels).catch(() => {});
+    // the [COORD] worktree-isolation hardening. A `.venv` symlink is the same
+    // hazard. This is independent of the `node_modules/` vs `node_modules`
+    // (trailing-slash) ignore semantics.
+    await this.excludeSharedDeps(worktreePath, linkedRels).catch(() => {});
   }
 
-  /** Append `/<rel>/node_modules` anchored patterns to the worktree's git
-   *  exclude file (`.git/info/exclude`, resolved via `rev-parse --git-path` so
-   *  it works for a linked worktree). Anchored + no trailing slash → matches the
-   *  node_modules SYMLINK as well as a real directory. Idempotent: existing
-   *  entries are not duplicated. */
-  private async excludeNodeModules(worktreePath: string, rels: string[]): Promise<void> {
+  /** Append anchored `/<rel>/<dep>` patterns to the worktree's git exclude file
+   *  (`.git/info/exclude`, resolved via `rev-parse --git-path` so it works for a
+   *  linked worktree). Anchored + no trailing slash → matches the dependency
+   *  SYMLINK as well as a real directory. Idempotent: existing entries are not
+   *  duplicated. `rels` are full worktree-relative dep paths (e.g. `ui/node_modules`,
+   *  `backend/.venv`), already slash-normalised by the caller. */
+  private async excludeSharedDeps(worktreePath: string, rels: string[]): Promise<void> {
     if (rels.length === 0) return;
     const res = await this.runGit(
       worktreePath,
@@ -527,10 +564,7 @@ export class WorktreeManager {
     const rawPath = res.stdout.trim();
     const excludePath = path.isAbsolute(rawPath) ? rawPath : path.join(worktreePath, rawPath);
 
-    const patterns = rels.map((rel) => {
-      const p = rel ? `${rel.split(path.sep).join('/')}/node_modules` : 'node_modules';
-      return `/${p}`;
-    });
+    const patterns = rels.map((rel) => `/${rel}`);
 
     let existing = '';
     try {
@@ -543,17 +577,18 @@ export class WorktreeManager {
     if (toAdd.length === 0) return;
 
     const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
-    const block = `${prefix}# node_modules symlinks (worktree isolation — never stage)\n${toAdd.join('\n')}\n`;
+    const block = `${prefix}# shared dependency symlinks (worktree isolation — never stage)\n${toAdd.join('\n')}\n`;
     await fs.mkdir(path.dirname(excludePath), { recursive: true });
     await fs.appendFile(excludePath, block, 'utf8');
   }
 
   // ---------------------------------------------------------------------------
-  // findPackageJsonDirs — bounded walk returning dirs (relative to root) that
-  // contain a package.json. Skips node_modules/.git/build output + dotdirs.
+  // findDirsWithMarker — bounded walk returning dirs (relative to root) that
+  // contain ANY of `markers`. Skips node_modules/.git/build output + dotdirs.
   // ---------------------------------------------------------------------------
-  private async findPackageJsonDirs(root: string): Promise<string[]> {
+  private async findDirsWithMarker(root: string, markers: readonly string[]): Promise<string[]> {
     const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', 'out']);
+    const want = new Set(markers);
     const out: string[] = [];
     const walk = async (relDir: string, depth: number): Promise<void> => {
       const abs = path.join(root, relDir);
@@ -563,7 +598,7 @@ export class WorktreeManager {
       } catch {
         return;
       }
-      if (entries.some((e: any) => e.isFile() && e.name === 'package.json')) {
+      if (entries.some((e: any) => e.isFile() && want.has(e.name))) {
         out.push(relDir);
       }
       if (depth <= 0) return;
@@ -1468,14 +1503,15 @@ export class WorktreeManager {
     return this.finishEpic(epicId, branch, wtPath);
   }
 
-  /** Every `_ensureEpicInner` exit funnels here. An epic worktree is where UI leaves are
+  /** Every `_ensureEpicInner` exit funnels here. An epic worktree is where leaves are
    *  reviewed, so it must be able to run the repo's tests — which needs `ui/node_modules`
-   *  (jsdom / @testing-library have no up-tree sibling and die with ERR_MODULE_NOT_FOUND).
+   *  (jsdom / @testing-library have no up-tree sibling and die with ERR_MODULE_NOT_FOUND)
+   *  and, for a Python project, the venv holding the interpreter pytest runs under.
    *  Best-effort, exactly as `create()` does at the leaf path: a main checkout with no deps
    *  installed must NOT fail epic-worktree creation. Idempotent, so it also heals epic
    *  worktrees materialised before this existed (the `.git`-already-present early return). */
   private async finishEpic(epicId: string, branch: string, wtPath: string): Promise<EpicWorktree> {
-    await this.linkNodeModules(wtPath).catch(() => {});
+    await this.linkSharedDeps(wtPath).catch(() => {});
     return { epicId, branch, path: wtPath };
   }
 
