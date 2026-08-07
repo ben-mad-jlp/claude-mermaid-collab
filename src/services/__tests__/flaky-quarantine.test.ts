@@ -3,7 +3,7 @@
  * No DB, no I/O — all test data is hand-authored literals.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
   type BaseGateTestRunRow,
   type TestQuarantineRow,
