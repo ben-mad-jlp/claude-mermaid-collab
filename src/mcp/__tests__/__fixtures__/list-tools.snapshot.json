@@ -7011,6 +7011,56 @@
       }
     },
     {
+      "name": "file_explore",
+      "description": "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "oracle": {
+            "type": "string"
+          },
+          "not": {
+            "type": "string"
+          },
+          "reach": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "planned"
+            ]
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "scope",
+          "target",
+          "oracle"
+        ]
+      }
+    },
+    {
       "name": "inspect_workgraph",
       "description": "READ-ONLY. Returns structured workgraph-health rows (epicChildCounts, orphanLeaves, terminalEpicsWithOpenChildren) for `project`, optionally scoped to one epic via `epicId`. Never returns prose, never mutates.",
       "inputSchema": {
