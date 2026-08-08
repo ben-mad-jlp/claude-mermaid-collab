@@ -11,7 +11,7 @@
 
 import type { Todo } from './todo-store';
 import type { ExploreSpec } from './todo-store';
-import { EXPLORE_REPORT_SENTINEL } from './leaf-parsing';
+import { EXPLORE_REPORT_SENTINEL, VERIFY_GATE_VERB } from './leaf-parsing';
 import type { ReviewLens } from './leaf-parsing';
 import type { OrchestrationNodeKind } from './node-kinds';
 import { ORCHESTRATION_NODE_KINDS } from './node-kinds';
@@ -27,12 +27,10 @@ export type LeafNodeKind =
   | 'explore' // explore shape: read-only investigation, emits a findings report
   | 'summary'; // zen mode (design-zen-mode Phase 4): session-summary model knob
 
-/** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
- *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
- *  T14 dogfoods). The execute node is constrained to the resolved verb's MCP tool so the LLM
- *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
- *  (see {@link resolveVerifyGate}); this is just the fallback verb. */
-export const VERIFY_GATE_VERB = 'build_assembly_plan';
+/** Re-exported for the existing import sites (leaf-executor imports it from here). The
+ *  constant is DEFINED in leaf-parsing — see the note there: defining it in this module
+ *  closes a value-level import cycle and TDZ-crashes at module init. */
+export { VERIFY_GATE_VERB };
 
 /** One-line description of what each node kind does — surfaced in the matrix editor. */
 export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
