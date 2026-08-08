@@ -8,7 +8,7 @@ import {
   createTodo,
   openDb,
   _closeProject,
-  TODO_NICKNAME_V10,
+  TODO_EXPLORE_SPEC_V11,
 } from '../todo-store';
 
 let project: string;
@@ -160,9 +160,11 @@ describe('Migration gating — idempotence and convergence', () => {
     expect(leafFinal.claimedBy).toBeNull();
     expect(leafFinal.claimToken).toBeNull();
 
-    // Check final user_version.
+    // Check final user_version — must be the NEWEST migration marker, not merely a
+    // historical one. Adding a migration without moving this assertion reds the base
+    // gate for every epic project-wide, so this pins the latest constant deliberately.
     const versionResult = freshDb.query(`PRAGMA user_version`).get() as any;
-    expect(versionResult.user_version).toBe(TODO_NICKNAME_V10);
+    expect(versionResult.user_version).toBe(TODO_EXPLORE_SPEC_V11);
 
     freshDb.close();
   });
