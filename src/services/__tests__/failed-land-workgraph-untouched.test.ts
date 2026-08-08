@@ -19,10 +19,11 @@ const supervisorDir = mkdtempSync(join(tmpdir(), 'sup-failed-land-untouched-'));
 process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { landEpic, type LandStageDeps, defaultLandStageDeps } from '../coordinator-land';
-import { createTodo, updateTodo, getTodo, listTodos, _closeProject, type Todo } from '../todo-store';
+import { createTodo, updateTodo, getTodo, listTodos, _closeProject, type Todo, claimTodo } from '../todo-store';
 import { createEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { isClaimable } from '../claimability';
 import { WorktreeManager } from '../../agent/worktree-manager';
+import { listFriction } from '../friction-store';
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -193,27 +194,53 @@ describe('failed land keeps the unrun leaf stored state and claimability untouch
     afterEach(() => teardown(fx));
 
     // Falsifier for restoreWorkGraphSnapshot (src/services/land-workgraph-guard.ts:162):
-    // runMerge here performs a REAL drop of the unrun leaf before refusing with
-    // 'epic-merge-conflict'. This arm is RED if restoreWorkGraphSnapshot is removed, or
-    // if restoreOnFailure (coordinator-land.ts:1208-1242) stops calling it — because then
-    // the drop from this arm's own runMerge stub survives and status stays 'dropped'.
+    // The drift is injected at the PRE-GATE checkDirtyTree stage because
+    // runStewardPrecheck → validateStewardProof (steward-proof.ts:411,
+    // 'epic-children-incomplete') makes the later runMerge stage unreachable for a fixture
+    // whose child leaf is unrun — so the falsifier must fire before that gate, not after it.
     it('Arm B — a runMerge-driven drop of the unrun leaf is restored on refusal (falsifier for restoreWorkGraphSnapshot)', async () => {
+      // Real uncommitted mutation in the MAIN checkout (not the epic worktree), left
+      // unstaged, so wm.dirtyPaths() is non-empty and the real checkDirtyTree refuses.
+      writeFileSync(join(fx.repo, 'base.txt'), 'base edited by a stray process\n');
+
       const priorLeaf = getTodo(fx.repo, fx.leafId)!;
+      let duringLand: Todo | undefined;
 
       const overrideDeps: LandStageDeps = {
         ...defaultLandStageDeps,
-        runMerge: async (wm, epicId, dirty, opts, proof, ctx) => {
-          await updateTodo(fx.repo, fx.leafId, { status: 'dropped' });
-          return { ok: false, landed: false, reason: 'epic-merge-conflict', epicId, epicBranch: ctx.epicBranch };
+        checkDirtyTree: async (wm, opts, ctx) => {
+          // Inject a real drift via claimTodo before delegating to the real stage.
+          // claimTodo is required here: updateTodo throws ManualInProgressError on
+          // status: 'in_progress' (todo-store.ts:1370-1371); claimTodo
+          // (todo-store.ts:2451) is the legitimate path and its CAS UPDATE succeeds
+          // because the fixture's leaf already has approvedAt set (buildFixture:121)
+          // and no existing claim. This one write drifts five WorkGraphStoredState
+          // columns at once: status, claim, claimedBy, claimToken, claimedAt
+          // (land-workgraph-guard.ts:18-28).
+          await claimTodo(fx.repo, fx.leafId, 'arm-b-drift', 60000);
+          duringLand = getTodo(fx.repo, fx.leafId)!;
+          return defaultLandStageDeps.checkDirtyTree(wm, opts, ctx);
         },
       };
 
       const outcome = await landEpic(fx.repo, fx.escalationId, {}, overrideDeps);
 
       expect(outcome.landed).not.toBe(true);
+      expect(outcome.reason).toBe('dirty-tree');
+      expect(duringLand!.status).not.toBe(priorLeaf.status);
+
+      // Production-side proof the drift was real AND that restoreOnFailure is the thing
+      // that saw it: this note is written only inside if (drift.length > 0) at
+      // coordinator-land.ts:1227-1239, so a vacuous (never-drifting) arm cannot produce it.
+      const notes = listFriction(fx.repo, { todoId: fx.epicId });
+      expect(notes.some((n) => n.retryReason === 'land-workgraph-drift')).toBe(true);
 
       const afterLeaf = getTodo(fx.repo, fx.leafId)!;
       expect(afterLeaf.status).toBe(priorLeaf.status);
+      expect(afterLeaf.acceptanceStatus).toBe(priorLeaf.acceptanceStatus);
+      expect(afterLeaf.claim).toBe(priorLeaf.claim);
+      expect(afterLeaf.claimedBy).toBe(priorLeaf.claimedBy);
+      expect(afterLeaf.heldAt).toBe(priorLeaf.heldAt);
 
       expect(isClaimable(afterLeaf, byId(fx.repo))).toBe(true);
     });
