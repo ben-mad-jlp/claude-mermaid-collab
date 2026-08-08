@@ -11,7 +11,7 @@
 
 import type { Todo } from './todo-store';
 import type { ExploreSpec } from './todo-store';
-import { EXPLORE_REPORT_SENTINEL } from './todo-store';
+import { EXPLORE_REPORT_SENTINEL } from './leaf-parsing';
 import type { ReviewLens } from './leaf-parsing';
 import type { OrchestrationNodeKind } from './node-kinds';
 import { ORCHESTRATION_NODE_KINDS } from './node-kinds';
