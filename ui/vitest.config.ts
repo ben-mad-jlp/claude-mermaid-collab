@@ -15,6 +15,11 @@ export default defineConfig({
     // runs the WHOLE ui suite (`cd ui && bunx vitest --run`), so without this exclusion a
     // committed red UI repro reds the gate.
     exclude: ['**/node_modules/**', '**/dist/**', '**/__quarantine__/**'],
+    // The gate lane runs this whole suite inside a multi-leaf pool, so wall-clock per test
+    // is dominated by contention, not by the test's own work. vitest's 5s default turns
+    // filesystem-walking source scans (which pass in ~1.4s alone) into rotating FALSE base
+    // reds. Budget for the loaded case; a genuine hang still fails, just later.
+    testTimeout: 30_000,
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
