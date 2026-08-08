@@ -269,6 +269,110 @@ describe('stampEpicLandedAtGated — gate for master reachability', () => {
     expect(landFailedCards.length).toBe(0);
   });
 
+  it('newCount>0 with injected treeDelta identical → stamped with reason gated-clean-tree-identical, zero land-failed escalations', async () => {
+    const probe: GitProbe = async () => ({
+      exists: true,
+      ahead: 3,
+      behind: 0,
+      mergeable: true,
+      newCount: 2, // Ahead with commits
+    });
+
+    const beforeEpic = getTodo(project, epicId);
+    expect(beforeEpic!.landedAt).toBeNull();
+
+    const treeDeltaIdentical = async () => 'identical' as const;
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', {
+      probe,
+      session: 'test',
+      treeDelta: treeDeltaIdentical,
+    });
+
+    expect(result.reason).toBe('gated-clean-tree-identical');
+    expect(result.stamped).toBe(true);
+    expect(result.newCount).toBe(2);
+
+    // Verify landedAt was set
+    const afterEpic = getTodo(project, epicId);
+    expect(afterEpic!.landedAt).toBe('2026-07-24T10:00:00Z');
+
+    // No escalations raised (tree-identical path does not escalate)
+    const escalations = listEscalations();
+    const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
+    expect(landFailedCards.length).toBe(0);
+  });
+
+  it('newCount>0 with injected treeDelta differs → NOT stamped, one land-failed escalation', async () => {
+    const probe: GitProbe = async () => ({
+      exists: true,
+      ahead: 3,
+      behind: 0,
+      mergeable: true,
+      newCount: 2,
+    });
+
+    const beforeEpic = getTodo(project, epicId);
+    expect(beforeEpic!.landedAt).toBeNull();
+
+    const treeDeltaDiffers = async () => 'differs' as const;
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', {
+      probe,
+      session: 'test',
+      treeDelta: treeDeltaDiffers,
+    });
+
+    expect(result.reason).toBe('ahead-of-master');
+    expect(result.stamped).toBe(false);
+    expect(result.newCount).toBe(2);
+
+    // Verify landedAt was NOT set
+    const afterEpic = getTodo(project, epicId);
+    expect(afterEpic!.landedAt).toBeNull();
+
+    // One escalation raised (tree-differs falls back to ahead-of-master path)
+    const escalations = listEscalations();
+    const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
+    expect(landFailedCards.length).toBe(1);
+    expect(landFailedCards[0].todoId).toBe(epicId);
+  });
+
+  it('newCount>0 with injected treeDelta indeterminate → NOT stamped, one land-failed escalation', async () => {
+    const probe: GitProbe = async () => ({
+      exists: true,
+      ahead: 3,
+      behind: 0,
+      mergeable: true,
+      newCount: 2,
+    });
+
+    const beforeEpic = getTodo(project, epicId);
+    expect(beforeEpic!.landedAt).toBeNull();
+
+    const treeDeltaIndeterminate = async () => 'indeterminate' as const;
+
+    const result = await stampEpicLandedAtGated(project, epicId, '2026-07-24T10:00:00Z', {
+      probe,
+      session: 'test',
+      treeDelta: treeDeltaIndeterminate,
+    });
+
+    expect(result.reason).toBe('ahead-of-master');
+    expect(result.stamped).toBe(false);
+    expect(result.newCount).toBe(2);
+
+    // Verify landedAt was NOT set
+    const afterEpic = getTodo(project, epicId);
+    expect(afterEpic!.landedAt).toBeNull();
+
+    // One escalation raised (tree-indeterminate falls back to ahead-of-master path)
+    const escalations = listEscalations();
+    const landFailedCards = escalations.filter((e) => e.kind === 'land-failed' && e.todoId === epicId);
+    expect(landFailedCards.length).toBe(1);
+    expect(landFailedCards[0].todoId).toBe(epicId);
+  });
+
   // ── ALL-LEAVES-DONE gate (partial-land churn, bugfix 4ff59283) ──────────────
   it('newCount===0 but a non-dropped impl leaf is NOT done → NOT stamped, reason leaves-pending', async () => {
     // The epic branch reaches master (newCount 0) but a sibling leaf never ran: PARTIAL land.

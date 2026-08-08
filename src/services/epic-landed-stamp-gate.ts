@@ -21,30 +21,31 @@ import {
 import { createEscalation, recordSupervisorAudit } from './supervisor-store';
 import { coordinatorCondition } from './coordinator-condition-keys';
 
-export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error' | 'leaves-pending';
+export type GateReason = 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error' | 'leaves-pending' | 'gated-clean-tree-identical';
 
 /**
  * Gate the `stampEpicLandedAt` call on master-reachability.
  *
  * Returns { stamped, reason, newCount? }:
  * - stamped: boolean — whether the epic's landedAt was set
- * - reason: 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error'
+ * - reason: 'gated-clean' | 'indeterminate' | 'ahead-of-master' | 'stamp-failed' | 'gate-error' | 'gated-clean-tree-identical'
  * - newCount?: number — only present for ahead-of-master
  *
  * Decision table:
  * - branch absent → FAIL-SAFE stamp, audit with landGate:'indeterminate-stamp', reason 'indeterminate'
  * - branch exists but counts unreadable (exists=true, newCount=null, ahead=null) → do NOT stamp; raise one 'land-failed' card, audit with landGate:'indeterminate-no-stamp', reason 'indeterminate'
  * - newCount === 0 → stamp and audit with landGate:'gated-clean' (or stamp-failed if write fails)
- * - newCount > 0 → do NOT stamp; raise one 'land-failed' card, audit with landGate:'ahead-of-master', reason 'ahead-of-master'
+ * - newCount > 0 → consult isEpicTreeIdenticalToTrunk: 'identical' → stamp, audit 'gated-clean-tree-identical', no escalation; 'differs'/'indeterminate' → do NOT stamp, raise one 'land-failed' card, reason 'ahead-of-master' (unchanged)
  * - internal error (probe throws or other exception) → do NOT stamp; raise one 'land-failed' card, reason 'gate-error'
  *
  * opts.known: a pre-fetched BranchProbe — when supplied, the gate makes zero git calls.
+ * opts.treeDelta: an injected predicate (project, epicId, {trunk}) → Promise<'identical'|'differs'|'indeterminate'> — when supplied, the gate uses it instead of dynamically importing isEpicTreeIdenticalToTrunk. When omitted and the newCount>0 branch is reached, a lazy dynamic import is performed, which may spawn git calls.
  */
 export async function stampEpicLandedAtGated(
   project: string,
   epicId: string,
   whenIso: string,
-  opts?: { probe?: GitProbe; baseRef?: string; session?: string; known?: BranchProbe; listTodos?: typeof listTodos },
+  opts?: { probe?: GitProbe; baseRef?: string; session?: string; known?: BranchProbe; listTodos?: typeof listTodos; treeDelta?: (project: string, epicId: string, deps?: { runGit?: unknown; trunk?: string }) => Promise<'identical' | 'differs' | 'indeterminate'> },
 ): Promise<{ stamped: boolean; reason: GateReason; newCount?: number }> {
   try {
     const probe = opts?.probe ?? makeGitProbe(project);
@@ -161,8 +162,36 @@ export async function stampEpicLandedAtGated(
     }
 
     // AHEAD-OF-MASTER: branch has unlanded commits.
-    // Do NOT stamp. Raise an escalation card with dedup identity.
+    // Consult tree-delta predicate to distinguish commits-with-delta from commits-with-no-delta.
     const ahead = p.ahead ?? 0;
+    const treeDelta = opts?.treeDelta ?? (async (project: string, epicId: string, deps?: { runGit?: unknown; trunk?: string }) => {
+      const { isEpicTreeIdenticalToTrunk } = await import('./epic-landedness.js');
+      return isEpicTreeIdenticalToTrunk(project, epicId, deps as Parameters<typeof isEpicTreeIdenticalToTrunk>[2]);
+    });
+
+    const treeIdentity = await treeDelta(project, epicId, { trunk: baseRef });
+
+    // TREE-IDENTICAL: branch is ahead but its tree matches trunk exactly (e.g., revert-then-reapply or forward-integrate merge).
+    // Stamp the epic, audit with 'gated-clean-tree-identical', and raise NO escalation.
+    if (treeIdentity === 'identical') {
+      const ok = stampEpicLandedAt(project, epicId, whenIso);
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session,
+        detail: JSON.stringify({
+          epicId,
+          branch,
+          landGate: 'gated-clean-tree-identical',
+          newCount,
+          ahead,
+        }),
+      });
+      return { stamped: ok, reason: ok ? 'gated-clean-tree-identical' : 'stamp-failed', newCount };
+    }
+
+    // TREE-DIFFERS or INDETERMINATE: branch is ahead and tree differs (or indeterminate).
+    // Do NOT stamp. Raise an escalation card with dedup identity.
     const id8 = epicId8(epicId);
     try {
       createEscalation({
