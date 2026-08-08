@@ -22,6 +22,7 @@ import {
 } from '../services/leaf-dup-guard.js';
 import { runQuarantinedSpec } from '../services/quarantine-runner.js';
 import { recordFinding, type Finding } from '../services/finding-store.js';
+import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -79,12 +80,23 @@ export class DuplicateOfDoneLeafError extends Error {
   }
 }
 
+/** Thrown by fileExploreRequest when the oracle is empty or whitespace,
+ *  before any bucket or leaf rows are written. */
+export class ExploreOracleRefusedError extends Error {
+  readonly code = 'explore-oracle-refused';
+  constructor(refusal: string) {
+    super(`file_explore: ${refusal}`);
+    this.name = 'ExploreOracleRefusedError';
+  }
+}
+
 /** Returns `err.code` for any typed workgraph error, else undefined. */
 export function workgraphErrorCode(err: unknown): string | undefined {
   if (
     err instanceof MissingServesCriterionError
     || err instanceof MissingTargetProjectError
     || err instanceof DuplicateOfDoneLeafError
+    || err instanceof ExploreOracleRefusedError
   ) {
     return err.code;
   }
@@ -450,6 +462,38 @@ export async function fileFindingLeaf(
   return { leaf, finding };
 }
 
+export interface FileExploreOpts {
+  scope: string;
+  target: string;
+  oracle: string;
+  not?: string;
+  reach?: string;
+  title?: string;
+  description?: string;
+  status?: Extract<TodoStatus, 'backlog' | 'planned'>;
+}
+
+export async function fileExploreRequest(
+  project: string,
+  session: string,
+  opts: FileExploreOpts,
+): Promise<{ leaf: Todo; warnings: ExploreVacuityWarning[] }> {
+  const { refusal, warnings } = validateExploreRequest({ oracle: opts.oracle, scope: opts.scope, target: opts.target });
+  if (refusal !== null) throw new ExploreOracleRefusedError(refusal);
+
+  const parentId = await ensureBucket(project, 'explore');
+  const leaf = await addSessionTodo(project, session, opts.title ?? opts.oracle, undefined, {
+    kind: 'leaf',
+    parentId,
+    type: 'explore',
+    description: opts.description,
+    status: opts.status ?? 'backlog',
+    exploreSpec: { scope: opts.scope, target: opts.target, oracle: opts.oracle, not: opts.not ?? null, reach: opts.reach ?? null },
+  });
+
+  return { leaf, warnings };
+}
+
 // ============= Tool definitions =============
 
 export const WORKGRAPH_TOOL_DEFS = [
@@ -543,6 +587,27 @@ export const WORKGRAPH_TOOL_DEFS = [
         title: { type: 'string', description: 'Leaf title (defaults to first 120 chars of violatedClaim).' },
       },
       required: ['project', 'session', 'violatedClaim', 'repro'],
+    },
+  },
+  {
+    name: 'file_explore',
+    description:
+      "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        scope: { type: 'string' },
+        target: { type: 'string' },
+        oracle: { type: 'string' },
+        not: { type: 'string' },
+        reach: { type: 'string' },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        status: { type: 'string', enum: ['backlog', 'planned'] },
+      },
+      required: ['project', 'session', 'scope', 'target', 'oracle'],
     },
   },
   {
@@ -641,6 +706,20 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], finding }, null, 2);
+    }
+    case 'file_explore': {
+      const { project, session, scope, target, oracle } = args as { project: string; session: string; scope: string; target: string; oracle: string };
+      if (!project || !session || !scope || !target || !oracle) throw new Error('Missing required: project, session, scope, target, oracle');
+      const { leaf, warnings } = await withWorkgraphErrorCode(() => fileExploreRequest(project, session, {
+        scope, target, oracle,
+        not: args.not,
+        reach: args.reach,
+        title: args.title,
+        description: args.description,
+        status: args.status,
+      }));
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
     }
     case 'inspect_workgraph': {
       const { project, epicId } = args as { project: string; epicId?: string };
