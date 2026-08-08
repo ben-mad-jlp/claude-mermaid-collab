@@ -24,7 +24,7 @@ test('tool defs are handler-less (dispatch is centralized)', () => {
   for (const def of WORKGRAPH_TOOL_DEFS) {
     expect((def as Record<string, unknown>).handler).toBeUndefined();
   }
-  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_to_bucket', 'inspect_workgraph']);
+  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_finding', 'file_to_bucket', 'inspect_workgraph']);
 });
 
 async function call(name: string, args: Record<string, unknown>): Promise<any> {
