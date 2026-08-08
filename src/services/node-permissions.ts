@@ -156,6 +156,14 @@ export const NODE_PERMISSION_SPEC: Record<LeafNodeKind, NodePermissionEntry> = {
     execConfinedToWorktree: true,
     notes: 'Already narrow ✓ — reads, files findings via one MCP verb, emits the report as its final message (the executor persists it). No Bash, no raw Write. This is the target pattern.',
   },
+  explore: {
+    intent: 'read-only',
+    current: [READ, GREP, GLOB, BASH],
+    target: [READ, GREP, GLOB, BASH],
+    writeConfinedToWorktree: true,
+    execConfinedToWorktree: true,
+    notes: 'Investigation node: greps/reads the codebase and may run read-only probe commands (e.g. a targeted test or grep pipeline) via Bash to ground its findings report. No Write/Edit — the executor persists the report. Bash is load-bearing here, unlike research, so it is the accepted target, not an open gap.',
+  },
   summary: {
     intent: 'read-only',
     current: [READ, GREP, GLOB],

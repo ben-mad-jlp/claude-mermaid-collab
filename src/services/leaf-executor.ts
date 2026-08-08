@@ -854,6 +854,7 @@ export const LEAF_NODE_KINDS: LeafNodeKind[] = [
   'blueprint', 'implement', 'review',
   'research', 'wimplement', 'verify', 'fix',
   'driveplan', 'driveexec', 'report',
+  'explore',
   'summary',
 ];
 
@@ -895,6 +896,8 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
   report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__file_to_bucket', effort: 'medium' },
+  // explore shape: read-only investigation, emits a findings report
+  explore: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
   // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
