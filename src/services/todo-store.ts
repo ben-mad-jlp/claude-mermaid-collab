@@ -1440,6 +1440,87 @@ export function writeClaim(db: Database, id: string, claim: ClaimStruct | null):
  *  (behavior-identical to a separate writeClaim(db,id,null), one fewer write). */
 const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, claim=NULL';
 
+/**
+ * Land-workgraph-guard writer: restore mutable leaf state (status, decisions, claim)
+ * after a land stage fails. Bypasses updateTodo's translation seam intentionally —
+ * a guard-only writer that sets raw columns directly to restore pre-land state,
+ * never interpreting a status write as a decision.
+ *
+ * Callers (land-workgraph-guard.ts) own the logic of which columns to restore and
+ * the decision to restore; this writer merely issues an atomic UPDATE over exactly
+ * the columns present in `cols`.
+ *
+ * Issues a single UPDATE under the project write-lock.
+ * Do NOT make this a general write path.
+ */
+export async function restoreTodoStoredState(
+  project: string,
+  id: string,
+  cols: Partial<{
+    status: TodoStatus;
+    acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
+    approvedAt: string | null;
+    heldAt: string | null;
+    claim: ClaimStruct | null;
+    claimedBy: string | null;
+    claimToken: string | null;
+    claimedAt: string | null;
+    completedAt: string | null;
+  }>,
+): Promise<void> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    const sets: string[] = [];
+    const vals: (unknown)[] = [];
+
+    // Build the SET clause incrementally from present columns.
+    if ('status' in cols) {
+      sets.push('status=?');
+      vals.push(cols.status);
+    }
+    if ('acceptanceStatus' in cols) {
+      sets.push('acceptanceStatus=?');
+      vals.push(cols.acceptanceStatus);
+    }
+    if ('approvedAt' in cols) {
+      sets.push('approvedAt=?');
+      vals.push(cols.approvedAt);
+    }
+    if ('heldAt' in cols) {
+      sets.push('heldAt=?');
+      vals.push(cols.heldAt);
+    }
+    if ('claimedBy' in cols) {
+      sets.push('claimedBy=?');
+      vals.push(cols.claimedBy);
+    }
+    if ('claimToken' in cols) {
+      sets.push('claimToken=?');
+      vals.push(cols.claimToken);
+    }
+    if ('claimedAt' in cols) {
+      sets.push('claimedAt=?');
+      vals.push(cols.claimedAt);
+    }
+    if ('completedAt' in cols) {
+      sets.push('completedAt=?');
+      vals.push(cols.completedAt);
+    }
+    // Handle claim: JSON-encode if present, NULL if explicitly cleared.
+    if ('claim' in cols) {
+      sets.push('claim=?');
+      vals.push(cols.claim == null ? null : JSON.stringify(cols.claim));
+    }
+
+    // No columns to restore — return early.
+    if (sets.length === 0) return;
+
+    // Issue the atomic UPDATE with the constructed SET clause.
+    const sql = `UPDATE todos SET ${sets.join(', ')} WHERE id=?`;
+    (db.prepare(sql) as any).run(...vals, id);
+  });
+}
+
 /** The EXPLICIT container set (decision 3021daa6). Deliberately NOT "has descendants":
  *  any node that acquires a child would become a drop-bomb, and blast radius stops being
  *  legible from the node's label. */
