@@ -75,6 +75,7 @@ import { detectWorkingRootEscape, detectPrivilegeEscalation, detectOutsideWorktr
 import { checkContestedHypothesis } from './contested-hypothesis.js';
 import { leafExecutionMode, leafRunKinds } from './leaf-execution-mode.js';
 export { leafExecutionMode, leafRunKinds } from './leaf-execution-mode.js';
+import { runExplorePipeline } from './leaf-explore';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
 import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
@@ -762,7 +763,7 @@ export interface LeafRunContext {
   epicId: string;
   epicBranch: string;
   sessionKey: string;
-  state: { attempt: number; nodesSpent: number; pathTaken: 'floor' | 'waves' | 'review' | null };
+  state: { attempt: number; nodesSpent: number; pathTaken: 'floor' | 'waves' | 'review' | 'explore' | null };
   budgetState: { value: number; raises: number };
   escalatedKinds: Set<LeafNodeKind>;
   checkBudget: () => boolean;
@@ -1439,7 +1440,7 @@ export async function runLeaf(
   // ALL attempts and ALL node kinds).
   // nodesSpent is SEEDED from startNodesSpent (P3 resume) so the master budget is
   // global across pause/resume cycles, not reset per re-dispatch.
-  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0, pathTaken: null as 'floor' | 'waves' | 'review' | null };
+  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0, pathTaken: null as 'floor' | 'waves' | 'review' | 'explore' | null };
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
   // WORKING-ROOT GUARD: the last detected escape of the shell out of the lane worktree by a
@@ -2245,6 +2246,13 @@ export async function runLeaf(
       parkNodeStartFailure, pausedResult, pausedForWorktreeAddFault, finalizeReportLeaf,
       buildVerifySpec, nodeModel, nodeEffort, untrackedAtStart };
     return await runReviewPipeline(ctx);
+  }
+  if (leafExecutionMode(leaf) === 'explore') {
+    const ctx: LeafRunContext = { project, leaf, deps, epicId, epicBranch, sessionKey,
+      state, budgetState, escalatedKinds, checkBudget, runNode, parkBlocked,
+      parkNodeStartFailure, pausedResult, pausedForWorktreeAddFault, finalizeReportLeaf,
+      buildVerifySpec, nodeModel, nodeEffort, untrackedAtStart };
+    return await runExplorePipeline(ctx);
   }
 
   // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this
