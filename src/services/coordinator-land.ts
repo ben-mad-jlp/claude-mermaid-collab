@@ -27,7 +27,7 @@ import { hasLandStamp } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
-import { recordLandCycle, captureLandCycleFields } from './epic-land-record-store.js';
+import { recordLandCycle, captureLandCycleFields, recordLandAttempt } from './epic-land-record-store.js';
 import { guardPostLandTree } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
@@ -1187,8 +1187,9 @@ export async function landEpic(
   const epicId = resolveEpicId(child, project);
   const wm = getWorktreeManager(targetProject);
   const epicBranch = wm.epicBranchName(epicId);
+  let threw = false;
 
-  return withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
+  const outcome = await withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
     try {
       const ctx = { project, escalationId, session: esc.session, epicId, epicBranch, targetProject, todoId };
 
@@ -1260,10 +1261,23 @@ export async function landEpic(
       await refreshProjectDigestOnLand(targetProject);
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
+      threw = true;
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
       return { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };
     }
   });
+
+  try {
+    recordLandAttempt(targetProject, {
+      epicId,
+      outcome: outcome.ok ? 'merged' : (threw ? 'errored' : 'refused'),
+      reason: outcome.reason,
+      landPath: 'escalation-land',
+      session: esc.session,
+      mergeSha: outcome.masterSha ?? null,
+    });
+  } catch { /* recordLandAttempt already never throws; belt-and-suspenders */ }
+  return outcome;
 }
 
 // --- Stranded-EPIC self-heal (accepted ⇒ landed, at the epic level) --------------

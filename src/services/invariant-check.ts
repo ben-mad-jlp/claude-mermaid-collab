@@ -5,7 +5,8 @@ import { isEpic, isLand, isMission } from './todo-kind.ts';
 import { isBucketEpic } from './bucket-registry.js';
 import { yieldToLoop } from './loop-yield.ts';
 import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe, detectTrunkRef } from './epic-branch-status.ts';
-import { hasLandStamp, isLanded } from './epic-landedness';
+import { hasLandStamp, isLanded, isEpicLandedInGit } from './epic-landedness';
+import { getLastEpicLandAttempt } from './epic-land-record-store.js';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -39,7 +40,8 @@ export type InvariantKind =
   | 'live-child-under-terminal-epic'
   | 'phantom-open-epic'
   | 'dead-bucket'
-  | 'stranded-leaf';
+  | 'stranded-leaf'
+  | 'unrecorded-trunk-land';
 
 export interface InvariantViolation {
   kind: InvariantKind;
@@ -315,6 +317,30 @@ export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): In
   return violations;
 }
 
+/** Find epics that are reachable on trunk (git-landed) but have no merged land attempt record.
+ *  Advisory check — never throws; probes and DB reads are individually caught. */
+export async function findUnrecordedTrunkLands(
+  project: string,
+  todos: Todo[],
+  trunk: string,
+): Promise<InvariantViolation[]> {
+  const violations: InvariantViolation[] = [];
+  for (const t of todos) {
+    if (!isEpic(t)) continue;
+    const status = await isEpicLandedInGit(project, t.id, { trunk }).catch(() => 'indeterminate' as const);
+    if (status !== 'landed') continue;
+    const last = getLastEpicLandAttempt(project, t.id);
+    if (last?.outcome === 'merged') continue;
+    violations.push({
+      kind: 'unrecorded-trunk-land',
+      todoId: t.id,
+      title: t.title,
+      reason: `epic reads landed on trunk (Collab-Epic trailer reachable from ${trunk}) but no epic_land_attempt row has outcome='merged'`,
+    });
+  }
+  return violations;
+}
+
 /** DB-backed wrapper: load the project's full work-graph and return its violations. */
 export async function checkInvariants(project: string): Promise<InvariantViolation[]> {
   const todos = listTodos(project, { includeCompleted: true });
@@ -324,7 +350,7 @@ export async function checkInvariants(project: string): Promise<InvariantViolati
   );
   const aheadById = new Map(branchReport.epics.map((e) => [e.epicId, e.ahead]));
   const aheadOf: AheadLookup = (epicId) => aheadById.get(epicId);
-  return [...findViolations(todos), ...findLandedAtDivergence(todos, aheadOf)];
+  return [...findViolations(todos), ...findLandedAtDivergence(todos, aheadOf), ...(await findUnrecordedTrunkLands(project, todos, trunk))];
 }
 
 // ───────────────────────────────────────────────────────────────────────────
