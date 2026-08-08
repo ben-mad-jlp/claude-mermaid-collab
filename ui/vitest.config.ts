@@ -11,6 +11,10 @@ export default defineConfig({
     },
   },
   test: {
+    // QUARANTINE: red-by-design repros (../src/services/quarantine.ts). The `suites` gate lane
+    // runs the WHOLE ui suite (`cd ui && bunx vitest --run`), so without this exclusion a
+    // committed red UI repro reds the gate.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/__quarantine__/**'],
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
