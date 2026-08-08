@@ -22,13 +22,14 @@ import { trackingProjectRoot } from './project-registry.ts';
  *  inbox (the legacy "Collab gaps" title folds into `bugfix`); `flaky` = the Flaky
  *  quarantine inbox. Defined AND exported HERE — this module is the source of the
  *  type, not a re-exporter. */
-export type BucketType = 'inbox' | 'bugfix' | 'flaky';
+export type BucketType = 'inbox' | 'bugfix' | 'flaky' | 'explore';
 
 /** Canonical (post-strip) titles for the singleton row `ensureBucket` mints. */
 export const BUCKET_TITLE: Readonly<Record<BucketType, string>> = {
   inbox: 'Inbox',
   bugfix: 'Bugfix inbox',
   flaky: 'Flaky quarantine',
+  explore: 'Explore requests',
 };
 
 /** The UNION of all four legacy per-module bucket-title lists:
@@ -49,7 +50,12 @@ export const LEGACY_BUCKET_TITLE_PREFIXES: readonly string[] = [
  *  whose title is exactly one of these IS a bucket regardless of the legacy
  *  `isBucket` column — this is what lets a pre-bucketType Inbox fixture (isBucket
  *  defaulted false) still read as a bucket. */
-const CANONICAL_BUCKET_TITLES: readonly string[] = ['inbox', 'bugfix inbox', 'collab gaps'];
+const CANONICAL_BUCKET_TITLES: readonly string[] = [
+  'inbox',
+  'bugfix inbox',
+  'collab gaps',
+  'explore requests',
+];
 
 /** Which BucketType a legacy title maps to (Inbox -> 'inbox'; Bugfix inbox /
  *  Collab gaps -> 'bugfix'; Flaky quarantine -> 'flaky'). null = not a bucket title.
@@ -59,6 +65,7 @@ export function bucketTypeOfTitle(title: string | null | undefined): BucketType 
   if (norm.startsWith('inbox')) return 'inbox';
   if (norm.startsWith('bugfix inbox') || norm.startsWith('collab gaps')) return 'bugfix';
   if (norm.startsWith('flaky quarantine')) return 'flaky';
+  if (norm.startsWith('explore requests')) return 'explore';
   return null;
 }
 

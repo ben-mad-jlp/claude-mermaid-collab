@@ -38,6 +38,16 @@ export interface TodoLink {
   taskId?: string;
 }
 
+/** Typed spec for an `explore` bucket leaf: what to explore, the falsifiable check that
+ *  decides pass/fail, and optional negative-space / reachability notes. */
+export interface ExploreSpec {
+  scope: string;
+  target: string;
+  oracle: string;
+  not?: string | null;
+  reach?: string | null;
+}
+
 /** De-conflate refactor (S1): the in-progress claim collapsed to ONE value.
  *  in_progress ≡ claim != null. Physical: one new `claim TEXT NULL` (JSON) column,
  *  written/read only via writeClaim/readClaim. The 4 legacy columns
@@ -219,6 +229,9 @@ export interface Todo {
    *  every fixture to add it and re-redded master repeatedly (the non-additive migration
    *  churn). Read-tolerant per the mission's own NULL-tolerant constraint. */
   nickname?: string;
+  /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach).
+   *  OPTIONAL — pre-migration rows / non-explore leaves read null. */
+  exploreSpec?: ExploreSpec | null;
 }
 
 export interface TodoFilter {
@@ -300,6 +313,8 @@ export interface CreateTodoInput {
    *  Explicit opt-in (0/absent = normal hold). */
   baseRepair?: number;
   approvedBy?: string | null;
+  /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach). */
+  exploreSpec?: ExploreSpec | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -585,6 +600,7 @@ interface TodoRow {
   reservedReason: string | null;
   archivedAt: number | null;
   nickname: string | null;
+  exploreSpec: string | null;
 }
 
 const DDL = `
@@ -753,6 +769,9 @@ export function openDb(project: string): Database {
   // Display nickname (additive, nullable): a deterministic slug derived from the title.
   // Pre-migration rows read NULL and are filled once by backfillNicknameV10 below.
   addColumnIfMissing(db, 'todos', 'nickname', 'nickname TEXT');
+  // Explore bucket typed spec (additive, nullable): raw JSON text, same shape as `link`.
+  // Pre-migration rows read NULL — no backfill needed.
+  addColumnIfMissing(db, 'todos', 'exploreSpec', 'exploreSpec TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
@@ -826,6 +845,9 @@ export function openDb(project: string): Database {
     backfillNicknameV10(db);
     db.exec(`PRAGMA user_version = ${TODO_NICKNAME_V10}`);
   }
+  if (ver < TODO_EXPLORE_SPEC_V11) {
+    db.exec(`PRAGMA user_version = ${TODO_EXPLORE_SPEC_V11}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -891,6 +913,9 @@ export const TODO_TITLE_PREFIX_V9 = 9;
 
 /** user_version marker for the one-shot display-nickname backfill. */
 export const TODO_NICKNAME_V10 = 10;
+
+/** user_version marker for the exploreSpec column add (nullable, no backfill). */
+export const TODO_EXPLORE_SPEC_V11 = 11;
 
 /**
  * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
@@ -1538,6 +1563,8 @@ function rowToTodo(row: TodoRow): Todo {
   try { declaredFiles = JSON.parse(row.declaredFiles ?? '[]'); } catch { /* default [] */ }
   let link: TodoLink | null = null;
   if (row.link) { try { link = JSON.parse(row.link); } catch { /* null */ } }
+  let exploreSpec: ExploreSpec | null = null;
+  if (row.exploreSpec) { try { exploreSpec = JSON.parse(row.exploreSpec); } catch { /* null */ } }
   return {
     id: row.id,
     ownerSession: row.ownerSession,
@@ -1599,6 +1626,7 @@ function rowToTodo(row: TodoRow): Todo {
     reservedReason: row.reservedReason ?? null,
     archivedAt: row.archivedAt ?? null,
     nickname: row.nickname ?? '',
+    exploreSpec,
   };
 }
 
@@ -2026,8 +2054,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair, nickname)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair, nickname, exploreSpec)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -2039,7 +2067,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
