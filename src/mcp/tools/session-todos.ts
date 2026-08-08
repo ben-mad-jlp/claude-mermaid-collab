@@ -22,6 +22,7 @@ import {
   type TodoStatus,
   type TodoLink,
   type LeafTier,
+  type ExploreSpec,
 } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
@@ -415,6 +416,8 @@ export async function addSessionTodo(
      *  epic's leaves. Set ONLY for an epic whose purpose is greening a red base lane. */
     baseRepair?: number;
     approvedBy?: string | null;
+    /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach). */
+    exploreSpec?: ExploreSpec | null;
   },
 ): Promise<Todo> {
   const { title: _extrasTitle, files, type, inbox, kind: kindArg, ...extrasRest } = extras ?? {};
