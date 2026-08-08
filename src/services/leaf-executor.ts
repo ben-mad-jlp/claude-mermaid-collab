@@ -939,7 +939,7 @@ const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
 
 import type { LeafNodeKind, LeafNodeGroup, BallotPromptRequirement } from './leaf-prompts';
 import {
-  blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath,
+  blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
@@ -961,6 +961,7 @@ export {
   buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
+  blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
 } from './leaf-prompts';
 export type { NodeRoots } from './leaf-prompts';
 

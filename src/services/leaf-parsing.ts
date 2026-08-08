@@ -83,6 +83,77 @@ export function parseVerdict(text: string | undefined): LeafReviewVerdict {
   return m[1].toUpperCase() === 'PASS' ? 'pass' : 'fail';
 }
 
+export const EXPLORE_REPORT_SENTINEL = 'EXPLORE-REPORT';
+
+export type ExploreReportParse =
+  | { ok: true; findings: string[]; report: string }
+  | { ok: false; reason: 'empty' | 'unparseable' };
+
+export function parseExploreReport(text: string | undefined): ExploreReportParse {
+  if (!text || !text.trim()) return { ok: false, reason: 'empty' };
+
+  const stripped = stripSentinelFmt(text);
+  const lines = stripped.split('\n');
+  let lastNonEmptyLine = '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim()) {
+      lastNonEmptyLine = lines[i];
+      break;
+    }
+  }
+
+  const sentinelRe = new RegExp(`^${EXPLORE_REPORT_SENTINEL}:\\s*FINDINGS=(\\d+)\\s*$`, 'i');
+  const match = lastNonEmptyLine.match(sentinelRe);
+  if (!match) return { ok: false, reason: 'unparseable' };
+
+  // Parse findings from the ORIGINAL (unstripped) text
+  const findings: string[] = [];
+  const originalLines = text.split('\n');
+  let inFindingsSection = false;
+
+  for (let i = 0; i < originalLines.length; i++) {
+    const line = originalLines[i];
+    const trimmed = line.trim();
+
+    // Check for ## Findings heading (case-insensitive)
+    if (/^##\s+Findings\b/i.test(trimmed)) {
+      inFindingsSection = true;
+      continue;
+    }
+
+    // Stop at next ## heading or end of findings section
+    if (inFindingsSection && /^##\s+/i.test(trimmed)) {
+      break;
+    }
+
+    // Collect bullet lines under Findings section
+    if (inFindingsSection) {
+      if (/^-\s+.+/.test(trimmed)) {
+        findings.push(trimmed.slice(2).trim()); // Remove the "- " prefix
+      } else if (trimmed === '' && i < originalLines.length - 1) {
+        // Blank line might signal end of list, check if next non-blank line is not a bullet
+        let nextNonBlank = '';
+        for (let j = i + 1; j < originalLines.length; j++) {
+          const nextTrimmed = originalLines[j].trim();
+          if (nextTrimmed) {
+            nextNonBlank = nextTrimmed;
+            break;
+          }
+        }
+        if (nextNonBlank && !/^-\s+/.test(nextNonBlank)) {
+          break;
+        }
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    findings,
+    report: text.trim(),
+  };
+}
+
 /** Join multiple review pass results using stricter-wins logic. A fail in any pass yields
  *  an overall fail. Single pass returns verbatim. Empty array returns fail-closed. When
  *  joining ≥2 passes, quotes each sub-report's VERDICT: lines with `> ` prefix so the
