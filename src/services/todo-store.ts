@@ -3386,28 +3386,57 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
             } else if (anyLive) {
               // Actively building — no flag, no drop, no epic mutation this pass.
             } else {
-              // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
-              const ts = nowIso();
-              for (const leftoverChild of leftover) {
-                const fullChildId = resolveFullId(project, leftoverChild.id);
-                // Drop the leftover node itself
-                db.prepare(
-                  `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
-                ).run(ts, fullChildId);
-                // Cascade to any descendants if the leftover is itself a container
-                cascadeDropDescendants(db, fullChildId, ts);
-              }
-              settledChildIds[epic.id] = leftover.map((c) => c.id);
-
-              // Close the epic with the standard done+accepted update.
-              const closed = closeEpicIfChildrenSettled(project, db, epic, {
-                ts,
-                requireAccepted: true,
-                allowZeroChildren: true,
+              // All leftovers are moot (backlog/planned/todo/ready/blocked) — partition them.
+              // survivors: unclaimed, non-terminal, not superseded by a live sibling
+              // retirable: everything else (terminal or superseded by live sibling)
+              const survivors = leftover.filter((c) => {
+                // Must be unclaimed
+                if (c.claim != null) return false;
+                // Must be non-terminal (not dropped, not done)
+                if (c.status === 'done' || c.status === 'dropped') return false;
+                // Must not be superseded by a live (non-dropped) sibling
+                const supersededBy = children.find((s) => s.supersedes === c.id && s.status !== 'dropped');
+                if (supersededBy != null) return false;
+                return true;
               });
-              if (closed) {
-                rolledUp.push(epic.id);
-                closedThisPass++;
+
+              if (survivors.length > 0) {
+                // Unclaimed non-terminal leftovers still exist — flag and don't drop.
+                if (!flaggedSeen.has(epic.id)) {
+                  flagged.push({
+                    epicId: epic.id,
+                    reason: 'landed-needs-review',
+                    children: children.length,
+                  });
+                  flaggedSeen.add(epic.id);
+                }
+              } else {
+                // All leftovers are retirable (terminal or superseded) — drop and close.
+                const retirable = leftover;
+                const ts = nowIso();
+                for (const leftoverChild of retirable) {
+                  const fullChildId = resolveFullId(project, leftoverChild.id);
+                  // Drop the leftover node itself
+                  db.prepare(
+                    `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+                  ).run(ts, fullChildId);
+                  // Cascade to any descendants if the leftover is itself a container
+                  cascadeDropDescendants(db, fullChildId, ts);
+                }
+                if (retirable.length > 0) {
+                  settledChildIds[epic.id] = retirable.map((c) => c.id);
+                }
+
+                // Close the epic with the standard done+accepted update.
+                const closed = closeEpicIfChildrenSettled(project, db, epic, {
+                  ts,
+                  requireAccepted: true,
+                  allowZeroChildren: true,
+                });
+                if (closed) {
+                  rolledUp.push(epic.id);
+                  closedThisPass++;
+                }
               }
             }
           } else {
