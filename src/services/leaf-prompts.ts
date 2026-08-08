@@ -22,6 +22,7 @@ export type LeafNodeKind =
   | 'blueprint' | 'implement' | 'review' // floor (unchanged)
   | 'research' | 'wimplement' | 'verify' | 'fix' // waves (P5)
   | 'driveplan' | 'driveexec' | 'report' // verify pipeline (epic f5c7fc46)
+  | 'explore' // explore shape: read-only investigation, emits a findings report
   | 'summary'; // zen mode (design-zen-mode Phase 4): session-summary model knob
 
 /** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
@@ -43,6 +44,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
   driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
   driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
   report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
+  explore: 'Explore: read-only investigation of an open question; emits a findings report.',
   summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
 };
 
@@ -52,7 +54,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
  *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
  *  ORCHESTRATION_NODE_KINDS. */
 export interface LeafNodeGroup {
-  key: 'floor' | 'verify-cad' | 'orchestration';
+  key: 'floor' | 'verify-cad' | 'orchestration' | 'explore';
   label: string;
   firesWhen: string;
   kinds: (LeafNodeKind | OrchestrationNodeKind)[];
@@ -87,6 +89,11 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
       + 'the autonomous conductor (drives a mission tick), and the criterion planner (decomposes '
       + 'a criterion into an epic).',
     kinds: ORCHESTRATION_NODE_KINDS,
+  },
+  {
+    key: 'explore', label: 'Explore', defaultCollapsed: true,
+    firesWhen: 'Only when leaf.type === explore — a read-only investigation whose deliverable is a committed report.',
+    kinds: ['explore'],
   },
 ];
 
