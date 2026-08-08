@@ -786,6 +786,21 @@ export function buildVerifyPrompt(
   }
 }
 
+/** Build the wrap-up directive for explore-node segments that have reached the soft budget
+ *  threshold or are approaching the max-segment ceiling. This directive tells the node to stop
+ *  opening new investigation lines and instead emit its findings report from the observations
+ *  it has already gathered. Self-contained instruction string (mirrors other build* prompt
+ *  functions). */
+export function buildExploreWrapUpDirective(): string {
+  return [
+    'WRAP-UP SIGNAL: You have gathered sufficient observations and budget is approaching limits.',
+    'Stop opening new investigation lines. Instead, FINALIZE your findings report from what you have',
+    'already discovered. Your next report MUST include the sentinel line:',
+    `\`${EXPLORE_REPORT_SENTINEL}: FINDINGS=<count>\``,
+    'where <count> is the number of findings you have identified so far (0 if none).',
+  ].join('\n');
+}
+
 export const REVIEW_LENS_INSTRUCTIONS: Record<ReviewLens, string> = {
   'completeness': `Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or
 unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.`,
