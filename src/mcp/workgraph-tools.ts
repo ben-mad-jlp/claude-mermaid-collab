@@ -21,7 +21,7 @@ import {
   type DoneLeafEntry, type DuplicateLeafMatch,
 } from '../services/leaf-dup-guard.js';
 import { runQuarantinedSpec } from '../services/quarantine-runner.js';
-import { recordFinding, type Finding } from '../services/finding-store.js';
+import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } from '../services/finding-store.js';
 import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
@@ -402,14 +402,17 @@ export interface FileFindingOpts {
  * 3. repro must be committed to git (committed check)
  * 4. repro must run RED (red check)
  *
- * Only after all four gates pass: create the leaf under 'bugfix' bucket and record the finding.
- * Returns { leaf, finding } so the handler can return both in the JSON response.
+ * If failureIdentity is non-null and matches a prior finding, bumps its recurrence count
+ * and returns the existing leaf/finding without writing new rows. Otherwise, after all
+ * four gates pass: create the leaf under 'bugfix' bucket and record the finding.
+ * Returns { leaf, finding, recurrence } where leaf is null only if the prior finding's
+ * todo row was since removed.
  */
 export async function fileFindingLeaf(
   project: string,
   session: string,
   opts: FileFindingOpts,
-): Promise<{ leaf: Todo; finding: Finding }> {
+): Promise<{ leaf: Todo | null; finding: Finding; recurrence: boolean }> {
   // Gate 1: repro is required
   if (!opts.repro?.trim()) {
     throw new Error('fileFindingLeaf: repro is required');
@@ -439,7 +442,20 @@ export async function fileFindingLeaf(
     );
   }
 
-  // All gates passed: create the leaf under 'bugfix' bucket
+  // All gates passed. Check for recurrence: if failureIdentity is non-null and matches
+  // a prior finding, bump its recurrence count and return early without creating rows.
+  if (result.failureIdentity) {
+    const priors = await findByFailureIdentity(project, result.failureIdentity);
+    if (priors.length > 0) {
+      const prior = priors[0]; // Most recent (ordered by createdAt DESC, rowid DESC)
+      const now = new Date().toISOString();
+      const bumped = await bumpRecurrence(project, prior.id, now);
+      const leaf = getTodo(project, bumped.todoId) ?? null;
+      return { leaf, finding: bumped, recurrence: true };
+    }
+  }
+
+  // No prior match: create the leaf under 'bugfix' bucket
   const parentId = await ensureBucket(project, 'bugfix');
   const leaf = await addSessionTodo(project, session, opts.title ?? opts.violatedClaim.slice(0, 120), undefined, {
     kind: 'leaf',
@@ -459,7 +475,7 @@ export async function fileFindingLeaf(
     surface: opts.surface,
   });
 
-  return { leaf, finding };
+  return { leaf, finding, recurrence: false };
 }
 
 export interface FileExploreOpts {
@@ -573,7 +589,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'file_finding',
     description:
-      "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green.",
+      "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green. A second filing against the same failureIdentity does not create a new leaf or finding row — it bumps recurrenceCount on the existing finding and returns the existing leaf with recurrence:true in the response.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -696,7 +712,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
     case 'file_finding': {
       const { project, session, violatedClaim, repro } = args as { project: string; session: string; violatedClaim: string; repro: string };
       if (!project || !session || violatedClaim === undefined || repro === undefined) throw new Error('Missing required: project, session, violatedClaim, repro');
-      const { leaf, finding } = await fileFindingLeaf(project, session, {
+      const { leaf, finding, recurrence } = await fileFindingLeaf(project, session, {
         violatedClaim,
         repro,
         implicatedFiles: args.implicatedFiles,
@@ -705,7 +721,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         title: args.title,
       });
       broadcastTodosUpdated(project, session);
-      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], finding }, null, 2);
+      return JSON.stringify({ leaf: leaf ? deriveTodoViews(project, [leaf])[0] : null, finding, recurrence }, null, 2);
     }
     case 'file_explore': {
       const { project, session, scope, target, oracle } = args as { project: string; session: string; scope: string; target: string; oracle: string };
