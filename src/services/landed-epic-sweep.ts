@@ -47,7 +47,7 @@ export interface LandedEpicSweepResult {
 
 export async function reconcileLandedEpics(
   project: string,
-  opts: { probe?: GitProbe; baseRef?: string; now?: () => string; listBranches?: BranchLister } = {},
+  opts: { probe?: GitProbe; baseRef?: string; now?: () => string; listBranches?: BranchLister; treeDelta?: (project: string, epicId: string, deps?: { runGit?: unknown; trunk?: string }) => Promise<'identical' | 'differs' | 'indeterminate'> } = {},
 ): Promise<LandedEpicSweepResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
@@ -78,7 +78,7 @@ export async function reconcileLandedEpics(
     const epic = todos.find((t) => t.id === epicId) as Todo | undefined;
     const branchStatus = statusByEpicId.get(epicId);
     // Deliberately stamp-only: we check ONLY the landedAt column, not the done [LAND] leaf
-    if (!epic || !branchStatus || branchStatus.landLeafId == null || !hasLandStamp(epic) || (branchStatus.ahead ?? 0) !== 0) {
+    if (!epic || !branchStatus || branchStatus.landLeafId == null || !hasLandStamp(epic)) {
       skipped++;
       continue;
     }
@@ -93,7 +93,8 @@ export async function reconcileLandedEpics(
       mergeable: branchStatus.mergeable,
       newCount: branchStatus.newCount,
     };
-    const { stamped } = await stampEpicLandedAtGated(project, epic.id, epic.landedAt!, { probe, baseRef, known });
+    // When treeDelta is omitted, stampEpicLandedAtGated falls back to lazy dynamic import of isEpicTreeIdenticalToTrunk
+    const { stamped } = await stampEpicLandedAtGated(project, epic.id, epic.landedAt!, { probe, baseRef, known, treeDelta: opts.treeDelta });
     if (!stamped) {
       skipped++;
       continue;
