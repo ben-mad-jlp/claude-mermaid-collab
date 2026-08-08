@@ -50,6 +50,20 @@ CREATE TABLE IF NOT EXISTS epic_land_record (
 );
 `;
 
+const ATTEMPT_DDL = `
+CREATE TABLE IF NOT EXISTS epic_land_attempt (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project TEXT NOT NULL,
+  epicId TEXT NOT NULL,
+  attemptAt INTEGER NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('merged','refused','errored')),
+  reason TEXT,
+  landPath TEXT,
+  session TEXT,
+  mergeSha TEXT
+);
+`;
+
 const dbCache = new Map<string, Database>();
 
 export function addColumnIfMissing(db: Database, table: string, col: string, ddl: string): void {
@@ -66,6 +80,7 @@ function openDb(project: string): Database {
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  db.exec(ATTEMPT_DDL);
   addColumnIfMissing(db, 'epic_land_record', 'nonTerminalServingLeafIds', 'TEXT');
   addColumnIfMissing(db, 'epic_land_record', 'nonTerminalServingLeafCount', 'INTEGER');
   addColumnIfMissing(db, 'epic_land_record', 'postLandStatusClean', 'INTEGER');
@@ -370,5 +385,107 @@ export async function recordLandCycle(project: string, input: LandCycleInput): P
   } catch {
     // Outermost catch: graceful fallback, never throws.
     return { recorded: false, usedFallback: false, reason: 'unexpected-error' };
+  }
+}
+
+// --- Append-only land attempt log -------------------------------------------
+
+export interface EpicLandAttempt {
+  id?: number;
+  project: string;
+  epicId: string;
+  attemptAt: number;
+  outcome: 'merged' | 'refused' | 'errored';
+  reason: string | null;
+  landPath: string | null;
+  session: string | null;
+  mergeSha: string | null;
+}
+
+/** Record a land attempt outcome. Never throws — wraps the insert in a total try/catch.
+ *  On a thrown insert error, emits a friction note and supervisor audit (each in its own
+ *  inner try/catch) then returns (void). */
+export function recordLandAttempt(
+  project: string,
+  a: {
+    epicId: string;
+    outcome: 'merged' | 'refused' | 'errored';
+    reason?: string | null;
+    landPath?: string | null;
+    session?: string | null;
+    mergeSha?: string | null;
+  },
+): void {
+  try {
+    const db = openDb(project);
+    db.query(
+      `INSERT INTO epic_land_attempt (project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      project,
+      a.epicId,
+      Date.now(),
+      a.outcome,
+      a.reason ?? null,
+      a.landPath ?? null,
+      a.session ?? null,
+      a.mergeSha ?? null,
+    );
+  } catch (err) {
+    // Best-effort friction and audit on insert failure, never rethrow.
+    try {
+      const { recordFriction } = require('./friction-store.js') as { recordFriction: typeof import('./friction-store.js').recordFriction };
+      recordFriction(project, {
+        layer: 'operational',
+        retryReason: 'land-attempt-drop',
+        todoId: a.epicId,
+        detail: `land-attempt drop epic=${a.epicId} outcome=${a.outcome} reason=${err instanceof Error ? err.message : String(err)}`,
+      }).catch(() => {});
+    } catch { /* advisory */ }
+
+    try {
+      const { recordSupervisorAudit } = require('./supervisor-store.js') as { recordSupervisorAudit: typeof import('./supervisor-store.js').recordSupervisorAudit };
+      recordSupervisorAudit({
+        kind: 'land-attempt-drop',
+        project,
+        session: a.session ?? 'daemon',
+        detail: JSON.stringify({ epicId: a.epicId, outcome: a.outcome, reason: err instanceof Error ? err.message : String(err) }),
+      });
+    } catch { /* advisory */ }
+  }
+}
+
+/** List all land attempts for an epic, ordered by attemptAt ASC.
+ *  Advisory read — never throws; any DB error yields []. */
+export function listEpicLandAttempts(project: string, epicId: string): EpicLandAttempt[] {
+  try {
+    const db = openDb(project);
+    const rows = db.query(
+      `SELECT id, project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha
+       FROM epic_land_attempt
+       WHERE project = ? AND epicId = ?
+       ORDER BY attemptAt ASC`,
+    ).all(project, epicId) as EpicLandAttempt[];
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+/** Get the most recent land attempt for an epic, or null on no-row or any DB error
+ *  (advisory read — never throws). */
+export function getLastEpicLandAttempt(project: string, epicId: string): EpicLandAttempt | null {
+  try {
+    const db = openDb(project);
+    const row = db.query(
+      `SELECT id, project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha
+       FROM epic_land_attempt
+       WHERE project = ? AND epicId = ?
+       ORDER BY attemptAt DESC
+       LIMIT 1`,
+    ).get(project, epicId) as EpicLandAttempt | undefined;
+    return row ?? null;
+  } catch {
+    return null;
   }
 }
