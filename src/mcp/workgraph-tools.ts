@@ -20,6 +20,8 @@ import {
   buildMissionDoneLeafIndex, findDuplicateDoneLeaf, missionOfEpic,
   type DoneLeafEntry, type DuplicateLeafMatch,
 } from '../services/leaf-dup-guard.js';
+import { runQuarantinedSpec } from '../services/quarantine-runner.js';
+import { recordFinding, type Finding } from '../services/finding-store.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -369,6 +371,85 @@ export async function fileToBucketLeaf(
   return leaf;
 }
 
+export interface FileFindingOpts {
+  violatedClaim: string;
+  repro: string;
+  implicatedFiles?: string[];
+  ruledOut?: string[];
+  surface?: string;
+  title?: string;
+}
+
+/**
+ * File a reproducible finding (a red quarantined spec) as a leaf under the Bugfix bucket epic.
+ * Uses runQuarantinedSpec as a behavioural admission gate that must pass BEFORE either write.
+ *
+ * Gate order (mirrors runQuarantinedSpec's short-circuit result shape):
+ * 1. repro is required (non-empty string)
+ * 2. repro must have a __quarantine__ segment (quarantined check)
+ * 3. repro must be committed to git (committed check)
+ * 4. repro must run RED (red check)
+ *
+ * Only after all four gates pass: create the leaf under 'bugfix' bucket and record the finding.
+ * Returns { leaf, finding } so the handler can return both in the JSON response.
+ */
+export async function fileFindingLeaf(
+  project: string,
+  session: string,
+  opts: FileFindingOpts,
+): Promise<{ leaf: Todo; finding: Finding }> {
+  // Gate 1: repro is required
+  if (!opts.repro?.trim()) {
+    throw new Error('fileFindingLeaf: repro is required');
+  }
+
+  // Gate 2-4: Run the quarantined spec
+  const result = await runQuarantinedSpec(project, opts.repro);
+
+  // Gate 2: Check if quarantined
+  if (!result.quarantined) {
+    throw new Error(
+      `fileFindingLeaf: repro has no __quarantine__ segment — ${opts.repro} is not a quarantined spec file`,
+    );
+  }
+
+  // Gate 3: Check if committed
+  if (!result.committed) {
+    throw new Error(
+      `fileFindingLeaf: repro is not committed to HEAD — ${opts.repro} must be checked into git before filing a finding`,
+    );
+  }
+
+  // Gate 4: Check if red
+  if (!result.red) {
+    throw new Error(
+      'fileFindingLeaf: repro runs GREEN — not a reproducible finding',
+    );
+  }
+
+  // All gates passed: create the leaf under 'bugfix' bucket
+  const parentId = await ensureBucket(project, 'bugfix');
+  const leaf = await addSessionTodo(project, session, opts.title ?? opts.violatedClaim.slice(0, 120), undefined, {
+    kind: 'leaf',
+    parentId,
+    description: opts.violatedClaim,
+    status: 'backlog',
+  });
+
+  // Record the finding in the findings store
+  const finding = await recordFinding(project, {
+    todoId: leaf.id,
+    violatedClaim: opts.violatedClaim,
+    implicatedFiles: opts.implicatedFiles,
+    ruledOut: opts.ruledOut,
+    reproPath: opts.repro,
+    failureIdentity: result.failureIdentity,
+    surface: opts.surface,
+  });
+
+  return { leaf, finding };
+}
+
 // ============= Tool definitions =============
 
 export const WORKGRAPH_TOOL_DEFS = [
@@ -443,6 +524,25 @@ export const WORKGRAPH_TOOL_DEFS = [
         link: { type: 'object', properties: { blueprintId: { type: 'string' } } },
       },
       required: ['project', 'session', 'title'],
+    },
+  },
+  {
+    name: 'file_finding',
+    description:
+      "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        violatedClaim: { type: 'string' },
+        repro: { type: 'string', description: 'Path to a committed quarantined spec file (must contain __quarantine__ in the path and be red at HEAD).' },
+        implicatedFiles: { type: 'array', items: { type: 'string' }, description: 'Files involved in the failing test.' },
+        ruledOut: { type: 'array', items: { type: 'string' }, description: 'Files checked but found not to be the cause.' },
+        surface: { type: 'string', description: 'Where the failure manifests (e.g., "ui", "backend", "integration").' },
+        title: { type: 'string', description: 'Leaf title (defaults to first 120 chars of violatedClaim).' },
+      },
+      required: ['project', 'session', 'violatedClaim', 'repro'],
     },
   },
   {
@@ -527,6 +627,20 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [created])[0] }, null, 2);
+    }
+    case 'file_finding': {
+      const { project, session, violatedClaim, repro } = args as { project: string; session: string; violatedClaim: string; repro: string };
+      if (!project || !session || violatedClaim === undefined || repro === undefined) throw new Error('Missing required: project, session, violatedClaim, repro');
+      const { leaf, finding } = await fileFindingLeaf(project, session, {
+        violatedClaim,
+        repro,
+        implicatedFiles: args.implicatedFiles,
+        ruledOut: args.ruledOut,
+        surface: args.surface,
+        title: args.title,
+      });
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], finding }, null, 2);
     }
     case 'inspect_workgraph': {
       const { project, epicId } = args as { project: string; epicId?: string };
