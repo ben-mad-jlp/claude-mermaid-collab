@@ -16,6 +16,7 @@ import {
 } from '../services/main-checkout-invariant';
 import { escalateMainCheckoutViolation } from '../services/main-checkout-escalation';
 import { rescueOrphanedLeafCommitsForEpic } from '../services/rescue-ref';
+import { narrowSyncLandedPaths } from '../services/post-land-index-sync';
 import { PYTHON_PROJECT_MARKERS } from './python-env';
 
 export interface WorktreeManagerOpts {
@@ -212,11 +213,15 @@ export interface LandResult {
   /** P0 0949289b Part 2 — how the main checkout was synced to the land commit after the ref
    *  advance (it is on the base ref, so its working tree would otherwise be stranded pre-land):
    *  'reset-hard' = synced clean; 'skipped-dirty' = real tracked work was present so sync was skipped;
+   *  'skipped-dirty-narrow-synced' = real tracked work present but a narrow sync brought landed paths current;
    *  'reset-failed' = the sync reset errored; 'not-checked-out' = base ref not checked out here. */
-  treeSynced?: 'reset-hard' | 'skipped-dirty' | 'reset-failed' | 'not-checked-out';
+  treeSynced?: 'reset-hard' | 'skipped-dirty' | 'skipped-dirty-narrow-synced' | 'reset-failed' | 'not-checked-out';
   /** The union of worktree-dirty and index-dirty paths that caused the post-land tree sync to be
-   *  skipped (treeSynced === 'skipped-dirty'). Undefined otherwise. */
+   *  skipped (treeSynced === 'skipped-dirty' or 'skipped-dirty-narrow-synced'). Undefined otherwise. */
   skippedDirtyPaths?: string[];
+  /** Paths brought to HEAD content by the narrow sync despite the residue error
+   *  (treeSynced === 'skipped-dirty-narrow-synced'). Undefined otherwise. */
+  narrowSyncedPaths?: string[];
   /** The base ref (e.g. 'master') onto which this epic landed. Populated on success. */
   baseRef?: string;
   /** The pre-land base sha (oldBaseSha). Used by guardPostLandTree for narrow-repair path. */
@@ -2264,6 +2269,7 @@ export class WorktreeManager {
       // skip — never cause a new discard.
       let treeSynced: LandResult['treeSynced'] = 'not-checked-out';
       let skippedDirtyPaths: string[] | undefined;
+      let narrowSyncedPaths: string[] | undefined;
       const headRef = await this.runGit(this.opts.projectRoot, ['symbolic-ref', '--quiet', 'HEAD'], QUICK_TIMEOUT_MS);
       if (headRef.code === 0 && headRef.stdout.trim() === `refs/heads/${baseRef}`) {
         const realWork = await this.runGit(
@@ -2290,8 +2296,23 @@ export class WorktreeManager {
           // value — report it deterministically (never conditional on residue strings growing).
           // The land itself is unaffected: `update-ref` above already advanced the base ref, and
           // the `finally` below still tears the throwaway land worktree down.
+
+          // Before throwing, attempt a narrow sync of just the landed paths that are not
+          // pre-existing residue. This mitigates the land's own index contribution while
+          // preserving all pre-existing dirt and still raising loud.
+          const syncResult = await narrowSyncLandedPaths(this.opts.projectRoot, {
+            oldBaseSha,
+            masterSha,
+            residuePaths: realDirty,
+          });
+
           treeSynced = 'skipped-dirty';
           skippedDirtyPaths = realDirty;
+          if (syncResult.syncedPaths.length > 0) {
+            treeSynced = 'skipped-dirty-narrow-synced';
+            narrowSyncedPaths = syncResult.syncedPaths;
+          }
+
           onProgress?.('stderr', `land: skipped post-land tree sync; real dirty work present: ${realDirty.join(', ')}\n`);
           const state = await readMainCheckoutHead(this.opts.projectRoot, this.mainCheckoutGit);
           const err = new MainCheckoutResidueError(
@@ -2314,7 +2335,7 @@ export class WorktreeManager {
       const landedPaths = diffRes.code === 0
         ? diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
         : [];
-      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced, skippedDirtyPaths, baseRef, baseSha: oldBaseSha };
+      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced, skippedDirtyPaths, narrowSyncedPaths, baseRef, baseSha: oldBaseSha };
     } finally {
       // Always tear down the throwaway detached land worktree.
       await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
