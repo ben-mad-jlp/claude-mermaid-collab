@@ -8,6 +8,12 @@
  *   GIT-BACKED probe (`isEpicLandedInGit`) that proves reachability WITHOUT the land record,
  *   so it can still detect a real land even when the record write was skipped.
  * REACHABILITY: descendant work audit — all accepted code leaves carry committed trailers reachable from the epic branch.
+ * CONTENT-DELTA: `isEpicTreeIdenticalToTrunk` — do the epic branch's and trunk's working
+ *   trees hold byte-identical content, via `git rev-parse <ref>^{tree}`. NOT a synonym for
+ *   any count-based notion (`ahead`/`newCount`/ahead-of-master refusal in
+ *   epic-landed-stamp-gate.ts): a branch can carry commits (ahead>0) while its tree matches
+ *   trunk exactly (e.g. a revert-then-reapply, or a forward-integrate merge that changed no
+ *   files) — the two failure modes this predicate exists to distinguish.
  *
  * These notions disagree in real states: a stamp without a merge (land started, then failed),
  * a merge without a status (completed by direct commit), landed-but-stranded work (a leaf
@@ -19,6 +25,7 @@
 import type { Todo } from './todo-store.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
 import { getEpicLandReadiness, type LandFinding } from './epic-land-readiness.js';
+import { epicBranchName } from './epic-branch-status.js';
 
 /**
  * Characterization of whether an epic's descendant work is reachable from the epic branch.
@@ -206,6 +213,41 @@ export async function isEpicLandedInGit(
     if (res === null) return 'indeterminate';
     if (res.code !== 0) return 'indeterminate';
     return res.stdout.trim().length > 0 ? 'landed' : 'not-landed';
+  } catch {
+    return 'indeterminate';
+  }
+}
+
+/**
+ * Content-delta predicate: do the epic branch and trunk have byte-identical working trees?
+ *
+ * Returns 'identical' when both refs' `git rev-parse <ref>^{tree}` SHAs match exactly,
+ * 'differs' when they diverge, and 'indeterminate' if either rev-parse fails or a probe
+ * error occurs. Never throws; all errors resolve to 'indeterminate'.
+ *
+ * This predicate is independent of commit counts — an epic branch can be ahead (more commits)
+ * while its tree content matches the trunk exactly (e.g. after a revert-then-reapply or a
+ * forward-integrate merge with no file changes). Use this to distinguish commits-with-no-delta
+ * from no-commits-at-all failures.
+ */
+export async function isEpicTreeIdenticalToTrunk(
+  project: string,
+  epicId: string,
+  deps?: { runGit?: GitRunner; trunk?: string },
+): Promise<'identical' | 'differs' | 'indeterminate'> {
+  try {
+    const runGit = deps?.runGit ?? defaultRunGit;
+    const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
+    if (!trunk) return 'indeterminate';
+
+    const branch = epicBranchName(epicId);
+    const branchTree = await runGit(project, ['rev-parse', `${branch}^{tree}`]).catch(() => null);
+    if (branchTree === null || branchTree.code !== 0) return 'indeterminate';
+
+    const baseTree = await runGit(project, ['rev-parse', `${trunk}^{tree}`]).catch(() => null);
+    if (baseTree === null || baseTree.code !== 0) return 'indeterminate';
+
+    return branchTree.stdout.trim() === baseTree.stdout.trim() ? 'identical' : 'differs';
   } catch {
     return 'indeterminate';
   }
