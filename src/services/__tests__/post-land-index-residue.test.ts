@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, afterAll, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -100,6 +100,17 @@ describe('post-land index sync — narrow syncing of landed paths while preservi
     await runGit(epic.path, ['commit', '-q', '-m', 'epic: datum_planes work']);
   }
 
+  /** Real epic branch + worktree carrying a modification, an addition, and a deletion under datum_planes/. */
+  async function buildDeletingEpic(): Promise<void> {
+    const epic = await mgr.ensureEpic(EPIC, undefined, 'master');
+    if (!epic) throw new Error('ensureEpic returned null');
+    writeFileSync(join(epic.path, 'datum_planes', 'a.py'), 'a = 1  # epic\n');
+    writeFileSync(join(epic.path, 'datum_planes', 'c.py'), 'c = 3\n');
+    await runGit(epic.path, ['rm', '-q', 'datum_planes/b.py']);
+    await runGit(epic.path, ['add', '-A']);
+    await runGit(epic.path, ['commit', '-q', '-m', 'epic: datum_planes work + delete b.py']);
+  }
+
   it('Arm A — land with an unrelated staged entry leaves no residue of its own', async () => {
     await buildEpic();
 
@@ -180,5 +191,64 @@ describe('post-land index sync — narrow syncing of landed paths while preservi
     // Checkout is clean.
     const gitStatus = (await runGit(repo, ['status', '--porcelain', '--untracked-files=no'])).stdout;
     expect(gitStatus.trim()).toBe('');
+  });
+
+  it('Arm D — land-authored deletion on an otherwise-clean checkout leaves no staged deletions', async () => {
+    await buildDeletingEpic();
+
+    // No pre-existing residue; the land should succeed cleanly.
+    const result = await mgr.landEpicToMaster(EPIC);
+
+    expect(result.landed).toBe(true);
+
+    // Verify no staged deletions (no lines starting with D\t).
+    const staged = (await runGit(repo, ['diff', '--cached', '--name-status'])).stdout;
+    staged.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+      expect(l.startsWith('D\t')).toBe(false);
+    });
+
+    // Checkout is clean.
+    const gitStatus = (await runGit(repo, ['status', '--porcelain', '--untracked-files=no'])).stdout;
+    expect(gitStatus.trim()).toBe('');
+
+    // datum_planes/b.py is deleted and not recoverable.
+    expect(existsSync(join(repo, 'datum_planes', 'b.py'))).toBe(false);
+    const showB = await runGit(repo, ['show', ':datum_planes/b.py']);
+    expect(showB.code).not.toBe(0);
+  });
+
+  it('Arm E — anti-vacuity: a pre-existing human deletion survives a land-authored deletion', async () => {
+    await buildDeletingEpic();
+
+    // Stage a pre-existing human deletion: remove base.txt from the index.
+    await runGit(repo, ['rm', '--cached', '-q', 'base.txt']);
+
+    // Capture the pre-land staged status.
+    const preLandStaged = (await runGit(repo, ['diff', '--cached', '--name-status'])).stdout;
+    const preLine = preLandStaged.split('\n').find(l => l.includes('base.txt'))!;
+    expect(preLine).toBeDefined();
+    expect(preLine.startsWith('D\t')).toBe(true);
+
+    // Attempt to land; should throw due to residue.
+    let caught: unknown = null;
+    try {
+      await mgr.landEpicToMaster(EPIC);
+    } catch (err) {
+      caught = err;
+    }
+
+    // Verify it threw MainCheckoutResidueError.
+    expect(caught).toBeInstanceOf(MainCheckoutResidueError);
+    expect(caught instanceof MainCheckoutResidueError && caught.opName).toBe('land_epic');
+    expect(violations.length).toBe(1);
+
+    // Verify the staged deletion survived byte-identical.
+    const postLandStaged = (await runGit(repo, ['diff', '--cached', '--name-status'])).stdout;
+    const postLine = postLandStaged.split('\n').find(l => l.includes('base.txt'));
+    expect(postLine).toBe(preLine);
+
+    // Verify we're still on master.
+    const branch = await runGit(repo, ['symbolic-ref', '--short', 'HEAD']);
+    expect(branch.stdout.trim()).toBe('master');
   });
 });
