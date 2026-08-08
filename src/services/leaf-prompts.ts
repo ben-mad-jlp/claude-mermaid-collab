@@ -10,6 +10,8 @@
  */
 
 import type { Todo } from './todo-store';
+import type { ExploreSpec } from './todo-store';
+import { EXPLORE_REPORT_SENTINEL } from './todo-store';
 import type { ReviewLens } from './leaf-parsing';
 import type { OrchestrationNodeKind } from './node-kinds';
 import { ORCHESTRATION_NODE_KINDS } from './node-kinds';
@@ -478,6 +480,50 @@ export function buildNodePrompt(
         '`VERDICT: FAIL — <reason>`  (otherwise)',
       );
       return reviewLines.join('\n');
+    }
+    case 'explore': {
+      const exploreSpec = leaf.exploreSpec as ExploreSpec | null | undefined;
+      const exploreLines = [
+        'You are the EXPLORE node. Conduct a READ-ONLY investigation (Read/Grep/Glob and Bash for inspection ONLY; no edits).',
+        ...rootLines,
+      ];
+      if (exploreSpec) {
+        exploreLines.push(
+          `Scope: ${exploreSpec.scope}`,
+          `Target: ${exploreSpec.target}`,
+          `Oracle: ${exploreSpec.oracle}`,
+        );
+        if (exploreSpec.not) {
+          exploreLines.push(`Not: ${exploreSpec.not}`);
+        }
+        if (exploreSpec.reach) {
+          exploreLines.push(`Reach: ${exploreSpec.reach}`);
+        }
+      } else {
+        exploreLines.push(
+          `Title: ${title}`,
+          `Description: ${description}`,
+        );
+      }
+      exploreLines.push(
+        '',
+        'IMPORTANT: This is a READ-ONLY investigation. You MUST NOT Write or edit any file — the EXECUTOR writes and commits the report.',
+        '',
+        'Investigate thoroughly. Your FINAL reply message must contain the findings as markdown:',
+        '',
+        '## Findings',
+        '',
+        '- <finding 1>',
+        '- <finding 2>',
+        '...',
+        '',
+        'Finding NOTHING is a valid, successful exploration. Your report must ALWAYS end with the sentinel line (even with zero findings):',
+        '',
+        `\`${EXPLORE_REPORT_SENTINEL}: FINDINGS=<count>\``,
+        '',
+        'where <count> is the number of findings you listed (0 if none). Do not omit this line.',
+      );
+      return exploreLines.join('\n');
     }
     default:
       // Verify-pipeline kinds (driveplan/driveexec/report) are built by buildVerifyPrompt;
