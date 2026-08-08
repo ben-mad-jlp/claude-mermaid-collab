@@ -111,6 +111,25 @@ export function epicBranchName(epicId: string): string {
 }
 
 /**
+ * Compare the working tree content of two refs via `git rev-parse <ref>^{tree}`.
+ *
+ * Returns true if both refs' tree SHAs match exactly (byte-identical content at the time of commit),
+ * false if they differ, and null if either rev-parse call fails or the process could not run.
+ * Never throws; failures are handled locally and surfaced via null return.
+ */
+export async function treeIdenticalTo(project: string, branch: string, baseRef: string): Promise<boolean | null> {
+  try {
+    const branchTree = await runGit(project, ['rev-parse', `${branch}^{tree}`]);
+    if (branchTree.code !== 0) return null;
+    const baseTree = await runGit(project, ['rev-parse', `${baseRef}^{tree}`]);
+    if (baseTree.code !== 0) return null;
+    return branchTree.stdout.trim() === baseTree.stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Pure assembly: given the work-graph + a git probe, build the per-epic report.
  * No DB or git access of its own — both are injected, so unit tests feed a
  * hand-built Todo[] and a fake probe.
