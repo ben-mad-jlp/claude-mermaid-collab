@@ -197,8 +197,11 @@ describe('reconcile-path land-record gate — (land.baseRef ?? intRef) === intRe
     expect(block).toContain(recordCall);
     expect(block).toContain(landPath);
 
-    // (c) Exactly one of each
+    // (c) Exactly one gate and exactly one land-CYCLE record site. The `landPath` tag itself
+    // is NOT counted: recordLandAttempt legitimately stamps the same 'oi1-reconcile' tag on
+    // each of its merged/refused/errored outcome records, so a raw tag count grows with every
+    // outcome the reconcile path learns to record. What must stay singular is the record site.
     expect(src.split(gateExpr).length - 1).toBe(1);
-    expect(src.split(landPath).length - 1).toBe(1);
+    expect(src.split(recordCall).length - 1).toBe(1);
   });
 });
