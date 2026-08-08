@@ -77,7 +77,7 @@ import {
 } from './worker-pool';
 import { getConfig } from './config-service';
 import { recordFriction } from './friction-store';
-import { recordLandCycle, captureLandCycleFields } from './epic-land-record-store.js';
+import { recordLandCycle, captureLandCycleFields, recordLandAttempt } from './epic-land-record-store.js';
 
 // ---------------------------------------------------------------------------
 // Pure pane-scrape detectors — the in-app terminal UI + interactive-launch tmux
@@ -884,10 +884,14 @@ export async function acceptTimeAncestorGate(
           postLandClean: cycle.postLandClean,
           landPath: 'oi1-reconcile',
         });
+        recordLandAttempt(targetProject, { epicId, outcome: 'merged', reason: 'ok', landPath: 'oi1-reconcile', session, mergeSha: land.masterSha ?? null });
       }
+    } else {
+      recordLandAttempt(targetProject, { epicId, outcome: 'refused', reason: land.reason ?? (land.conflict ? 'conflict' : 'not-landed'), landPath: 'oi1-reconcile', session, mergeSha: null });
     }
   } catch (e) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
+    recordLandAttempt(targetProject, { epicId, outcome: 'errored', reason: e instanceof Error ? e.message : String(e), landPath: 'oi1-reconcile', session, mergeSha: null });
   }
 
   // 3. re-probe after the reconcile attempt.
