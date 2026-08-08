@@ -23,7 +23,7 @@ import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner'
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
 import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-authority';
-import { hasLandStamp } from './epic-landedness';
+import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
@@ -614,7 +614,15 @@ export async function convergeObservedMerge(
 export async function surfaceEpicLand(
   project: string,
   epicId: string,
-  opts: { sessionHint?: string; preferLinkTodoId?: string; landLeafId?: string } = {},
+  opts: {
+    sessionHint?: string;
+    preferLinkTodoId?: string;
+    landLeafId?: string;
+    landednessProbe?: {
+      isEpicLandedInGit: typeof isEpicLandedInGit;
+      isEpicTreeIdenticalToTrunk: typeof isEpicTreeIdenticalToTrunk;
+    };
+  } = {},
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
   const id = opts.preferLinkTodoId;
@@ -681,6 +689,33 @@ export async function surfaceEpicLand(
         epicBranch,
         proofGreen ? 'green' : landReasonClass(readiness.blockers[0]?.code ?? 'land-not-ready'),
       ]);
+
+      // Short-circuit: suppress the epic-ready-to-land card if git shows nothing to merge.
+      // Use injected probes (landednessProbe) if provided; otherwise use the real functions.
+      const landedness = opts.landednessProbe ?? { isEpicLandedInGit, isEpicTreeIdenticalToTrunk };
+      const [gitStatus, treeStatus] = await Promise.all([
+        landedness.isEpicLandedInGit(repo, epicId).catch(() => 'indeterminate' as const),
+        landedness.isEpicTreeIdenticalToTrunk(repo, epicId).catch(() => 'indeterminate' as const),
+      ]);
+      const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
+      if (nothingToMerge) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session,
+          detail: JSON.stringify({
+            todoId: epicId,
+            epicId,
+            epicBranch,
+            repo,
+            landSurface: 'nothing-to-merge',
+            gitStatus,
+            treeStatus,
+          }),
+        });
+        continue;
+      }
+
       const { escalation } = createEscalation({
         project,
         session,
