@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { buildNodePrompt, type BallotPromptRequirement } from '../leaf-prompts';
-import { EXPLORE_REPORT_SENTINEL } from '../todo-store';
+import { EXPLORE_REPORT_SENTINEL } from '../leaf-parsing';
 import type { Todo } from '../todo-store';
 import type { ExploreSpec } from '../todo-store';
 
