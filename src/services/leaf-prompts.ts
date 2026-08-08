@@ -124,6 +124,12 @@ export function reviewReportPath(leaf: Todo): string {
   return `docs/review/${leaf.id}.report.md`;
 }
 
+/** The committed deliverable of an `explore`-shape leaf: a findings report
+ *  emitted by the explore node. Worktree-relative; the executor writes + commits it. */
+export function exploreReportPath(leaf: Todo): string {
+  return `docs/explore/${leaf.id}.report.md`;
+}
+
 /** Stable per-leaf lane name. WorktreeManager keys records on this; `fresh:true`
  *  tears down the prior dir+branch so every attempt is a NEW branch off the tip. */
 export function leafSessionKey(leaf: Todo): string {
