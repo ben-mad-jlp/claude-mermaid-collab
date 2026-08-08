@@ -65,10 +65,10 @@ afterEach(() => {
 });
 
 describe('sweepEpicRollups — landed-epic settlement', () => {
-  test('moot leftover: rolls up a landed epic when leftover children are non-terminal (planned)', async () => {
+  test('moot leftover: planned leftover child survives and the landed epic does not roll up', async () => {
     // Create a landed epic with two children:
     // - one done+accepted (settled)
-    // - one planned (moot leftover)
+    // - one planned (unclaimed non-terminal leftover — should survive)
     const epic = await createTodo(project, {
       allowOrphan: true,
       ownerSession: 'planner',
@@ -102,15 +102,18 @@ describe('sweepEpicRollups — landed-epic settlement', () => {
 
     const { rolledUp, flagged, settledChildIds } = await sweepEpicRollups(project);
 
-    // The moot leftover is dropped, epic rolls up.
-    expect(rolledUp).toContain(epic.id);
-    expect(settledChildIds[epic.id]).toEqual([leftoverChild.id]);
-    expect(flagged).toHaveLength(0);
+    // The unclaimed planned leftover survives, epic does not roll up.
+    expect(rolledUp).not.toContain(epic.id);
+    expect(settledChildIds[epic.id]).toBeUndefined();
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({
+      epicId: epic.id,
+      reason: 'landed-needs-review',
+    });
 
-    // Verify the epic is done+accepted and leftover is dropped
-    expect(getTodo(project, epic.id)?.status).toBe('done');
-    expect(getTodo(project, epic.id)?.acceptanceStatus).toBe('accepted');
-    expect(getTodo(project, leftoverChild.id)?.status).toBe('dropped');
+    // Verify the leftover survives and epic remains open
+    expect(getTodo(project, leftoverChild.id)?.status).toBe('planned');
+    expect(getTodo(project, epic.id)?.status).not.toBe('done');
   });
 
   test('in_progress leftover: flags a landed epic with in_progress child, does not roll up', async () => {
@@ -158,6 +161,48 @@ describe('sweepEpicRollups — landed-epic settlement', () => {
 
     // Epic status should remain unchanged (still planned)
     expect(getTodo(project, epic.id)?.status).toBe('planned');
+  });
+
+  test('landed epic with an unclaimed non-terminal leaf: leaf survives, stays claimable, epic does not roll up', async () => {
+    // Create a landed epic with one ready child (unclaimed, non-terminal).
+    // Note: status='ready' is stored as status='planned' + approvedAt; derivedStatus will compute 'ready'
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'planner',
+      title: '[EPIC] unclaimed leaf survival test',
+      kind: 'epic',
+      status: 'planned',
+    });
+    const leaf = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 'w',
+      title: 'unclaimed ready leaf',
+      parentId: epic.id,
+      status: 'ready',
+      kind: 'leaf',
+    });
+
+    // Stamp the epic as landed
+    const now = new Date().toISOString();
+    stampEpicLandedAt(project, epic.id, now);
+
+    const { rolledUp, flagged, settledChildIds } = await sweepEpicRollups(project);
+
+    // The unclaimed non-terminal leaf survives, epic does not roll up.
+    expect(rolledUp).not.toContain(epic.id);
+    expect(settledChildIds[epic.id]).toBeUndefined();
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({
+      epicId: epic.id,
+      reason: 'landed-needs-review',
+    });
+
+    // Verify the leaf survives (stored as 'planned' with approvedAt, derived status is 'ready')
+    const leafAfterSweep = getTodo(project, leaf.id);
+    expect(leafAfterSweep?.status).toBe('planned');
+    expect(leafAfterSweep?.approvedAt).not.toBeNull();
+    // Epic remains open (not done)
+    expect(getTodo(project, epic.id)?.status).not.toBe('done');
   });
 
   test('done-unaccepted leftover: flags a landed epic with done-but-unaccepted child when other children are not done', async () => {
