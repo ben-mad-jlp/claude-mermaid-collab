@@ -36,7 +36,7 @@ export async function narrowSyncLandedPaths(
   const { oldBaseSha, masterSha, residuePaths } = opts;
   const residueSet = new Set(residuePaths);
 
-  // Run `git diff --name-only --diff-filter=d oldBaseSha..masterSha` to list added/modified
+  // Run `git diff --name-only --diff-filter=d <oldBaseSha>..<trunkSha>` to list added/modified
   // paths (exclude deletions per --diff-filter=d).
   const landedPathsResult = await runGitCommand(repoRoot, [
     'diff',
