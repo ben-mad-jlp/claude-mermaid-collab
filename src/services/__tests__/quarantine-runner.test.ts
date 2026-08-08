@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'bun';
 import { runQuarantinedSpec, quarantineSuiteIdentities } from '../quarantine-runner';
 import { loadProjectManifest } from '../../config/project-manifest';
+import { defaultGateSpawn } from '../leaf-gate';
 
 /**
  * Test quarantine runner behavior with git repos and actual quarantine specs.
@@ -246,5 +247,91 @@ describe('test', () => {
       // If it's in the map, something is wrong
       expect(greenIdentity).toBeNull();
     }
+  });
+
+  it('vitest-shaped FAIL-line identity survives a rename of the quarantined spec', async () => {
+    // Set up a vitest-shaped gate config
+    const viestProjectJson = {
+      gate: {
+        test: 'vitest run {file}',
+      },
+    };
+    writeFileSync(
+      join(testRepoDir, '.collab', 'project.json'),
+      JSON.stringify(viestProjectJson, null, 2),
+    );
+
+    // Create a quarantined spec
+    const specPath1 = '__quarantine__/vitest-red.spec.ts';
+    mkdirSync(join(testRepoDir, '__quarantine__'), { recursive: true });
+
+    const specContent = `
+import { describe, it, expect } from 'vitest';
+
+describe('vitest quarantined red test', () => {
+  it('is red', () => {
+    expect(true).toBe(false);
+  });
+});
+`;
+
+    writeFileSync(join(testRepoDir, specPath1), specContent);
+    spawnSync(['git', 'add', specPath1], { cwd: testRepoDir, stdout: 'ignore', stderr: 'ignore' });
+    spawnSync(['git', 'commit', '-m', 'add vitest red quarantine spec'], { cwd: testRepoDir, stdout: 'ignore', stderr: 'ignore' });
+
+    // Mock spawn: pass through git ls-tree calls via defaultGateSpawn, but return vitest-style FAIL output for test commands
+    const mockSpawn = async (cwd: string, cmd: string) => {
+      if (cmd.includes('git ls-tree')) {
+        // Use the real defaultGateSpawn for git commands
+        return defaultGateSpawn(cwd, cmd);
+      }
+
+      // For vitest test commands, return a mock failure
+      if (cmd.includes('vitest')) {
+        // Get the current spec path from git
+        const lsResult = await defaultGateSpawn(cwd, 'git ls-tree -r --name-only HEAD');
+        const lines = lsResult.output.split('\n');
+        const currentSpecPath = lines.find((line) => line.includes('vitest-red') || line.includes('vitest-renamed'));
+
+        return {
+          ran: true,
+          code: 1,
+          output: currentSpecPath
+            ? `FAIL ${currentSpecPath}\n  × assertion failed\n`
+            : 'FAIL __quarantine__/vitest-red.spec.ts\n  × assertion failed\n',
+        };
+      }
+
+      return { ran: false, code: 1, output: '' };
+    };
+
+    // Get the identity before rename
+    const result1 = await runQuarantinedSpec(testRepoDir, specPath1, { spawn: mockSpawn });
+    expect(result1.red).toBe(true);
+    const identity1 = result1.failureIdentity;
+    expect(identity1).not.toBeNull();
+    expect(identity1).not.toInclude('vitest-red');
+    expect(identity1).not.toInclude('__quarantine__');
+    expect(identity1).not.toInclude('.spec.ts');
+
+    // Rename the spec
+    const specPath2 = '__quarantine__/vitest-renamed.spec.ts';
+    const content = readFileSync(join(testRepoDir, specPath1), 'utf-8');
+    writeFileSync(join(testRepoDir, specPath2), content);
+    spawnSync(['git', 'rm', specPath1], { cwd: testRepoDir, stdout: 'ignore', stderr: 'ignore' });
+    spawnSync(['git', 'add', specPath2], { cwd: testRepoDir, stdout: 'ignore', stderr: 'ignore' });
+    spawnSync(['git', 'commit', '-m', 'rename vitest spec'], { cwd: testRepoDir, stdout: 'ignore', stderr: 'ignore' });
+
+    // Get the identity after rename
+    const result2 = await runQuarantinedSpec(testRepoDir, specPath2, { spawn: mockSpawn });
+    expect(result2.red).toBe(true);
+    const identity2 = result2.failureIdentity;
+    expect(identity2).not.toBeNull();
+    expect(identity2).not.toInclude('vitest-renamed');
+    expect(identity2).not.toInclude('__quarantine__');
+    expect(identity2).not.toInclude('.spec.ts');
+
+    // The identities should be the same
+    expect(identity2).toBe(identity1);
   });
 });

@@ -231,4 +231,218 @@ describe('test', () => {
     expect(EXPLORE_NODE_ALLOWED_TOOLS.includes('mcp__mermaid__file_finding')).toBe(true);
     expect(EXPLORE_NODE_ALLOWED_TOOLS.includes('file_to_bucket')).toBe(false);
   });
+
+  test('same observation filed twice collapses to one finding row with recurrenceCount 2', async () => {
+    const specPath = '__quarantine__/test.spec.ts';
+    mkdirSync(join(project, '__quarantine__'), { recursive: true });
+    const specFullPath = join(project, specPath);
+    writeFileSync(
+      specFullPath,
+      `import { describe, test, expect } from 'bun:test';
+describe('test', () => {
+  test('fails', () => {
+    throw new Error('test failure');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath}'`, { cwd: project });
+    execSync('git commit -m "Add failing quarantine spec"', { cwd: project });
+
+    const todosBefore = listTodos(project, { includeCompleted: true }).length;
+    const findingsBefore = await listFindings(project).then((f) => f.length);
+
+    // First call: creates leaf and finding
+    const res1 = await call('file_finding', {
+      violatedClaim: 'Test failure',
+      repro: specPath,
+    });
+
+    expect(res1.leaf).toBeTruthy();
+    expect(res1.finding).toBeTruthy();
+    expect(res1.recurrence).toBe(false);
+    expect(res1.finding.recurrenceCount).toBe(1);
+
+    const todosAfter1 = listTodos(project, { includeCompleted: true }).length;
+    const findingsAfter1 = await listFindings(project).then((f) => f.length);
+    expect(todosAfter1).toBe(todosBefore + 2); // bucket + leaf
+    expect(findingsAfter1).toBe(findingsBefore + 1);
+
+    // Second call with same repro: should collapse and bump recurrence
+    const res2 = await call('file_finding', {
+      violatedClaim: 'Test failure',
+      repro: specPath,
+    });
+
+    expect(res2.leaf).toBeTruthy();
+    expect(res2.finding).toBeTruthy();
+    expect(res2.recurrence).toBe(true);
+    expect(res2.finding.recurrenceCount).toBe(2);
+    expect(res2.finding.id).toBe(res1.finding.id);
+    expect(res2.leaf.id).toBe(res1.leaf.id);
+
+    // Verify row counts unchanged (no new rows)
+    const todosAfter2 = listTodos(project, { includeCompleted: true }).length;
+    const findingsAfter2 = await listFindings(project).then((f) => f.length);
+    expect(todosAfter2).toBe(todosAfter1);
+    expect(findingsAfter2).toBe(findingsAfter1);
+  });
+
+  test('falsifier: repro moved to a new quarantine path still collapses by failure identity', async () => {
+    const specPath1 = '__quarantine__/test1.spec.ts';
+    const specPath2 = '__quarantine__/test2.spec.ts';
+    mkdirSync(join(project, '__quarantine__'), { recursive: true });
+    const specFullPath1 = join(project, specPath1);
+    writeFileSync(
+      specFullPath1,
+      `import { describe, test, expect } from 'bun:test';
+describe('test', () => {
+  test('fails', () => {
+    throw new Error('test failure');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath1}'`, { cwd: project });
+    execSync('git commit -m "Add failing quarantine spec"', { cwd: project });
+
+    // First call: creates leaf and finding
+    const res1 = await call('file_finding', {
+      violatedClaim: 'Test failure',
+      repro: specPath1,
+    });
+
+    expect(res1.finding).toBeTruthy();
+    expect(res1.recurrence).toBe(false);
+    const failureIdentity = res1.finding.failureIdentity;
+    expect(failureIdentity).toBeTruthy();
+
+    // Move the spec file to a new path (simulates repro path change)
+    execSync(`git mv '${specPath1}' '${specPath2}'`, { cwd: project });
+    execSync('git commit -m "Move failing spec"', { cwd: project });
+
+    // Second call with different path but same failure identity: should still collapse
+    const res2 = await call('file_finding', {
+      violatedClaim: 'Test failure',
+      repro: specPath2,
+    });
+
+    expect(res2.recurrence).toBe(true);
+    expect(res2.finding.recurrenceCount).toBe(2);
+    expect(res2.finding.id).toBe(res1.finding.id);
+    expect(res2.finding.failureIdentity).toBe(failureIdentity);
+  });
+
+  test('falsifier: reworded claim/title/surface still collapses by failure identity', async () => {
+    const specPath = '__quarantine__/test.spec.ts';
+    mkdirSync(join(project, '__quarantine__'), { recursive: true });
+    const specFullPath = join(project, specPath);
+    writeFileSync(
+      specFullPath,
+      `import { describe, test, expect } from 'bun:test';
+describe('test', () => {
+  test('fails', () => {
+    throw new Error('test failure');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath}'`, { cwd: project });
+    execSync('git commit -m "Add failing quarantine spec"', { cwd: project });
+
+    // First call
+    const res1 = await call('file_finding', {
+      violatedClaim: 'Original claim',
+      repro: specPath,
+      surface: 'backend',
+      title: 'Original title',
+    });
+
+    expect(res1.recurrence).toBe(false);
+    const failureIdentity = res1.finding.failureIdentity;
+
+    // Second call with different claim/title/surface: should still collapse by identity
+    const res2 = await call('file_finding', {
+      violatedClaim: 'Reworded claim',
+      repro: specPath,
+      surface: 'integration',
+      title: 'New title',
+    });
+
+    expect(res2.recurrence).toBe(true);
+    expect(res2.finding.recurrenceCount).toBe(2);
+    expect(res2.finding.id).toBe(res1.finding.id);
+    expect(res2.finding.failureIdentity).toBe(failureIdentity);
+    // Verify first-write fields were not overwritten
+    expect(res2.finding.violatedClaim).toBe('Original claim');
+  });
+
+  test('negative control: a genuinely different failing spec creates a second finding and leaf', async () => {
+    const specPath1 = '__quarantine__/test1.spec.ts';
+    const specPath2 = '__quarantine__/test2.spec.ts';
+    mkdirSync(join(project, '__quarantine__'), { recursive: true });
+
+    // First spec
+    writeFileSync(
+      join(project, specPath1),
+      `import { describe, test, expect } from 'bun:test';
+describe('test1', () => {
+  test('fails with error 1', () => {
+    throw new Error('failure 1');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath1}'`, { cwd: project });
+    execSync('git commit -m "Add first failing spec"', { cwd: project });
+
+    // Second spec (genuinely different)
+    writeFileSync(
+      join(project, specPath2),
+      `import { describe, test, expect } from 'bun:test';
+describe('test2', () => {
+  test('fails with error 2', () => {
+    throw new Error('failure 2');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath2}'`, { cwd: project });
+    execSync('git commit -m "Add second failing spec"', { cwd: project });
+
+    const todosBefore = listTodos(project, { includeCompleted: true }).length;
+    const findingsBefore = await listFindings(project).then((f) => f.length);
+
+    // File first spec
+    const res1 = await call('file_finding', {
+      violatedClaim: 'Failure 1',
+      repro: specPath1,
+    });
+
+    expect(res1.recurrence).toBe(false);
+    const todosAfter1 = listTodos(project, { includeCompleted: true }).length;
+    const findingsAfter1 = await listFindings(project).then((f) => f.length);
+
+    // File second spec
+    const res2 = await call('file_finding', {
+      violatedClaim: 'Failure 2',
+      repro: specPath2,
+    });
+
+    expect(res2.recurrence).toBe(false);
+    expect(res2.finding.id).not.toBe(res1.finding.id);
+    expect(res2.leaf.id).not.toBe(res1.leaf.id);
+
+    // Verify counts: each adds a leaf (second may reuse bucket)
+    const todosAfter2 = listTodos(project, { includeCompleted: true }).length;
+    const findingsAfter2 = await listFindings(project).then((f) => f.length);
+    // First call: bucket + leaf = +2; second call: just leaf = +1
+    expect(todosAfter2).toBe(todosBefore + 3);
+    expect(findingsAfter2).toBe(findingsBefore + 2);
+  });
 });
