@@ -873,6 +873,11 @@ export const IMPLEMENT_TIMEOUT_MS = 1_800_000;
  *  fail faster than a runaway build). */
 export const BLUEPRINT_TIMEOUT_MS = 900_000;
 
+/** Explore-node tool allowlist constant. Wired into NODE_PROFILE.explore.allowedTools by
+ *  criterion 1's epic (explore-kind leaf's allowlist expansion). This leaf only defines and
+ *  exports the constant; the wiring is criterion 1's responsibility. */
+export const EXPLORE_NODE_ALLOWED_TOOLS = 'Read Grep Glob Bash mcp__mermaid__file_finding';
+
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel; timeoutMs?: number }> = {
   // Demoted opus→sonnet (2026-07-21): blueprint was the #1 cost center ($368/wk, more than
   // implement) with no measured reliability gain over sonnet at 'high' effort. A project that
