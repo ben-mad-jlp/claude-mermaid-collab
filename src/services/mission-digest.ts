@@ -10,9 +10,36 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listMissions, isMissionTerminal } from './mission-store.ts';
 import { readProjectDigest } from './project-digest.ts';
+import type { Finding } from './finding-store.ts';
+
+export const FINDINGS_IMPLICATED_FILES_MAX = 5;
 
 function missionDigestPath(project: string, missionId: string): string {
   return join(project, '.collab', 'mission-digests', `${missionId}.md`);
+}
+
+export function formatConsumedFindingsSection(findings: Finding[]): string {
+  if (findings.length === 0) return '';
+
+  const blocks = findings.map((f) => {
+    const lines: string[] = [];
+    lines.push(f.violatedClaim);
+
+    if (f.ruledOut.length > 0) {
+      lines.push('ruled out: ' + f.ruledOut.join(', '));
+    }
+
+    if (f.implicatedFiles.length > 0) {
+      const shown = f.implicatedFiles.slice(0, FINDINGS_IMPLICATED_FILES_MAX);
+      const remaining = f.implicatedFiles.length - FINDINGS_IMPLICATED_FILES_MAX;
+      const filesStr = shown.join(', ') + (remaining > 0 ? `, +${remaining} more` : '');
+      lines.push('implicated files: ' + filesStr);
+    }
+
+    return lines.join('\n');
+  });
+
+  return ['## Consumed findings', ...blocks].join('\n\n');
 }
 
 export function writeMissionDigest(project: string, missionId: string, text: string): void {
