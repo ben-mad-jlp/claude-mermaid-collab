@@ -6,7 +6,6 @@
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { parseSplitDecision } from './split-decision';
 import type { Todo } from './todo-store';
-import { VERIFY_GATE_VERB } from './leaf-prompts';
 
 // Re-export types so they're available to users of leaf-parsing.ts
 export type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -274,6 +273,16 @@ export function parseSizeManifest(
  *  build123d-ocp-mcp/.mcp.json). A Claude Code node addresses its tools as
  *  `mcp__bsync-cad__<verb>`. Confirmed against the live MCP in L4. */
 export const VERIFY_GATE_MCP_SERVER = 'bsync-cad';
+/** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
+ *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
+ *  T14 dogfoods). The execute node is constrained to the resolved verb's MCP tool so the LLM
+ *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
+ *  (see {@link resolveVerifyGate}); this is just the fallback verb.
+ *
+ *  OWNED HERE, not in leaf-prompts: leaf-prompts imports EXPLORE_REPORT_SENTINEL from this
+ *  module, so a VERIFY_GATE_VERB defined there would close a value-level import cycle and
+ *  TDZ-crash at module init (VERIFY_GATE_MCP_TOOL below reads it at top level). */
+export const VERIFY_GATE_VERB = 'build_assembly_plan';
 /** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. Kept as one
  *  function so every call site generalizes together. */
 export function verbMcpTool(verb: string): string {
