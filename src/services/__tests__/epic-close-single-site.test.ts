@@ -138,10 +138,12 @@ describe('epic-close-single-site', () => {
           status: 'planned',
         });
 
-        // Set landedAt so sweep will drop leftovers and close
+        // Set landedAt and mark the leaf as dropped (so it's retirable) so sweep will close
         const db = openDb(project);
         db.prepare('UPDATE todos SET landedAt = ?, acceptanceStatus = ? WHERE id = ?')
           .run('2026-01-01T00:00:00Z', 'pending', epic.id);
+        db.prepare('UPDATE todos SET status = ? WHERE id = ?')
+          .run('dropped', leaf.id);
         _closeProject(project);
 
         const result = await sweepEpicRollups(project);
@@ -379,10 +381,14 @@ describe('epic-close-single-site', () => {
           status: 'backlog',
         });
 
-        // Set landedAt on epic
+        // Set landedAt on epic and mark leftovers as dropped (retirable)
         const db = openDb(project);
         db.prepare('UPDATE todos SET landedAt = ? WHERE id = ?')
           .run('2026-01-01T00:00:00Z', epic.id);
+        db.prepare('UPDATE todos SET status = ? WHERE id = ?')
+          .run('dropped', leftover1.id);
+        db.prepare('UPDATE todos SET status = ? WHERE id = ?')
+          .run('dropped', leftover2.id);
         _closeProject(project);
 
         const result = await sweepEpicRollups(project);
