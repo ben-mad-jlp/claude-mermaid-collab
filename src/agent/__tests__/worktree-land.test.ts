@@ -235,8 +235,11 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     // fires first and reports the cause rather than that downstream symptom.
     expect(caught.addedResidue.some((r: string) => r.includes('base.txt'))).toBe(true);
     expect(violations.length).toBe(1);
-    // The epic's landed file is stranded — the checkout was NOT synced.
-    expect(await exists(path.join(repo, 'feature.txt'))).toBe(false);
+    // The land's OWN path is narrow-synced before the throw: narrowSyncLandedPaths checks out
+    // the landed paths that are not pre-existing residue, so feature.txt is present rather than
+    // stranded. The throw is still raised loudly, and the blocking dirty path is still preserved
+    // untouched (asserted below) — the sync mitigates only the land's own contribution.
+    expect(await exists(path.join(repo, 'feature.txt'))).toBe(true);
 
     // Invariant: master still advanced to the land commit — the throw reports a stranded
     // checkout, it does not undo the land.
