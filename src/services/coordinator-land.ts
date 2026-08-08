@@ -1226,7 +1226,7 @@ async function restoreOnFailure(
 
   if (drift.length > 0) {
     // Restore the drifted leaves.
-    restoreWorkGraphSnapshot(project, drift);
+    await restoreWorkGraphSnapshot(project, drift);
 
     // Record friction for observability.
     const driftedLeafIds = [...new Set(drift.map((d) => d.leafId))];
