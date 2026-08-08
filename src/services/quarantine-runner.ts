@@ -11,6 +11,20 @@ import { isQuarantined } from './quarantine';
 import { extractFailingTests, synthesizeLaneFailureIdentity } from './gate-runner';
 import { loadProjectManifest } from '../config/project-manifest';
 
+/**
+ * Normalize a failure fingerprint by replacing path tokens with a marker.
+ * This ensures that the identity survives a git mv of the quarantined spec.
+ */
+function stripPathTokens(fingerprint: string, repoRelPath: string): string {
+  const marker = '<repro>';
+  const basename = repoRelPath.split(/[\\/]+/).pop() ?? repoRelPath;
+  let out = fingerprint.split(repoRelPath).join(marker).split(basename).join(marker);
+  // any remaining bare path-looking token: contains a slash, or ends in a
+  // recognized source/test extension (optionally with a trailing :line)
+  out = out.replace(/\S*\/\S*|\S+\.(?:test\.[tj]sx?|spec\.[tj]sx?|[tj]sx?)(?::\d+)?/g, marker);
+  return out;
+}
+
 export interface QuarantinedSpecResult {
   ran: boolean;
   committed: boolean;
@@ -115,7 +129,11 @@ export async function runQuarantinedSpec(
   if (red) {
     // Use the same combinator leaf-gate.ts:918-927 uses
     const fingerprints = extractFailingTests(r.output);
-    if (fingerprints.length === 0) {
+    const normalized = fingerprints
+      .map((fp) => stripPathTokens(fp, repoRelPath).trim())
+      .filter((fp) => fp.length > 0 && fp !== '<repro>');
+
+    if (normalized.length === 0) {
       // The laneKey is the FIXED string 'quarantine', never repoRelPath or
       // lane.match.source derived from the file's own name — this keeps
       // identity byte-identical across a git mv of the spec.
@@ -125,9 +143,9 @@ export async function runQuarantinedSpec(
       }
     } else {
       // For bun test lanes, extractFailingTests returns path-free test names.
-      // A vitest lane's FAIL <path> line would embed the path — out of scope
-      // for this leaf (the acceptance falsifier commits a bun test-lane spec).
-      failureIdentity = fingerprints.join(' | ');
+      // For vitest lanes, FAIL <path> lines are normalized via stripPathTokens
+      // to survive git mv of the repro spec.
+      failureIdentity = normalized.join(' | ');
     }
   }
 
