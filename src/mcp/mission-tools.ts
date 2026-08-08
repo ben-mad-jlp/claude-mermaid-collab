@@ -29,6 +29,7 @@ import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/
 import { buildMissionDiagnostic } from '../services/mission-diagnostic.js';
 import { isEpicLandedInGit } from '../services/epic-landedness.js';
 import { deriveConductorPassLiveness } from '../services/conductor-pass-liveness.js';
+import { assertServingEpicModulesReachable } from '../services/module-reachability.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -325,6 +326,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       let recordedMet = met;
 
       if (met === true) {
+        await assertServingEpicModulesReachable(project, criterionId);
         const stakes = classifyVerifyStakes(collectVerifyStakesInput(project, criterionId));
         panel = stakes.panel;
         trigger = stakes.trigger;
