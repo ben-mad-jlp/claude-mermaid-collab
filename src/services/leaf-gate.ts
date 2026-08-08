@@ -8,6 +8,7 @@
  * repo-specific string.
  */
 import { join } from 'node:path';
+import { isQuarantined } from './quarantine.js';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
@@ -1118,7 +1119,12 @@ export function routeSpecsToLanes(specs: readonly string[], lanes: readonly Gate
   { byLane: Map<GateTestLane, string[]>; unmatched: string[] } {
   const unmatched: string[] = [];
   const byLane = new Map<GateTestLane, string[]>();
-  for (const spec of [...new Set(specs)]) {
+  // QUARANTINE: repros committed red on purpose (see services/quarantine.ts). They are excluded
+  // here rather than per-caller because this is the ONE routing point every lane-based gate uses
+  // — the per-file leaf gate and the epic land gate both flow through it. They are dropped, not
+  // reported unmatched: `unmatched` means "no lane claims this", which would surface as a gate
+  // config warning, and a quarantined spec is deliberately laneless.
+  for (const spec of [...new Set(specs)].filter((sp) => !isQuarantined(sp))) {
     const lane = lanes.find((l) => l.match.test(spec));
     if (!lane) {
       unmatched.push(spec);

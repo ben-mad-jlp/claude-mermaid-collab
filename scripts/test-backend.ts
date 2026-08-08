@@ -15,6 +15,7 @@
  * Usage: bun run scripts/test-backend.ts [--concurrency=N] [pathFilter]
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
+import { QUARANTINE_SEGMENT } from '../src/services/quarantine.ts';
 import path from 'path';
 import { extractFailingTests } from '../src/services/gate-runner';
 
@@ -102,6 +103,10 @@ function findBunTestFiles(dir: string, out: string[] = []): string[] {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       if (e.name === 'node_modules') continue;
+      // QUARANTINE: red-by-design repros (services/quarantine.ts). The regression floor is the
+      // base gate — a quarantined test landing here would red every epic project-wide, which is
+      // the exact thing quarantine exists to prevent.
+      if (e.name === QUARANTINE_SEGMENT) continue;
       findBunTestFiles(full, out);
     } else if (/\.test\.tsx?$/.test(e.name)) {
       try {
