@@ -6962,7 +6962,7 @@
     },
     {
       "name": "file_finding",
-      "description": "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green.",
+      "description": "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green. A second filing against the same failureIdentity does not create a new leaf or finding row — it bumps recurrenceCount on the existing finding and returns the existing leaf with recurrence:true in the response.",
       "inputSchema": {
         "type": "object",
         "properties": {
