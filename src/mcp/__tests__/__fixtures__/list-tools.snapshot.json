@@ -4534,7 +4534,7 @@
     },
     {
       "name": "escalation_resolve",
-      "description": "Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is \"acknowledged\", routes to acknowledgeEscalation instead of resolveEscalation.",
+      "description": "Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is \"acknowledged\", routes to acknowledgeEscalation instead of resolveEscalation. When optionId is present, routes through the structured-decision path (decideEscalation) instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4547,6 +4547,10 @@
           "note": {
             "type": "string",
             "description": "Free-text resolution note/prose — put explanatory text here, not in status."
+          },
+          "optionId": {
+            "type": "string",
+            "description": "When present, resolve via the structured-decision path (decideEscalation) instead of the status/note path; refused if the card does not offer this option."
           },
           "supervisorEpoch": {
             "type": "number",
@@ -6048,6 +6052,41 @@
       }
     },
     {
+      "name": "mutation_probe",
+      "description": "Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (filesystem repo root where the work-graph lives)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Repo-relative path of the source file to probe."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Exported symbol name to neuter/throw-probe."
+          },
+          "testCommand": {
+            "type": "string",
+            "description": "Test invocation to run per arm (e.g., \"bun test src/example.test.ts\")."
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Optional: accepted for forward-compat (not passed to runMutationProbe)."
+          }
+        },
+        "required": [
+          "project",
+          "file",
+          "symbol",
+          "testCommand"
+        ]
+      }
+    },
+    {
       "name": "runtime_config",
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {
@@ -6206,6 +6245,21 @@
         },
         "required": [
           "project"
+        ]
+      }
+    },
+    {
+      "name": "escalation_get",
+      "description": "Full-text read of ONE escalation by id (full or short id), for ANY status (open/acknowledged/decided/resolved/stale/superseded/obsolete/linear) — escalation_list only returns status=open, and escalation_history's row shape omits the untruncated questionText. Returns the complete escalation (questionText, options[], recommended, ui, audience, status, ...) plus its recorded decision (optionId/note/decidedBy), or { found: false, id } if no match.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
