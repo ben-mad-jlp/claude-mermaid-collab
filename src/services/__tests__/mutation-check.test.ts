@@ -1,3 +1,6 @@
+/**
+ * @nested-test-runner: every case spawns mutation-check.sh, which itself spawns full bun test runs
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
