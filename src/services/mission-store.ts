@@ -637,7 +637,8 @@ export async function setMissionAbandoned(project: string, todoId: string, aband
  *  un-converge stopped history. NOT called for abandonment — setMissionAbandoned keeps its own
  *  status and never touches this column. */
 export function setMissionClosed(project: string, todoId: string, at: number | null): void {
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   const res = openDb(project)
     .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(at, nowMs(), id);
@@ -645,7 +646,8 @@ export function setMissionClosed(project: string, todoId: string, at: number | n
 }
 
 export function setMissionForgeState(project: string, todoId: string, state: 'forging' | 'forge-failed' | null): void {
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   const res = openDb(project)
     .prepare('UPDATE mission SET forgeState = ?, updatedAt = ? WHERE todoId = ?')
     .run(state, nowMs(), id);
@@ -759,15 +761,18 @@ export function restoreMission(project: string, todoId: string): MissionRow {
 }
 
 /** Delete a mission's control state (does NOT touch the graph node). Resolves a short
- *  id; a not-found id is a silent no-op (unchanged prior behavior — this never threw). */
+ *  id; an id that resolves to no row is a refusal — throws instead of silently doing
+ *  nothing. */
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { reopenConsumedFor } = require('./bucket-consumption.ts');
   reopenConsumedFor(project, id);
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
-  db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
+  const res = db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
+  if (res.changes === 0) throw new Error(`mission delete matched no row: ${todoId}`);
   import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
 }
 
@@ -791,7 +796,8 @@ export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): 
 /** Set a mission's active flag directly (low-level; prefer activateMission to keep
  *  the one-active-per-session invariant). Resolves a short id. */
 export function setMissionActive(project: string, todoId: string, active: boolean): void {
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   const res = openDb(project)
     .prepare('UPDATE mission SET active = ?, updatedAt = ? WHERE todoId = ?')
     .run(active ? 1 : 0, nowMs(), id);
