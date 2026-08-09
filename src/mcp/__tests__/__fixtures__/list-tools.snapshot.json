@@ -4534,7 +4534,7 @@
     },
     {
       "name": "escalation_resolve",
-      "description": "Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is \"acknowledged\", routes to acknowledgeEscalation instead of resolveEscalation.",
+      "description": "Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is \"acknowledged\", routes to acknowledgeEscalation instead of resolveEscalation. When optionId is present, routes through the structured-decision path (decideEscalation) instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4547,6 +4547,10 @@
           "note": {
             "type": "string",
             "description": "Free-text resolution note/prose — put explanatory text here, not in status."
+          },
+          "optionId": {
+            "type": "string",
+            "description": "When present, resolve via the structured-decision path (decideEscalation) instead of the status/note path; refused if the card does not offer this option."
           },
           "supervisorEpoch": {
             "type": "number",
@@ -6241,6 +6245,21 @@
         },
         "required": [
           "project"
+        ]
+      }
+    },
+    {
+      "name": "escalation_get",
+      "description": "Full-text read of ONE escalation by id (full or short id), for ANY status (open/acknowledged/decided/resolved/stale/superseded/obsolete/linear) — escalation_list only returns status=open, and escalation_history's row shape omits the untruncated questionText. Returns the complete escalation (questionText, options[], recommended, ui, audience, status, ...) plus its recorded decision (optionId/note/decidedBy), or { found: false, id } if no match.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
