@@ -6789,6 +6789,38 @@
       }
     },
     {
+      "name": "rearm_mission_criterion",
+      "description": "Reset an exhausted acceptance criterion's serve/verify attempt caps in place so it can be re-served/re-verified without dropping and re-adding it. Zeroes serveAttemptCount and verifyAttemptCount; increments the durable reArmCount so repeated use is visible. Refuses (throws criterion-already-met: <id>) when the criterion is already met — re-arming a met criterion is never valid. text, evidence, evidencePaths, verifiedBy/verifiedAt and verdict history are all preserved untouched. Records a durable 'override' audit entry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "criterionId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the caps are being reset."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who is re-arming (default 'operator')."
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "criterionId",
+          "reason"
+        ]
+      }
+    },
+    {
       "name": "create_epic",
       "description": "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
       "inputSchema": {

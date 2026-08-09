@@ -143,6 +143,8 @@ export interface MissionCriterion {
   droppedReason: string | null;
   droppedAt: number | null;
   droppedBy: string | null;
+  /** Count of times this criterion has been re-armed (caps reset). */
+  reArmCount: number;
   /** VERIFY-gate audit trail: why the judge ruled this met/unmet, WHO judged it,
    *  and WHEN — set by an INDEPENDENT verify (not the maker). Null until verified. */
   evidence: string | null;
@@ -258,7 +260,8 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   status TEXT NOT NULL DEFAULT 'active',
   droppedReason TEXT,
   droppedAt INTEGER,
-  droppedBy TEXT
+  droppedBy TEXT,
+  reArmCount INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
 CREATE TABLE IF NOT EXISTS mission_recheck (
@@ -385,6 +388,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'droppedAt', 'droppedAt INTEGER');
   addColumnIfMissing(db, 'mission_criterion', 'droppedBy', 'droppedBy TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'measurementPendingUntil', 'measurementPendingUntil INTEGER');
+  addColumnIfMissing(db, 'mission_criterion', 'reArmCount', 'reArmCount INTEGER NOT NULL DEFAULT 0');
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
@@ -934,6 +938,7 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     droppedReason: (r.droppedReason as string | null) ?? null,
     droppedAt: (r.droppedAt as number | null) ?? null,
     droppedBy: (r.droppedBy as string | null) ?? null,
+    reArmCount: (r.reArmCount as number | null) ?? 0,
     measurementPendingUntil: (r.measurementPendingUntil as number | null) ?? null,
   }));
 }
@@ -996,7 +1001,7 @@ export function addCriterion(
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn, nickname) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)')
     .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn), nickname);
-  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null, measurementPendingUntil: null };
+  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null, reArmCount: 0, measurementPendingUntil: null };
 }
 
 /** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
@@ -1143,6 +1148,31 @@ export function undropCriterion(project: string, criterionId: string): void {
     .prepare("UPDATE mission_criterion SET status = 'active', droppedReason = NULL, droppedAt = NULL, droppedBy = NULL, updatedAt = ? WHERE id = ?")
     .run(nowMs(), criterionId);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+/** Reset an exhausted acceptance criterion's serve/verify attempt caps in place so it can
+ *  be re-served/re-verified without dropping and re-adding it. Zeroes serveAttemptCount and
+ *  verifyAttemptCount; increments the durable reArmCount so repeated use is visible. Refuses
+ *  (throws criterion-already-met: <id>) when the criterion is already met — re-arming a met
+ *  criterion is never valid. text, evidence, evidencePaths, verifiedBy/verifiedAt and verdict
+ *  history are all preserved untouched. */
+export function reArmCriterion(
+  project: string,
+  criterionId: string,
+  opts: { reason: string; by: string },
+): { reArmCount: number; clearedServeAttempts: number; clearedVerifyAttempts: number } {
+  const db = openDb(project);
+  return db.transaction(() => {
+    const row = db.query('SELECT met, serveAttemptCount, verifyAttemptCount, reArmCount FROM mission_criterion WHERE id = ?').get(criterionId) as Record<string, unknown> | null;
+    if (!row) throw new Error(`criterion not found: ${criterionId}`);
+    if (row.met) throw new Error(`criterion-already-met: ${criterionId}`);
+    const clearedServeAttempts = (row.serveAttemptCount as number) ?? 0;
+    const clearedVerifyAttempts = (row.verifyAttemptCount as number) ?? 0;
+    const nextReArmCount = ((row.reArmCount as number) ?? 0) + 1;
+    db.prepare('UPDATE mission_criterion SET serveAttemptCount = 0, verifyAttemptCount = 0, reArmCount = ?, updatedAt = ? WHERE id = ?')
+      .run(nextReArmCount, nowMs(), criterionId);
+    return { reArmCount: nextReArmCount, clearedServeAttempts, clearedVerifyAttempts };
+  })();
 }
 
 /** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
