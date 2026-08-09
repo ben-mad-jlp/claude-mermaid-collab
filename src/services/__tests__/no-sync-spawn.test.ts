@@ -52,10 +52,12 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'index-only ops bounded by untracked-file count, ~100-500ms worst case.',
   },
   'services/worktree-write-leak.ts': {
-    count: 5,
+    count: 6,
     reason:
-      'import + git status + per-leaked-path `git checkout HEAD --` restores — ' +
-      'bounded by the (small) leak count, each ~50ms; runs on leak detection only.',
+      'import + git status + three per-path `git checkout HEAD --` restores ' +
+      '(tracked-file recovery in quarantineAndRestoreMainCheckout, reclaimPreDirtyScopeOverlap, ' +
+      'and residue restore in sweepLeakedWrites) — bounded by the (small) leak count, ' +
+      'each ~50ms; runs on leak detection/restore only.',
   },
   'services/epic-land-gate.ts': {
     count: 2,
