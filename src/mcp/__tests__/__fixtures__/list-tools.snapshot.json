@@ -6014,6 +6014,40 @@
       }
     },
     {
+      "name": "invalidate_base_gate",
+      "description": "Clear one epic's cached base-gate verdict (epic_base_gate) so the next leaf re-measures the base instead of trusting a stale cached row. Use to recover from a false base-gate red (contention/flake) without waiting for TTL/reverify-attempt self-heal. Refuses (throws) when there is no cached row for the epic — a no-op is reported as failure, not success. Records a durable 'override' audit entry naming the cleared row's baseSha/status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          },
+          "session": {
+            "type": "string",
+            "description": "Caller session, for the audit trail."
+          },
+          "epicId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the cached verdict is being cleared."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who is invalidating (default 'operator')."
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "epicId",
+          "reason"
+        ]
+      }
+    },
+    {
       "name": "runtime_config",
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {

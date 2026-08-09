@@ -248,7 +248,7 @@ export async function setupMCPServer(): Promise<Server> {
       SYSTEM_TOOL_DEFS[10],                     // orchestrator_status
       SYSTEM_TOOL_DEFS[5],                      // system_status
       SYSTEM_TOOL_DEFS[6],                      // daemon_status
-      ...EPIC_TOOL_DEFS.slice(17, 20),          // leaf_inspect, leaf_failures, adopt_branch_as_epic
+      ...EPIC_TOOL_DEFS.slice(17, 21),          // leaf_inspect, leaf_failures, adopt_branch_as_epic, invalidate_base_gate
       SYSTEM_TOOL_DEFS[9],                      // runtime_config
       ...SYSTEM_TOOL_DEFS.slice(11, 13),        // set_watchdog_threshold, set_context_recycle
       ...SUPERVISOR_TOOL_DEFS.slice(21, 24),    // supervisor_watchdog_scan, set_node_profile_override, get_bridge_snapshot
