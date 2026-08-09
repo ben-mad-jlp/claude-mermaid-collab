@@ -942,6 +942,24 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
   } catch { return null; }
 }
 
+/** Clear one epic's cached base-gate verdict row and return what was deleted.
+ *  Throws on DB error — unlike `recordEpicBaseGate`/`getEpicBaseGate`, this does NOT
+ *  swallow throws into a success shape. Caller must handle the throw or let it propagate.
+ *  Returns { deleted: false, row: null } when no row exists. */
+export function invalidateEpicBaseGate(epicId: string): { deleted: boolean; row: EpicBaseGateRow | null } {
+  const db = openDb();
+  const raw = db.prepare('SELECT * FROM epic_base_gate WHERE epicId=?').get(epicId) as
+    (Omit<EpicBaseGateRow, 'baselineFailures' | 'failAttempts'> & { baselineFailures: string | null; failAttempts: number | null }) | undefined;
+  if (!raw) return { deleted: false, row: null };
+  const safeParse = (x: string | null): LaneBaselineMap | null => {
+    if (x == null) return null;
+    try { return JSON.parse(x) as LaneBaselineMap; } catch { return null; }
+  };
+  const row: EpicBaseGateRow = { ...raw, baselineFailures: safeParse(raw.baselineFailures), failAttempts: raw.failAttempts ?? 0 };
+  const result = db.prepare('DELETE FROM epic_base_gate WHERE epicId=?').run(epicId);
+  return { deleted: result.changes > 0, row };
+}
+
 export function listPassingBaseGatesSince(project: string, sinceMs: number): EpicBaseGateRow[] {
   try {
     const rows = openDb()
