@@ -5,6 +5,8 @@
  * an operation, and throws if they differ unexpectedly.
  */
 
+import { quarantineAndRestoreMainCheckout } from './worktree-write-leak';
+
 export type GitRunner = (
   cwd: string,
   args: string[],
@@ -15,7 +17,7 @@ export interface MainCheckoutState {
   branch: string | null;
   /** git rev-parse HEAD, trimmed; '' if unresolved (non-git / no commits). */
   sha: string;
-  /** git status --porcelain --untracked-files=no, trimmed non-empty lines; [] on probe failure. */
+  /** git status --porcelain --untracked-files=all, trimmed non-empty lines; [] on probe failure. */
   residue: string[];
 }
 
@@ -47,8 +49,13 @@ export class MainCheckoutResidueError extends Error {
     public readonly addedResidue: string[],
     public readonly before: MainCheckoutState,
     public readonly after: MainCheckoutState,
+    public readonly quarantinePath?: string,
   ) {
-    super(`Main checkout residue introduced by ${opName} at ${projectRoot}: ${addedResidue.join(', ')}`);
+    const basePath = `${addedResidue.join(', ')}`;
+    const fullMessage = quarantinePath
+      ? `Main checkout residue introduced by ${opName} at ${projectRoot}: ${basePath} (leaked content quarantined at ${quarantinePath})`
+      : `Main checkout residue introduced by ${opName} at ${projectRoot}: ${basePath}`;
+    super(fullMessage);
   }
 }
 
@@ -63,7 +70,7 @@ export async function readMainCheckoutHead(
   const [branchResult, shaResult, statusResult] = await Promise.all([
     runGit(projectRoot, ['symbolic-ref', '--short', 'HEAD']),
     runGit(projectRoot, ['rev-parse', 'HEAD']),
-    runGit(projectRoot, ['status', '--porcelain', '--untracked-files=no']),
+    runGit(projectRoot, ['status', '--porcelain', '--untracked-files=all']),
   ]);
 
   const branch = branchResult.code === 0 ? branchResult.stdout.trim() || null : null;
@@ -91,6 +98,7 @@ export async function withMainCheckoutInvariant<T>(
   opts: {
     opName?: string;
     onViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
+    quarantineDir?: string;
   } = {},
 ): Promise<T> {
   const opName = opts.opName ?? 'operation';
@@ -119,7 +127,16 @@ export async function withMainCheckoutInvariant<T>(
   const beforeSet = new Set(before.residue);
   const addedResidue = after.residue.filter(r => !beforeSet.has(r));
   if (addedResidue.length > 0) {
-    const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after);
+    let quarantinePath: string | undefined;
+    if (opts.quarantineDir) {
+      try {
+        quarantineAndRestoreMainCheckout(projectRoot, addedResidue, opts.quarantineDir);
+        quarantinePath = opts.quarantineDir;
+      } catch {
+        // best-effort: quarantine failure must not mask the residue error
+      }
+    }
+    const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after, quarantinePath);
     try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
     throw err;
   }
