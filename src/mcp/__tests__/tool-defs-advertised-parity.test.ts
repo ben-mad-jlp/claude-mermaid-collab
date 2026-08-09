@@ -16,6 +16,7 @@ import { DECISION_TOOL_DEFS } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS } from '../system-tools.js';
 import { SESSION_TOOL_DEFS } from '../session-tools.js';
 import { DESKTOP_TOOL_DEFS } from '../desktop-tools.js';
+import { GROUP_REGISTRY } from '../advertised-tools.js';
 
 // Entries in DEFS arrays that are intentionally NOT advertised via ListTools
 const DELIBERATELY_UNADVERTISED: Record<string, Set<string>> = {
@@ -41,12 +42,6 @@ const GROUPS: Array<{ label: string; defs: Array<{ name: string }> }> = [
   { label: 'DESKTOP_TOOL_DEFS', defs: DESKTOP_TOOL_DEFS },
 ];
 
-// Hardcoded expected counts for non-contiguous-slice groups only
-const EXPECTED_COUNTS: Record<string, number> = {
-  EPIC_TOOL_DEFS: 20,
-  SUPERVISOR_TOOL_DEFS: 22,
-};
-
 describe('tool defs vs advertised ListTools parity', () => {
   it('every group DEFS name set matches its advertised subset (modulo exclusions)', async () => {
     const server = await setupMCPServer();
@@ -59,13 +54,6 @@ describe('tool defs vs advertised ListTools parity', () => {
     // Invoke the handler to get advertised tools
     const actual = await handler({ method: 'tools/list', params: {} }, {} as any);
     const advertisedSet = new Set(actual.tools.map((t: any) => t.name));
-
-    // Build a reverse index: tool name → group label(s) it appears in
-    const declaredByGroup = new Map<string, Set<string>>();
-    for (const { label, defs } of GROUPS) {
-      const declared = new Set(defs.map((d) => d.name));
-      declaredByGroup.set(label, declared);
-    }
 
     // Forward direction: every declared DEFS name (minus exclusions) must be advertised
     for (const { label, defs } of GROUPS) {
@@ -80,24 +68,30 @@ describe('tool defs vs advertised ListTools parity', () => {
       }
     }
 
-    // Reverse direction: count of advertised names per group must match declared count
-    // (minus exclusions), and for the 14 directly-spread groups, the count should equal
-    // the DEFS length exactly
-    const directlySpreadGroups = new Set([
-      'MISSION_TOOL_DEFS',
-      'WORKGRAPH_TOOL_DEFS',
-      'SNIPPET_TOOL_DEFS',
-      'EMBED_TOOL_DEFS',
-      'IMAGE_TOOL_DEFS',
-      'DOCUMENT_TOOL_DEFS',
-      'BROWSER_TOOL_DEFS',
-      'SPREADSHEET_TOOL_DEFS',
-      'DIAGRAM_TOOL_DEFS',
-      'DESIGN_TOOL_DEFS',
-      'SYSTEM_TOOL_DEFS',
-      'DESKTOP_TOOL_DEFS',
-    ]);
+    // Assignment-completeness check: every declared name (minus exclusions) must be
+    // resolvable in GROUP_REGISTRY by name. Collect all unassigned names first and
+    // throw one Error naming all of them.
+    const unassignedNames: string[] = [];
+    for (const { label, defs } of GROUPS) {
+      const excluded = DELIBERATELY_UNADVERTISED[label] ?? new Set<string>();
+      const groupLabel = label.replace('_TOOL_DEFS', ''); // Convert label to registry key (e.g., 'SESSION_TOOL_DEFS' → 'SESSION')
 
+      for (const def of defs) {
+        if (excluded.has(def.name)) continue;
+        const registryGroup = GROUP_REGISTRY[groupLabel];
+        if (!registryGroup) {
+          unassignedNames.push(`${def.name} (group "${groupLabel}" not in registry)`);
+        } else if (!registryGroup.find((d) => d.name === def.name)) {
+          unassignedNames.push(`${def.name} (not found in GROUP_REGISTRY["${groupLabel}"])`);
+        }
+      }
+    }
+
+    if (unassignedNames.length > 0) {
+      throw new Error(`Unassigned tools: ${unassignedNames.join(', ')}`);
+    }
+
+    // Reverse direction: count of advertised names per group must match declared count
     for (const { label, defs } of GROUPS) {
       const excluded = DELIBERATELY_UNADVERTISED[label] ?? new Set<string>();
       const declared = new Set(defs.map((d) => d.name));
@@ -113,18 +107,6 @@ describe('tool defs vs advertised ListTools parity', () => {
 
       if (advertisedInGroup !== expectedCount) {
         throw new Error(`Group ${label}: expected ${expectedCount} advertised names, found ${advertisedInGroup}`);
-      }
-
-      // For directly-spread groups, also verify the advertised count equals the
-      // independently-computed expected length (catches names in advertised but not in DEFS)
-      if (directlySpreadGroups.has(label)) {
-        // For EPIC/SUPERVISOR use hardcoded counts (non-contiguous slices); for others use defs.length
-        const expectedForDirectSpread = EXPECTED_COUNTS[label] !== undefined
-          ? EXPECTED_COUNTS[label] - excluded.size
-          : defs.length - excluded.size;
-        if (advertisedInGroup !== expectedForDirectSpread) {
-          throw new Error(`Directly-spread group ${label}: expected ${expectedForDirectSpread} (from defs.length - exclusions), found ${advertisedInGroup}`);
-        }
       }
     }
   });
