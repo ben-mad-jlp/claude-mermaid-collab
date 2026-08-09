@@ -150,6 +150,15 @@ describe('mission-store: control state', () => {
     expect(getMission(project, id)).toBeUndefined();
     expect(listCriteria(project, id)).toHaveLength(0);
   });
+
+  test('deleteMission refuses an id that resolves to no row', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const before = listMissions(project, { withFacts: false, includeArchived: true }).length;
+    expect(() => deleteMission(project, 'deadbeef')).toThrow(/mission not found: deadbeef/);
+    const after = listMissions(project, { withFacts: false, includeArchived: true }).length;
+    expect(after).toBe(before); // unrelated mission row untouched — no partial delete
+  });
 });
 
 describe('mission-store: criteria', () => {
