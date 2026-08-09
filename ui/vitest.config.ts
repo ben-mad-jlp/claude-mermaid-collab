@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { resolveVitestCacheDir } from '../src/services/vitest-cache-dir.ts';
 
 export default defineConfig({
+  cacheDir: resolveVitestCacheDir(path.resolve(__dirname, '..')),
   plugins: [react()],
   server: {
     fs: {
