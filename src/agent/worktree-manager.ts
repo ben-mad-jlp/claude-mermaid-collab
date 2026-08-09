@@ -1428,7 +1428,14 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._ensureEpicInner(epicId, _project, baseRef),
-        { opName: 'ensure_epic_worktree', onViolation: this.onMainCheckoutViolation },
+        {
+          opName: 'ensure_epic_worktree',
+          onViolation: this.onMainCheckoutViolation,
+          quarantineDir: path.join(
+            this.opts.projectRoot, '.collab', 'leak-quarantine',
+            `ensure-epic-${this.epicId8(epicId)}-${(this.opts.now ?? Date.now)()}`,
+          ),
+        },
       ),
     );
   }

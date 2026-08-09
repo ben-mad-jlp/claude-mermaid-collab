@@ -189,7 +189,7 @@ describe('main-checkout wrap audit', () => {
         expect(info, `public method ${method} not found`).toBeDefined();
         const body = info!.body;
 
-        const optsMatch = /\{\s*opName:\s*'([^']*)'\s*,\s*onViolation:\s*this\.onMainCheckoutViolation\s*\}/.exec(
+        const optsMatch = /\{\s*opName:\s*'([^']*)'\s*,\s*onViolation:\s*this\.onMainCheckoutViolation(?:,\s*quarantineDir:\s*[^}]+)?\s*\}/.exec(
           body,
         );
         if (!optsMatch) {

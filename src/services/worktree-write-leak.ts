@@ -57,6 +57,48 @@ export function snapshotMainCheckout(worktreeCwd: string): RootSnapshot {
   return { root, before: root ? rootStatus(root) : new Map() };
 }
 
+export function quarantineAndRestoreMainCheckout(
+  root: string,
+  addedResidue: readonly string[],
+  quarantineDir: string,
+): string[] {
+  const restored: string[] = [];
+  for (const line of addedResidue) {
+    if (line.length < 2) continue;
+    // Parse porcelain line that may have been trimmed by readMainCheckoutHead.
+    // Untrimmed:  " M filename" (stages=space, unstaged=M, space, path)
+    // Trimmed:    "M filename"  (unstaged=M, space, path) — leading space from staged state removed
+    // Extract status and path by finding the first space after the status characters.
+    const spaceIdx = line.indexOf(' ');
+    if (spaceIdx < 0 || spaceIdx >= line.length - 1) continue; // malformed
+
+    const status = line.slice(0, spaceIdx);
+    const relPath = line.slice(spaceIdx + 1);
+
+    const src = join(root, relPath);
+    if (!existsSync(src)) continue;
+    try {
+      const dest = join(quarantineDir, relPath);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, readFileSync(src)); // quarantine FIRST — restore only after the copy exists
+      // Restore tracked modifications with checkout, remove untracked files
+      if (status.startsWith('??') || status === '?') {
+        rmSync(src, { force: true });
+      } else {
+        try {
+          execFileSync('git', ['-C', root, 'checkout', 'HEAD', '--', relPath], { stdio: ['ignore', 'ignore', 'ignore'] });
+        } catch {
+          // git checkout failed for this path, but we still quarantined it; move on
+        }
+      }
+      restored.push(relPath);
+    } catch {
+      // give up on this one path; never break the run
+    }
+  }
+  return restored;
+}
+
 /** Pre-existing leak DEBRIS reclaim (friction 552f95c2): a run killed/dropped mid-implement
  *  never reaches sweepLeakedWrites, and every LATER run's snapshot then grandfathers its
  *  leaked writes as "pre-existing" (the `before`-status skip below) — permanent, silent

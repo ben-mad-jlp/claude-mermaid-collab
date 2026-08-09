@@ -18,7 +18,7 @@
       { "match": "^ui/", "command": "cd ui && bunx vitest --run --retry=2" }
     ],
     "floors": [
-      { "match": "^(src|scripts)/", "command": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json" }
+      { "match": "^(src|scripts)/", "command": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json --lane=fast" }
     ]
   }
 }
