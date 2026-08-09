@@ -26,6 +26,7 @@ import type { Todo } from './todo-store.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
 import { getEpicLandReadiness, type LandFinding } from './epic-land-readiness.js';
 import { epicBranchName } from './epic-branch-status.js';
+import { getTrunkLandIndex, lookupEpicLand } from './trunk-land-index.js';
 
 /**
  * Characterization of whether an epic's descendant work is reachable from the epic branch.
@@ -209,10 +210,10 @@ export async function isEpicLandedInGit(
     const runGit = deps?.runGit ?? defaultRunGit;
     const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
     if (!trunk) return 'indeterminate';
-    const res = await runGit(project, ['log', trunk, `--grep=Collab-Epic: ${epicId}`, '--format=%H', '-1']).catch(() => null);
-    if (res === null) return 'indeterminate';
-    if (res.code !== 0) return 'indeterminate';
-    return res.stdout.trim().length > 0 ? 'landed' : 'not-landed';
+    const index = await getTrunkLandIndex(project, trunk, runGit);
+    if (index === null) return 'indeterminate';
+    const entry = lookupEpicLand(index, epicId);
+    return entry ? 'landed' : 'not-landed';
   } catch {
     return 'indeterminate';
   }
@@ -268,14 +269,11 @@ export async function getEpicLandCommit(
     const runGit = deps?.runGit ?? defaultRunGit;
     const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
     if (!trunk) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    const res = await runGit(project, ['log', trunk, `--grep=Collab-Epic: ${epicId}`, '--format=%H%x09%cI', '-1']).catch(() => null);
-    if (res === null) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    if (res.code !== 0) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    const trimmed = res.stdout.trim();
-    if (trimmed.length === 0) return { status: 'not-landed', sha: null, committedAtIso: null };
-    const parts = trimmed.split('\x09');
-    if (parts.length !== 2 || !parts[0] || !parts[1]) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    return { status: 'landed', sha: parts[0], committedAtIso: parts[1] };
+    const index = await getTrunkLandIndex(project, trunk, runGit);
+    if (index === null) return { status: 'indeterminate', sha: null, committedAtIso: null };
+    const entry = lookupEpicLand(index, epicId);
+    if (!entry) return { status: 'not-landed', sha: null, committedAtIso: null };
+    return { status: 'landed', sha: entry.sha, committedAtIso: entry.committedAtIso };
   } catch {
     return { status: 'indeterminate', sha: null, committedAtIso: null };
   }
