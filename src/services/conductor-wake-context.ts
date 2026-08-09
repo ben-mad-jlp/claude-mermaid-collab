@@ -123,7 +123,7 @@ const CONDUCTOR_PROMPT_STATIC_RESERVE_CHARS = 4_000;
 
 /** MAX characters of each card's questionText reproduced in the block. Long enough to carry the
  *  full first sentence of every card kind the harness mints (the serve-cap text is ~260 chars);
- *  the node can always call `escalation_list` for the untruncated text. */
+ *  the node can always call `escalation_get <id>` for the untruncated text. */
 export const WAKE_CARD_EXCERPT_CHARS = 320;
 
 /** MAX criteria listed in the "actionable right now" work list. The node reads the authoritative
@@ -145,11 +145,12 @@ export function formatWakeAge(ms: number): string {
 }
 
 /** One-line, whitespace-collapsed excerpt of a card's question text, capped and marked when cut. */
-function excerpt(text: string | undefined): string {
+function excerpt(text: string | undefined, id?: string): string {
   const flat = (text ?? '').replace(/\s+/g, ' ').trim();
   if (flat.length === 0) return '(no question text)';
   if (flat.length <= WAKE_CARD_EXCERPT_CHARS) return flat;
-  return `${flat.slice(0, WAKE_CARD_EXCERPT_CHARS)}… [truncated — escalation_list has the full text]`;
+  const idSuffix = id ? ` ${id}` : '';
+  return `${flat.slice(0, WAKE_CARD_EXCERPT_CHARS)}… [truncated — escalation_get${idSuffix} has the full text]`;
 }
 
 /**
@@ -398,7 +399,7 @@ export function buildWakeContextBlock(input: WakeContextInput): string {
         lines.push(
           `      kind: ${c.kind}   age: ${formatWakeAge(now - c.createdAt)}   recurrenceCount: ${c.recurrenceCount ?? 0}   conditionKey: ${c.conditionKey ?? '(none)'}`,
         );
-        lines.push(`      question: ${excerpt(c.questionText)}`);
+        lines.push(`      question: ${excerpt(c.questionText, c.id)}`);
       }
       const cappedOmitted = openCards.length - shownCards.length;
       const totalOmitted = cappedOmitted + cardsDropped;
