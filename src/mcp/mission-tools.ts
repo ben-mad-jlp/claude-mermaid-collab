@@ -28,7 +28,7 @@ import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVer
 import { coerceArrayArg } from './arg-coercion.js';
 import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/criterion-closeability.js';
 import { buildMissionDiagnostic } from '../services/mission-diagnostic.js';
-import { isEpicLandedInGit } from '../services/epic-landedness.js';
+import { isEpicLandedInGit, detectTrunkBranch } from '../services/epic-landedness.js';
 import { deriveConductorPassLiveness } from '../services/conductor-pass-liveness.js';
 import { assertServingEpicModulesReachable } from '../services/module-reachability.js';
 
@@ -181,10 +181,11 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // directly per unique serving epic and feed the result back into the derivation.
       const rawCriteria = listCriteriaWithActions(project, todoId);
       const servingEpicIds = new Set(rawCriteria.flatMap((c) => c.servingEpics.map((e) => e.id)));
+      const trunk = await detectTrunkBranch(project).catch(() => undefined);
       const landTruth = new Map<string, boolean>();
       for (const epicId of servingEpicIds) {
         try {
-          const status = await isEpicLandedInGit(project, epicId);
+          const status = await isEpicLandedInGit(project, epicId, { trunk });
           if (status === 'landed') landTruth.set(epicId, true);
           else if (status === 'not-landed') landTruth.set(epicId, false);
           // 'indeterminate' (or a throw below): leave epicId OUT of the map — falls back to isLanded.
