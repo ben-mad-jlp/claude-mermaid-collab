@@ -16,7 +16,7 @@
  */
 import Database from 'bun:sqlite';
 import { join, isAbsolute, relative } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, updateTodo, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
@@ -348,6 +348,9 @@ function backfillCriterionNicknames(db: Database): void {
 function openDb(project: string): Database {
   const cached = dbCache.get(project);
   if (cached) return cached;
+  if (!existsSync(project)) {
+    throw new Error(`unknown project: ${project}`);
+  }
   const dir = join(project, '.collab');
   mkdirSync(dir, { recursive: true });
   const db = new Database(join(dir, 'mission.db'));
@@ -511,6 +514,15 @@ function resolveMissionTodoId(project: string, todoId: string): string | undefin
   } catch {
     return undefined; // ambiguous prefix — never guess
   }
+}
+
+/**
+ * Test whether a mission exists in the store, returning true if the missionId resolves
+ * to an exact or short-id match in the mission table. Used by mission-diagnostic to guard
+ * against lying null-field diagnostics for nonexistent missions.
+ */
+export function missionExists(project: string, todoId: string): boolean {
+  return resolveMissionTodoId(project, todoId) != null;
 }
 
 /**
