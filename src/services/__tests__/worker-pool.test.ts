@@ -201,9 +201,18 @@ describe('machine-wide total-worker cap wiring (capacity-fixes FIX 2)', () => {
     resetPool();
     _resetLeafSlots();
     process.env.MERMAID_MAX_WORKERS_TOTAL = '3';
+    // Pin the headless-leaf caps too. reserveLeafSlot() is gated by BOTH the
+    // total-worker cap under test and maxInflightGlobal/PerProject, and those
+    // fall back to the machine's ~/.mermaid-collab/config.json when no env var
+    // is set — so an operator throttling the live daemon (globalMax=1 via the
+    // UI) would otherwise red these assertions on their machine only.
+    process.env.MERMAID_MAX_INFLIGHT_GLOBAL = '4';
+    process.env.MERMAID_MAX_INFLIGHT_PROJECT = '2';
   });
   afterEach(() => {
     delete process.env.MERMAID_MAX_WORKERS_TOTAL;
+    delete process.env.MERMAID_MAX_INFLIGHT_GLOBAL;
+    delete process.env.MERMAID_MAX_INFLIGHT_PROJECT;
     resetPool();
     _resetLeafSlots();
   });
