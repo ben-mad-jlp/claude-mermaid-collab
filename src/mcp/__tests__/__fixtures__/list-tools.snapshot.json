@@ -6048,6 +6048,41 @@
       }
     },
     {
+      "name": "mutation_probe",
+      "description": "Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (filesystem repo root where the work-graph lives)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Repo-relative path of the source file to probe."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Exported symbol name to neuter/throw-probe."
+          },
+          "testCommand": {
+            "type": "string",
+            "description": "Test invocation to run per arm (e.g., \"bun test src/example.test.ts\")."
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Optional: accepted for forward-compat (not passed to runMutationProbe)."
+          }
+        },
+        "required": [
+          "project",
+          "file",
+          "symbol",
+          "testCommand"
+        ]
+      }
+    },
+    {
       "name": "runtime_config",
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {
