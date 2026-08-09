@@ -1,7 +1,8 @@
 // Read-only aggregate view over a mission: status, rollup, criteria (with git-verified
 // serving-epic landedness), plus stubbed fields owned by sibling leaves. Every source read
 // is independently try/catch'd so a throwing reader degrades that field, not the whole call.
-import { getMission, getMissionRollup, listCriteriaWithActions } from './mission-store.js';
+import { existsSync } from 'node:fs';
+import { getMission, getMissionRollup, listCriteriaWithActions, missionExists } from './mission-store.js';
 import type { MissionStatus, MissionRollup, CriterionAction } from './mission-store.js';
 import { isEpicLandedInGit } from './epic-landedness.js';
 import type { GitLandStatus } from './epic-landedness.js';
@@ -101,6 +102,13 @@ export async function buildMissionDiagnostic(
     epicHeadSha?: (project: string, epicId: string) => Promise<string | null>;
   },
 ): Promise<MissionDiagnostic> {
+  if (!existsSync(project)) {
+    throw new Error(`mission_diagnostic: unknown project: ${project}`);
+  }
+  if (!missionExists(project, missionId)) {
+    throw new Error(`mission_diagnostic: mission not found: ${missionId} (project ${project})`);
+  }
+
   const probe = deps?.isEpicLandedInGit ?? isEpicLandedInGit;
   const now = deps?.now ?? Date.now;
   const epicHeadSha =

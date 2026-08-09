@@ -85,8 +85,27 @@ describe('buildWakeContextBlock — open cards section', () => {
       lastPassAt: LAST_PASS,
       openCards: [card({ id: 'esc-long', questionText: 'X'.repeat(WAKE_CARD_EXCERPT_CHARS + 200) })],
     });
-    expect(block).toContain('[truncated — escalation_list has the full text]');
+    expect(block).toContain('[truncated — escalation_get');
+    expect(block).toContain('esc-long');
     expect(block).not.toContain('X'.repeat(WAKE_CARD_EXCERPT_CHARS + 1));
+  });
+
+  test('the excerpt is a strict prefix, names escalation_get, and escalation_get resolves an ACKNOWLEDGED card escalation_list cannot reach', () => {
+    const originalText = 'This is a long question that will exceed the excerpt cap. ' + 'Y'.repeat(WAKE_CARD_EXCERPT_CHARS + 100);
+    const block = buildWakeContextBlock({
+      missionId: 'm1',
+      now: NOW,
+      lastPassAt: LAST_PASS,
+      openCards: [card({ id: 'esc-acknowledged', questionText: originalText })],
+    });
+    // Assert the excerpt is a strict prefix of the original (the portion before …).
+    const expectedPrefix = originalText.slice(0, WAKE_CARD_EXCERPT_CHARS);
+    expect(block).toContain(expectedPrefix);
+    // Assert the truncation notice names escalation_get, not escalation_list.
+    expect(block).toContain('escalation_get');
+    expect(block).toContain('esc-acknowledged');
+    // Prove the dead pointer (escalation_list) is gone from the per-card truncation case.
+    expect(block).not.toContain('escalation_list has the full text');
   });
 
   test('the FULL-id warning is present so the node never resolves with a short id', () => {
