@@ -17,6 +17,7 @@ import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
+import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
@@ -1035,6 +1036,13 @@ export async function resolveBaseGreen(io: {
         };
       }
     }
+  }
+  if (result.status === 'fail' && isDepOptimizerCorruption(result.output)) {
+    result = {
+      ...result,
+      status: 'error',
+      reasons: ['dep-optimizer cache corruption (stale vitest/vite deps cache), not a base defect', ...result.reasons],
+    };
   }
   if (isCacheableBaseGateStatus(result.status)) {
     // Stamp checkedAt from the SAME clock the TTL is later measured against
