@@ -550,7 +550,8 @@ export class WorktreeManager {
     // the [COORD] worktree-isolation hardening. A `.venv` symlink is the same
     // hazard. This is independent of the `node_modules/` vs `node_modules`
     // (trailing-slash) ignore semantics.
-    await this.excludeSharedDeps(worktreePath, linkedRels).catch(() => {});
+    const excludeRels = [...linkedRels, '.vitest-cache'];
+    await this.excludeSharedDeps(worktreePath, excludeRels).catch(() => {});
   }
 
   /** Append anchored `/<rel>/<dep>` patterns to the worktree's git exclude file
