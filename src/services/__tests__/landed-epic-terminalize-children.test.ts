@@ -40,7 +40,7 @@ function probeFor(epicId: string): GitProbe {
 }
 
 describe('terminalizeLandedEpics drop-cascade', () => {
-  test('cascade drops non-terminal children (including rejected) and leaves no invariant violations', async () => {
+  test('survivor unclaimed non-terminal children block terminalization (no drop occurs)', async () => {
     const fakeCommitDate = '2026-08-03T12:34:56Z';
     const landCommit = async (proj: string, id: string, deps?: any): Promise<EpicLandCommit> => ({
       status: 'landed',
@@ -52,7 +52,7 @@ describe('terminalizeLandedEpics drop-cascade', () => {
     const epic = await createTodo(project, {
       allowOrphan: true,
       ownerSession: 's1',
-      title: '[EPIC] land with children',
+      title: '[EPIC] land with survivor children',
       kind: 'epic',
       status: 'todo',
     });
@@ -66,7 +66,7 @@ describe('terminalizeLandedEpics drop-cascade', () => {
       status: 'todo',
     });
 
-    // Child A: planned leaf left untouched
+    // Child A: planned unclaimed leaf (survivor)
     const childA = await createTodo(project, {
       allowOrphan: true,
       ownerSession: 's1',
@@ -76,7 +76,7 @@ describe('terminalizeLandedEpics drop-cascade', () => {
       status: 'planned',
     });
 
-    // Child B: leaf with rejection status
+    // Child B: planned with rejection status (survivor, not retirable until rejected-ness is cleared)
     const childB = await createTodo(project, {
       allowOrphan: true,
       ownerSession: 's1',
@@ -89,16 +89,105 @@ describe('terminalizeLandedEpics drop-cascade', () => {
 
     const probe = probeFor(epic.id);
 
-    // Run the termalization and cascade
+    // Run the termalization — should SKIP because survivors exist
     const result = await terminalizeLandedEpics(project, {
       probe,
       landCommit: landCommit as any,
     });
 
-    // Verify the epic was terminalized
+    // Verify the epic was NOT terminalized
+    expect(result.terminalized).not.toContain(epic.id);
+    expect(result.skipped).toBeGreaterThanOrEqual(1);
+    expect(result.survivorChildren).toContain(childA.id);
+    expect(result.survivorChildren).toContain(childB.id);
+
+    // Verify NO children were dropped
+    expect(result.droppedChildren).not.toContain(childA.id);
+    expect(result.droppedChildren).not.toContain(childB.id);
+
+    // Verify both children are still in their original state
+    const childAReloaded = getTodo(project, childA.id)!;
+    const childBReloaded = getTodo(project, childB.id)!;
+    expect(childAReloaded.status).toBe('planned');
+    expect(childBReloaded.status).toBe('planned');
+    expect(childBReloaded.acceptanceStatus).toBe('rejected');
+
+    // Verify epic is NOT done and has NO landedAt
+    const epicReloaded = getTodo(project, epic.id)!;
+    expect(epicReloaded.status).not.toBe('done');
+    expect(epicReloaded.landedAt).toBeNull();
+
+    // Verify no invariant violations
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const violations = findViolations(allTodos);
+    const liveChildViolations = violations.filter(
+      (v) => v.kind === 'live-child-under-terminal-epic' && (v.todoId === childA.id || v.todoId === childB.id),
+    );
+    expect(liveChildViolations).toHaveLength(0);
+
+    // Verify no landed-at-divergence violations
+    const divergence = findLandedAtDivergence(allTodos);
+    const epicDivergence = divergence.filter((v) => v.todoId === epic.id);
+    expect(epicDivergence).toHaveLength(0);
+  });
+
+  test('all-terminal children allow epic to terminalize (no survivors block)', async () => {
+    const fakeCommitDate = '2026-08-03T12:34:56Z';
+    const landCommit = async (proj: string, id: string, deps?: any): Promise<EpicLandCommit> => ({
+      status: 'landed',
+      sha: 'abc123',
+      committedAtIso: fakeCommitDate,
+    });
+
+    // Create epic with a [LAND] leaf to prevent auto-completion
+    const epic = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[EPIC] land with all-terminal children',
+      kind: 'epic',
+      status: 'todo',
+    });
+
+    const land = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[LAND] land me → master',
+      parentId: epic.id,
+      kind: 'land',
+      status: 'todo',
+    });
+
+    // Child A: terminal leaf (not a survivor since it's done)
+    const childA = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[LEAF] child A done',
+      parentId: epic.id,
+      kind: 'leaf',
+      status: 'done',
+    });
+
+    // Child B: another terminal leaf
+    const childB = await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: '[LEAF] child B done',
+      parentId: epic.id,
+      kind: 'leaf',
+      status: 'done',
+    });
+
+    const probe = probeFor(epic.id);
+
+    // Run the termalization
+    const result = await terminalizeLandedEpics(project, {
+      probe,
+      landCommit: landCommit as any,
+    });
+
+    // Verify the epic WAS terminalized (no survivors since all children are terminal)
     expect(result.terminalized).toContain(epic.id);
-    expect(result.droppedChildren).toContain(childA.id);
-    expect(result.droppedChildren).toContain(childB.id);
+    expect(result.survivorChildren).toHaveLength(0);
 
     // Verify epic is done, accepted, and has landedAt set
     const epicReloaded = getTodo(project, epic.id)!;
@@ -106,17 +195,11 @@ describe('terminalizeLandedEpics drop-cascade', () => {
     expect(epicReloaded.acceptanceStatus).toBe('accepted');
     expect(epicReloaded.landedAt).toBe(fakeCommitDate);
 
-    // Verify both children are dropped
-    const childAReloaded = getTodo(project, childA.id)!;
-    const childBReloaded = getTodo(project, childB.id)!;
-    expect(childAReloaded.status).toBe('dropped');
-    expect(childBReloaded.status).toBe('dropped');
-
-    // Verify no invariant violations: no live-child-under-terminal-epic
+    // Verify no invariant violations
     const allTodos = listTodos(project, { includeCompleted: true });
     const violations = findViolations(allTodos);
     const liveChildViolations = violations.filter(
-      (v) => v.kind === 'live-child-under-terminal-epic' && (v.todoId === childA.id || v.todoId === childB.id),
+      (v) => v.kind === 'live-child-under-terminal-epic',
     );
     expect(liveChildViolations).toHaveLength(0);
 
