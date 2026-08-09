@@ -330,14 +330,22 @@ export class WorktreeManager {
     const pending = this.pendingEnsures.get(sessionId);
     if (pending) return pending;
     // Serialise the worktree add/remove/prune behind the per-project lock (6bc2dc36).
-    const p = this.withWorktreeLock(() =>
-      withMainCheckoutInvariant(
+    const p = this.withWorktreeLock(() => {
+      const normalizeRel = (p: string): string => p.split(path.sep).join('/');
+      return withMainCheckoutInvariant(
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._ensureInner(sessionId, opts),
-        { opName: 'ensure_session_worktree', onViolation: this.onMainCheckoutViolation },
-      ),
-    ).finally(() => this.pendingEnsures.delete(sessionId));
+        {
+          opName: 'ensure_session_worktree',
+          onViolation: this.onMainCheckoutViolation,
+          allowedResidue: [
+            normalizeRel(path.relative(this.opts.projectRoot, path.join(this.opts.baseDir, this.slug(sessionId)))),
+            normalizeRel(path.relative(this.opts.projectRoot, this.recordPath(sessionId))),
+          ],
+        },
+      );
+    }).finally(() => this.pendingEnsures.delete(sessionId));
     this.pendingEnsures.set(sessionId, p);
     return p;
   }
@@ -1423,8 +1431,9 @@ export class WorktreeManager {
     // Serialise behind the per-project worktree lock (6bc2dc36). Internal callers that
     // already hold the lock (forwardIntegrateEpic, commitAndMergeToEpic) call
     // `_ensureEpicInner` directly to avoid self-deadlock.
-    return this.withWorktreeLock(() =>
-      withMainCheckoutInvariant(
+    return this.withWorktreeLock(() => {
+      const normalizeRel = (p: string): string => p.split(path.sep).join('/');
+      return withMainCheckoutInvariant(
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._ensureEpicInner(epicId, _project, baseRef),
@@ -1435,9 +1444,12 @@ export class WorktreeManager {
             this.opts.projectRoot, '.collab', 'leak-quarantine',
             `ensure-epic-${this.epicId8(epicId)}-${(this.opts.now ?? Date.now)()}`,
           ),
+          allowedResidue: [
+            normalizeRel(path.relative(this.opts.projectRoot, this.epicWorktreePath(epicId))),
+          ],
         },
-      ),
-    );
+      );
+    });
   }
 
   private async _ensureEpicInner(
