@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { WorktreeManager } from '../worktree-manager.ts';
+import { resolveVitestCacheDir } from '../../services/vitest-cache-dir.ts';
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -152,6 +153,86 @@ describe('WorktreeManager — epic worktree node_modules symlink provisioning', 
       expect(false).toBe(true); // should not reach here
     } catch (err: any) {
       expect(err.code).toBe('ENOENT');
+    }
+  });
+
+  it('resolveVitestCacheDir diverges per worktree and stays outside the shared node_modules symlink', async () => {
+    // Fixture: main repo with root package.json + ui/package.json + ui/node_modules
+    await fs.writeFile(path.join(repo, '.gitignore'), 'node_modules/\n');
+    await fs.writeFile(path.join(repo, 'package.json'), '{"name":"root"}\n');
+    await fs.mkdir(path.join(repo, 'ui'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'package.json'), '{"name":"ui"}\n');
+    await fs.mkdir(path.join(repo, 'ui', 'node_modules', 'jsdom'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'node_modules', 'jsdom', 'index.js'), 'module.exports=1\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'packages']);
+
+    // Create two epics
+    const epicA = await mgr.ensureEpic('epic-a');
+    const epicB = await mgr.ensureEpic('epic-b');
+    expect(epicA).not.toBeNull();
+    expect(epicB).not.toBeNull();
+
+    // (a) Both epics have different cache dirs
+    const cacheDirA = resolveVitestCacheDir(epicA!.path);
+    const cacheDirB = resolveVitestCacheDir(epicB!.path);
+    expect(cacheDirA).not.toBe(cacheDirB);
+
+    // (b) Neither cache dir resolves through the shared node_modules symlink
+    const sharedNodeModulesPath = path.join(repo, 'ui', 'node_modules');
+    const sharedNodeModulesRealpath = await fs.realpath(sharedNodeModulesPath);
+
+    const cacheDirARealpath = await fs.realpath(cacheDirA).catch(() => '');
+    const cacheDirBRealpath = await fs.realpath(cacheDirB).catch(() => '');
+
+    // Neither should be under the shared node_modules
+    expect(!cacheDirARealpath.startsWith(sharedNodeModulesRealpath)).toBe(true);
+    expect(!cacheDirBRealpath.startsWith(sharedNodeModulesRealpath)).toBe(true);
+
+    // (c) Both epics still have correctly set up node_modules symlinks
+    const uiNMa = path.join(epicA!.path, 'ui', 'node_modules');
+    const uiNMb = path.join(epicB!.path, 'ui', 'node_modules');
+
+    const statA = await fs.lstat(uiNMa);
+    const statB = await fs.lstat(uiNMb);
+    expect(statA.isSymbolicLink()).toBe(true);
+    expect(statB.isSymbolicLink()).toBe(true);
+
+    const actualTargetA = await fs.realpath(uiNMa);
+    const actualTargetB = await fs.realpath(uiNMb);
+    const expectedTarget = await fs.realpath(sharedNodeModulesPath);
+    expect(actualTargetA).toBe(expectedTarget);
+    expect(actualTargetB).toBe(expectedTarget);
+  });
+
+  it('each epic worktree\'s .git/info/exclude contains /.vitest-cache', async () => {
+    // Fixture: main repo with root package.json + ui/package.json + ui/node_modules
+    await fs.writeFile(path.join(repo, '.gitignore'), 'node_modules/\n');
+    await fs.writeFile(path.join(repo, 'package.json'), '{"name":"root"}\n');
+    await fs.mkdir(path.join(repo, 'ui'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'package.json'), '{"name":"ui"}\n');
+    await fs.mkdir(path.join(repo, 'ui', 'node_modules', 'jsdom'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'node_modules', 'jsdom', 'index.js'), 'module.exports=1\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'packages']);
+
+    // Create two epics
+    const epicA = await mgr.ensureEpic('epic-cache-a');
+    const epicB = await mgr.ensureEpic('epic-cache-b');
+    expect(epicA).not.toBeNull();
+    expect(epicB).not.toBeNull();
+
+    // For each epic, resolve the correct git exclude path (using git rev-parse,
+    // since a linked worktree's .git is a file, not a directory) and verify it contains /.vitest-cache
+    for (const epic of [epicA, epicB]) {
+      const res = await runGit(epic!.path, ['rev-parse', '--git-path', 'info/exclude']);
+      if (res.code !== 0 || !res.stdout.trim()) {
+        expect(false).toBe(true); // git rev-parse should succeed
+      }
+      const gitPath = res.stdout.trim();
+      const excludePath = path.isAbsolute(gitPath) ? gitPath : path.join(epic!.path, gitPath);
+      const excludeContent = await fs.readFile(excludePath, 'utf8');
+      expect(excludeContent.includes('/.vitest-cache')).toBe(true);
     }
   });
 });
