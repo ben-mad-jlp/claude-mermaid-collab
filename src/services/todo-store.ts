@@ -1,7 +1,7 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick, fireConductorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
-import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel } from './todo-kind';
+import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel, isLand } from './todo-kind';
 import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
@@ -3338,6 +3338,23 @@ export async function collapseSplit(project: string, leafId: string): Promise<Co
   return { leafId, droppedChildIds, alreadyCollapsed: droppedChildIds.length === 0 };
 }
 
+export function partitionLandedLeftovers(
+  children: Todo[],
+  leftover: Todo[],
+): { survivors: Todo[]; retirable: Todo[] } {
+  const survivors = leftover.filter((c) => {
+    if (c.claim != null) return false; // claim/claimedBy are kept in lockstep (todo-store.ts:51-54) — checking `claim` alone is equivalent to also checking `claimedBy`
+    if (c.status === 'done' || c.status === 'dropped') return false;
+    if (isLand(c)) return false;
+    const supersededBy = children.find((s) => s.supersedes === c.id && s.status !== 'dropped');
+    if (supersededBy != null) return false;
+    return true;
+  });
+  const survivorIds = new Set(survivors.map((c) => c.id));
+  const retirable = leftover.filter((c) => !survivorIds.has(c.id));
+  return { survivors, retirable };
+}
+
 export function sweepEpicRollups(project: string, opts: { now?: number; motionlessAfterMs?: number; landedGraceMs?: number } = {}): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
@@ -3470,16 +3487,7 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
               // All leftovers are moot (backlog/planned/todo/ready/blocked) — partition them.
               // survivors: unclaimed, non-terminal, not superseded by a live sibling
               // retirable: everything else (terminal or superseded by live sibling)
-              const survivors = leftover.filter((c) => {
-                // Must be unclaimed
-                if (c.claim != null) return false;
-                // Must be non-terminal (not dropped, not done)
-                if (c.status === 'done' || c.status === 'dropped') return false;
-                // Must not be superseded by a live (non-dropped) sibling
-                const supersededBy = children.find((s) => s.supersedes === c.id && s.status !== 'dropped');
-                if (supersededBy != null) return false;
-                return true;
-              });
+              const { survivors, retirable } = partitionLandedLeftovers(children, leftover);
 
               if (survivors.length > 0) {
                 // Unclaimed non-terminal leftovers still exist — flag and don't drop.
@@ -3493,7 +3501,6 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
                 }
               } else {
                 // All leftovers are retirable (terminal or superseded) — drop and close.
-                const retirable = leftover;
                 const ts = nowIso();
                 for (const leftoverChild of retirable) {
                   const fullChildId = resolveFullId(project, leftoverChild.id);
