@@ -7,7 +7,7 @@
 import { listTodos, completeTodo, updateTodo, type Todo } from './todo-store.js';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate.js';
 import { listMissions, promoteQueuedMissions } from './mission-store.js';
-import { isEpic } from './todo-kind.js';
+import { isEpic, isLand } from './todo-kind.js';
 import { isBucketEpic } from './bucket-registry.js';
 import { buildEpicBranchStatus, makeGitProbe, epicBranchName, effectiveNewCount, type BranchLister, type GitProbe } from './epic-branch-status.js';
 import { rescueOrphanedLeafCommitsForBranch } from './rescue-ref.js';
@@ -110,6 +110,7 @@ export interface TerminalizeLandedEpicsResult {
   terminalized: string[];
   skipped: number;
   droppedChildren: string[];
+  survivorChildren: string[];
 }
 
 export async function terminalizeLandedEpics(
@@ -124,6 +125,7 @@ export async function terminalizeLandedEpics(
   const todos = listTodos(project, { includeCompleted: true });
   const terminalized: string[] = [];
   const droppedChildren: string[] = [];
+  const survivorChildren: string[] = [];
   let skipped = 0;
 
   for (const epic of todos) {
@@ -143,9 +145,24 @@ export async function terminalizeLandedEpics(
     });
     if (hasInflightChild) { skipped++; continue; }
 
-    const staleChildren = childLeaves.filter((c) => c.status !== 'done');
+    // Partition children into survivors (unclaimed, non-terminal, not superseded) and retirable
+    const survivors = childLeaves.filter((c) => {
+      if (c.claim != null || c.claimedBy != null) return false;
+      if (c.status === 'done' || c.status === 'dropped') return false;
+      if (isLand(c)) return false; // legacy [LAND] rows: never minted, never block, always retirable
+      const supersededBy = childLeaves.find((s) => s.supersedes === c.id && s.status !== 'dropped');
+      if (supersededBy != null) return false;
+      return true;
+    });
+    if (survivors.length > 0) {
+      survivorChildren.push(...survivors.map((s) => s.id));
+      skipped++;
+      continue;
+    }
+
+    const retirable = childLeaves.filter((c) => c.status !== 'done');
     const droppedThisEpic: string[] = [];
-    for (const child of staleChildren) {
+    for (const child of retirable) {
       await updateTodo(project, child.id, { status: 'dropped' });
       droppedThisEpic.push(child.id);
     }
@@ -158,7 +175,7 @@ export async function terminalizeLandedEpics(
     terminalized.push(epic.id);
   }
 
-  return { terminalized, skipped, droppedChildren };
+  return { terminalized, skipped, droppedChildren, survivorChildren };
 }
 
 /** A git delete/tip-read runner — injected so branch deletion is hermetically
@@ -472,7 +489,7 @@ export async function runLandedEpicSweep(
 ): Promise<RunLandedEpicSweepResult> {
   const now = opts.now ?? Date.now();
   if (!opts.force && !shouldRunLandedEpicSweep(project, now)) {
-    return { terminalize: { terminalized: [], skipped: 0, droppedChildren: [] }, reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
+    return { terminalize: { terminalized: [], skipped: 0, droppedChildren: [], survivorChildren: [] }, reconcile: { reconciled: [], skipped: 0 }, gc: { deleted: [], flagged: [], skipped: 0 }, reap: { reaped: [], skipped: 0 }, promoted: [] };
   }
   const doYield = opts.yieldFn ?? yieldToLoop;
 
