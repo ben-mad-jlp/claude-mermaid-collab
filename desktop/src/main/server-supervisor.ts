@@ -86,6 +86,8 @@ export interface SupervisorOpts {
   healthWatchdogThresholdMs?: number;
   healthWatchdogGraceMs?: number;
   healthWatchdogTimeoutMs?: number;
+  /** Grace period between SIGTERM and SIGKILL when the watchdog kills a wedged sidecar. */
+  watchdogTermGraceMs?: number;
   /** Disable the periodic watchdog interval (tests drive checkHealthOnce directly). */
   disableHealthWatchdog?: boolean;
   /** Durable sibling log for exit/watchdog-kill lines. */
@@ -149,6 +151,10 @@ const HEALTH_WATCHDOG_POLL_MS = 15_000;
 const HEALTH_WATCHDOG_THRESHOLD_MS = 45_000;
 const HEALTH_WATCHDOG_GRACE_MS = 90_000;
 const HEALTH_WATCHDOG_TIMEOUT_MS = 5_000;
+// Grace the wedged sidecar gets to exit on SIGTERM before the watchdog escalates to
+// SIGKILL. Long enough for the graceful-shutdown path to close its databases and let
+// in-flight work terminalise; short enough that recovery is still prompt.
+const WATCHDOG_TERM_GRACE_MS = 5_000;
 
 /**
  * Common user bin dirs that a GUI-launched PATH typically omits. Spans macOS
@@ -788,14 +794,37 @@ export class ServerSupervisor {
         })
       );
       const pid = this.child?.pid;
-      try { this.child?.kill('SIGKILL'); } catch { /* ignore */ }
-      if (process.platform === 'win32' && pid != null) {
-        try { this.spawnImpl('taskkill', ['/pid', String(pid), '/T', '/F'], {}); } catch { /* ignore */ }
+      // Ask before shooting. A wedged sidecar is usually mid-work (a leaf executing, a gate
+      // running, a land merging) and SIGKILL abandons all of it: 477 watchdog kills between
+      // 2026-07-23 and 2026-08-10 each orphaned in-flight leaves as `in_progress` rows with
+      // no executor behind them, unrecoverable without a manual reset. SIGTERM lets the
+      // sidecar's existing graceful-shutdown path run; SIGKILL still follows if it does not
+      // comply within the grace window, so a genuinely wedged process is never left alive.
+      const child = this.child;
+      const graceMs = this.opts.watchdogTermGraceMs ?? WATCHDOG_TERM_GRACE_MS;
+      // Count the respawn BEFORE signalling. The exit handler writes the forensics line, and
+      // with SIGTERM the child can exit while we are still inside this function — so an
+      // increment after the signal would stamp every watchdog kill respawnCount=0 and make
+      // the crash-loop record useless. (Under the old bare-SIGKILL path the exit always
+      // landed a tick later, which hid the ordering dependency.)
+      this.respawnCount++;
+      let exitedOnTerm = false;
+      if (child) {
+        const exited = new Promise<void>((resolve) => {
+          child.once('exit', () => { exitedOnTerm = true; resolve(); });
+        });
+        try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        await Promise.race([exited, new Promise<void>((r) => setTimeout(r, graceMs))]);
+      }
+      if (!exitedOnTerm) {
+        try { child?.kill('SIGKILL'); } catch { /* ignore */ }
+        if (process.platform === 'win32' && pid != null) {
+          try { this.spawnImpl('taskkill', ['/pid', String(pid), '/T', '/F'], {}); } catch { /* ignore */ }
+        }
       }
       this.child = null;
       this.unhealthyForMs = 0;
       this.consecutiveUnhealthy = 0;
-      this.respawnCount++;
       const now = this.clock();
       const fired = this.tripwire.recordRespawn(now);
       if (fired) {
