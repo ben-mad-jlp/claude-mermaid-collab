@@ -1,3 +1,6 @@
+/**
+ * @nested-test-runner: drives handleWorkgraphTool against a project.json with gate command `bun test {file}`
+ */
 // Tests for file_finding verb: zero-row refusal gate, typed round-trip, explore allowlist.
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
