@@ -2,7 +2,6 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'bun:sqlite';
 
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'mission-planner-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
@@ -10,7 +9,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject, ServeIntegrityError } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, _resetMissionDbCache } from '../../../services/mission-store';
-import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos, type Todo } from '../../../services/todo-store';
+import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos, openDb as openTodoDb, type Todo } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
 import type { NodeSpec } from '../../../agent/node-invoker.js';
 
@@ -361,12 +360,11 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
     expect(invoked).toBe(0);
 
     // Backdate epic 1's createdAt past CHILDLESS_SERVE_GRACE_MS (raw SQL, same technique as
-    // src/services/__tests__/mission-store.test.ts:645-648), then re-open the project db.
-    const db = new Database(join(project, '.collab', 'todos.db'));
+    // src/services/__tests__/mission-store.test.ts). Written through the store's own handle on
+    // the consolidated collab.db — todos has no standalone file to open any more, so no cache
+    // bust is needed either: this IS the handle the store reads back through.
     const past = new Date(Date.now() - CHILDLESS_SERVE_GRACE_MS - 60_000).toISOString();
-    db.exec(`UPDATE todos SET createdAt = '${past}' WHERE id = '${r1.epicId}'`);
-    db.close();
-    closeTodos(project);
+    openTodoDb(project).exec(`UPDATE todos SET createdAt = '${past}' WHERE id = '${r1.epicId}'`);
 
     // Past the grace window: proceeds — a second, distinct epic is created.
     const r2 = await planMissionCriterion(project, { session: 's1', missionId, criterionIds: [criterionId] }, { invoke: mockInvoke(blockedSpec) });

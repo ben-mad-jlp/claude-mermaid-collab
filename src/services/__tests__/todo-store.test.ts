@@ -8,7 +8,7 @@ import {
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, refundBaseMovedRetryIfUnderCap, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, TerminalParentApproveError, resolveShortId, promoteBucketItemToEpic,
-  stampEpicLandedAt, isHollowLand,
+  stampEpicLandedAt, isHollowLand, openDb,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { trackingProjectRoot } from '../project-registry';
@@ -17,9 +17,17 @@ import { isClaimable, claimReason } from '../claimability';
 import { recordLeafResume, getLeafResume, _closeLedgerDb } from '../worker-ledger';
 import { recordGateEval, listGateEvals, _closeProject as _closeReplayCorpusProject } from '../replay-corpus-store';
 import type { Todo } from '../todo-store';
-import Database from 'bun:sqlite';
 
 let project: string;
+
+// Raw-SQL fixtures below deliberately reach BELOW the store API to write shapes it refuses to
+// write (orphan claims, NULL kind, archivedAt). They must still take their handle FROM the store:
+// there is no `.collab/todos.db` any more — a project's work-graph lives in the consolidated
+// `.collab/collab.db` that openDb owns, creates, migrates and holds the foreign-key pragma on.
+// Opening the legacy path by hand gets an empty database ('no such table: todos').
+//
+// The handle is CACHED and owned by the store, so these fixtures never close it themselves;
+// `_closeProject` is the one call that closes and evicts it.
 
 /** De-conflate: readiness/hold are DERIVED, not stored. A released todo is stored
  *  'planned' but derives claimable; a parked one carries heldAt. These helpers let
@@ -38,11 +46,9 @@ function derivedReason(t: Todo): string {
  * the raw row directly, then _closeProject so the next store call re-opens fresh.
  */
 function strandOrphan(proj: string, id: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(
+  openDb(proj).exec(
     `UPDATE todos SET status='in_progress', claim=NULL, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL WHERE id='${id}'`,
   );
-  db.close();
   _closeProject(proj);
 }
 
@@ -50,18 +56,14 @@ function strandOrphan(proj: string, id: string) {
  *  is written while the row is still `in_progress` (completeTodo's claim-clear has
  *  not landed yet). A reaper that keys on status alone would reclaim it. */
 function strandRejected(proj: string, id: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(`UPDATE todos SET status='in_progress', acceptanceStatus='rejected' WHERE id='${id}'`);
-  db.close();
+  openDb(proj).exec(`UPDATE todos SET status='in_progress', acceptanceStatus='rejected' WHERE id='${id}'`);
   _closeProject(proj);
 }
 
 /** Symmetric (75f7e304): strand an ACCEPTED leaf with a non-terminal status.
  *  A prior reset/reaper left status off 'done' while acceptanceStatus='accepted'. */
 function strandAccepted(proj: string, id: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(`UPDATE todos SET status='in_progress', acceptanceStatus='accepted' WHERE id='${id}'`);
-  db.close();
+  openDb(proj).exec(`UPDATE todos SET status='in_progress', acceptanceStatus='accepted' WHERE id='${id}'`);
   _closeProject(proj);
 }
 
@@ -148,8 +150,7 @@ describe('todo-store', () => {
 
   test('resolveShortId / getTodo throw on an ambiguous short id prefix', async () => {
     await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'seed' });
-    _closeProject(project);
-    const db = new Database(join(project, '.collab', 'todos.db'));
+    const db = openDb(project);
     const now = new Date().toISOString();
     const sharedPrefix = 'abcd1234';
     for (const suffix of ['-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '-bbbb-bbbb-bbbb-bbbbbbbbbbbb']) {
@@ -158,7 +159,6 @@ describe('todo-store', () => {
          VALUES ('${sharedPrefix}${suffix}', 'dup', 's1', 'todo', 10, '${now}', '${now}')`,
       );
     }
-    db.close();
     _closeProject(project);
     expect(() => resolveShortId(project, sharedPrefix)).toThrow(/ambiguous/);
     expect(() => getTodo(project, sharedPrefix)).toThrow(/ambiguous/);
@@ -553,7 +553,11 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('reclaimOrphan (now merged with reclaimClaim): reclaims an in_progress todo with NO claimToken', async () => {
-    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready', parentId: 'epic-1' });
+    // The parent has to be a REAL row: todos.parentId is an enforced foreign key, so a made-up
+    // 'epic-1' string now fails the insert. (It used to create a dangling edge silently — the
+    // "orphan" this test is about is a missing CLAIM, not a missing parent.)
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'holder epic', kind: 'epic' });
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready', parentId: epic.id });
     // Simulate an orphan: in_progress but claimedBy/claimToken NULL (e.g. wiped by a
     // daemon restart). updateTodo(status:'in_progress') now throws, so strand the row
     // via a raw DB write, then re-open the store so the cached handle re-hydrates.
@@ -621,9 +625,7 @@ describe('todo-store new fields and functions', () => {
     // Control: a reset accepted with status 'planned' is also not reclaimable/claimable
     const v = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'accepted-planned', status: 'ready' });
     await completeTodo(project, v.id, 'accepted');
-    const db = new Database(join(project, '.collab', 'todos.db'));
-    db.exec(`UPDATE todos SET status='planned', acceptanceStatus='accepted' WHERE id='${v.id}'`);
-    db.close();
+    openDb(project).exec(`UPDATE todos SET status='planned', acceptanceStatus='accepted' WHERE id='${v.id}'`);
     _closeProject(project);
     expect(await reclaimOrphan(project, v.id)).toBeNull();
     expect(await claimTodo(project, v.id, 'agent-1', 60000)).toBeNull();
@@ -1870,14 +1872,13 @@ describe('container drop → cascade-drop undone descendants', () => {
       const existing = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'setup' });
 
       // Now insert a row directly with NULL for the new columns (simulating pre-migration data).
-      const db = new Database(join(project, '.collab', 'todos.db'));
+      const db = openDb(project);
       const id = crypto.randomUUID();
       const ts = new Date().toISOString();
       db.prepare(
         `INSERT INTO todos (id, ownerSession, title, status, ord, createdAt, updatedAt, dependsOn, inheritedBlueprintFrom, inheritedFiles)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
       ).run(id, 's', 'old row', 'planned', 20, ts, ts, '[]');
-      db.close();
       _closeProject(project);
 
       // Fetch and check defaults.
@@ -1922,9 +1923,7 @@ describe('ClaimedTodoDropError — refuse to drop a live-claimed todo (1de16a83)
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
     // Directly set a half-set claim (claimedBy only, no token) — the orphan class,
     // unrepresentable via claimTodo. readClaim returns null for this shape.
-    const db = new Database(join(project, '.collab', 'todos.db'));
-    db.exec(`UPDATE todos SET status='in_progress', claimedBy='ghost', claimToken=NULL, claim=NULL WHERE id='${t.id}'`);
-    db.close();
+    openDb(project).exec(`UPDATE todos SET status='in_progress', claimedBy='ghost', claimToken=NULL, claim=NULL WHERE id='${t.id}'`);
     _closeProject(project);
     const dropped = await updateTodo(project, t.id, { status: 'dropped' });
     expect(dropped.status).toBe('dropped');
@@ -2001,22 +2000,21 @@ describe('`kind` column — stage C of title-prefix migration (decision e852fb0c
 
   test('no row is ever left with a NULL kind after a create', async () => {
     await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x', kind: 'epic' });
-    const db = new Database(join(project, '.collab', 'todos.db'));
-    const row = db.query(`SELECT count(*) AS n FROM todos WHERE kind IS NULL`).get() as { n: number };
-    db.close();
+    const row = openDb(project).query(`SELECT count(*) AS n FROM todos WHERE kind IS NULL`).get() as { n: number };
     expect(row.n).toBe(0);
   });
 
   test('the backfill is gated by user_version: at current version, NULL kind stays NULL; at lower version, it derives', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x', kind: 'epic' });
-    const dbPath = join(project, '.collab', 'todos.db');
+    // The `user_version` this test drives is the one on the CONSOLIDATED database. The legacy
+    // gated backfills below still read `PRAGMA user_version`, but they now read it off the
+    // collab.db handle openDb returns — the on-disk todos.db is a frozen rollback copy whose
+    // version stopped moving at import time.
 
     // Part 1: DB at current version does NOT re-run backfill.
     // Set kind=NULL and reopen; it should stay NULL (backfill gated out since ver >= TODO_CLAIM_KIND_V7).
     {
-      const db = new Database(dbPath);
-      db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
-      db.close();
+      openDb(project).exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
       _closeProject(project);
 
       // Reopen via getTodo. At current version, backfillClaimAndKindV7 is gated out
@@ -2025,10 +2023,9 @@ describe('`kind` column — stage C of title-prefix migration (decision e852fb0c
       expect(after!.kind).toBeNull(); // Stays NULL, not re-derived
 
       // Verify the gate prevented backfill: kind is still NULL, so manual UPDATE touches it (1 row).
-      const db2 = new Database(dbPath);
-      const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+      const db2 = openDb(project);
+      db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
       const changes = db2.query('SELECT changes() AS c').get() as { c: number };
-      db2.close();
       expect(changes.c).toBe(1); // Backfill didn't run, so NULL is still there; UPDATE touches 1 row
       _closeProject(project);
     }
@@ -2036,11 +2033,10 @@ describe('`kind` column — stage C of title-prefix migration (decision e852fb0c
     // Part 2: DB manually reset to lower version DOES re-run backfill.
     // Set kind=NULL and user_version < TODO_CLAIM_KIND_V7, then reopen.
     {
-      const db = new Database(dbPath);
+      const db = openDb(project);
       // Set version to 6 (below V7) so backfill gate activates
       db.exec(`PRAGMA user_version = 6`);
       db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
-      db.close();
       _closeProject(project);
 
       // Reopen via getTodo. At version 6, backfillClaimAndKindV7 runs (ver < TODO_CLAIM_KIND_V7),
@@ -2049,10 +2045,9 @@ describe('`kind` column — stage C of title-prefix migration (decision e852fb0c
       expect(after!.kind).toBe('epic'); // Re-derived from title prefix by backfill
 
       // Verify backfill ran: kind is now 'epic', so manual UPDATE touches zero rows (WHERE kind IS NULL matches nothing).
-      const db2 = new Database(dbPath);
-      const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+      const db2 = openDb(project);
+      db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
       const changes = db2.query('SELECT changes() AS c').get() as { c: number };
-      db2.close();
       expect(changes.c).toBe(0); // Backfill already fixed it, so UPDATE touches 0 rows
     }
   });
@@ -2215,10 +2210,9 @@ describe('tier schema', () => {
     // Close the cached connection
     _closeProject(project);
 
-    // Open a fresh direct connection
-    const db = new Database(join(project, '.collab', 'todos.db'));
-    const rows = db.query('PRAGMA table_info(todos)').all() as Array<{ name: string }>;
-    db.close();
+    // Re-open: the second open re-runs the whole addColumnIfMissing block, which is the
+    // thing under test — a non-idempotent ALTER would show up as a duplicate `tier` column.
+    const rows = openDb(project).query('PRAGMA table_info(todos)').all() as Array<{ name: string }>;
 
     // Assert exactly one row has name === 'tier'
     const tierRows = rows.filter((r) => r.name === 'tier');
@@ -2227,9 +2221,7 @@ describe('tier schema', () => {
 
   describe('archivedAt', () => {
     function archiveTodo(proj: string, id: string) {
-      const db = new Database(join(proj, '.collab', 'todos.db'));
-      db.exec(`UPDATE todos SET archivedAt = ${Date.now()} WHERE id = '${id}'`);
-      db.close();
+      openDb(proj).exec(`UPDATE todos SET archivedAt = ${Date.now()} WHERE id = '${id}'`);
       _closeProject(proj);
     }
 

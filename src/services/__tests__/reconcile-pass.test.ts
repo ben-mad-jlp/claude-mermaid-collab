@@ -10,7 +10,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'bun:sqlite';
 
 // -----------------------------------------------------------------------
 // Isolation: point the global supervisor.db at a temp dir BEFORE the store
@@ -32,7 +31,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
   _closeDb,
 } from '../supervisor-store';
-import { createTodo, updateTodo, getTodo, sweepEpicRollups, stampEpicLandedAt, MOTIONLESS_EPIC_AFTER_MS } from '../todo-store';
+import { createTodo, updateTodo, getTodo, openDb, sweepEpicRollups, stampEpicLandedAt, MOTIONLESS_EPIC_AFTER_MS } from '../todo-store';
 import { BP0_STRANDED_SUMMARY_KIND } from '../coordinator-live';
 import { DANGLING_DEPS_KIND, EPIC_SWEEP_TRIAGE_KIND } from '../reconcile-pass';
 
@@ -342,21 +341,17 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
 });
 
 /** Helper: force a todo into in_progress status via raw SQL (bypassing the updateTodo
- *  validation that rejects manual in_progress). Then _closeProject so the next store call re-opens fresh. */
+ *  validation that rejects manual in_progress). The handle comes from openDb rather than
+ *  `new Database('.collab/todos.db')`: the store's rows live in the consolidated collab.db,
+ *  which only exists once openDb has created and migrated it. It is the store's own handle,
+ *  so the write is visible to the next store call with no re-open. */
 function forceInProgressInTest(proj: string, id: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(`UPDATE todos SET status='in_progress' WHERE id='${id}'`);
-  db.close();
-  // Force the todo-store to re-open the DB on the next call
-  getTodo(proj, 'dummy-not-found');
+  openDb(proj).exec(`UPDATE todos SET status='in_progress' WHERE id='${id}'`);
 }
 
 /** Helper: backdate a todo's updatedAt timestamp via raw SQL to a specific ISO string. */
 function backdateUpdatedAtInTest(proj: string, id: string, isoTimestamp: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(`UPDATE todos SET updatedAt='${isoTimestamp}' WHERE id='${id}'`);
-  db.close();
-  getTodo(proj, 'dummy-not-found');
+  openDb(proj).exec(`UPDATE todos SET updatedAt='${isoTimestamp}' WHERE id='${id}'`);
 }
 
 describe('runReconcilePass — motionless / landed-needs-review triage escalations', () => {

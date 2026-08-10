@@ -159,8 +159,14 @@ describe('inspect_workgraph', () => {
       leaves: [{ title: 'open leaf' }],
     });
 
+    // An orphan is a leaf with no readable parent. It is made by CLEARING parentId, not by
+    // pointing it at an id that was never inserted: todos.parentId is a real foreign key now,
+    // so a dangling pointer cannot be written. A parentless leaf is the shape this actually
+    // takes on disk — the legacy import severs every edge whose parent is gone (see
+    // collab-db-import pass 3) — and workgraph-health reports it under the same
+    // 'missing-parent' reason either way.
     const orphanLeafId = leafIds[0]!;
-    await updateTodo(project, orphanLeafId, { parentId: 'bogus-parent-id' });
+    await updateTodo(project, orphanLeafId, { parentId: null });
 
     const terminalEpic = await call('create_epic', { title: 'Terminal epic', home: null });
     const { createdIds: terminalLeafIds } = await call('add_leaves', {
@@ -288,15 +294,20 @@ describe('serve-time criterion-edge guard', () => {
     expect(getTodo(project, res.epicId)!.parentId).toBeNull();
   });
 
-  test('add_leaves refuses when parent epic is mission-homed but the mission node is unreadable', async () => {
+  test('an epic can no longer BE mission-homed to a node that does not exist', async () => {
+    // This used to assert add_leaves' unreadable-mission guard by re-parenting an epic to a
+    // bogus id. The consolidated schema makes that state unrepresentable: `todos.parentId`
+    // is a real, immediately-enforced foreign key, so the dangle is refused at the write.
+    // Asserting the constraint is strictly stronger than asserting the guard that coped with
+    // its absence — and the guard itself stays, because foreign keys are per-CONNECTION in
+    // SQLite and a connection that forgets the pragma would silently re-open the hole.
     const missionId = await freshMission();
     const res = await call('create_epic', { title: 'Served epic 2', home: missionId, servesCriterionIds: ['c1'] });
-    // Simulate an unreadable mission node by re-parenting the epic to a bogus id that
-    // still looks mission-homed (parentId set) but resolves to nothing via getTodo.
-    await updateTodo(project, res.epicId, { parentId: 'not-a-real-mission-id' });
     await expect(
-      call('add_leaves', { epicId: res.epicId, leaves: [{ title: 'x' }] }),
-    ).rejects.toThrow(/mission-homed but its mission node .* is unreadable/);
+      updateTodo(project, res.epicId, { parentId: 'not-a-real-mission-id' }),
+    ).rejects.toThrow(/FOREIGN KEY/i);
+    // …and the epic is untouched, still homed where it was.
+    expect(getTodo(project, res.epicId)!.parentId).toBe(missionId);
   });
 });
 

@@ -38,6 +38,49 @@ measured on this machine on 2026-08-10, not estimated.
 
 ## Target
 
+## What the inventory changed (measured 2026-08-10, after the first draft)
+
+A full inventory of the live databases contradicted three assumptions in the first draft. All
+numbers below are counted, not estimated.
+
+1. **Dangling references are HISTORY, not corruption.** 63 `epic_base_gate`, 66 `epic_land_gate`,
+   163 `leaf_resume_decision`, 501 `todos.servesCriterionId` and 11 `criterion_approach` rows point
+   at referents that no longer exist. They were checked against neighbouring projects' databases
+   and resolve in none of them — the epics and leaves were deliberately dropped. Declaring foreign
+   keys over these would either reject the migration or cascade the forensic record away. The first
+   draft's "FKs, with ON DELETE CASCADE" was wrong for this class of table.
+
+2. **`worker_ledger.todoId` is not always a todo id.** 373 rows for this project carry phase
+   sentinels (`node` ×252, `planner` ×110, `design` ×5, `triage` ×4, `digest` ×2). With the UUID
+   dangles, 2,833 of 11,414 rows (25%) would fail an FK check. This is a real schema defect and is
+   fixed below by a typed subject — "no FK on an event log" must not become cover for leaving an
+   ambiguous column in place.
+
+3. **`epic_base_lane` has no `project` column** (95 rows, PK `(epicId, baseSha, laneKey)`). A
+   `WHERE project = ?` copy moves ZERO rows and silently loses the per-file base-lane memo. It must
+   be attributed by joining `epicId`.
+
+Two further facts constrain the migration rather than the schema:
+
+4. **~100 `project` values are junk or dead.** Test fixtures (`test`, `consult`, `/proj/alpha`,
+   `test-project-window`) and ephemeral scratch repos (`/var/folders/…/land-arm-*` alone holds
+   24,471 `conductor_pass` rows). The RELATIVE ones are the hazard: `test` and `consult` resolve
+   against the migration process's cwd, so a naive migration writes rows into whatever repo is
+   running it. Destinations must be filtered against the project registry, never resolved from a
+   bare string.
+
+5. **`project` and `targetProject` disagree for 50 rows.** `worker_ledger` rows labelled
+   `project=claude-mermaid-collab` belong to todos whose `targetProject` is `build123d-ocp-mcp`.
+   Which one is "the project" for a consolidated database is a genuine ambiguity and needs an
+   explicit decision, not a default.
+
+What the inventory did NOT change: where execution state lives. The argument for leaving it global
+was that `leaf_inflight` is read without a project filter (worktree reaper, worker-liveness, the
+deploy gate, `SELECT DISTINCT project`) and that `reapStaleInflight` deletes across all projects in
+one statement. That is an argument from the code that exists, not from correctness: a leaf's claim
+belongs with the leaf so the invariant is engine-enforced. The cross-project sweep becomes a
+registry-driven fan-out, which is WORK, not a reason to keep the split. It is in scope below.
+
 ### T1. One database per project
 
 `<repo>/.collab/collab.db` holds the ENTIRE work-graph and its execution state, so foreign keys
@@ -86,6 +129,39 @@ with SIGKILL, which cannot roll back a transaction or run a cleanup path, so "in
 a fact with an expiry rather than a status someone remembered to clear. Every orphaned leaf we
 have hand-reset was this bug.
 
+### T4b. What is global, and why — the line between state and history
+
+The split is NOT "small things move, big things stay". It is: anything whose correctness depends
+on agreeing with another row lives in ONE database with that row; anything that records what
+happened is history and outlives its subjects.
+
+**Project database — enforced integrity.** `work_item` and its detail tables, mission criteria,
+and `leaf_claim`. These must agree with each other, so they get real foreign keys and share
+transactions.
+
+**Global, FK-FREE BY DESIGN — the event log.** `worker_ledger`, `base_gate_test_run` (as the T5
+rollup), `conductor_pass`, `leaf_resume_decision`, and the `epic_base_gate` / `epic_land_gate`
+history. A row saying "this gate failed for epic X" stays true after epic X is dropped;
+"the referent no longer exists" is a fact about the past, not a broken pointer. Enforcing
+integrity here means refusing to record history or deleting it later — both wrong. These tables
+are immutable, denormalised, and carry NO enforced FK.
+
+That is not licence to keep an ambiguous column. `worker_ledger.todoId` currently holds either a
+todo id or a phase sentinel (`node`, `planner`, `design`, `triage`, `digest`). It becomes a TYPED
+SUBJECT — `subject_kind` + `subject_id` — so a phase row and a work-item row are distinguishable
+without guessing at the value's shape.
+
+**Global by definition.** `tier_override`: its `scope='level'` rows are cross-project by meaning,
+and the resolution walk reads epic → project → level in one call. It stays global because that is
+what it is, not because moving it is inconvenient.
+
+**Consequence that is in scope, not deferred.** Moving claims into the project database means the
+cross-project sweeps (`reapStaleInflight`, worker-liveness, the deploy gate, and the
+`SELECT DISTINCT project` used to enumerate active projects) can no longer read one table. They
+become a fan-out over REGISTERED projects. This must be written as part of the move: a
+project-local reaper that never runs for a project nobody opens would strand a dead daemon's claim
+forever — replacing one wedge class with another.
+
 ### T5. Telemetry is aggregated, not journalled
 
 `base_gate_test_run` becomes a rollup keyed `(project_id, lane, test, day)` carrying `runs` and
@@ -124,6 +200,20 @@ the migration. The kill loop is cured by T5 and T6 rather than worked around bef
   with a verification pass (row counts + referential checks) and a retained backup. Reversible
   until the old files are deleted. The rollup is built here rather than in a later phase — there
   is no reason to migrate 1.6M rows of a table being replaced by ~2,400 rows/day.
+
+  Also in P2, because the inventory showed they are prerequisites rather than follow-ups:
+  - the registry-driven fan-out that replaces every cross-project read of `leaf_inflight`;
+  - the typed subject (`subject_kind` + `subject_id`) on the event log;
+  - `epic_base_lane` attribution by `epicId` join, since it has no `project` column;
+  - migration destinations filtered against the registry, so ~100 junk/ephemeral `project` values
+    cannot mint destinations — and a relative value like `test` can never resolve against the
+    migration process's cwd.
+
+  DECIDED 2026-08-10 — when `worker_ledger.project` and the referenced todo's `targetProject`
+  disagree (50 rows today), **`project` owns the row**. The ledger is an event log: it records
+  where work actually EXECUTED. `targetProject` is a property of the work item — what the work was
+  aimed at — and belongs to the todo, not to the event. Filing by `targetProject` would move
+  execution history into a repo where that execution never happened.
 - **P3 — async DB boundary, heartbeat liveness, query-duration tripwire.**
 
 ## Migration must be a capability, not an event
