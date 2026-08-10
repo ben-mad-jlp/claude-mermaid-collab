@@ -14,7 +14,7 @@ import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FIL
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
-import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
+import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
@@ -940,8 +940,12 @@ export async function runBaseGate(
     if (observe) {
       const WINDOW_MS = 7 * 24 * 60 * 60_000; // matches promoteQuarantineCandidates's default window (flaky-quarantine.ts)
       const watched = new Set(fingerprints);
-      for (const o of listObservations(observe.project, Date.now() - WINDOW_MS)) {
-        if (o.lane === lane.key) watched.add(o.test);
+      // Ask SQLite for exactly the distinct names on THIS lane. The previous form loaded
+      // every observation in the window and filtered by lane in JS — 1.38M rows and ~8.7s of
+      // blocked event loop per lane once the table had grown, which is what drove the
+      // watchdog kill loop.
+      for (const test of listWatchedTests(observe.project, lane.key, Date.now() - WINDOW_MS)) {
+        watched.add(test);
       }
       for (const q of activeQuarantine(observe.project)) watched.add(q.test);
       recordBaseGateTestRuns({
@@ -1015,6 +1019,7 @@ export async function resolveBaseGreen(io: {
   const r = await runBaseGateShared(
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
     () => io.runGate(wt.path),
+    { project: io.targetProject },
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
