@@ -8,10 +8,13 @@
  * writing old-shaped rows into a newer database corrupts it silently and is only discovered on a
  * later read.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 import {
-  applyMigrations, currentSchemaVersion, schemaHistory, SchemaTooNewError, type Migration,
+  applyMigrations, currentSchemaVersion, schemaHistory, SchemaTooNewError, migrateStoreFile, type Migration,
 } from '../schema-migrate';
 
 const OPTS = { storeName: 'test-store', now: () => 1_700_000_000_000 };
@@ -122,5 +125,54 @@ describe('migration list validation (programming errors surface at startup)', ()
   it('an empty list is a no-op, not an error', () => {
     const db = mem();
     expect(applyMigrations(db, [], OPTS)).toEqual({ from: 0, to: 0, applied: [] });
+  });
+});
+
+describe('migrateStoreFile (on-disk, backup-taking)', () => {
+  const openReal = (p: string) => new Database(p, { create: true });
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'migrate-file-')); });
+  afterEach(() => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+  it('backs up before migrating and names the backup it wrote', () => {
+    const p = join(dir, 's.db');
+    openReal(p).close();
+    const r = migrateStoreFile(p, openReal, [M1, M2], { ...OPTS, stamp: 'S' });
+    expect(r.to).toBe(2);
+    expect(r.backupPath).toBe(`${p}.bak-v0-S`);
+    expect(existsSync(r.backupPath!)).toBe(true); // a backup nobody can find is not a backup
+  });
+
+  it('takes NO backup when nothing is pending', () => {
+    const p = join(dir, 's.db');
+    openReal(p).close();
+    migrateStoreFile(p, openReal, [M1, M2], { ...OPTS, stamp: 'S1' });
+    const second = migrateStoreFile(p, openReal, [M1, M2], { ...OPTS, stamp: 'S2' });
+    expect(second.applied).toEqual([]);
+    expect(second.backupPath).toBeNull();
+    expect(existsSync(`${p}.bak-v2-S2`)).toBe(false); // every open must not litter backups
+  });
+
+  it('refuses a future database WITHOUT writing a backup', () => {
+    const p = join(dir, 's.db');
+    openReal(p).close();
+    migrateStoreFile(p, openReal, [M1, M2], { ...OPTS, stamp: 'S1' });
+    // An older build turns up knowing only v1.
+    expect(() => migrateStoreFile(p, openReal, [M1], { ...OPTS, stamp: 'S3' }))
+      .toThrow(SchemaTooNewError);
+    // Leave it strictly alone: no copy, no touch.
+    expect(existsSync(`${p}.bak-v2-S3`)).toBe(false);
+  });
+
+  it('the backup still holds the PRE-migration shape', () => {
+    const p = join(dir, 's.db');
+    openReal(p).close();
+    migrateStoreFile(p, openReal, [M1], { ...OPTS, stamp: 'A' });      // v1: widget(id,name)
+    const r = migrateStoreFile(p, openReal, [M1, M2], { ...OPTS, stamp: 'B' }); // v2 adds colour
+    const back = openReal(r.backupPath!);
+    const cols = (back.query('PRAGMA table_info(widget)').all() as Array<{ name: string }>).map((c) => c.name);
+    back.close();
+    expect(cols).toContain('name');
+    expect(cols).not.toContain('colour'); // genuinely the old shape, i.e. a real rollback target
   });
 });

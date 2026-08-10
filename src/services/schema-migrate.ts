@@ -21,6 +21,7 @@
  * particular schema; callers supply an ordered list of migrations.
  */
 import type { Database } from 'bun:sqlite';
+import { copyFileSync, existsSync } from 'node:fs';
 
 export interface Migration {
   /** Strictly increasing, unique, and NEVER reused or renumbered once shipped. */
@@ -124,6 +125,60 @@ export function applyMigrations(
   }
 
   return { from, to: currentSchemaVersion(db), applied };
+}
+
+/**
+ * Migrate a store ON DISK, taking a backup first when work is actually pending.
+ *
+ * This is the path-aware half of the framework: `applyMigrations` is given a handle and cannot
+ * copy a file, but a machine upgrading unattended needs a way back. The backup is written beside
+ * the database as `<file>.bak-v<from>-<stamp>` and its path is returned, so the caller can name
+ * it in a log line or an error — a backup nobody can find is not a backup.
+ *
+ * No backup is taken when nothing is pending, so the common case (every open, already current)
+ * costs one SELECT.
+ *
+ * The copy is deliberately taken while the database is CLOSED to this process and before any
+ * write: SQLite in WAL mode keeps recent commits in a sidecar `-wal` file, so copying the main
+ * file alone mid-transaction can capture a torn state. Callers must pass a path they are not
+ * concurrently writing — during migration the daemon is quiesced.
+ */
+export function migrateStoreFile(
+  path: string,
+  open: (p: string) => Database,
+  migrations: Migration[],
+  opts: { storeName: string; now?: () => number; appliedBy?: string; stamp: string },
+): MigrationResult & { backupPath: string | null } {
+  const probe = open(path);
+  let pendingFrom: number;
+  try {
+    pendingFrom = currentSchemaVersion(probe);
+  } finally {
+    probe.close();
+  }
+  const highest = migrations.length ? migrations[migrations.length - 1].version : 0;
+
+  // Refuse BEFORE copying anything: a future database is not something to back up and migrate,
+  // it is something to leave strictly alone.
+  if (pendingFrom > highest) throw new SchemaTooNewError(opts.storeName, pendingFrom, highest);
+
+  let backupPath: string | null = null;
+  if (pendingFrom < highest) {
+    backupPath = `${path}.bak-v${pendingFrom}-${opts.stamp}`;
+    copyFileSync(path, backupPath);
+    for (const side of ['-wal', '-shm'] as const) {
+      // Copy the WAL sidecars too when present, or the backup can be missing commits that the
+      // main file has not yet checkpointed.
+      if (existsSync(path + side)) copyFileSync(path + side, backupPath + side);
+    }
+  }
+
+  const db = open(path);
+  try {
+    return { ...applyMigrations(db, migrations, opts), backupPath };
+  } finally {
+    db.close();
+  }
 }
 
 /**
