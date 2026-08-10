@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import * as fs from 'fs';
-import { join, isAbsolute, basename } from 'path';
+import { join, isAbsolute, basename, resolve as resolvePath } from 'path';
+import { canonicalProjectRoot } from './store-paths';
 import { homedir, tmpdir } from 'os';
 import { createHash } from 'crypto';
 
@@ -67,6 +68,52 @@ export function listRegisteredProjectPathsSync(): string[] {
   }
 }
 
+
+/**
+ * Resolve a `project` ARGUMENT — as supplied by an API/MCP caller — to a canonical project
+ * root, or throw naming exactly what was tried.
+ *
+ * WHY THIS EXISTS (incident 2026-08-09/10): callers pass `project` as either a path or a
+ * project NAME. A name used to fall through to path resolution, resolve against the server's
+ * cwd, and address a database that did not exist — which SQLite happily creates, empty. The
+ * result was a silent false absence: `list_missions {project: "claude-mermaid-collab"}`
+ * answered `{count: 0}` for a project holding a live mission and 108 mission rows, while
+ * `mission_diagnostic` reported "mission not found". A watcher reading that concludes the work
+ * is finished and stops.
+ *
+ * The rule: a real path wins; otherwise consult the registry BY NAME; otherwise it is an error.
+ * Never a silent empty store. This is the API boundary's job — `canonicalProjectRoot` is pure
+ * path identity and deliberately does not police where a string came from, because stores
+ * legitimately create a project that does not exist yet.
+ */
+export function resolveProjectArg(raw: string): string {
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new Error('project is required');
+  }
+  const input = raw.trim();
+
+  // 1. A real path (absolute, or relative to cwd) always wins.
+  const asPath = isAbsolute(input) ? input : resolvePath(process.cwd(), input);
+  if (fs.existsSync(asPath)) return canonicalProjectRoot(asPath);
+
+  // 2. Otherwise treat it as a registered project NAME.
+  const registered = listRegisteredProjectPathsSync();
+  const byName = registered.filter((p) => basename(p) === input);
+  if (byName.length === 1) return canonicalProjectRoot(byName[0]);
+  if (byName.length > 1) {
+    throw new Error(
+      `project ${JSON.stringify(input)} is ambiguous — ${byName.length} registered projects ` +
+      `share that name: ${byName.join(', ')}. Pass the absolute path.`,
+    );
+  }
+
+  // 3. Neither. Fail loudly, naming what IS available — never return an empty store.
+  const names = registered.map((p) => basename(p)).sort();
+  throw new Error(
+    `project ${JSON.stringify(input)} is neither an existing path (tried ${asPath}) nor a ` +
+    `registered project name. Registered: ${names.length ? names.join(', ') : '(none)'}.`,
+  );
+}
 
 /** Map a worker-worktree path back to its tracking repo root. A worktree lives at
  *  <repo>/.collab/agent-sessions/worktrees/<lane>; the durable per-project stores

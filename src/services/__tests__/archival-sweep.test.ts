@@ -5,9 +5,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'bun:sqlite';
 import {
-  createTodo, completeTodo, updateTodo, getTodo, listTodos, _closeProject,
+  createTodo, completeTodo, updateTodo, getTodo, listTodos, openDb, _closeProject,
 } from '../todo-store';
 import {
   upsertMission, getMission, addCriterion, setCriterionMet, setMissionAbandoned,
@@ -22,26 +21,28 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RETENTION_MS = 30 * DAY_MS;
 
 /** Backdate a todo's completedAt/updatedAt (no public setter for this — same raw-SQL
- *  pattern mission-store.test.ts uses for archivedAt). Busts the todo-store cache after. */
+ *  pattern mission-store.test.ts uses for archivedAt).
+ *
+ *  Writes through the store's OWN handle (openDb) rather than a second `new Database` on a
+ *  hand-built path: todos and missions now live in one consolidated `.collab/collab.db`, and a
+ *  raw handle would (a) have to duplicate the path derivation store-paths owns and (b) open with
+ *  foreign keys OFF, since the pragma is per-connection. One handle also means there is no cache
+ *  to bust afterwards — the rows the store reads next are the rows just written. */
 function backdateTodo(proj: string, id: string, patch: { completedAt?: string; updatedAt?: string }) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
+  const db = openDb(proj);
   if (patch.completedAt !== undefined) {
     db.prepare('UPDATE todos SET completedAt = ? WHERE id = ?').run(patch.completedAt, id);
   }
   if (patch.updatedAt !== undefined) {
     db.prepare('UPDATE todos SET updatedAt = ? WHERE id = ?').run(patch.updatedAt, id);
   }
-  db.close();
-  _closeProject(proj);
 }
 
 /** Backdate a mission's updatedAt (no public setter injects a clock — same raw-SQL
- *  pattern mission-store.test.ts uses). Busts the mission-store cache after. */
+ *  pattern mission-store.test.ts uses). Same consolidated handle as backdateTodo: `mission` is a
+ *  table in collab.db now, not a separate mission.db file. */
 function backdateMission(proj: string, todoId: string, updatedAtMs: number) {
-  const db = new Database(join(proj, '.collab', 'mission.db'));
-  db.prepare('UPDATE mission SET updatedAt = ? WHERE todoId = ?').run(updatedAtMs, todoId);
-  db.close();
-  _resetMissionDbCache(proj);
+  openDb(proj).prepare('UPDATE mission SET updatedAt = ? WHERE todoId = ?').run(updatedAtMs, todoId);
 }
 
 beforeEach(() => {

@@ -4476,10 +4476,27 @@
     },
     {
       "name": "escalation_list",
-      "description": "List open escalations.",
+      "description": "List open escalations with optional project, kind, and limit filters. Returns a summary shape by default (id, kind, todoId, project, createdAt, recurrenceCount, excerpt) — use escalation_get for the full untruncated text.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Filter to escalations for a specific project."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Filter to a specific escalation kind."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Limit the number of results."
+          },
+          "full": {
+            "type": "boolean",
+            "description": "Return the full untruncated row instead of the summary shape."
+          }
+        }
       }
     },
     {
@@ -4539,7 +4556,8 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Full escalation id or leading-8-char short id (ambiguous/unknown prefixes are refused)."
           },
           "status": {
             "type": "string"
@@ -7259,6 +7277,19 @@
           "project",
           "jobId"
         ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "host_load",
+      "description": "Read-only host saturation snapshot: 1/5/15-minute load averages, CPU count, process commands bucketed by spawner (argv[0], count descending), sidecar restart frequency within the lookback window, and saturated (true when the 1-minute load average exceeds the configured multiple of cpuCount, MERMAID_SATURATION_LOAD_MULTIPLE, default 1.0).",
+      "inputSchema": {
+        "properties": {
+          "windowMs": {
+            "description": "Lookback window in ms for sidecarRestarts (default 1 hour).",
+            "type": "number"
+          }
+        },
         "type": "object"
       }
     },

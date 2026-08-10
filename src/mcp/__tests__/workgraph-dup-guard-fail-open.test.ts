@@ -4,18 +4,18 @@
 // registration is process-global and leaks into every other test file in the same run, and
 // this repo runs the whole backend suite in one process.
 //
-// Induction: a sibling row under the mission gets an unrecognised `kind`, which makes
+// Induction: a sibling row under the mission is left with a NULL `kind`, which makes
 // todo-kind's kindOf() throw MissingKindError inside buildMissionDoneLeafIndex — the same
-// shape as any store/schema hiccup on the scan path.
+// shape as any store/schema hiccup on the scan path. It has to be NULL rather than a garbage
+// string: collab.db constrains `kind` to the five real values (CHECK ... IN), and a CHECK
+// tolerates NULL, so NULL is the only unreadable kind the schema still permits on disk.
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Database } from 'bun:sqlite';
 import { handleWorkgraphTool } from '../workgraph-tools';
-import { createTodo, updateTodo, listTodos, _closeProject } from '../../services/todo-store';
+import { createTodo, updateTodo, listTodos, openDb, _closeProject } from '../../services/todo-store';
 import { buildMissionDoneLeafIndex } from '../../services/leaf-dup-guard';
-import { trackingProjectRoot } from '../../services/project-registry';
 
 let project: string;
 const S = 's1';
@@ -28,11 +28,12 @@ async function call(name: string, args: Record<string, unknown>): Promise<any> {
   return JSON.parse(out!);
 }
 
-/** Corrupt one row's `kind` column directly — no public API can produce this state. */
-function forceKind(id: string, kind: string): void {
-  const db = new Database(join(trackingProjectRoot(project), '.collab', 'todos.db'));
-  db.prepare('UPDATE todos SET kind = ? WHERE id = ?').run(kind, id);
-  db.close();
+/** Blank one row's `kind` column directly — no public API can produce this state.
+ *  The handle comes from the store rather than `new Database(...)`: the consolidated
+ *  collab.db is created, migrated and FK-enabled by openDb, and nothing on disk exists
+ *  before it has run. */
+function clearKind(id: string): void {
+  openDb(project).prepare('UPDATE todos SET kind = NULL WHERE id = ?').run(id);
 }
 
 const DUP_TITLE = 'Yield a stalled leader\'s turn to an actionable rival in deterministic-select';
@@ -48,11 +49,11 @@ describe('duplicate-of-done guard fails open', () => {
     const first = await call('add_leaves', { epicId: epic.epicId, leaves: [{ title: DUP_TITLE }] });
     await updateTodo(project, first.createdIds[0], { status: 'done', acceptanceStatus: 'accepted' });
 
-    // Break the scan: a second mission child with an unrecognised kind.
+    // Break the scan: a second mission child whose kind is unreadable.
     const decoy = await createTodo(project, {
       allowOrphan: true, ownerSession: S, title: 'corrupt sibling', kind: 'epic', parentId: m.id,
     });
-    forceKind(decoy.id, 'not-a-real-kind');
+    clearKind(decoy.id);
     _closeProject(project); // drop the cached handle so the corrupted row is re-read
 
     // Precondition: the scan really does throw now.

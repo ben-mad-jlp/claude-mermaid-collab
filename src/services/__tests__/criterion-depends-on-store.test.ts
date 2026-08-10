@@ -3,10 +3,9 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTodo, _closeProject } from '../todo-store';
+import { createTodo, _closeProject, openDb } from '../todo-store';
 import { addCriterion, listCriteria, removeCriterion, setCriterionDependsOn, _resetMissionDbCache } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
-import Database from 'bun:sqlite';
 
 let project: string;
 
@@ -73,10 +72,9 @@ describe('mission-store: criterion dependsOn', () => {
     const a = addCriterion(project, missionId, 'A');
     // Simulate a legacy row whose dependsOn was never populated (empty string, as a
     // NOT NULL DEFAULT '[]' migration would backfill a value the reader still treats
-    // as absent) — the falsy-JSON.parse-or-[] read path must tolerate it.
-    const db = new Database(join(project, '.collab', 'mission.db'));
-    db.exec(`UPDATE mission_criterion SET dependsOn = '' WHERE id = '${a.id}'`);
-    db.close();
+    // as absent) — the falsy-JSON.parse-or-[] read path must tolerate it. Written through the
+    // store's handle: criteria live in the consolidated collab.db, not a `.collab/mission.db`.
+    openDb(project).exec(`UPDATE mission_criterion SET dependsOn = '' WHERE id = '${a.id}'`);
     _resetMissionDbCache(project);
     const found = listCriteria(project, missionId).find((c) => c.id === a.id);
     expect(found?.dependsOn).toEqual([]);

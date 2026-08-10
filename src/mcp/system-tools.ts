@@ -18,6 +18,7 @@ import { conductorNeedsHuman } from '../services/conductor-pass.js';
 import { listConductorPasses } from '../services/conductor-pass-journal.js';
 import { getJob as getAsyncJob } from '../services/async-job-store.js';
 import { conductorKillRate, CONDUCTOR_KILL_RATE_BASELINE } from '../services/conductor-kill-rate.js';
+import { hostLoad } from '../services/host-load.js';
 
 export const SYSTEM_TOOL_DEFS = [
   {"name":"check_server_health","description":"Check if MCP server, HTTP/API backend, and React UI are running","inputSchema":{"properties":{},"required":[],"type":"object"}},
@@ -36,6 +37,7 @@ export const SYSTEM_TOOL_DEFS = [
   {"name":"context_usage","description":"Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.","inputSchema":{"properties":{"project":{"description":"Tracking project whose sessions to report.","type":"string"},"thresholdPercent":{"description":"Override the checkpoint threshold % (default: per-project config → 80).","type":"number"}},"required":["project"],"type":"object"}},
   {"name":"list_conductor_passes","description":"Read-only conductor_pass JOURNAL for a project, newest-first — the durable per-pass record of what each conductor pass actually did: which fingerprints it saw (serveFp/passFp/selfFp), which arm it took, which criteria it acted on, what it filed/declined, its outcome, and whether it ran. Use this to answer 'what has the conductor been doing / why did it decline' instead of guessing from a single lastPass summary. Optionally scope to one missionId and cap with limit. Fail-open: returns [] for a project with no rows.","inputSchema":{"properties":{"limit":{"description":"Max rows to return (newest-first).","type":"number"},"missionId":{"description":"Only passes for this mission.","type":"string"},"project":{"description":"Tracking project whose conductor passes to list.","type":"string"}},"required":["project"],"type":"object"}},
   {"name":"get_job","description":"Retrieve a specific async job by id for a project. Returns the job record with its current status, kind, target, any error, timestamps, and parsed result.","inputSchema":{"properties":{"project":{"type":"string"},"jobId":{"type":"string"}},"required":["project","jobId"],"type":"object"}},
+  {"name":"host_load","description":"Read-only host saturation snapshot: 1/5/15-minute load averages, CPU count, process commands bucketed by spawner (argv[0], count descending), sidecar restart frequency within the lookback window, and saturated (true when the 1-minute load average exceeds the configured multiple of cpuCount, MERMAID_SATURATION_LOAD_MULTIPLE, default 1.0).","inputSchema":{"properties":{"windowMs":{"description":"Lookback window in ms for sidecarRestarts (default 1 hour).","type":"number"}},"type":"object"}},
 ];
 
 export async function handleSystemTool(name: string, args: any): Promise<string | null> {
@@ -179,6 +181,10 @@ export async function handleSystemTool(name: string, args: any): Promise<string 
       if (!job) return JSON.stringify({ jobId, found: false, status: null }, null, 2);
       const result = job.resultJson ? JSON.parse(job.resultJson) : null;
       return JSON.stringify({ jobId: job.id, kind: job.kind, status: job.status, targetId: job.targetId, error: job.error, createdAt: job.createdAt, updatedAt: job.updatedAt, result }, null, 2);
+    }
+    case 'host_load': {
+      const { windowMs } = args as { windowMs?: number };
+      return JSON.stringify(await hostLoad({ windowMs }), null, 2);
     }
     default:
       return null;
