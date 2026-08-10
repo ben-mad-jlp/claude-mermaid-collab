@@ -95,11 +95,8 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
     const m = require('./session-tools.js');
     return m.SESSION_TOOL_DEFS;
   })();
-  const DESKTOP_TOOL_DEFS = (() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const m = require('./desktop-tools.js');
-    return m.DESKTOP_TOOL_DEFS;
-  })();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const desktopToolsMod = require('./desktop-tools.js');
 
   _groupRegistry = {
     SESSION: SESSION_TOOL_DEFS,
@@ -108,7 +105,9 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
     DESIGN: DESIGN_TOOL_DEFS,
     SYSTEM: SYSTEM_TOOL_DEFS,
     BROWSER: BROWSER_TOOL_DEFS,
-    DESKTOP: DESKTOP_TOOL_DEFS,
+    get DESKTOP() {
+      return desktopToolsMod.getDesktopToolDefs();
+    },
     SUPERVISOR: SUPERVISOR_TOOL_DEFS,
     EPIC: EPIC_TOOL_DEFS,
     DECISION: DECISION_TOOL_DEFS,

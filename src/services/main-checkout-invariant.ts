@@ -59,6 +59,41 @@ export class MainCheckoutResidueError extends Error {
   }
 }
 
+/** Pure matcher for sanctioned residue lines. Parses a porcelain line and checks if the
+ *  repo-relative path matches any of the allowed prefixes using segment-boundary matching.
+ *  Returns false (fail closed) for empty/invalid lines, lines with no space, or empty allowlist. */
+export function isSanctionedResidue(porcelainLine: string, allowedPrefixes: readonly string[]): boolean {
+  // Fail closed: empty allowlist means nothing is sanctioned
+  if (allowedPrefixes.length === 0) return false;
+
+  // Trim the line and fail closed on empty/whitespace-only
+  const trimmed = porcelainLine.trim();
+  if (!trimmed) return false;
+
+  // Parse the porcelain line: first space separates status from path
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) return false;
+
+  // Extract path (everything after the first space) and strip trailing `/` (git's dir collapse)
+  let path = trimmed.slice(spaceIdx + 1);
+  if (path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+
+  // Check each allowed prefix using segment-boundary matching (not simple startsWith)
+  for (const prefix of allowedPrefixes) {
+    // Normalize each prefix by stripping trailing `/`
+    let normalizedPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+
+    // Match iff path === prefix OR path.startsWith(prefix + '/')
+    if (path === normalizedPrefix || path.startsWith(normalizedPrefix + '/')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /** Read the current HEAD of the main checkout (branch name, sha, and porcelain residue).
  *  On any git error, treats branch/sha/residue as null/''/[] (non-git fallback tolerance,
  *  mirrors isGitRepo/detectBaseBranch at worktree-manager.ts:2337-2352).
@@ -99,6 +134,7 @@ export async function withMainCheckoutInvariant<T>(
     opName?: string;
     onViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
     quarantineDir?: string;
+    allowedResidue?: string[];
   } = {},
 ): Promise<T> {
   const opName = opts.opName ?? 'operation';
@@ -125,7 +161,9 @@ export async function withMainCheckoutInvariant<T>(
   }
 
   const beforeSet = new Set(before.residue);
-  const addedResidue = after.residue.filter(r => !beforeSet.has(r));
+  let addedResidue = after.residue.filter(r => !beforeSet.has(r));
+  // Filter out sanctioned residue before the throw or quarantine
+  addedResidue = addedResidue.filter(r => !isSanctionedResidue(r, opts.allowedResidue ?? []));
   if (addedResidue.length > 0) {
     let quarantinePath: string | undefined;
     if (opts.quarantineDir) {
