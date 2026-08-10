@@ -47,10 +47,17 @@ describe('scope is enforced, so twin files cannot recur', () => {
 });
 
 describe('project roots are canonicalised, so one repo is one project', () => {
-  it('rejects a bare project NAME instead of resolving it against cwd', () => {
-    // Passing a name used to resolve relative to the process cwd and open an empty store
-    // elsewhere — list_missions then answered {count: 0} for a project full of work.
-    expect(() => canonicalProjectRoot('claude-mermaid-collab')).toThrow(/absolute path/);
+  it('resolves a relative path against cwd', () => {
+    // Relative paths are legitimate: tooling and tests use e.g. `proj-test`, and a store
+    // bootstraps a project that does not exist yet. Rejecting them here breaks creation.
+    // Guarding a project NAME belongs at the API boundary, where the registry can be consulted.
+    const rel = require('node:path').relative(process.cwd(), root) || '.';
+    expect(canonicalProjectRoot(rel)).toBe(root);
+  });
+
+  it('is pure path identity — it does not require the project to exist', () => {
+    const missing = join(root, 'not-created-yet');
+    expect(canonicalProjectRoot(missing)).toBe(missing);
   });
 
   it('resolves symlinked paths to the same root (the /tmp vs /private/tmp case)', () => {

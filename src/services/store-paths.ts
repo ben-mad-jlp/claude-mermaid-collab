@@ -23,7 +23,7 @@
  *   - Opening does not create by default. A store springs into existence only where a caller
  *     explicitly says so (registration/migration), never as a side effect of a typo.
  */
-import { existsSync, statSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, statSync, readFileSync, realpathSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -78,15 +78,18 @@ export function canonicalProjectRoot(input: string): string {
   if (!input || typeof input !== 'string') {
     throw new Error('canonicalProjectRoot: project path is required');
   }
-  if (!isAbsolute(input)) {
-    // A bare name (`"claude-mermaid-collab"`) used to resolve against the process cwd and
-    // silently open an empty store elsewhere. Refuse it: the caller must pass a real path.
-    throw new Error(
-      `canonicalProjectRoot: project must be an absolute path, got ${JSON.stringify(input)}`,
-    );
-  }
-
   let p = input.replace(/[/\\]+$/, '');
+
+  // Relative paths resolve against cwd. This function is PURE PATH IDENTITY — it does not
+  // police where a project string came from, because a store legitimately creates a project
+  // that does not exist yet (bootstrap), so "must already exist" cannot live here.
+  //
+  // The related bug — an MCP `project` argument holding a project NAME ("claude-mermaid-collab")
+  // rather than a path, silently resolving against cwd and opening an empty store, so
+  // list_missions answered {count: 0} for a project full of work — is a defect of the API
+  // BOUNDARY, not of canonicalisation. It belongs where a name can be looked up in the registry
+  // and rejected when it matches neither a registered project nor a real path.
+  if (!isAbsolute(p)) p = resolve(process.cwd(), p);
   try { p = realpathSync(p); } catch { /* not on disk yet — fall through with the literal path */ }
 
   const agentSession = p.match(/^(.*?)[/\\]\.collab[/\\]agent-sessions[/\\]/);
@@ -110,6 +113,20 @@ function mainRepoRootForWorktree(p: string): string {
     return dirname(wt[1]);
   } catch {
     return p; // unreadable .git ⇒ treat as its own root rather than guessing
+  }
+}
+
+/**
+ * Best-effort canonicalisation for CLEANUP paths (cache eviction, teardown), which run against
+ * projects that may not exist yet or any more and must never throw. Opening stays strict: a bad
+ * path there silently opens the wrong data, which is the failure this module exists to stop.
+ * Returns the raw (trimmed) string when the project cannot be resolved.
+ */
+export function canonicalProjectRootLoose(input: string): string {
+  try {
+    return canonicalProjectRoot(input);
+  } catch {
+    return (input ?? '').replace(/[/\\]+$/, '');
   }
 }
 
@@ -158,7 +175,7 @@ export function ghostStoreFiles(dir: string, scope: StoreScope): string[] {
   const owned = new Set(knownStoreFiles(scope));
   let entries: string[];
   try {
-    entries = require('node:fs').readdirSync(dir) as string[];
+    entries = readdirSync(dir);
   } catch { return []; }
   return entries.filter((f) => f.endsWith('.db') && !owned.has(f)).map((f) => join(dir, f));
 }
