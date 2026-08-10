@@ -14,13 +14,12 @@ import { describe, test, expect, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'bun:sqlite';
 
 const SUP_DIR = mkdtempSync(join(tmpdir(), 'missions-bounded-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 
 // Imports AFTER the env is set so every db opens against our temp dir.
-import { createTodo, listTodos, _closeProject } from '../../services/todo-store';
+import { createTodo, listTodos, openDb, _closeProject } from '../../services/todo-store';
 import { upsertMission, addCriterion, _resetMissionDbCache } from '../../services/mission-store';
 import { runArchivalSweep } from '../../services/archival-sweep';
 import { _closeLedgerDb } from '../../services/worker-ledger';
@@ -41,7 +40,9 @@ let missionIds: string[] = [];
  * the fixture only needs rows the archival sweep will stamp.
  */
 function bulkInsertArchivableLeaves(proj: string, epicId: string, count: number): void {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
+  // The store's own handle on the consolidated collab.db. Opening `.collab/todos.db` by path
+  // would just create an empty second file — and these rows must land where the sweep looks.
+  const db = openDb(proj);
   const oldIso = new Date(Date.now() - 31 * DAY_MS).toISOString();
   const stmt = db.prepare(
     `INSERT INTO todos (id, ownerSession, title, status, parentId, dependsOn, ord,
@@ -53,8 +54,8 @@ function bulkInsertArchivableLeaves(proj: string, epicId: string, count: number)
       stmt.run(`bulk-${i}`, `bulk leaf ${i}`, epicId, i, oldIso, oldIso, oldIso);
     }
   })();
-  db.close();
-  _closeProject(proj); // bust the todo-store cache so the sweep re-reads
+  // No close/evict: this IS the handle the store reads back through, so the rows are visible
+  // to the sweep immediately.
 }
 
 async function getMissions(query: string): Promise<{ status: number; body: any }> {

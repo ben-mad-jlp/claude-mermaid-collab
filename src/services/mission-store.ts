@@ -23,7 +23,8 @@ import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
-import { storePath, canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths.ts';
+import { canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths.ts';
+import { openCollabDb, closeCollabDb, _closeAllCollabDbs } from './collab-db.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
@@ -289,7 +290,12 @@ CREATE TABLE IF NOT EXISTS mission_criterion_verdict_history (
 CREATE INDEX IF NOT EXISTS idx_mcvh_criterion ON mission_criterion_verdict_history(criterionId);
 `;
 
-const dbCache = new Map<string, Database>();
+/**
+ * Roots whose legacy shape-repair block has already run in this process. The HANDLE cache lives
+ * in collab-db, which owns the file — a second cache here would let `_resetMissionDbCache` close
+ * a handle collab-db still hands out.
+ */
+const prepared = new Set<string>();
 
 function addColumnIfMissing(db: Database, table: string, column: string, decl: string): void {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -351,15 +357,18 @@ function openDb(project: string): Database {
   // gave one repo two cached handles when it was reached by two paths (a worktree, a symlink,
   // /tmp vs /private/tmp).
   project = canonicalProjectRoot(project);
-  const cached = dbCache.get(project);
-  if (cached) return cached;
   if (!existsSync(project)) {
     throw new Error(`unknown project: ${project}`);
   }
-  const path = storePath('mission', project);
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
-  db.exec('PRAGMA journal_mode = WAL;');
+  // Mission control state now lives WITH its node, in the project's consolidated database, so
+  // `mission.todoId → todos.id` is a real foreign key instead of a convention spanning two files.
+  // openCollabDb owns the handle cache, performs the one-time move on a machine's first open,
+  // and turns foreign keys on.
+  const db = openCollabDb(project);
+  if (prepared.has(project)) return db;
+
+  // Legacy shape-repair, unchanged and idempotent. Every statement no-ops against a migrated
+  // database — the consolidated schema already declares these columns.
   db.exec(SCHEMA);
   // VERIFY-gate audit trail on each criterion (independent-judge evidence + provenance).
   addColumnIfMissing(db, 'mission_criterion', 'evidence', 'evidence TEXT');
@@ -405,7 +414,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'nickname', 'nickname TEXT');
   backfillCriterionNicknames(db);
   migrateDropPhaseMachine(db);
-  dbCache.set(project, db);
+  prepared.add(project);
   return db;
 }
 
@@ -414,12 +423,11 @@ export function _resetMissionDbCache(project?: string): void {
   if (project) {
     // MUST canonicalise exactly as openDb does — keying eviction on the raw string misses the
     // entry openDb stored under the canonical root, leaving the caller on a stale handle.
-    const key = canonicalProjectRootLoose(project);
-    dbCache.get(key)?.close();
-    dbCache.delete(key);
+    prepared.delete(canonicalProjectRootLoose(project));
+    closeCollabDb(project);
   } else {
-    for (const db of dbCache.values()) db.close();
-    dbCache.clear();
+    prepared.clear();
+    _closeAllCollabDbs();
   }
 }
 
