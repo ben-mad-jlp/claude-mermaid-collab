@@ -29,6 +29,7 @@ export interface AdoptBranchAsEpicResult {
   epicBranch: string;
   leafId: string;
   commits: string[];
+  trailerCommit: string;
 }
 
 /** Run git in `gitRoot` ASYNC, returning { code, stdout }. Never throws; never hangs. */
@@ -210,12 +211,41 @@ export async function adoptBranchAsEpic(
   ]);
   const leafId = createdIds[0];
 
-  // 6. Create a branch at the source SHA (plumbing — no checkout, no merge)
+  // 5.5. Create a marker commit carrying the Collab-Epic and Collab-Todo trailers
+  // Get the tree of sourceSha
+  const treeResult = await deps.runGit(gitRoot, ['rev-parse', '--verify', `${sourceSha}^{tree}`]);
+  if (treeResult.code !== 0) {
+    throw new Error(
+      `adopt_branch_as_epic: failed to resolve tree for marker commit (git rev-parse failed)`,
+    );
+  }
+  const tree = treeResult.stdout.trim();
+
+  // Build the commit message with trailers
+  const message = `collab: adopt ${opts.title}\n\nCollab-Epic: ${epic.id}\nCollab-Todo: ${leafId}`;
+
+  // Create the marker commit using git commit-tree
+  const commitTreeResult = await deps.runGit(gitRoot, [
+    'commit-tree',
+    tree,
+    '-p',
+    sourceSha,
+    '-m',
+    message,
+  ]);
+  if (commitTreeResult.code !== 0 || !commitTreeResult.stdout.trim()) {
+    throw new Error(
+      `adopt_branch_as_epic: failed to create trailer marker commit (git commit-tree failed)`,
+    );
+  }
+  const trailerCommit = commitTreeResult.stdout.trim();
+
+  // 6. Create a branch at the trailer commit SHA (plumbing — no checkout, no merge)
   const branch = epicBranchName(epic.id);
-  const branchCreateResult = await writeEpicRef(deps, gitRoot, ['branch', branch, sourceSha], branch);
+  const branchCreateResult = await writeEpicRef(deps, gitRoot, ['branch', branch, trailerCommit], branch);
   if (branchCreateResult.code !== 0) {
     throw new Error(
-      `adopt_branch_as_epic: failed to create branch "${branch}" at ${sourceSha} (git branch failed)`,
+      `adopt_branch_as_epic: failed to create branch "${branch}" at ${trailerCommit} (git branch failed)`,
     );
   }
 
@@ -227,6 +257,7 @@ export async function adoptBranchAsEpic(
     epicId: epic.id,
     epicBranch: branch,
     leafId,
-    commits,
+    commits: [...commits, trailerCommit],
+    trailerCommit,
   };
 }
