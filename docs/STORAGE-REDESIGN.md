@@ -209,9 +209,11 @@ the migration. The kill loop is cured by T5 and T6 rather than worked around bef
     cannot mint destinations — and a relative value like `test` can never resolve against the
     migration process's cwd.
 
-  OPEN DECISION, needed before the data move: when `worker_ledger.project` and the referenced
-  todo's `targetProject` disagree (50 rows today), which one owns the row? A default here
-  silently misfiles them, so this is answered explicitly, not inferred.
+  DECIDED 2026-08-10 — when `worker_ledger.project` and the referenced todo's `targetProject`
+  disagree (50 rows today), **`project` owns the row**. The ledger is an event log: it records
+  where work actually EXECUTED. `targetProject` is a property of the work item — what the work was
+  aimed at — and belongs to the todo, not to the event. Filing by `targetProject` would move
+  execution history into a repo where that execution never happened.
 - **P3 — async DB boundary, heartbeat liveness, query-duration tripwire.**
 
 ## Migration must be a capability, not an event
