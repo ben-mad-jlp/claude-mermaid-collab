@@ -231,8 +231,37 @@ const V1_CREATE: Migration = {
   },
 };
 
+/**
+ * v2 — restore `asanaGid` / `blueprintId` on databases that were created by the FIRST cut of v1.
+ *
+ * PAID FOR IN AN INCIDENT (2026-08-10). v1 originally dropped both columns as dead. The store's
+ * INSERT/UPDATE still name them, so that broke every write, and the fix was to put them back —
+ * which I did by editing v1 in place, reasoning that v1 had never been applied anywhere real.
+ * It had: leftover per-test project databases inside epic worktrees were already stamped
+ * version 1. A database at v1 never re-runs v1, so those never received the columns, and every
+ * epic base gate went red with `table todos has no column named asanaGid`.
+ *
+ * Editing an applied migration cannot work, whatever the migration says it does. A schema version
+ * is a claim about what a database ALREADY CONTAINS; changing the code behind a version number
+ * makes that claim false for every database that recorded it. The only repair is a new version.
+ *
+ * Additive and conditional, so it is a no-op on a database created by the current v1.
+ */
+const V2_RESTORE_LEGACY_COLUMNS: Migration = {
+  version: 2,
+  name: 'restore-asanagid-blueprintid',
+  up: (db: Database) => {
+    const have = new Set(
+      (db.query('PRAGMA table_info(todos)').all() as Array<{ name: string }>).map((c) => c.name),
+    );
+    for (const col of ['asanaGid', 'blueprintId']) {
+      if (!have.has(col)) db.exec(`ALTER TABLE todos ADD COLUMN ${col} TEXT`);
+    }
+  },
+};
+
 /** The ordered migration list for a project's consolidated database. Append only; never renumber. */
-export const COLLAB_DB_MIGRATIONS: Migration[] = [V1_CREATE];
+export const COLLAB_DB_MIGRATIONS: Migration[] = [V1_CREATE, V2_RESTORE_LEGACY_COLUMNS];
 
 /**
  * Foreign keys are per-CONNECTION in SQLite and default to OFF, so every declaration above is
