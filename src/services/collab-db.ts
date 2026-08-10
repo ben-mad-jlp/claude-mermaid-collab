@@ -16,7 +16,7 @@
  * explicit act once the consolidated database has been trusted for a while.
  */
 import { Database } from 'bun:sqlite';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { canonicalProjectRoot, canonicalProjectRootLoose, storePath } from './store-paths';
 import { COLLAB_DB_MIGRATIONS, enforceForeignKeys } from './collab-db-schema';
@@ -47,18 +47,33 @@ export function openCollabDb(project: string, opts: OpenCollabOpts = {}): Databa
   const dest = storePath('collab', root);
   mkdirSync(dirname(dest), { recursive: true });
 
-  // The one-time move. Guarded on the DESTINATION not existing rather than on a flag, so an
-  // interrupted first run simply retries: the import is idempotent (INSERT OR IGNORE on primary
-  // keys) and a half-written collab.db is completed on the next open rather than skipped.
+  // The one-time move, performed into a SIDE FILE and renamed into place only once it has
+  // finished. The obvious form — import straight into `dest`, guarded on `dest` not existing —
+  // is a trap: the importer creates the destination before it reads a single source row, so any
+  // failure leaves a complete, empty, correctly-migrated collab.db behind, and the guard then
+  // skips the import forever. One transient error would convert a populated project into a
+  // permanently empty one, silently. rename(2) is atomic within a directory, so `dest` only ever
+  // exists fully imported, and a failed attempt leaves nothing for the next open to trip over.
   const legacyTodos = storePath('todos', root);
   if (!existsSync(dest) && existsSync(legacyTodos)) {
-    const report = importProjectWorkGraph({
-      todosPath: legacyTodos,
-      missionPath: storePath('mission', root),
-      destPath: dest,
-      inflight: opts.inflight,
-      now: opts.now,
-    });
+    const staging = `${dest}.importing`;
+    for (const f of [staging, `${staging}-wal`, `${staging}-shm`]) {
+      rmSync(f, { force: true }); // residue from an attempt that died mid-flight
+    }
+    let report;
+    try {
+      report = importProjectWorkGraph({
+        todosPath: legacyTodos,
+        missionPath: storePath('mission', root),
+        destPath: staging,
+        inflight: opts.inflight,
+        now: opts.now,
+      });
+      renameSync(staging, dest);
+    } catch (err) {
+      for (const f of [staging, `${staging}-wal`, `${staging}-shm`]) rmSync(f, { force: true });
+      throw err; // loud: the legacy data is still intact, and the next open retries cleanly
+    }
     lastImport.set(root, report);
     // A violation means the copy did not reproduce the source faithfully. Surfacing it here — at
     // the moment of the move, naming the project — beats discovering it later from missing rows.

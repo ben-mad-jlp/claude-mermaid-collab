@@ -47,10 +47,41 @@ CREATE TABLE IF NOT EXISTS migration_orphan (
   noted_at    INTEGER NOT NULL
 )`;
 
-/** The column names a schema declares for `todos` ('main' or an ATTACHed alias). */
-function todoColumns(db: Database, schema: string): string[] {
-  return (db.query(`PRAGMA ${schema}.table_info(todos)`).all() as Array<{ name: string }>)
+/** The column names a schema declares for a table ('main' or an ATTACHed alias). */
+function columnsOf(db: Database, schema: string, table: string): string[] {
+  return (db.query(`PRAGMA ${schema}.table_info(${table})`).all() as Array<{ name: string }>)
     .map((c) => c.name);
+}
+
+/**
+ * Copy a table across the ATTACH by NAME-MATCHED columns, never `SELECT *`.
+ *
+ * `INSERT INTO t SELECT * FROM src.t` is positional: it requires the source to have exactly the
+ * destination's column count AND order. A legacy database missing a column is the definition of
+ * legacy — it is precisely why the stores still carry dozens of `addColumnIfMissing` calls — so
+ * the positional form fails on exactly the databases this import exists to rescue, with
+ * `table X has N columns but M values were supplied`. Worse, the import runs inside the opener,
+ * so that throw takes down every store call for the project rather than just the migration.
+ *
+ * Columns the source lacks are left at their destination default. Columns the source has and the
+ * destination does not are reported by the caller if they hold data.
+ */
+function copyByName(
+  dest: Database,
+  srcSchema: string,
+  table: string,
+  where = '',
+): { shared: string[]; droppedWithData: string[] } {
+  const destCols = new Set(columnsOf(dest, 'main', table));
+  const srcCols = columnsOf(dest, srcSchema, table);
+  const shared = srcCols.filter((c) => destCols.has(c));
+  const droppedWithData = srcCols
+    .filter((c) => !destCols.has(c))
+    .filter((c) => (dest.query(`SELECT COUNT(*) n FROM ${srcSchema}.${table} WHERE "${c}" IS NOT NULL`)
+      .get() as { n: number }).n > 0);
+  const cols = shared.map((c) => `"${c}"`).join(', ');
+  dest.exec(`INSERT OR IGNORE INTO ${table} (${cols}) SELECT ${cols} FROM ${srcSchema}.${table} ${where}`);
+  return { shared, droppedWithData };
 }
 
 /**
@@ -82,14 +113,14 @@ export function importProjectWorkGraph(io: {
     // silently selecting a subset without saying so would hide a real column loss. Anything
     // present in the source WITH DATA but absent from the destination is reported as a
     // violation rather than dropped.
-    const destCols = new Set(todoColumns(dest, 'main'));
+    const destCols = new Set(columnsOf(dest, 'main', 'todos'));
 
     // Read the source's columns through the ATTACH rather than a second handle: a WAL database
     // cannot be opened readonly without its -shm sidecar (SQLITE_CANTOPEN), and one handle is
     // one fewer thing to leak.
     dest.exec(`ATTACH DATABASE '${io.todosPath.replace(/'/g, "''")}' AS src_todos`);
     try {
-      const cols = todoColumns(dest, 'src_todos');
+      const cols = columnsOf(dest, 'src_todos', 'todos');
       const shared = cols.filter((c) => destCols.has(c));
       const droppedCols = cols.filter((c) => !destCols.has(c));
       for (const c of droppedCols) {
@@ -98,25 +129,33 @@ export function importProjectWorkGraph(io: {
         if (n > 0) report.violations.push(`column ${c} holds ${n} non-null rows but is not in the destination schema`);
       }
 
+      // Passes 2 and 3 read `src_todos.todos.parentId` by name. Pass 1 goes to the trouble of
+      // intersecting columns precisely so an unexpected source shape cannot throw; referencing
+      // parentId unconditionally would reintroduce that, and throw AFTER pass 1 has already
+      // written rows. A source with no parent edge at all simply has no edges to re-attach.
+      const hasParentEdge = shared.includes('parentId');
+
       const copyTodos = dest.transaction(() => {
         // Pass 1: every work item, with parentId deliberately NULL. Inserting children before
         // parents would otherwise fail the self-FK purely on ordering.
         const withoutParent = shared.filter((c) => c !== 'parentId').map((c) => `"${c}"`).join(', ');
         dest.exec(`INSERT OR IGNORE INTO todos (${withoutParent}) SELECT ${withoutParent} FROM src_todos.todos`);
         // Pass 2: re-attach each edge whose parent actually exists.
-        dest.exec(`
-          UPDATE todos SET parentId = (SELECT s.parentId FROM src_todos.todos s WHERE s.id = todos.id)
-          WHERE EXISTS (
-            SELECT 1 FROM src_todos.todos s
-            WHERE s.id = todos.id AND s.parentId IS NOT NULL
-              AND EXISTS (SELECT 1 FROM todos p WHERE p.id = s.parentId)
-          )`);
+        if (hasParentEdge) {
+          dest.exec(`
+            UPDATE todos SET parentId = (SELECT s.parentId FROM src_todos.todos s WHERE s.id = todos.id)
+            WHERE EXISTS (
+              SELECT 1 FROM src_todos.todos s
+              WHERE s.id = todos.id AND s.parentId IS NOT NULL
+                AND EXISTS (SELECT 1 FROM todos p WHERE p.id = s.parentId)
+            )`);
+        }
       });
       copyTodos();
 
       // Pass 3: record the edges that could not be re-attached. These are real dropped parents,
       // so the child survives parentless and the loss is written down rather than inferred later.
-      const severed = dest.query(`
+      const severed = !hasParentEdge ? [] : dest.query(`
         SELECT s.id AS id, s.parentId AS missingParentId
         FROM src_todos.todos s
         WHERE s.parentId IS NOT NULL
@@ -155,17 +194,19 @@ export function importProjectWorkGraph(io: {
           // Mission control state is FK'd to its node. 93 of 108 mission-kind todos have no
           // mission row at all, which is fine (the FK runs the other way); but a mission row
           // whose node is missing cannot be inserted, so those are reported, not force-fitted.
-          dest.exec(`
-            INSERT OR IGNORE INTO mission
-            SELECT * FROM src_mission.mission m WHERE EXISTS (SELECT 1 FROM todos t WHERE t.id = m.todoId)`);
-          dest.exec(`
-            INSERT OR IGNORE INTO mission_criterion
-            SELECT * FROM src_mission.mission_criterion c WHERE EXISTS (SELECT 1 FROM todos t WHERE t.id = c.todoId)`);
-          dest.exec('INSERT OR IGNORE INTO mission_recheck SELECT * FROM src_mission.mission_recheck');
-          // Verdict history is audit: copied wholesale, including rows whose criterion is gone.
-          dest.exec(`
-            INSERT OR IGNORE INTO mission_criterion_verdict_history
-            SELECT * FROM src_mission.mission_criterion_verdict_history`);
+          const nodeExists = 'WHERE EXISTS (SELECT 1 FROM todos t WHERE t.id = todoId)';
+          const copies = [
+            copyByName(dest, 'src_mission', 'mission', nodeExists),
+            copyByName(dest, 'src_mission', 'mission_criterion', nodeExists),
+            copyByName(dest, 'src_mission', 'mission_recheck'),
+            // Verdict history is audit: copied wholesale, including rows whose criterion is gone.
+            copyByName(dest, 'src_mission', 'mission_criterion_verdict_history'),
+          ];
+          for (const c of copies) {
+            for (const col of c.droppedWithData) {
+              report.violations.push(`column ${col} holds data but is not in the destination schema`);
+            }
+          }
         });
         copyMission();
 

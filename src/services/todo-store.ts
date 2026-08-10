@@ -3750,13 +3750,34 @@ export function removeTodo(project: string, id: string): Promise<void> {
   });
 }
 
+/**
+ * Clear this session's completed todos.
+ *
+ * `todos.parentId` now cascades on delete, which turns the obvious one-shot DELETE into a
+ * data-loss bug: a DONE container in the matched set would drag its whole subtree with it —
+ * including `in_progress` children, and children owned by OTHER sessions that the WHERE clause
+ * deliberately excludes — while still reporting only the directly-matched count. So this deletes
+ * BOTTOM-UP: each pass removes only matched rows with no surviving children, and repeats until
+ * nothing more qualifies. A fully-done subtree clears completely; a container holding any child
+ * this session may not touch is left standing, with its children. Bounded by tree depth.
+ */
 export function clearCompleted(project: string, session: string): Promise<{ removed: number }> {
   return withLock(project, () => {
     const db = openDb(project);
-    const res = db
-      .prepare("DELETE FROM todos WHERE (ownerSession = ? OR assigneeSession = ?) AND status = 'done'")
-      .run(session, session);
-    return { removed: res.changes };
+    const stmt = db.prepare(
+      `DELETE FROM todos
+       WHERE (ownerSession = ? OR assigneeSession = ?) AND status = 'done'
+         AND NOT EXISTS (SELECT 1 FROM todos child WHERE child.parentId = todos.id)`,
+    );
+    let removed = 0;
+    db.transaction(() => {
+      for (;;) {
+        const res = stmt.run(session, session);
+        if (res.changes === 0) break;
+        removed += res.changes;
+      }
+    })();
+    return { removed };
   });
 }
 
