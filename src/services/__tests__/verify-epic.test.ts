@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: inert - tests reference git worktree add in error messages but don't execute it
+ */
 // Pure verdict-logic tests for verify-epic.ts — the runner is stubbed,
 // so these are hermetic (no real suite, no shell-out). They exercise the
 // NET-NEW failures detection (names, not counts) and the distinction between

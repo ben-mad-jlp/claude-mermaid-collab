@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: sweepStrandedAccepted sets up git worktrees with add operations
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { promises as fs } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
