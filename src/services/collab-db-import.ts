@@ -131,6 +131,18 @@ export function importProjectWorkGraph(io: {
       noteAll();
       report.severedParents = severed;
       report.copied.todos = (dest.query('SELECT COUNT(*) n FROM todos').get() as { n: number }).n;
+
+      // Carry the source's `user_version` across. todo-store gates its one-shot backfills on it
+      // (deriving `kind` from a title prefix, the bucket dedupe, the triageTag backfill …) and
+      // the live todos.db sits at 11. A consolidated database starting at 0 would re-run every
+      // one of them against data they have already been applied to — and the bucket dedupe
+      // DELETES rows. schema_meta governs the consolidated schema; user_version keeps exactly the
+      // value it had so the store's own gates retain their meaning.
+      const srcUserVersion = Number(
+        (dest.query('PRAGMA src_todos.user_version').get() as { user_version: number }).user_version,
+      ) || 0;
+      dest.exec(`PRAGMA main.user_version = ${srcUserVersion}`);
+      report.copied.userVersion = srcUserVersion;
     } finally {
       dest.exec('DETACH DATABASE src_todos');
     }

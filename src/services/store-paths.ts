@@ -32,6 +32,10 @@ export type StoreScope = 'project' | 'global';
 /** Canonical registry: the complete set of databases and where each one legitimately lives. */
 export const STORES = {
   // --- per-project: the work-graph and everything derived from this repo ---
+  /** The CONSOLIDATED work-graph database: work items, mission control state, criteria and
+   *  claims in one file so foreign keys and transactions apply between them. Supersedes the
+   *  `todos` + `mission` pair below, which remain declared while the migration path reads them. */
+  collab: { file: 'collab.db', scope: 'project' },
   todos: { file: 'todos.db', scope: 'project' },
   mission: { file: 'mission.db', scope: 'project' },
   friction: { file: 'friction.db', scope: 'project' },
