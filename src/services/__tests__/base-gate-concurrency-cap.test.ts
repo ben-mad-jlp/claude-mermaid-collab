@@ -13,6 +13,7 @@ import {
   runBaseGateShared,
   resetBaseGateCoalescer,
   maxConcurrentBaseGates,
+  maxConcurrentBaseGatesGlobal,
 } from '../base-gate-coalescer';
 import type { LeafGateResult } from '../leaf-gate';
 
@@ -43,6 +44,7 @@ function concurrencyTracker() {
 }
 
 const ORIGINAL_ENV = process.env.MERMAID_MAX_CONCURRENT_BASE_GATES;
+const ORIGINAL_ENV_GLOBAL = process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL;
 
 beforeEach(() => {
   resetBaseGateCoalescer();
@@ -51,6 +53,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIGINAL_ENV === undefined) delete process.env.MERMAID_MAX_CONCURRENT_BASE_GATES;
   else process.env.MERMAID_MAX_CONCURRENT_BASE_GATES = ORIGINAL_ENV;
+  if (ORIGINAL_ENV_GLOBAL === undefined) delete process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL;
+  else process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL = ORIGINAL_ENV_GLOBAL;
   resetBaseGateCoalescer();
 });
 
@@ -138,5 +142,63 @@ describe('base-gate per-project concurrency cap', () => {
     expect(maxConcurrentBaseGates()).toBe(2); // 0 must not silently disable the cap
     process.env.MERMAID_MAX_CONCURRENT_BASE_GATES = '4';
     expect(maxConcurrentBaseGates()).toBe(4);
+  });
+});
+
+describe('the GLOBAL cap — what the per-project cap does not bound', () => {
+  // 2026-08-10: two projects were `on`, each INSIDE its per-project cap of 2, and the sidecar was
+  // SIGKILLed twice in twelve minutes. Each gate itself fans out to `--concurrency=6` bun test
+  // children, so the box saw 2 x 2 x 6 = 24 processes on 14 cores. Nothing was uncapped — the
+  // per-project caps simply multiplied, and the total was bounded nowhere.
+  it('holds the TOTAL across projects, not just per project', async () => {
+    process.env.MERMAID_MAX_CONCURRENT_BASE_GATES = '2';        // per-project: generous
+    process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL = '2'; // global: the real ceiling
+    const { state, wrap } = concurrencyTracker();
+    const d = [deferredRun(), deferredRun(), deferredRun(), deferredRun()];
+
+    // Four gates over two projects: within BOTH per-project caps, over the global one.
+    const all = [
+      runBaseGateShared('a1', wrap(d[0]!.gate), { project: '/proj/a' }),
+      runBaseGateShared('a2', wrap(d[1]!.gate), { project: '/proj/a' }),
+      runBaseGateShared('b1', wrap(d[2]!.gate), { project: '/proj/b' }),
+      runBaseGateShared('b2', wrap(d[3]!.gate), { project: '/proj/b' }),
+    ];
+    await Promise.resolve(); await Promise.resolve();
+
+    expect(state.peak).toBe(2); // the per-project caps alone would have permitted 4
+
+    for (const x of d) x.release();
+    await Promise.all(all);
+    expect(state.peak).toBe(2);
+  });
+
+  it('throttles rather than drops: a queued gate runs once a slot frees', async () => {
+    process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL = '1';
+    const { state, wrap } = concurrencyTracker();
+    const first = deferredRun();
+    const second = deferredRun();
+
+    const a = runBaseGateShared('k1', wrap(first.gate), { project: '/proj/a' });
+    const b = runBaseGateShared('k2', wrap(second.gate), { project: '/proj/b' });
+    await Promise.resolve(); await Promise.resolve();
+    expect(state.started).toBe(1); // the second is waiting, not rejected
+
+    first.release();
+    await a;
+    await Promise.resolve(); await Promise.resolve();
+    expect(state.started).toBe(2); // and it starts when the slot frees
+
+    second.release();
+    await b;
+  });
+
+  it('a bad env value falls back to the default instead of uncapping', () => {
+    // A typo must never become a way to reopen the fan-out that killed the sidecar.
+    for (const bad of ['0', '-3', 'lots', '']) {
+      process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL = bad;
+      expect(maxConcurrentBaseGatesGlobal()).toBe(2);
+    }
+    delete process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL;
+    expect(maxConcurrentBaseGatesGlobal()).toBe(2);
   });
 });
