@@ -1,8 +1,7 @@
 // In-process concurrency limiter for headless leaf dispatch.
 //
-// WHY a separate in-process counter (not the leaf_inflight ledger): the
-// `leaf_inflight` rows in worker-ledger are written per-NODE by the executor —
-// i.e. only AFTER a leaf has started running its first node. That is too late to
+// WHY a separate in-process counter (not the leaf claim store): a leaf's claim is written
+// per-NODE by the executor — i.e. only AFTER a leaf has started running its first node. That is too late to
 // gate claim-time concurrency: a single fire-and-track tick can claim+launch
 // several leaves before any of them writes a ledger row, so all would read
 // count=0 and blow past the cap. This counter is incremented SYNCHRONOUSLY at
@@ -106,7 +105,7 @@ export function _resetLeafSlots(): void {
 // supplies. The caller (coordinator-live, per periodic sweep) is responsible for
 // computing that snapshot from whichever "is this leaf really running" source the
 // daemon already trusts — see coordinator-live's reapOrphanedLeaves, which uses the
-// durable worker-ledger `leaf_inflight` table (preferred: it is NOT reset by an
+// durable per-project `leaf_claim` table (preferred: it is NOT reset by an
 // in-process restart the way this module's own counters, or the in-memory
 // leaf-subprocess-registry, are) immediately after its own per-tick reap, so every
 // row left is guaranteed current-epoch AND run-live.
