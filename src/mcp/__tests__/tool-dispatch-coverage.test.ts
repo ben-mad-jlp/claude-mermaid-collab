@@ -36,7 +36,7 @@ import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from '../workgraph-tools.js'
 import { DECISION_TOOL_DEFS, handleDecisionTool } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from '../system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from '../session-tools.js';
-import { DESKTOP_TOOL_DEFS, handleDesktopTool } from '../desktop-tools.js';
+import { getDesktopToolDefs, handleDesktopTool } from '../desktop-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -294,7 +294,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every DESKTOP_TOOL_DEFS name is wired in handleDesktopTool', async () => {
-    for (const def of DESKTOP_TOOL_DEFS) {
+    for (const def of getDesktopToolDefs()) {
       expect(await isRecognized(handleDesktopTool, def.name)).toBe(true);
     }
   });

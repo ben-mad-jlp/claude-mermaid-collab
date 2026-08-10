@@ -15,7 +15,7 @@ import { EPIC_TOOL_DEFS } from '../epic-tools.js';
 import { DECISION_TOOL_DEFS } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS } from '../system-tools.js';
 import { SESSION_TOOL_DEFS } from '../session-tools.js';
-import { DESKTOP_TOOL_DEFS } from '../desktop-tools.js';
+import { getDesktopToolDefs } from '../desktop-tools.js';
 import { GROUP_REGISTRY } from '../advertised-tools.js';
 
 // Entries in DEFS arrays that are intentionally NOT advertised via ListTools
@@ -39,12 +39,15 @@ const GROUPS: Array<{ label: string; defs: Array<{ name: string }> }> = [
   { label: 'DECISION_TOOL_DEFS', defs: DECISION_TOOL_DEFS },
   { label: 'SYSTEM_TOOL_DEFS', defs: SYSTEM_TOOL_DEFS },
   { label: 'SESSION_TOOL_DEFS', defs: SESSION_TOOL_DEFS },
-  { label: 'DESKTOP_TOOL_DEFS', defs: DESKTOP_TOOL_DEFS },
 ];
 
 describe('tool defs vs advertised ListTools parity', () => {
   it('every group DEFS name set matches its advertised subset (modulo exclusions)', async () => {
     const server = await setupMCPServer();
+
+    // Desktop defs are dynamic (populated when the electron bridge loads), so they
+    // must be resolved here rather than captured at import time.
+    const allGroups = [...GROUPS, { label: 'DESKTOP_TOOL_DEFS', defs: getDesktopToolDefs() }];
     const handler = (server as any)._requestHandlers.get('tools/list');
 
     if (!handler) {
@@ -56,7 +59,7 @@ describe('tool defs vs advertised ListTools parity', () => {
     const advertisedSet = new Set(actual.tools.map((t: any) => t.name));
 
     // Forward direction: every declared DEFS name (minus exclusions) must be advertised
-    for (const { label, defs } of GROUPS) {
+    for (const { label, defs } of allGroups) {
       const excluded = DELIBERATELY_UNADVERTISED[label] ?? new Set<string>();
       const declared = new Set(defs.map((d) => d.name));
 
@@ -72,7 +75,7 @@ describe('tool defs vs advertised ListTools parity', () => {
     // resolvable in GROUP_REGISTRY by name. Collect all unassigned names first and
     // throw one Error naming all of them.
     const unassignedNames: string[] = [];
-    for (const { label, defs } of GROUPS) {
+    for (const { label, defs } of allGroups) {
       const excluded = DELIBERATELY_UNADVERTISED[label] ?? new Set<string>();
       const groupLabel = label.replace('_TOOL_DEFS', ''); // Convert label to registry key (e.g., 'SESSION_TOOL_DEFS' → 'SESSION')
 
@@ -92,7 +95,7 @@ describe('tool defs vs advertised ListTools parity', () => {
     }
 
     // Reverse direction: count of advertised names per group must match declared count
-    for (const { label, defs } of GROUPS) {
+    for (const { label, defs } of allGroups) {
       const excluded = DELIBERATELY_UNADVERTISED[label] ?? new Set<string>();
       const declared = new Set(defs.map((d) => d.name));
       const expectedCount = declared.size - excluded.size;
