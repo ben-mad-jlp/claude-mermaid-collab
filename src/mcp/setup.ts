@@ -43,7 +43,7 @@ import {
   unregisterProjectSchema,
 } from './tools/projects.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
-import { projectRegistry } from '../services/project-registry.js';
+import { projectRegistry, resolveProjectArg } from '../services/project-registry.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
@@ -233,6 +233,17 @@ export async function setupMCPServer(): Promise<Server> {
           ruiArgs,
         );
         return res as any;
+      }
+
+      // Resolve `project` ONCE, here at the boundary, before any handler sees it. A caller may
+      // pass a path OR a registered project NAME; a name used to fall through to path
+      // resolution against the server's cwd and address a database that did not exist, which
+      // SQLite creates empty — so list_missions answered {count: 0} for a project holding a
+      // live mission. resolveProjectArg takes a real path, resolves a registered name, and
+      // otherwise THROWS naming what it tried. Never a silent empty store.
+      if (args && typeof (args as { project?: unknown }).project === 'string') {
+        (args as { project: string }).project =
+          resolveProjectArg((args as { project: string }).project);
       }
 
       const result = await (async () => {

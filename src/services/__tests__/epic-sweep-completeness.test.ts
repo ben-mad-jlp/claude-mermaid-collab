@@ -3,11 +3,11 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'bun:sqlite';
 import {
   createTodo,
   updateTodo,
   getTodo,
+  openDb,
   sweepEpicRollups,
   stampEpicLandedAt,
   _closeProject,
@@ -18,37 +18,28 @@ import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 let project: string;
 
 /** Helper: force a todo into in_progress status via raw SQL (bypassing the updateTodo
- *  validation that rejects manual in_progress). Then _closeProject to flush the
- *  connection so the next store call re-opens fresh. */
+ *  validation that rejects manual in_progress). The handle comes from openDb, not from
+ *  `new Database('.collab/todos.db')`: the store keeps its rows in the consolidated
+ *  collab.db, which only exists once openDb has created and migrated it. Same handle the
+ *  store reads through, so there is nothing to flush afterwards. */
 function forceInProgress(proj: string, id: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(`UPDATE todos SET status='in_progress' WHERE id='${id}'`);
-  db.close();
-  _closeProject(proj);
+  openDb(proj).exec(`UPDATE todos SET status='in_progress' WHERE id='${id}'`);
 }
 
 /** Helper: force a todo into in_progress WITH a live claim via raw SQL (mimics a
- *  genuinely running build: de-conflate S1 keeps claim + 4 legacy columns in lockstep).
- *  Then _closeProject to flush the connection. */
+ *  genuinely running build: de-conflate S1 keeps claim + 4 legacy columns in lockstep). */
 function forceInProgressClaimed(proj: string, id: string) {
   const at = new Date().toISOString();
   const claim = JSON.stringify({ by: 'worker-1', token: 'tok-1', at, leaseMs: 40 * 60 * 1000 });
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(
+  openDb(proj).exec(
     `UPDATE todos SET status='in_progress', claimedBy='worker-1', claimToken='tok-1', ` +
     `claimedAt='${at}', claimLeaseMs=${40 * 60 * 1000}, claim='${claim}' WHERE id='${id}'`,
   );
-  db.close();
-  _closeProject(proj);
 }
 
-/** Helper: backdate a todo's updatedAt timestamp via raw SQL to a specific ISO string.
- *  Then _closeProject to flush the connection. */
+/** Helper: backdate a todo's updatedAt timestamp via raw SQL to a specific ISO string. */
 function backdateUpdatedAt(proj: string, id: string, isoTimestamp: string) {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.exec(`UPDATE todos SET updatedAt='${isoTimestamp}' WHERE id='${id}'`);
-  db.close();
-  _closeProject(proj);
+  openDb(proj).exec(`UPDATE todos SET updatedAt='${isoTimestamp}' WHERE id='${id}'`);
 }
 
 beforeEach(() => {

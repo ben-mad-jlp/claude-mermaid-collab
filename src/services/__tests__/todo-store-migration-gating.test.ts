@@ -1,4 +1,3 @@
-import Database from 'bun:sqlite';
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +10,17 @@ import {
   TODO_EXPLORE_SPEC_V11,
 } from '../todo-store';
 
+// Every handle here comes from openDb — the store's consolidated `.collab/collab.db`. The probe
+// rows are mutated through that same handle rather than a second raw `new Database`, because a
+// raw connection opens with foreign keys OFF (the pragma is per-connection) and would let this
+// fixture write graph states the store itself cannot.
+//
+// GOTCHA that makes or breaks both tests: the one-shot backfill block is guarded by a per-root
+// `prepared` set, so openDb only re-runs it on a root whose handle has been evicted. Every
+// "re-open" step below is therefore _closeProject() FOLLOWED BY openDb() — dropping the
+// _closeProject would hand back the cached handle, the migration block would never execute, and
+// the test would pass while proving nothing.
+
 let project: string;
 
 beforeEach(() => {
@@ -20,10 +30,6 @@ afterEach(() => {
   _closeProject(project);
   rmSync(project, { recursive: true, force: true });
 });
-
-function dbPath(p: string): string {
-  return join(p, '.collab', 'todos.db');
-}
 
 describe('Migration gating — idempotence and convergence', () => {
   test('second open executes zero backfill UPDATEs (probe rows byte-identical)', async () => {
@@ -47,13 +53,8 @@ describe('Migration gating — idempotence and convergence', () => {
       status: 'done',
     });
 
-    // 2. Close the DB and re-open with raw Database to mutate probe rows.
-    _closeProject(project);
-    const rawDb = new Database(dbPath(project));
-
-    // Snapshot original probe rows before mutation.
-    const epicBefore = rawDb.query(`SELECT id, targetProject, landedAt, title, claimedBy, claimToken FROM todos WHERE id = ?`).get(epic.id) as any;
-    const leafBefore = rawDb.query(`SELECT id, title, claimedBy, claimToken FROM todos WHERE id = ?`).get(leaf.id) as any;
+    // 2. Take the store's handle to mutate probe rows behind its back.
+    const rawDb = openDb(project);
 
     // 3. Mutate probe rows into states the old backfills WOULD rewrite.
     // (These mutations simulate what an old DB might have before the gating.)
@@ -66,15 +67,12 @@ describe('Migration gating — idempotence and convergence', () => {
     const epicMutated = rawDb.query(`SELECT id, targetProject, landedAt, title, claimedBy, claimToken FROM todos WHERE id = ?`).get(epic.id) as any;
     const leafMutated = rawDb.query(`SELECT id, title, claimedBy, claimToken FROM todos WHERE id = ?`).get(leaf.id) as any;
 
-    rawDb.close();
-
-    // 4. Re-open via openDb (cache was dropped, so migration block would re-run, but user_version
-    // is already high, so backfills are gated and do NOT run).
-    openDb(project);
+    // 4. Evict, then re-open: the migration block DOES re-run, but user_version is already at the
+    // latest marker, so every backfill inside it is gated off.
+    _closeProject(project);
+    const freshDb = openDb(project);
 
     // 5. Verify probe rows are UNCHANGED (the second open was a no-op due to gating).
-    // Open a fresh DB handle to query the current state.
-    const freshDb = new Database(dbPath(project));
     const epicFinal = freshDb.query(`SELECT id, targetProject, landedAt, title, claimedBy, claimToken FROM todos WHERE id = ?`).get(epic.id) as any;
     const leafFinal = freshDb.query(`SELECT id, title, claimedBy, claimToken FROM todos WHERE id = ?`).get(leaf.id) as any;
 
@@ -85,8 +83,6 @@ describe('Migration gating — idempotence and convergence', () => {
     expect(epicFinal.title).toBe(epicMutated.title); // '[EPIC] Probe' unchanged
     expect(leafFinal.claimedBy).toBe(leafMutated.claimedBy); // 'stale' unchanged
     expect(leafFinal.claimToken).toBe(leafMutated.claimToken); // 'stale' unchanged
-
-    freshDb.close();
   });
 
   test('legacy user_version=0 DB converges to final state at the latest user_version', async () => {
@@ -110,8 +106,7 @@ describe('Migration gating — idempotence and convergence', () => {
       status: 'done',
     });
 
-    _closeProject(project);
-    const rawDb = new Database(dbPath(project));
+    const rawDb = openDb(project);
 
     // 2. Rewrite rows into legacy shape: NULL kind, title prefixes, NULL targetProject, stale claim.
     rawDb.prepare(`UPDATE todos SET kind = NULL WHERE id = ?`).run(epic.id);
@@ -122,15 +117,16 @@ describe('Migration gating — idempotence and convergence', () => {
     rawDb.prepare(`UPDATE todos SET targetProject = NULL WHERE id IN (?, ?, ?)`).run(epic.id, leaf.id, landLeaf.id);
     rawDb.prepare(`UPDATE todos SET claimedBy = 'stale', claimToken = 'old', claimedAt = '2025-01-01T00:00:00Z', claimLeaseMs = 1000, claim = NULL WHERE id = ? AND status != 'in_progress'`).run(leaf.id);
 
-    // 3. Set user_version to 0 to force re-run of all backfills.
+    // 3. Set user_version to 0 to force re-run of all backfills. This is the same lever the
+    // import uses in the other direction — it carries the legacy file's user_version into
+    // collab.db precisely so these gates keep their meaning after consolidation.
     rawDb.exec(`PRAGMA user_version = 0`);
-    rawDb.close();
 
-    // 4. Re-open via openDb (all backfills V1–V9 run).
-    openDb(project);
+    // 4. Evict and re-open via openDb (all backfills V1–V11 run).
+    _closeProject(project);
+    const freshDb = openDb(project);
 
     // 5. Verify convergence: exact post-change state.
-    const freshDb = new Database(dbPath(project));
 
     // Check kinds: mission/epic/land/gate/leaf
     const epicFinal = freshDb.query(`SELECT id, kind, title, targetProject, landedAt, status, claimedBy, claimToken FROM todos WHERE id = ?`).get(epic.id) as any;
@@ -165,7 +161,5 @@ describe('Migration gating — idempotence and convergence', () => {
     // gate for every epic project-wide, so this pins the latest constant deliberately.
     const versionResult = freshDb.query(`PRAGMA user_version`).get() as any;
     expect(versionResult.user_version).toBe(TODO_EXPLORE_SPEC_V11);
-
-    freshDb.close();
   });
 });

@@ -198,11 +198,13 @@ describe('isBucket column and backfill', () => {
   test('user_version is set to the latest bucket migration (V4 dedup) after backfill', () => {
     // openDb runs ALL pending migrations, so after the V3 column backfill the V4 dedup also
     // runs and bumps user_version to V4 — assert the latest, not the intermediate V3.
-    const db = new Database(dbPath);
+    // Read the version off the STORE's handle: the seeded todos.db above was imported into
+    // .collab/collab.db and then left frozen as the rollback copy, so its own user_version is
+    // still the 2 this fixture wrote. The migrated version only exists on the consolidated db.
+    const db = openDb(projectPath);
     const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
     expect(ver).toBeGreaterThanOrEqual(TODO_BUCKET_TYPE_V5);
     expect(ver).toBeGreaterThanOrEqual(TODO_BUCKET_COLUMN_V3);
-    db.close();
   });
 
   test('backfill is idempotent — second open changes nothing', async () => {

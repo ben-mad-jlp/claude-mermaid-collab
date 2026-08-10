@@ -5,13 +5,24 @@
 //
 // Every test opens its own temp dir (`fs.mkdtempSync`) as the "project" — never
 // the tracking repo's `.collab/todos.db`.
-import Database from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createTodo, getTodo, updateTodo, _closeProject } from '../todo-store';
+import { createTodo, getTodo, updateTodo, openDb, _closeProject } from '../todo-store';
+
+// The legacy rows below are seeded through openDb — the store's consolidated `.collab/collab.db`
+// — not through a second raw handle on `.collab/todos.db`. What makes a row "legacy" here is its
+// SHAPE (role prefix still in the title, `kind` NULL) plus a user_version rolled back to 0; none
+// of that depends on which FILE the row sits in, and a raw connection would open with foreign
+// keys OFF and let the fixture write graph states the store cannot.
+//
+// GOTCHA: openDb's one-shot migration block is guarded by a per-root `prepared` set, so it only
+// re-runs on a root whose handle has been evicted. Every "re-open" below is _closeProject()
+// followed by a store call — without the eviction the block never executes and the strip these
+// tests exist to check would silently not happen.
 
 let project: string;
 
@@ -22,10 +33,6 @@ afterEach(() => {
   _closeProject(project);
   rmSync(project, { recursive: true, force: true });
 });
-
-function dbPath(p: string): string {
-  return join(p, '.collab', 'todos.db');
-}
 
 describe('BOMB 1 — post-strip insert path never derives kind from the title', () => {
   test('explicit kind is stored as given', async () => {
@@ -58,9 +65,8 @@ describe('no NULL kinds after a handful of creates', () => {
     await createTodo(project, { kind: 'epic', title: 'E1', ownerSession: 's' });
     await createTodo(project, { allowOrphan: true, title: 'L1', ownerSession: 's' });
     await createTodo(project, { allowOrphan: true, title: 'L2', ownerSession: 's' });
-    const db = new Database(dbPath(project));
-    const row = db.query(`SELECT count(*) AS n FROM todos WHERE kind IS NULL`).get() as { n: number };
-    db.close();
+    const row = openDb(project)
+      .query(`SELECT count(*) AS n FROM todos WHERE kind IS NULL`).get() as { n: number };
     expect(row.n).toBe(0);
   });
 });
@@ -84,12 +90,11 @@ function resetUserVersion(db: Database): void {
 describe('stage-C strip migration', () => {
   test('strips exactly the three role prefixes, keyed on kind; topic tags survive verbatim', async () => {
     // Seed via a first createTodo (creates the DB + runs initSchema on an EMPTY
-    // db), then close it and re-open the raw sqlite file to insert legacy rows
-    // BEFORE the next todo-store openDb (so the migration runs against them).
+    // db), then insert the legacy rows directly, BEFORE the next todo-store
+    // openDb, so the migration runs against them.
     await createTodo(project, { allowOrphan: true, title: 'bootstrap', ownerSession: 's' });
-    _closeProject(project);
 
-    const raw = new Database(dbPath(project));
+    const raw = openDb(project);
     seedLegacyRow(raw, 'id-epic', '[EPIC] Foo');
     seedLegacyRow(raw, 'id-mission', '[MISSION] Converge');
     seedLegacyRow(raw, 'id-land', '[LAND] → master');
@@ -103,13 +108,13 @@ describe('stage-C strip migration', () => {
     const before_brack = (raw.query(`SELECT count(*) AS n FROM todos WHERE TRIM(title) LIKE '[%]%'`).get() as { n: number }).n;
     const before_total = (raw.query(`SELECT count(*) AS n FROM todos`).get() as { n: number }).n;
     resetUserVersion(raw);
-    raw.close();
+    _closeProject(project);
 
     // Re-open via todo-store — runs initSchema → kind backfill + strip.
     const bootstrap = await getTodo(project, 'nonexistent-forces-open');
     expect(bootstrap).toBeNull(); // just forcing openDb; not asserting on this
 
-    const after = new Database(dbPath(project));
+    const after = openDb(project);
     const after_role = (after.query(`SELECT count(*) AS n FROM todos WHERE ${roleLike('title')}`).get() as { n: number }).n;
     const after_brack = (after.query(`SELECT count(*) AS n FROM todos WHERE TRIM(title) LIKE '[%]%'`).get() as { n: number }).n;
     const after_total = (after.query(`SELECT count(*) AS n FROM todos`).get() as { n: number }).n;
@@ -120,7 +125,6 @@ describe('stage-C strip migration', () => {
 
     const rows = after.query(`SELECT id, title, kind FROM todos WHERE id LIKE 'id-%'`).all() as Array<{ id: string; title: string; kind: string }>;
     const byId = new Map(rows.map((r) => [r.id, r]));
-    after.close();
 
     expect(byId.get('id-epic')).toEqual({ id: 'id-epic', title: 'Foo', kind: 'epic' });
     expect(byId.get('id-mission')).toEqual({ id: 'id-mission', title: 'Converge', kind: 'mission' });
@@ -136,27 +140,23 @@ describe('stage-C strip migration', () => {
 
   test('idempotence: re-opening a third time changes zero rows', async () => {
     await createTodo(project, { allowOrphan: true, title: 'bootstrap', ownerSession: 's' });
-    _closeProject(project);
-    const raw = new Database(dbPath(project));
+    const raw = openDb(project);
     seedLegacyRow(raw, 'id-epic', '[EPIC] Foo');
     seedLegacyRow(raw, 'id-ui', '[UI] keep me');
     resetUserVersion(raw);
-    raw.close();
+    _closeProject(project);
 
     // Second open — runs backfill + strip.
     await getTodo(project, 'force-open-2');
+    const snapshotBefore = openDb(project)
+      .query(`SELECT id, title, kind FROM todos ORDER BY id`).all();
+
+    // Third open — the eviction makes the migration block run AGAIN; it must change nothing.
     _closeProject(project);
-
-    const before = new Database(dbPath(project));
-    const snapshotBefore = before.query(`SELECT id, title, kind FROM todos ORDER BY id`).all();
-    before.close();
-
-    // Third open — must be a no-op.
     await getTodo(project, 'force-open-3');
 
-    const after = new Database(dbPath(project));
-    const snapshotAfter = after.query(`SELECT id, title, kind FROM todos ORDER BY id`).all();
-    after.close();
+    const snapshotAfter = openDb(project)
+      .query(`SELECT id, title, kind FROM todos ORDER BY id`).all();
 
     expect(snapshotAfter).toEqual(snapshotBefore);
   });
@@ -165,19 +165,17 @@ describe('stage-C strip migration', () => {
 describe('Inbox find-or-create across the migration boundary', () => {
   test('a legacy [EPIC] Inbox row is matched (not duplicated) after the strip', async () => {
     await createTodo(project, { allowOrphan: true, title: 'bootstrap', ownerSession: 's' });
-    _closeProject(project);
-    const raw = new Database(dbPath(project));
+    const raw = openDb(project);
     seedLegacyRow(raw, 'id-inbox', '[EPIC] Inbox');
     resetUserVersion(raw);
-    raw.close();
+    _closeProject(project);
 
     // Force the migration to run (backfill assigns kind='epic', strip drops the prefix → 'Inbox').
     await getTodo(project, 'force-open');
 
     const created = await createTodo(project, { ownerSession: 's', title: 'thought', inbox: true });
-    const db = new Database(dbPath(project));
-    const epics = db.query(`SELECT id FROM todos WHERE kind='epic' AND title='Inbox'`).all() as Array<{ id: string }>;
-    db.close();
+    const epics = openDb(project)
+      .query(`SELECT id FROM todos WHERE kind='epic' AND title='Inbox'`).all() as Array<{ id: string }>;
 
     expect(epics).toHaveLength(1);
     expect(epics[0]!.id).toBe('id-inbox');
