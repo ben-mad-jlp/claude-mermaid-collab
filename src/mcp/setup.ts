@@ -70,7 +70,7 @@ import { EPIC_TOOL_DEFS, handleEpicTool } from './epic-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from './decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from './system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from './session-tools.js';
-import { handleDesktopTool } from './desktop-tools.js';
+import { handleDesktopTool, ensureDesktopBridge } from './desktop-tools.js';
 // BUG 7fb16985: orchestrator_status and system_status MUST derive running/level/
 // projects from ONE source of truth. system_status reaches getOrchestratorHealth
 // via system-status.js → './orchestrator-live.js'; the daemon lifecycle in
@@ -199,7 +199,14 @@ export async function setupMCPServer(): Promise<Server> {
   // NOTE: add_session_todo is intentionally NOT advertised (a deprecated
   // migration-guidance stub kept in SESSION_TOOL_DEFS only for its handler/error
   // path — see tool-defs-advertised-parity.test.ts DELIBERATELY_UNADVERTISED).
-  server.setRequestHandler(ListToolsRequestSchema, async () => buildAdvertisedTools());
+  // The desktop bridge is loaded lazily (af3ab792 replaced the module's top-level
+  // await with ensureDesktopBridge()), so nothing populated the DESKTOP defs before
+  // a list. Ensure it here: without this the 8 desktop_* tools are declared but never
+  // advertised, so no client can ever call one.
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    await ensureDesktopBridge();
+    return buildAdvertisedTools();
+  });
 
   // Tool call handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
