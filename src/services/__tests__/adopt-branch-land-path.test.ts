@@ -128,7 +128,8 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
     expect(outcome.landed).toBe(true);
     const masterAfter = git(project, ['rev-parse', 'master']);
     expect(outcome.masterSha).toBe(masterAfter);
-    expect(adopted.commits).toEqual([commit1]);
+    expect(adopted.commits[0]).toBe(commit1);
+    expect(adopted.commits.at(-1)).toBe(adopted.trailerCommit);
     for (const sha of adopted.commits) {
       const isAncestor = execFileSync('git', ['merge-base', '--is-ancestor', sha, 'master'], { cwd: project });
       expect(isAncestor).toEqual(Buffer.from(''));
