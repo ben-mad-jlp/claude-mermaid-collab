@@ -149,3 +149,46 @@ describe('the enforcement switch itself', () => {
     ).toThrow(/FOREIGN KEY/i);
   });
 });
+
+describe('a database stamped at an OLD cut of a version', () => {
+  it('is repaired by a NEW version, because re-editing the old one can never reach it', () => {
+    // The 2026-08-10 incident in one test. v1 originally omitted asanaGid/blueprintId; putting
+    // them back INSIDE v1 left every ALREADY-STAMPED database without them forever, and every
+    // epic base gate went red on `table todos has no column named asanaGid`. A schema version is
+    // a claim about what a database already contains — changing the code behind a version number
+    // makes that claim false for every database that recorded it.
+    //
+    // Built by running the current v1 and then rebuilding `todos` without the two columns, which
+    // is what the first cut of v1 actually produced. (ALTER TABLE DROP COLUMN is NOT used here:
+    // against this schema SQLite rejects it with "incomplete input" — noted, not chased.)
+    const db = new Database(':memory:');
+    applyMigrations(db, [COLLAB_DB_MIGRATIONS[0]!], OPTS);
+    db.exec(`
+      CREATE TABLE todos_old AS SELECT * FROM todos;
+      DROP TABLE todos;
+      CREATE TABLE todos (
+        id TEXT PRIMARY KEY NOT NULL, ownerSession TEXT NOT NULL, title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'todo', parentId TEXT REFERENCES todos(id) ON DELETE CASCADE,
+        dependsOn TEXT NOT NULL DEFAULT '[]', ord REAL NOT NULL,
+        createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, retryCount INTEGER NOT NULL DEFAULT 0,
+        assigneeKind TEXT NOT NULL DEFAULT 'agent', isBucket INTEGER NOT NULL DEFAULT 0,
+        reserveCount INTEGER NOT NULL DEFAULT 0, baseMovedRefunds INTEGER NOT NULL DEFAULT 0,
+        baseRepair INTEGER NOT NULL DEFAULT 0,
+        kind TEXT CHECK (kind IN ('mission','epic','leaf','land','gate'))
+      );`);
+    const before = (db.query('PRAGMA table_info(todos)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(before).not.toContain('asanaGid'); // the broken state really is the starting point
+
+    applyMigrations(db, COLLAB_DB_MIGRATIONS, OPTS); // v1 is spent; only v2 can reach this database
+
+    const after = (db.query('PRAGMA table_info(todos)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(after).toContain('asanaGid');
+    expect(after).toContain('blueprintId');
+  });
+
+  it('is a no-op on a database built by the current v1', () => {
+    const fresh = freshDb();
+    expect(() => applyMigrations(fresh, COLLAB_DB_MIGRATIONS, OPTS)).not.toThrow();
+    expect(() => addTodo(fresh, 'y')).not.toThrow();
+  });
+});
