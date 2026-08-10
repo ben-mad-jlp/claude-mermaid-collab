@@ -12,9 +12,9 @@
  */
 import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { storePath } from './store-paths';
 import { parseDiffContract, renderContract, type DiffContract, type DiffRequirement } from './diff-contract';
 
 export interface LedgerEntry {
@@ -135,9 +135,11 @@ const LEDGER_EPOCH = crypto.randomUUID();
 
 function openDb(): Database {
   if (db) return db;
-  const dir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
-  mkdirSync(dir, { recursive: true });
-  db = new Database(join(dir, 'worker-ledger.db'));
+  // Canonical path from the store registry (global scope, so no project argument).
+  // MERMAID_SUPERVISOR_DIR still isolates it for tests via store-paths.globalStoreDir().
+  const path = storePath('workerLedger');
+  mkdirSync(dirname(path), { recursive: true });
+  db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
   // Additive migration: epicId column for per-epic cost rollup (idempotent).

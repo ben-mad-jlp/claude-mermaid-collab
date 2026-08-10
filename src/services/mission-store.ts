@@ -15,7 +15,7 @@
  * lives HERE in a SEPARATE `.collab/mission.db`, keyed by the node's todo id.
  */
 import Database from 'bun:sqlite';
-import { join, isAbsolute, relative } from 'node:path';
+import { dirname, isAbsolute, relative } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
 import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, updateTodo, type Todo } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
@@ -23,6 +23,7 @@ import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
+import { storePath, canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
@@ -346,14 +347,18 @@ function backfillCriterionNicknames(db: Database): void {
 }
 
 function openDb(project: string): Database {
+  // Key the cache on the SAME canonical root storePath resolves to. Keying on the raw string
+  // gave one repo two cached handles when it was reached by two paths (a worktree, a symlink,
+  // /tmp vs /private/tmp).
+  project = canonicalProjectRoot(project);
   const cached = dbCache.get(project);
   if (cached) return cached;
   if (!existsSync(project)) {
     throw new Error(`unknown project: ${project}`);
   }
-  const dir = join(project, '.collab');
-  mkdirSync(dir, { recursive: true });
-  const db = new Database(join(dir, 'mission.db'));
+  const path = storePath('mission', project);
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
   // VERIFY-gate audit trail on each criterion (independent-judge evidence + provenance).
@@ -407,8 +412,11 @@ function openDb(project: string): Database {
 /** Drop a possibly-stale cached handle (test isolation / after a rebuild). */
 export function _resetMissionDbCache(project?: string): void {
   if (project) {
-    dbCache.get(project)?.close();
-    dbCache.delete(project);
+    // MUST canonicalise exactly as openDb does — keying eviction on the raw string misses the
+    // entry openDb stored under the canonical root, leaving the caller on a stale handle.
+    const key = canonicalProjectRootLoose(project);
+    dbCache.get(key)?.close();
+    dbCache.delete(key);
   } else {
     for (const db of dbCache.values()) db.close();
     dbCache.clear();
