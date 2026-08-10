@@ -3,10 +3,9 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTodo, _closeProject } from '../todo-store';
+import { createTodo, _closeProject, openDb } from '../todo-store';
 import { addCriterion, listCriteria, _resetMissionDbCache } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
-import Database from 'bun:sqlite';
 
 let project: string;
 
@@ -48,11 +47,10 @@ describe('mission-store: criterion nickname', () => {
     addCriterion(project, missionId, 'First criterion here');
     addCriterion(project, missionId, 'Second criterion here');
 
-    // Force every nickname to NULL directly on the sqlite file, then evict the
-    // cached handle so the next store call re-runs openDb's backfill migration.
-    const db = new Database(join(project, '.collab', 'mission.db'));
-    db.exec("UPDATE mission_criterion SET nickname = NULL");
-    db.close();
+    // Force every nickname to NULL directly on the store's handle — criteria live in the
+    // project's consolidated collab.db, so there is no `.collab/mission.db` to open — then
+    // evict the cached handle so the next store call re-runs openDb's backfill migration.
+    openDb(project).exec('UPDATE mission_criterion SET nickname = NULL');
     _resetMissionDbCache(project);
 
     const rows = listCriteria(project, missionId);

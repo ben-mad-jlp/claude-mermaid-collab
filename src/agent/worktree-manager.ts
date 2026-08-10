@@ -2385,6 +2385,12 @@ export class WorktreeManager {
           opName: 'epic_gc_remove',
           onViolation: this.onMainCheckoutViolation,
           allowedResidue: [
+            // The store's own WAL churn, not a residue this operation left behind. Both
+            // spellings: collab.db is the consolidated database, todos.db the legacy one a
+            // machine still carries until its first open migrates it.
+            '.collab/collab.db',
+            '.collab/collab.db-shm',
+            '.collab/collab.db-wal',
             '.collab/todos.db',
             '.collab/todos.db-shm',
             '.collab/todos.db-wal',

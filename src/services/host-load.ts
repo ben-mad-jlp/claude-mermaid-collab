@@ -184,11 +184,12 @@ export function setHostSampler(s: HostSampler | null): void {
  *  This is the only call site allowed to read env (via resolveSaturationLoadMultiple)
  *  and wall-clock (Date.now()). The pure summarizer never does.
  */
-export async function hostLoad(opts?: { sampler?: HostSampler }): Promise<HostLoad> {
+export async function hostLoad(opts?: { sampler?: HostSampler; windowMs?: number }): Promise<HostLoad> {
   const sampler = opts?.sampler ?? currentSampler;
   const sample = await sampler();
   return summarizeHostLoad(sample, {
     loadMultiple: resolveSaturationLoadMultiple(),
+    windowMs: opts?.windowMs,
     now: Date.now(),
   });
 }
