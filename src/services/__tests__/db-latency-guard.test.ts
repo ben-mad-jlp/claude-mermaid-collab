@@ -109,17 +109,29 @@ describe('expectNoSlowQueries — the CI half', () => {
   });
 
   it('reports the WORST offender when several trip', () => {
+    // Durations come from a CONTROLLED clock, not from how long the queries really take. An
+    // earlier version of this test assumed the 50-row scan would outrun the 1-row one; under
+    // a loaded box that is simply untrue, and it went red in the full gate while passing alone.
+    // Which statement is slowest is the thing under test, so it must be the thing we set.
     const db = seeded();
+    let t = 0;
+    const ticks = [0, 10, 100, 900]; // start/end of the small query, then of the big one
+    let i = 0;
+    const now = () => { t = ticks[i] ?? t; i++; return t; };
+
     let caught: SlowQueryError | undefined;
     try {
-      expectNoSlowQueries(db, -1, () => {
-        db.query('SELECT id FROM t LIMIT 1').all();
-        db.query('SELECT * FROM t').all();  // the big one
-      });
+      expectNoSlowQueries(db, 50, () => {
+        db.query('SELECT id FROM t LIMIT 1').all(); // 10ms — under budget
+        db.query('SELECT * FROM t').all();          // 800ms — the offender
+      }, { now });
     } catch (e) { caught = e as SlowQueryError; }
-    // Naming the slowest is what makes the failure actionable; the first-seen would often be
-    // an innocent statement that merely ran earlier.
-    expect(caught!.query.rows).toBe(50);
+
+    // Naming the slowest is what makes the failure actionable; first-seen would often finger an
+    // innocent statement that merely ran earlier.
+    expect(caught).toBeInstanceOf(SlowQueryError);
+    expect(caught!.query.ms).toBe(800);
+    expect(caught!.query.sql).toContain('SELECT * FROM t');
   });
 });
 
