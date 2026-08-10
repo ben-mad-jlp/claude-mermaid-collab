@@ -23,6 +23,7 @@ import { resolveGrokModel } from './grok-model.js';
 import { SETTING_SOURCES_ARGS } from './contracts.js';
 import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
 import { parseNodeCommands } from '../services/node-commands.js';
+import { leafScratchFor } from '../services/leaf-scratch.js';
 import { pythonPathFor } from './python-env.js';
 import { recordSpend } from '../services/spend-ledger.js';
 
@@ -68,6 +69,7 @@ export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.
   // build123d incident (leaves cd'd to the main checkout, ran pytest there, false-green with
   // empty worktree diffs). Absent var = "not a confined node" → the hook allows everything.
   env.MERMAID_LEAF_WORKTREE = cwd;
+  env.MERMAID_LEAF_SCRATCH = leafScratchFor(cwd);
   // GROK HOOK ISOLATION: when MERMAID_GROK_HOOKS_HOME is set (test isolation), redirect HOME
   // so grok CLI reads hooks from the test-isolated directory, not the user's ~/.grok/hooks.
   // This allows concurrent tests on the same machine to avoid interference: each test gets its
