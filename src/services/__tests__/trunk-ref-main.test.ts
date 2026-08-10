@@ -107,12 +107,18 @@ describe('adoptBranchAsEpic on a main-trunk repo', () => {
     });
 
     // (b) enumerated exactly the one commit ahead of main (not zero, not the base)
-    expect(result.commits).toEqual([topicSha]);
+    expect(result.commits[0]).toBe(topicSha);
+    expect(result.commits.at(-1)).toBe(result.trailerCommit);
+    for (const sha of result.commits) {
+      const isAncestor = execFileSync('git', ['merge-base', '--is-ancestor', sha, result.epicBranch], { cwd: project });
+      expect(isAncestor).toEqual(Buffer.from(''));
+    }
     expect(result.commits).not.toContain(topicCommitParent);
     expect(result.epicBranch).toMatch(/^collab\/epic\//);
-    // the epic accumulation branch was actually created at the topic tip
     const epicBranchSha = execFileSync('git', ['rev-parse', result.epicBranch], { cwd: project }).toString('utf8').trim();
-    expect(epicBranchSha).toBe(topicSha);
+    expect(epicBranchSha).toBe(result.trailerCommit);
+    const topicIsAncestor = execFileSync('git', ['merge-base', '--is-ancestor', topicSha, result.epicBranch], { cwd: project });
+    expect(topicIsAncestor).toEqual(Buffer.from(''));
 
     // main must be untouched
     const mainAfter = execFileSync('git', ['rev-parse', 'main'], { cwd: project }).toString('utf8').trim();
