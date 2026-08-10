@@ -1,12 +1,22 @@
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import Database from 'bun:sqlite';
 import { promises as fs } from 'node:fs';
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
-import { migrateAllRegisteredProjects } from '../todo-store.ts';
+import { migrateAllRegisteredProjects, openDb, _closeProject } from '../todo-store.ts';
 import { ProjectRegistry } from '../project-registry.ts';
 
+// These are the LEGACY-PATH tests: each project below is hand-built as a pre-consolidation
+// `.collab/todos.db`, and migrateAllRegisteredProjects is what drags it forward — the import in
+// collab-db-import copies the rows into `.collab/collab.db` (carrying user_version, so the
+// store's one-shot backfills keep their gating) and the backfills then run there. Assertions
+// therefore read the CONSOLIDATED database, which is where the migrated rows now live.
+//
+// The fixtures are per-TEST, not per-file. Migration is a one-shot side effect: once a project
+// has a collab.db the import never runs again, so a fixture shared across tests would let the
+// first test consume the very transition the later ones assert on. That is exactly how the
+// fault-isolation test below went quietly green against a project that no longer failed.
 describe('kind-migration-eager: eager migration of registered projects', () => {
   let tmpDir: string;
   let goodPath: string;
@@ -15,7 +25,7 @@ describe('kind-migration-eager: eager migration of registered projects', () => {
   let registryPath: string;
   let registry: ProjectRegistry;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(os.tmpdir(), 'kindmig-'));
     goodPath = join(tmpDir, 'good');
     badPath = join(tmpDir, 'bad');
@@ -91,7 +101,10 @@ describe('kind-migration-eager: eager migration of registered projects', () => {
     registry = new ProjectRegistry(registryPath);
   });
 
-  afterAll(async () => {
+  afterEach(() => {
+    // Evict before rmSync: the opener caches a live handle per canonical root, and the next
+    // test's mkdtemp could otherwise be handed a handle onto a deleted file.
+    for (const p of [goodPath, badPath, noDBPath]) _closeProject(p);
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -104,12 +117,13 @@ describe('kind-migration-eager: eager migration of registered projects', () => {
     expect(goodResult?.ok).toBe(true);
     expect(goodResult?.error).toBeUndefined();
 
-    // Verify kind column was added and backfilled
-    const db = new Database(join(goodPath, '.collab', 'todos.db'));
+    // The legacy todos.db had no `kind` column at all; the consolidated database the row was
+    // imported into declares one, and the backfill must have filled it.
+    const db = openDb(goodPath);
     const cols = db.query(`PRAGMA table_info(todos)`).all() as Array<{ name: string }>;
     expect(cols.some((c) => c.name === 'kind')).toBe(true);
 
-    // Verify the row's kind was set to 'epic' and title was stripped
+    // The legacy row itself must have made the crossing — not just its schema.
     const row = db.query(`SELECT kind, title FROM todos WHERE id = 'inbox-id'`).get() as {
       kind: string;
       title: string;
@@ -117,7 +131,8 @@ describe('kind-migration-eager: eager migration of registered projects', () => {
     expect(row.kind).toBe('epic');
     expect(row.title).toBe('Inbox');
 
-    db.close();
+    // The legacy file is the rollback and is deliberately left untouched by the import.
+    expect(existsSync(join(goodPath, '.collab', 'todos.db'))).toBe(true);
   });
 
   it('fault-isolates failures: bad DB does not abort iteration', async () => {
@@ -142,7 +157,9 @@ describe('kind-migration-eager: eager migration of registered projects', () => {
     const nodbResults = results.filter((r) => r.project === noDBPath);
     expect(nodbResults.length).toBe(0);
 
-    // Verify no DB was created
+    // Verify no DB was created — in EITHER spelling. hasProjectWorkGraph gates on both, so a
+    // check that only named todos.db would miss an opener that minted an empty collab.db.
     expect(existsSync(join(noDBPath, '.collab', 'todos.db'))).toBe(false);
+    expect(existsSync(join(noDBPath, '.collab', 'collab.db'))).toBe(false);
   });
 });

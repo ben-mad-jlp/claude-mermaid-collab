@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { rmSync } from 'node:fs';
 import { parseSplitDecision, hasCycle, topoSortSplitItems, type LeafSplitDecision, type LeafSplitItem } from '../split-decision';
 import { parseSizeManifest, type LeafSizeManifest } from '../leaf-executor';
-import { createTodo, getTodo, listTodos, splitLeafInto, _closeProject, type Todo } from '../todo-store';
-import type { ClaimStruct } from '../todo-store';
+import { createTodo, getTodo, splitLeafInto, _closeProject, type Todo } from '../todo-store';
 
 describe('parseSplitDecision (validation)', () => {
   it('split:false + reason, many files ⇒ valid decision', () => {
@@ -278,56 +277,24 @@ describe('splitLeafInto with items', () => {
     rmSync('proj-test', { recursive: true, force: true });
   });
 
-  // Helper to create a leaf with minimal setup.
-  function makeLeaf(overrides: Partial<Todo> = {}): Todo {
-    return {
-      id: 'leaf-test',
-      kind: 'leaf' as const,
+  /**
+   * The leaf to split, PERSISTED. splitLeafInto writes each child with parentId = leaf.id, and
+   * todos.parentId is a real foreign key on the consolidated database, so a hand-built in-memory
+   * Todo makes every child insert fail with `FOREIGN KEY constraint failed`. (It used to succeed
+   * and quietly leave the children parented to a row that never existed.)
+   *
+   * The id is therefore the store's, not the fixture's — nothing here asserts on it, and the
+   * beforeEach wipes the DB, so the per-test names are only for readability in the child titles.
+   */
+  function makeLeaf(title: string): Promise<Todo> {
+    return createTodo('proj-test', {
+      allowOrphan: true,
+      kind: 'leaf',
       ownerSession: 'coordinator',
-      assigneeSession: null,
-      assigneeKind: 'agent' as const,
-      title: 'Test Leaf',
-      description: 'test',
-      status: 'in_progress' as const,
-      completed: false,
-      priority: null,
-      dueDate: null,
-      parentId: null,
-      dependsOn: [],
-      order: 0,
-      link: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      completedAt: null,
-      asanaGid: null,
       sessionName: 'test-session',
-      executedBySession: null,
-      blueprintId: null,
-      type: null,
-      targetProject: null,
-      acceptanceStatus: null,
-      claimedBy: null,
-      claimToken: null,
-      claimedAt: null,
-      claimLeaseMs: null,
-      claim: null as unknown as ClaimStruct | null,
-      approvedAt: null,
-      approvedBy: null,
-      heldAt: null,
-      heldReason: null,
-      retryCount: 0,
-      completedBy: null,
-      objectRef: null,
-      servesCriterionId: null, servesCriterionIds: [],
-      decisionRef: null,
-      claimProbe: null,
-      inheritedBlueprintFrom: null,
-      inheritedFiles: [],
-      declaredFiles: [],
-      isBucket: false,
-      nickname: 'nick',
-      ...overrides,
-    };
+      title,
+      description: 'test',
+    });
   }
 
   // Note: these tests create todos in a real SQLite DB via bun:sqlite.
@@ -335,7 +302,7 @@ describe('splitLeafInto with items', () => {
   // For a full test suite, also verify cleanup + idempotence.
 
   it('two items with edges ⇒ two children, edge preserved', async () => {
-    const leaf = makeLeaf({ id: 'leaf-edges-test' });
+    const leaf = await makeLeaf('leaf-edges-test');
     const result = await splitLeafInto('proj-test', leaf, [
       { id: 'mod-a', files: ['a.ts'], dependsOn: [] },
       { id: 'mod-b', files: ['b.ts'], dependsOn: ['mod-a'] },
@@ -347,7 +314,7 @@ describe('splitLeafInto with items', () => {
   });
 
   it('multi-file item ⇒ ONE child, not per-file split', async () => {
-    const leaf = makeLeaf({ id: 'leaf-multifile-test' });
+    const leaf = await makeLeaf('leaf-multifile-test');
     const result = await splitLeafInto('proj-test', leaf, [
       { id: 'multi', files: ['a.ts', 'b.ts', 'c.ts'], dependsOn: [] },
     ]);
@@ -357,7 +324,7 @@ describe('splitLeafInto with items', () => {
   });
 
   it('legacy string[] ⇒ one edgeless child per file (back-compat)', async () => {
-    const leaf = makeLeaf({ id: 'leaf-legacy-test' });
+    const leaf = await makeLeaf('leaf-legacy-test');
     const result = await splitLeafInto('proj-test', leaf, ['a.ts', 'b.ts']);
     expect(result.childIds.length).toBe(2);
     const childA = getTodo('proj-test', result.childIds[0]);
@@ -366,14 +333,14 @@ describe('splitLeafInto with items', () => {
   });
 
   it('re-entrancy: second split on a leaf with live children is a no-op', async () => {
-    const leaf = makeLeaf({ id: 'leaf-idempotent' });
+    const leaf = await makeLeaf('leaf-idempotent');
     const result1 = await splitLeafInto('proj-test', leaf, ['a.ts']);
     const result2 = await splitLeafInto('proj-test', leaf, ['a.ts', 'b.ts', 'c.ts']);
     expect(result2.childIds).toEqual(result1.childIds); // no new children
   });
 
   it('complex DAG: regression test for 6ed01ed4 shape', async () => {
-    const leaf = makeLeaf({ id: 'leaf-complex-dag' });
+    const leaf = await makeLeaf('leaf-complex-dag');
     const items: LeafSplitItem[] = [
       { id: 'store', files: ['store.ts'], dependsOn: [] },
       { id: 'parenting', files: ['parenting.ts'], dependsOn: ['store'] },

@@ -8,6 +8,7 @@ import {
   getTodo,
   listTodos,
   updateTodo,
+  openDb,
   _closeProject,
   type Todo,
 } from '../todo-store';
@@ -196,17 +197,15 @@ describe('reapTerminalMissionEpics', () => {
       parentId: epic.id,
       status: 'ready',
     });
-    // Force leaf to in_progress via raw SQL (mimics epic-sweep-completeness pattern)
-    const Database = require('bun:sqlite').default;
-    const db = new Database(join(project, '.collab', 'todos.db'));
+    // Force leaf to in_progress via raw SQL (mimics epic-sweep-completeness pattern).
+    // The handle is the store's own: rows live in the consolidated collab.db, which does
+    // not exist until openDb has created and migrated it.
     const at = new Date().toISOString();
     const claim = JSON.stringify({ by: 'worker-1', token: 'tok-1', at, leaseMs: 40 * 60 * 1000 });
-    db.exec(
+    openDb(project).exec(
       `UPDATE todos SET status='in_progress', claimedBy='worker-1', claimToken='tok-1', ` +
       `claimedAt='${at}', claimLeaseMs=${40 * 60 * 1000}, claim='${claim}' WHERE id='${leaf.id}'`,
     );
-    db.close();
-    _closeProject(project);
 
     // Mark mission as closed
     const now = Date.now();
