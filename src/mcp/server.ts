@@ -12,6 +12,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { setupMCPServer } from './setup.js';
 import { apiFetch } from './tools/http-util.js';
+import { registerMcpServer } from './tool-registry-notifier.js';
 
 // Version is synced with package.json via npm version command
 export const SERVER_VERSION = '6.21.14';
@@ -41,6 +42,7 @@ async function main() {
   const server = await setupMCPServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  registerMcpServer(server);
   console.error(`MCP Mermaid Server v${SERVER_VERSION} running on stdio`);
 }
 

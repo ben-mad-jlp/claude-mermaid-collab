@@ -189,7 +189,7 @@ describe('main-checkout wrap audit', () => {
         expect(info, `public method ${method} not found`).toBeDefined();
         const body = info!.body;
 
-        const optsMatch = /\{\s*opName:\s*'([^']*)'\s*,\s*onViolation:\s*this\.onMainCheckoutViolation(?:,\s*quarantineDir:\s*[^}]+)?\s*\}/.exec(
+        const optsMatch = /\{\s*opName\s*:\s*'([^']*)'\s*,[\s\S]*?onViolation\s*:\s*this\.onMainCheckoutViolation[\s\S]*?\}/.exec(
           body,
         );
         if (!optsMatch) {
@@ -208,6 +208,21 @@ describe('main-checkout wrap audit', () => {
       expect(offenders, offenders.join('; ')).toEqual([]);
       expect(new Set(opNames).size).toBe(6);
       expect(new Set(opNames)).toEqual(new Set(WRAPPED.map((w) => w.opName)));
+    });
+
+    test('ensureEpic wrap site carries both quarantineDir and allowedResidue', () => {
+      const info = METHODS.get('ensureEpic');
+      expect(info, 'ensureEpic method not found').toBeDefined();
+      const body = info!.body;
+      expect(body.includes('quarantineDir:')).toBe(true);
+      expect(body.includes('allowedResidue')).toBe(true);
+    });
+
+    test('ensure wrap site carries allowedResidue (no quarantineDir)', () => {
+      const info = METHODS.get('ensure');
+      expect(info, 'ensure method not found').toBeDefined();
+      const body = info!.body;
+      expect(body.includes('allowedResidue')).toBe(true);
     });
   });
 
