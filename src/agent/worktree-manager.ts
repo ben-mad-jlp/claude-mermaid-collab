@@ -2381,7 +2381,15 @@ export class WorktreeManager {
         this.opts.projectRoot,
         this.mainCheckoutGit,
         () => this._removeEpicInner(epicId, project),
-        { opName: 'epic_gc_remove', onViolation: this.onMainCheckoutViolation },
+        {
+          opName: 'epic_gc_remove',
+          onViolation: this.onMainCheckoutViolation,
+          allowedResidue: [
+            '.collab/todos.db',
+            '.collab/todos.db-shm',
+            '.collab/todos.db-wal',
+          ],
+        },
       ),
     );
   }
