@@ -12,6 +12,7 @@
 
 import { realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
+import { classifyCommandWrites } from './command-write-classifier';
 
 export interface RecordedCommand {
   cmd: string;
@@ -637,16 +638,6 @@ export function detectPrivilegeEscalation(opts: {
   }
 }
 
-/** Absolute write targets in a command, ignoring the command's own cwd.
- *  Deliberately simple: absolute paths appearing as arguments or redirects. */
-function absoluteWriteTargets(cmd: string): string[] {
-  const targets: string[] = [];
-  for (const m of cmd.matchAll(/(?:^|[\s>])>{1,2}\s*(\/[^\s;&|)'"]+)/g)) targets.push(m[1]!);
-  if (MUTATING_INVOCATION.test(cmd) || /(?:^|[\s;&|`(])(?:chown|chmod|ln|dd)\b/i.test(cmd)) {
-    for (const m of cmd.matchAll(/(?:^|\s)(\/[^\s;&|)'"]+)/g)) targets.push(m[1]!);
-  }
-  return targets;
-}
 
 /**
  * A leaf writes only inside its own worktree (plus scratch space).
@@ -678,8 +669,8 @@ export function detectOutsideWorktreeWrite(opts: {
       // NOTE: deliberately NOT skipping READ_ONLY_LEAD here. `echo` is a read-only
       // lead, but `echo x > /etc/systemd/system/foo.service` is a write. A redirect
       // is a write whatever precedes it; argument targets are already gated on a
-      // mutating invocation inside absoluteWriteTargets.
-      for (const t of absoluteWriteTargets(c.cmd)) {
+      // mutating invocation inside classifyCommandWrites.
+      for (const t of classifyCommandWrites(c.cmd, c.cwd).targets) {
         if (WRITE_ALLOWED_PREFIXES.some((p) => t === p || t.startsWith(p))) continue;
         const rel = relative(realRoot, resolve(t));
         const outside = rel !== '' && (rel.startsWith('..') || isAbsolute(rel));
