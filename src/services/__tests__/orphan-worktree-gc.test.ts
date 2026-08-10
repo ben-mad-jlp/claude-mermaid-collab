@@ -1,4 +1,6 @@
 /**
+ * @serial-test-lane: builds real temp git repo + real `git worktree add` checkouts
+ *
  * Tests for the second candidate class in gcLeafWorktrees — the orphan non-leaf/lane
  * worktree GC pass. Builds a real temp git repo + real `git worktree add` checkouts
  * so `git worktree list --porcelain` / `git status --porcelain` / git log are exercised

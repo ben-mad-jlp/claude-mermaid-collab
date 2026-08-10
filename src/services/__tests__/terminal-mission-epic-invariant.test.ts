@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: landed-epic sweep tests involve git worktree operations
+ */
 // Invariant test: terminal missions' epics are properly reaped by runLandedEpicSweep
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';

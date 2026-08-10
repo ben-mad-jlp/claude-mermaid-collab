@@ -1,4 +1,6 @@
 /**
+ * @serial-test-lane: tests land cycles that involve git worktree operations
+ *
  * Dual-path land-cycle recorder: escalation-land (path A) and reconcile-land (path B).
  *
  * Both paths execute a successful `landEpicToMaster` but previously only path A recorded

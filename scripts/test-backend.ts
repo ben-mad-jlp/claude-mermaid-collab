@@ -16,7 +16,7 @@
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import { QUARANTINE_SEGMENT } from '../src/services/quarantine.ts';
-import { partitionNestedRunners } from '../src/services/nested-runner-lane.ts';
+import { partitionTestLanes } from '../src/services/nested-runner-lane.ts';
 import path from 'path';
 import { extractFailingTests } from '../src/services/gate-runner';
 
@@ -106,7 +106,9 @@ export type BackendTestRunner = (file: string, timeoutMs: number) => Promise<{ c
 
 /**
  * Walk test roots and partition files into fast (bounded concurrency) and nested (serial) lanes.
- * Applies the same filter substring behavior main() has, and returns both partitions.
+ * Serial-lane files (git worktree add spawners) are merged into the nested bucket for
+ * single-concurrency execution alongside nested-runner files. Applies the same filter
+ * substring behavior main() has, and returns both partitions.
  */
 export function collectBackendTestFiles(
   roots: string[] = DEFAULT_TEST_ROOTS,
@@ -115,7 +117,9 @@ export function collectBackendTestFiles(
   let files = roots.flatMap((root) => findBunTestFiles(root)).sort();
   if (filter) files = files.filter((f) => f.includes(filter));
 
-  return partitionNestedRunners(files, (f) => readFileSync(f, 'utf8'));
+  const { fast, serial, nested } = partitionTestLanes(files, (f) => readFileSync(f, 'utf8'));
+  // Merge serial into nested for single-concurrency execution
+  return { fast, nested: [...nested, ...serial] };
 }
 
 /**
