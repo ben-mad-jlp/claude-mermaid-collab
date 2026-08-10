@@ -1015,6 +1015,7 @@ export async function resolveBaseGreen(io: {
   const r = await runBaseGateShared(
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
     () => io.runGate(wt.path),
+    { project: io.targetProject },
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
