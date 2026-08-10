@@ -12,6 +12,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHttpTransport } from './http-transport.js';
 import { setupMCPServer } from './setup.js';
+import { registerMcpServer, unregisterMcpServer } from './tool-registry-notifier.js';
 
 // Session timeout - sessions expire after 30 minutes of inactivity
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -35,6 +36,7 @@ setInterval(() => {
   for (const [sessionId, session] of sessions) {
     if (now - session.lastActivity > SESSION_TIMEOUT_MS) {
       console.log(`[MCP HTTP] Cleaning up expired session: ${sessionId}`);
+      unregisterMcpServer(session.server);
       session.transport.close();
       sessions.delete(sessionId);
     }
@@ -89,6 +91,7 @@ async function handlePost(req: Request, sessionId: string | null): Promise<Respo
       };
 
       await server.connect(transport);
+      registerMcpServer(server);
       sessions.set(transport.sessionId, session);
       console.log(`[MCP HTTP] Auto-reconnected as: ${transport.sessionId} (total: ${sessions.size})`);
     }
@@ -106,6 +109,7 @@ async function handlePost(req: Request, sessionId: string | null): Promise<Respo
 
     // Connect server to transport
     await server.connect(transport);
+    registerMcpServer(server);
 
     // Store session
     sessions.set(transport.sessionId, session);
@@ -217,6 +221,7 @@ async function handleDelete(req: Request, sessionId: string | null): Promise<Res
   }
 
   console.log(`[MCP HTTP] Session terminated: ${sessionId}`);
+  unregisterMcpServer(session.server);
   session.transport.close();
   sessions.delete(sessionId);
 
