@@ -256,6 +256,8 @@ export interface NodeRoots {
   worktree: string;
   /** The MAIN checkout of the same repo (the leaf's tracking root). Reference only. */
   mainCheckout?: string | null;
+  /** Per-leaf scratch directory for probe/fixture work that must not appear in the diff. Reaped when the leaf terminates. */
+  scratch?: string;
 }
 
 /** The PRIVILEGE BOUNDARY, written down for the same reason the working root is: nothing in
@@ -296,6 +298,15 @@ export function workingRootLines(roots?: NodeRoots): string[] {
       `The same repository is ALSO checked out at ${roots.mainCheckout} (tracking root, REFERENCE ONLY) and`,
       'paths in this leaf\'s description may point there. Reading it is fine; editing or running tests',
       'there is NOT — that work is discarded and your leaf is filed as an empty diff.',
+    );
+  }
+  if (roots.scratch) {
+    lines.push(
+      '',
+      `SCRATCH DIRECTORY: ${roots.scratch}`,
+      'This is the sanctioned place for probe/fixture work that must not appear in the diff.',
+      'It is reaped when the leaf terminates. No path outside the working root other than this one',
+      'may be written to.',
     );
   }
   // A leaf that cannot find an interpreter WILL go looking for one, and the only one that
