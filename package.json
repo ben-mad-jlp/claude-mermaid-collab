@@ -27,6 +27,7 @@
     "test:backend": "bun run scripts/test-backend.ts",
     "test:backend:floor": "bun run scripts/test-backend.ts --baseline=scripts/backend-test-baseline.json",
     "test:backend:nested": "bun run scripts/test-backend.ts --lane=nested",
+    "test:backend:serial": "bun run scripts/test-backend.ts --lane=serial",
     "measure:test-only-close": "bun run scripts/measure-test-only-close-route.ts",
     "typecheck:desktop": "cd desktop && npx tsc --noEmit -p tsconfig.json",
     "lint:vocab": "bun run scripts/vocab-lint.ts",
