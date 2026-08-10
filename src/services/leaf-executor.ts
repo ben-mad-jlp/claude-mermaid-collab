@@ -57,6 +57,7 @@ import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markL
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
+import { allocateLeafScratch, reapLeafScratch } from './leaf-scratch';
 import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
@@ -1432,6 +1433,10 @@ export async function runLeaf(
       // or a throw (aborted/blocked/rejected) never reaches the daemon's own
       // `clearLeafResume` call (that lives on the RETURNED-result continuation path only).
       try { deps.clearResume?.(leaf.id); } catch { /* best-effort */ }
+      // Reap the per-worktree scratch directory; guard on lastRootSnap being non-null.
+      if (lastRootSnap) {
+        try { reapLeafScratch(lastRootSnap.cwd); } catch { /* best-effort cleanup */ }
+      }
     }
     return r;
   };
@@ -2020,6 +2025,7 @@ export async function runLeaf(
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings, {
         worktree: cwd,
         mainCheckout: deps.mainCheckoutRoot ?? null,
+        scratch: allocateLeafScratch(cwd),
       }, ballotRequirements),
       // Retry ladder + wall-based tier escalation: compose the attempt ladder with the
       // cross-dispatch wall bump so implement models escalate monotonically via both paths.
