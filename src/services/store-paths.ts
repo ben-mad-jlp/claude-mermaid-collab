@@ -32,6 +32,10 @@ export type StoreScope = 'project' | 'global';
 /** Canonical registry: the complete set of databases and where each one legitimately lives. */
 export const STORES = {
   // --- per-project: the work-graph and everything derived from this repo ---
+  /** The CONSOLIDATED work-graph database: work items, mission control state, criteria and
+   *  claims in one file so foreign keys and transactions apply between them. Supersedes the
+   *  `todos` + `mission` pair below, which remain declared while the migration path reads them. */
+  collab: { file: 'collab.db', scope: 'project' },
   todos: { file: 'todos.db', scope: 'project' },
   mission: { file: 'mission.db', scope: 'project' },
   friction: { file: 'friction.db', scope: 'project' },
@@ -212,4 +216,16 @@ export function ghostStoreFiles(dir: string, scope: StoreScope): string[] {
     entries = readdirSync(dir);
   } catch { return []; }
   return entries.filter((f) => f.endsWith('.db') && !owned.has(f)).map((f) => join(dir, f));
+}
+
+/**
+ * Does this project have a work-graph on disk at all?
+ *
+ * Both spellings count: `collab.db` is where a migrated project keeps it, `todos.db` is where an
+ * unmigrated one still does. Callers use this to decide whether a project has data WITHOUT
+ * opening (and therefore creating) a database — an empty database reads as "no todos", which is
+ * a different and much quieter answer than "this project was never set up".
+ */
+export function hasProjectWorkGraph(projectRoot: string): boolean {
+  return existsSync(storePath('collab', projectRoot)) || existsSync(storePath('todos', projectRoot));
 }
