@@ -232,7 +232,12 @@ function openDb(): Database {
     project TEXT NOT NULL, baseSha TEXT NOT NULL, lane TEXT NOT NULL, test TEXT NOT NULL,
     failed INTEGER NOT NULL, scope TEXT NOT NULL, observedAt INTEGER NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_bgtr_project_test ON base_gate_test_run(project, test, observedAt)`);
+  CREATE INDEX IF NOT EXISTS idx_bgtr_project_test ON base_gate_test_run(project, test, observedAt);
+  -- The hot read is "which tests has this project seen on THIS lane recently" (leaf-gate's
+  -- watched-set build). idx_bgtr_project_test cannot serve it — lane is not in the key, so
+  -- SQLite scanned the whole table: measured 7.8s over 1.38M rows, blocking the event loop
+  -- past the 45s liveness watchdog and getting the sidecar SIGKILLed in a loop.
+  CREATE INDEX IF NOT EXISTS idx_bgtr_project_lane_observed ON base_gate_test_run(project, lane, observedAt)`);
   // Quarantine records: one row per test that has been flagged as flaky and is excluded
   // from the base gate, with evidence and TTL.
   db.exec(`CREATE TABLE IF NOT EXISTS test_quarantine (
@@ -1117,10 +1122,57 @@ export function recordBaseGateTestRuns(
     const stmt = db.prepare(
       'INSERT INTO base_gate_test_run (project, baseSha, lane, test, failed, scope, observedAt) VALUES (?,?,?,?,?,?,?)',
     );
-    for (const test of e.ranTests) {
-      stmt.run(e.project, e.baseSha, e.lane, test, e.failingTests.includes(test) ? 1 : 0, e.scope, now);
-    }
+    // One transaction, not one per row: an implicit transaction per insert costs ~10x for
+    // the several-hundred-row write a single lane produces, and every millisecond here is
+    // event-loop time the liveness probe cannot use.
+    const failing = new Set(e.failingTests);
+    const insertAll = db.transaction((tests: string[]) => {
+      for (const test of tests) {
+        stmt.run(e.project, e.baseSha, e.lane, test, failing.has(test) ? 1 : 0, e.scope, now);
+      }
+    });
+    insertAll(e.ranTests);
+    pruneBaseGateTestRuns(now);
   } catch { /* best-effort */ }
+}
+
+/** Observations older than this are unreadable by every consumer (the widest window in use
+ *  is 7 days), so keeping them only slows the table down. Kept at 2x the widest window so a
+ *  consumer that grows its window slightly does not silently lose history. */
+const OBSERVATION_RETENTION_MS = 14 * 24 * 60 * 60_000;
+/** Pruning every write would dominate the write cost; once an hour per process is enough to
+ *  hold the table at steady state. */
+const PRUNE_INTERVAL_MS = 60 * 60_000;
+let lastPruneAt = 0;
+
+/** Delete observations past the retention horizon. Throttled, best-effort, and safe to call
+ *  on every write. WHY THIS EXISTS: with no retention the table grew to 1.6M rows / 537MB of
+ *  table+index, and because every read scaled with it the daemon's blocking time grew until
+ *  the liveness watchdog killed it (~15 SIGKILLs/hour by 2026-08-10). Unbounded telemetry on
+ *  the liveness thread is a correctness problem, not just a disk problem. */
+export function pruneBaseGateTestRuns(now: number = Date.now(), force = false): number {
+  try {
+    if (!force && now - lastPruneAt < PRUNE_INTERVAL_MS) return 0;
+    lastPruneAt = now;
+    const cutoff = now - OBSERVATION_RETENTION_MS;
+    const res = openDb().prepare('DELETE FROM base_gate_test_run WHERE observedAt < ?').run(cutoff);
+    return Number((res as { changes?: number }).changes ?? 0);
+  } catch { return 0; }
+}
+
+/** The distinct tests this project has been seen running on ONE lane since `sinceMs`.
+ *
+ *  This replaces a `listObservations()` + filter-in-JS pattern that materialized EVERY row in
+ *  the window (1.38M rows, measured 8.7s per lane) purely to collect a few thousand distinct
+ *  names. The projection and the lane filter both belong in SQL; served by
+ *  idx_bgtr_project_lane_observed. Returns [] on any error. */
+export function listWatchedTests(project: string, lane: string, sinceMs: number): string[] {
+  try {
+    const rows = openDb().prepare(
+      'SELECT DISTINCT test FROM base_gate_test_run WHERE project=? AND lane=? AND observedAt>=?',
+    ).all(project, lane, sinceMs) as Array<{ test: string }>;
+    return rows.map((r) => r.test);
+  } catch { return []; }
 }
 
 /** List all test-run observations for a project since a given timestamp, ordered
