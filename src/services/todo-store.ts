@@ -16,6 +16,7 @@ import { ensureBucket, isBucketEpic, reviveBucketRow, type BucketType } from './
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
+import { storePath, canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -663,10 +664,14 @@ export function openDb(project: string): Database {
   // must resolve to the TRACKING repo's todos.db, never a worktree-local one — else
   // it opens an empty/absent db (silent 'no such table', or SQLITE_IOERR creating it
   // on a full disk) and the Coordinator's rows are invisible. See decision 20106f26.
-  project = trackingProjectRoot(project);
+  // Canonicalise with the SAME function storePath uses, so the cache key can never disagree
+  // with the file it names. trackingProjectRoot only stripped agent-session worktrees, so a
+  // LINKED git worktree kept its own key while resolving to the tracking repo's file — two
+  // cache entries and two Database handles over one file.
+  project = canonicalProjectRoot(project);
   const cached = dbCache.get(project);
   if (cached) return cached;
-  const path = join(project, '.collab', 'todos.db');
+  const path = storePath('todos', project);
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
@@ -1280,7 +1285,10 @@ export function backfillParentReleaseV2(db: Database): void {
 
 /** For tests: drop the cached handle so a fresh dir opens a fresh DB. */
 export function _closeProject(project: string): void {
-  project = trackingProjectRoot(project);
+  // MUST canonicalise the same way openDb does, or eviction silently misses the entry it was
+  // meant to drop and the caller goes on using the stale handle. LOOSE, because teardown runs
+  // against projects that may not exist yet (or any more) and cleanup must never throw.
+  project = canonicalProjectRootLoose(project);
   const db = dbCache.get(project);
   if (db) {
     try { db.close(); } catch { /* ignore */ }
