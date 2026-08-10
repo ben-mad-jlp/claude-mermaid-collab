@@ -1061,11 +1061,30 @@ export function listEscalations(status?: string): Escalation[] {
   return rows.map(mapEscalationRow);
 }
 
-export function listOpenEscalations(): Escalation[] {
+export function listOpenEscalations(filter?: { project?: string; kind?: string; limit?: number }): Escalation[] {
   const d = openDb();
-  return (d
-    .query("SELECT * FROM escalation WHERE status = 'open' ORDER BY createdAt")
-    .all() as EscalationRow[]).map(mapEscalationRow);
+  let query = "SELECT * FROM escalation WHERE status = 'open'";
+  const params: any[] = [];
+
+  if (filter?.project != null) {
+    const normalizedProject = trackingProjectRoot(filter.project);
+    query += " AND project = ?";
+    params.push(normalizedProject);
+  }
+
+  if (filter?.kind != null) {
+    query += " AND kind = ?";
+    params.push(filter.kind);
+  }
+
+  query += " ORDER BY createdAt";
+
+  if (filter?.limit != null) {
+    query += " LIMIT ?";
+    params.push(filter.limit);
+  }
+
+  return (d.query(query).all(...params) as EscalationRow[]).map(mapEscalationRow);
 }
 
 /** Escalations RESOLVED (or dismissed) for one project since `sinceMs`. A resolution is a real
@@ -1109,7 +1128,7 @@ export function resolveEscalationShortId(prefix: string): string | null {
   return rows[0].id;
 }
 
-function resolveFullEscalationId(id: string): string {
+export function resolveFullEscalationId(id: string): string {
   const d = openDb();
   if (d.query('SELECT 1 FROM escalation WHERE id = ?').get(id)) return id;
   const resolved = resolveEscalationShortId(id);
