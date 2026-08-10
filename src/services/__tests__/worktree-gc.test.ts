@@ -1,4 +1,6 @@
 /**
+ * @serial-test-lane: builds real temp git repo + real `git worktree add` checkouts
+ *
  * Tests for gcLeafWorktrees — the directory-driven GC pass (kill-the-running-build
  * epic, HALF 2). Builds a real temp git repo + real `git worktree add` checkouts
  * (mirrors the pattern in land-dirty-tree.test.ts / integration.worktree.test.ts)

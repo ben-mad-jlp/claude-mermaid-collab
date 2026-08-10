@@ -1,4 +1,6 @@
 /**
+ * @serial-test-lane: land-gate tests create git worktrees for merge validation
+ *
  * Regression: a land gate that CANNOT RUN must report INAPPLICABLE, never FAILURE.
  *
  * Incident 2026-08-04, mission db089158 (repo qbs). Two independent probes each turned an
