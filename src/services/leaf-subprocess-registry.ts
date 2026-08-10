@@ -35,7 +35,7 @@ const tracked = new Map<string, TrackedProc>();
  * leaf's nodes), so it can't answer "is this leaf's RUN still going?". This set is added
  * when the daemon launches a leaf run and removed in its finally (covering normal return,
  * abort, AND throw). It is the liveness source for the same-epoch orphan-inflight sweep:
- * a current-epoch leaf_inflight row whose leafId is NOT in here belongs to a run that
+ * a current-epoch leaf claim whose leafId is NOT in here belongs to a run that
  * already ended without clearing its row (an aborted/errored run) → safe to drop.
  */
 const liveRuns = new Set<string>();

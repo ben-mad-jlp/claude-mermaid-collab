@@ -20,6 +20,7 @@ import { createTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { gcLeafWorktrees, isReclaimable, WORKTREE_RECLAIM_MIN_AGE_MS } from '../leaf-worktree-reaper';
 import { setLeafInflight, clearLeafInflight } from '../worker-ledger';
+import { makeClaimProject } from '../__fixtures__/claim-project';
 import { listFriction, recordFrictionOnce, _closeProject as _closeFrictionProject } from '../friction-store';
 import { recordEpicLand } from '../epic-land-record-store';
 import { recordStatus } from '../session-status-store';
@@ -552,6 +553,8 @@ describe('isReclaimable', () => {
     await backdatePastReclaim(dir);
 
     const leafId = 'test-leaf-inflight-1';
+    // The claim carries a foreign key to the leaf, so the fixture has to create it first.
+    makeClaimProject(repo, [leafId]);
     setLeafInflight({ leafId, project: repo });
     try {
       const result = await isReclaimable({ dir, baseDir, leafTodoId: leafId, now: Date.now() });
