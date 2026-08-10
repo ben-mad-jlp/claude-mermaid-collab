@@ -107,6 +107,7 @@ describe('nested-runner-lane', () => {
     const result = await runLanes({
       lane: 'fast',
       fast: fastFiles,
+      serial: [],
       nested: nestedFiles,
       concurrency: 2,
       timeoutMs: 30000,
@@ -133,6 +134,7 @@ describe('nested-runner-lane', () => {
     const result = await runLanes({
       lane: 'nested',
       fast: fastFiles,
+      serial: [],
       nested: nestedFiles,
       concurrency: 2,
       timeoutMs: 30000,
