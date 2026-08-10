@@ -70,7 +70,7 @@ import { EPIC_TOOL_DEFS, handleEpicTool } from './epic-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from './decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from './system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from './session-tools.js';
-import { DESKTOP_TOOL_DEFS, handleDesktopTool } from './desktop-tools.js';
+import { handleDesktopTool } from './desktop-tools.js';
 // BUG 7fb16985: orchestrator_status and system_status MUST derive running/level/
 // projects from ONE source of truth. system_status reaches getOrchestratorHealth
 // via system-status.js → './orchestrator-live.js'; the daemon lifecycle in
@@ -166,7 +166,7 @@ export function createElicitationRequest(
 export async function setupMCPServer(): Promise<Server> {
   const server = new Server(
     { name: 'mermaid-diagram-server', version: SERVER_VERSION },
-    { capabilities: { tools: {}, resources: {} } }
+    { capabilities: { tools: { listChanged: true }, resources: {} } }
   );
 
   // Session params description (shared across tools)
