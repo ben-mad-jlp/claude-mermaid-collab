@@ -13,6 +13,19 @@
  */
 
 import { describe, it, expect, mock } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate the global ledger BEFORE anything imports it — the in-flight signal is a real store
+// write, and without this the test stamps rows into the developer's live ~/.mermaid-collab.
+process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'fleet-sup-'));
+
+// A claim is a row in the PROJECT database with a foreign key to its leaf, so the lane's project
+// has to be a real directory holding a real 'todo-1' — '/repo' was fine when the signal was a
+// free-floating row in a global table and is not any more.
+const { makeClaimProject } = await import('../__fixtures__/claim-project');
+const PROJECT = makeClaimProject(mkdtempSync(join(tmpdir(), 'fleet-repo-')), ['todo-1']);
 
 const HEARTBEAT = 1_700_000_000_000;
 const CLAIMED_AT_ISO = '2026-06-09T17:33:17.962Z';
@@ -32,7 +45,7 @@ mock.module('../todo-store', () => ({
       sessionName: 'backend-2',
       claimedBy: 'coordinator',
       retryCount: 0,
-      targetProject: '/repo',
+      targetProject: PROJECT,
     },
   ],
   // worker-ledger (imported by fleet-status for listLeafInflight) transitively
@@ -53,8 +66,8 @@ const { setLeafInflight, clearLeafInflight } = await import('../worker-ledger');
 describe('getFleetStatus lastActivity', () => {
   it('uses the real session-status heartbeat and is STABLE across polls (no render-time restamp)', async () => {
     heartbeat = HEARTBEAT;
-    const poll1 = await getFleetStatus('/repo', HEARTBEAT + 10_000);
-    const poll2 = await getFleetStatus('/repo', HEARTBEAT + 999_000); // much later "now"
+    const poll1 = await getFleetStatus(PROJECT, HEARTBEAT + 10_000);
+    const poll2 = await getFleetStatus(PROJECT, HEARTBEAT + 999_000); // much later "now"
 
     expect(poll1.entries).toHaveLength(1);
     expect(poll1.entries[0].lastActivity).toBe(HEARTBEAT);
@@ -66,8 +79,8 @@ describe('getFleetStatus lastActivity', () => {
 
   it('falls back to claim age (still a real, stable timestamp) when there is no heartbeat', async () => {
     heartbeat = null;
-    const poll1 = await getFleetStatus('/repo', CLAIMED_AT_MS + 5_000);
-    const poll2 = await getFleetStatus('/repo', CLAIMED_AT_MS + 600_000);
+    const poll1 = await getFleetStatus(PROJECT, CLAIMED_AT_MS + 5_000);
+    const poll2 = await getFleetStatus(PROJECT, CLAIMED_AT_MS + 600_000);
 
     expect(poll1.entries[0].lastActivity).toBe(CLAIMED_AT_MS);
     expect(poll2.entries[0].lastActivity).toBe(CLAIMED_AT_MS); // stable across polls
@@ -77,9 +90,9 @@ describe('getFleetStatus lastActivity', () => {
 describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_inflight)', () => {
   it("reports 'working' + the live node when the lane has a leaf_inflight row", async () => {
     heartbeat = HEARTBEAT;
-    setLeafInflight({ leafId: 'todo-1', project: '/repo', nodeKind: 'implement' });
+    setLeafInflight({ leafId: 'todo-1', project: PROJECT, nodeKind: 'implement' });
     try {
-      const status = await getFleetStatus('/repo', HEARTBEAT + 1_000);
+      const status = await getFleetStatus(PROJECT, HEARTBEAT + 1_000);
       expect(status.entries[0].state).toBe('working');
       expect(status.entries[0].leafNode).toBe('implement');
       expect(status.summary.working).toBe(1);
@@ -91,7 +104,7 @@ describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_in
   it("reports 'idle' when no leaf is currently in-flight", async () => {
     heartbeat = HEARTBEAT;
     clearLeafInflight('todo-1'); // ensure no in-flight row
-    const status = await getFleetStatus('/repo', HEARTBEAT + 1_000);
+    const status = await getFleetStatus(PROJECT, HEARTBEAT + 1_000);
     expect(status.entries[0].state).toBe('idle');
   });
 });
@@ -101,7 +114,7 @@ describe('getFleetStatus headroom (fork-EAGAIN early warning)', () => {
 
   it('returns a process-headroom block with the cap-vs-liveProcs fields', async () => {
     heartbeat = HEARTBEAT;
-    const status = await getFleetStatus('/repo');
+    const status = await getFleetStatus(PROJECT);
 
     // The block exists and carries the four documented fields…
     expect(status.headroom).toBeDefined();
