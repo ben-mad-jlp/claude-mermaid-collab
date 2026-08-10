@@ -7281,6 +7281,19 @@
       }
     },
     {
+      "name": "host_load",
+      "description": "Read-only host saturation snapshot: 1/5/15-minute load averages, CPU count, process commands bucketed by spawner (argv[0], count descending), sidecar restart frequency within the lookback window, and saturated (true when the 1-minute load average exceeds the configured multiple of cpuCount, MERMAID_SATURATION_LOAD_MULTIPLE, default 1.0).",
+      "inputSchema": {
+        "properties": {
+          "windowMs": {
+            "description": "Lookback window in ms for sidecarRestarts (default 1 hour).",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
       "name": "list_spreadsheets",
       "description": "List all spreadsheets in a session.",
       "inputSchema": {
