@@ -262,17 +262,17 @@ describe('tool dispatch coverage', () => {
         'check_server_health', 'fleet_status', 'deploy_self', 'instance_topology',
         'launch_remote_server', 'system_status', 'daemon_status', 'friction_trends',
         'orchestrator_off', 'runtime_config', 'orchestrator_status', 'set_watchdog_threshold',
-        'set_context_recycle', 'context_usage', 'list_conductor_passes', 'get_job',
+        'set_context_recycle', 'context_usage', 'list_conductor_passes', 'get_job', 'host_load',
       ]),
     );
   });
 
-  // Drives all 16 real system-tool handlers sequentially (health probes, fleet/daemon
+  // Drives all 17 real system-tool handlers sequentially (health probes, fleet/daemon
   // status, topology), so it sits right at bun's 5s default and intermittently timed out
   // at ~5001ms — which reds the epic BASE gate project-wide, blocking every leaf. Give it
   // headroom explicitly rather than let a slow-but-passing check wedge the daemon.
   it('every SYSTEM_TOOL_DEFS name is wired in handleSystemTool', async () => {
-    expect(SYSTEM_TOOL_DEFS.length).toBeGreaterThanOrEqual(16);
+    expect(SYSTEM_TOOL_DEFS.length).toBeGreaterThanOrEqual(17);
     for (const def of SYSTEM_TOOL_DEFS) {
       expect(await isRecognized(handleSystemTool, def.name)).toBe(true);
     }

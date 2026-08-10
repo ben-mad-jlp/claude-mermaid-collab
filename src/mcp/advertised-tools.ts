@@ -291,6 +291,7 @@ export const ADVERTISED_ORDER: OrderEntry[] = [
   { group: 'SYSTEM', name: 'context_usage' },
   { group: 'SYSTEM', name: 'list_conductor_passes' },
   { group: 'SYSTEM', name: 'get_job' },
+  { group: 'SYSTEM', name: 'host_load' },
   { group: 'SPREADSHEET' },
   { group: 'SNIPPET' },
   { group: 'EMBED' },
