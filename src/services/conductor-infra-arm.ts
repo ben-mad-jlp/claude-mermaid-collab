@@ -199,6 +199,7 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
       const r = await runBaseGateShared(
         baseGateKey(targetProject, sha, decl.cfg),
         () => runGate(wt.path, decl.cfg),
+        { project: targetProject },
       );
       const { isCacheableBaseGateStatus } = await import('./leaf-executor.js');
       if (isCacheableBaseGateStatus(r.status)) {
