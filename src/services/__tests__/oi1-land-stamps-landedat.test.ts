@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: test land timestamp stamping with git worktree operations
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { promises as fs } from 'node:fs';
 import { mkdtempSync } from 'node:fs';

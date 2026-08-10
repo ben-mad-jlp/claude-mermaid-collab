@@ -1,4 +1,6 @@
 /**
+ * @serial-test-lane: inert - error message strings contain "git worktree add" but code never executes it
+ *
  * Unit tests for the MINIMAL leaf-executor (PAW P2) state machine.
  *
  * Everything effectful — the node invoker, the worktree manager, the completion
