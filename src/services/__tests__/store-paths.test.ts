@@ -10,12 +10,12 @@
  * These tests pin the properties that make those impossible rather than merely unlikely.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   STORES, storePath, existingStorePath, canonicalProjectRoot,
-  ghostStoreFiles, knownStoreFiles, globalStoreDir,
+  ghostStoreFiles, knownStoreFiles, globalStoreDir, quarantineGhostStores,
 } from '../store-paths';
 
 let root: string;
@@ -136,5 +136,40 @@ describe('global store dir', () => {
     process.env.MERMAID_SUPERVISOR_DIR = root;
     expect(globalStoreDir()).toBe(root);
     expect(storePath('supervisor')).toBe(join(root, 'supervisor.db'));
+  });
+});
+
+describe('ghost quarantine', () => {
+  it('moves EMPTY ghosts to .trash and leaves owned stores in place', () => {
+    const dir = join(root, '.collab');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'todos.db'), '');       // owned — must survive
+    writeFileSync(join(dir, 'coordinator.db'), ''); // ghost, empty — must move
+    const res = quarantineGhostStores(dir, 'project', 'stamp1');
+    expect(res.moved.map((p) => p.split('/').pop())).toEqual(['coordinator.db']);
+    expect(existsSync(join(dir, 'todos.db'))).toBe(true);
+    expect(existsSync(join(dir, 'coordinator.db'))).toBe(false);
+    // Quarantined, NOT deleted — a misclassification stays recoverable.
+    expect(existsSync(join(dir, '.trash', 'stamp1', 'coordinator.db'))).toBe(true);
+  });
+
+  it('REFUSES to move a non-empty unowned database', () => {
+    const dir = join(root, '.collab');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'mystery.db'), 'this has real bytes in it');
+    const res = quarantineGhostStores(dir, 'project', 'stamp2');
+    expect(res.moved).toEqual([]);
+    expect(res.skippedNonEmpty.map((p) => p.split('/').pop())).toEqual(['mystery.db']);
+    // An undeclared store that something is WRITING is a finding, not litter.
+    expect(existsSync(join(dir, 'mystery.db'))).toBe(true);
+  });
+
+  it('is a no-op on a clean directory', () => {
+    const dir = join(root, '.collab');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'todos.db'), '');
+    const res = quarantineGhostStores(dir, 'project', 'stamp3');
+    expect(res).toEqual({ moved: [], skippedNonEmpty: [] });
+    expect(existsSync(join(dir, '.trash'))).toBe(false);
   });
 });

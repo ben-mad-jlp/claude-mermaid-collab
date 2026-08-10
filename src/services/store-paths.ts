@@ -23,7 +23,7 @@
  *   - Opening does not create by default. A store springs into existence only where a caller
  *     explicitly says so (registration/migration), never as a side effect of a typo.
  */
-import { existsSync, statSync, readFileSync, realpathSync, readdirSync } from 'node:fs';
+import { existsSync, statSync, readFileSync, realpathSync, readdirSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -165,6 +165,40 @@ export function existingStorePath(name: StoreName, projectRoot?: string): string
     );
   }
   return p;
+}
+
+/**
+ * Move unowned database files out of a store directory into `<dir>/.trash/<stamp>/`.
+ *
+ * Quarantine, never unlink: if this misclassifies something, the data is still on disk and the
+ * move is trivially reversible. Deletion stays a separate, explicit human act.
+ *
+ * A ghost is only moved when it is EMPTY (0 bytes). A non-empty unowned database is reported
+ * instead — that is a store nobody declared but something is writing, which is a finding, not
+ * litter, and quarantining it could hide live data.
+ */
+export function quarantineGhostStores(
+  dir: string,
+  scope: StoreScope,
+  stamp: string,
+): { moved: string[]; skippedNonEmpty: string[] } {
+  const moved: string[] = [];
+  const skippedNonEmpty: string[] = [];
+  const ghosts = ghostStoreFiles(dir, scope);
+  if (ghosts.length === 0) return { moved, skippedNonEmpty };
+
+  const trash = join(dir, '.trash', stamp);
+  for (const g of ghosts) {
+    let size = -1;
+    try { size = statSync(g).size; } catch { continue; }
+    if (size > 0) { skippedNonEmpty.push(g); continue; }
+    try {
+      mkdirSync(trash, { recursive: true });
+      renameSync(g, join(trash, g.split(/[/\\]/).pop()!));
+      moved.push(g);
+    } catch { /* best-effort: a file we cannot move is reported by the next sweep */ }
+  }
+  return { moved, skippedNonEmpty };
 }
 
 /**
