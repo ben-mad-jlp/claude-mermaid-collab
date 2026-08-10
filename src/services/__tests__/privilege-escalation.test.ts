@@ -70,7 +70,10 @@ describe('detectOutsideWorktreeWrite', () => {
       commands: [cmd(`cp -a ${WT}/src/. /home/qbintelligence/code/qbs/ros-api-server/src/`)],
     });
     expect(found).not.toBeNull();
-    expect(found!.paths.join(' ')).toContain('/home/qbintelligence/code/qbs/ros-api-server/src/');
+    // The reported target is RESOLVED, so a trailing slash normalises away. Assert exact
+    // membership rather than a substring: reporting the parent directory would still satisfy a
+    // substring check while naming the wrong thing.
+    expect(found!.paths).toContain('/home/qbintelligence/code/qbs/ros-api-server/src');
     expect(found!.message).toContain('bypasses all three');
   });
 
