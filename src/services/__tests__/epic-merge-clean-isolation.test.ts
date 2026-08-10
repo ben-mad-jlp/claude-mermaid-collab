@@ -1,4 +1,6 @@
 /**
+ * @serial-test-lane: runs epicMergeClean which creates a detached git worktree
+ *
  * Tests for epicMergeClean isolation (L1 land-path hardening):
  *   3a. The dry-merge validation runs in an isolated detached worktree;
  *       a dirty main checkout does NOT contaminate it and the dirty file survives.

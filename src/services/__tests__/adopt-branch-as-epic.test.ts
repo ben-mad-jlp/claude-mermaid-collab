@@ -16,6 +16,7 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 import { adoptBranchAsEpic } from '../adopt-branch-as-epic.js';
 import { getTodo, _closeProject } from '../todo-store.js';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store.js';
+import { getEpicLandReadiness } from '../epic-land-readiness.js';
 
 beforeAll(() => { _closeSupervisorDb(); });
 afterAll(() => {
@@ -72,7 +73,7 @@ describe('adoptBranchAsEpic', () => {
     expect(result.epicId).toMatch(/^[a-f0-9\-]+$/);
     expect(result.leafId).toMatch(/^[a-f0-9\-]+$/);
     expect(result.epicBranch).toMatch(/^collab\/epic\//);
-    expect(result.commits).toHaveLength(2);
+    expect(result.commits).toHaveLength(3); // 2 original commits + 1 trailer commit
 
     // Assert: leaf is accepted
     const leaf = getTodo(project, result.leafId);
@@ -93,6 +94,36 @@ describe('adoptBranchAsEpic', () => {
     // Assert: master is untouched
     const masterAfter = execFileSync('git', ['rev-parse', 'master'], { cwd: project }).toString('utf8').trim();
     expect(masterAfter).toBe(masterBefore);
+
+    // Assert: land readiness passes (no blocking findings)
+    const readiness = await getEpicLandReadiness(project, result.epicId);
+    expect(readiness.blocking).toBe(false);
+    expect(readiness.findings).toHaveLength(0);
+
+    // Assert: all commits (including trailerCommit) are ancestors of the epic branch
+    for (const sha of result.commits) {
+      const isMergeBase = execFileSync('git', ['merge-base', '--is-ancestor', sha, result.epicBranch], {
+        cwd: project,
+      });
+      // merge-base --is-ancestor exits 0 if sha is an ancestor
+      expect(isMergeBase).toEqual(Buffer.from(''));
+    }
+
+    // Assert: the epic branch tip is the trailer commit
+    const branchTip = execFileSync('git', ['rev-parse', result.epicBranch], { cwd: project })
+      .toString('utf8')
+      .trim();
+    expect(branchTip).toBe(result.trailerCommit);
+
+    // Assert: there is exactly one commit with the Collab-Todo trailer
+    const trailerMatches = execFileSync('git', ['log', result.epicBranch, `--grep=Collab-Todo: ${result.leafId}`, '--format=%H'], {
+      cwd: project,
+    })
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim());
+    expect(trailerMatches).toHaveLength(1);
   });
 
   it('throws when source has no commits ahead of master', async () => {
