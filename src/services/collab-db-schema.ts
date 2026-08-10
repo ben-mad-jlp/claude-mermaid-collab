@@ -102,7 +102,14 @@ const V1_CREATE: Migration = {
         exploreSpec TEXT,
         objectRef TEXT,
         decisionRef TEXT,
-        claimProbe TEXT
+        claimProbe TEXT,
+        -- DEAD but RETAINED. Both hold 0 non-null rows on the live database, yet the store's
+        -- INSERT/UPDATE statements and the Todo type still name them. Dropping a column here
+        -- while the code still writes it is a reinterpretation of the data, not a copy of it —
+        -- so they stay until a separate change removes them from the type, the store and the
+        -- fixtures together. Retiring them belongs in a migration, not in the move.
+        asanaGid TEXT,
+        blueprintId TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
       CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);

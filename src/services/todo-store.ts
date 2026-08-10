@@ -16,7 +16,8 @@ import { ensureBucket, isBucketEpic, reviveBucketRow, type BucketType } from './
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
-import { storePath, canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths';
+import { storePath, canonicalProjectRoot, canonicalProjectRootLoose, hasProjectWorkGraph } from './store-paths';
+import { openCollabDb, closeCollabDb } from './collab-db';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -657,24 +658,30 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
-const dbCache = new Map<string, Database>();
+/**
+ * Roots whose one-shot column/backfill block has already run in this process. The HANDLE cache
+ * lives in collab-db (it owns the file, the import and the pragma); duplicating it here would
+ * give one file two owners and let `_closeProject` close a handle collab-db still hands out.
+ */
+const prepared = new Set<string>();
 
 export function openDb(project: string): Database {
   // A worker whose cwd is its isolation worktree (<repo>/.collab/agent-sessions/...)
-  // must resolve to the TRACKING repo's todos.db, never a worktree-local one — else
+  // must resolve to the TRACKING repo's database, never a worktree-local one — else
   // it opens an empty/absent db (silent 'no such table', or SQLITE_IOERR creating it
   // on a full disk) and the Coordinator's rows are invisible. See decision 20106f26.
-  // Canonicalise with the SAME function storePath uses, so the cache key can never disagree
-  // with the file it names. trackingProjectRoot only stripped agent-session worktrees, so a
-  // LINKED git worktree kept its own key while resolving to the tracking repo's file — two
-  // cache entries and two Database handles over one file.
+  // canonicalProjectRoot is the SAME function storePath uses, so the key can never disagree
+  // with the file it names.
   project = canonicalProjectRoot(project);
-  const cached = dbCache.get(project);
-  if (cached) return cached;
-  const path = storePath('todos', project);
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
-  db.exec('PRAGMA journal_mode = WAL');
+  // The consolidated database. On a machine meeting this code for the first time, this call
+  // also performs the one-time move out of todos.db + mission.db and turns foreign keys on.
+  const db = openCollabDb(project);
+  if (prepared.has(project)) return db;
+
+  // Everything below is legacy shape-repair, kept because a database that predates the
+  // consolidated schema (or one restored from a backup) can still be short a column. Against a
+  // migrated database every statement here is a no-op: the schema already declares the shape,
+  // and `user_version` was carried across by the import so the gated backfills stay spent.
   db.exec(DDL);
   addColumnIfMissing(db, 'todos', 'sessionName', 'sessionName TEXT');
   addColumnIfMissing(db, 'todos', 'executedBySession', 'executedBySession TEXT');
@@ -853,19 +860,20 @@ export function openDb(project: string): Database {
   if (ver < TODO_EXPLORE_SPEC_V11) {
     db.exec(`PRAGMA user_version = ${TODO_EXPLORE_SPEC_V11}`);
   }
-  dbCache.set(project, db);
+  prepared.add(project);
   return db;
 }
 
 export interface KindMigrationResult { project: string; ok: boolean; error?: string }
 
 /** Eagerly run the openDb migration block (incl. the stage-C `kind` backfill) for ONE
- *  project. Returns false when the project has no `.collab/todos.db` — we never CREATE
- *  a DB here (openDb would), because a project with no DB has no todos. */
+ *  project. Returns false when the project has no work-graph on disk — we never CREATE
+ *  a DB here (openDb would), because a project with no DB has no todos. Both spellings
+ *  count: a migrated project has collab.db, an unmigrated one still has todos.db. */
 export function migrateProjectKinds(project: string): boolean {
   const root = trackingProjectRoot(project);
   if (isTransientProjectPath(project)) return false;
-  if (!existsSync(join(root, '.collab', 'todos.db'))) return false;
+  if (!hasProjectWorkGraph(root)) return false;
   openDb(root);   // reuse — never duplicate the migration SQL
   return true;
 }
@@ -1288,12 +1296,10 @@ export function _closeProject(project: string): void {
   // MUST canonicalise the same way openDb does, or eviction silently misses the entry it was
   // meant to drop and the caller goes on using the stale handle. LOOSE, because teardown runs
   // against projects that may not exist yet (or any more) and cleanup must never throw.
-  project = canonicalProjectRootLoose(project);
-  const db = dbCache.get(project);
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-    dbCache.delete(project);
-  }
+  // LOOSE canonicalisation, because teardown runs against projects that may not exist yet (or
+  // any more) and cleanup must never throw. closeCollabDb keys the same way.
+  prepared.delete(canonicalProjectRootLoose(project));
+  closeCollabDb(project);
 }
 
 // Per-project serialized write lock (mirrors session-todos.ts withLock, keyed on project).
@@ -1870,7 +1876,7 @@ export function todoNotFoundMessage(project: string, id: string): string {
     const root = trackingProjectRoot(candidate);
     if (root === self) continue;
     try {
-      if (!existsSync(join(root, '.collab', 'todos.db'))) continue;
+      if (!hasProjectWorkGraph(root)) continue;
       const db = openDb(root);
       if (db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) {
         return `${base} — it exists in ${root} (pass project=${root})`;

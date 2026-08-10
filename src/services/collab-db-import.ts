@@ -77,11 +77,11 @@ export function importProjectWorkGraph(io: {
 
     if (!existsSync(io.todosPath)) throw new Error(`import: source todos.db missing at ${io.todosPath}`);
 
-    // Only copy columns the destination actually declares. The source carries a few columns the
-    // consolidated schema drops (asanaGid, blueprintId — dead, zero rows, no producer in src/);
-    // selecting them would fail, and silently selecting a subset without saying so would hide a
-    // real column loss. Anything present in the source with DATA but absent from the destination
-    // is reported as a violation rather than dropped.
+    // Only copy columns the destination actually declares. A source predating a column drop can
+    // carry columns the consolidated schema no longer has; selecting them would fail, and
+    // silently selecting a subset without saying so would hide a real column loss. Anything
+    // present in the source WITH DATA but absent from the destination is reported as a
+    // violation rather than dropped.
     const destCols = new Set(todoColumns(dest, 'main'));
 
     // Read the source's columns through the ATTACH rather than a second handle: a WAL database

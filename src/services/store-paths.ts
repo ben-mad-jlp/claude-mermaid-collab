@@ -217,3 +217,15 @@ export function ghostStoreFiles(dir: string, scope: StoreScope): string[] {
   } catch { return []; }
   return entries.filter((f) => f.endsWith('.db') && !owned.has(f)).map((f) => join(dir, f));
 }
+
+/**
+ * Does this project have a work-graph on disk at all?
+ *
+ * Both spellings count: `collab.db` is where a migrated project keeps it, `todos.db` is where an
+ * unmigrated one still does. Callers use this to decide whether a project has data WITHOUT
+ * opening (and therefore creating) a database — an empty database reads as "no todos", which is
+ * a different and much quieter answer than "this project was never set up".
+ */
+export function hasProjectWorkGraph(projectRoot: string): boolean {
+  return existsSync(storePath('collab', projectRoot)) || existsSync(storePath('todos', projectRoot));
+}
