@@ -1,8 +1,8 @@
 import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { storePath } from './store-paths';
 import { validateUiSpec, type JsonRenderSpec } from './escalation-ui-schema';
 import { trackingProjectRoot, isTransientProjectPath } from './project-registry';
 
@@ -315,10 +315,11 @@ function addColumnIfMissing(d: Database, table: string, col: string, ddl: string
 
 function openDb(): Database {
   if (db) return db;
-  // MERMAID_SUPERVISOR_DIR lets tests isolate the global supervisor.db.
-  const dir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, 'supervisor.db');
+  // Canonical path from the store registry (global scope, so no project argument).
+  // MERMAID_SUPERVISOR_DIR still isolates the global supervisor.db for tests —
+  // store-paths.globalStoreDir() honours it.
+  const path = storePath('supervisor');
+  mkdirSync(dirname(path), { recursive: true });
   db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);

@@ -85,3 +85,6 @@ Thumbs.db
 /test-project/
 /unwired-test-proj-*/
 /.collab/pruned-branches-recovery.md
+
+# Quarantined ghost store files (local recovery only, never shared)
+/.collab/.trash/
