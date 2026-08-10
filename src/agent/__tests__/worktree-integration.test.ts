@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: inert - discussion of git worktree add appears in comments but code doesn't execute it
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';

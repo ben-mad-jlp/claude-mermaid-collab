@@ -1,3 +1,6 @@
+/**
+ * @nested-test-runner: calls runQuarantinedSpec with a bun test gate lane and the real defaultGateSpawn
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

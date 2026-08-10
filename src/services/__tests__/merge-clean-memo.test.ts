@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: inert - comment describes git worktree add but code doesn't execute it
+ */
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { memoizedMergeClean, _resetMergeCleanCache, MERGE_CLEAN_TTL_MS } from '../steward-proof';
 

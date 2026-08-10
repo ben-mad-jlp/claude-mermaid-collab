@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: tests for worktree write leak detection use git worktree operations
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
