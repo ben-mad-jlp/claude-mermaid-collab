@@ -14,7 +14,7 @@ import { getWebSocketHandler } from './ws-handler-manager.ts';
  */
 export type DecideEscalationResult =
   | { ok: true; decision: EscalationDecision; escalation: Escalation }
-  | { ok: false; reason: 'not-found' | 'missing-option' | 'invalid-option'; message: string };
+  | { ok: false; reason: 'not-found' | 'missing-option' | 'invalid-option' | 'ambiguous-id'; message: string };
 
 /**
  * Shared escalation decision service.
@@ -37,7 +37,16 @@ export function decideEscalation(
   let fullId = id;
   let esc = getEscalation(id);
   if (!esc) {
-    const resolved = resolveEscalationShortId(id);
+    let resolved: string | null;
+    try {
+      resolved = resolveEscalationShortId(id);
+    } catch (e) {
+      return {
+        ok: false,
+        reason: 'ambiguous-id',
+        message: e instanceof Error ? e.message : String(e),
+      };
+    }
     if (!resolved) {
       return {
         ok: false,
