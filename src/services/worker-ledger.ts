@@ -353,6 +353,10 @@ export interface LedgerQuery {
   todoId?: string;
   /** Roll up only rows for this epic (per-epic cost / budget bar). */
   epicId?: string;
+  /** Roll up rows for MANY epics in one query. Exists because callers were looping
+   *  `epics.flatMap(e => listLeafRuns({ epicId: e.id }))` — one query per epic, 202 of them
+   *  inside a single listMissions call. Ignored when empty. */
+  epicIds?: string[];
   /** Only rows for this executor leaf (per-leaf run view — P4a). Unindexed at
    *  current volume (scanned under the 2000 cap); add idx_ledger_leaf if it grows. */
   leafId?: string;
@@ -1326,10 +1330,19 @@ function buildLedgerWhere(q: LedgerQuery): { where: string[]; params: unknown[];
   if (q.project) { where.push('project = ?'); params.push(q.project); }
   if (q.todoId) { where.push('todoId = ?'); params.push(q.todoId); }
   if (q.epicId) { where.push('epicId = ?'); params.push(q.epicId); }
+  if (q.epicIds && q.epicIds.length > 0) {
+    const ids = [...new Set(q.epicIds)];
+    where.push(`epicId IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
+  }
   if (q.leafId) { where.push('leafId = ?'); params.push(q.leafId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
   if (q.until != null) { where.push('ts <= ?'); params.push(q.until); }
-  const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
+  // The 2000 cap is PER QUERY. Batching N epics into one query must therefore carry N times
+  // the budget, or a batched read would silently truncate where N separate reads did not —
+  // under-reporting spend and liveness rather than merely being slower.
+  const cap = q.epicIds && q.epicIds.length > 0 ? 2000 * new Set(q.epicIds).size : 2000;
+  const limit = Math.min(Math.max(1, q.limit ?? 200), cap);
   return { where, params, limit };
 }
 
