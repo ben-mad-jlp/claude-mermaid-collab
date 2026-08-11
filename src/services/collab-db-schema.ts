@@ -260,8 +260,37 @@ const V2_RESTORE_LEGACY_COLUMNS: Migration = {
   },
 };
 
+/**
+ * v3 — the node-telemetry columns `leaf_claim` needs to actually REPLACE `leaf_inflight`.
+ *
+ * The global table carried `nodeKind` / `model` / `attempt` alongside the liveness bit, and three
+ * read surfaces render them (the daemon-status in-flight list, the fleet worker card's "which node
+ * is it on", and the api.ts in-flight route). Leaving them behind would have retired the table by
+ * deleting information, which is not a migration — so the claim carries them too.
+ *
+ * A new version rather than an edit to v1, for the reason v2 exists: a database already stamped
+ * with a version never re-runs it, so editing an applied migration silently skips the change
+ * everywhere it has already been applied.
+ */
+const V3_CLAIM_NODE_COLUMNS: Migration = {
+  version: 3,
+  name: 'leaf-claim-node-columns',
+  up: (db: Database) => {
+    const have = new Set(
+      (db.query('PRAGMA table_info(leaf_claim)').all() as Array<{ name: string }>).map((c) => c.name),
+    );
+    if (!have.has('nodeKind')) db.exec('ALTER TABLE leaf_claim ADD COLUMN nodeKind TEXT');
+    if (!have.has('model')) db.exec('ALTER TABLE leaf_claim ADD COLUMN model TEXT');
+    if (!have.has('attempt')) db.exec('ALTER TABLE leaf_claim ADD COLUMN attempt INTEGER');
+  },
+};
+
 /** The ordered migration list for a project's consolidated database. Append only; never renumber. */
-export const COLLAB_DB_MIGRATIONS: Migration[] = [V1_CREATE, V2_RESTORE_LEGACY_COLUMNS];
+export const COLLAB_DB_MIGRATIONS: Migration[] = [
+  V1_CREATE,
+  V2_RESTORE_LEGACY_COLUMNS,
+  V3_CLAIM_NODE_COLUMNS,
+];
 
 /**
  * Foreign keys are per-CONNECTION in SQLite and default to OFF, so every declaration above is

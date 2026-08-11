@@ -530,9 +530,54 @@ export function composeVerdict(mech: LeafReviewVerdict, llm: LeafReviewVerdict |
  *  full duration — once the ui-vitest lane pushed gate time past the Electron liveness
  *  watchdog's 45s threshold, the sidecar was silently kill+respawned on every gate run
  *  (2026-07-22 20:05-20:45 crash-loop). */
+export const DEFAULT_GATE_NICE = 10;
+
+/**
+ * Scheduling niceness for gate/build children. 0 disables the wrapper entirely.
+ *
+ * A NEGATIVE value is refused rather than honoured: it would RAISE these children above the
+ * sidecar, which is the exact opposite of the point, and it needs privilege it will not have.
+ */
+export function gateNiceness(): number {
+  const raw = process.env.MERMAID_GATE_NICE;
+  if (raw === undefined || raw === '') return DEFAULT_GATE_NICE;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_GATE_NICE;
+  return Math.floor(n);
+}
+
+/**
+ * Argv for a gate lane, deprioritised below the sidecar.
+ *
+ * MEASURED 2026-08-10. The sidecar was SIGKILLed three times in fifteen minutes with ZERO gate
+ * runners active and the concurrency cap holding. The box was at load 15 on 14 cores, and the
+ * dominant consumer was a single `vite` build inside an epic worktree at 659% CPU — a leaf's own
+ * UI build, six and a half cores of it.
+ *
+ * The tell that this is starvation rather than blocking: the watchdog's probe latencies were a
+ * MIXTURE (1818, 5000, 746, 1536, 515 ms), not pinned at the timeout. A blocked event loop times
+ * out consistently. A ragged spread means the process was ready to answer and simply was not
+ * scheduled. So the sidecar was not stuck inside its own query — it was losing the CPU to
+ * children it had spawned itself.
+ *
+ * Priority is the proportionate fix. The sidecar must answer a health probe every 15 seconds or
+ * be killed; a build has no deadline at all, and finishing it a little slower costs nothing.
+ * `nice` is inherited, so wrapping the lane covers its whole process tree — the vite workers
+ * included, which is what actually matters here.
+ *
+ * What this does NOT do: nice governs CPU only, not I/O or memory, and it cannot help if the
+ * competing load comes from outside this process tree (on the measured box, a separate Electron
+ * app held ~210%). It removes the self-inflicted share, which is the share we control.
+ */
+export function gateSpawnArgv(command: string, niceness: number = gateNiceness()): string[] {
+  return niceness > 0
+    ? ['nice', '-n', String(niceness), 'sh', '-c', command]
+    : ['sh', '-c', command];
+}
+
 export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
   try {
-    const proc = Bun.spawn(['sh', '-c', command], { cwd, stdout: 'pipe', stderr: 'pipe' });
+    const proc = Bun.spawn(gateSpawnArgv(command), { cwd, stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),

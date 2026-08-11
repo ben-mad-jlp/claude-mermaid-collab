@@ -3203,8 +3203,8 @@ export async function handleAPI(
   }
 
   // GET /api/leaf-executor/inflight-projects
-  // The DISTINCT set of projects with >=1 HEADLESS leaf running right now (leaf_inflight,
-  // ALL projects in one read). Headless leaf runs leave no tmux and never flip a todo's
+  // The DISTINCT set of projects with >=1 HEADLESS leaf running right now (live leaf claims,
+  // ALL projects in one read, resolved through the global claim index — never a registry scan). Headless leaf runs leave no tmux and never flip a todo's
   // local status, so a project's plan-stats alone read 'idle' (green) mid-build — the
   // project-card list polls this to flip a building project AMBER. Plain read, no ws.
   if (path === '/api/leaf-executor/inflight-projects' && req.method === 'GET') {
