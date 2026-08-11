@@ -11,6 +11,7 @@
  */
 
 import { requestUserInputSchema } from './tools/request-user-input.js';
+import { notifyToolListChanged } from './tool-registry-notifier.js';
 
 // Lazy imports to avoid circular dependency issues at module load time
 let _groupRegistry: Record<string, Array<{ name: string; [k: string]: any }>> | null = null;
@@ -120,6 +121,11 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
   };
 
   return _groupRegistry;
+}
+
+export function invalidateAdvertisedToolsCache(): void {
+  _groupRegistry = null;
+  notifyToolListChanged('advertised-tools-cache-invalidated');
 }
 
 /**
