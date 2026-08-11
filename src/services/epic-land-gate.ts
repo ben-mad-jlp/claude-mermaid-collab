@@ -707,15 +707,43 @@ export function landGateTrailer(r: EpicLandGateResult): string {
   return trailer;
 }
 
+export function parseTimeoutFromOutput(output: string): { observedMs: number; limitMs: number } | null {
+  const limitMatch = output.match(/timed out (?:after|in)\s*(\d+)\s*ms|timeout of\s*(\d+)\s*ms/i);
+  const observedMatch = [...output.matchAll(/\[(\d+(?:\.\d+)?)\s*ms\]/g)].pop();
+  if (!limitMatch || !observedMatch) return null;
+  const limitMs = Number(limitMatch[1] ?? limitMatch[2]);
+  const observedMs = Math.round(Number(observedMatch[1]));
+  if (!Number.isFinite(limitMs) || !Number.isFinite(observedMs)) return null;
+  return { observedMs, limitMs };
+}
+
 export function landGateSummary(r: EpicLandGateResult): string {
   if (r.status === 'pass') {
     return `land gate green (${r.specFiles.length} spec file(s)${r.inherited.length > 0 ? `; ${r.inherited.length} also fail on master` : ''})`;
   }
   if (r.status === 'fail') {
+    if (r.typecheck?.status === 'fail') {
+      return `land gate FAILED: typecheck (${r.typecheck.command})`;
+    }
     if (r.floor?.status === 'fail' && r.regressions.length === 0) {
       return `land gate FAILED: regression floor (${r.floor.command})`;
     }
-    return `land gate FAILED: ${r.regressions.length} regression(s) on the branch, pass on master`;
+    if (r.regressions.length > 0) {
+      return `land gate FAILED: ${r.regressions.length} regression(s) on the branch, pass on master`;
+    }
+    const sweepUnit = r.sweep?.units.find((u) => u.status !== 'pass');
+    if (sweepUnit) {
+      const timeout = sweepUnit.output ? parseTimeoutFromOutput(sweepUnit.output) : null;
+      const testName = sweepUnit.output ? extractFailingTests(sweepUnit.output)[0] : undefined;
+      return `land gate FAILED: source-guard sweep ${sweepUnit.status} on ${sweepUnit.file}` +
+        (testName ? ` (${testName})` : '') +
+        (timeout ? ` — timeout: observed ${timeout.observedMs}ms vs limit ${timeout.limitMs}ms` : '');
+    }
+    const incident = r.incidents[0];
+    if (incident) {
+      return `land gate FAILED: ${incident.files.join(', ')} could not run`;
+    }
+    return `land gate FAILED: ${r.reasons[0] ?? 'unknown cause'}`;
   }
   if (r.status === 'abstain') {
     return `land gate ABSTAINED (no declared gate)`;
