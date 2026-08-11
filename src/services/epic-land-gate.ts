@@ -189,14 +189,9 @@ async function runRegressionFloor(o: {
     return undefined;
   }
 
-  const matched = o.floors.filter((lane) => o.changedFiles.some((f) => lane.match.test(f)));
-  if (matched.length === 0) {
-    return undefined;
-  }
-
   const results: Array<{ command: string; status: 'pass' | 'fail' | 'error'; failing: string[] }> = [];
 
-  for (const lane of matched) {
+  for (const lane of o.floors) {
     const cwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
     const r = await o.spawn(cwd, lane.command);
 
@@ -210,7 +205,7 @@ async function runRegressionFloor(o: {
     results.push({ command: lane.command, status: 'pass', failing: [] });
   }
 
-  return { command: matched.map((l) => l.command).join('; '), status: 'pass', failing: [] };
+  return { command: o.floors.map((l) => l.command).join('; '), status: 'pass', failing: [] };
 }
 
 export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGateResult> {
@@ -392,6 +387,10 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
 
   if (specFiles.length === 0) {
     const sweep = await runSourceGuardSweep({ epicWorktreeCwd: o.epicWorktreeCwd, cfg, spawn, git });
+    const reasons: string[] = ['land gate: no spec files in the epic diff'];
+    if (floor) {
+      reasons.push(`land gate: regression floor ${floor.status} (${floor.command})`);
+    }
     const res: EpicLandGateResult = {
       status: 'pass',
       declared: true,
@@ -402,7 +401,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       regressions: [],
       inherited: [],
       incidents: [],
-      reasons: ['land gate: no spec files in the epic diff'],
+      reasons,
       specFiles: [],
       epicTipSha,
       baseSha,

@@ -2359,7 +2359,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
           dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, servesCriterionIds=?, decisionRef=?, claimProbe=?, promotedTo=?, consumedAt=?, tier=?, baseRepair=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
-          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, declaredFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
+          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?, declaredFiles=?, retryCount=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''}${
+            // Archived means finished. Reviving a row (reset_todo, a re-open, a retry) must
+            // bring it back into the hot set, or it stays hidden from every default view —
+            // live work nobody can see. `nowTerminal` is a JS boolean, not caller input.
+            nowTerminal ? '' : ', archivedAt=NULL'
+          } WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
@@ -2885,12 +2890,25 @@ export interface CompleteTodoResult {
  *  archived id is a no-op UPDATE). Used by the throttled archival sweep
  *  (archival-sweep.ts) to move terminal rows out of the hot (archivedAt IS NULL)
  *  index without touching status/derived-status. Returns the row count updated. */
+/** Archived means finished. A row that is still `todo`/`planned`/`in_progress` is live work,
+ *  and archiving hides it from every default view (listTodos filters `archivedAt IS NULL`),
+ *  so the two states must never coexist — an archived-but-live row is invisible work.
+ *
+ *  The terminal predicate lives in the UPDATE, not in the caller. It used to be the caller's
+ *  job, which made the contradiction merely a bug away: 66 rows on this project sit archived
+ *  with status='todo' (stamped archivedAt=2000, a junk epoch), hidden from the UI and the
+ *  daemon alike. Non-terminal ids are now skipped rather than rejected — the sweep hands
+ *  over batches and one live row should not abandon the other 499 — and the shortfall is
+ *  visible in the returned count. */
 export function archiveTodosByIds(project: string, ids: string[], archivedAtMs: number): number {
   if (ids.length === 0) return 0;
   const db = openDb(project);
   const placeholders = ids.map(() => '?').join(',');
   const result = db
-    .prepare(`UPDATE todos SET archivedAt = ? WHERE id IN (${placeholders})`)
+    .prepare(
+      `UPDATE todos SET archivedAt = ?
+        WHERE id IN (${placeholders}) AND status IN ('done', 'dropped')`,
+    )
     .run(archivedAtMs, ...ids);
   return result.changes;
 }

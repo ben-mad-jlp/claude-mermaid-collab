@@ -6,8 +6,25 @@ import { join } from 'node:path';
 import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, BASE_GATE_FAIL_REVERIFY_ATTEMPTS, BASE_GATE_FAIL_TTL_MS, type EpicBaseGateRow, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
 import { parseDiffContract, renderContract, type DiffContract } from '../diff-contract';
 import Database from 'bun:sqlite';
+import { makeClaimProject } from '../__fixtures__/claim-project';
+import { openCollabDb, _closeAllCollabDbs } from '../collab-db';
+import { LEAF_CLAIM_LEASE_MS } from '../leaf-claim-store';
 
 let dir: string;
+
+/** Write a claim as if a NOW-DEAD daemon had left it: a foreign (or legacy NULL) epoch, plus the
+ *  pointer row its acquire would have written. Direct SQL on purpose — the store always stamps
+ *  the current epoch, so a dead process is not reachable through the public API. */
+function plantForeignClaim(project: string, leafId: string, epoch: string | null): void {
+  const t = Date.now();
+  openCollabDb(project).prepare(
+    `INSERT INTO leaf_claim (leafId, holder, epicId, acquiredAt, expiresAt, heartbeatAt, epoch)
+     VALUES (?, 'dead-daemon', NULL, ?, ?, ?, ?)`,
+  ).run(leafId, t, t + LEAF_CLAIM_LEASE_MS, t, epoch);
+  new Database(join(dir, 'worker-ledger.db')).prepare(
+    'INSERT OR REPLACE INTO leaf_claim_index (leafId, project, updatedAt) VALUES (?,?,?)',
+  ).run(leafId, project, t);
+}
 
 function entry(over: Partial<LedgerEntry> = {}): LedgerEntry {
   return {
@@ -25,6 +42,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   _closeLedgerDb();
+  _closeAllCollabDbs(); // claims live in per-project databases now; drop the cached handles
   delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(dir, { recursive: true, force: true });
 });
@@ -184,40 +202,59 @@ describe('queryLedgerThin — blob exclusion + index access', () => {
   });
 });
 
-describe('leaf_inflight epoch heal (reapStaleInflight)', () => {
+// The in-flight signal now lives in `leaf_claim` in the PROJECT database, behind a real foreign
+// key to `todos`, so these fixtures name a real project holding real leaf rows instead of the old
+// made-up '/p'. Behaviour asserted is unchanged apart from what the move added: a lease.
+describe('leaf claim epoch heal (reapStaleInflight)', () => {
   test('deletes rows from a dead process (foreign + NULL epoch), keeps this process\'s', () => {
-    setLeafInflight({ project: '/p', leafId: 'live', nodeKind: 'implement' });
-    // Simulate rows a now-dead daemon left: a foreign epoch + a legacy NULL epoch.
-    const raw = new Database(join(dir, 'worker-ledger.db'));
-    raw.prepare("INSERT INTO leaf_inflight (leafId, project, startedAt, epoch) VALUES ('dead', '/p', ?, 'old-epoch')").run(Date.now());
-    raw.prepare("INSERT INTO leaf_inflight (leafId, project, startedAt, epoch) VALUES ('legacy', '/p', ?, NULL)").run(Date.now());
-    raw.close();
+    const p = makeClaimProject(join(dir, 'proj'), ['live', 'dead', 'legacy']);
+    setLeafInflight({ project: p, leafId: 'live', nodeKind: 'implement' });
+    // Simulate claims a now-dead daemon left: a foreign epoch + a legacy NULL epoch. Written
+    // straight into the project database (with their index pointers) — the store's own acquire
+    // path always stamps THIS epoch, so a dead daemon cannot be faked through it.
+    plantForeignClaim(p, 'dead', 'old-epoch');
+    plantForeignClaim(p, 'legacy', null);
 
     expect(reapStaleInflight()).toBe(2);
     expect(listLeafInflight().map((r) => r.leafId)).toEqual(['live']);
   });
 
   test('a row this process wrote survives its own reap', () => {
-    setLeafInflight({ project: '/p', leafId: 'mine' });
+    const p = makeClaimProject(join(dir, 'proj'), ['mine']);
+    setLeafInflight({ project: p, leafId: 'mine' });
     expect(reapStaleInflight()).toBe(0);
     expect(listLeafInflight().map((r) => r.leafId)).toContain('mine');
   });
+
+  test('an EXPIRED claim from this process is reaped too — the SIGKILL backstop', () => {
+    // The whole reason a claim is a lease. reapStaleInflight used to key on epoch alone, so a
+    // claim written by the CURRENT epoch could never be reaped by it; if the daemon then died
+    // without restarting (no new epoch) the leaf stayed "running" forever.
+    const p = makeClaimProject(join(dir, 'proj'), ['stranded']);
+    const t0 = 1_000_000;
+    setLeafInflight({ project: p, leafId: 'stranded' }, t0);
+    expect(reapStaleInflight(t0 + 1000)).toBe(0); // lease still good
+    expect(reapStaleInflight(t0 + LEAF_CLAIM_LEASE_MS + 1)).toBe(1);
+    expect(listLeafInflight()).toEqual([]);
+  });
 });
 
-describe('leaf_inflight same-epoch orphan sweep (E4 — reapSameEpochOrphanInflight)', () => {
+describe('leaf claim same-epoch orphan sweep (E4 — reapSameEpochOrphanInflight)', () => {
   test('drops a current-epoch row whose run is not live; keeps live runs', () => {
-    setLeafInflight({ project: '/p', leafId: 'live-run', nodeKind: 'blueprint' });
-    setLeafInflight({ project: '/p', leafId: 'dead-run', nodeKind: 'implement' });
+    const p = makeClaimProject(join(dir, 'proj'), ['live-run', 'dead-run']);
+    setLeafInflight({ project: p, leafId: 'live-run', nodeKind: 'blueprint' });
+    setLeafInflight({ project: p, leafId: 'dead-run', nodeKind: 'implement' });
     // 'live-run' is still executing (e.g. between nodes); 'dead-run' errored without
-    // clearing its row → a same-epoch phantom that reapStaleInflight can't touch.
+    // clearing its claim → a same-epoch phantom that reapStaleInflight can't touch.
     const live = new Set(['live-run']);
     expect(reapSameEpochOrphanInflight((id) => live.has(id))).toBe(1);
     expect(listLeafInflight().map((r) => r.leafId)).toEqual(['live-run']);
   });
 
   test('no live runs → drops every current-epoch row; idempotent', () => {
-    setLeafInflight({ project: '/p', leafId: 'a' });
-    setLeafInflight({ project: '/p', leafId: 'b' });
+    const p = makeClaimProject(join(dir, 'proj'), ['a', 'b']);
+    setLeafInflight({ project: p, leafId: 'a' });
+    setLeafInflight({ project: p, leafId: 'b' });
     expect(reapSameEpochOrphanInflight(() => false)).toBe(2);
     expect(listLeafInflight()).toEqual([]);
     expect(reapSameEpochOrphanInflight(() => false)).toBe(0);
@@ -266,8 +303,9 @@ describe('leaf_resume durable budget recovery (slice 1b)', () => {
 
 describe('isLeafInflightLive', () => {
   test('returns true for a same-epoch setLeafInflight row; false after clear; false for unknown', () => {
+    const p = makeClaimProject(join(dir, 'proj'), ['L1', 'L2']);
     expect(isLeafInflightLive('L1')).toBe(false);
-    setLeafInflight({ project: '/p', leafId: 'L1', nodeKind: 'implement' });
+    setLeafInflight({ project: p, leafId: 'L1', nodeKind: 'implement' });
     expect(isLeafInflightLive('L1')).toBe(true);
     expect(isLeafInflightLive('L2')).toBe(false);
     clearLeafInflight('L1');

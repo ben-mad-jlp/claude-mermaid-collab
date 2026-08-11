@@ -75,7 +75,7 @@ async function leafShieldedFromReap(
   deps: Pick<WorkerLivenessDeps, 'isRunLive' | 'isLeafInflightLive' | 'inProcessLaneAlive'>,
 ): Promise<'run-live' | 'inflight-live' | 'in-process-live' | null> {
   if (deps.isRunLive(todoId)) return 'run-live'; // run-level-live between nodes — never reclaim (mirrors reapDeadClaims:2830)
-  if (deps.isLeafInflightLive(todoId)) return 'inflight-live'; // bug 0f1df3d2: a live current-epoch node (e.g. a long blueprint) is NOT an orphan — inProcessLaneAlive is blind to the node-invoker `claude -p` subprocess, so the leaf_inflight row is the authoritative signal
+  if (deps.isLeafInflightLive(todoId)) return 'inflight-live'; // bug 0f1df3d2: a live current-epoch node (e.g. a long blueprint) is NOT an orphan — inProcessLaneAlive is blind to the node-invoker `claude -p` subprocess, so the leaf claim is the authoritative signal
   if (sessionName && (await deps.inProcessLaneAlive(sessionName))) return 'in-process-live'; // live in-process lane — no tmux to probe (§6.7)
   return null;
 }
@@ -143,11 +143,11 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     const session = t.sessionName;
     // HARDENING (audit aadd927b/dup-dispatch root): a headless leaf-exec lane has NO
     // tmux and NO registered in-process harness, and BETWEEN nodes its per-node
-    // leaf_inflight row is gone — so a genuinely-running leaf caught between nodes read
+    // leaf claim can be gone — so a genuinely-running leaf caught between nodes read
     // as a "dead worker" here, got its claim reclaimed, and the claim loop launched a
     // DUPLICATE run (same worktree+row) → false-block + retryCount inflation. The
     // run-level liveness set (E4) is true for the whole run incl. between-nodes; the
-    // inflight row covers an active node. Either ⇒ a live current-epoch run, never reap.
+    // claim covers an active node. Either ⇒ a live current-epoch run, never reap.
     // In-process lanes have no tmux — ask the harness before the tmux probe, or a
     // healthy in-process worker reads as dead (§6.7 bootstrap).
     if (await leafShieldedFromReap(t.id, session, deps)) continue;
@@ -177,22 +177,22 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
   // deadTracker only holds workers THIS process spawned, wiped on every restart;
   // this sweep instead ages off the PERSISTED updatedAt, so it survives restarts.
 
-  // Reap stranded leaf_inflight telemetry rows left by a now-dead daemon (a
-  // sidecar restart killed the in-process executor before its finally cleared
-  // the row) so daemon_status stops showing phantom running leaves. Global +
-  // idempotent; cheap to run each tick (epic 8e7386e4).
+  // Reap stranded leaf CLAIMS left by a now-dead daemon (a sidecar restart killed the
+  // in-process executor before its finally released), plus any whose LEASE has lapsed, so
+  // daemon_status stops showing phantom running leaves. Global + idempotent; cheap to run
+  // each tick (epic 8e7386e4).
   deps.reapStaleInflight();
-  // E4: also drop SAME-epoch phantom rows whose run already ended without clearing
+  // E4: also drop SAME-epoch phantom claims whose run already ended without releasing
   // them (aborted/errored). isRunLive (run-level liveness) keeps a genuinely-running
-  // leaf's row even between its nodes, where the per-node subprocess registry is empty.
+  // leaf's claim even between its nodes, where the per-node subprocess registry is empty.
   deps.reapSameEpochOrphanInflight(deps.isRunLive);
 
   // capacity-fixes FIX 1: snap the inflight-limiter's in-process counters
   // (globalActive/perProject) to observed truth. By this point BOTH reaps above have
-  // run, so every remaining leaf_inflight row is guaranteed current-epoch AND
-  // run-live — a durable, restart-surviving signal (preferred here over the in-memory
+  // run, so every remaining claim is guaranteed current-epoch, unexpired AND run-live — a
+  // durable, restart-surviving signal (preferred here over the in-memory
   // leaf-subprocess-registry alone, which resets exactly like the counters being
-  // reconciled). This is global, not project-scoped (leaf_inflight spans every
+  // reconciled). This is global, not project-scoped (the claim index spans every
   // project), so it's harmless to recompute on every project's tick — idempotent,
   // same cost class as the two reaps it rides alongside.
   const liveInflight = deps.listLeafInflight();
@@ -305,7 +305,7 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
   const candidates = planOrphanReap(inProgress, now, deps.orphanGraceMs);
   for (const c of candidates) {
     if (reaped.has(c.id)) continue; // already reclaimed (dead-claims, prior-epoch, or pulse)
-    // bug 0f1df3d2: a live current-epoch leaf_inflight row means a node is running
+    // bug 0f1df3d2: a live current-epoch leaf claim means a node is running
     // RIGHT NOW (e.g. a >lease blueprint) — never reap it via the age/lease grace
     // path. Authoritative for headless leaves, which inProcessLaneAlive can't see.
     if (await leafShieldedFromReap(c.id, c.sessionName, deps)) continue;
