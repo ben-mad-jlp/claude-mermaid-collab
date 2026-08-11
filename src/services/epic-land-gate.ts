@@ -85,6 +85,7 @@ export interface EpicLandGateOpts {
   git?: (cwd: string, args: string[]) => { code: number; stdout: string };
   fs?: { exists(p: string): boolean; symlink(target: string, path: string): void };
   skipCache?: boolean;
+  snapshot?: { baseSha: string; epicTipSha: string };
 }
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -260,14 +261,16 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   const cfg = decl.cfg;
 
   // --- tip + base + cache ---
-  let epicTipSha: string | null = null;
-  let baseSha: string | null = null;
+  let epicTipSha: string | null = o.snapshot?.epicTipSha ?? null;
+  let baseSha: string | null = o.snapshot?.baseSha ?? null;
 
-  const tipRes = git(o.epicWorktreeCwd, ['rev-parse', 'HEAD']);
-  if (tipRes.code === 0) epicTipSha = tipRes.stdout.trim();
+  if (!o.snapshot) {
+    const tipRes = git(o.epicWorktreeCwd, ['rev-parse', 'HEAD']);
+    if (tipRes.code === 0) epicTipSha = tipRes.stdout.trim();
 
-  const baseRes = git(o.repo, ['rev-parse', baseRef]);
-  if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
+    const baseRes = git(o.repo, ['rev-parse', baseRef]);
+    if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
+  }
 
   if (!o.skipCache) {
     const cached = getEpicLandGate(o.epicId, epicTipSha, baseSha);
@@ -319,7 +322,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   // --- change-set ---
-  const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseRef, 'HEAD']);
+  const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseSha ?? baseRef, epicTipSha ?? 'HEAD']);
   if (mergeBaseRes.code !== 0) {
     return {
       status: 'error',
@@ -338,6 +341,28 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   const mergeBase = mergeBaseRes.stdout.trim();
+
+  // If merge-base equals epic tip, the trunk already contains the epic tip and there is
+  // nothing to measure — the diff is empty and the gate is unevaluable.
+  if (mergeBase === epicTipSha) {
+    const res: EpicLandGateResult = {
+      status: 'fail',
+      declared: true,
+      manifestPath: decl.manifestPath,
+      typecheck,
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: ['land gate: UNEVALUABLE — merge-base == epic tip; trunk already contains the epic, nothing to measure'],
+      specFiles: [],
+      epicTipSha,
+      baseSha,
+    };
+    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+    return res;
+  }
+
   const diffRes = git(o.epicWorktreeCwd, ['diff', '--name-only', '--diff-filter=d', mergeBase, 'HEAD']);
   const changedFiles = diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const specFiles = changedFiles.filter((p) => SPEC_FILE_RE.test(p));
