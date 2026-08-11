@@ -57,7 +57,7 @@ import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markL
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
-import { allocateLeafScratch, reapLeafScratch } from './leaf-scratch';
+import { allocateLeafScratch, reapLeafScratch, leafScratchFor } from './leaf-scratch';
 import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
@@ -1506,7 +1506,7 @@ export async function runLeaf(
         detail: { routes: priv.routes, commands: priv.offending.slice(0, 5).map((c) => ({ cmd: c.cmd.slice(0, 200), cwd: c.cwd })) },
       });
 
-      const write = detectOutsideWorktreeWrite({ commands: recordedCommands, worktreeRoot: worktreeCwd });
+      const write = detectOutsideWorktreeWrite({ commands: recordedCommands, worktreeRoot: worktreeCwd, scratchDir: leafScratchFor(worktreeCwd) });
       if (write) violations.push({
         kind: 'outside-worktree-write',
         message: write.message,

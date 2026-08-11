@@ -657,10 +657,21 @@ export function detectPrivilegeEscalation(opts: {
 export function detectOutsideWorktreeWrite(opts: {
   commands: readonly RecordedCommand[];
   worktreeRoot: string;
+  scratchDir?: string;
 }): { offending: RecordedCommand[]; paths: string[]; message: string } | null {
   try {
     let realRoot: string;
     try { realRoot = realpathSync(opts.worktreeRoot); } catch { realRoot = resolve(opts.worktreeRoot); }
+
+    // Build the allow-list based on whether scratchDir is provided
+    let allowed: string[];
+    if (opts.scratchDir) {
+      // Use resolve() to stay consistent with classifyCommandWrites target resolution
+      const realScratch = resolve(opts.scratchDir);
+      allowed = [realScratch, realScratch + '/', '/dev/null', '/dev/stdout', '/dev/stderr'];
+    } else {
+      allowed = WRITE_ALLOWED_PREFIXES as any;
+    }
 
     const offending: RecordedCommand[] = [];
     const paths = new Set<string>();
@@ -671,7 +682,7 @@ export function detectOutsideWorktreeWrite(opts: {
       // is a write whatever precedes it; argument targets are already gated on a
       // mutating invocation inside classifyCommandWrites.
       for (const t of classifyCommandWrites(c.cmd, c.cwd).targets) {
-        if (WRITE_ALLOWED_PREFIXES.some((p) => t === p || t.startsWith(p))) continue;
+        if (allowed.some((p) => t === p || t.startsWith(p))) continue;
         const rel = relative(realRoot, resolve(t));
         const outside = rel !== '' && (rel.startsWith('..') || isAbsolute(rel));
         if (outside) { offending.push(c); paths.add(t); break; }
@@ -680,11 +691,12 @@ export function detectOutsideWorktreeWrite(opts: {
     if (offending.length === 0) return null;
 
     const first = offending[0]!;
+    const scratchMsg = opts.scratchDir ? `  Sanctioned scratch: ${opts.scratchDir}.` : '';
     const message =
       `outside-worktree-write: ${offending.length} command(s) wrote to an absolute path outside this ` +
       `leaf's worktree ${opts.worktreeRoot} — first: \`${first.cmd.slice(0, 200)}\` (cwd ${first.cwd}). ` +
       `Paths: ${[...paths].slice(0, 5).join(', ')}. ` +
-      `Only the worktree is diffed, reviewed and landed; a write outside it bypasses all three.`;
+      `Only the worktree is diffed, reviewed and landed; a write outside it bypasses all three.${scratchMsg}`;
     return { offending, paths: [...paths], message };
   } catch {
     return null; // FAIL OPEN
