@@ -140,6 +140,36 @@ export function getEpicLandRecord(project: string, epicId: string): EpicLandReco
   }
 }
 
+/** Read the land records for many epics in ONE query, keyed by epicId (missing epics are
+ *  simply absent from the map). Advisory read — never throws; any DB error yields an empty map.
+ *
+ *  WHY THIS EXISTS. The single-epic read was being called from inside a per-criterion loop in
+ *  listMissions, so the same handful of epics were re-read once per criterion: 210 queries to
+ *  return 6 missions. The lookup only ever depends on the epic, never on the criterion. */
+export function getEpicLandRecords(project: string, epicIds: string[]): Map<string, EpicLandRecord> {
+  const out = new Map<string, EpicLandRecord>();
+  const ids = [...new Set(epicIds)];
+  if (ids.length === 0) return out;
+  try {
+    const db = openDb(project);
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = db.query(
+      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath
+       FROM epic_land_record
+       WHERE project = ? AND epicId IN (${placeholders})`,
+    ).all(project, ...ids) as (Omit<EpicLandRecord, 'nonTerminalServingLeafIds'> & { nonTerminalServingLeafIds: string | null })[];
+    for (const row of rows) {
+      out.set(row.epicId, {
+        ...row,
+        nonTerminalServingLeafIds: row.nonTerminalServingLeafIds ? JSON.parse(row.nonTerminalServingLeafIds) : null,
+      });
+    }
+    return out;
+  } catch {
+    return out;
+  }
+}
+
 /** Read all land records for `project` with `landedAt` in [sinceMs, untilMs], oldest first.
  *  Advisory read — never throws; any DB error yields []. `project` is passed through
  *  verbatim (the table stores the raw project string `recordEpicLand` wrote; only
