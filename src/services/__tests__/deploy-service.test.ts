@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { requestSelfDeploy, readSelfDeployStatus, deployStatusPath, deployLogDir, deploySafetyGate } from '../deploy-service';
 import { setLeafInflight, _closeLedgerDb } from '../worker-ledger';
+import { _closeAllCollabDbs } from '../collab-db';
+import { makeClaimProject } from '../__fixtures__/claim-project';
 
 let supDir: string;
 let repo: string;
@@ -24,9 +26,13 @@ beforeEach(() => {
   process.env.MERMAID_SUPERVISOR_DIR = supDir;
   _closeLedgerDb();
   repo = makeSelfRepo();
+  // A claim now carries a foreign key to the leaf it claims, so the in-flight fixture has to
+  // name a leaf this project actually has.
+  makeClaimProject(repo, ['leaf-1']);
 });
 afterEach(() => {
   _closeLedgerDb();
+  _closeAllCollabDbs();
   delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(supDir, { recursive: true, force: true });
   rmSync(repo, { recursive: true, force: true });

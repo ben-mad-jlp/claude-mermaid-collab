@@ -1,7 +1,7 @@
 /**
  * Fleet status read-model — "what is each worker doing, on which slot, for how
  * long, and is it healthy?" A single join over the in-progress todos + their
- * claim metadata + live worker liveness (headless leaf_inflight / grok harness —
+ * claim metadata + live worker liveness (a headless leaf's live claim / grok harness —
  * Phase 4), so a human (or the Bridge UI / an MCP tool) can SEE the
  * pipeline instead of guessing why it feels slow.
  *
@@ -16,11 +16,11 @@ import type { ProviderId } from '../agent/worker-agent';
 import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
 
 /** Coarse worker state. P7: daemon workers are HEADLESS leaf-executor lanes (in-process
- *  `claude -p`), so liveness is the `leaf_inflight` signal — a row per leaf actively
+ *  `claude -p`), so liveness is the leaf-CLAIM signal — one live lease per leaf actively
  *  running a node. */
 export type WorkerState =
   | 'permission' // legacy — no longer produced
-  | 'working' // actively running a node (leaf_inflight row present, or grok harness alive)
+  | 'working' // actively running a node (live leaf claim, or grok harness alive)
   | 'idle' // claimed lane with no in-flight node right now (between nodes / not executing)
   | 'unknown'; // liveness couldn't be determined
 
@@ -47,7 +47,7 @@ export interface FleetEntry {
   retryCount: number;
   state: WorkerState;
   /** When state is 'working' on a headless leaf lane, the node it is running
-   *  (blueprint | implement | review | research | fix | …) from leaf_inflight. */
+   *  (blueprint | implement | review | research | fix | …) from the leaf's claim. */
   leafNode?: string | null;
   /**
    * The lane's REAL last-activity timestamp (ms epoch), or null if none is known.
@@ -207,7 +207,7 @@ export async function getFleetStatus(project: string, now: number = Date.now()):
     // LANE LIVENESS (P7): every daemon worker lane is now IN-PROCESS — a headless
     // leaf-executor lane (claude -p) or, for a grok-pinned lane, the GrokOwnHarness
     // loop. Liveness comes from the in-process
-    // signals: leaf_inflight (a row while a leaf runs a node) and the grok harness.
+    // signals: the leaf claim (held while a leaf runs a node) and the grok harness.
     // A lane actively running a node → 'working' (surface the node); otherwise 'idle'
     // (between nodes / not currently executing — a genuinely dead lane ages out via
     // the orphan reaper, not this read-model).
