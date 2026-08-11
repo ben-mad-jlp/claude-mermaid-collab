@@ -225,6 +225,13 @@ export interface LandProof {
   gate: EpicLandGateResult;
 }
 
+/** Pure builder for the proof-stage land refusal escalation questionText. Combines the
+ *  failure reason, full branch ref (not truncated), and optional detail into a
+ *  human-readable card message. */
+export function landRefusalCardText(o: { epicBranch: string; reason: string; detail?: string | null }): string {
+  return `Land blocked — ${o.reason} (tip ${o.epicBranch}). Master is UNTOUCHED.\n${o.detail ?? ''}`;
+}
+
 /** ONE PROOF: delegates entirely to the SAME `landReadiness()` the human click and the
  *  conductor call use (src/services/land-authority.ts — "ONE LAND PROOF, THREE ACTORS").
  *  Used by BOTH surfaceEpicLand's armed-mission auto-land and landEpic's land-time
@@ -1010,7 +1017,7 @@ async function runProofStage(
       todoId: ctx.todoId,
       kind: 'assumption-invalidated',
       audience: 'human',
-      questionText: `Land blocked — ${proof.reason} (tip ${epicBranch.slice(0, 8)}). Master is UNTOUCHED.\n${proof.detail}`,
+      questionText: landRefusalCardText({ epicBranch, reason: proof.reason, detail: proof.detail }),
       conditionKey: cond.conditionKey,
       conditionTuple: cond.conditionTuple,
     });
