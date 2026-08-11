@@ -85,6 +85,7 @@ export interface EpicLandGateOpts {
   git?: (cwd: string, args: string[]) => { code: number; stdout: string };
   fs?: { exists(p: string): boolean; symlink(target: string, path: string): void };
   skipCache?: boolean;
+  snapshot?: { baseSha: string; epicTipSha: string };
 }
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -260,14 +261,16 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   const cfg = decl.cfg;
 
   // --- tip + base + cache ---
-  let epicTipSha: string | null = null;
-  let baseSha: string | null = null;
+  let epicTipSha: string | null = o.snapshot?.epicTipSha ?? null;
+  let baseSha: string | null = o.snapshot?.baseSha ?? null;
 
-  const tipRes = git(o.epicWorktreeCwd, ['rev-parse', 'HEAD']);
-  if (tipRes.code === 0) epicTipSha = tipRes.stdout.trim();
+  if (!o.snapshot) {
+    const tipRes = git(o.epicWorktreeCwd, ['rev-parse', 'HEAD']);
+    if (tipRes.code === 0) epicTipSha = tipRes.stdout.trim();
 
-  const baseRes = git(o.repo, ['rev-parse', baseRef]);
-  if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
+    const baseRes = git(o.repo, ['rev-parse', baseRef]);
+    if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
+  }
 
   if (!o.skipCache) {
     const cached = getEpicLandGate(o.epicId, epicTipSha, baseSha);
@@ -319,7 +322,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   // --- change-set ---
-  const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseRef, 'HEAD']);
+  const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseSha ?? baseRef, epicTipSha ?? 'HEAD']);
   if (mergeBaseRes.code !== 0) {
     return {
       status: 'error',
