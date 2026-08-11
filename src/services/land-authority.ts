@@ -383,7 +383,7 @@ async function resolveEpicWorktreeCwd(project: string, epicId: string): Promise<
 export async function landReadiness(
   project: string,
   epicId: string,
-  opts?: { probes?: LandProbes; todos?: Todo[] },
+  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string } },
 ): Promise<LandReadinessVerdict> {
   const probes = opts?.probes ?? {};
   const allTodos = opts?.todos ?? (probes.todos ? probes.todos(project) : listTodos(project, { includeCompleted: true }));
@@ -453,6 +453,7 @@ export async function landReadiness(
     epicId,
     epicBranch,
     epicWorktreeCwd,
+    snapshot: opts?.snapshot,
   };
 
   gate = await gateProbe(gateOpts);
