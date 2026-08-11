@@ -10,6 +10,7 @@ import {
   type BaseGateTestRunRow,
   type TestQuarantineRow,
   listObservations,
+  listTestObservations,
   listTestQuarantine,
   writeTestQuarantine,
   removeTestQuarantine as removeTestQuarantineDefault,
@@ -179,6 +180,7 @@ export async function closeQuarantineOnGreen(
   deps?: {
     listTestQuarantine?: typeof listTestQuarantine;
     listObservations?: typeof listObservations;
+    listTestObservations?: typeof listTestObservations;
     removeTestQuarantine?: typeof removeTestQuarantineDefault;
     listTodos?: typeof listTodos;
     updateTodo?: typeof updateTodoDefault;
@@ -186,6 +188,7 @@ export async function closeQuarantineOnGreen(
 ): Promise<void> {
   const listTestQuarantineFn = deps?.listTestQuarantine ?? listTestQuarantine;
   const listObservationsFn = deps?.listObservations ?? listObservations;
+  const listTestObservationsFn = deps?.listTestObservations ?? listTestObservations;
   const removeTestQuarantineFn = deps?.removeTestQuarantine ?? removeTestQuarantineDefault;
   const listTodosFn = deps?.listTodos ?? listTodos;
   const updateTodoFn = deps?.updateTodo ?? updateTodoDefault;
@@ -194,8 +197,13 @@ export async function closeQuarantineOnGreen(
 
   for (const r of records) {
     try {
-      const observations = listObservationsFn(project, r.createdAt);
-      const testObs = observations.filter((o) => o.test === r.test);
+      // ONE test's rows via idx_bgtr_project_test — NOT the whole project materialised and
+      // filtered in JS. MEASURED 2026-08-11: 330 quarantine records x a ~1.8M-row project-wide
+      // read each, after every gate, on the synchronous loop — health probes starved, watchdog
+      // kills. The project-wide reader stays for callers that genuinely need every test.
+      const testObs = deps?.listObservations
+        ? listObservationsFn(project, r.createdAt).filter((o) => o.test === r.test)
+        : listTestObservationsFn(project, r.test, r.createdAt);
 
       if (testObs.length > 0 && !testObs.some((o) => o.failed)) {
         removeTestQuarantineFn(project, r.test);
@@ -230,6 +238,9 @@ export async function closeQuarantineOnGreen(
  * @param opts.windowMs Observation window (default 7 days)
  * @returns All candidates (promoted or refreshed)
  */
+/** More simultaneous candidates than this is a systemic red, never real flake. */
+export const MASS_PROMOTION_CAP = 25;
+
 export function promoteQuarantineCandidates(
   project: string,
   now: number = Date.now(),
@@ -244,6 +255,19 @@ export function promoteQuarantineCandidates(
   // Classify candidates from recent observations.
   const observations = listObservations(project, sinceMs);
   const candidates = classifyFlakyCandidates(observations, now);
+
+  // A MASS of simultaneous "flaky" tests is not flake — it is one systemic red (a broken base,
+  // a schema mismatch, a poisoned worktree) fanned out across the suite. Promoting it buries
+  // the real cause under hundreds of quarantine rows and makes every later pass pay for them:
+  // MEASURED 2026-08-11, a schema-error storm mass-promoted 330 tests and the quarantine pass
+  // pinned the sidecar re-upserting them after every gate. Refuse loudly instead.
+  if (candidates.length > MASS_PROMOTION_CAP) {
+    console.warn(
+      `[flaky-quarantine] REFUSING mass promotion for ${project}: ${candidates.length} simultaneous candidates ` +
+      `(cap ${MASS_PROMOTION_CAP}) — this is a systemic red, not flake. Fix the base; no quarantine rows written.`,
+    );
+    return [];
+  }
 
   // Upsert all candidates (idempotent) and hook only newly-promoted ones.
   for (const c of candidates) {
