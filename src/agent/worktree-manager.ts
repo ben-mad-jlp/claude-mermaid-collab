@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
+import { invalidateEpicBaseGate } from '../services/worker-ledger';
 import type { WorktreeInfo, NonGitFallback, SessionWorktree } from './contracts';
 import {
   computeCommitScope,
@@ -1642,6 +1643,13 @@ export class WorktreeManager {
       await this.runGit(epic.path, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({ code: 0, stdout: '', stderr: '' }));
       return { integrated: false, advanced: false, conflict: true, conflictedPaths };
     }
+    // The base MOVED, so the stored verdict describes a tree that no longer exists. Leaving the
+    // row means the stale red outlives its cause: leaves stay parked on a failure already fixed
+    // on trunk, and only a human noticing breaks the loop. MEASURED 2026-08-11: two trunk tests
+    // manufactured a red on every epic base; they were fixed within minutes, yet eight epics sat
+    // parked for hours on the pre-fix verdict. Dropping the row makes the next claim RE-MEASURE.
+    // Best-effort: the merge already succeeded; a ledger hiccup must not report it failed.
+    try { invalidateEpicBaseGate(epicId); } catch { /* advisory */ }
     return { integrated: true, advanced: true, conflict: false };
   }
 
