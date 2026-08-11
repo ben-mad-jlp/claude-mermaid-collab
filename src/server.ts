@@ -3,6 +3,9 @@
 // dompurify caches windowless and server-side diagram rendering fails with
 // "DOMPurify.addHook is not a function".
 import './services/dom-setup';
+// FIRST real import: attribution for event-loop wedges (see hotpath-profiler.ts).
+import { installHotpathProfiler } from './services/hotpath-profiler';
+installHotpathProfiler();
 import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';

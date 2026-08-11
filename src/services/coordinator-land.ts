@@ -10,7 +10,11 @@
  * and are imported back here.
  */
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Todo } from './todo-store';
+
+const execFileAsync = promisify(execFile);
 import { listTodos, getTodo, completeTodo } from './todo-store';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic } from './todo-kind.ts';
@@ -237,6 +241,7 @@ async function deriveEpicLandProof(a: {
   epicBranch: string;
   todos: Todo[];
   epicWorktreeCwd: string;
+  snapshot?: { baseSha: string; epicTipSha: string };
 }): Promise<LandProof> {
   const notRun: EpicLandGateResult = {
     status: 'error',
@@ -255,6 +260,7 @@ async function deriveEpicLandProof(a: {
   const readiness = await landReadiness(a.repo, a.epicId, {
     todos: a.todos,
     probes: { worktreeCwd: () => a.epicWorktreeCwd },
+    snapshot: a.snapshot,
   });
   const gate = readiness.gate ?? notRun;
 
@@ -661,6 +667,35 @@ export async function surfaceEpicLand(
       const wm = getWorktreeManager(repo);
       const epicBranch = wm.epicBranchName(epicId);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
+
+      // Short-circuit: suppress the epic-ready-to-land card if git shows nothing to merge.
+      // Compute this BEFORE landReadiness so an already-landed epic never re-runs (and re-records)
+      // the gate on a reconcile tick. Use injected probes (landednessProbe) if provided; otherwise
+      // use the real functions.
+      const landedness = opts.landednessProbe ?? { isEpicLandedInGit, isEpicTreeIdenticalToTrunk };
+      const [gitStatus, treeStatus] = await Promise.all([
+        landedness.isEpicLandedInGit(repo, epicId).catch(() => 'indeterminate' as const),
+        landedness.isEpicTreeIdenticalToTrunk(repo, epicId).catch(() => 'indeterminate' as const),
+      ]);
+      const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
+      if (nothingToMerge) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session,
+          detail: JSON.stringify({
+            todoId: epicId,
+            epicId,
+            epicBranch,
+            repo,
+            landSurface: 'nothing-to-merge',
+            gitStatus,
+            treeStatus,
+          }),
+        });
+        continue;
+      }
+
       // ONE PROOF: the same landReadiness() the human click and the conductor call use
       // (src/services/land-authority.ts — "ONE LAND PROOF, THREE ACTORS") both drives the
       // card text below AND gates the auto-land further down — computed exactly once, so
@@ -690,32 +725,6 @@ export async function surfaceEpicLand(
         epicBranch,
         proofGreen ? 'green' : landReasonClass(readiness.blockers[0]?.code ?? 'land-not-ready'),
       ]);
-
-      // Short-circuit: suppress the epic-ready-to-land card if git shows nothing to merge.
-      // Use injected probes (landednessProbe) if provided; otherwise use the real functions.
-      const landedness = opts.landednessProbe ?? { isEpicLandedInGit, isEpicTreeIdenticalToTrunk };
-      const [gitStatus, treeStatus] = await Promise.all([
-        landedness.isEpicLandedInGit(repo, epicId).catch(() => 'indeterminate' as const),
-        landedness.isEpicTreeIdenticalToTrunk(repo, epicId).catch(() => 'indeterminate' as const),
-      ]);
-      const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
-      if (nothingToMerge) {
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session,
-          detail: JSON.stringify({
-            todoId: epicId,
-            epicId,
-            epicBranch,
-            repo,
-            landSurface: 'nothing-to-merge',
-            gitStatus,
-            treeStatus,
-          }),
-        });
-        continue;
-      }
 
       const { escalation } = createEscalation({
         project,
@@ -971,6 +980,19 @@ async function runProofStage(
   ctx: { escalationId: string; session: string; todoId: string },
 ): Promise<{ ok: boolean; proof?: LandProof } | LandEpicOutcome> {
   const wm = getWorktreeManager(targetProject);
+
+  // Capture pre-merge snapshot before deriving proof
+  let snapshot: { baseSha: string; epicTipSha: string } | undefined;
+  try {
+    const trunkRef = await wm.detectBaseBranch().catch(() => 'master');
+    const epicCwd = epic?.path ?? targetProject;
+    const baseSha = (await execFileAsync('git', ['-C', targetProject, 'rev-parse', trunkRef], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+    const epicTipSha = (await execFileAsync('git', ['-C', epicCwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+    snapshot = { baseSha, epicTipSha };
+  } catch (e) {
+    // Degrade gracefully on shell hiccup — resolve-at-gate-time path handles missing snapshot
+  }
+
   const proof = await deriveEpicLandProof({
     project,
     repo: targetProject,
@@ -978,6 +1000,7 @@ async function runProofStage(
     epicBranch,
     todos: todosAtProofTime,
     epicWorktreeCwd: epic?.path ?? targetProject,
+    snapshot,
   });
   if (!proof.ok) {
     const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
