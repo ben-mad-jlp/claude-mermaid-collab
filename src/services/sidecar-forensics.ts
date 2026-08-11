@@ -94,6 +94,30 @@ export function formatDeathContext(input: {
   return `[${isoTs}] death-context ${pairs}`;
 }
 
+/** Resolve the liveness-watchdog threshold (ms) from env, then the machine config map.
+ *
+ *  WHY BOTH SOURCES: the env var only reaches the supervisor when the app is launched from a
+ *  terminal — `open -a` and Finder launches drop it, so on 2026-08-11 the raised threshold
+ *  silently reverted to 45s on every relaunch and the land gate's own full-suite run (load 27)
+ *  starved the sidecar past it: the gate killed its own server mid-land. The config file is
+ *  what actually survives how the app is launched; env stays as the explicit override.
+ *
+ *  PURE — callers pass the env and the parsed config map, so tests never read the live
+ *  ~/.mermaid-collab/config.json (which leaks real machine state into assertions).
+ *  Rejects values below 15s: the probe interval is 15s, so anything lower kills on one probe.
+ *  Returns null when neither source sets a usable value (caller falls back to its default). */
+export function resolveWatchdogThresholdMs(
+  env: Record<string, string | undefined>,
+  configMap: Record<string, unknown> | null,
+): number | null {
+  for (const raw of [env.MERMAID_WATCHDOG_THRESHOLD_SECONDS, configMap?.MERMAID_WATCHDOG_THRESHOLD_SECONDS]) {
+    if (raw == null || raw === '') continue;
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs >= 15) return secs * 1000;
+  }
+  return null;
+}
+
 export class CrashLoopTripwire {
   private respawnTimes: number[] = [];
   private lastFiredWindowStart: number | null = null;

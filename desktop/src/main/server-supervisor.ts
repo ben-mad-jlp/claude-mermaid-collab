@@ -10,6 +10,7 @@ import {
   ExitReason,
   formatExitForensics,
   formatWatchdogKillReason,
+  resolveWatchdogThresholdMs,
   stackSampleCommand,
   formatStackSampleLine,
   formatDeathContext,
@@ -158,21 +159,19 @@ const STARTUP_RETRY_DELAY_MS = 750;
 // that protects a legitimate slow start (registry backfill) from a false respawn,
 // and the per-probe timeout. All overridable via SupervisorOpts (mainly for tests).
 const HEALTH_WATCHDOG_POLL_MS = 15_000;
-const HEALTH_WATCHDOG_THRESHOLD_MS = envWatchdogThresholdMs() ?? 45_000;
+const HEALTH_WATCHDOG_THRESHOLD_MS = configuredWatchdogThresholdMs() ?? 45_000;
 
-/** Operator override for the liveness threshold, in seconds.
- *
- *  WHY: the watchdog cannot tell "blocked inside a synchronous query" from "dead", and it
- *  SIGKILLs either way. A busy-but-alive sidecar killed mid-scan restarts and redoes the same
- *  work, so the kill makes the next kill more likely — 200 of them in one day. Raising the
- *  threshold converts a fatal wedge into mere slowness while the underlying blocking is fixed.
- *  Rejects nonsense and anything below the 15s poll interval, which would kill on one probe. */
-function envWatchdogThresholdMs(): number | null {
-  const raw = process.env.MERMAID_WATCHDOG_THRESHOLD_SECONDS;
-  if (!raw) return null;
-  const secs = Number(raw);
-  if (!Number.isFinite(secs) || secs < 15) return null;
-  return secs * 1000;
+/** Env first (explicit override), then ~/.mermaid-collab/config.json — the source that
+ *  actually survives GUI launches; `open -a`/Finder drop env vars, which is how the raised
+ *  threshold silently reverted to 45s on every relaunch on 2026-08-11 and the land gate's own
+ *  full-suite run starved the sidecar into a SIGKILL mid-land. Read once at module load: a
+ *  changed config takes effect on the next app launch, same as every other key in that file. */
+function configuredWatchdogThresholdMs(): number | null {
+  let configMap: Record<string, unknown> | null = null;
+  try {
+    configMap = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.mermaid-collab', 'config.json'), 'utf-8'));
+  } catch { /* no config file — env or default */ }
+  return resolveWatchdogThresholdMs(process.env, configMap);
 }
 const HEALTH_WATCHDOG_GRACE_MS = 90_000;
 const HEALTH_WATCHDOG_TIMEOUT_MS = 5_000;
