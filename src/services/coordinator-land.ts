@@ -10,8 +10,11 @@
  * and are imported back here.
  */
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Todo } from './todo-store';
+
+const execFileAsync = promisify(execFile);
 import { listTodos, getTodo, completeTodo } from './todo-store';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic } from './todo-kind.ts';
@@ -983,8 +986,8 @@ async function runProofStage(
   try {
     const trunkRef = await wm.detectBaseBranch().catch(() => 'master');
     const epicCwd = epic?.path ?? targetProject;
-    const baseSha = execFileSync('git', ['-C', targetProject, 'rev-parse', trunkRef], { encoding: 'utf8' }).trim();
-    const epicTipSha = execFileSync('git', ['-C', epicCwd, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const baseSha = (await execFileAsync('git', ['-C', targetProject, 'rev-parse', trunkRef], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+    const epicTipSha = (await execFileAsync('git', ['-C', epicCwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
     snapshot = { baseSha, epicTipSha };
   } catch (e) {
     // Degrade gracefully on shell hiccup — resolve-at-gate-time path handles missing snapshot
