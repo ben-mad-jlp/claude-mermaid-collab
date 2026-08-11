@@ -341,6 +341,28 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   const mergeBase = mergeBaseRes.stdout.trim();
+
+  // If merge-base equals epic tip, the trunk already contains the epic tip and there is
+  // nothing to measure — the diff is empty and the gate is unevaluable.
+  if (mergeBase === epicTipSha) {
+    const res: EpicLandGateResult = {
+      status: 'fail',
+      declared: true,
+      manifestPath: decl.manifestPath,
+      typecheck,
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: ['land gate: UNEVALUABLE — merge-base == epic tip; trunk already contains the epic, nothing to measure'],
+      specFiles: [],
+      epicTipSha,
+      baseSha,
+    };
+    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+    return res;
+  }
+
   const diffRes = git(o.epicWorktreeCwd, ['diff', '--name-only', '--diff-filter=d', mergeBase, 'HEAD']);
   const changedFiles = diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const specFiles = changedFiles.filter((p) => SPEC_FILE_RE.test(p));
