@@ -1200,6 +1200,22 @@ export function listWatchedTests(project: string, lane: string, sinceMs: number)
   } catch { return []; }
 }
 
+/** Observations for ONE test, via idx_bgtr_project_test.
+ *
+ *  Exists because closeQuarantineOnGreen did `listObservations(project, since)` — the WHOLE
+ *  project's rows — inside a loop over quarantine records, then filtered to one test in JS.
+ *  MEASURED 2026-08-11: 330 quarantined tests x a ~1.8M-row materialisation each, after EVERY
+ *  gate, on the synchronous event loop. That is the founding db-latency-guard incident
+ *  (a lane query materialising 1.38M rows, once per quarantine record) re-created verbatim. */
+export function listTestObservations(project: string, test: string, sinceMs: number): BaseGateTestRunRow[] {
+  try {
+    const raw = openDb().prepare(
+      'SELECT project, baseSha, lane, test, failed, scope, observedAt FROM base_gate_test_run WHERE project=? AND test=? AND observedAt>=? ORDER BY observedAt ASC',
+    ).all(project, test, sinceMs) as Array<Omit<BaseGateTestRunRow, 'failed'> & { failed: number }>;
+    return raw.map((r) => ({ ...r, failed: Boolean(r.failed) }));
+  } catch { return []; }
+}
+
 /** List all test-run observations for a project since a given timestamp, ordered
  *  by observedAt ascending. Maps `failed` 0/1 to boolean. Returns [] on any error. */
 export function listObservations(project: string, sinceMs: number): BaseGateTestRunRow[] {
