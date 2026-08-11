@@ -102,4 +102,57 @@ describe('decideEscalation', () => {
     // The returned escalation is the full one
     expect(result.escalation.id).toBe(escalation.id);
   });
+
+  it('returns a typed ambiguous-id refusal instead of throwing, leaving candidates open', () => {
+    // Create several escalations to find colliding prefixes
+    const escalations = [];
+    for (let i = 0; i < 30; i++) {
+      const { escalation: esc } = createEscalation({
+        audience: 'internal',
+        project: '/p',
+        session: 's',
+        kind: 'question',
+        questionText: `Question ${i}`,
+      });
+      escalations.push(esc);
+    }
+
+    // Find two escalations that share a prefix
+    let ambiguous = false;
+    let ambiguousPrefix = '';
+    let candidateIds: string[] = [];
+    for (let len = 1; len < 8; len++) {
+      const prefixes = new Map<string, string[]>();
+      for (const esc of escalations) {
+        const prefix = esc.id.slice(0, len);
+        if (!prefixes.has(prefix)) prefixes.set(prefix, []);
+        prefixes.get(prefix)!.push(esc.id);
+      }
+      for (const [prefix, ids] of prefixes) {
+        if (ids.length > 1) {
+          ambiguous = true;
+          ambiguousPrefix = prefix;
+          candidateIds = ids;
+          break;
+        }
+      }
+      if (ambiguous) break;
+    }
+
+    if (ambiguous) {
+      // Call decideEscalation with ambiguous prefix and verify it returns typed refusal
+      const result = decideEscalation(ambiguousPrefix, { optionId: 'a' });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('expected failure');
+      expect(result.reason).toBe('ambiguous-id');
+      expect(result.message).toContain(ambiguousPrefix);
+
+      // Verify both candidate rows are still open
+      for (const candId of candidateIds) {
+        const esc = getEscalation(candId);
+        expect(esc?.status).toBe('open');
+      }
+    }
+    // If we didn't get a collision naturally, the test still passes (collision is probabilistic)
+  });
 });
