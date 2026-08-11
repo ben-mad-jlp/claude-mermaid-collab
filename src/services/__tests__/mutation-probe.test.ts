@@ -1,3 +1,6 @@
+/**
+ * @nested-test-runner: inert - testCommand: 'bun test' at line 135 is captured by a stubbed armRunner that never spawns a process
+ */
 import { describe, it, expect, afterEach } from 'bun:test';
 import { rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
