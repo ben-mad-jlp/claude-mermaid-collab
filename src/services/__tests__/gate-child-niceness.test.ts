@@ -62,7 +62,23 @@ describe('gate children are deprioritised below the sidecar', () => {
     const plain = await read(gateSpawnArgv('ps -o nice= -p $$', 0));
     const niced = await read(gateSpawnArgv('ps -o nice= -p $$', 10));
 
+    // `nice` NESTS and the kernel clamps at PRIO_MAX (20). When this suite runs as a gate
+    // child it is already niced (sidecar 5 + DEFAULT_GATE_NICE 10 = 15), so +10 lands on the
+    // ceiling at 20, not at 25. Asserting a bare plain+10 red-lights every epic base for a
+    // property of the harness rather than of the code — a manufactured failure.
+    const CEILING = 20;
+    const expected = Math.min(plain + 10, CEILING);
+
     expect(Number.isFinite(plain)).toBe(true);
-    expect(niced).toBe(plain + 10); // the wrapper reaches the kernel, not just the argv array
+    expect(niced).toBe(expected); // the wrapper reaches the kernel, not just the argv array
+    if (plain < CEILING) {
+      // Where the kernel has headroom the probe is a real falsifier: a missing or misspelt
+      // `nice` in the image cannot produce a higher number than the plain run.
+      expect(niced).toBeGreaterThan(plain);
+    } else {
+      // Pinned at the ceiling the OS cannot demonstrate anything, so assert what remains
+      // observable rather than manufacturing a failure out of the harness's own niceness.
+      expect(gateSpawnArgv('x', 10).slice(0, 3)).toEqual(['nice', '-n', '10']);
+    }
   });
 });
