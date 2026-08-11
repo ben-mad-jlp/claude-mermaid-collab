@@ -123,6 +123,57 @@ describe('decide — non-matched tools & malformed input', () => {
   });
 });
 
+describe('decide — scratch directory support', () => {
+  let scratch = '';
+
+  beforeAll(() => {
+    scratch = join(root, 'leaf-exec-aaaaaaaa');
+    mkdirSync(scratch, { recursive: true });
+    mkdirSync(join(scratch, 'sub'), { recursive: true });
+    writeFileSync(join(scratch, 'temp.txt'), 'temp data');
+  });
+
+  it("Write inside the leaf's own scratch dir → allow", () => {
+    expect(decide(write(join(scratch, 'new.txt')), worktree, scratch).deny).toBe(false);
+  });
+
+  it("Write inside a SIBLING leaf's scratch dir under the same root → deny", () => {
+    const siblingScratch = join(root, 'leaf-exec-bbbbbbbb');
+    mkdirSync(siblingScratch, { recursive: true });
+    writeFileSync(join(siblingScratch, 'test.txt'), 'sibling');
+
+    const r = decide(write(join(siblingScratch, 'evil.txt')), worktree, scratch);
+    expect(r.deny).toBe(true);
+    expect(denyReason(r)).toContain(siblingScratch);
+  });
+
+  it('Write to an unrelated absolute path and to the main checkout → still deny with scratch set', () => {
+    const r1 = decide(write(join(outside, 'pytest_out.txt')), worktree, scratch);
+    expect(r1.deny).toBe(true);
+
+    const r2 = decide(write('/tmp/test-probe/x.txt'), worktree, scratch);
+    expect(r2.deny).toBe(true);
+  });
+
+  it("sibling-prefix scratch path (leaf-exec-aaaaaaaa-extra) is not sanctioned by isInside's separator guard", () => {
+    const scratchPrefix = join(root, 'leaf-exec-aaaaaaaa');
+    const siblingScratchExtra = join(root, 'leaf-exec-aaaaaaaa-extra');
+    mkdirSync(siblingScratchExtra, { recursive: true });
+    writeFileSync(join(siblingScratchExtra, 'test.txt'), 'extra');
+
+    const r = decide(write(join(siblingScratchExtra, 'evil.txt')), worktree, scratchPrefix);
+    expect(r.deny).toBe(true);
+  });
+
+  it("Bash cd into the leaf's own scratch dir → allow, cd elsewhere still denies", () => {
+    const r1 = decide(bash(`cd ${scratch} && node probe.mjs`), worktree, scratch);
+    expect(r1.deny).toBe(false);
+
+    const r2 = decide(bash(`cd /etc && node probe.mjs`), worktree, scratch);
+    expect(r2.deny).toBe(true);
+  });
+});
+
 describe('helpers', () => {
   it('isInside: same dir, nested, and sibling-prefix guard', () => {
     expect(isInside('/a/b', '/a/b')).toBe(true);
