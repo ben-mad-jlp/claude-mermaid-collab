@@ -33,6 +33,14 @@ const SYNC_SPAWN = /\b(?:spawnSync|execSync|execFileSync)\b/g;
  * included), after comment stripping. reason documents the exemption.
  */
 const ALLOWLIST: Record<string, { count: number; reason: string }> = {
+  'services/hotpath-profiler.ts': {
+    count: 7,
+    reason:
+      'WRAPS Bun.spawnSync (capture original + reassign + typeof-guard) to attribute spawn ' +
+      'traffic during event-loop wedges; it never initiates a sync spawn itself — every call ' +
+      'through the wrapper is a pass-through of an already-allowlisted caller, so the wrapper ' +
+      'adds ~zero blocking on top of the wrapped call.',
+  },
   'testing/hermetic-tripwire.ts': {
     count: 4,
     reason:
