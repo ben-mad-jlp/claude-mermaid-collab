@@ -18,6 +18,7 @@ import { createTodo, getTodo, _closeProject, listTodos } from '../../services/to
 import { upsertMission, setMissionAbandoned } from '../../services/mission-store';
 import { _closeDb as _closeSupervisorDb } from '../../services/supervisor-store';
 import { _closeLedgerDb } from '../../services/worker-ledger';
+import { handleEpicTool } from '../epic-tools';
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -283,5 +284,28 @@ describe('land-epic-actor — authority gating', () => {
     expect(result.ok).toBe(false);
     expect(result.ownership).toBe('unowned');
     expect(result.blocker?.code).toBe('no-active-mission');
+  });
+
+  it('test 14 — conductor landing an orphan epic by epicId is refused (no-active-mission)', async () => {
+    // Create a solo epic without a mission parent
+    const orphanEpic = await createTodo(repo, {
+      allowOrphan: true,
+      title: '[EPIC] Orphan',
+      kind: 'epic',
+      ownerSession: 'conductor-2',
+    });
+
+    // Try to land it as conductor-1 via the MCP handler with epicId
+    const response = await handleEpicTool('land_epic', {
+      project: repo,
+      epicId: orphanEpic.id,
+      actor: 'conductor',
+      session: 'conductor-1',
+    });
+
+    const result = JSON.parse(response || '{}');
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('no-active-mission');
+    expect(result.message).toBeDefined();
   });
 });
