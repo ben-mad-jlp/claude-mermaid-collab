@@ -43,7 +43,7 @@
     "ai": "^6.0.202",
     "chokidar": "^3.5.3",
     "chrome-remote-interface": "^0.34.0",
-    "electron-agent-bridge": "github:ben-mad-jlp/electron-agent-bridge#9b659619c9c2149582b2ea3655211a6d7cab92db",
+    "electron-agent-bridge": "github:ben-mad-jlp/electron-agent-bridge#939dd8a0728c0fc8aadd11a434c7bee2cdbf584d",
     "ffmpeg-static": "^5.3.0",
     "ffprobe-static": "^3.1.0",
     "isomorphic-dompurify": "^2.35.0",

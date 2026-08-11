@@ -10,7 +10,10 @@ import { NODE_PROFILE } from '../leaf-executor.ts';
 
 describe('NODE_PROFILE mcp__ coverage', () => {
   it('every kind whose static allowlist grants an mcp__ tool is a known mcp-bearing kind', () => {
-    const knownMcpBearingKinds = ['report', 'driveexec'];
+    // 'explore' joined 2026-08-11: file_finding (its output path) + the desktop_* CDP verbs so it
+    // can audit a RUNNING UI. Widened consciously — see leaf-node-profile.ts's destructive-by-
+    // design note; the blast radius is bounded by what the explore REQUEST points at.
+    const knownMcpBearingKinds = ['report', 'driveexec', 'explore'];
     for (const kind of Object.keys(NODE_PROFILE)) {
       if (NODE_PROFILE[kind as keyof typeof NODE_PROFILE].allowedTools.includes('mcp__')) {
         expect(knownMcpBearingKinds).toContain(kind);
