@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import { invalidateEpicBaseGate } from '../services/worker-ledger';
@@ -1294,47 +1294,103 @@ export class WorktreeManager {
     const out: Array<{ path: string; branch: string | null; reason: 'branch-gone' | 'prunable' | 'stale'; ageMs: number }> = [];
     // Porcelain: blank-line-separated blocks of `key value` lines.
     const blocks = list.stdout.split('\n\n');
+
+    // Parse EVERY block first, then answer the two per-worktree questions in ONE git call each.
+    //
+    // WHY: this ran `rev-parse` + `log -1` per worktree — two process spawns each, ~25 for a
+    // dozen worktrees, synchronously on the thread that serves /api/health. MEASURED
+    // 2026-08-11: stack samples of a wedged sidecar showed posix_spawn on the main thread
+    // beside SQLite, the friction-watch pass blew its own 90s budget 99 times, and the
+    // liveness watchdog SIGKILLed the sidecar repeatedly. The information is slow-moving — a
+    // worktree does not become abandoned suddenly — so paying a process storm per scan to
+    // learn it is the wrong trade.
+    //
+    // The HEAD sha comes from the porcelain output we already fetched, so ages stay EXACT for
+    // detached worktrees (5 of ours are detached; their HEAD is not any branch tip). Batching
+    // by ref instead would silently mis-age precisely the worktrees most likely to be
+    // abandoned — which is why this batches by SHA, not by ref.
+    type Parsed = { wtPath: string; branch: string | null; prunable: boolean; headSha: string | null };
+    const parsed: Parsed[] = [];
+    const realPathOrSelf = (p: string): string => {
+      try { return realpathSync(p); } catch { return path.resolve(p); }
+    };
+    const mainReal = realPathOrSelf(this.opts.projectRoot);
     for (const block of blocks) {
       const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
       let wtPath = '';
       let branch: string | null = null;
       let prunable = false;
+      let headSha: string | null = null;
       for (const ln of lines) {
         if (ln.startsWith('worktree ')) wtPath = ln.slice('worktree '.length);
         else if (ln.startsWith('branch ')) branch = ln.slice('branch '.length).replace(/^refs\/heads\//, '');
+        else if (ln.startsWith('HEAD ')) headSha = ln.slice('HEAD '.length).trim() || null;
         else if (ln === 'prunable' || ln.startsWith('prunable ')) prunable = true;
       }
       if (!wtPath) continue;
-      if (path.resolve(wtPath) === path.resolve(this.opts.projectRoot)) continue; // skip main worktree
-      // branch-gone: a named branch that no longer resolves.
-      let branchGone = false;
-      if (branch) {
-        const ok =
-          (
-            await this.runGit(
-              this.opts.projectRoot,
-              ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
-              QUICK_TIMEOUT_MS,
-            ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
-          ).code === 0;
-        branchGone = !ok;
-      }
-      // age: HEAD commit time inside the worktree.
-      let ageMs = 0;
-      const ct = await this.runGit(
-        wtPath,
-        ['log', '-1', '--format=%ct'],
+      // Compare REAL paths. git reports the resolved path (/private/var/...) while projectRoot
+      // may be the symlinked form (/var/...), and path.resolve does not follow symlinks — so
+      // this guard silently missed and reported the MAIN CHECKOUT itself as a stale worktree,
+      // which would file friction against the repo and invite reclaiming it.
+      if (realPathOrSelf(wtPath) === mainReal) continue; // skip main worktree
+      parsed.push({ wtPath, branch, prunable, headSha });
+    }
+    if (parsed.length === 0) return out;
+
+    // ONE call for every local branch name; `branch-gone` is then a set lookup.
+    let liveBranches: Set<string> | null = null;
+    const refs = await this.runGit(
+      this.opts.projectRoot,
+      ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (refs.code === 0) {
+      liveBranches = new Set(refs.stdout.split('\n').map((b) => b.trim()).filter(Boolean));
+    }
+
+    // ONE call for every HEAD commit time. `--no-walk` keeps it to the named commits.
+    const shas = Array.from(new Set(parsed.map((p) => p.headSha).filter((x): x is string => !!x)));
+    const ctimeBySha = new Map<string, number>();
+    if (shas.length > 0) {
+      const batch = await this.runGit(
+        this.opts.projectRoot,
+        ['log', '--no-walk', '--format=%H %ct', ...shas],
         QUICK_TIMEOUT_MS,
       ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
-      if (ct.code === 0 && ct.stdout.trim()) ageMs = this.now() - parseInt(ct.stdout.trim(), 10) * 1000;
+      if (batch.code === 0) {
+        for (const line of batch.stdout.split('\n')) {
+          const [sha, ct] = line.trim().split(/\s+/);
+          if (sha && ct) ctimeBySha.set(sha, parseInt(ct, 10));
+        }
+      }
+      // A batch is all-or-nothing: one unknown sha fails the whole call. Falling back per-sha
+      // keeps a single bad worktree from blinding the scan to every other one.
+      if (batch.code !== 0 || ctimeBySha.size === 0) {
+        for (const sha of shas) {
+          const one = await this.runGit(
+            this.opts.projectRoot,
+            ['log', '--no-walk', '--format=%ct', sha],
+            QUICK_TIMEOUT_MS,
+          ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+          if (one.code === 0 && one.stdout.trim()) ctimeBySha.set(sha, parseInt(one.stdout.trim(), 10));
+        }
+      }
+    }
+
+    for (const p of parsed) {
+      // Unknown branch set (the refs call failed) ⇒ NOT gone. Fail toward "healthy": a false
+      // branch-gone files friction and invites reclaiming a worktree that is perfectly fine.
+      const branchGone = p.branch != null && liveBranches != null && !liveBranches.has(p.branch);
+      const ct = p.headSha ? ctimeBySha.get(p.headSha) : undefined;
+      const ageMs = ct != null ? this.now() - ct * 1000 : 0;
       const reason: 'branch-gone' | 'prunable' | 'stale' | null = branchGone
         ? 'branch-gone'
-        : prunable
+        : p.prunable
           ? 'prunable'
           : ageMs > maxAgeMs
             ? 'stale'
             : null;
-      if (reason) out.push({ path: wtPath, branch, reason, ageMs });
+      if (reason) out.push({ path: p.wtPath, branch: p.branch, reason, ageMs });
     }
     return out;
   }
