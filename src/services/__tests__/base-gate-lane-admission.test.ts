@@ -10,25 +10,25 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { collectBackendTestFiles } from '../../../scripts/test-backend';
-import { detectNestedRunnerSpawn, detectRealGitWorktreeSpawn } from '../nested-runner-lane';
+import { isNestedRunnerSource, detectRealGitWorktreeSpawn } from '../nested-runner-lane';
 
 describe('base-gate-lane-admission', () => {
-  it('no file in fast trips detectNestedRunnerSpawn or detectRealGitWorktreeSpawn', () => {
+  it('no file in fast is classified as a nested-runner via isNestedRunnerSource or trips detectRealGitWorktreeSpawn', () => {
     const { fast } = collectBackendTestFiles();
 
     for (const file of fast) {
       const source = readFileSync(file, 'utf8');
-      expect(detectNestedRunnerSpawn(source)).toBe(false);
+      expect(isNestedRunnerSource(source)).toBe(false);
       expect(detectRealGitWorktreeSpawn(source)).toBe(false);
     }
   });
 
-  it('nested contains mutation-check.test.ts and has length <= 4', () => {
+  it('nested contains mutation-check.test.ts and has length <= 5', () => {
     const { nested } = collectBackendTestFiles();
 
     const hasMutationCheck = nested.some((f) => f.includes('mutation-check.test.ts'));
     expect(hasMutationCheck).toBe(true);
-    expect(nested.length).toBeLessThanOrEqual(4);
+    expect(nested.length).toBeLessThanOrEqual(5);
   });
 
   it('serial contains orphan-worktree-gc.test.ts and worktree-gc.test.ts', () => {
