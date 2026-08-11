@@ -16,6 +16,10 @@ import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { storePath } from './store-paths';
 import { parseDiffContract, renderContract, type DiffContract, type DiffRequirement } from './diff-contract';
+import {
+  acquireClaim, releaseClaim, isClaimLive, listClaims, listAllClaims, forceReleaseClaim,
+  indexedProjectFor, _closeClaimIndexDb, LEAF_CLAIM_LEASE_MS,
+} from './leaf-claim-store';
 
 export interface LedgerEntry {
   project: string;
@@ -127,10 +131,10 @@ CREATE INDEX IF NOT EXISTS idx_ledger_ts ON worker_ledger(ts);
 
 let db: Database | null = null;
 
-/** This process's epoch — minted once at module load, stamped onto every
- *  leaf_inflight row this process writes. A row carrying a different (or NULL,
- *  legacy) epoch was written by a now-dead daemon whose in-process executor was
- *  killed before it could clear the row; `reapStaleInflight` deletes those. */
+/** This process's epoch — minted once at module load, stamped onto every leaf CLAIM this
+ *  process writes, and doubling as the claim's `holder`. A claim carrying a different (or
+ *  NULL, legacy) epoch was written by a now-dead daemon whose in-process executor was killed
+ *  before it could release it; `reapStaleInflight` deletes those. */
 const LEDGER_EPOCH = crypto.randomUUID();
 
 function openDb(): Database {
@@ -175,28 +179,10 @@ function openDb(): Database {
   add('outcomeDetail', 'TEXT'); // atomic terminal record (JSON) on the outcome marker row
   // Additive migration: C2 command evidence (idempotent, nullable).
   add('commands', 'TEXT'); // JSON-encoded RecordedCommand[] from stream-json
-  // LIVE in-flight signal: the append-only ledger only gets a row when a node COMPLETES,
-  // so a running node is invisible (the "3 minutes of silence" blind spot). This tiny
-  // table holds exactly one row per CURRENTLY-running leaf (cross-process via SQLite, so
-  // the UI/MCP — separate processes from the executor — can see it), set at node start and
-  // cleared the instant the node finishes. Stale rows (hard crash) are aged out by readers.
-  db.exec(`CREATE TABLE IF NOT EXISTS leaf_inflight (
-    leafId TEXT PRIMARY KEY,
-    project TEXT NOT NULL,
-    epicId TEXT,
-    nodeKind TEXT,
-    model TEXT,
-    attempt INTEGER,
-    startedAt INTEGER NOT NULL,
-    epoch TEXT
-  )`);
-  // Additive migration: `epoch` stamps the owning daemon process so a record left
-  // by a now-dead process (sidecar restart killed the executor before its finally
-  // cleared the row) can be reaped on sight. Guarded ALTER for pre-existing tables.
-  try {
-    const lic = db.query('PRAGMA table_info(leaf_inflight)').all() as Array<{ name: string }>;
-    if (!lic.some((c) => c.name === 'epoch')) db.exec('ALTER TABLE leaf_inflight ADD COLUMN epoch TEXT');
-  } catch { /* best-effort migration */ }
+  // The LIVE in-flight signal used to be a `leaf_inflight` table here. It moved to `leaf_claim`
+  // in each PROJECT's database (leaf-claim-store.ts): a leaf's execution state has to live with
+  // the leaf, or nothing can enforce that the two agree — and they didn't. Existing
+  // `leaf_inflight` tables are left on disk untouched as history; no code reads or writes them.
   // DURABLE resume state (slice 1b) — survives process death (NOT epoch-reaped).
   db.exec(`CREATE TABLE IF NOT EXISTS leaf_resume (
     leafId TEXT PRIMARY KEY,
@@ -324,6 +310,10 @@ export function _closeLedgerDb(): void {
     try { db.close(); } catch { /* ignore */ }
     db = null;
   }
+  // The claim INDEX lives in the same file behind its own handle (leaf-claim-store keeps it
+  // separate to stay out of an import cycle). A test that repoints MERMAID_SUPERVISOR_DIR and
+  // only closes this one would keep writing pointers into the previous run's database.
+  _closeClaimIndexDb();
 }
 
 /** Append one phase's model-call record. Best-effort: a ledger write must NEVER break
@@ -363,6 +353,10 @@ export interface LedgerQuery {
   todoId?: string;
   /** Roll up only rows for this epic (per-epic cost / budget bar). */
   epicId?: string;
+  /** Roll up rows for MANY epics in one query. Exists because callers were looping
+   *  `epics.flatMap(e => listLeafRuns({ epicId: e.id }))` — one query per epic, 202 of them
+   *  inside a single listMissions call. Ignored when empty. */
+  epicIds?: string[];
   /** Only rows for this executor leaf (per-leaf run view — P4a). Unindexed at
    *  current volume (scanned under the 2000 cap); add idx_ledger_leaf if it grows. */
   leafId?: string;
@@ -437,7 +431,20 @@ export function recordNode(
   );
 }
 
-// --- LIVE in-flight signal (leaf_inflight) ------------------------------------
+// --- LIVE in-flight signal ----------------------------------------------------
+// These six functions are now THIN ADAPTERS over `leaf_claim` in the project database
+// (leaf-claim-store.ts). The global `leaf_inflight` table they used to own is retired: nothing in
+// src/ reads or writes it any more. The signatures are unchanged because ~10 call sites depend on
+// them, and because the shape of the question ("is this leaf running?") did not change — only
+// where the answer is stored, and the fact that it now has a DEADLINE.
+//
+// Two behaviour changes the callers get for free, both the point of the move:
+//   - a claim EXPIRES, so a SIGKILLed daemon can no longer strand a leaf forever;
+//   - the claim cannot outlive its leaf (the foreign key cascades), so the measured drift —
+//     todos saying 2 running while the inflight table said 0 — is unrepresentable.
+// The error behaviour is preserved exactly: this is the telemetry path and it must never break a
+// run, so every adapter swallows. Note that swallowing now also absorbs a foreign-key violation
+// (a claim for a leafId that is not a todo), which is a fixture bug, not a runtime one.
 export interface InflightEntry {
   leafId: string;
   project: string;
@@ -448,71 +455,87 @@ export interface InflightEntry {
 }
 export interface InflightRow extends InflightEntry { startedAt: number }
 
-/** Mark a leaf as RUNNING a node (upsert — one row per leaf). Best-effort. */
+/** Mark a leaf as RUNNING a node — i.e. take/renew this process's lease on it. The holder is
+ *  the process epoch, so re-stamping at each node boundary renews rather than steals, and a
+ *  different daemon's live claim is never taken. Best-effort. */
 export function setLeafInflight(e: InflightEntry, now: number = Date.now()): void {
   try {
-    openDb().prepare(
-      `INSERT INTO leaf_inflight (leafId, project, epicId, nodeKind, model, attempt, startedAt, epoch)
-       VALUES (?,?,?,?,?,?,?,?)
-       ON CONFLICT(leafId) DO UPDATE SET
-         project=excluded.project, epicId=excluded.epicId, nodeKind=excluded.nodeKind,
-         model=excluded.model, attempt=excluded.attempt, startedAt=excluded.startedAt, epoch=excluded.epoch`,
-    ).run(e.leafId, e.project, e.epicId ?? null, e.nodeKind ?? null, e.model ?? null, e.attempt ?? null, now, LEDGER_EPOCH);
+    acquireClaim({
+      project: e.project,
+      leafId: e.leafId,
+      holder: LEDGER_EPOCH,
+      epoch: LEDGER_EPOCH,
+      epicId: e.epicId ?? null,
+      nodeKind: e.nodeKind ?? null,
+      model: e.model ?? null,
+      attempt: e.attempt ?? null,
+      leaseMs: LEAF_CLAIM_LEASE_MS,
+    }, now);
   } catch { /* telemetry — never break the run */ }
 }
 
-/** Clear a leaf's in-flight row (node finished / leaf terminal). Best-effort. */
+/** Release a leaf's claim (node finished / leaf terminal). The project comes from the pointer
+ *  index because every caller has only the leafId; the index is a hint, but a wrong hint here
+ *  costs a missed delete that the lease expiry then cleans up. Best-effort. */
 export function clearLeafInflight(leafId: string): void {
-  try { openDb().prepare('DELETE FROM leaf_inflight WHERE leafId = ?').run(leafId); } catch { /* best-effort */ }
+  try {
+    const project = indexedProjectFor(leafId);
+    if (project) releaseClaim(project, leafId);
+  } catch { /* best-effort */ }
 }
 
-/** TRUE iff a leaf has a LIVE in-flight row written by THIS process (epoch ===
- *  LEDGER_EPOCH). A stale/foreign-epoch row (a phantom from a dead daemon awaiting
- *  reap) reads false. Pure read; best-effort (false on any error). The claim guard
+/** TRUE iff a leaf has a LIVE claim held by THIS process (epoch === LEDGER_EPOCH) whose lease
+ *  has not lapsed. A foreign-epoch claim (a phantom from a dead daemon awaiting reap) and an
+ *  EXPIRED one both read false. Pure read; best-effort (false on any error). The claim guard
  *  uses this to keep a still-running leaf out of the claimable set. */
 export function isLeafInflightLive(leafId: string): boolean {
   try {
-    const row = openDb()
-      .prepare('SELECT epoch FROM leaf_inflight WHERE leafId = ?')
-      .get(leafId) as { epoch?: string | null } | undefined;
-    return !!row && row.epoch === LEDGER_EPOCH;
+    const project = indexedProjectFor(leafId);
+    if (!project) return false;
+    return isClaimLive(project, leafId, LEDGER_EPOCH);
   } catch {
     return false;
   }
 }
 
 /**
- * Reap stranded in-flight rows: delete every row NOT written by THIS process
- * (epoch != LEDGER_EPOCH, or NULL/legacy). Such a row's executor died with its
- * daemon (e.g. a sidecar hot-swap) before its finally could clear it, so it would
- * otherwise show as a phantom running leaf forever. Safe to call every tick —
- * idempotent (once swept, only this process's live rows remain). Returns the
- * count deleted. Best-effort.
+ * Reap stranded claims: every claim NOT written by THIS process (epoch != LEDGER_EPOCH, or
+ * NULL/legacy), plus every claim whose lease has LAPSED. The first class is a daemon that died
+ * (e.g. a sidecar hot-swap) before its finally could release; the second is the backstop for the
+ * case no restart ever happens. Safe to call every tick — idempotent. Returns the count deleted.
+ * Best-effort.
+ *
+ * Scope is the pointer index, not the project registry: a full registry scan on the daemon tick
+ * is the fan-out that has saturated this box before.
  */
-export function reapStaleInflight(): number {
+export function reapStaleInflight(now: number = Date.now()): number {
   try {
-    const res = openDb().prepare('DELETE FROM leaf_inflight WHERE epoch IS NULL OR epoch != ?').run(LEDGER_EPOCH);
-    return res.changes ?? 0;
+    let n = 0;
+    for (const c of listAllClaims()) {
+      if (c.epoch === LEDGER_EPOCH && c.expiresAt > now) continue;
+      forceReleaseClaim(c.project, c.leafId);
+      n++;
+    }
+    return n;
   } catch { return 0; }
 }
 
 /**
- * E4 (epic e5acda93): drop a SAME-epoch in-flight row whose run is no longer live in
- * THIS process. `reapStaleInflight` only deletes OTHER-epoch (dead-daemon) rows; this
- * closes the within-epoch gap — an aborted (E1 kill) or errored run that ended without
- * its finally clearing the row would otherwise leave a CURRENT-epoch phantom that
- * inflates daemon_status' in-flight count AND (post lease-fix 0f1df3d2) permanently
- * blocks the leaf from being reclaimed (isLeafInflightLive stays true). `isLive` is the
- * run-level liveness predicate (leaf-subprocess-registry.isRunLive). Returns count
+ * E4 (epic e5acda93): drop a SAME-epoch claim whose run is no longer live in THIS process.
+ * `reapStaleInflight` only deletes OTHER-epoch (dead-daemon) and expired claims; this closes the
+ * within-epoch gap — an aborted (E1 kill) or errored run that ended without its finally releasing
+ * would otherwise leave a CURRENT-epoch phantom that inflates daemon_status' in-flight count AND
+ * (post lease-fix 0f1df3d2) blocks the leaf from being reclaimed until its lease runs out.
+ * `isLive` is the run-level liveness predicate (leaf-subprocess-registry.isRunLive). Returns count
  * deleted. Idempotent + best-effort.
  */
 export function reapSameEpochOrphanInflight(isLive: (leafId: string) => boolean): number {
   try {
-    const rows = openDb().prepare('SELECT leafId FROM leaf_inflight WHERE epoch = ?').all(LEDGER_EPOCH) as Array<{ leafId: string }>;
     let n = 0;
-    for (const r of rows) {
-      if (isLive(r.leafId)) continue; // a genuinely-running leaf (incl. between its nodes)
-      openDb().prepare('DELETE FROM leaf_inflight WHERE leafId = ?').run(r.leafId);
+    for (const c of listAllClaims()) {
+      if (c.epoch !== LEDGER_EPOCH) continue;
+      if (isLive(c.leafId)) continue; // a genuinely-running leaf (incl. between its nodes)
+      forceReleaseClaim(c.project, c.leafId);
       n++;
     }
     return n;
@@ -1282,12 +1305,20 @@ export function getEpicLandGate(epicId: string, epicTipSha: string | null | unde
   } catch { return null; }
 }
 
-/** List currently-running leaves (newest-started first). Optional project filter. */
+/** List currently-running leaves (newest-started first). Optional project filter.
+ *  LIVE claims only: a lapsed lease is not a running leaf, so it never appears here even before a
+ *  reaper deletes it — which is the fix for the phantom "in flight" counts a dead daemon left. */
 export function listLeafInflight(opts: { project?: string } = {}): InflightRow[] {
   try {
-    const d = openDb();
-    const sql = `SELECT * FROM leaf_inflight${opts.project ? ' WHERE project = ?' : ''} ORDER BY startedAt DESC`;
-    return d.query(sql).all(...((opts.project ? [opts.project] : []) as never[])) as InflightRow[];
+    return listClaims({ project: opts.project }).map((c) => ({
+      leafId: c.leafId,
+      project: c.project,
+      epicId: c.epicId,
+      nodeKind: c.nodeKind,
+      model: c.model,
+      attempt: c.attempt,
+      startedAt: c.acquiredAt,
+    }));
   } catch { return []; }
 }
 
@@ -1299,10 +1330,19 @@ function buildLedgerWhere(q: LedgerQuery): { where: string[]; params: unknown[];
   if (q.project) { where.push('project = ?'); params.push(q.project); }
   if (q.todoId) { where.push('todoId = ?'); params.push(q.todoId); }
   if (q.epicId) { where.push('epicId = ?'); params.push(q.epicId); }
+  if (q.epicIds && q.epicIds.length > 0) {
+    const ids = [...new Set(q.epicIds)];
+    where.push(`epicId IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
+  }
   if (q.leafId) { where.push('leafId = ?'); params.push(q.leafId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
   if (q.until != null) { where.push('ts <= ?'); params.push(q.until); }
-  const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
+  // The 2000 cap is PER QUERY. Batching N epics into one query must therefore carry N times
+  // the budget, or a batched read would silently truncate where N separate reads did not —
+  // under-reporting spend and liveness rather than merely being slower.
+  const cap = q.epicIds && q.epicIds.length > 0 ? 2000 * new Set(q.epicIds).size : 2000;
+  const limit = Math.min(Math.max(1, q.limit ?? 200), cap);
   return { where, params, limit };
 }
 

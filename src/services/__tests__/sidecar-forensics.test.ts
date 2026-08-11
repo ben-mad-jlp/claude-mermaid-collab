@@ -107,6 +107,14 @@ describe('ServerSupervisor crash loop and forensics', () => {
     return child;
   };
 
+  // The forensics sampler is spawned separately from the sidecar; give it a child that
+  // exits at once so the kill path is not held up by a sampler that never returns.
+  const sampleSpawnImpl = (() => {
+    const child = new FakeChildProcess();
+    queueMicrotask(() => child.emit('exit', 0));
+    return child;
+  }) as any;
+
   const fetchImpl = async (url: string, opts?: any) => {
     fetchCallCount++;
     // 1st call (consumed by waitForHealth) returns healthy
@@ -137,6 +145,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
       project: '/fake/project',
       session: 'test-session',
       spawnImpl,
+      sampleSpawnImpl,
       fetchImpl,
       portInUseImpl,
       clockImpl,
@@ -171,6 +180,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
       project: '/fake/project',
       session: 'test-session',
       spawnImpl,
+      sampleSpawnImpl,
       fetchImpl,
       portInUseImpl,
       clockImpl,
@@ -211,6 +221,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
       project: '/fake/project',
       session: 'test-session',
       spawnImpl,
+      sampleSpawnImpl,
       fetchImpl,
       portInUseImpl,
       clockImpl,
@@ -272,6 +283,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
       project: '/fake/project',
       session: 'test-session',
       spawnImpl,
+      sampleSpawnImpl,
       fetchImpl,
       portInUseImpl,
       clockImpl,
@@ -334,6 +346,7 @@ describe('ServerSupervisor crash loop and forensics', () => {
       project: '/fake/project',
       session: 'test-session',
       spawnImpl,
+      sampleSpawnImpl,
       fetchImpl,
       portInUseImpl,
       clockImpl,

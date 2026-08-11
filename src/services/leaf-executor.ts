@@ -1399,7 +1399,7 @@ export async function runLeaf(
   // before any snapshot is taken — can read it without hitting the `let` temporal dead zone.
   let lastRootSnap: { cwd: string; snap: RootSnapshot } | null = null;
   const finishWith = async (r: LeafRunResult): Promise<LeafRunResult> => {
-    // RUN-LEVEL inflight clear (bug 0f1df3d2): the leaf_inflight row now SPANS the
+    // RUN-LEVEL inflight clear (bug 0f1df3d2): the leaf's CLAIM now SPANS the
     // whole run (runNode no longer deletes it per-node — that left a between-nodes
     // window with no row, momentarily reclaimable). finishWith is the single terminal
     // funnel for every outcome (terminal AND pending/paused), so clearing here drops

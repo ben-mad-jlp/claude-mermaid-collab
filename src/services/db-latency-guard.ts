@@ -147,9 +147,14 @@ export function instrumentDatabase<T extends DatabaseLike>(db: T, opts: LatencyG
  * Uses a per-call budget rather than the global default so a test can hold a hot path to a much
  * tighter bound than routine code.
  */
-export function expectNoSlowQueries<T>(db: DatabaseLike, budgetMs: number, fn: () => T): T {
+export function expectNoSlowQueries<T>(
+  db: DatabaseLike,
+  budgetMs: number,
+  fn: () => T,
+  opts: { now?: () => number } = {},
+): T {
   const hits: SlowQuery[] = [];
-  instrumentDatabase(db, { budgetMs, onSlow: (q) => { hits.push(q); } });
+  instrumentDatabase(db, { budgetMs, now: opts.now, onSlow: (q) => { hits.push(q); } });
   const out = fn();
   if (hits.length > 0) {
     const worst = hits.reduce((a, b) => (b.ms > a.ms ? b : a));

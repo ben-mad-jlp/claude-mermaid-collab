@@ -19,8 +19,8 @@ const REAP_THROTTLE_MS = 5 * 60_000;
  *  30-min gate here is what keeps it off that cadence. Exported + clock-injectable
  *  (see `tickGcLeafWorktrees(opts.now)`) so the throttle is deterministically testable. */
 export const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
-/** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase has NO leaf_inflight
- *  row (rows are per-node, deleted on node-finish) yet is still live — and the
+/** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase can have NO live claim
+ *  (a claim is released the moment the run stops executing) yet is still live — and the
  *  leaf-executor's own self-merge runs in THIS window. Reaping then yanks the worktree out
  *  from under the merge → the observed "merge-to-epic-failed: no worktree" on a leaf-exec
  *  session. The inflight set alone is a TOCTOU; require the worktree to have been QUIET for
