@@ -45,7 +45,7 @@ describe('GET /api/supervisor/missions/diagnostic', () => {
     const { status, body } = await getDiagnostic(`project=${encodeURIComponent(project)}&missionId=${missionId}`);
     expect(status).toBe(200);
     expect(Object.keys(body).sort()).toEqual(
-      ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
+      ['baseHealth', 'conductorPass', 'criteria', 'hostLoad', 'leaves', 'rollup', 'status'].sort(),
     );
   });
 

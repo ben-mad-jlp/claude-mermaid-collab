@@ -55,59 +55,100 @@ export function resolveSaturationLoadMultiple(): number {
   return Number.isNaN(raw) ? 1.0 : raw;
 }
 
-/** Default host sampler: reads os.loadavg/os.cpus synchronously, spawns ps for command list.
+/** Read machine load (os.loadavg and CPU count) with isolated error handling.
  *
- *  Never throws; returns null on any failure (ps spawn, timeout, parse).
- *  sidecarStarts is always null (not derivable from ps alone in this leaf's scope).
+ *  Returns null if either os.loadavg or os.cpus throws, otherwise returns the pair.
+ *  Never throws or rejects.
  */
-export const defaultHostSampler: HostSampler = async (): Promise<HostSample | null> => {
+export function readMachineLoad(): { loadAvg: [number, number, number]; cpuCount: number } | null {
   try {
     const loadAvg = os.loadavg() as [number, number, number];
     const cpuCount = os.cpus().length;
-
-    // Spawn ps to list all processes. Pattern mirrors procSnapshot (fleet-status.ts:115-152):
-    // Bun.spawn + kill-timer + try/finally clearTimeout + resolve null on any error.
-    const p = Bun.spawn(['ps', '-axo', 'command=,lstart='], {
-      stdout: 'pipe',
-      stderr: 'ignore',
-    });
-    const killTimer = setTimeout(() => {
-      try {
-        p.kill();
-      } catch {
-        // already dead
-      }
-    }, 10_000);
-
-    try {
-      const out = await new Response(p.stdout).text();
-      await p.exited;
-
-      // Parse stdout: each line is "command= lstart=...". Extract command= field only.
-      const commands: string[] = [];
-      for (const line of out.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        // The ps output format is "command=<value>,lstart=<value>". We want the command field.
-        // The `command=` field is everything before the first comma, stripped of "command=" prefix.
-        const match = trimmed.match(/^(.+?)(?:,|$)/);
-        if (match && match[1]) {
-          commands.push(match[1]);
-        }
-      }
-
-      return {
-        loadAvg,
-        cpuCount,
-        commands,
-        sidecarStarts: null, // Not derivable from ps alone.
-      };
-    } finally {
-      clearTimeout(killTimer);
-    }
+    return { loadAvg, cpuCount };
   } catch {
     return null;
   }
+}
+
+/** Injectable process-command runner: returns raw ps stdout as a string. */
+export type ProcCommandRunner = () => Promise<string>;
+
+/** Sample process commands via ps, with fault isolation.
+ *
+ *  Owns the Bun.spawn + kill-timer + parse. Wraps the entire body (runner call, spawn,
+ *  read, parse) in try/catch. On ANY failure (runner throws/rejects, spawn error, timeout/kill,
+ *  non-zero exit, parse error), returns [] — never null, never throws.
+ *
+ *  Default runner (when runner is omitted) spawns ps with argv ['ps', '-axww', '-o', 'command=']
+ *  and resolves to stdout text. The '-axww' flags ensure full command lines without truncation.
+ */
+export async function sampleProcessCommands(runner?: ProcCommandRunner): Promise<string[]> {
+  try {
+    // Default runner: spawn ps with -axww (wide output) to avoid truncation.
+    const procRunner = runner ?? (async () => {
+      const p = Bun.spawn(['ps', '-axww', '-o', 'command='], {
+        stdout: 'pipe',
+        stderr: 'ignore',
+      });
+      const killTimer = setTimeout(() => {
+        try {
+          p.kill();
+        } catch {
+          // already dead
+        }
+      }, 10_000);
+
+      try {
+        const out = await new Response(p.stdout).text();
+        await p.exited;
+        return out;
+      } finally {
+        clearTimeout(killTimer);
+      }
+    });
+
+    const out = await procRunner();
+
+    // Parse stdout: each line is a bare command (no comma-delimited fields).
+    // Trim each line and push if non-empty.
+    const commands: string[] = [];
+    for (const line of out.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        commands.push(trimmed);
+      }
+    }
+
+    return commands;
+  } catch {
+    return [];
+  }
+}
+
+/** Default host sampler: reads os.loadavg/os.cpus, then spawns ps for command list.
+ *
+ *  If readMachineLoad() fails, returns null immediately. Otherwise, even if process-command
+ *  sampling fails, returns a non-null sample with empty commands array.
+ *  sidecarStarts is always null (not derivable from ps alone in this leaf's scope).
+ *
+ *  Accepts optional deps param for test injection; zero-argument calls work normally.
+ */
+export const defaultHostSampler = async (
+  deps?: { procRunner?: ProcCommandRunner },
+): Promise<HostSample | null> => {
+  const load = readMachineLoad();
+  if (load === null) {
+    return null;
+  }
+
+  const commands = await sampleProcessCommands(deps?.procRunner);
+
+  return {
+    loadAvg: load.loadAvg,
+    cpuCount: load.cpuCount,
+    commands,
+    sidecarStarts: null, // Not derivable from ps alone.
+  };
 };
 
 /** Summarize a host sample into load metrics and saturation state.
