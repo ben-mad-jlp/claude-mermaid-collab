@@ -109,6 +109,7 @@ import {
   assignSessionTodoSchema,
 } from './tools/session-todos.js';
 import { buildAdvertisedTools } from './advertised-tools.js';
+import { registerMcpServer } from './tool-registry-notifier.js';
 
 
 // Configuration (API_BASE_URL, buildUrl, asJson, AnyJson, sessionParamsDesc
@@ -338,5 +339,6 @@ export async function setupMCPServer(): Promise<Server> {
     }
   });
 
+  registerMcpServer(server);
   return server;
 }

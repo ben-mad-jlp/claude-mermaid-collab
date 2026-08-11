@@ -16,6 +16,8 @@
  * empty and can be deleted.
  */
 
+import { notifyToolListChanged } from '../tool-registry-notifier.js';
+
 /** A WS broadcast message (loose shape — matches getWebSocketHandler().broadcast). */
 export type BroadcastMessage = Record<string, any>;
 
@@ -62,6 +64,7 @@ export class ToolRegistry {
       }
       this.defs.set(def.name, def);
     }
+    notifyToolListChanged('tool-registry-register');
     return this;
   }
 
