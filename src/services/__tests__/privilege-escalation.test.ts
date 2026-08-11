@@ -6,6 +6,9 @@
  * Command strings below are VERBATIM from that leaf's worker-ledger records.
  */
 import { describe, it, expect } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { detectPrivilegeEscalation, detectOutsideWorktreeWrite, type RecordedCommand } from '../node-commands';
 
 const WT = '/home/ben/code/qbs/.collab/agent-sessions/worktrees/leaf-exec-df08b5e3';
@@ -126,5 +129,89 @@ describe('detectOutsideWorktreeWrite', () => {
     expect(() =>
       detectOutsideWorktreeWrite({ worktreeRoot: '/nonexistent/root', commands: [cmd('cp a /etc/x')] }),
     ).not.toThrow();
+  });
+
+  describe('with scratchDir option', () => {
+    it('allows writes under the leaf\'s own scratchDir subtree', () => {
+      const SCRATCH_A = mkdtempSync(join(tmpdir(), 'scratch-aaaaaaaa-'));
+      const found = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        scratchDir: SCRATCH_A,
+        commands: [
+          cmd(`cat > ${SCRATCH_A}/probe.json`),
+        ],
+      });
+      expect(found).toBeNull();
+    });
+
+    it('allows mkdir under the leaf\'s own scratchDir', () => {
+      const SCRATCH_A = mkdtempSync(join(tmpdir(), 'scratch-aaaaaaaa-'));
+      const found = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        scratchDir: SCRATCH_A,
+        commands: [
+          cmd(`mkdir -p ${SCRATCH_A}/fixtures`),
+        ],
+      });
+      expect(found).toBeNull();
+    });
+
+    it('raises for a sibling leaf\'s scratch dir when scratchDir is set', () => {
+      const SCRATCH_A = mkdtempSync(join(tmpdir(), 'scratch-aaaaaaaa-'));
+      const SCRATCH_B = mkdtempSync(join(tmpdir(), 'scratch-bbbbbbbb-'));
+      const found = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        scratchDir: SCRATCH_A,
+        commands: [
+          cmd(`cp -a ${WT}/src ${SCRATCH_B}/y`),
+        ],
+      });
+      expect(found).not.toBeNull();
+    });
+
+    it('raises for /tmp writes when scratchDir is set (no blanket /tmp/ allowance)', () => {
+      const SCRATCH_A = mkdtempSync(join(tmpdir(), 'scratch-aaaaaaaa-'));
+      const found = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        scratchDir: SCRATCH_A,
+        commands: [
+          cmd('cp -a /etc/hosts /tmp/test-probe/y'),
+        ],
+      });
+      expect(found).not.toBeNull();
+    });
+
+    it('still catches /etc/ writes when scratchDir is present', () => {
+      const SCRATCH_A = mkdtempSync(join(tmpdir(), 'scratch-aaaaaaaa-'));
+      const found = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        scratchDir: SCRATCH_A,
+        commands: [
+          cmd('echo poisoned > /etc/systemd/system/ros-api.service'),
+        ],
+      });
+      expect(found).not.toBeNull();
+    });
+
+    it('preserves byte-identical behavior when scratchDir is omitted (existing tests still pass)', () => {
+      // Re-run tests from the no-scratchDir case to ensure byte-identical verdicts
+      const noScratchFound = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        commands: [
+          cmd('npm test > /tmp/evidence-npm-test.txt 2>&1'),
+          cmd('echo hi > /dev/null'),
+          cmd(`cp -a ${WT}/src/a.js ${WT}/src/b.js`),
+          cmd('mkdir -p .collab/leaf-blueprints'),
+        ],
+      });
+      expect(noScratchFound).toBeNull();
+
+      // Verify the incident case still caught without scratchDir
+      const incidentStillCaught = detectOutsideWorktreeWrite({
+        worktreeRoot: WT,
+        commands: [cmd(`cp -a ${WT}/src/. /home/qbintelligence/code/qbs/ros-api-server/src/`)],
+      });
+      expect(incidentStillCaught).not.toBeNull();
+    });
   });
 });
