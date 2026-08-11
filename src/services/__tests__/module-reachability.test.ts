@@ -17,6 +17,7 @@ import {
   hasNonTestImporter,
   classifyServingEpicReachability,
   assertServingEpicModulesReachable,
+  isScannableSourcePath,
 } from '../module-reachability.js';
 import { getTodo, _closeProject } from '../todo-store.js';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store.js';
@@ -215,9 +216,193 @@ describe('module-reachability', () => {
       landShas: [mergeSha],
     });
 
-    // bin/cli.ts should be in scanned but NOT in unreachable (exempted by bin/ segment)
-    expect(result.scanned).toContain('bin/cli.ts');
+    // bin/cli.ts should not be in scanned (filtered by isScannableSourcePath)
+    expect(result.scanned).not.toContain('bin/cli.ts');
     expect(result.unreachable).not.toContain('bin/cli.ts');
+  });
+
+  it('a mixed land with prod, test, fixture, .d.ts, .json, .md and scripts files scans only the prod module', async () => {
+    // Setup: initial commit with an existing prod file on master
+    mkdirSync(join(project, 'src'), { recursive: true });
+    writeFileSync(join(project, 'src', 'existing.ts'), 'export const x = 1;\n');
+    execFileSync('git', ['add', 'src/existing.ts'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: project });
+
+    // Branch and add mixed files
+    execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
+
+    // Edit existing.ts to import the new prod module
+    writeFileSync(
+      join(project, 'src', 'existing.ts'),
+      "import './prod-module.js';\nexport const x = 1;\n",
+    );
+
+    // Add prod module
+    writeFileSync(join(project, 'src', 'prod-module.ts'), 'export function prodFn() { return 1; }\n');
+
+    // Add test files
+    mkdirSync(join(project, 'src', '__tests__'), { recursive: true });
+    writeFileSync(
+      join(project, 'src', '__tests__', 'prod-module.test.ts'),
+      "import { prodFn } from '../prod-module';\ntest('prod', () => { expect(prodFn()).toBe(1); });\n",
+    );
+    writeFileSync(join(project, 'src', 'thing.spec.ts'), "test('thing', () => {});\n");
+
+    // Add fixture
+    mkdirSync(join(project, 'src', '__fixtures__'), { recursive: true });
+    writeFileSync(join(project, 'src', '__fixtures__', 'sample.ts'), 'export const sample = {};\n');
+
+    // Add type definitions
+    writeFileSync(join(project, 'src', 'types.d.ts'), 'export interface Thing {}\n');
+
+    // Add data file
+    writeFileSync(join(project, 'src', 'data.json'), '{"key": "value"}\n');
+
+    // Add docs and scripts (should be filtered)
+    mkdirSync(join(project, 'docs'), { recursive: true });
+    writeFileSync(join(project, 'docs', 'notes.md'), '# Notes\n');
+    mkdirSync(join(project, 'scripts'), { recursive: true });
+    writeFileSync(join(project, 'scripts', 'tool.ts'), "console.log('tool');\n");
+
+    // Add all files and commit
+    execFileSync(
+      'git',
+      [
+        'add',
+        'src/existing.ts',
+        'src/prod-module.ts',
+        'src/__tests__/prod-module.test.ts',
+        'src/thing.spec.ts',
+        'src/__fixtures__/sample.ts',
+        'src/types.d.ts',
+        'src/data.json',
+        'docs/notes.md',
+        'scripts/tool.ts',
+      ],
+      { cwd: project },
+    );
+    execFileSync('git', ['commit', '-m', 'add mixed files'], { cwd: project });
+
+    // Back to master, merge
+    execFileSync('git', ['checkout', 'master'], { cwd: project });
+    execFileSync('git', ['merge', '--no-ff', 'scratch', '-m', 'merge'], {
+      cwd: project,
+    });
+    const mergeSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: project })
+      .toString('utf8')
+      .trim();
+
+    // Classify reachability
+    const result = await classifyServingEpicReachability({
+      repoRoot: project,
+      landShas: [mergeSha],
+    });
+
+    // Only prod-module.ts should be in scanned
+    expect(result.unreachable).toHaveLength(0);
+    expect(result.scanned).toContain('src/prod-module.ts');
+    expect(result.scanned).not.toContain('src/__tests__/prod-module.test.ts');
+    expect(result.scanned).not.toContain('src/thing.spec.ts');
+    expect(result.scanned).not.toContain('src/__fixtures__/sample.ts');
+    expect(result.scanned).not.toContain('src/types.d.ts');
+    expect(result.scanned).not.toContain('src/data.json');
+    expect(result.scanned).not.toContain('docs/notes.md');
+    expect(result.scanned).not.toContain('scripts/tool.ts');
+  });
+
+  it('addedSourceFilesForLand and classifyServingEpicReachability agree on scanned files for a mixed land', async () => {
+    // Setup: initial commit
+    mkdirSync(join(project, 'src'), { recursive: true });
+    writeFileSync(join(project, 'src', 'existing.ts'), 'export const x = 1;\n');
+    execFileSync('git', ['add', 'src/existing.ts'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: project });
+
+    // Branch
+    execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
+
+    // Add mixed files (same as above)
+    writeFileSync(
+      join(project, 'src', 'existing.ts'),
+      "import './prod-module.js';\nexport const x = 1;\n",
+    );
+    writeFileSync(join(project, 'src', 'prod-module.ts'), 'export function prodFn() { return 1; }\n');
+
+    mkdirSync(join(project, 'src', '__tests__'), { recursive: true });
+    writeFileSync(
+      join(project, 'src', '__tests__', 'prod-module.test.ts'),
+      "import { prodFn } from '../prod-module';\ntest('prod', () => {});\n",
+    );
+
+    mkdirSync(join(project, 'src', '__fixtures__'), { recursive: true });
+    writeFileSync(join(project, 'src', '__fixtures__', 'sample.ts'), 'export const sample = {};\n');
+
+    writeFileSync(join(project, 'src', 'types.d.ts'), 'export interface Thing {}\n');
+
+    execFileSync(
+      'git',
+      [
+        'add',
+        'src/existing.ts',
+        'src/prod-module.ts',
+        'src/__tests__/prod-module.test.ts',
+        'src/__fixtures__/sample.ts',
+        'src/types.d.ts',
+      ],
+      { cwd: project },
+    );
+    execFileSync('git', ['commit', '-m', 'add mixed'], { cwd: project });
+
+    // Back to master, merge
+    execFileSync('git', ['checkout', 'master'], { cwd: project });
+    execFileSync('git', ['merge', '--no-ff', 'scratch', '-m', 'merge'], {
+      cwd: project,
+    });
+    const mergeSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: project })
+      .toString('utf8')
+      .trim();
+
+    // Compare results from both collectors
+    const viaLand = (await addedSourceFilesForLand(project, mergeSha)).sort();
+    const viaClassify = (
+      await classifyServingEpicReachability({ repoRoot: project, landShas: [mergeSha] })
+    ).scanned.sort();
+
+    expect(viaLand).toEqual(viaClassify);
+  });
+
+  it('isScannableSourcePath accepts src and ui/src ts/tsx files and rejects test, fixture, d.ts, json, md and non-src paths', async () => {
+    // Test cases: path -> expected result
+    const cases: Array<[string, boolean]> = [
+      // Accepted: src/ and ui/src/ .ts/.tsx files
+      ['src/prod-module.ts', true],
+      ['src/component.tsx', true],
+      ['ui/src/hooks.ts', true],
+      ['ui/src/utils.tsx', true],
+
+      // Rejected: test files
+      ['src/__tests__/test.ts', false],
+      ['src/module.test.ts', false],
+      ['src/module.spec.ts', false],
+
+      // Rejected: fixtures
+      ['src/__fixtures__/data.ts', false],
+
+      // Rejected: type definitions
+      ['src/types.d.ts', false],
+
+      // Rejected: non-.ts/.tsx files
+      ['src/data.json', false],
+      ['docs/readme.md', false],
+
+      // Rejected: non-src/ paths
+      ['scripts/tool.ts', false],
+      ['bin/cli.ts', false],
+      ['lib/util.ts', false],
+    ];
+
+    for (const [path, expected] of cases) {
+      expect(isScannableSourcePath(path)).toBe(expected);
+    }
   });
 
   it('a missing or garbage land sha yields indeterminate with no unreachable paths', async () => {
