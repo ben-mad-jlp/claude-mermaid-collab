@@ -637,6 +637,93 @@ describe('epic-land-gate', () => {
       const summary = landGateSummary(result);
       expect(summary).toContain('ABSTAINED');
     });
+
+    it('should name the failing sweep file, test and timeout on a zero-regression fail', () => {
+      const result: EpicLandGateResult = {
+        status: 'fail',
+        declared: true,
+        manifestPath: '.collab/project.json',
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: [],
+        specFiles: [],
+        epicTipSha: null,
+        baseSha: null,
+        floor: { command: 'bun test --coverage', status: 'pass', failing: [] },
+        typecheck: { command: 'npx tsc --noEmit', status: 'pass', output: '' },
+        sweep: {
+          status: 'fail',
+          specFiles: ['src/services/__tests__/terminal-mission-epic-invariant.test.ts'],
+          units: [
+            {
+              file: 'src/services/__tests__/terminal-mission-epic-invariant.test.ts',
+              command: 'bun test {file}',
+              laneCwd: '',
+              status: 'fail',
+              output: 'FAIL ... terminal-mission-epic-invariant.test.ts\n... timed out after 5000ms ...\n[6603.00ms]',
+            },
+          ],
+        },
+      };
+
+      const summary = landGateSummary(result);
+      expect(summary).toContain('terminal-mission-epic-invariant.test.ts');
+      expect(summary).toContain('6603');
+      expect(summary).toContain('5000');
+      expect(summary).not.toMatch(/0 regression\(s\)/);
+    });
+
+    it('should name typecheck as the cause on a zero-regression typecheck fail', () => {
+      const result: EpicLandGateResult = {
+        status: 'fail',
+        declared: true,
+        manifestPath: '.collab/project.json',
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: [],
+        specFiles: [],
+        epicTipSha: null,
+        baseSha: null,
+        typecheck: { command: 'npx tsc --noEmit', status: 'fail', output: 'TS2345: error in something' },
+      };
+
+      const summary = landGateSummary(result);
+      expect(summary).toContain('typecheck');
+      expect(summary).not.toMatch(/0 regression\(s\)/);
+    });
+
+    it('should name the incident file on a zero-regression incident fail', () => {
+      const result: EpicLandGateResult = {
+        status: 'fail',
+        declared: true,
+        manifestPath: '.collab/project.json',
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [
+          {
+            key: 'k',
+            command: 'bun test x',
+            laneCwd: '',
+            files: ['src/x.test.ts'],
+            branch: 'error',
+            classification: 'incident',
+          },
+        ],
+        reasons: [],
+        specFiles: [],
+        epicTipSha: null,
+        baseSha: null,
+      };
+
+      const summary = landGateSummary(result);
+      expect(summary).toContain('src/x.test.ts');
+      expect(summary).not.toMatch(/0 regression\(s\)/);
+    });
   });
 
   describe('regression floor', () => {
