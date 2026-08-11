@@ -30,24 +30,20 @@ let deferredA: DeferredPromise<any[]>;
 let deferredB: DeferredPromise<any[]>;
 let mockFetchMissions: any;
 
+// ONE stable fetch function, matching the real zustand store: selectors return the same
+// reference across renders. An inline arrow re-minted per selector call would destabilise
+// the hook's effect deps and manufacture the very loop the last test asserts against.
+const stableFetchMissions = (serverId: string, project: string) => {
+  if (project === '/projLoop') return mockFetchMissions(serverId, project);
+  if (project === '/projA') return deferredA.promise;
+  if (project === '/projB') return deferredB.promise;
+  return Promise.resolve([]);
+};
+
 vi.mock('@/stores/supervisorStore', () => ({
   useSupervisorStore: (sel?: (s: any) => any) => {
-    if (sel) {
-      return sel({
-        fetchMissions: (serverId: string, project: string) => {
-          if (project === '/projA') return deferredA.promise;
-          if (project === '/projB') return deferredB.promise;
-          return Promise.resolve([]);
-        },
-      });
-    }
-    return {
-      fetchMissions: (serverId: string, project: string) => {
-        if (project === '/projA') return deferredA.promise;
-        if (project === '/projB') return deferredB.promise;
-        return Promise.resolve([]);
-      },
-    };
+    const store = { fetchMissions: stableFetchMissions };
+    return sel ? sel(store) : store;
   },
 }));
 
@@ -203,5 +199,40 @@ describe('useMissions hook — hasLoadedOnce key-scoped tracking', () => {
     expect(result.current.hasLoadedOnce).toBe(false);
     expect(result.current.status).toBe('loading');
     expect(result.current.missions).toHaveLength(0);
+  });
+});
+
+describe('useMissions hook — the fetch effect must not refire itself', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('settling a fetch does not trigger another fetch', async () => {
+    // MEASURED 2026-08-11: the effect listed the `loaded` object in its deps, and load() calls
+    // loaded.settle() — so every completed fetch re-minted `loaded`, refired the effect, and
+    // fetched again. ~15 req/s against /api/supervisor/missions, ~400 synchronous sidecar
+    // queries per request, health probes starved, watchdog SIGKILLed the sidecar 11 times in
+    // an afternoon. The 15s interval was decorative: the loop never waited for it.
+    //
+    // Each fetch resolves a FRESH array (as the real store does) — reference-equality of the
+    // data must not be what breaks the cycle.
+    let calls = 0;
+    mockFetchMissions = () => {
+      calls++;
+      return Promise.resolve([makeMissionSummary('/projLoop', `pass ${calls}`)]);
+    };
+
+    const { result } = renderHook(() => useMissions('s', '/projLoop'));
+
+    await waitFor(() => {
+      expect(result.current.hasLoadedOnce).toBe(true);
+    });
+
+    // Let any self-triggered refetch cycle run: each cycle is one microtask+render, so a
+    // generous real-time window catches even a slow loop. With the bug this climbs into the
+    // dozens; correct behaviour is exactly the single mount fetch.
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+
+    expect(calls).toBe(1);
   });
 });

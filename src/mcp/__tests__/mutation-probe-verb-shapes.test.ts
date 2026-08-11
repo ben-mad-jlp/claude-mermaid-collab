@@ -1,4 +1,7 @@
 /**
+ * @nested-test-runner: spawns a nested `bun test` inside a detached git worktree
+ * (measured 48.9s wall time, confirmed via process tree)
+ *
  * Test: mutation_probe verb — end-to-end shapes on real fixtures
  *
  * Drives handleEpicTool('mutation_probe', ...) against three real mutation-probe fixtures

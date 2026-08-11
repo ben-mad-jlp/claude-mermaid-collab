@@ -40,10 +40,37 @@ export const IMPLEMENT_TIMEOUT_MS = 1_800_000;
  *  fail faster than a runaway build). */
 export const BLUEPRINT_TIMEOUT_MS = 900_000;
 
-/** Explore-node tool allowlist constant. Wired into NODE_PROFILE.explore.allowedTools by
- *  criterion 1's epic (explore-kind leaf's allowlist expansion). This leaf only defines and
- *  exports the constant; the wiring is criterion 1's responsibility. */
-export const EXPLORE_NODE_ALLOWED_TOOLS = 'Read Grep Glob Bash mcp__mermaid__file_finding';
+/** Explore-node tool allowlist.
+ *
+ *  WAS DEAD UNTIL 2026-08-11: this constant was defined, exported, re-exported through
+ *  leaf-executor — and never read. NODE_PROFILE.explore carried a hardcoded 'Read Grep Glob
+ *  Bash' instead, so the explore node could not call `file_finding` and had no way to write
+ *  the typed Finding its whole output path is built around. The deferral is in the original
+ *  comment ("the wiring is criterion 1's responsibility"); criterion 1 never landed it.
+ *
+ *  The `desktop_*` verbs drive a real Electron app over CDP (electron-agent-bridge), so an
+ *  explore node can audit a RUNNING UI instead of reasoning about React source: compare
+ *  rendered values against the database, find a control wired to nothing, catch a stale
+ *  binding. Reading the code cannot see any of that.
+ *
+ *  DESTRUCTIVE BY DESIGN. `desktop_click`/`desktop_fill`/`desktop_eval` can take any action the
+ *  UI can — including landing an epic or dropping a todo — and `desktop_eval` runs arbitrary JS
+ *  in the renderer. The blast radius is bounded by WHAT THE REQUEST POINTS AT, not by the
+ *  allowlist: scope an exploration to a project whose state you are willing to lose. */
+export const EXPLORE_NODE_ALLOWED_TOOLS = [
+  'Read', 'Grep', 'Glob', 'Bash',
+  'mcp__mermaid__file_finding',
+  // Observation
+  'mcp__mermaid__desktop_snapshot',
+  'mcp__mermaid__desktop_screenshot',
+  'mcp__mermaid__desktop_list_targets',
+  'mcp__mermaid__desktop_wait_for',
+  // Interaction — see the destructive-by-design note above
+  'mcp__mermaid__desktop_navigate',
+  'mcp__mermaid__desktop_click',
+  'mcp__mermaid__desktop_fill',
+  'mcp__mermaid__desktop_eval',
+].join(' ');
 
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel; timeoutMs?: number }> = {
   // Demoted opus→sonnet (2026-07-21): blueprint was the #1 cost center ($368/wk, more than
@@ -68,8 +95,10 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
   report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__file_to_bucket', effort: 'medium' },
-  // explore shape: read-only investigation, emits a findings report
-  explore: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
+  // explore shape: investigation that emits a findings report. Drives a live UI over CDP when
+  // the request points at one — the allowlist is the constant above, not a literal, because a
+  // literal here is exactly how that constant sat dead and unread since 2026-08-07.
+  explore: { model: 'sonnet', allowedTools: EXPLORE_NODE_ALLOWED_TOOLS, effort: 'high' },
   // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
   // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },

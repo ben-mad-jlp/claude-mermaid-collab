@@ -17,7 +17,7 @@
     "spike:full": "electron spikes/extended.js"
   },
   "dependencies": {
-    "electron-agent-bridge": "github:ben-mad-jlp/electron-agent-bridge#9b659619c9c2149582b2ea3655211a6d7cab92db",
+    "electron-agent-bridge": "github:ben-mad-jlp/electron-agent-bridge#939dd8a0728c0fc8aadd11a434c7bee2cdbf584d",
     "electron-updater": "^6.3.9",
     "ws": "^8.18.0",
     "zod": "^4.4.3"
