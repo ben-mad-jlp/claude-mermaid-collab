@@ -55,6 +55,7 @@ import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, a
 import { extractGateFailingFiles, gateFailureSignature } from './gate-base-attribution';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature, countLeafNodes } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
+import { resolveFreshBaseRedCard } from './base-red-card';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
 import { allocateLeafScratch, reapLeafScratch } from './leaf-scratch';
@@ -674,6 +675,9 @@ export interface LeafExecutorDeps {
    *  gate at the new epic tip sha. Returns null on any failure (falls through to the stale,
    *  pre-FI base result). Never spends a node. Unwired ⇒ undefined ⇒ no re-probe attempted. */
   forwardIntegrateAndReprobe?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
+  /** G2: probe empty-diff against base; re-measure gate when branch is empty. Unwired ⇒ unwired. */
+  isEpicBranchDiffEmpty?: () => Promise<boolean>;
+  remeasureBaseOnce?: () => Promise<LeafGateResult | null>;
   /** Reader for the leaf's parent-epic todo row — consulted by the G2 base-red park to
    *  honor the epic-level `baseRepair` exemption (bug 65345589). Defaults to
    *  getTodo(project, leaf.parentId); injectable for tests. */
@@ -2193,33 +2197,14 @@ export async function runLeaf(
   if (effectiveBase && effectiveBase.status !== 'pass' && !baseRepairEpic) {
     const head = effectiveBase.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
     const cmd = effectiveBase.command ?? 'gate';
-    // Finding 3: a leaf parking on a CACHED verdict (fresh:false) escalates nothing — it
-    // must still say WHY. The reason is the leaf's only durable trace, so it carries the
-    // failing command and a short output tail, not a bare "epic-base-red".
     const tail = lastLines(effectiveBase.output, 10);
     const reason = tail ? `${head}: ${cmd}\n--- output (tail) ---\n${tail}` : `${head}: ${cmd}`;
-    if (effectiveBase.fresh) {
-      deps.escalate({
-        project,
-        session: sessionKey,
-        kind: 'blocker',
-        todoId: leaf.id,
-        questionText:
-          `Epic base is RED — no leaf on ${epicBranch} can be trusted, so NONE will start.\n` +
-          `failing command: ${cmd}\n` +
-          `--- output (tail) ---\n${lastLines(effectiveBase.output, 40)}\n---\n` +
-          `Fix the base and commit the fix to ${epicBranch}. The cached verdict is keyed to the ` +
-          `base commit it examined, so moving the base invalidates it: the next leaf re-runs the ` +
-          `gate automatically. No manual cache-clearing step exists or is needed.`,
-      });
+    const card = effectiveBase.fresh ? await resolveFreshBaseRedCard({ epicBranch, command: cmd, output: effectiveBase.output, isBranchDiffEmpty: deps.isEpicBranchDiffEmpty, remeasureBase: deps.remeasureBaseOnce }) : null;
+    if (card) deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id, questionText: card.questionText });
+    if (!effectiveBase.fresh || card) {
+      const baseRedDetail = effectiveBase.status === 'fail' ? (() => { const failingFiles = extractGateFailingFiles(effectiveBase.output ?? ''); return { command: cmd, failingFiles, signature: gateFailureSignature(cmd, failingFiles) }; })() : undefined;
+      return parkBlocked(reason, null, baseRedDetail);
     }
-    const baseRedDetail = effectiveBase.status === 'fail'
-      ? (() => {
-          const failingFiles = extractGateFailingFiles(effectiveBase.output ?? '');
-          return { command: cmd, failingFiles, signature: gateFailureSignature(cmd, failingFiles) };
-        })()
-      : undefined;
-    return parkBlocked(reason, null, baseRedDetail);
   }
 
   // Friction 552f95c2: the latest attempt's write-leak snapshot + lane cwd, hoisted so the
@@ -4146,6 +4131,8 @@ export async function makeLeafExecutorDeps(
         });
       } catch { return null; }
     },
+    isEpicBranchDiffEmpty: async () => { try { const r = await defaultRunGit(targetProject, ['diff', '--quiet', `${baseBranch}...${wm.epicBranchName(epicId)}`]); return r.code === 0; } catch { return false; } },
+    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }); } catch { return null; } },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
     // WorktreeManager so the git plumbing lives in one place.
