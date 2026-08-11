@@ -60,6 +60,8 @@ function supervisorFence(supervisorEpoch: number | undefined): string | null {
   }
 }
 
+export const ESCALATION_EXCERPT_MAX_CHARS = 200;
+
 export const SUPERVISOR_TOOL_DEFS = [
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
@@ -166,7 +168,7 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
               project: esc.project,
               createdAt: esc.createdAt,
               recurrenceCount: recurrenceMap.get(`${esc.project}|${esc.session}|${esc.questionText}`) ?? esc.recurrenceCount,
-              excerpt: esc.questionText.length > 200 ? esc.questionText.slice(0, 200) + '…' : esc.questionText,
+              excerpt: esc.questionText.length > ESCALATION_EXCERPT_MAX_CHARS ? esc.questionText.slice(0, ESCALATION_EXCERPT_MAX_CHARS) + '…' : esc.questionText,
             }));
             return JSON.stringify(summary, null, 2);
           }
@@ -183,6 +185,18 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             const { id, status, note, optionId, supervisorEpoch } = args as { id: string; status: string; note?: string; optionId?: string; supervisorEpoch?: number };
             if (!id || !status) throw new Error('Missing required: id, status');
             { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
+
+            // optionId branch: call decideEscalation with raw id and let it handle id resolution
+            if (optionId !== undefined) {
+              const { decideEscalation } = await import('../services/escalation-decide.js');
+              const result = decideEscalation(id, { optionId, note: note ?? null, decidedBy: 'human' });
+              if (result.ok === false) {
+                return JSON.stringify(result, null, 2);
+              }
+              return JSON.stringify({ success: true, id: result.escalation.id, status: 'decided', optionId: result.decision.optionId, note: result.decision.note ?? null }, null, 2);
+            }
+
+            // status/note/acknowledged branches: pre-resolve fullId for direct escalation calls
             let fullId: string;
             try {
               fullId = supervisorStore.resolveFullEscalationId(id);
@@ -193,14 +207,6 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
                 return JSON.stringify({ error: errorMsg }, null, 2);
               }
               return JSON.stringify({ error: errorMsg }, null, 2);
-            }
-            if (optionId !== undefined) {
-              const { decideEscalation } = await import('../services/escalation-decide.js');
-              const result = decideEscalation(fullId, { optionId, note: note ?? null, decidedBy: 'human' });
-              if (result.ok === false) {
-                return JSON.stringify(result, null, 2);
-              }
-              return JSON.stringify({ success: true, id: result.escalation.id, status: 'decided', optionId: result.decision.optionId, note: result.decision.note ?? null }, null, 2);
             }
             if (status === 'acknowledged') {
               supervisorStore.acknowledgeEscalation(fullId, 'human');
