@@ -1094,6 +1094,13 @@ export async function resolveBaseGreen(io: {
       reasons: ['dep-optimizer cache corruption (stale vitest/vite deps cache), not a base defect', ...result.reasons],
     };
   }
+  if (result.status === 'fail' && !epicBaseSha) {
+    result = {
+      ...result,
+      status: 'error',
+      reasons: ['no epic base sha to key a cached verdict to — cannot record a citable base-gate fact', ...result.reasons],
+    };
+  }
   if (isCacheableBaseGateStatus(result.status)) {
     // Stamp checkedAt from the SAME clock the TTL is later measured against
     // (shouldHonourCachedBaseGate above). Letting the write default to real Date.now()

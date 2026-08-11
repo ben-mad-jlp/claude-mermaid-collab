@@ -69,11 +69,13 @@ export const ConductorActivityPanel: React.FC<{
     const client = getWebSocketClient();
     const sub = client.onMessage((msg: any) => {
       if (msg?.type === 'conductor_pass' && msg.project === project) {
-        loaded.settle([msg.row, ...loaded.data]);
+        // Functional update: this effect subscribes once, so `loaded.data` here would be the
+        // mount-time array forever now that settle is referentially stable.
+        loaded.update((prev) => [msg.row, ...prev]);
       }
     });
     return () => sub.unsubscribe();
-  }, [project, loaded.settle]);
+  }, [project, loaded.update]);
 
   const missionMap = new Map<string, string>();
   (missionOptions ?? []).forEach((m) => missionMap.set(m.id, m.label));
