@@ -45,11 +45,17 @@ export function canonicalize(p: string): string;
 /** Is `child` the same as, or nested under, `parent`? Both must already be canonical. */
 export function isInside(child: string, parent: string): boolean;
 
-/** Absolute `cd`/`pushd` targets in a shell command that escape the (canonical) worktree. */
-export function findCdEscapes(command: unknown, canonWorktree: string): string[];
+/** Absolute `cd`/`pushd` targets in a shell command that escape the (canonical) worktree
+ *  and the optional (canonical) leaf scratch dir. */
+export function findCdEscapes(command: unknown, canonWorktree: string, canonScratch?: string | null): string[];
 
-/** Pure containment decision for a PreToolUse call against the worktree boundary. */
-export function decide(input: HookInput | null | undefined, worktree: string | undefined): Decision;
+/** Pure containment decision for a PreToolUse call against the worktree boundary, plus the
+ *  optional second sanctioned boundary: the leaf's own scratch dir (MERMAID_LEAF_SCRATCH). */
+export function decide(
+  input: HookInput | null | undefined,
+  worktree: string | undefined,
+  scratch?: string | undefined,
+): Decision;
 
 /** Normalize hook input from both grok and claude dialects into a common shape. */
 export function normalizeHookInput(raw: unknown): HookInput;

@@ -158,7 +158,22 @@ const STARTUP_RETRY_DELAY_MS = 750;
 // that protects a legitimate slow start (registry backfill) from a false respawn,
 // and the per-probe timeout. All overridable via SupervisorOpts (mainly for tests).
 const HEALTH_WATCHDOG_POLL_MS = 15_000;
-const HEALTH_WATCHDOG_THRESHOLD_MS = 45_000;
+const HEALTH_WATCHDOG_THRESHOLD_MS = envWatchdogThresholdMs() ?? 45_000;
+
+/** Operator override for the liveness threshold, in seconds.
+ *
+ *  WHY: the watchdog cannot tell "blocked inside a synchronous query" from "dead", and it
+ *  SIGKILLs either way. A busy-but-alive sidecar killed mid-scan restarts and redoes the same
+ *  work, so the kill makes the next kill more likely — 200 of them in one day. Raising the
+ *  threshold converts a fatal wedge into mere slowness while the underlying blocking is fixed.
+ *  Rejects nonsense and anything below the 15s poll interval, which would kill on one probe. */
+function envWatchdogThresholdMs(): number | null {
+  const raw = process.env.MERMAID_WATCHDOG_THRESHOLD_SECONDS;
+  if (!raw) return null;
+  const secs = Number(raw);
+  if (!Number.isFinite(secs) || secs < 15) return null;
+  return secs * 1000;
+}
 const HEALTH_WATCHDOG_GRACE_MS = 90_000;
 const HEALTH_WATCHDOG_TIMEOUT_MS = 5_000;
 // Grace the wedged sidecar gets to exit on SIGTERM before the watchdog escalates to

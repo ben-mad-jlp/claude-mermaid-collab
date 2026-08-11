@@ -47,6 +47,14 @@ function isTestOrMetaPath(path: string): boolean {
   return false;
 }
 
+/** Check if a file path is a scannable source file: src/ or ui/src/, .ts/.tsx, not test/meta. */
+export function isScannableSourcePath(path: string): boolean {
+  if (!/^(src|ui\/src)\//.test(path)) return false;
+  if (!/\.tsx?$/.test(path)) return false;
+  if (isTestOrMetaPath(path)) return false;
+  return true;
+}
+
 /** Get the list of source files added in a commit (merge or regular).
  *  Returns paths relative to repoRoot, matching src/ or ui/src/ with .ts/.tsx extension,
  *  excluding test and metadata files.
@@ -78,13 +86,7 @@ export async function addedSourceFilesForLand(
 
   const lines = out.split('\n').filter(line => line.trim().length > 0);
 
-  // Keep only paths matching src/ or ui/src/, ending in .ts/.tsx, excluding test files
-  const files = lines.filter(path => {
-    if (!/^(src|ui\/src)\//.test(path)) return false;
-    if (!/\.tsx?$/.test(path)) return false;
-    if (isTestOrMetaPath(path)) return false;
-    return true;
-  });
+  const files = lines.filter(isScannableSourcePath);
 
   return files;
 }
@@ -279,7 +281,9 @@ async function getAddedFilesForShas(
     if (out) {
       const lines = out.split('\n').filter(line => line.trim().length > 0);
       for (const line of lines) {
-        scanned.add(line);
+        if (isScannableSourcePath(line)) {
+          scanned.add(line);
+        }
       }
     }
   }

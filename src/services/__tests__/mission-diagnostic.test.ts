@@ -74,7 +74,7 @@ describe('buildMissionDiagnostic', () => {
       isEpicLandedInGit: async () => 'landed',
     });
     expect(Object.keys(result).sort()).toEqual(
-      ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
+      ['baseHealth', 'conductorPass', 'criteria', 'hostLoad', 'leaves', 'rollup', 'status'].sort(),
     );
   });
 
@@ -184,6 +184,46 @@ describe('buildMissionDiagnostic baseHealth', () => {
     expect(r.baseHealth.tsc).toBe('unknown');
     expect(r.baseHealth.suite).toBe('unknown');
   });
+
+  test('hostLoad.saturated is true when load average exceeds the CPU-scaled threshold', async () => {
+    const { m } = await makeFixture();
+    const r = await buildMissionDiagnostic(project, m.id, {
+      ...NO_GIT,
+      readMachineLoad: () => ({ loadAvg: [8, 8, 8], cpuCount: 2 }),
+    });
+    expect(r.hostLoad.saturated).toBe(true);
+    expect(r.hostLoad.loadAvg1).toBe(8);
+    expect(r.hostLoad.cpuCount).toBe(2);
+    // Verify status and baseHealth still populated.
+    expect(r.status).not.toBeNull();
+    expect(r.baseHealth).not.toBeNull();
+  });
+
+  test('hostLoad.saturated is false when load average is under the CPU-scaled threshold', async () => {
+    const { m } = await makeFixture();
+    const r = await buildMissionDiagnostic(project, m.id, {
+      ...NO_GIT,
+      readMachineLoad: () => ({ loadAvg: [1, 1, 1], cpuCount: 8 }),
+    });
+    expect(r.hostLoad.saturated).toBe(false);
+    expect(r.hostLoad.loadAvg1).toBe(1);
+    expect(r.hostLoad.cpuCount).toBe(8);
+  });
+
+  test('hostLoad.saturated is null when readMachineLoad throws, while status/rollup/baseHealth stay populated', async () => {
+    const { m } = await makeFixture();
+    const r = await buildMissionDiagnostic(project, m.id, {
+      ...NO_GIT,
+      readMachineLoad: () => { throw new Error('boom'); },
+    });
+    expect(r.hostLoad.saturated).toBeNull();
+    expect(r.hostLoad.loadAvg1).toBeNull();
+    expect(r.hostLoad.cpuCount).toBeNull();
+    // Verify status, rollup, and baseHealth still populated.
+    expect(r.status).not.toBeNull();
+    expect(r.rollup).not.toBeNull();
+    expect(r.baseHealth).not.toBeNull();
+  });
 });
 
 describe('buildMissionDiagnostic read-only + fail-open (crit 7)', () => {
@@ -207,7 +247,7 @@ describe('buildMissionDiagnostic read-only + fail-open (crit 7)', () => {
     });
     // Shape intact, every git-fed field degraded — never a rejection.
     expect(Object.keys(r).sort()).toEqual(
-      ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
+      ['baseHealth', 'conductorPass', 'criteria', 'hostLoad', 'leaves', 'rollup', 'status'].sort(),
     );
     const servingEpic = r.criteria[0]?.servingEpics.find((s) => s.id === e.id);
     expect(servingEpic?.landedInGit).toBeNull(); // throwing probe ⇒ indeterminate ⇒ null

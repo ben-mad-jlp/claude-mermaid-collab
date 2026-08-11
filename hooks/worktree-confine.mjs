@@ -167,8 +167,12 @@ export function buildDenyOutput(reason) {
  * quoted string, preceded by `"`) is NOT matched; and the argument must be a literal
  * absolute path (`/…` or `~…`) so `cd "$HOME"` / `cd relative` are NOT matched. Returns the
  * list of escaping (canonical) targets — empty means no clear absolute escape.
+ * @param {string} command
+ * @param {string} canonWorktree
+ * @param {string|null} [canonScratch]
+ * @returns {string[]}
  */
-export function findCdEscapes(command, canonWorktree) {
+export function findCdEscapes(command, canonWorktree, canonScratch) {
   if (typeof command !== 'string' || !command) return [];
   const re = /(?:^|[;&|(){}`\n])\s*(?:cd|pushd)\b\s+(['"]?)((?:\/|~)[^'"\s;&|)]*)\1/g;
   const escapes = [];
@@ -176,20 +180,26 @@ export function findCdEscapes(command, canonWorktree) {
   while ((m = re.exec(command)) !== null) {
     const raw = expandHome(m[2]);
     const canon = canonicalize(raw);
-    if (!isInside(canon, canonWorktree)) escapes.push(canon);
+    if (!isInside(canon, canonWorktree) && !(canonScratch && isInside(canon, canonScratch))) escapes.push(canon);
   }
   return escapes;
 }
 
 /**
  * Pure containment decision. `input` = { tool_name, tool_input }, `worktree` = the value of
- * MERMAID_LEAF_WORKTREE (may be undefined). Returns { deny:false } to ALLOW, or
- * { deny:true, reason } to DENY. Never throws for ordinary inputs.
+ * MERMAID_LEAF_WORKTREE (may be undefined), `scratch` = optional value of MERMAID_LEAF_SCRATCH.
+ * Returns { deny:false } to ALLOW, or { deny:true, reason } to DENY. Never throws for ordinary inputs.
+ * @param {any} input
+ * @param {string|undefined} worktree
+ * @param {string|undefined} [scratch]
+ * @returns {{ deny: boolean; reason?: string }}
  */
-export function decide(input, worktree) {
+export function decide(input, worktree, scratch) {
   // Unset boundary = "not a confined leaf node" → allow everything (never a blanket deny).
   if (!worktree || typeof worktree !== 'string' || !worktree.trim()) return { deny: false };
   const canonWt = canonicalize(worktree.trim());
+  const canonScratch = scratch && typeof scratch === 'string' && scratch.trim()
+    ? canonicalize(scratch.trim()) : null;
 
   const tool = input && input.tool_name;
   const ti = (input && input.tool_input) || {};
@@ -201,19 +211,20 @@ export function decide(input, worktree) {
     if (!target) return { deny: false }; // nothing evaluable → fail-open
     const abs = isAbsolute(target) ? target : join(canonWt, target);
     const canonTarget = canonicalize(abs);
-    if (isInside(canonTarget, canonWt)) return { deny: false };
-    return {
-      deny: true,
-      reason:
-        `worktree-confine: ${tool} target '${canonTarget}' is OUTSIDE this leaf's worktree ` +
-        `'${canonWt}'. A leaf node may only write inside its own lane worktree — writing to ` +
-        `the main checkout (or elsewhere) produces false greens with empty worktree diffs. ` +
-        `Use a path inside the worktree.`,
-    };
+    if (isInside(canonTarget, canonWt) || (canonScratch && isInside(canonTarget, canonScratch))) return { deny: false };
+    let reason =
+      `worktree-confine: ${tool} target '${canonTarget}' is OUTSIDE this leaf's worktree ` +
+      `'${canonWt}'. A leaf node may only write inside its own lane worktree — writing to ` +
+      `the main checkout (or elsewhere) produces false greens with empty worktree diffs. ` +
+      `Use a path inside the worktree.`;
+    if (canonScratch) {
+      reason += ` A leaf with a scratch dir may also write inside '${canonScratch}'.`;
+    }
+    return { deny: true, reason };
   }
 
   if (tool === 'Bash') {
-    const escapes = findCdEscapes(ti.command, canonWt);
+    const escapes = findCdEscapes(ti.command, canonWt, canonScratch);
     if (escapes.length === 0) return { deny: false };
     return {
       deny: true,
@@ -248,7 +259,7 @@ async function main() {
   }
   let result;
   try {
-    result = decide(normalizeHookInput(input), process.env.MERMAID_LEAF_WORKTREE);
+    result = decide(normalizeHookInput(input), process.env.MERMAID_LEAF_WORKTREE, process.env.MERMAID_LEAF_SCRATCH);
   } catch (e) {
     process.stderr.write(`[worktree-confine] allow (decision error): ${e}\n`);
     return; // FAIL OPEN
