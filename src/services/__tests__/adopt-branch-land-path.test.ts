@@ -17,6 +17,7 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { landEpic, defaultLandStageDeps, landCondition, type LandStageDeps } from '../coordinator-land';
 import { adoptBranchAsEpic } from '../adopt-branch-as-epic.js';
+import { getEpicLandReadiness } from '../epic-land-readiness.js';
 import { _closeProject } from '../todo-store';
 import {
   createEscalation,
@@ -196,6 +197,40 @@ describe('adopted-epic land path — real merge/mutex against a stubbed proof st
     // Real `git` subprocesses, so the wall-clock budget has to survive the base
     // gate running 6 test files at a time — bun's 5s default was a coin-flip
     // (observed 5491ms) and false-redded the whole epic base.
+  }, REAL_GIT_TIMEOUT_MS);
+
+  it('adopts a branch and lands it by epicId with no hand-forged escalation or gate card', async () => {
+    execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
+    const commit1 = commitFile(project, 'file1.txt', 'content 1\n', 'commit 1');
+    execFileSync('git', ['checkout', 'master'], { cwd: project });
+
+    const adopted = await adoptBranchAsEpic(project, 'test-session', { source: 'scratch', title: 'adopt-land-no-card' });
+
+    // Verify no escalations exist at this point (before landEpic is called).
+    expect(listEscalations('open').length).toBe(0);
+
+    // Check land readiness using the real git probe.
+    const readiness = await getEpicLandReadiness(project, adopted.epicId);
+    expect(readiness.blocking).toBe(false);
+    expect(readiness.findings.length).toBe(0);
+
+    const masterBefore = git(project, ['rev-parse', 'master']);
+    const outcome = await landEpic(project, { epicId: adopted.epicId }, undefined, greenProofDeps());
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.landed).toBe(true);
+    const masterAfter = git(project, ['rev-parse', 'master']);
+    expect(outcome.masterSha).toBe(masterAfter);
+    expect(masterAfter).not.toBe(masterBefore);
+    expect(adopted.commits[0]).toBe(commit1);
+    expect(adopted.commits.at(-1)).toBe(adopted.trailerCommit);
+    for (const sha of adopted.commits) {
+      const isAncestor = execFileSync('git', ['merge-base', '--is-ancestor', sha, 'master'], { cwd: project });
+      expect(isAncestor).toEqual(Buffer.from(''));
+    }
+
+    // Verify no land card was ever created.
+    expect(listEscalations('open').length).toBe(0);
   }, REAL_GIT_TIMEOUT_MS);
 
   it('a real merge conflict on the base leaves master untouched and raises an assumption-invalidated escalation', async () => {
