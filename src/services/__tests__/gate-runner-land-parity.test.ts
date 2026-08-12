@@ -118,7 +118,7 @@ describe('gate-runner-land-parity: Class (b) — impactedSuiteGatePlugin applies
       typecheck: 'npx tsc --noEmit',
       tests: [
         {
-          match: /.*\.test\.ts$/,
+          match: '.*\\.test\\.ts$',
           command: 'bun test {file}',
           mode: 'per-file',
         },
@@ -150,7 +150,7 @@ describe('gate-runner-land-parity: Class (b) — impactedSuiteGatePlugin applies
       typecheck: 'npx tsc --noEmit',
       tests: [
         {
-          match: /.*\.test\.ts$/,
+          match: '.*\\.test\\.ts$',
           command: 'bun test {file}',
           mode: 'per-file',
         },
@@ -198,7 +198,7 @@ describe('gate-runner-land-parity: Class (b) — impactedSuiteGatePlugin applies
       typecheck: 'npx tsc --noEmit',
       tests: [
         {
-          match: /.*\.test\.ts$/,
+          match: '.*\\.test\\.ts$',
           command: 'bun test {files}',
           mode: 'per-file',
         },
@@ -253,7 +253,7 @@ describe('gate-runner-land-parity: Class (b) — impactedSuiteGatePlugin applies
       typecheck: 'npx tsc --noEmit',
       tests: [
         {
-          match: /.*\.test\.ts$/,
+          match: '.*\\.test\\.ts$',
           command: 'bun test {files}',
           mode: 'per-file',
         },
@@ -340,7 +340,7 @@ describe('gate-runner-land-parity: Class (b) — impactedSuiteGatePlugin applies
       typecheck: 'npx tsc --noEmit',
       tests: [
         {
-          match: /.*\.test\.ts$/,
+          match: '.*\\.test\\.ts$',
           command: 'bun test {files}',
           mode: 'per-file',
         },
