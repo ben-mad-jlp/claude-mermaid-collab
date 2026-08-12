@@ -383,7 +383,7 @@ async function resolveEpicWorktreeCwd(project: string, epicId: string): Promise<
 export async function landReadiness(
   project: string,
   epicId: string,
-  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string } },
+  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor },
 ): Promise<LandReadinessVerdict> {
   const probes = opts?.probes ?? {};
   const allTodos = opts?.todos ?? (probes.todos ? probes.todos(project) : listTodos(project, { includeCompleted: true }));
@@ -454,6 +454,7 @@ export async function landReadiness(
     epicBranch,
     epicWorktreeCwd,
     snapshot: opts?.snapshot,
+    actor: opts?.actor,
   };
 
   gate = await gateProbe(gateOpts);
@@ -566,7 +567,7 @@ export async function landAuthority(
   const ownershipResult = checkOwnership(project, epicId, actor, allTodos);
 
   // Always compute readiness regardless of ownership
-  const readinessResult = await landReadiness(project, epicId, opts);
+  const readinessResult = await landReadiness(project, epicId, { ...opts, actor });
 
   // Build the full verdict
   const blockers: LandBlocker[] = [];
