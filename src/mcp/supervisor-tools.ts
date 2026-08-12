@@ -208,13 +208,22 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
               }
               return JSON.stringify({ error: errorMsg }, null, 2);
             }
+
+            let expected: string;
             if (status === 'acknowledged') {
+              expected = supervisorStore.ESCALATION_STATUSES[1];
               supervisorStore.acknowledgeEscalation(fullId, 'human');
             } else {
+              const { status: canonicalStatus } = supervisorStore.normalizeEscalationStatus(status, note);
+              expected = canonicalStatus;
               supervisorStore.resolveEscalation(fullId, status, undefined, note);
             }
+
             const updated = supervisorStore.getEscalation(fullId);
-            return JSON.stringify({ success: true, id: fullId, status: updated?.status ?? status, note: updated?.resolutionNote ?? null }, null, 2);
+            if (!updated || updated.status !== expected) {
+              return JSON.stringify({ error: `escalation ${fullId} <${status === 'acknowledged' ? 'acknowledge' : 'resolve'}> did not verify: expected status "${expected}", observed ${updated ? `"${updated.status}"` : 'no row'}` }, null, 2);
+            }
+            return JSON.stringify({ success: true, id: fullId, status: updated.status, note: updated.resolutionNote ?? null }, null, 2);
           }
           case 'escalation_create': {
             const { project, session, kind, questionText, audience, todoId, options, recommended, ui, operatorGated, supervisorEpoch } = args as { project: string; session: string; kind: string; questionText: string; audience: 'human' | 'internal'; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown; operatorGated?: boolean; supervisorEpoch?: number };
