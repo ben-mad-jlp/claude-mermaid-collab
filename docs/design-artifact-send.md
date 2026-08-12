@@ -128,6 +128,22 @@ only content — so there is no traversal surface.
 5. **`dismiss_artifact { envelopeId }`** — marks `dismissed`. No deletion verb in v1;
    a later reaper can age out non-pending envelopes.
 
+## Discovery (D5 — settled: the receiver tells the sender)
+
+**v1 has no discovery machinery. The target address is told out of band** — the receiving
+user shares their `baseUrl` (+ token if secured), exactly like `launch_remote_server` and
+the desktop's "add server" flow work today. Once used, the address lives in the desktop's
+connection store like any other server.
+
+What exists if discovery is ever wanted (deferred, not designed):
+- Servers on non-loopback binds already ADVERTISE `_mermaidcollab._tcp` over mDNS
+  (`bonjour-advertiser.ts`) — but nothing browses it; the picker half was never built.
+- Same machine, same OS user: `~/.mermaid-collab/instances/*.json` (instance_topology).
+- Same machine, DIFFERENT OS users is the known blind spot: the instances dir is
+  per-user and loopback binds suppress the mDNS advert. The supported posture is the
+  same as remote: bind `0.0.0.0` with token auth, then the advert (and a future browse)
+  sees them. With D5, this blind spot costs nothing — the user just tells you the port.
+
 ## Feasibility verdict
 
 **HIGH for v1 — no new infrastructure, ~1 epic of work.** Every hard part already
