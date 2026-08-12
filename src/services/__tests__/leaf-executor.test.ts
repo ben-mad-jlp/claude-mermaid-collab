@@ -1,5 +1,16 @@
 /**
- * @serial-test-lane: inert - error message strings contain "git worktree add" but code never executes it
+ * @serial-test-lane
+ *
+ * SERIALIZED (disposition B, mission 0bdbed7e crit 6). Two decisions, both deliberate:
+ * - The old ': inert' marker answered the AUTO-DETECTION question — the "git worktree add"
+ *   strings here are error-message text, never executed — and that reasoning still holds.
+ * - But 333 cases in ~74s with 30s per-case budgets cannot share a 6x-concurrent lane: under
+ *   gate load a DIFFERENT case fails each run (measured 2026-08-11/12 — 'crit 8 contract
+ *   repair' one run, 'crit 4 poison-trap reattach' timing out at 30.9s the next, always
+ *   332/333, always 3/3 green in isolation). The contended resource is the CPU time the
+ *   per-case budgets assume. This one file blocked three lands on 2026-08-11 and starved the
+ *   crit-6 leaves through 17 claim cycles with zero nodes spent on 2026-08-12. The serial
+ *   lane runs it alone, where its timing assumptions hold.
  *
  * Unit tests for the MINIMAL leaf-executor (PAW P2) state machine.
  *
