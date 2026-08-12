@@ -181,4 +181,44 @@ describe('land-gate-floor-always', () => {
     expect(result.floor?.failing).toContain('src/services/regression.test.ts');
     expect(result.reasons[0]).toContain('REGRESSION FLOOR FAILED');
   });
+
+  it('floor fails on an empty diff → gate still fails on the floor', async () => {
+    const mockDeclarationWithFloor: GateDeclaration = {
+      kind: 'declared',
+      cfg: {
+        ...mockDeclaration.cfg,
+        floors: [{ match: new RegExp('^src/'), command: 'bun run test:floor' }],
+      },
+      manifestPath: '.collab/project.json',
+    };
+
+    const mockSpawn: GateSpawn = async (cwd, command) => {
+      if (command.includes('tsc')) return { ran: true, code: 0, output: 'OK' };
+      if (command.includes('test:floor')) {
+        return {
+          ran: true,
+          code: 1,
+          output: '1 file(s) FAILED:\n\n──────── src/services/regression.test.ts ────────\nsome trace\n',
+        };
+      }
+      return { ran: true, code: 0, output: 'PASS' };
+    };
+
+    const result = await runEpicLandGate({
+      project: 'test',
+      repo: '/repo',
+      epicId: 'test123',
+      epicBranch: 'collab/epic/test123',
+      epicWorktreeCwd: '/epic',
+      decl: mockDeclarationWithFloor,
+      spawn: mockSpawn,
+      git: createMockGit(),
+      fs: { exists: () => true, symlink: () => {} },
+      skipCache: true,
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.floor?.status).toBe('fail');
+    expect(result.reasons[0]).toContain('REGRESSION FLOOR FAILED');
+  });
 });
