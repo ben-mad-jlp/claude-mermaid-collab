@@ -33,9 +33,11 @@ export function computePlanTotals(todos: SessionTodo[]): PlanTotals {
   const counts: Record<FunnelKey, number> = { backlog: 0, ready: 0, inflight: 0, blocked: 0, done: 0 };
   let total = 0;
 
-  const addLane = (items: SessionTodo[]) => {
-    if (items.length === 0) return;
-    if (items.every((t) => TERMINAL.has(t.status))) return; // completed lane → excluded
+  const addLane = (laneItems: SessionTodo[]) => {
+    if (laneItems.length === 0) return;
+    if (laneItems.every((t) => TERMINAL.has(t.status))) return; // completed lane → excluded
+    // dropped is not a funnel state — it must never inflate the Backlog total
+    const items = laneItems.filter((t) => t.status !== 'dropped');
     for (const t of items) counts[bucketTodo(t, byId) ?? 'backlog']++;
     total += items.length;
   };
