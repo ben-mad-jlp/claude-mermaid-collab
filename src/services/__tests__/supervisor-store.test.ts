@@ -21,6 +21,8 @@ import {
   getTypedContractGating,
   setTypedContractGating,
   _closeDb,
+  applyEscalationResolveWrite,
+  applyEscalationAcknowledgeWrite,
 } from '../supervisor-store';
 import { TOKEN_BURN_KIND } from '../burn-watch';
 
@@ -361,5 +363,43 @@ describe('reopenResolvedEscalationByConditionKey', () => {
   it('a conditionKey never used in the project returns null', () => {
     const result = reopenResolvedEscalationByConditionKey({ project: '/test-reopen-4', conditionKey: 'blocker:never-used' });
     expect(result).toBeNull();
+  });
+});
+
+describe('applyEscalationResolveWrite / applyEscalationAcknowledgeWrite — zero-row guard', () => {
+  it('applyEscalationResolveWrite on a full id with no row throws matched-no-row naming the id and writes zero rows', () => {
+    const neverInsertedId = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+    expect(() => {
+      applyEscalationResolveWrite(neverInsertedId, 'resolved', undefined, null);
+    }).toThrow(/matched no row/);
+    expect(() => {
+      applyEscalationResolveWrite(neverInsertedId, 'resolved', undefined, null);
+    }).toThrow(neverInsertedId);
+
+    // Verify no rows were written
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+    const count = (directDb.query('SELECT COUNT(*) as c FROM escalation WHERE id = ?').get(neverInsertedId) as { c: number }).c;
+    directDb.close();
+    expect(count).toBe(0);
+  });
+
+  it('applyEscalationAcknowledgeWrite on a full id with no row throws matched-no-row naming the id and writes zero rows', () => {
+    const neverInsertedId = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+
+    expect(() => {
+      applyEscalationAcknowledgeWrite(neverInsertedId, undefined);
+    }).toThrow(/matched no row/);
+    expect(() => {
+      applyEscalationAcknowledgeWrite(neverInsertedId, undefined);
+    }).toThrow(neverInsertedId);
+
+    // Verify no rows were written
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+    const count = (directDb.query('SELECT COUNT(*) as c FROM escalation WHERE id = ?').get(neverInsertedId) as { c: number }).c;
+    directDb.close();
+    expect(count).toBe(0);
   });
 });

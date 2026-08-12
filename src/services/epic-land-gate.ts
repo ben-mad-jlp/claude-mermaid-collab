@@ -14,6 +14,7 @@ import { mkdtempSync, symlinkSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { LandActor } from './land-authority';
 import { lastLines, extractFailingTests, SPEC_FILE_RE } from './gate-runner';
 import type { LeafGateConfig, GateTestLane, GateSpawn, GateFloorLane } from './leaf-gate';
 import { resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
@@ -22,6 +23,8 @@ import { resolveGateDeclaration } from './leaf-gate';
 import { loadManifestSource } from '../config/project-manifest';
 import { defaultGateSpawn } from './leaf-gate';
 import { recordEpicLandGate, getEpicLandGate, listObservations } from './worker-ledger';
+import { activeQuarantine } from './flaky-quarantine';
+import type { TestQuarantineRow } from './worker-ledger';
 
 export type LandGateStatus = 'pass' | 'fail' | 'error' | 'abstain';
 
@@ -52,6 +55,7 @@ export interface EpicLandGateResult {
   baseSha: string | null;
   sweep?: SourceGuardSweepResult;
   floor?: { command: string; status: 'pass' | 'fail' | 'error'; failing: string[]; output?: string };
+  quarantinedOnlyFailures?: string[];
 }
 
 /** Spec paths whose assertions guard shared, out-of-change-set symbols. Matched against the
@@ -140,6 +144,9 @@ export interface EpicLandGateOpts {
   git?: (cwd: string, args: string[]) => { code: number; stdout: string };
   fs?: { exists(p: string): boolean; symlink(target: string, path: string): void };
   skipCache?: boolean;
+  snapshot?: { baseSha: string; epicTipSha: string };
+  quarantineLookup?: (project: string) => TestQuarantineRow[];
+  actor?: LandActor;
 }
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -234,6 +241,58 @@ function parseFloorFailingNames(output: string): string[] {
   return Array.from(seen);
 }
 
+export function floorFailureIsQuarantined(
+  failingPath: string,
+  quarantinedEntries: string[],
+  floorOutput: string,
+): boolean {
+  // Normalize each quarantine entry by stripping a leading bun progress prefix.
+  const normalizedQuarantine = new Set(
+    quarantinedEntries.map((entry) => entry.replace(/^\(\d+\/\d+\)\s+/, '')),
+  );
+
+  // Direct hit: if the normalized set contains failingPath verbatim.
+  if (normalizedQuarantine.has(failingPath)) {
+    return true;
+  }
+
+  // Section hit: extract the output slice for failingPath and parse its test names.
+  // Find the section header for this failingPath: ──── path ────
+  const headerRegex = new RegExp(`─{4,}\\s+${failingPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+─{4,}`);
+  const headerMatch = floorOutput.match(headerRegex);
+
+  if (!headerMatch) {
+    return false;
+  }
+
+  // Find the start index of this header
+  const headerStartIndex = floorOutput.indexOf(headerMatch[0]);
+  if (headerStartIndex === -1) {
+    return false;
+  }
+
+  // Find the next header (or end of output) to determine section bounds
+  const afterHeaderIndex = headerStartIndex + headerMatch[0].length;
+  const remainingText = floorOutput.slice(afterHeaderIndex);
+  const nextHeaderMatch = remainingText.match(/\n─{4,}/);
+  const sectionEndIndex = nextHeaderMatch
+    ? afterHeaderIndex + remainingText.indexOf(nextHeaderMatch[0])
+    : floorOutput.length;
+
+  // Extract the section text (from after the header to the next header or EOF)
+  const sectionText = floorOutput.slice(afterHeaderIndex, sectionEndIndex);
+
+  // Extract test names from the section.
+  const testNames = extractFailingTests(sectionText);
+
+  // Return true only if all test names are in the quarantine set.
+  if (testNames.length === 0) {
+    return false;
+  }
+
+  return testNames.every((name) => normalizedQuarantine.has(name));
+}
+
 async function runRegressionFloor(o: {
   epicWorktreeCwd: string;
   floors: GateFloorLane[] | undefined;
@@ -244,14 +303,9 @@ async function runRegressionFloor(o: {
     return undefined;
   }
 
-  const matched = o.floors.filter((lane) => o.changedFiles.some((f) => lane.match.test(f)));
-  if (matched.length === 0) {
-    return undefined;
-  }
-
   const results: Array<{ command: string; status: 'pass' | 'fail' | 'error'; failing: string[] }> = [];
 
-  for (const lane of matched) {
+  for (const lane of o.floors) {
     const cwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
     const r = await o.spawn(cwd, lane.command);
 
@@ -265,12 +319,13 @@ async function runRegressionFloor(o: {
     results.push({ command: lane.command, status: 'pass', failing: [] });
   }
 
-  return { command: matched.map((l) => l.command).join('; '), status: 'pass', failing: [] };
+  return { command: o.floors.map((l) => l.command).join('; '), status: 'pass', failing: [] };
 }
 
 export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGateResult> {
   const spawn = o.spawn ?? defaultGateSpawn;
   const git = o.git ?? defaultGit;
+  const lookupQuarantine = o.quarantineLookup ?? activeQuarantine;
   // Resolve the trunk via the injected git runner (main-then-master probe, mockable).
   // Behaviour-preserving on a master-trunk repo: 'main' probe fails → 'master'.
   const resolveTrunk = (): string => {
@@ -320,16 +375,18 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   const cfg = decl.cfg;
 
   // --- tip + base + cache ---
-  let epicTipSha: string | null = null;
-  let baseSha: string | null = null;
+  let epicTipSha: string | null = o.snapshot?.epicTipSha ?? null;
+  let baseSha: string | null = o.snapshot?.baseSha ?? null;
 
-  const tipRes = git(o.epicWorktreeCwd, ['rev-parse', 'HEAD']);
-  if (tipRes.code === 0) epicTipSha = tipRes.stdout.trim();
+  if (!o.snapshot) {
+    const tipRes = git(o.epicWorktreeCwd, ['rev-parse', 'HEAD']);
+    if (tipRes.code === 0) epicTipSha = tipRes.stdout.trim();
 
-  const baseRes = git(o.repo, ['rev-parse', baseRef]);
-  if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
+    const baseRes = git(o.repo, ['rev-parse', baseRef]);
+    if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
+  }
 
-  if (!o.skipCache) {
+  if (!o.skipCache && o.actor?.kind !== 'human') {
     const cached = getEpicLandGate(o.epicId, epicTipSha, baseSha);
     if (cached && cached.result) {
       const result = JSON.parse(cached.result) as EpicLandGateResult;
@@ -379,7 +436,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   // --- change-set ---
-  const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseRef, 'HEAD']);
+  const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseSha ?? baseRef, epicTipSha ?? 'HEAD']);
   if (mergeBaseRes.code !== 0) {
     return {
       status: 'error',
@@ -398,6 +455,28 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   const mergeBase = mergeBaseRes.stdout.trim();
+
+  // If merge-base equals epic tip, the trunk already contains the epic tip and there is
+  // nothing to measure — the diff is empty and the gate is unevaluable.
+  if (mergeBase === epicTipSha) {
+    const res: EpicLandGateResult = {
+      status: 'fail',
+      declared: true,
+      manifestPath: decl.manifestPath,
+      typecheck,
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: ['land gate: UNEVALUABLE — merge-base == epic tip; trunk already contains the epic, nothing to measure'],
+      specFiles: [],
+      epicTipSha,
+      baseSha,
+    };
+    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+    return res;
+  }
+
   const diffRes = git(o.epicWorktreeCwd, ['diff', '--name-only', '--diff-filter=d', mergeBase, 'HEAD']);
   const changedFiles = diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const specFiles = changedFiles.filter((p) => SPEC_FILE_RE.test(p));
@@ -443,14 +522,28 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   // reported, never blocking, exactly as the unit path already treats them. Only failures
   // the branch introduces are regressions. A branch that is merely no-worse-than-base is
   // allowed through, which is what makes a base repair landable.
+  let floorQuarantinedOnlyFailures: string[] | undefined;
+  let inheritedFloor: { regressed: string[]; inherited: string[] } = { regressed: [], inherited: [] };
   if (floor?.status === 'fail') {
-    const inheritedFloor = partitionFloorAgainstBase(o.project, baseSha, floor.failing);
-    if (inheritedFloor.regressed.length === 0 && floor.failing.length > 0) {
+    // Two independent reasons a floor failure is not this branch's fault, checked in order.
+    // First: every failing path is already quarantined, so the floor is measuring known-flaky
+    // tests. Second: every failing test is already red at baseSha, so the branch is merely
+    // no-worse-than-base. Either one downgrades; only a genuinely net-new failure blocks.
+    const quarantineTests = lookupQuarantine(o.project).map((q) => q.test);
+    const quarantinedOnly =
+      floor.failing.length > 0 &&
+      floor.failing.every((fp) => floorFailureIsQuarantined(fp, quarantineTests, floor.output ?? ''));
+    inheritedFloor = partitionFloorAgainstBase(o.project, baseSha, floor.failing);
+    if (quarantinedOnly) {
+      // Downgrade: floor failed but all failures are quarantined.
+      floorQuarantinedOnlyFailures = [...floor.failing].sort();
+    } else if (inheritedFloor.regressed.length === 0 && floor.failing.length > 0) {
       // Every floor failure is pre-existing at the base. Fall THROUGH to the normal unit
       // path with the failures recorded as inherited, so the land is reported inheritedRed
       // rather than blocked. Not a silent pass: land-authority surfaces inheritedRed.
       floorInherited = inheritedFloor.inherited.map((f) => floorUnit(floor.command, f, 'inherited'));
     } else {
+      // Floor failed with net-new failures — return immediately.
       const reasons = [
         `REGRESSION FLOOR FAILED: ${floor.command}`,
         ...(inheritedFloor.regressed.length
@@ -485,6 +578,13 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
 
   if (specFiles.length === 0) {
     const sweep = await runSourceGuardSweep({ epicWorktreeCwd: o.epicWorktreeCwd, cfg, spawn, git });
+    const reasons: string[] = ['land gate: no spec files in the epic diff'];
+    if (floorQuarantinedOnlyFailures) {
+      reasons.unshift(`quarantined-only floor failure(s), gate downgraded to pass: ${floorQuarantinedOnlyFailures.join(', ')}`);
+    }
+    if (floor) {
+      reasons.push(`land gate: regression floor ${floor.status} (${floor.command})`);
+    }
     const res: EpicLandGateResult = {
       status: 'pass',
       declared: true,
@@ -495,10 +595,11 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       regressions: [],
       inherited: [...floorInherited],
       incidents: [],
-      reasons: ['land gate: no spec files in the epic diff'],
+      reasons,
       specFiles: [],
       epicTipSha,
       baseSha,
+      ...(floorQuarantinedOnlyFailures ? { quarantinedOnlyFailures: floorQuarantinedOnlyFailures } : {}),
     };
     foldSweepIntoResult(res, sweep);
     if (res.status !== 'error') {
@@ -704,6 +805,11 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   let status: LandGateStatus = 'pass';
   const reasons: string[] = [];
 
+  // Prepend floor downgrade reason if applicable.
+  if (floorQuarantinedOnlyFailures) {
+    reasons.push(`quarantined-only floor failure(s), gate downgraded to pass: ${floorQuarantinedOnlyFailures.join(', ')}`);
+  }
+
   if (incidents.length > 0) {
     status = 'error';
     reasons.push(`land gate: ${incidents.length} incident(s) — commands could not run`);
@@ -736,6 +842,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     specFiles,
     epicTipSha,
     baseSha,
+    ...(floorQuarantinedOnlyFailures ? { quarantinedOnlyFailures: floorQuarantinedOnlyFailures } : {}),
   };
 
   if (res.status === 'pass') {
@@ -778,15 +885,43 @@ export function landGateTrailer(r: EpicLandGateResult): string {
   return trailer;
 }
 
+export function parseTimeoutFromOutput(output: string): { observedMs: number; limitMs: number } | null {
+  const limitMatch = output.match(/timed out (?:after|in)\s*(\d+)\s*ms|timeout of\s*(\d+)\s*ms/i);
+  const observedMatch = [...output.matchAll(/\[(\d+(?:\.\d+)?)\s*ms\]/g)].pop();
+  if (!limitMatch || !observedMatch) return null;
+  const limitMs = Number(limitMatch[1] ?? limitMatch[2]);
+  const observedMs = Math.round(Number(observedMatch[1]));
+  if (!Number.isFinite(limitMs) || !Number.isFinite(observedMs)) return null;
+  return { observedMs, limitMs };
+}
+
 export function landGateSummary(r: EpicLandGateResult): string {
   if (r.status === 'pass') {
     return `land gate green (${r.specFiles.length} spec file(s)${r.inherited.length > 0 ? `; ${r.inherited.length} also fail on master` : ''})`;
   }
   if (r.status === 'fail') {
+    if (r.typecheck?.status === 'fail') {
+      return `land gate FAILED: typecheck (${r.typecheck.command})`;
+    }
     if (r.floor?.status === 'fail' && r.regressions.length === 0) {
       return `land gate FAILED: regression floor (${r.floor.command})`;
     }
-    return `land gate FAILED: ${r.regressions.length} regression(s) on the branch, pass on master`;
+    if (r.regressions.length > 0) {
+      return `land gate FAILED: ${r.regressions.length} regression(s) on the branch, pass on master`;
+    }
+    const sweepUnit = r.sweep?.units.find((u) => u.status !== 'pass');
+    if (sweepUnit) {
+      const timeout = sweepUnit.output ? parseTimeoutFromOutput(sweepUnit.output) : null;
+      const testName = sweepUnit.output ? extractFailingTests(sweepUnit.output)[0] : undefined;
+      return `land gate FAILED: source-guard sweep ${sweepUnit.status} on ${sweepUnit.file}` +
+        (testName ? ` (${testName})` : '') +
+        (timeout ? ` — timeout: observed ${timeout.observedMs}ms vs limit ${timeout.limitMs}ms` : '');
+    }
+    const incident = r.incidents[0];
+    if (incident) {
+      return `land gate FAILED: ${incident.files.join(', ')} could not run`;
+    }
+    return `land gate FAILED: ${r.reasons[0] ?? 'unknown cause'}`;
   }
   if (r.status === 'abstain') {
     return `land gate ABSTAINED (no declared gate)`;

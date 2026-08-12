@@ -2,6 +2,7 @@ import { setQuarantinePromotionHook, type FlakyCandidate } from './flaky-quarant
 import { recordFrictionOnce } from './friction-store';
 import { createTodo, listTodos, updateTodo } from './todo-store';
 import { ensureBucket } from './bucket-registry';
+import { quarantineDedupKey } from './quarantine-dedup';
 
 interface QuarantineReportDeps {
   recordFrictionOnce?: typeof recordFrictionOnce;
@@ -52,8 +53,13 @@ export async function runQuarantinePromotionReport(
       `TTL expires at: ${new Date(c.ttlExpiresAt).toISOString()}\n\n` +
       `The base gate excludes this test from gating until the TTL expires; fix it or it re-enters gating.`;
 
+    const suffix = c.test;
     const existing = listTodosFn(c.project, { includeCompleted: true }).find(
-      (t) => t.parentId === epicId && t.title === title && t.status !== 'done' && t.status !== 'dropped',
+      (t) =>
+        t.parentId === epicId &&
+        quarantineDedupKey(t.title.slice('[BUG] flaky test quarantined: '.length)) === quarantineDedupKey(suffix) &&
+        t.status !== 'done' &&
+        t.status !== 'dropped',
     );
 
     if (existing) {

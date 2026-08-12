@@ -46,6 +46,7 @@ import { ConnectingConsole } from '@/components/connection/ConnectingConsole';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
+import { reconcileScopeOnSessionSelect } from '@/lib/sessionScope';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useUsageStore } from '@/stores/usageStore';
@@ -153,6 +154,7 @@ const App: React.FC = () => {
     zoomIn,
     zoomOut,
     setZoomLevel,
+    setActiveProject,
   } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
@@ -160,6 +162,7 @@ const App: React.FC = () => {
       zoomIn: state.zoomIn,
       zoomOut: state.zoomOut,
       setZoomLevel: state.setZoomLevel,
+      setActiveProject: state.setActiveProject,
     }))
   );
 
@@ -1389,9 +1392,9 @@ const App: React.FC = () => {
   // Handle session selection from Header dropdown
   const handleSessionSelect = useCallback(
     (session: Session) => {
-      setCurrentSession(session);
+      reconcileScopeOnSessionSelect(session, { setCurrentSession, setActiveProject });
     },
-    [setCurrentSession]
+    [setCurrentSession, setActiveProject]
   );
 
   // Handle creating a new session in a specific project

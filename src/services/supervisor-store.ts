@@ -1137,13 +1137,9 @@ export function resolveFullEscalationId(id: string): string {
   return resolved;
 }
 
-export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human', note?: string | null): void {
-  const fullId = resolveFullEscalationId(id);
+export function applyEscalationResolveWrite(fullId: string, status: string, resolvedBy?: 'ai' | 'human', note?: string | null): { status: string; note: string | null } {
   const d = openDb();
-  // Normalize status to canonical form + extract trailing prose into resolutionNote.
   const { status: normalizedStatus, note: normalizedNote } = normalizeEscalationStatus(status, note);
-  // Stamp who resolved it (fd934fb7) so the UI can show an AI-resolved outcome
-  // briefly instead of letting it silently vanish. Also clear any in-flight flag.
   const info = d.prepare('UPDATE escalation SET status = ?, resolutionNote = COALESCE(?, resolutionNote), resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
     normalizedStatus,
     normalizedNote,
@@ -1151,7 +1147,21 @@ export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' 
     resolvedBy ?? null,
     fullId
   );
-  if (info.changes === 0) throw new Error(`escalation resolve matched no row: ${id}`);
+  if (info.changes === 0) throw new Error(`escalation resolve matched no row: ${fullId}`);
+  return { status: normalizedStatus, note: normalizedNote };
+}
+
+export function applyEscalationAcknowledgeWrite(fullId: string, acknowledgedBy?: 'ai' | 'human'): void {
+  const d = openDb();
+  const info = d
+    .prepare('UPDATE escalation SET status = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?')
+    .run(ESCALATION_STATUSES[1], acknowledgedBy ?? null, fullId);
+  if (info.changes === 0) throw new Error(`escalation acknowledge matched no row: ${fullId}`);
+}
+
+export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human', note?: string | null): void {
+  const fullId = resolveFullEscalationId(id);
+  applyEscalationResolveWrite(fullId, status, resolvedBy, note);
 }
 
 /**
@@ -1166,11 +1176,7 @@ export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' 
  */
 export function acknowledgeEscalation(id: string, acknowledgedBy?: 'ai' | 'human'): Escalation | null {
   const fullId = resolveFullEscalationId(id);
-  const d = openDb();
-  const info = d
-    .prepare('UPDATE escalation SET status = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?')
-    .run(ESCALATION_STATUSES[1], acknowledgedBy ?? null, fullId);
-  if (info.changes === 0) throw new Error(`escalation acknowledge matched no row: ${id}`);
+  applyEscalationAcknowledgeWrite(fullId, acknowledgedBy);
   return getEscalation(fullId);
 }
 

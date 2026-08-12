@@ -6,7 +6,8 @@
  * cache stays `epic_base_gate`, and the entry here is dropped the instant its promise
  * settles.
  *
- * It ALSO bounds how many base gates may run at once per project. Coalescing alone cannot
+ * It ALSO bounds how many base gates may run at once, per project AND globally. Coalescing
+ * alone cannot
  * do that: `baseGateKey` includes the epic's own base sha, so N open epics produce N
  * distinct keys and nothing merges across them. Each gate is a full typecheck plus the
  * whole backend suite, so an uncapped fan-out (one land or one restart invalidates every
@@ -44,14 +45,45 @@ export function baseGateKey(project: string, baseSha: string | null | undefined,
 
 const DEFAULT_MAX_CONCURRENT_BASE_GATES = 2;
 
+/**
+ * Global ceiling across ALL projects. The per-project cap alone does not bound the box, and on
+ * 2026-08-10 that is what killed the sidecar twice in twelve minutes: two projects were `on`,
+ * each within its cap of 2, and EACH GATE itself fans out to `--concurrency=6` `bun test`
+ * children (scripts/test-backend.ts). 2 projects x 2 gates x 6 = 24 processes on a 14-core box.
+ * Nothing was uncapped; the caps simply multiplied, and the count that matters — processes, not
+ * gates — was never bounded anywhere.
+ *
+ * Deliberately a small constant rather than a function of core count. The fan-out per gate is
+ * decided in the test script, so any core-based arithmetic here would be guessing at a number it
+ * cannot see; 2 gates keeps the worst case near the machine's width and leaves the sidecar room
+ * to answer its health probe, which is the whole point.
+ */
+const DEFAULT_MAX_CONCURRENT_BASE_GATES_GLOBAL = 2;
+
+/** Bucket key for the global slot pool. Not a legal project path, so it cannot collide. */
+const GLOBAL_BUCKET = '\u0000global';
+
 /** How many base gates may execute at once for a single project. Env override exists so a
  *  saturated or unusually large box can be tuned without a redeploy; anything unparseable
  *  or below 1 falls back to the default rather than disabling the cap. */
 export function maxConcurrentBaseGates(): number {
-  const raw = process.env.MERMAID_MAX_CONCURRENT_BASE_GATES;
-  if (raw === undefined || raw === '') return DEFAULT_MAX_CONCURRENT_BASE_GATES;
+  return readLimit(process.env.MERMAID_MAX_CONCURRENT_BASE_GATES, DEFAULT_MAX_CONCURRENT_BASE_GATES);
+}
+
+/** How many base gates may execute at once across EVERY project. Same override contract. */
+export function maxConcurrentBaseGatesGlobal(): number {
+  return readLimit(
+    process.env.MERMAID_MAX_CONCURRENT_BASE_GATES_GLOBAL,
+    DEFAULT_MAX_CONCURRENT_BASE_GATES_GLOBAL,
+  );
+}
+
+/** Anything unparseable or below 1 falls back to the default rather than DISABLING the cap —
+ *  a typo in an env var must not be a way to uncork the fan-out that killed the sidecar. */
+function readLimit(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === '') return fallback;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_CONCURRENT_BASE_GATES;
+  if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.floor(n);
 }
 
@@ -109,12 +141,20 @@ export function runBaseGateShared(
   const limit = maxConcurrentBaseGates();
 
   const p = (async () => {
-    const wait = acquire(project, limit);
-    if (wait) await wait;
+    // GLOBAL first, then project — a fixed acquisition order, so two callers can never each
+    // hold one slot while waiting for the other's. Both are released in reverse.
+    const waitGlobal = acquire(GLOBAL_BUCKET, maxConcurrentBaseGatesGlobal());
+    if (waitGlobal) await waitGlobal;
     try {
-      return await run();
+      const waitProject = acquire(project, limit);
+      if (waitProject) await waitProject;
+      try {
+        return await run();
+      } finally {
+        release(project);
+      }
     } finally {
-      release(project);
+      release(GLOBAL_BUCKET);
     }
   })();
   inFlight.set(key, p);

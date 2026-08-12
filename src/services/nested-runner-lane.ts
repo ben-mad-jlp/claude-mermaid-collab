@@ -182,13 +182,28 @@ function stripCommentsAndLiterals(source: string): string {
 }
 
 /**
+ * Regex to detect runner tokens in the value of a `testCommand:` key.
+ * This checks the RAW source (not stripped of literals) because the signal is
+ * the literal command string itself (e.g., testCommand: 'bun test ./fixtures/...').
+ * Scoped narrowly to the exact key name `testCommand` to avoid false positives
+ * from other keys like `command:` or `cmd:` that hold fixture data.
+ */
+const TEST_COMMAND_KEY_RUNNER_RE = /\btestCommand\s*:\s*['"`][^'"`]*(?:bun test|bunx vitest|npm run test)/;
+
+/**
  * Detect if source (with comments and literals stripped) contains evidence of spawning a nested test runner.
  * Returns true if source contains:
- *   (i)   a contiguous substring like `bun test`, `bunx vitest`, or `npm run test`
- *   (ii)  argv-shaped adjacencies: quoted strings matching patterns like
- *         'bun','test' or 'bunx','vitest' or 'npm','run','test' (whitespace-tolerant)
+ *   (i)   a testCommand key with a runner token (checked on RAW source)
+ *   (ii)  a contiguous substring like `bun test`, `bunx vitest`, or `npm run test` (after stripping)
+ *   (iii) argv-shaped adjacencies: quoted strings matching patterns like
+ *         'bun','test' or 'bunx','vitest' or 'npm','run','test' (whitespace-tolerant, after stripping)
  */
 export function detectNestedRunnerSpawn(source: string): boolean {
+  // Check raw source first for testCommand: key pattern
+  if (TEST_COMMAND_KEY_RUNNER_RE.test(source)) {
+    return true;
+  }
+
   const stripped = stripCommentsAndLiterals(source);
 
   // Check for contiguous substrings

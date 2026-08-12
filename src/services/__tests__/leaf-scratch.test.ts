@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { LEAF_SCRATCH_ROOT, leafScratchFor, allocateLeafScratch, reapLeafScratch } from '../leaf-scratch';
 
 describe('leaf-scratch', () => {
@@ -73,5 +74,53 @@ describe('leaf-scratch', () => {
 
     expect(path1).toEqual(path2);
     expect(path1).toContain('leaf-exec-dddddddd');
+  });
+
+  it('scratch files never appear in the worktree staged diff', () => {
+    // Create a dedicated fixture dir under tmpdir
+    const fixtureRoot = join(tmpdir(), `test-git-worktree-${Date.now()}`);
+    mkdirSync(fixtureRoot, { recursive: true });
+
+    try {
+      // Initialize git and make an initial commit
+      execFileSync('git', ['init'], { cwd: fixtureRoot });
+      writeFileSync(join(fixtureRoot, 'README.md'), 'initial content\n');
+      execFileSync('git', ['add', '-A'], { cwd: fixtureRoot });
+      execFileSync('git', ['-c', 'user.email=t@t.com', '-c', 'user.name=t', 'commit', '-m', 'init'], { cwd: fixtureRoot });
+
+      // Allocate scratch for this fixture worktree
+      const scratchPath = allocateLeafScratch(fixtureRoot);
+
+      // Assert existence immediately after allocation
+      expect(existsSync(scratchPath)).toBe(true);
+
+      // Assert the scratch dir resolves outside the worktree root
+      const rel = relative(fixtureRoot, scratchPath);
+      expect(rel.startsWith('..')).toBe(true);
+
+      // Write a file into the scratch dir
+      writeFileSync(join(scratchPath, 'probe.txt'), 'x');
+
+      // Stage everything in the fixture worktree
+      execFileSync('git', ['add', '-A'], { cwd: fixtureRoot });
+
+      // Check what was staged
+      const staged = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: fixtureRoot }).toString();
+
+      // Assert the scratch file does not appear in the staged diff
+      expect(staged).not.toContain('probe.txt');
+      // Assert nothing was staged (the probe file is outside the worktree)
+      expect(staged.trim()).toBe('');
+
+      // Reap the scratch dir
+      reapLeafScratch(fixtureRoot);
+    } finally {
+      // Clean up the fixture root
+      try {
+        rmSync(fixtureRoot, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+    }
   });
 });

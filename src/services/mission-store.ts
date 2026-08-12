@@ -33,7 +33,7 @@ import { isLanded, isEpicStatusDone, landedVia, type LandedVia } from './epic-la
 
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
-import { getEpicLandRecord } from './epic-land-record-store.ts';
+import { getEpicLandRecord, getEpicLandRecords } from './epic-land-record-store.ts';
 import { proofForEpic as predProofForEpic, servingEpicLive as predServingEpicLive, isHollowDone as predIsHollowDone, countsTowardServeCap as predCountsTowardServeCap, servingLandIsNewerThanVerdict as predServingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict as predServingWorkCompletedAfterVerdict, recheckPendingAfterVerdict as predRecheckPendingAfterVerdict, awaitingObservation as predAwaitingObservation } from './mission-status-predicates.ts';
 export { CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 
@@ -560,10 +560,10 @@ export function getMissionRaw(project: string, todoId: string): MissionRow | und
 }
 
 /** Read a mission's control state, or undefined if the node has none yet. */
-export function getMission(project: string, todoId: string): MissionRow | undefined {
+export function getMission(project: string, todoId: string, opts?: { allTodos?: Todo[] }): MissionRow | undefined {
   const m = getMissionRaw(project, todoId);
   if (!m) return undefined;
-  return { ...m, status: deriveMissionStatus(collectMissionStatusFacts(project, m)) };
+  return { ...m, status: deriveMissionStatus(collectMissionStatusFacts(project, m, Date.now(), { allTodos: opts?.allTodos })) };
 }
 
 /**
@@ -1676,10 +1676,15 @@ export function liveRunsOf<T extends { epicId: string | null }>(
   return runs.filter((r) => r.epicId != null && liveEpicIds.has(r.epicId));
 }
 
-export function collectMissionStatusFacts(project: string, m: MissionRow, now: number = Date.now(), opts?: { landTruth?: Map<string, boolean> }): MissionStatusFacts {
+export function collectMissionStatusFacts(project: string, m: MissionRow, now: number = Date.now(), opts?: { landTruth?: Map<string, boolean>; allTodos?: Todo[] }): MissionStatusFacts {
   // listTodos defaults to archivedAt IS NULL (hot-only) — archived todos never leak into
   // allTodos/epics/runs below, so an archived leaf is invisible to the facts scan.
-  const allTodos = listTodos(project, { includeCompleted: true });
+  //
+  // `opts.allTodos` lets a caller that ALREADY holds this exact array hand it over. listMissions
+  // reads it once at the top and then called through here once per mission, re-scanning and
+  // re-sorting the whole table 34 times per call. It must be the same query (hot-only,
+  // includeCompleted) or the facts change shape.
+  const allTodos = opts?.allTodos ?? listTodos(project, { includeCompleted: true });
   const epics = allTodos.filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
   );
@@ -1703,7 +1708,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   let runs: ReturnType<typeof listLeafRuns> = [];
   let ledgerUnavailable = false;
   try {
-    runs = epics.flatMap((e) => listLeafRuns({ project, epicId: e.id }));
+    runs = listLeafRuns({ project, epicIds: epics.map((e) => e.id) });
   } catch {
     runs = [];
     ledgerUnavailable = true;
@@ -1717,8 +1722,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   if (!ledgerUnavailable) {
     try {
       capRuns = runs.concat(
-        allEpicsEver.filter((e) => e.status === 'dropped')
-          .flatMap((e) => listLeafRuns({ project, epicId: e.id })),
+        listLeafRuns({
+          project,
+          epicIds: allEpicsEver.filter((e) => e.status === 'dropped').map((e) => e.id),
+        }),
       );
     } catch { capRuns = runs; }
   }
@@ -1761,6 +1768,10 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean }>();
   const proofForEpic = (epicId: string) => predProofForEpic(epicId, childrenByParent, proofByEpic);
   const metById = new Map(criteria.map((cc) => [cc.id, cc.met]));
+  // A land record depends only on the EPIC, never on the criterion — but the read sat inside
+  // the per-criterion loop below, so the same handful of epics were re-read once per criterion:
+  // 210 queries to return 6 missions. One batched read, reused by every criterion.
+  const landRecordByEpic = getEpicLandRecords(project, allTodos.filter(isEpic).map((t) => t.id));
   return {
     awaitingApproval: m.awaitingApprovalSince != null,
     abandonedAt: m.abandonedAt,
@@ -1864,7 +1875,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       try {
         let best: { sha: string; at: number } | null = null;
         for (const e of provingLanded) {
-          const rec = getEpicLandRecord(project, e.id);
+          const rec = landRecordByEpic.get(e.id) ?? null;
           if (rec && (best == null || rec.landedAt > best.at)) {
             best = { sha: rec.landedMergeSha, at: rec.landedAt };
           }
@@ -1990,6 +2001,14 @@ export function listMissions(
   for (const node of roots) {
     // Cheap path: read the stored row only, then layer on a facts-free status derived from
     // the epic slice below. Full path: getMission, which derives from a full facts scan.
+    // Decide INCLUSION from the cheap stored row before paying for anything derived. The
+    // archived filter used to run after a full facts derivation per mission, so listing 6
+    // missions computed facts for all 15 and discarded 9 of them.
+    const rawCheap = getMissionRaw(project, node.id);
+    if (!rawCheap) continue; // a mission-kind node without control state — not a real mission
+    if (opts.onlyArchived) { if (rawCheap.archivedAt == null) continue; }
+    else if (!opts.includeArchived) { if (rawCheap.archivedAt != null) continue; }
+
     const epicRows = all.filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t));
     const epicsForNode = epicRows.map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
     const criteriaForNode = listCriteria(project, node.id).map((c) => ({
@@ -1998,13 +2017,11 @@ export function listMissions(
         .filter((e) => todoServesCriterion(e, c.id))
         .map((e) => ({ id: e.id, title: e.title, landed: isLanded(e), landedVia: landedVia(e) })),
     })); // cheap indexed lookup — the capability gauge
-    const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
+    const raw = withFacts ? getMission(project, node.id, { allTodos: all }) : rawCheap;
     let mission = raw && !withFacts
       ? { ...raw, status: deriveCheapMissionStatus(raw, epicsForNode, criteriaForNode, isMissionStalled(project, node.id)) }
       : raw;
-    if (!mission) continue; // a mission-kind node without control state — not a real mission
-    if (opts.onlyArchived) { if (mission.archivedAt == null) continue; }
-    else if (!opts.includeArchived) { if (mission.archivedAt != null) continue; }
+    if (!mission) continue;
     // Self-heal: a TERMINAL mission (converged/abandoned) must not linger active=1. The transition
     // setters (setMissionAbandoned / criterion setters) clear it going forward; this sweep also
     // catches historical rows and any active flip set outside those paths, since a stale active pads
@@ -2025,7 +2042,7 @@ export function listMissions(
     const activeCriteria = criteria.filter((c) => c.status !== 'dropped');
     const capMet = activeCriteria.filter((c) => c.met).length;
     const rollup: MissionRollup = withFacts
-      ? getMissionRollup(project, node.id)
+      ? getMissionRollup(project, node.id, { allTodos: all })
       : {
           todoId: node.id,
           mechanical: { done: mechDone, total: epics.length },
@@ -2114,13 +2131,13 @@ export function _resetMissionCreateThrottle(project?: string): void {
   else missionCreateTimestamps.delete(project);
 }
 
-export function getMissionRollup(project: string, todoId: string): MissionRollup {
-  const m = getMission(project, todoId);
+export function getMissionRollup(project: string, todoId: string, opts?: { allTodos?: Todo[] }): MissionRollup {
+  const m = getMission(project, todoId, { allTodos: opts?.allTodos });
   if (!m) throw new Error(`mission not found: ${todoId}`);
   // Use the RESOLVED id (m.todoId), not the raw todoId param — a short id here used to
   // return an empty rollup (epics/criteria were both queried on the unresolved arg).
   const id = m.todoId;
-  const epics = listTodos(project, { includeCompleted: true }).filter(
+  const epics = (opts?.allTodos ?? listTodos(project, { includeCompleted: true })).filter(
     (t) => t.parentId === id && t.status !== 'dropped' && isEpic(t),
   );
   const mechDone = epics.filter((e) => e.status === 'done').length;
@@ -2129,7 +2146,7 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
   // reported (capability.dropped) so the rollup never hides them.
   const active = criteria.filter((c) => c.status !== 'dropped');
   const capMet = active.filter((c) => c.met).length;
-  const facts = collectMissionStatusFacts(project, m);
+  const facts = collectMissionStatusFacts(project, m, Date.now(), { allTodos: opts?.allTodos });
   const actions = facts.criteria.map(deriveCriterionAction);
   return {
     todoId: id,

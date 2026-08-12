@@ -3,9 +3,10 @@ import * as path from 'node:path';
 import { getWorktreeManager } from './coordinator-live.js';
 import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
 import { isRunLive } from './leaf-subprocess-registry.js';
-import { getTodo, listTodos } from './todo-store.js';
+import { getTodo, listTodos, createTodo } from './todo-store.js';
 import { recordSupervisorAudit } from './supervisor-store.js';
 import { recordFrictionOnce } from './friction-store.js';
+import { ensureBucket } from './bucket-registry.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
 import { getStatuses } from './session-status-store.js';
 import { CRASH_MS } from './session-runtime.js';
@@ -20,8 +21,8 @@ const REAP_THROTTLE_MS = 5 * 60_000;
  *  30-min gate here is what keeps it off that cadence. Exported + clock-injectable
  *  (see `tickGcLeafWorktrees(opts.now)`) so the throttle is deterministically testable. */
 export const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
-/** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase has NO leaf_inflight
- *  row (rows are per-node, deleted on node-finish) yet is still live — and the
+/** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase can have NO live claim
+ *  (a claim is released the moment the run stops executing) yet is still live — and the
  *  leaf-executor's own self-merge runs in THIS window. Reaping then yanks the worktree out
  *  from under the merge → the observed "merge-to-epic-failed: no worktree" on a leaf-exec
  *  session. The inflight set alone is a TOCTOU; require the worktree to have been QUIET for
@@ -231,6 +232,84 @@ async function headCommitAgeMs(dir: string, now: number): Promise<number | null>
   const ct = parseInt(res.stdout.trim(), 10);
   if (!Number.isFinite(ct)) return null;
   return now - ct * 1000;
+}
+
+/** Commits on `branch` that are NOT on trunk by patch-id. `git cherry` marks these `+`, and
+ *  it IGNORES merge commits — which is the whole point: an epic that was forward-integrated
+ *  many times reads as "8 commits ahead" while carrying zero unique content. Counting raw
+ *  `rev-list` distance would report abandonment that isn't there (MEASURED 2026-08-11: three
+ *  epics read 3-8 ahead with no orphaned patch between them). */
+async function orphanedPatchShas(dir: string, trunkRef: string, branch: string): Promise<string[]> {
+  const res = await gcGitRead(dir, ['cherry', trunkRef, branch]);
+  if (res.code !== 0) return [];
+  return res.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('+ '))
+    .map((l) => l.slice(2).trim())
+    .filter(Boolean);
+}
+
+/** Extract subject and touched files for a commit via git show/diff-tree. Used to build
+ *  per-sha summaries in the filed orphan-report todo. */
+async function commitSummary(dir: string, sha: string): Promise<{ subject: string; files: string[] }> {
+  const subjRes = await gcGitRead(dir, ['show', '-s', '--format=%s', sha]);
+  const filesRes = await gcGitRead(dir, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]);
+  return {
+    subject: subjRes.stdout.trim() || '(unknown subject)',
+    files: filesRes.stdout.split('\n').map((l) => l.trim()).filter(Boolean),
+  };
+}
+
+/** File orphaned epic commits as REAL WORK, once, and report whether that succeeded.
+ *
+ *  A worktree removal is safe (the branch keeps every commit) but SILENT — and silence is how
+ *  an abandoned fix stays abandoned. MEASURED 2026-08-11: `9ab4b72f`, a base-red repair
+ *  ("declare ensure_epic_worktree's own output"), sat on a terminal epic's branch for two days
+ *  with nothing on master carrying it and nothing anywhere pointing at it. A friction note is
+ *  queryable but passive; a bucket todo is something the daemon can actually pick up.
+ *
+ *  Returns false if the todo could not be filed — the caller must then REFUSE to reclaim, so
+ *  the directory itself stays as the evidence of record. Never delete what you failed to report. */
+export async function reportOrphanedEpicCommits(
+  project: string,
+  epicId: string,
+  epicTitle: string,
+  branch: string,
+  shas: string[],
+  dir: string,
+): Promise<boolean> {
+  try {
+    const id8 = epicId.slice(0, 8);
+    const marker = `orphaned-epic-commits:${id8}`;
+    // Idempotent: the GC re-sees this epic every pass (5-minute cadence), and a fresh todo
+    // per pass would flood the bugfix bucket exactly like the quarantine autofiler did.
+    const existing = listTodos(project, { includeCompleted: true, includeArchived: true })
+      .find((t) => t.description?.includes(marker));
+    if (existing) return true;
+
+    const summaries = await Promise.all(shas.map((sha) => commitSummary(dir, sha)));
+
+    const parentId = await ensureBucket(project, 'bugfix');
+    await createTodo(project, {
+      ownerSession: 'worktree-gc',
+      parentId,
+      title: `Orphaned commits on landed-never epic ${id8}: ${shas.length} unmerged patch(es)`,
+      description:
+        `${marker}\n\n` +
+        `Epic "${epicTitle}" (${epicId}) is TERMINAL, but ${shas.length} commit(s) on ${branch} ` +
+        `are not on trunk by patch-id and never landed. Its worktree was reclaimed by the GC ` +
+        `(the branch retains every commit — nothing is lost, but nothing was pointing at it either).\n\n` +
+        `Commits:\n${summaries.map((s, i) => `  ${shas[i]} — ${s.subject}\n    files: ${s.files.join(', ') || '(none)'}`).join('\n\n')}\n\n` +
+        `Triage: to check if this content landed under a different sha, run \`git show <sha>\` and extract its added exported symbols and test-file basenames, then search the trunk repo-wide for those symbols/names (e.g. \`git log --source -S symbol -p master\` or \`git grep -l symbol master\`). ` +
+        `This repo-wide search must NOT be scoped to the paths in the \`files:\` lines above — ` +
+        `re-implementations can move contracts to different call sites, rename or split modules across files, and still carry the same intent. ` +
+        `Only if the repo-wide search finds nothing should this be closed as an orphan; if trunk already carries it under a different sha, close this as superseded.`,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** `__epic-<id8>__` → id8, else null. */
@@ -625,6 +704,62 @@ export async function gcLeafWorktrees(
               }
               continue;
             }
+          }
+        }
+      }
+    }
+
+    // 1.6 Terminal epic whose work is SAFE ON ITS BRANCH but not yet merged to trunk.
+    //
+    // The 1.5 fast path above requires `merge-base --is-ancestor HEAD trunk`, so an epic that
+    // finished WITHOUT landing keeps its worktree forever. MEASURED 2026-08-11: six `done`
+    // epics with 1-8 unlanded commits each held worktrees for weeks; friction-watch walks every
+    // one of them with git on a 90s budget, so the scan eventually exceeded its own timeout and
+    // pinned the event loop (see the sidecar-kill incident). Removing them by hand took the
+    // sidecar from 100% CPU to 0%.
+    //
+    // Reclaiming is safe because the BRANCH is the durable artifact and the worktree is only a
+    // checkout of it: if HEAD is reachable from collab/epic/<id8>, every commit survives the
+    // directory's removal. That reachability proof is what substitutes for the 7-day age floor
+    // here, exactly as the land-record substitutes for it in 1.5 — we never infer safety from
+    // the branch merely EXISTING (constraint a383bc2c/a68bef56).
+    if (epicTodo) {
+      const status = await wm.statusAt(dir);
+      const clean = status !== null && status.length === 0;
+      if (clean) {
+        const branch = wm.epicBranchName(epicTodo.id);
+        // HEAD reachable from the epic branch ⇒ nothing exists ONLY in this directory.
+        const onBranch = await gcGitRead(dir, ['merge-base', '--is-ancestor', 'HEAD', branch]);
+        if (onBranch.code === 0) {
+          const reclaimable = await isReclaimableIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null });
+          if (reclaimable) {
+            // Work that never reached trunk must become VISIBLE before its directory goes away.
+            // Reclaiming is safe for the commits (the branch holds them) but it removes the last
+            // thing anyone would trip over — so if the report cannot be filed, keep the evidence.
+            const trunkRefForCherry = await resolveTrunkRef(project);
+            const orphans = await orphanedPatchShas(dir, trunkRefForCherry, branch);
+            if (orphans.length > 0) {
+              const reported = await reportOrphanedEpicCommits(
+                project, epicTodo.id, epicTodo.title ?? '(untitled)', branch, orphans, dir,
+              );
+              if (!reported) {
+                report.refused.push({ path: dir, reason: 'orphan-report-failed', sample: orphans.slice(0, 5) });
+                continue;
+              }
+            }
+            if (!opts?.dryRun) {
+              try {
+                const { trashDir } = await wm.quarantineMove(dir, 'terminal-epic-safe-on-branch');
+                report.quarantined.push({ path: dir, trashDir });
+                console.log(`[worktree-gc] quarantined terminal epic worktree ${dir} -> ${trashDir} (work on ${branch})`);
+              } catch {
+                report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+                continue;
+              }
+            } else {
+              report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+            }
+            continue;
           }
         }
       }

@@ -34,6 +34,90 @@ export function formatWatchdogKillReason(input: {
   return `watchdog-kill: unhealthyForMs=${input.unhealthyForMs} >= thresholdMs=${input.thresholdMs} probeLatenciesMs=[${latenciesStr}]`;
 }
 
+/** How long `sample` watches the wedged process, and how long we wait for it to finish.
+ *  Two seconds is enough to see a stuck stack repeatedly; the timeout is generous because
+ *  a saturated box (load 174 was observed) slows the sampler too. */
+export const DEFAULT_STACK_SAMPLE_SECONDS = 2;
+export const DEFAULT_STACK_SAMPLE_TIMEOUT_MS = 8_000;
+
+/**
+ * The command that captures WHAT the sidecar was doing when it stopped answering.
+ *
+ * The forensics log has always recorded the symptom (probe latencies pinned at the timeout)
+ * and never the cause, so every wedge became archaeology: 200 watchdog kills on 2026-08-08
+ * left nothing to read but the latencies. `sample` walks a live process's stacks without
+ * needing it to respond — the one tool that still works on a blocked event loop.
+ *
+ * Returns null where no sampler exists, so the caller kills as before rather than hanging.
+ */
+export function stackSampleCommand(input: {
+  pid: number;
+  dir: string;
+  ts: number;
+  seconds?: number;
+  platform?: string;
+}): { argv: string[]; file: string } | null {
+  const platform = input.platform ?? process.platform;
+  if (platform !== 'darwin') return null;
+  if (!Number.isInteger(input.pid) || input.pid <= 0) return null;
+
+  // Colons are legal on macOS but read as path separators in Finder and break scp.
+  const stamp = new Date(input.ts).toISOString().replace(/[:.]/g, '-');
+  const file = join(input.dir, `stack-${stamp}-pid${input.pid}.txt`);
+  const seconds = input.seconds ?? DEFAULT_STACK_SAMPLE_SECONDS;
+  // -mayDie: we are about to signal this process; tell the sampler not to treat its
+  // disappearance as an error.
+  return { argv: ['sample', String(input.pid), String(seconds), '-mayDie', '-file', file], file };
+}
+
+export function formatStackSampleLine(input: {
+  ts: number;
+  outcome: 'captured' | 'failed' | 'timeout' | 'unsupported';
+  file?: string;
+  detail?: string;
+}): string {
+  const isoTs = new Date(input.ts).toISOString();
+  const where = input.file ? ` file=${input.file}` : '';
+  const detail = input.detail ? ` detail=${input.detail}` : '';
+  return `[${isoTs}] stack-sample outcome=${input.outcome}${where}${detail}`;
+}
+
+/** Cheap counters worth having beside the stack: a climbing session count is itself a lead. */
+export function formatDeathContext(input: {
+  ts: number;
+  counts: Record<string, number | string | null>;
+}): string {
+  const isoTs = new Date(input.ts).toISOString();
+  const pairs = Object.entries(input.counts)
+    .map(([k, v]) => `${k}=${v ?? 'unknown'}`)
+    .join(' ');
+  return `[${isoTs}] death-context ${pairs}`;
+}
+
+/** Resolve the liveness-watchdog threshold (ms) from env, then the machine config map.
+ *
+ *  WHY BOTH SOURCES: the env var only reaches the supervisor when the app is launched from a
+ *  terminal — `open -a` and Finder launches drop it, so on 2026-08-11 the raised threshold
+ *  silently reverted to 45s on every relaunch and the land gate's own full-suite run (load 27)
+ *  starved the sidecar past it: the gate killed its own server mid-land. The config file is
+ *  what actually survives how the app is launched; env stays as the explicit override.
+ *
+ *  PURE — callers pass the env and the parsed config map, so tests never read the live
+ *  ~/.mermaid-collab/config.json (which leaks real machine state into assertions).
+ *  Rejects values below 15s: the probe interval is 15s, so anything lower kills on one probe.
+ *  Returns null when neither source sets a usable value (caller falls back to its default). */
+export function resolveWatchdogThresholdMs(
+  env: Record<string, string | undefined>,
+  configMap: Record<string, unknown> | null,
+): number | null {
+  for (const raw of [env.MERMAID_WATCHDOG_THRESHOLD_SECONDS, configMap?.MERMAID_WATCHDOG_THRESHOLD_SECONDS]) {
+    if (raw == null || raw === '') continue;
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs >= 15) return secs * 1000;
+  }
+  return null;
+}
+
 export class CrashLoopTripwire {
   private respawnTimes: number[] = [];
   private lastFiredWindowStart: number | null = null;

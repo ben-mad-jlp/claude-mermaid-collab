@@ -31,6 +31,18 @@ describe('nested-runner-lane', () => {
     expect(foundInNested).toBe(true);
   });
 
+  it('collectBackendTestFiles places mutation-probe-verb-shapes.test.ts in nested and mutation-probe.test.ts stays in fast', () => {
+    const { fast, nested } = collectBackendTestFiles();
+
+    const verbShapesInNested = nested.some((f: string) => f.includes('mutation-probe-verb-shapes.test.ts'));
+    const verbShapesInFast = fast.some((f: string) => f.includes('mutation-probe-verb-shapes.test.ts'));
+    const probeTestInFast = fast.some((f: string) => f.includes('services/__tests__/mutation-probe.test.ts'));
+
+    expect(verbShapesInNested).toBe(true);
+    expect(verbShapesInFast).toBe(false);
+    expect(probeTestInFast).toBe(true);
+  });
+
   it('detectNestedRunnerSpawn returns false for a runner token that only survives inside a string literal', () => {
     // Source with "bun test" only in a quoted string should return false
     const source = `
@@ -54,6 +66,14 @@ describe('nested-runner-lane', () => {
     const result = detectNestedRunnerSpawn(source);
     // After blanking literals, the 'bun test' string content is gone, so no detection
     expect(result).toBe(false);
+  });
+
+  it('detectNestedRunnerSpawn returns true for a runner token in the value of a testCommand: key', () => {
+    // Source with testCommand key holding a runner token — a real signal
+    const source = `const opts = { testCommand: 'bun test ./fixtures/x.test.ts' };`;
+
+    const result = detectNestedRunnerSpawn(source);
+    expect(result).toBe(true);
   });
 
   it('detectRealGitWorktreeSpawn detects git worktree add in pseudo-argv structure and false for error-message string', () => {

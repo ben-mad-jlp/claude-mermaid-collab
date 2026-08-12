@@ -214,6 +214,18 @@ const BLUEPRINT_CONCISENESS_RULES_LINES: readonly string[] = [
   'the DELETION/REMOVAL criteria rules) that prove the removal is complete.',
 ];
 
+/** Backend test command guidance. Shared VERBATIM by buildNodePrompt('implement') and
+ *  buildReviewPrompt so the wording never drifts between them — both must reference the same
+ *  constant. Teaches the scoped `bun run scripts/test-backend.ts <file>` command (not the
+ *  unfiltered all-files variant) and clarifies that `npm run test:ci` is the UI (vitest) runner. */
+const BACKEND_TEST_COMMAND_LINES: readonly string[] = [
+  'Backend tests run as `bun run scripts/test-backend.ts <file> [<file>...]`, naming ONLY the',
+  'spec file(s) this leaf changed. `npm run test:ci` / `npm test` is the UI (vitest) runner and',
+  'will NOT run backend tests. An unfiltered `bun run scripts/test-backend.ts` with no file',
+  'arguments is FORBIDDEN in a leaf — the epic base gate already runs the whole suite, so',
+  'running it again is pure duplicate cost.',
+];
+
 /** Deletion/removal leaves assert an ABSENCE — but bare prose ("X no longer exists", "Y is
  *  untouched") is uncitable and is rejected by BOTH the blueprint-time citability gate
  *  (criteria-citability.ts's classifyCriterion, Rule 3 convictOnAbsence) and the terminal G3
@@ -442,6 +454,8 @@ export function buildNodePrompt(
           : `Read the blueprint at \`${bp}\` — ONLY that exact file (ignore any other blueprint in the directory) — and the files it references, then implement it FULLY.`,
         'Do not stub or leave TODOs. Do NOT run the acceptance gate or report completion —',
         'the executor drives the gate. Just make the edits the blueprint specifies.',
+        '',
+        ...BACKEND_TEST_COMMAND_LINES,
         `If you spot-check compilation: ${COMPILE_CHECK_INSTRUCTION}`,
       ].filter(Boolean).join('\n');
     case 'review': {
@@ -531,6 +545,12 @@ export function buildNodePrompt(
         `\`${EXPLORE_REPORT_SENTINEL}: FINDINGS=<count>\``,
         '',
         'where <count> is the number of findings you listed (0 if none). Do not omit this line.',
+        '',
+        'Any finding you assert (FINDINGS >= 1) MUST be filed via mcp__mermaid__file_finding',
+        `with sourceLeafId=${leaf.id}, project=<the main checkout root printed above>,`,
+        'reproCwd=<this worktree, printed above>, and a committed reproducible test under a',
+        '`__quarantine__` directory (the one write this read-only investigation may make).',
+        'A FINDINGS count with no filed finding is rejected — file every finding you report.',
       );
       return exploreLines.join('\n');
     }
@@ -872,6 +892,8 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string, lens: ReviewLens 
     '  3. Compare. A failure present on BOTH is pre-existing and is NOT your finding.',
     'Do NOT judge from a whole-directory run: files share a SQLite database and the runner',
     'parallelizes, so aggregate red/green is noise. One file, in isolation, on both sides.',
+    '',
+    ...BACKEND_TEST_COMMAND_LINES,
     '',
     REVIEW_LENS_INSTRUCTIONS[lens],
     '',

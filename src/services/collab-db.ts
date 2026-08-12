@@ -22,6 +22,7 @@ import { canonicalProjectRoot, canonicalProjectRootLoose, storePath } from './st
 import { COLLAB_DB_MIGRATIONS, enforceForeignKeys } from './collab-db-schema';
 import { applyMigrations } from './schema-migrate';
 import { importProjectWorkGraph, type ImportReport } from './collab-db-import';
+import { instrumentDatabase } from './db-latency-guard';
 
 const cache = new Map<string, Database>();
 
@@ -86,6 +87,10 @@ export function openCollabDb(project: string, opts: OpenCollabOpts = {}): Databa
   }
 
   const db = new Database(dest, { create: true });
+  // Time every statement. bun:sqlite is synchronous, so a slow query does not make this server
+  // slow — it makes it ABSENT, and the liveness watchdog SIGKILLs an absent sidecar. Warning at
+  // the query names the offender; the alternative is stack-sampling a production stall.
+  instrumentDatabase(db);
   db.exec('PRAGMA journal_mode = WAL');
   enforceForeignKeys(db);
   applyMigrations(db, COLLAB_DB_MIGRATIONS, { storeName: 'collab', now: opts.now });

@@ -128,7 +128,12 @@ describe('ServerSupervisor startup: fail fast on a dead child, then retry', () =
     const elapsed = Date.now() - started;
 
     // The point of the fix: nowhere near the 30s window it would have sat through.
-    expect(elapsed).toBeLessThan(2_000);
+    // "Fast" means AGAINST THE 60s HEALTH WINDOW this path exists to avoid — not against
+    // wall-clock on an idle box. Under the land gate's 6-way file concurrency this took 3989ms
+    // while the code behaved perfectly, and the 2s bound blocked THREE different epics' lands
+    // on 2026-08-11 (3/3 green in isolation each time). 15s keeps the assertion meaningful:
+    // 4x the loaded measurement, 4x under the window it guards.
+    expect(elapsed).toBeLessThan(15_000);
   });
 
   test('the fail-fast error names the exit code, not a bare timeout', async () => {

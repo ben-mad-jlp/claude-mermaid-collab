@@ -45,12 +45,18 @@ describe('GET /api/supervisor/missions/diagnostic', () => {
     const { status, body } = await getDiagnostic(`project=${encodeURIComponent(project)}&missionId=${missionId}`);
     expect(status).toBe(200);
     expect(Object.keys(body).sort()).toEqual(
-      ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
+      ['baseHealth', 'conductorPass', 'criteria', 'hostLoad', 'leaves', 'rollup', 'status'].sort(),
     );
   });
 
   test('without missionId returns 400', async () => {
     const { status } = await getDiagnostic(`project=${encodeURIComponent(project)}`);
     expect(status).toBe(400);
+  });
+
+  test('a non-path project value is rejected, not silently resolved against server cwd', async () => {
+    const { status, body } = await getDiagnostic(`project=not-a-real-registered-name&missionId=${missionId}`);
+    expect(status).not.toBe(200);
+    expect(JSON.stringify(body)).toMatch(/not-a-real-registered-name/);
   });
 });

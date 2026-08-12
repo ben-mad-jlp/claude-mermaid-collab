@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { handleWorkgraphTool } from '../workgraph-tools';
 import { getTodo, listTodos, _closeProject } from '../../services/todo-store';
-import { _closeProject as _closeFindingProject, listFindings, getFindingByTodoId } from '../../services/finding-store';
+import { _closeProject as _closeFindingProject, listFindings, getFindingByTodoId, findBySourceLeafId } from '../../services/finding-store';
 import { EXPLORE_NODE_ALLOWED_TOOLS } from '../../services/leaf-executor';
 
 let project: string;
@@ -447,5 +447,120 @@ describe('test2', () => {
     // First call: bucket + leaf = +2; second call: just leaf = +1
     expect(todosAfter2).toBe(todosBefore + 3);
     expect(findingsAfter2).toBe(findingsBefore + 2);
+  });
+
+  test('persisted finding row carries sourceLeafId', async () => {
+    const specPath = '__quarantine__/failing.spec.ts';
+    mkdirSync(join(project, '__quarantine__'), { recursive: true });
+    const specFullPath = join(project, specPath);
+    writeFileSync(
+      specFullPath,
+      `import { describe, test, expect } from 'bun:test';
+describe('test', () => {
+  test('fails', () => {
+    throw new Error('test failure');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath}'`, { cwd: project });
+    execSync('git commit -m "Add failing quarantine spec"', { cwd: project });
+
+    const sourceLeafId = 'explore-leaf-12345';
+
+    const res = await call('file_finding', {
+      violatedClaim: 'Test failure',
+      repro: specPath,
+      sourceLeafId,
+    });
+
+    expect(res.finding).toBeTruthy();
+    expect(res.finding.sourceLeafId).toBe(sourceLeafId);
+
+    // Verify it's persisted in the database
+    const findings = await findBySourceLeafId(project, sourceLeafId);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].id).toBe(res.finding.id);
+    expect(findings[0].sourceLeafId).toBe(sourceLeafId);
+  });
+
+  test('reproCwd routes the repro gate to a different checkout than project while the row lands in project\'s store', async () => {
+    // Create a second project (reproCwd) with its own git repo and spec
+    const reproCwd = mkdtempSync(join(tmpdir(), 'file-finding-repro-'));
+    execSync('git init', { cwd: reproCwd });
+    execSync('git config user.email "test@example.com"', { cwd: reproCwd });
+    execSync('git config user.name "Test User"', { cwd: reproCwd });
+
+    // Create a gate config in reproCwd so runQuarantinedSpec can find the lane
+    mkdirSync(join(reproCwd, '.collab'), { recursive: true });
+    writeFileSync(
+      join(reproCwd, '.collab', 'project.json'),
+      JSON.stringify({
+        version: 1,
+        gate: {
+          tests: [
+            {
+              match: '__quarantine__/.+\\.spec\\.ts$',
+              command: 'bun test {file}',
+            },
+          ],
+        },
+      }),
+      'utf-8'
+    );
+
+    // Create a failing spec in reproCwd
+    const specPath = '__quarantine__/test.spec.ts';
+    mkdirSync(join(reproCwd, '__quarantine__'), { recursive: true });
+    const specFullPath = join(reproCwd, specPath);
+    writeFileSync(
+      specFullPath,
+      `import { describe, test, expect } from 'bun:test';
+describe('test', () => {
+  test('fails', () => {
+    throw new Error('test failure');
+  });
+});`,
+      'utf-8'
+    );
+
+    execSync(`git add '${specPath}'`, { cwd: reproCwd });
+    execSync('git commit -m "Add failing spec"', { cwd: reproCwd });
+
+    try {
+      const todosBefore = listTodos(project, { includeCompleted: true }).length;
+      const findingsBefore = await listFindings(project).then((f) => f.length);
+
+      // File the finding from reproCwd but write rows into project
+      const res = await call('file_finding', {
+        violatedClaim: 'Test failure from reproCwd',
+        repro: specPath,
+        reproCwd,
+        sourceLeafId: 'explore-leaf-xyz',
+      });
+
+      expect(res.leaf).toBeTruthy();
+      expect(res.finding).toBeTruthy();
+      expect(res.finding.sourceLeafId).toBe('explore-leaf-xyz');
+
+      // Verify the leaf and finding were written to project, not reproCwd
+      const leaf = getTodo(project, res.leaf.id);
+      expect(leaf).toBeTruthy();
+      expect(leaf!.title).toBe('Test failure from reproCwd');
+
+      const finding = await getFindingByTodoId(project, res.leaf.id);
+      expect(finding).toBeTruthy();
+      expect(finding!.sourceLeafId).toBe('explore-leaf-xyz');
+
+      // Verify row counts in project changed
+      const todosAfter = listTodos(project, { includeCompleted: true }).length;
+      const findingsAfter = await listFindings(project).then((f) => f.length);
+      expect(todosAfter).toBe(todosBefore + 2); // bucket + leaf
+      expect(findingsAfter).toBe(findingsBefore + 1);
+    } finally {
+      _closeFindingProject(reproCwd);
+      rmSync(reproCwd, { recursive: true, force: true });
+    }
   });
 });

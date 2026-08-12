@@ -390,6 +390,8 @@ export interface FileFindingOpts {
   ruledOut?: string[];
   surface?: string;
   title?: string;
+  sourceLeafId?: string | null;
+  reproCwd?: string;
 }
 
 /**
@@ -419,7 +421,7 @@ export async function fileFindingLeaf(
   }
 
   // Gate 2-4: Run the quarantined spec
-  const result = await runQuarantinedSpec(project, opts.repro);
+  const result = await runQuarantinedSpec(opts.reproCwd ?? project, opts.repro);
 
   // Gate 2: Check if quarantined
   if (!result.quarantined) {
@@ -473,6 +475,7 @@ export async function fileFindingLeaf(
     reproPath: opts.repro,
     failureIdentity: result.failureIdentity,
     surface: opts.surface,
+    sourceLeafId: opts.sourceLeafId ?? null,
   });
 
   return { leaf, finding, recurrence: false };
@@ -601,6 +604,8 @@ export const WORKGRAPH_TOOL_DEFS = [
         ruledOut: { type: 'array', items: { type: 'string' }, description: 'Files checked but found not to be the cause.' },
         surface: { type: 'string', description: 'Where the failure manifests (e.g., "ui", "backend", "integration").' },
         title: { type: 'string', description: 'Leaf title (defaults to first 120 chars of violatedClaim).' },
+        sourceLeafId: { type: 'string', description: 'The leaf todo id (e.g. an explore leaf) that observed this finding.' },
+        reproCwd: { type: 'string', description: 'Working tree to run the repro gate from, when it differs from `project` — e.g. an explore leaf\'s own worktree whose commits are not yet in `project`\'s checkout.' },
       },
       required: ['project', 'session', 'violatedClaim', 'repro'],
     },
@@ -719,6 +724,8 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         ruledOut: args.ruledOut,
         surface: args.surface,
         title: args.title,
+        sourceLeafId: args.sourceLeafId,
+        reproCwd: args.reproCwd,
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: leaf ? deriveTodoViews(project, [leaf])[0] : null, finding, recurrence }, null, 2);

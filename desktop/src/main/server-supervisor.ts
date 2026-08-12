@@ -10,6 +10,11 @@ import {
   ExitReason,
   formatExitForensics,
   formatWatchdogKillReason,
+  resolveWatchdogThresholdMs,
+  stackSampleCommand,
+  formatStackSampleLine,
+  formatDeathContext,
+  DEFAULT_STACK_SAMPLE_TIMEOUT_MS,
   CrashLoopTripwire,
   ChronicSlowProbeTripwire,
   buildCrashLoopEscalationPayload,
@@ -88,6 +93,12 @@ export interface SupervisorOpts {
   healthWatchdogTimeoutMs?: number;
   /** Grace period between SIGTERM and SIGKILL when the watchdog kills a wedged sidecar. */
   watchdogTermGraceMs?: number;
+  /** How long to wait for the stack sampler before giving up and killing anyway. */
+  stackSampleTimeoutMs?: number;
+  /** Spawn used for the stack sampler ONLY. Deliberately separate from `spawnImpl`: the
+   *  sampler is not a sidecar, and conflating them makes every sidecar-spawn assertion
+   *  count a forensics child it never asked for. */
+  sampleSpawnImpl?: typeof spawn;
   /** Disable the periodic watchdog interval (tests drive checkHealthOnce directly). */
   disableHealthWatchdog?: boolean;
   /** Durable sibling log for exit/watchdog-kill lines. */
@@ -148,7 +159,20 @@ const STARTUP_RETRY_DELAY_MS = 750;
 // that protects a legitimate slow start (registry backfill) from a false respawn,
 // and the per-probe timeout. All overridable via SupervisorOpts (mainly for tests).
 const HEALTH_WATCHDOG_POLL_MS = 15_000;
-const HEALTH_WATCHDOG_THRESHOLD_MS = 45_000;
+const HEALTH_WATCHDOG_THRESHOLD_MS = configuredWatchdogThresholdMs() ?? 45_000;
+
+/** Env first (explicit override), then ~/.mermaid-collab/config.json — the source that
+ *  actually survives GUI launches; `open -a`/Finder drop env vars, which is how the raised
+ *  threshold silently reverted to 45s on every relaunch on 2026-08-11 and the land gate's own
+ *  full-suite run starved the sidecar into a SIGKILL mid-land. Read once at module load: a
+ *  changed config takes effect on the next app launch, same as every other key in that file. */
+function configuredWatchdogThresholdMs(): number | null {
+  let configMap: Record<string, unknown> | null = null;
+  try {
+    configMap = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.mermaid-collab', 'config.json'), 'utf-8'));
+  } catch { /* no config file — env or default */ }
+  return resolveWatchdogThresholdMs(process.env, configMap);
+}
 const HEALTH_WATCHDOG_GRACE_MS = 90_000;
 const HEALTH_WATCHDOG_TIMEOUT_MS = 5_000;
 // Grace the wedged sidecar gets to exit on SIGTERM before the watchdog escalates to
@@ -629,6 +653,42 @@ export class ServerSupervisor {
     } catch { /* best-effort, same as logStream teeing */ }
   }
 
+  /** Sample the wedged sidecar's stacks and record where the sample landed.
+   *  Runs BEFORE any signal, because the stack is the evidence and signalling destroys it.
+   *  Every failure path is swallowed: forensics must never be the reason a kill is skipped. */
+  private async captureStackSample(pid: number | undefined, ts: number): Promise<void> {
+    if (!this.forensicsFilePath || pid == null) return;
+    const cmd = stackSampleCommand({ pid, dir: path.dirname(this.forensicsFilePath), ts });
+    if (!cmd) {
+      this.appendForensics(formatStackSampleLine({ ts, outcome: 'unsupported' }));
+      return;
+    }
+    try {
+      const [bin, ...argv] = cmd.argv;
+      const proc = (this.opts.sampleSpawnImpl ?? spawn)(bin, argv, { stdio: 'ignore' });
+      // A spawn impl that yields no observable process (a stub, or a failed spawn) would
+      // otherwise park the whole kill path on the timeout while the sidecar stays wedged.
+      if (typeof proc?.once !== 'function') {
+        this.appendForensics(formatStackSampleLine({ ts, outcome: 'failed', detail: 'no-process' }));
+        return;
+      }
+      const timeoutMs = this.opts.stackSampleTimeoutMs ?? DEFAULT_STACK_SAMPLE_TIMEOUT_MS;
+      let timedOut = true;
+      await Promise.race([
+        new Promise<void>((resolve) => { proc.once('exit', () => { timedOut = false; resolve(); }); }),
+        new Promise<void>((r) => setTimeout(r, timeoutMs)),
+      ]);
+      if (timedOut) try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      this.appendForensics(
+        formatStackSampleLine({ ts, outcome: timedOut ? 'timeout' : 'captured', file: cmd.file }),
+      );
+    } catch (err) {
+      this.appendForensics(
+        formatStackSampleLine({ ts, outcome: 'failed', detail: String((err as Error)?.message ?? err) }),
+      );
+    }
+  }
+
   private async waitForHealth(port: number): Promise<void> {
     const url = `http://${this.opts.host}:${port}/api/health`;
     const timeoutMs = this.opts.healthTimeoutMs ?? HEALTH_TIMEOUT_MS;
@@ -794,6 +854,22 @@ export class ServerSupervisor {
         })
       );
       const pid = this.child?.pid;
+      // Capture the stack BEFORE signalling: SIGTERM's graceful-shutdown path unwinds
+      // whatever was blocking the loop, so a sample taken after the signal shows a tidy
+      // exit and names nothing.
+      const sampleTs = this.clock();
+      this.appendForensics(
+        formatDeathContext({
+          ts: sampleTs,
+          counts: {
+            pid: pid ?? 'unknown',
+            respawnCount: this.respawnCount,
+            consecutiveUnhealthy: this.consecutiveUnhealthy,
+            loadavg: os.loadavg().map((n) => n.toFixed(2)).join('/'),
+          },
+        }),
+      );
+      await this.captureStackSample(pid, sampleTs);
       // Ask before shooting. A wedged sidecar is usually mid-work (a leaf executing, a gate
       // running, a land merging) and SIGKILL abandons all of it: 477 watchdog kills between
       // 2026-07-23 and 2026-08-10 each orphaned in-flight leaves as `in_progress` rows with

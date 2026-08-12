@@ -353,9 +353,22 @@ export interface LeafRunSummary {
 }
 
 export function listLeafRuns(
-  opts: { project?: string; epicId?: string; sinceTs?: number; limit?: number } = {},
+  opts: { project?: string; epicId?: string; epicIds?: string[]; sinceTs?: number; limit?: number } = {},
 ): LeafRunSummary[] {
-  const rows = queryLedgerThin({ project: opts.project, epicId: opts.epicId, since: opts.sinceTs, limit: 2000 })
+  // `epicIds` collapses what callers were doing as `epics.flatMap(e => listLeafRuns({epicId: e.id}))`
+  // into a single query; the limit scales with the batch so the result set is identical.
+  // An EMPTY epicIds means "no epics", not "no filter". The loop this replaced was
+  // `[].flatMap(...)` === [], and silently widening to every row in the project would
+  // over-report spend and keep a converged mission reading as live.
+  if (opts.epicIds && opts.epicIds.length === 0) return [];
+  const batch = opts.epicIds && opts.epicIds.length > 0 ? [...new Set(opts.epicIds)] : null;
+  const rows = queryLedgerThin({
+    project: opts.project,
+    epicId: opts.epicId,
+    epicIds: batch ?? undefined,
+    since: opts.sinceTs,
+    limit: batch ? 2000 * batch.length : 2000,
+  })
     .filter((r) => r.leafId != null);
   const byLeaf = new Map<string, typeof rows>();
   for (const r of rows) {

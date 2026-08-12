@@ -46,7 +46,13 @@ export function useMissions(serverId: string, project: string) {
       alive = false;
       clearInterval(timer);
     };
-  }, [serverId, project, fetchMissions, currentKey, loaded]);
+    // Depend on the STABLE callbacks, never on the `loaded` object: it is re-minted every
+    // render, and load() calls settle(), so listing the object here refires this effect on its
+    // own completion — an infinite fetch cycle paced only by request latency. MEASURED
+    // 2026-08-11: ~15 req/s against /api/supervisor/missions, ~6,000 sidecar queries per 10s,
+    // health probes starved, watchdog SIGKILL. The 15s interval was decorative the whole time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverId, project, fetchMissions, currentKey, loaded.settle, loaded.fail]);
 
   const setMissions = (items: MissionSummary[]) => {
     setLoadedKey(currentKey);

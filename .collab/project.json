@@ -8,6 +8,7 @@
     "tests": [
       { "match": "^src/", "command": "bun test {file}" },
       { "match": "^scripts/", "command": "bun test {file}" },
+      { "match": "^desktop/", "command": "bun test {file}" },
       { "match": "^ui/", "command": "bunx vitest --run --retry=2 {files}", "cwd": "ui" }
     ],
     "typechecks": [

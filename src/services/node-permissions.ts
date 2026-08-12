@@ -33,7 +33,14 @@ import { VERIFY_GATE_MCP_TOOL } from './leaf-executor';
  *  - 'writer'      : edits product code and runs its own checks; write+exec are legitimate, but must
  *                    stay inside the lane worktree.
  *  - 'narrow'      : acts ONLY through a fixed set of MCP verbs; no raw Write/Edit/Bash at all. */
-export type NodeIntent = 'read-only' | 'planner' | 'writer' | 'narrow';
+export type NodeIntent =
+  | 'read-only'
+  | 'planner'
+  | 'writer'
+  | 'narrow'
+  /** Reads code AND drives the live app over CDP; no file writes, but renderer-side actions
+   *  can mutate real state (see the explore entry's destructive-by-design note). */
+  | 'investigate-and-drive';
 
 export interface NodePermissionEntry {
   intent: NodeIntent;
@@ -60,6 +67,14 @@ const GREP = 'Grep';
 const GLOB = 'Glob';
 const BASH = 'Bash';
 const REPORT_MCP = 'mcp__mermaid__file_to_bucket';
+const FINDING_MCP = 'mcp__mermaid__file_finding';
+/** The electron-agent-bridge desktop verbs (CDP against the live app). */
+const DESKTOP_MCP = [
+  'mcp__mermaid__desktop_snapshot', 'mcp__mermaid__desktop_screenshot',
+  'mcp__mermaid__desktop_list_targets', 'mcp__mermaid__desktop_wait_for',
+  'mcp__mermaid__desktop_navigate', 'mcp__mermaid__desktop_click',
+  'mcp__mermaid__desktop_fill', 'mcp__mermaid__desktop_eval',
+];
 
 /**
  * The spec. Every LeafNodeKind MUST have an entry (enforced by the coverage test).
@@ -157,12 +172,21 @@ export const NODE_PERMISSION_SPEC: Record<LeafNodeKind, NodePermissionEntry> = {
     notes: 'Already narrow ✓ — reads, files findings via one MCP verb, emits the report as its final message (the executor persists it). No Bash, no raw Write. This is the target pattern.',
   },
   explore: {
-    intent: 'read-only',
-    current: [READ, GREP, GLOB, BASH],
-    target: [READ, GREP, GLOB, BASH],
+    intent: 'investigate-and-drive',
+    current: [READ, GREP, GLOB, BASH, FINDING_MCP, ...DESKTOP_MCP],
+    target: [READ, GREP, GLOB, BASH, FINDING_MCP, ...DESKTOP_MCP],
     writeConfinedToWorktree: true,
     execConfinedToWorktree: true,
-    notes: 'Investigation node: greps/reads the codebase and may run read-only probe commands (e.g. a targeted test or grep pipeline) via Bash to ground its findings report. No Write/Edit — the executor persists the report. Bash is load-bearing here, unlike research, so it is the accepted target, not an open gap.',
+    notes:
+      'Investigation node. 2026-08-11, widened CONSCIOUSLY: file_finding is its typed output ' +
+      'path (the constant granting it sat dead-unwired since 2026-08-07, so the node could not ' +
+      'record what it found), and the desktop_* verbs drive the LIVE app over CDP so it can ' +
+      'audit a running UI — rendered values vs the database, controls wired to nothing — which ' +
+      'reading React source cannot see. desktop_click/fill/eval are DESTRUCTIVE BY DESIGN: eval ' +
+      'runs arbitrary JS in the renderer, so an exploration can take any action the UI can. The ' +
+      'blast radius is bounded by what the REQUEST points at, not by this allowlist — scope ' +
+      'explorations to state you are willing to lose. Still no Write/Edit: explore produces a ' +
+      'Finding, never a diff, and the gate does not run on the explore path.',
   },
   summary: {
     intent: 'read-only',

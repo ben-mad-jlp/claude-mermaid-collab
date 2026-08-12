@@ -2,6 +2,7 @@
 // serving-epic landedness), plus stubbed fields owned by sibling leaves. Every source read
 // is independently try/catch'd so a throwing reader degrades that field, not the whole call.
 import { existsSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { getMission, getMissionRollup, listCriteriaWithActions, missionExists } from './mission-store.js';
 import type { MissionStatus, MissionRollup, CriterionAction } from './mission-store.js';
 import { isEpicLandedInGit } from './epic-landedness.js';
@@ -14,6 +15,7 @@ import { derivedStatus } from './claimability.js';
 import { getEpicBaseGate } from './worker-ledger.js';
 import { deriveConductorPassLiveness } from './conductor-pass-liveness.js';
 import type { MissionDiagnosticConductorPass } from './conductor-pass-liveness.js';
+import { readMachineLoad, summarizeHostLoad, resolveSaturationLoadMultiple } from './host-load.js';
 export type { MissionDiagnosticConductorPass } from './conductor-pass-liveness.js';
 
 export type LeafTerminalClass =
@@ -40,6 +42,13 @@ export interface MissionDiagnosticBaseHealth {
   repairLeafInflight: { id: string; title: string } | null;
 }
 
+/** Host-load saturation state derived from the cheap readMachineLoad + summarizeHostLoad path. */
+export interface MissionDiagnosticHostLoad {
+  saturated: boolean | null;
+  loadAvg1: number | null;
+  cpuCount: number | null;
+}
+
 export interface MissionDiagnostic {
   status: MissionStatus | null;
   rollup: MissionRollup | null;
@@ -52,6 +61,7 @@ export interface MissionDiagnostic {
   leaves: MissionDiagnosticLeaf[];
   conductorPass: MissionDiagnosticConductorPass;
   baseHealth: MissionDiagnosticBaseHealth;
+  hostLoad: MissionDiagnosticHostLoad;
 }
 
 function toLandedInGit(status: GitLandStatus): boolean | null {
@@ -100,8 +110,14 @@ export async function buildMissionDiagnostic(
     isEpicLandedInGit?: typeof isEpicLandedInGit;
     now?: () => number;
     epicHeadSha?: (project: string, epicId: string) => Promise<string | null>;
+    readMachineLoad?: () => { loadAvg: [number, number, number]; cpuCount: number } | null;
   },
 ): Promise<MissionDiagnostic> {
+  if (!isAbsolute(project)) {
+    throw new Error(
+      `mission_diagnostic: project must be an absolute path, got ${JSON.stringify(project)} — a registered project NAME is resolved only at the MCP boundary by resolveProjectArg (src/services/project-registry.ts)`,
+    );
+  }
   if (!existsSync(project)) {
     throw new Error(`mission_diagnostic: unknown project: ${project}`);
   }
@@ -111,6 +127,7 @@ export async function buildMissionDiagnostic(
 
   const probe = deps?.isEpicLandedInGit ?? isEpicLandedInGit;
   const now = deps?.now ?? Date.now;
+  const readLoad = deps?.readMachineLoad ?? readMachineLoad;
   const epicHeadSha =
     deps?.epicHeadSha ??
     (async (proj: string, epicId: string): Promise<string | null> => {
@@ -268,6 +285,18 @@ export async function buildMissionDiagnostic(
     baseHealth = { tsc: 'unknown', suite: 'unknown', repairLeafInflight: null };
   }
 
+  let hostLoadResult: MissionDiagnosticHostLoad = { saturated: null, loadAvg1: null, cpuCount: null };
+  try {
+    const load = readLoad();
+    const summary = summarizeHostLoad(
+      load ? { ...load, commands: [], sidecarStarts: null } : null,
+      { loadMultiple: resolveSaturationLoadMultiple(), now: now() },
+    );
+    hostLoadResult = { saturated: summary.saturated, loadAvg1: load ? load.loadAvg[0] : null, cpuCount: load ? load.cpuCount : null };
+  } catch {
+    hostLoadResult = { saturated: null, loadAvg1: null, cpuCount: null };
+  }
+
   return {
     status,
     rollup,
@@ -275,5 +304,6 @@ export async function buildMissionDiagnostic(
     leaves,
     conductorPass,
     baseHealth,
+    hostLoad: hostLoadResult,
   };
 }

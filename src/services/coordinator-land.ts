@@ -10,19 +10,23 @@
  * and are imported back here.
  */
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Todo } from './todo-store';
+
+const execFileAsync = promisify(execFile);
 import { listTodos, getTodo, completeTodo } from './todo-store';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic } from './todo-kind.ts';
 import { STUCK_AUTOLAND_THRESHOLD } from './harness-caps';
-import { createEscalation, resolveEscalation, getEscalation, recordSupervisorAudit, getProjectDigestEnabled, conditionIdentity } from './supervisor-store';
+import { createEscalation, resolveEscalation, getEscalation, recordSupervisorAudit, getProjectDigestEnabled, conditionIdentity, listOpenEscalations } from './supervisor-store';
 import { regenerateProjectDigest, type DigestLlm } from './project-digest';
 import { makeDigestLlm } from './digest-llm';
 import { type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-authority';
+import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor } from './land-authority';
 import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -221,6 +225,13 @@ export interface LandProof {
   gate: EpicLandGateResult;
 }
 
+/** Pure builder for the proof-stage land refusal escalation questionText. Combines the
+ *  failure reason, full branch ref (not truncated), and optional detail into a
+ *  human-readable card message. */
+export function landRefusalCardText(o: { epicBranch: string; reason: string; detail?: string | null }): string {
+  return `Land blocked — ${o.reason} (tip ${o.epicBranch}). Master is UNTOUCHED.\n${o.detail ?? ''}`;
+}
+
 /** ONE PROOF: delegates entirely to the SAME `landReadiness()` the human click and the
  *  conductor call use (src/services/land-authority.ts — "ONE LAND PROOF, THREE ACTORS").
  *  Used by BOTH surfaceEpicLand's armed-mission auto-land and landEpic's land-time
@@ -237,6 +248,8 @@ async function deriveEpicLandProof(a: {
   epicBranch: string;
   todos: Todo[];
   epicWorktreeCwd: string;
+  snapshot?: { baseSha: string; epicTipSha: string };
+  actor?: LandActor;
 }): Promise<LandProof> {
   const notRun: EpicLandGateResult = {
     status: 'error',
@@ -255,6 +268,8 @@ async function deriveEpicLandProof(a: {
   const readiness = await landReadiness(a.repo, a.epicId, {
     todos: a.todos,
     probes: { worktreeCwd: () => a.epicWorktreeCwd },
+    snapshot: a.snapshot,
+    actor: a.actor,
   });
   const gate = readiness.gate ?? notRun;
 
@@ -661,6 +676,35 @@ export async function surfaceEpicLand(
       const wm = getWorktreeManager(repo);
       const epicBranch = wm.epicBranchName(epicId);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
+
+      // Short-circuit: suppress the epic-ready-to-land card if git shows nothing to merge.
+      // Compute this BEFORE landReadiness so an already-landed epic never re-runs (and re-records)
+      // the gate on a reconcile tick. Use injected probes (landednessProbe) if provided; otherwise
+      // use the real functions.
+      const landedness = opts.landednessProbe ?? { isEpicLandedInGit, isEpicTreeIdenticalToTrunk };
+      const [gitStatus, treeStatus] = await Promise.all([
+        landedness.isEpicLandedInGit(repo, epicId).catch(() => 'indeterminate' as const),
+        landedness.isEpicTreeIdenticalToTrunk(repo, epicId).catch(() => 'indeterminate' as const),
+      ]);
+      const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
+      if (nothingToMerge) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session,
+          detail: JSON.stringify({
+            todoId: epicId,
+            epicId,
+            epicBranch,
+            repo,
+            landSurface: 'nothing-to-merge',
+            gitStatus,
+            treeStatus,
+          }),
+        });
+        continue;
+      }
+
       // ONE PROOF: the same landReadiness() the human click and the conductor call use
       // (src/services/land-authority.ts — "ONE LAND PROOF, THREE ACTORS") both drives the
       // card text below AND gates the auto-land further down — computed exactly once, so
@@ -690,32 +734,6 @@ export async function surfaceEpicLand(
         epicBranch,
         proofGreen ? 'green' : landReasonClass(readiness.blockers[0]?.code ?? 'land-not-ready'),
       ]);
-
-      // Short-circuit: suppress the epic-ready-to-land card if git shows nothing to merge.
-      // Use injected probes (landednessProbe) if provided; otherwise use the real functions.
-      const landedness = opts.landednessProbe ?? { isEpicLandedInGit, isEpicTreeIdenticalToTrunk };
-      const [gitStatus, treeStatus] = await Promise.all([
-        landedness.isEpicLandedInGit(repo, epicId).catch(() => 'indeterminate' as const),
-        landedness.isEpicTreeIdenticalToTrunk(repo, epicId).catch(() => 'indeterminate' as const),
-      ]);
-      const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
-      if (nothingToMerge) {
-        recordSupervisorAudit({
-          kind: 'reconcile',
-          project,
-          session,
-          detail: JSON.stringify({
-            todoId: epicId,
-            epicId,
-            epicBranch,
-            repo,
-            landSurface: 'nothing-to-merge',
-            gitStatus,
-            treeStatus,
-          }),
-        });
-        continue;
-      }
 
       const { escalation } = createEscalation({
         project,
@@ -863,7 +881,7 @@ export async function refreshProjectDigestOnLand(
 async function checkDirtyTree(
   wm: ReturnType<typeof getWorktreeManager>,
   opts: { allowDirty?: boolean } | undefined,
-  ctx: { epicId: string; epicBranch: string; targetProject: string; project: string; session: string; escalationId: string },
+  ctx: { epicId: string; epicBranch: string; targetProject: string; project: string; session: string; escalationId: string | null },
 ): Promise<{ ok: boolean; dirty?: string[] } | LandEpicOutcome> {
   const dirty = await wm.dirtyPaths().catch(() => [] as string[]);
   if (dirty.length > 0) {
@@ -892,7 +910,7 @@ async function runStewardPrecheck(
   epicBranch: string,
   targetProject: string,
   todosAtProofTime: Todo[],
-  ctx: { escalationId: string; session: string },
+  ctx: { escalationId: string | null; session: string },
 ): Promise<{ ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] } | LandEpicOutcome> {
   const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
   const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
@@ -925,7 +943,7 @@ async function checkStaleness(
   targetProject: string,
   epicId: string,
   epicBranch: string,
-  ctx: { project: string; session: string; escalationId: string; todoId: string },
+  ctx: { project: string; session: string; escalationId: string | null; todoId: string },
 ): Promise<{ ok: boolean } | LandEpicOutcome> {
   const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
   if (staleness?.stale) {
@@ -968,9 +986,22 @@ async function runProofStage(
   epicBranch: string,
   todosAtProofTime: Todo[],
   epic: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null,
-  ctx: { escalationId: string; session: string; todoId: string },
+  ctx: { escalationId: string | null; session: string; todoId: string; actor?: LandActor },
 ): Promise<{ ok: boolean; proof?: LandProof } | LandEpicOutcome> {
   const wm = getWorktreeManager(targetProject);
+
+  // Capture pre-merge snapshot before deriving proof
+  let snapshot: { baseSha: string; epicTipSha: string } | undefined;
+  try {
+    const trunkRef = await wm.detectBaseBranch().catch(() => 'master');
+    const epicCwd = epic?.path ?? targetProject;
+    const baseSha = (await execFileAsync('git', ['-C', targetProject, 'rev-parse', trunkRef], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+    const epicTipSha = (await execFileAsync('git', ['-C', epicCwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+    snapshot = { baseSha, epicTipSha };
+  } catch (e) {
+    // Degrade gracefully on shell hiccup — resolve-at-gate-time path handles missing snapshot
+  }
+
   const proof = await deriveEpicLandProof({
     project,
     repo: targetProject,
@@ -978,6 +1009,8 @@ async function runProofStage(
     epicBranch,
     todos: todosAtProofTime,
     epicWorktreeCwd: epic?.path ?? targetProject,
+    snapshot,
+    actor: ctx.actor,
   });
   if (!proof.ok) {
     const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
@@ -987,7 +1020,7 @@ async function runProofStage(
       todoId: ctx.todoId,
       kind: 'assumption-invalidated',
       audience: 'human',
-      questionText: `Land blocked — ${proof.reason} (tip ${epicBranch.slice(0, 8)}). Master is UNTOUCHED.\n${proof.detail}`,
+      questionText: landRefusalCardText({ epicBranch, reason: proof.reason, detail: proof.detail }),
       conditionKey: cond.conditionKey,
       conditionTuple: cond.conditionTuple,
     });
@@ -1001,7 +1034,7 @@ async function runProofStage(
 async function checkOpenChildren(
   project: string,
   epicId: string,
-  ctx: { escalationId: string; session: string; epicBranch: string },
+  ctx: { escalationId: string | null; session: string; epicBranch: string },
 ): Promise<{ ok: boolean } | LandEpicOutcome> {
   const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
   const openChildBlocker = checkLandDeps(freshTodosAtLandTime, epicId);
@@ -1018,7 +1051,7 @@ async function runMerge(
   dirty: string[],
   opts: { allowDirty?: boolean } | undefined,
   proof: LandProof,
-  ctx: { targetProject: string; project: string; session: string; escalationId: string; epicBranch: string; todoId: string },
+  ctx: { targetProject: string; project: string; session: string; escalationId: string | null; epicBranch: string; todoId: string },
 ): Promise<{ ok: boolean; land?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>> } | LandEpicOutcome> {
   const land = await wm.landEpicToMaster(epicId, {
     ...(dirty.length > 0 && opts?.allowDirty ? { allowDirtyPaths: dirty } : {}),
@@ -1062,7 +1095,7 @@ async function finalizeLandRecord(
   epicId: string,
   land: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>>,
   freshTodosAtLandTime: Todo[],
-  ctx: { project: string; session: string; escalationId: string; epicBranch: string },
+  ctx: { project: string; session: string; escalationId: string | null; epicBranch: string },
 ): Promise<void> {
   const wm = getWorktreeManager(targetProject);
   const cycle = await captureLandCycleFields({
@@ -1090,7 +1123,7 @@ async function runPostLandGuard(
   land: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>>,
   wm: ReturnType<typeof getWorktreeManager>,
   dirty: string[],
-  ctx: { project: string; session: string; escalationId: string; epicId: string; epicBranch: string; todoId: string },
+  ctx: { project: string; session: string; escalationId: string | null; epicId: string; epicBranch: string; todoId: string },
 ): Promise<{ ok: boolean; treeRestored?: boolean } | LandEpicOutcome> {
   let treeRestored = false;
   const trackedDirty = await wm.trackedDirtyPaths().catch(() => dirty);
@@ -1241,6 +1274,98 @@ async function restoreOnFailure(
   return outcome;
 }
 
+// --- Land Target Resolver --------------------------------------------------
+// Accepts either an escalationId (string) or an object with escalationId or epicId.
+
+export type LandTarget = string | { escalationId?: string; epicId?: string };
+
+interface ResolvedLandTarget {
+  epicId: string;
+  todoId: string;
+  targetProject: string;
+  session: string;
+  escalationId: string | null;
+}
+
+const LAND_BY_EPIC_ID_SESSION = 'epic-id-land';
+
+export function resolveLandTarget(
+  project: string,
+  target: LandTarget,
+): { ok: false; landed: false; reason: string } | { ok: true; data: ResolvedLandTarget } {
+  // Normalize string to object
+  const form = typeof target === 'string' ? { escalationId: target } : target;
+
+  // Validate exactly one form is supplied
+  const hasEscalation = form.escalationId != null;
+  const hasEpic = form.epicId != null;
+
+  if (!hasEscalation && !hasEpic) {
+    return { ok: false, landed: false, reason: 'missing-land-target' };
+  }
+
+  if (hasEscalation && hasEpic) {
+    return { ok: false, landed: false, reason: 'ambiguous-land-target' };
+  }
+
+  if (hasEscalation) {
+    // Escalation branch — verbatim copy of today's :1258-1266 chain
+    const escalationId = form.escalationId!;
+    const esc = getEscalation(escalationId);
+    if (!esc) return { ok: false, landed: false, reason: 'escalation-not-found' };
+    if (esc.kind !== 'epic-ready-to-land') return { ok: false, landed: false, reason: 'not-a-land-escalation' };
+    const todoId = esc.todoId;
+    if (!todoId) return { ok: false, landed: false, reason: 'no-todo-link' };
+    const child = getTodo(project, todoId);
+    if (!child) return { ok: false, landed: false, reason: 'todo-not-found' };
+    const targetProject = child.targetProject ?? project;
+    const epicId = resolveEpicId(child, project);
+    return {
+      ok: true,
+      data: {
+        epicId,
+        todoId,
+        targetProject,
+        session: esc.session,
+        escalationId,
+      },
+    };
+  } else {
+    // Epic ID branch
+    const child = getTodo(project, form.epicId!);
+    if (!child) return { ok: false, landed: false, reason: 'todo-not-found' };
+    const targetProject = child.targetProject ?? project;
+    const epicId = resolveEpicId(child, project);
+
+    // Search for an existing open epic-ready-to-land card for this epic
+    let existingCardId: string | null = null;
+    let existingSession: string | null = null;
+    const openCards = listOpenEscalations({ project, kind: 'epic-ready-to-land' });
+    for (const c of openCards) {
+      if (c.todoId) {
+        const t = getTodo(project, c.todoId);
+        if (t && resolveEpicId(t, project) === epicId) {
+          existingCardId = c.id;
+          existingSession = c.session;
+          break;
+        }
+      }
+    }
+
+    const session = existingSession ?? LAND_BY_EPIC_ID_SESSION;
+    return {
+      ok: true,
+      data: {
+        epicId,
+        todoId: epicId,
+        targetProject,
+        session,
+        escalationId: existingCardId,
+      },
+    };
+  }
+}
+
 /**
  * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
  * land-readiness server-side at click time (never trust the summary baked into the
@@ -1251,19 +1376,13 @@ async function restoreOnFailure(
  */
 export async function landEpic(
   project: string,
-  escalationId: string,
-  opts?: { allowDirty?: boolean },
+  target: LandTarget,
+  opts?: { allowDirty?: boolean; actor?: LandActor },
   deps: LandStageDeps = defaultLandStageDeps,
 ): Promise<LandEpicOutcome> {
-  const esc = getEscalation(escalationId);
-  if (!esc) return { ok: false, landed: false, reason: 'escalation-not-found' };
-  if (esc.kind !== 'epic-ready-to-land') return { ok: false, landed: false, reason: 'not-a-land-escalation' };
-  const todoId = esc.todoId;
-  if (!todoId) return { ok: false, landed: false, reason: 'no-todo-link' };
-  const child = getTodo(project, todoId);
-  if (!child) return { ok: false, landed: false, reason: 'todo-not-found' };
-  const targetProject = child.targetProject ?? project;
-  const epicId = resolveEpicId(child, project);
+  const resolved = resolveLandTarget(project, target);
+  if (!resolved.ok) return resolved;
+  const { epicId, todoId, targetProject, session: resolvingSession, escalationId } = resolved.data;
   const wm = getWorktreeManager(targetProject);
   const epicBranch = wm.epicBranchName(epicId);
   let threw = false;
@@ -1275,7 +1394,7 @@ export async function landEpic(
     const snapshot = snapshotEpicWorkGraph(project, epicId, todosBeforeLand);
 
     try {
-      const ctx = { project, escalationId, session: esc.session, epicId, epicBranch, targetProject, todoId };
+      const ctx = { project, escalationId, session: resolvingSession, epicId, epicBranch, targetProject, todoId };
 
       const dirtyResult = await deps.checkDirtyTree(wm, opts, ctx);
       if (!dirtyResult.ok) {
@@ -1285,7 +1404,7 @@ export async function landEpic(
       const dirty = (dirtyResult as { ok: boolean; dirty?: string[] }).dirty ?? [];
 
       const todosAtProofTime = listTodos(project, { includeCompleted: true });
-      const stewardResult = await deps.runStewardPrecheck(project, epicId, epicBranch, targetProject, todosAtProofTime, { escalationId, session: esc.session });
+      const stewardResult = await deps.runStewardPrecheck(project, epicId, epicBranch, targetProject, todosAtProofTime, { escalationId, session: resolvingSession });
       if (!stewardResult.ok) {
         const outcome = stewardResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
@@ -1300,7 +1419,7 @@ export async function landEpic(
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
-      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: esc.session, todoId });
+      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor });
       if (!proofResult.ok) {
         const outcome = proofResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
@@ -1308,7 +1427,7 @@ export async function landEpic(
       const proofOk = proofResult as { ok: boolean; proof?: LandProof };
       const proof = proofOk.proof!;
 
-      const openChildResult = await deps.checkOpenChildren(project, epicId, { escalationId, session: esc.session, epicBranch });
+      const openChildResult = await deps.checkOpenChildren(project, epicId, { escalationId, session: resolvingSession, epicBranch });
       if (!openChildResult.ok) {
         const outcome = openChildResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
@@ -1331,22 +1450,29 @@ export async function landEpic(
       if (!postLandResult.ok) return postLandResult as LandEpicOutcome;
       const treeRestored = postLandResult.treeRestored ?? false;
 
-      resolveEscalation(escalationId, 'resolved', 'ai');
+      if (escalationId) {
+        resolveEscalation(escalationId, 'resolved', 'ai');
+      } else {
+        for (const c of listOpenEscalations({ project, kind: 'epic-ready-to-land' })) {
+          const t = c.todoId ? getTodo(project, c.todoId) : null;
+          if (t && resolveEpicId(t, project) === epicId) resolveEscalation(c.id, 'resolved', 'ai');
+        }
+      }
       try {
         const { unverifyCriteriaForLandedPaths } = await import('./mission-store.ts');
         const affected = unverifyCriteriaForLandedPaths(project, land.landedPaths ?? [], { landedSha: land.masterSha });
         if (affected.length > 0) {
-          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, unverified: affected.length, criteria: affected.map((a) => a.criterionId) }) });
+          recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, unverified: affected.length, criteria: affected.map((a) => a.criterionId) }) });
         }
       } catch { /* best-effort — never fail a completed land on the un-verify */ }
       const selfLand = isSelfProject(targetProject);
       if (selfLand) recordSelfLand(Date.now());
-      recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
+      recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
       await refreshProjectDigestOnLand(targetProject);
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
       threw = true;
-      recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
+      recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
       const errorOutcome = { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };
       return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, errorOutcome);
     }
@@ -1358,7 +1484,7 @@ export async function landEpic(
       outcome: outcome.ok ? 'merged' : (threw ? 'errored' : 'refused'),
       reason: outcome.reason,
       landPath: 'escalation-land',
-      session: esc.session,
+      session: resolvingSession,
       mergeSha: outcome.masterSha ?? null,
     });
   } catch { /* recordLandAttempt already never throws; belt-and-suspenders */ }

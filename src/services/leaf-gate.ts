@@ -17,6 +17,7 @@ import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
+import { pruneBaseGateTestRuns } from './worker-ledger';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
@@ -206,6 +207,30 @@ function normalizeLanes(
   }
 
   return { lanes, error: null };
+}
+
+/** Detect an unfiltered `scripts/test-backend.ts` invocation in a command.
+ *  Returns true iff the command runs the full suite with no change-set narrowing.
+ *  - `{file}` or `{files}` template ⇒ false (filtered by file/files)
+ *  - Any bare (non-flag) token after the script name ⇒ false (selection present)
+ *  - Otherwise ⇒ true (unfiltered) */
+export function isUnfilteredFullSuiteCommand(command: string): boolean {
+  if (!/scripts\/test-backend\.ts/.test(command)) return false;
+  if (/\{files?\}/.test(command)) return false;
+  const afterScript = command.split('scripts/test-backend.ts')[1] ?? '';
+  const tokens = afterScript.trim().split(/\s+/).filter(Boolean);
+  return !tokens.some((t) => !t.startsWith('-'));
+}
+
+/** Check if any command in a set of lanes is an unfiltered full-suite command.
+ *  Returns a reason string on a hit, or null if all commands are OK. */
+function findUnfilteredFullSuiteLane(kind: string, commands: readonly string[]): string | null {
+  for (const command of commands) {
+    if (isUnfilteredFullSuiteCommand(command)) {
+      return `gate.${kind}[] declares an unfiltered scripts/test-backend.ts command: ${command} — move it to gate.floors[] (epic base + land only)`;
+    }
+  }
+  return null;
 }
 
 /** Normalize and validate the `gate.typechecks` array. Returns { lanes, error } where
@@ -458,7 +483,16 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
   const gate = manifest?.gate;
   if (gate === undefined) {
     const bridged = manifest ? bridgeLegacyGate(manifest) : null;
-    if (bridged) return { kind: 'declared', cfg: bridged, manifestPath: src.path };
+    if (bridged) {
+      // Check legacy-bridged commands for unfiltered full-suite.
+      const testCmds = bridged.tests?.map((lane) => lane.command) ?? [];
+      const suiteCmds = bridged.suites?.map((lane) => lane.command) ?? [];
+      const legacyTestReason = findUnfilteredFullSuiteLane('tests', testCmds);
+      if (legacyTestReason) return { kind: 'misconfigured', manifestPath: src.path, reason: legacyTestReason };
+      const legacySuiteReason = findUnfilteredFullSuiteLane('suites', suiteCmds);
+      if (legacySuiteReason) return { kind: 'misconfigured', manifestPath: src.path, reason: legacySuiteReason };
+      return { kind: 'declared', cfg: bridged, manifestPath: src.path };
+    }
     return { kind: 'absent', manifestPath: src.path, reason: 'manifest declares no gate block' };
   }
   if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
@@ -470,29 +504,42 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
     return { kind: 'misconfigured', manifestPath: src.path, reason: 'gate declares both test and tests' };
   }
 
-  // Check lane validity.
-  const { error: laneError } = normalizeLanes(gate.tests);
+  // Check lane validity and capture lanes.
+  const { lanes: testLanes, error: laneError } = normalizeLanes(gate.tests);
   if (laneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: laneError };
   }
 
-  // Check typecheck lane validity.
-  const { error: typecheckLaneError } = normalizeTypecheckLanes(gate.typechecks);
+  // Check typecheck lane validity and capture lanes.
+  const { lanes: typecheckLanes, error: typecheckLaneError } = normalizeTypecheckLanes(gate.typechecks);
   if (typecheckLaneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: typecheckLaneError };
   }
 
-  // Check suite lane validity.
-  const { error: suiteLaneError } = normalizeSuiteLanes(gate.suites);
+  // Check suite lane validity and capture lanes.
+  const { lanes: suiteLanes, error: suiteLaneError } = normalizeSuiteLanes(gate.suites);
   if (suiteLaneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: suiteLaneError };
   }
 
-  // Check floor lane validity.
+  // Check floor lane validity (floors are exempt from the unfiltered-full-suite check).
   const { error: floorLaneError } = normalizeFloorLanes(gate.floors);
   if (floorLaneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: floorLaneError };
   }
+
+  // Check for unfiltered full-suite commands in tests, typechecks, and suites (not floors).
+  const testCmds = testLanes?.map((lane) => lane.command) ?? [];
+  const testReason = findUnfilteredFullSuiteLane('tests', testCmds);
+  if (testReason) return { kind: 'misconfigured', manifestPath: src.path, reason: testReason };
+
+  const typecheckCmds = typecheckLanes?.map((lane) => lane.command) ?? [];
+  const typecheckReason = findUnfilteredFullSuiteLane('typechecks', typecheckCmds);
+  if (typecheckReason) return { kind: 'misconfigured', manifestPath: src.path, reason: typecheckReason };
+
+  const suiteCmds = suiteLanes?.map((lane) => lane.command) ?? [];
+  const suiteReason = findUnfilteredFullSuiteLane('suites', suiteCmds);
+  if (suiteReason) return { kind: 'misconfigured', manifestPath: src.path, reason: suiteReason };
 
   const cfg = resolveLeafGate(manifest);
   if (!cfg) {
@@ -530,9 +577,54 @@ export function composeVerdict(mech: LeafReviewVerdict, llm: LeafReviewVerdict |
  *  full duration — once the ui-vitest lane pushed gate time past the Electron liveness
  *  watchdog's 45s threshold, the sidecar was silently kill+respawned on every gate run
  *  (2026-07-22 20:05-20:45 crash-loop). */
+export const DEFAULT_GATE_NICE = 10;
+
+/**
+ * Scheduling niceness for gate/build children. 0 disables the wrapper entirely.
+ *
+ * A NEGATIVE value is refused rather than honoured: it would RAISE these children above the
+ * sidecar, which is the exact opposite of the point, and it needs privilege it will not have.
+ */
+export function gateNiceness(): number {
+  const raw = process.env.MERMAID_GATE_NICE;
+  if (raw === undefined || raw === '') return DEFAULT_GATE_NICE;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_GATE_NICE;
+  return Math.floor(n);
+}
+
+/**
+ * Argv for a gate lane, deprioritised below the sidecar.
+ *
+ * MEASURED 2026-08-10. The sidecar was SIGKILLed three times in fifteen minutes with ZERO gate
+ * runners active and the concurrency cap holding. The box was at load 15 on 14 cores, and the
+ * dominant consumer was a single `vite` build inside an epic worktree at 659% CPU — a leaf's own
+ * UI build, six and a half cores of it.
+ *
+ * The tell that this is starvation rather than blocking: the watchdog's probe latencies were a
+ * MIXTURE (1818, 5000, 746, 1536, 515 ms), not pinned at the timeout. A blocked event loop times
+ * out consistently. A ragged spread means the process was ready to answer and simply was not
+ * scheduled. So the sidecar was not stuck inside its own query — it was losing the CPU to
+ * children it had spawned itself.
+ *
+ * Priority is the proportionate fix. The sidecar must answer a health probe every 15 seconds or
+ * be killed; a build has no deadline at all, and finishing it a little slower costs nothing.
+ * `nice` is inherited, so wrapping the lane covers its whole process tree — the vite workers
+ * included, which is what actually matters here.
+ *
+ * What this does NOT do: nice governs CPU only, not I/O or memory, and it cannot help if the
+ * competing load comes from outside this process tree (on the measured box, a separate Electron
+ * app held ~210%). It removes the self-inflicted share, which is the share we control.
+ */
+export function gateSpawnArgv(command: string, niceness: number = gateNiceness()): string[] {
+  return niceness > 0
+    ? ['nice', '-n', String(niceness), 'sh', '-c', command]
+    : ['sh', '-c', command];
+}
+
 export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
   try {
-    const proc = Bun.spawn(['sh', '-c', command], { cwd, stdout: 'pipe', stderr: 'pipe' });
+    const proc = Bun.spawn(gateSpawnArgv(command), { cwd, stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -1024,6 +1116,10 @@ export async function resolveBaseGreen(io: {
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
     await closeQuarantineOnGreen(io.targetProject, io.now?.());
+    // Retention on the observation table it just read. The sweep existed since it was written
+    // and had ZERO callers — the table grew ~500k rows/day unbounded (1.86M measured
+    // 2026-08-11) while every quarantine pass scanned it. Self-throttled internally.
+    pruneBaseGateTestRuns(io.now?.());
   } catch { /* best-effort: a promotion or close failure must never break the gate */ }
   let result: LeafGateResult = r;
   if (r.status === 'fail' && r.baselineFailures) {
@@ -1047,6 +1143,13 @@ export async function resolveBaseGreen(io: {
       ...result,
       status: 'error',
       reasons: ['dep-optimizer cache corruption (stale vitest/vite deps cache), not a base defect', ...result.reasons],
+    };
+  }
+  if (result.status === 'fail' && !epicBaseSha) {
+    result = {
+      ...result,
+      status: 'error',
+      reasons: ['no epic base sha to key a cached verdict to — cannot record a citable base-gate fact', ...result.reasons],
     };
   }
   if (isCacheableBaseGateStatus(result.status)) {
