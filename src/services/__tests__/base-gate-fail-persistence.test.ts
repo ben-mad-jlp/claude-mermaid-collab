@@ -151,6 +151,30 @@ describe('resolveBaseGreen fail persistence', () => {
       expect(row).toBeNull();
     });
 
+    it('dep-optimizer-corruption downgrade to error requires no row (.vitest-cache/deps variant)', async () => {
+      const project = '/persistence-dep-optimizer-vc';
+      const targetProject = '/persistence-dep-optimizer-vc-target';
+      const now = Date.now();
+
+      const runGate = async (): Promise<LeafGateResult> => ({
+        status: 'fail',
+        output: 'ERR_MODULE_NOT_FOUND: Cannot find module\nat .vitest-cache/deps/chunk-XYZ.js',
+        reasons: [],
+        declared: true,
+        baselineFailures: { baseTest: ['x'] },
+      });
+
+      const r = await resolveBaseGreen({
+        epicId: 'epic-dep-optimizer-vc', project, targetProject, epicBaseSha: 'sha-dep-optimizer-vc', gateCfg: cfg,
+        ensureEpicWorktree, runGate, now: () => now,
+      });
+
+      expect(r?.status).toBe('error');
+
+      const row = getEpicBaseGate('epic-dep-optimizer-vc', 'sha-dep-optimizer-vc');
+      expect(row).toBeNull();
+    });
+
     it('epicBaseSha:null downgrades to error and requires no row', async () => {
       const project = '/persistence-null-sha';
       const targetProject = '/persistence-null-sha-target';
