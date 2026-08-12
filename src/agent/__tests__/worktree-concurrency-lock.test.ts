@@ -10,12 +10,29 @@ import { WorktreeManager } from '../worktree-manager.ts';
  * concurrent mutating calls never overlap their git spawns (max concurrency == 1).
  */
 
+/** A spawn is worktree-MUTATING iff it is one of the admin operations the mutex guards:
+ *  `worktree remove`, `worktree prune`, or `branch -D`. Read-only probes are NOT guarded and
+ *  are legitimately parallel — removeEpic wraps its body in withMainCheckoutInvariant, whose
+ *  readMainCheckoutHead fires `symbolic-ref` / `rev-parse` / `status` concurrently via
+ *  Promise.all for a SINGLE call's before/after snapshot. Counting those as overlap would
+ *  measure intra-call parallelism, not the cross-epic serialisation this test guards. */
+function isMutatingSpawn(cmd: string[]): boolean {
+  return cmd.includes('remove') || cmd.includes('prune') || (cmd.includes('branch') && cmd.includes('-D'));
+}
+
 function makeTrackingSpawn() {
   let active = 0;
   let maxActive = 0;
-  const spawn = (_cmd: string[], _opts: unknown) => {
+  let activeMutating = 0;
+  let maxActiveMutating = 0;
+  const spawn = (cmd: string[], _opts: unknown) => {
+    const mutating = isMutatingSpawn(cmd ?? []);
     active += 1;
     maxActive = Math.max(maxActive, active);
+    if (mutating) {
+      activeMutating += 1;
+      maxActiveMutating = Math.max(maxActiveMutating, activeMutating);
+    }
     return {
       stdout: null,
       stderr: null,
@@ -23,6 +40,7 @@ function makeTrackingSpawn() {
       exited: new Promise<number>((resolve) =>
         setTimeout(() => {
           active -= 1;
+          if (mutating) activeMutating -= 1;
           resolve(0);
         }, 8),
       ),
@@ -30,12 +48,12 @@ function makeTrackingSpawn() {
       on() {},
     };
   };
-  return { spawn, getMax: () => maxActive };
+  return { spawn, getMax: () => maxActive, getMaxMutating: () => maxActiveMutating };
 }
 
 describe('WorktreeManager — per-project worktree mutex (6bc2dc36)', () => {
   it('serialises concurrent mutating calls (git spawns never overlap)', async () => {
-    const { spawn, getMax } = makeTrackingSpawn();
+    const { spawn, getMaxMutating } = makeTrackingSpawn();
     const mgr = new WorktreeManager({
       projectRoot: '/fake/repo',
       baseDir: '/fake/repo/.collab/wt',
@@ -53,7 +71,7 @@ describe('WorktreeManager — per-project worktree mutex (6bc2dc36)', () => {
       mgr.removeEpic('epic-dddddddd').catch(() => {}),
     ]);
 
-    expect(getMax()).toBe(1); // never two git spawns in flight at once
+    expect(getMaxMutating()).toBe(1); // never two worktree-mutating git spawns in flight at once
   });
 
   it('a failing section does not wedge the queue (next call still runs)', async () => {

@@ -178,7 +178,9 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
       expect(body.rows.find((r: any) => r.kind === hidden)).toBeUndefined();
     }
     const bp = body.rows.find((r: any) => r.kind === 'blueprint');
-    expect(bp.defaultModel).toBe('opus');
+    // NODE_PROFILE.blueprint.model is 'sonnet' (leaf-node-profile.ts:75) — a documented
+    // cost-driven demotion dated 2026-07-21, not a regression.
+    expect(bp.defaultModel).toBe('sonnet');
     expect(bp.defaultEffort).toBe('high');
     expect(bp.modelOverride).toBeNull();
     expect(body.models).toContain('sonnet');
