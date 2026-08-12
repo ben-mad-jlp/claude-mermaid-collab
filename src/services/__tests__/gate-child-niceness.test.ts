@@ -23,12 +23,30 @@ describe('gate children are deprioritised below the sidecar', () => {
   it('wraps the lane in `nice`, preserving the command verbatim', () => {
     // `sh -c <command>` must survive intact — the command is project-declared and may contain
     // pipes, quoting and &&; splitting or re-quoting it would change what runs.
-    const argv = gateSpawnArgv('cd ui && bun run build 2>&1 | tail -5', 10);
+    // Pinned to a non-darwin platform with the warden off so this asserts the NICE layer alone;
+    // the taskpolicy and perl-warden layers have their own assertions below.
+    const argv = gateSpawnArgv('cd ui && bun run build 2>&1 | tail -5', 10, {
+      platform: 'linux',
+      timeoutSecs: 0,
+    });
     expect(argv).toEqual(['nice', '-n', '10', 'sh', '-c', 'cd ui && bun run build 2>&1 | tail -5']);
   });
 
   it('0 disables the wrapper entirely, leaving the original argv', () => {
-    expect(gateSpawnArgv('bun test', 0)).toEqual(['sh', '-c', 'bun test']);
+    expect(gateSpawnArgv('bun test', 0, { platform: 'linux', timeoutSecs: 0 })).toEqual([
+      'sh',
+      '-c',
+      'bun test',
+    ]);
+  });
+
+  it('layers the darwin QoS demotion and the timeout warden OUTSIDE `nice`', () => {
+    // Order matters: taskpolicy must be the exec'd binary so the utility band inherits to the
+    // whole tree, and the warden must outlive the shell it is capping.
+    const argv = gateSpawnArgv('bun test', 10, { platform: 'darwin', timeoutSecs: 600 });
+    expect(argv.slice(0, 3)).toEqual(['taskpolicy', '-c', 'utility']);
+    expect(argv[3]).toBe('perl');
+    expect(argv.slice(-7)).toEqual(['600', 'nice', '-n', '10', 'sh', '-c', 'bun test']);
   });
 
   it('refuses a NEGATIVE niceness instead of honouring it', () => {
@@ -48,7 +66,8 @@ describe('gate children are deprioritised below the sidecar', () => {
   it('honours a valid override', () => {
     process.env.MERMAID_GATE_NICE = '15';
     expect(gateNiceness()).toBe(15);
-    expect(gateSpawnArgv('x')[2]).toBe('15');
+    const argv = gateSpawnArgv('x', undefined, { platform: 'linux', timeoutSecs: 0 });
+    expect(argv.slice(0, 3)).toEqual(['nice', '-n', '15']);
   });
 
   it('ACTUALLY lowers the child\'s priority — asked of the OS, not of the argv', async () => {
