@@ -151,4 +151,47 @@ describe('runQuarantinePromotionReport', () => {
 
     expect(ensureBucketArg).toBe('flaky');
   });
+
+  it('filed row carries the resolved test file path', async () => {
+    const candidate = makeCandidate({
+      test: 'test suite > test case',
+    });
+    let capturedDescription: string | null | undefined;
+    let capturedTitle: string | undefined;
+
+    await runQuarantinePromotionReport(candidate, {
+      recordFrictionOnce: async () => true,
+      ensureBucket: async () => 'flaky-epic-id',
+      listTodos: () => [],
+      createTodo: async (project, input) => {
+        capturedTitle = input.title;
+        capturedDescription = input.description;
+        return { id: 'todo-1' } as any;
+      },
+      resolveTestFile: (project, test) => 'src/services/__tests__/my-test.test.ts',
+    });
+
+    expect(capturedTitle).toBe(`[BUG] flaky test quarantined: ${candidate.test} [src/services/__tests__/my-test.test.ts]`);
+    expect(capturedDescription).toContain('Test file: src/services/__tests__/my-test.test.ts');
+  });
+
+  it('does not append file path if test string already contains src/ or ui/', async () => {
+    const candidate = makeCandidate({
+      test: 'src/services/__tests__/sweep-measurement.test.ts > does the thing',
+    });
+    let capturedTitle: string | undefined;
+
+    await runQuarantinePromotionReport(candidate, {
+      recordFrictionOnce: async () => true,
+      ensureBucket: async () => 'flaky-epic-id',
+      listTodos: () => [],
+      createTodo: async (project, input) => {
+        capturedTitle = input.title;
+        return { id: 'todo-1' } as any;
+      },
+      resolveTestFile: (project, test) => 'src/services/__tests__/sweep-measurement.test.ts',
+    });
+
+    expect(capturedTitle).toBe(`[BUG] flaky test quarantined: ${candidate.test}`);
+  });
 });

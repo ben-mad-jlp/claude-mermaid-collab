@@ -3,6 +3,7 @@ import { recordFrictionOnce } from './friction-store';
 import { createTodo, listTodos, updateTodo } from './todo-store';
 import { ensureBucket } from './bucket-registry';
 import { quarantineDedupKey } from './quarantine-dedup';
+import { resolveQuarantineTestFile } from './quarantine-test-file';
 
 interface QuarantineReportDeps {
   recordFrictionOnce?: typeof recordFrictionOnce;
@@ -10,7 +11,10 @@ interface QuarantineReportDeps {
   listTodos?: typeof listTodos;
   updateTodo?: typeof updateTodo;
   ensureBucket?: typeof ensureBucket;
+  resolveTestFile?: (project: string, test: string) => string | null;
 }
+
+const QUARANTINE_TITLE_PREFIX = '[BUG] flaky test quarantined: ';
 
 /**
  * Best-effort side effects for a newly-promoted flaky-test quarantine candidate: a
@@ -27,6 +31,7 @@ export async function runQuarantinePromotionReport(
   const listTodosFn = deps.listTodos ?? listTodos;
   const updateTodoFn = deps.updateTodo ?? updateTodo;
   const ensureBucketFn = deps.ensureBucket ?? ensureBucket;
+  const resolveTestFileFn = deps.resolveTestFile ?? resolveQuarantineTestFile;
 
   try {
     const key = `quarantine:${c.test}`;
@@ -45,19 +50,32 @@ export async function runQuarantinePromotionReport(
     if (!inserted) return;
 
     const epicId = await ensureBucketFn(c.project, 'flaky');
-    const title = `[BUG] flaky test quarantined: ${c.test}`;
-    const description =
-      `Auto-filed when a flaky test was promoted to quarantine.\n\n` +
-      `Test: ${c.test}\nQuarantined at sha: ${c.quarantinedAtSha}\n` +
-      `Evidence: ${c.evidence.runs} runs (${c.evidence.passRuns} pass / ${c.evidence.failRuns} fail)\n` +
-      `TTL expires at: ${new Date(c.ttlExpiresAt).toISOString()}\n\n` +
-      `The base gate excludes this test from gating until the TTL expires; fix it or it re-enters gating.`;
+    const testFile = resolveTestFileFn(c.project, c.test);
+    let title = `[BUG] flaky test quarantined: ${c.test}`;
+    if (testFile && !c.test.includes('src/') && !c.test.includes('ui/')) {
+      title += ` [${testFile}]`;
+    }
+    let descriptionLines = [
+      `Auto-filed when a flaky test was promoted to quarantine.\n`,
+      `Test: ${c.test}`,
+    ];
+    if (testFile) {
+      descriptionLines.push(`Test file: ${testFile}`);
+    }
+    descriptionLines.push(
+      `Quarantined at sha: ${c.quarantinedAtSha}`,
+      `Evidence: ${c.evidence.runs} runs (${c.evidence.passRuns} pass / ${c.evidence.failRuns} fail)`,
+      `TTL expires at: ${new Date(c.ttlExpiresAt).toISOString()}`,
+      ``,
+      `The base gate excludes this test from gating until the TTL expires; fix it or it re-enters gating.`,
+    );
+    const description = descriptionLines.join('\n');
 
     const suffix = c.test;
     const existing = listTodosFn(c.project, { includeCompleted: true }).find(
       (t) =>
         t.parentId === epicId &&
-        quarantineDedupKey(t.title.slice('[BUG] flaky test quarantined: '.length)) === quarantineDedupKey(suffix) &&
+        quarantineDedupKey(t.title.slice(QUARANTINE_TITLE_PREFIX.length), resolveTestFileFn(c.project, t.title.slice(QUARANTINE_TITLE_PREFIX.length))) === quarantineDedupKey(suffix, testFile) &&
         t.status !== 'done' &&
         t.status !== 'dropped',
     );
