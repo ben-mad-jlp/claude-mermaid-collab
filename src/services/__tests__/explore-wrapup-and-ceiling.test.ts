@@ -19,6 +19,7 @@ import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
 import { classifyWorktreeAddFault } from '../../agent/node-invoker';
 import { MAX_EXPLORE_SEGMENTS } from '../leaf-explore';
 import { buildExploreWrapUpDirective } from '../leaf-prompts';
+import type { Finding } from '../finding-store';
 
 const EPIC_BRANCH = 'collab/epic/explore-wrapup-test';
 const EPIC_ID = 'epic-explore-wrapup-test';
@@ -97,6 +98,7 @@ interface Spies {
   removeCalls: string[];
   nodeRows: Array<any>;
   writeArtifactCalls: Array<{ path: string; content: string }>;
+  filedFindings: Array<Finding>;
 }
 
 /** Build deps for testing with configurable per-segment responses. */
@@ -112,6 +114,7 @@ function makeExploreDeps(opts: {
     removeCalls: [],
     nodeRows: [],
     writeArtifactCalls: [],
+    filedFindings: [],
   };
 
   let segmentIndex = 0;
@@ -127,6 +130,9 @@ function makeExploreDeps(opts: {
         }
         return { ok: false, exitCode: 1, stdout: '', durationMs: 1, rateLimited: false, authMode: 'subscription', text: '' };
       },
+    },
+    findingsForLeaf: async (_project: string, leafId: string) => {
+      return spies.filedFindings.filter((f) => f.sourceLeafId === leafId);
     },
     wm: {
       async ensure(sessionKey: string, o: { baseBranch?: string; fresh?: boolean }) {
@@ -203,6 +209,23 @@ describe('explore wrap-up and hard ceiling', () => {
         ],
       });
       const leaf = makeLeaf();
+
+      // File a typed finding to satisfy the enforcement
+      spies.filedFindings.push({
+        id: 'finding-1',
+        todoId: 'todo-1',
+        violatedClaim: 'soft threshold was exceeded',
+        implicatedFiles: ['src/services/explore-budget.ts'],
+        ruledOut: [],
+        reproPath: 'src/services/__tests__/explore-wrapup-and-ceiling.test.ts',
+        failureIdentity: null,
+        surface: null,
+        sourceLeafId: leaf.id,
+        recurrenceCount: 1,
+        createdAt: '2026-08-11T00:00:00Z',
+        lastSeenAt: '2026-08-11T00:00:00Z',
+      });
+
       const res = await runLeaf('proj', leaf, deps);
 
       expect(res.outcome).toBe('accepted');
@@ -329,6 +352,37 @@ describe('explore wrap-up and hard ceiling', () => {
       const wrapUpDirective = buildExploreWrapUpDirective();
       const secondSegmentPrompt = spies.invokeSpecs[1].prompt;
       expect(secondSegmentPrompt).toContain(wrapUpDirective);
+    } finally {
+      process.env.MERMAID_EXPLORE_SOFT_USD = savedSoft;
+      process.env.MERMAID_EXPLORE_HARD_USD = savedHard;
+    }
+  });
+
+  it('soft threshold with findings claimed but no typed rows comes back blocked', async () => {
+    // Regression: verifies that claiming FINDINGS=1 without filing typed rows gets rejected
+    const savedSoft = process.env.MERMAID_EXPLORE_SOFT_USD;
+    const savedHard = process.env.MERMAID_EXPLORE_HARD_USD;
+    try {
+      process.env.MERMAID_EXPLORE_SOFT_USD = '1.0';
+      process.env.MERMAID_EXPLORE_HARD_USD = '15.0';
+
+      const { deps, spies } = makeExploreDeps({
+        segmentResponses: [
+          // First segment consumes $1.2, which exceeds soft limit ($1.0)
+          { text: '## Findings\n\n- finding 1\n\nEXPLORE-REPORT: FINDINGS=1', costUsd: 1.2 },
+          // Second segment (wrap-up) runs with the wrap-up directive
+          { text: '## Findings\n\n- finding 1\n\nEXPLORE-REPORT: FINDINGS=1', costUsd: 0.5 },
+        ],
+      });
+      const leaf = makeLeaf();
+      // Deliberately NOT filing any findings to trigger the guard
+      const res = await runLeaf('proj', leaf, deps);
+
+      // Should fail because findings were claimed but not filed
+      expect(res.outcome).toBe('blocked');
+      expect(res.reason).toBe('explore-findings-claimed-no-typed-finding');
+      expect(spies.mergeCalls).toBe(0);
+      expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
     } finally {
       process.env.MERMAID_EXPLORE_SOFT_USD = savedSoft;
       process.env.MERMAID_EXPLORE_HARD_USD = savedHard;
