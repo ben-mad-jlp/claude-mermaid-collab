@@ -1,8 +1,10 @@
 import { listTodos, updateTodo, type Todo } from './todo-store';
+import { resolveQuarantineTestFile } from './quarantine-test-file';
 
 interface QuarantineDedupDeps {
   listTodos?: typeof listTodos;
   updateTodo?: typeof updateTodo;
+  resolveTestFile?: (project: string, test: string) => string | null;
 }
 
 const QUARANTINE_TITLE_PREFIX = '[BUG] flaky test quarantined: ';
@@ -12,8 +14,12 @@ const QUARANTINE_TITLE_PREFIX = '[BUG] flaky test quarantined: ';
  * string. Rows that name the same `src/...` file collapse to one key regardless of
  * the leading `(n/m)` counter; rows with no `src/` token key off their own full text
  * so distinct name-only titles never collapse.
+ * When a resolvedPath is provided, it is preferred over the src/-token regex.
  */
-export function quarantineDedupKey(test: string): string {
+export function quarantineDedupKey(test: string, resolvedPath?: string | null): string {
+  if (resolvedPath) {
+    return resolvedPath.replace(/[:>,]+$/, '');
+  }
   const stripped = test.replace(/^\(\d+\/\d+\)\s*/, '');
   const match = stripped.match(/(src\/\S+)/);
   if (match) {
@@ -38,6 +44,7 @@ export async function collapseQuarantineDuplicates(
 ): Promise<CollapseQuarantineDuplicatesResult> {
   const listTodosFn = deps.listTodos ?? listTodos;
   const updateTodoFn = deps.updateTodo ?? updateTodo;
+  const resolveTestFileFn = deps.resolveTestFile ?? resolveQuarantineTestFile;
 
   const rows = listTodosFn(project, { includeCompleted: true }).filter(
     (t) => t.title.startsWith(QUARANTINE_TITLE_PREFIX) && t.status !== 'done' && t.status !== 'dropped',
@@ -45,7 +52,9 @@ export async function collapseQuarantineDuplicates(
 
   const byKey = new Map<string, Todo[]>();
   for (const row of rows) {
-    const key = quarantineDedupKey(row.title.slice(QUARANTINE_TITLE_PREFIX.length));
+    const suffix = row.title.slice(QUARANTINE_TITLE_PREFIX.length);
+    const testFile = resolveTestFileFn(project, suffix);
+    const key = quarantineDedupKey(suffix, testFile);
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(row);
   }

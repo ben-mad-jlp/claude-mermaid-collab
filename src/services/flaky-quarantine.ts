@@ -17,6 +17,7 @@ import {
 } from './worker-ledger';
 import { listTodos, updateTodo as updateTodoDefault } from './todo-store';
 import { quarantineDedupKey } from './quarantine-dedup';
+import { resolveQuarantineTestFile } from './quarantine-test-file';
 
 export interface FlakyCandidate {
   test: string;
@@ -185,6 +186,7 @@ export async function closeQuarantineOnGreen(
     removeTestQuarantine?: typeof removeTestQuarantineDefault;
     listTodos?: typeof listTodos;
     updateTodo?: typeof updateTodoDefault;
+    resolveTestFile?: (project: string, test: string) => string | null;
   },
 ): Promise<void> {
   const listTestQuarantineFn = deps?.listTestQuarantine ?? listTestQuarantine;
@@ -193,6 +195,7 @@ export async function closeQuarantineOnGreen(
   const removeTestQuarantineFn = deps?.removeTestQuarantine ?? removeTestQuarantineDefault;
   const listTodosFn = deps?.listTodos ?? listTodos;
   const updateTodoFn = deps?.updateTodo ?? updateTodoDefault;
+  const resolveTestFileFn = deps?.resolveTestFile ?? resolveQuarantineTestFile;
 
   const records = listTestQuarantineFn(project);
 
@@ -209,12 +212,17 @@ export async function closeQuarantineOnGreen(
       if (testObs.length > 0 && !testObs.some((o) => o.failed)) {
         removeTestQuarantineFn(project, r.test);
 
+        const resolvedTestFile = resolveTestFileFn(project, r.test);
         const allTodos = listTodosFn(project, { includeCompleted: true });
         const todo = allTodos.find(
-          (t) =>
-            quarantineDedupKey(t.title.slice('[BUG] flaky test quarantined: '.length)) === quarantineDedupKey(r.test) &&
-            t.status !== 'done' &&
-            t.status !== 'dropped',
+          (t) => {
+            const candidateResolved = resolveTestFileFn(project, t.title.slice('[BUG] flaky test quarantined: '.length));
+            return (
+              quarantineDedupKey(t.title.slice('[BUG] flaky test quarantined: '.length), candidateResolved) === quarantineDedupKey(r.test, resolvedTestFile) &&
+              t.status !== 'done' &&
+              t.status !== 'dropped'
+            );
+          },
         );
 
         if (todo) {

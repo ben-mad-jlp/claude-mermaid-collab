@@ -44,6 +44,16 @@ describe('quarantineDedupKey', () => {
     const b = quarantineDedupKey('suites:^ui\\/::unhandled-rejection:…');
     expect(a).not.toBe(b);
   });
+
+  it('prefers resolvedPath when provided', () => {
+    const key = quarantineDedupKey('some test name', 'src/foo/bar.test.ts');
+    expect(key).toBe('src/foo/bar.test.ts');
+  });
+
+  it('prefers resolvedPath over file path in test string', () => {
+    const key = quarantineDedupKey('(444/492) src/old/path.test.ts', 'src/new/path.test.ts');
+    expect(key).toBe('src/new/path.test.ts');
+  });
 });
 
 describe('collapseQuarantineDuplicates', () => {
@@ -157,5 +167,42 @@ describe('double-promotion regression', () => {
     expect(
       open.filter((t) => t.title.startsWith('[BUG] flaky test quarantined: ')).length,
     ).toBe(1);
+  });
+
+  it('collapses two different test names in the same file to one open row', async () => {
+    const fixture: Todo[] = [
+      makeTodo({
+        id: 'a-survivor',
+        title: '[BUG] flaky test quarantined: test suite > test case 1',
+        createdAt: '2026-08-10T00:00:00.000Z',
+      }),
+      makeTodo({
+        id: 'a-dup1',
+        title: '[BUG] flaky test quarantined: test suite > test case 2',
+        createdAt: '2026-08-11T00:00:00.000Z',
+      }),
+    ];
+
+    const updateCalls: Array<{ id: string; patch: any }> = [];
+
+    // Mock resolveTestFile to return the same file for both tests
+    const result = await collapseQuarantineDuplicates('/tmp/fake-project', {
+      listTodos: () => fixture,
+      updateTodo: async (project: string, id: string, patch: any) => {
+        updateCalls.push({ id, patch });
+        const row = fixture.find((t) => t.id === id);
+        if (row) Object.assign(row, patch);
+        return row as Todo;
+      },
+      resolveTestFile: () => 'src/shared/test.ts',
+    });
+
+    expect(result.groups).toBe(1);
+    expect(result.survivors).toBe(1);
+    expect(result.closed).toBe(1);
+
+    const open = fixture.filter((t) => t.status !== 'done');
+    expect(open.length).toBe(1);
+    expect(open[0].id).toBe('a-survivor');
   });
 });
