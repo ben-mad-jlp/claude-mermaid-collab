@@ -14,6 +14,7 @@ import { mkdtempSync, symlinkSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { LandActor } from './land-authority';
 import { lastLines, extractFailingTests, SPEC_FILE_RE } from './gate-runner';
 import type { LeafGateConfig, GateTestLane, GateSpawn, GateFloorLane } from './leaf-gate';
 import { resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
@@ -90,6 +91,7 @@ export interface EpicLandGateOpts {
   skipCache?: boolean;
   snapshot?: { baseSha: string; epicTipSha: string };
   quarantineLookup?: (project: string) => TestQuarantineRow[];
+  actor?: LandActor;
 }
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -329,7 +331,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
   }
 
-  if (!o.skipCache) {
+  if (!o.skipCache && o.actor?.kind !== 'human') {
     const cached = getEpicLandGate(o.epicId, epicTipSha, baseSha);
     if (cached && cached.result) {
       const result = JSON.parse(cached.result) as EpicLandGateResult;

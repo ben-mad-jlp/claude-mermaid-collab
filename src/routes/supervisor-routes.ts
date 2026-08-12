@@ -738,7 +738,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         }
       }
 
-      const result = await landEpic(project, escalationId, { allowDirty });
+      const result = await landEpic(project, escalationId, { allowDirty, actor });
       if (result.landed) {
         getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
       }
