@@ -12,6 +12,21 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 const missions = new Map<string, { status: string; active: boolean; abandonedAt: number | null }>();
 
 mock.module('../mission-store', () => ({
+  // isMissionEpic reads the RAW row (thin read — the full getMission derives status
+  // facts per call and pinned the daemon; see coordinator-live.ts isMissionEpic).
+  getMissionRaw: (project: string, todoId: string) => {
+    const m = missions.get(todoId);
+    if (!m) return undefined;
+    return {
+      todoId,
+      status: m.status,
+      active: m.active,
+      abandonedAt: m.abandonedAt,
+      createdAt: 0,
+      updatedAt: 0,
+      lastNudgeAt: null,
+    };
+  },
   getMission: (project: string, todoId: string) => {
     const m = missions.get(todoId);
     if (!m) return undefined;
