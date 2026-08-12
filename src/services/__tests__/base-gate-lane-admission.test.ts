@@ -41,11 +41,10 @@ describe('base-gate-lane-admission', () => {
     expect(hasWorktreeGc).toBe(true);
   });
 
-  it('fast contains leaf-executor, epic-land-gate, verify-epic, gate-status, gate-runner-land-parity test files', () => {
+  it('fast contains epic-land-gate, verify-epic, gate-status, gate-runner-land-parity test files', () => {
     const { fast } = collectBackendTestFiles();
 
     const requiredFiles = [
-      'leaf-executor.test.ts',
       'epic-land-gate.test.ts',
       'verify-epic.test.ts',
       'gate-status.test.ts',
@@ -56,5 +55,15 @@ describe('base-gate-lane-admission', () => {
       const found = fast.some((f) => f.includes(required));
       expect(found).toBe(true);
     }
+  });
+
+  it('leaf-executor runs in the SERIAL lane — moved consciously, not lost', () => {
+    // Moved 2026-08-12 (disposition B, mission 0bdbed7e crit 6): 333 cases with 30s per-case
+    // budgets fail a DIFFERENT case each 6x-concurrent run (always 332/333, green in
+    // isolation) — it blocked three lands and starved crit-6's leaves through 17 claim cycles.
+    // Two-sided so the file can neither silently return to the fast lane nor silently vanish.
+    const { fast, serial } = collectBackendTestFiles();
+    expect(serial.some((f) => f.includes('leaf-executor.test.ts'))).toBe(true);
+    expect(fast.some((f) => f.includes('leaf-executor.test.ts'))).toBe(false);
   });
 });
