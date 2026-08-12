@@ -31,7 +31,7 @@ import { runRegistryGate } from './gate-runner';
 import { resolveLeafOwnChangeSet } from './gate-base-attribution';
 import type { GitRunner } from './main-checkout-invariant';
 import { findOwningMission } from './land-authority';
-import { getMission, isMissionTerminal, clearCriterionVerdict, missionIdOfCriterion, enqueueRecheck } from './mission-store';
+import { getMission, getMissionRaw, isMissionTerminal, clearCriterionVerdict, missionIdOfCriterion, enqueueRecheck } from './mission-store';
 import { criterionEdgesOf } from './criterion-edges';
 // Landing subsystem (extracted to coordinator-land.ts). surfaceEpicLand is the one
 // moved function this file still calls directly (makeCoordinatorDeps' completeTodo
@@ -1426,7 +1426,16 @@ export const MISSION_AUTOLAND_ARMED = true;
 export function isMissionEpic(project: string, epicId: string, todos: Todo[]): boolean {
   const { mission } = findOwningMission(todos, epicId);
   if (!mission) return false;
-  const row = getMission(project, mission.id);
+  // getMissionRaw, NOT getMission: this runs per-epic inside daemon sweeps
+  // (bp1FilterStrandedFoundations et al), and getMission derives status via
+  // collectMissionStatusFacts — leaf-run ledger scans, criteria reads, land records
+  // and git spawns PER CALL. MEASURED 2026-08-12: that loop pinned the sidecar at
+  // 100% CPU on an idle box (~1,300 queries + ~230 git spawns per 10s window),
+  // unresponsive for 15+ minutes. active/closedAt/abandonedAt and the stored
+  // status are raw columns; an ancestry-and-liveness test never needs derived facts.
+  // Worst case of the raw read: a converged-but-not-yet-closed mission reads
+  // non-terminal for one extra pass — the land path re-checks authority anyway.
+  const row = getMissionRaw(project, mission.id);
   return !!row?.active && !isMissionTerminal(row);
 }
 
