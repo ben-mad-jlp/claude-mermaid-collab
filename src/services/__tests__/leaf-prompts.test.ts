@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildNodePrompt, type BallotPromptRequirement } from '../leaf-prompts';
+import { buildNodePrompt, buildReviewPrompt, type BallotPromptRequirement } from '../leaf-prompts';
 import { EXPLORE_REPORT_SENTINEL } from '../leaf-parsing';
 import type { Todo } from '../todo-store';
 import type { ExploreSpec } from '../todo-store';
@@ -54,5 +54,23 @@ describe('buildNodePrompt explore node', () => {
     expect(prompt).toContain('READ-ONLY investigation');
     expect(prompt).toContain('You MUST NOT Write or edit any file');
     expect(prompt).toContain('the EXECUTOR writes and commits the report');
+  });
+});
+
+describe('backend test command guidance', () => {
+  const leaf = { id: 'leaf-1', title: 'a leaf', description: 'do the thing' } as unknown as Todo;
+
+  it('buildNodePrompt implement names the scoped backend test command', () => {
+    const prompt = buildNodePrompt('implement', leaf);
+    expect(prompt).toContain('scripts/test-backend.ts <file>');
+    expect(prompt).toContain('npm run test:ci` / `npm test` is the UI (vitest) runner');
+    expect(prompt).toContain('An unfiltered `bun run scripts/test-backend.ts` with no file');
+  });
+
+  it('buildReviewPrompt names the scoped backend test command', () => {
+    const prompt = buildReviewPrompt(leaf, 'master');
+    expect(prompt).toContain('scripts/test-backend.ts <file>');
+    expect(prompt).toContain('npm run test:ci` / `npm test` is the UI (vitest) runner');
+    expect(prompt).toContain('An unfiltered `bun run scripts/test-backend.ts` with no file');
   });
 });
