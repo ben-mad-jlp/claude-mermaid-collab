@@ -1,7 +1,8 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, renameSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
+import { tmpdir } from 'os';
 
 export const MAX_ENVELOPE_BYTES = 10 * 1024 * 1024;
 
@@ -15,6 +16,12 @@ export const ARTIFACT_TYPES = [
 ] as const;
 
 export type ArtifactKind = typeof ARTIFACT_TYPES[number];
+
+export interface AdoptedTo {
+  project: string;
+  session: string;
+  artifactId: string;
+}
 
 export interface ArtifactEnvelope {
   schemaVersion: 1;
@@ -35,7 +42,25 @@ export interface ArtifactEnvelope {
   };
   historyNote?: string;
   state: 'pending' | 'adopted' | 'dismissed';
-  adoptedTo?: string;
+  adoptedTo?: AdoptedTo;
+}
+
+export type EnvelopeState = ArtifactEnvelope['state'];
+
+export class EnvelopeNotFoundError extends Error {
+  name = 'ENVELOPE_NOT_FOUND';
+  constructor(envelopeId: string) {
+    super(`envelope ${envelopeId} not found`);
+  }
+}
+
+export class EnvelopeNotPendingError extends Error {
+  name = 'ENVELOPE_NOT_PENDING';
+  readonly state: EnvelopeState;
+  constructor(envelopeId: string, state: EnvelopeState) {
+    super(`envelope ${envelopeId} is not pending (state: ${state})`);
+    this.state = state;
+  }
 }
 
 export function inboxDir(): string {
@@ -76,7 +101,42 @@ export function readEnvelope(envelopeId: string): ArtifactEnvelope | null {
   }
 }
 
-export function listEnvelopes(): ArtifactEnvelope[] {
+function transition(envelopeId: string, patch: Partial<ArtifactEnvelope>): ArtifactEnvelope {
+  const current = readEnvelope(envelopeId);
+  if (!current) {
+    throw new EnvelopeNotFoundError(envelopeId);
+  }
+  if (current.state !== 'pending') {
+    throw new EnvelopeNotPendingError(envelopeId, current.state);
+  }
+
+  const next = { ...current, ...patch };
+  const tmpPath = join(inboxDir(), `${envelopeId}.json.tmp-${randomUUID()}`);
+
+  try {
+    writeFileSync(tmpPath, JSON.stringify(next, null, 2), 'utf8');
+    renameSync(tmpPath, join(inboxDir(), `${envelopeId}.json`));
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // Best-effort cleanup
+    }
+    throw err;
+  }
+
+  return readEnvelope(envelopeId)!;
+}
+
+export function markAdopted(envelopeId: string, adoptedTo: AdoptedTo): ArtifactEnvelope {
+  return transition(envelopeId, { state: 'adopted', adoptedTo });
+}
+
+export function markDismissed(envelopeId: string): ArtifactEnvelope {
+  return transition(envelopeId, { state: 'dismissed' });
+}
+
+export function listEnvelopes(state?: EnvelopeState): ArtifactEnvelope[] {
   try {
     const dir = inboxDir();
     const files = readdirSync(dir);
@@ -92,6 +152,11 @@ export function listEnvelopes(): ArtifactEnvelope[] {
         // Skip unparseable files
         continue;
       }
+    }
+
+    if (state !== undefined) {
+      envelopes.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+      return envelopes.filter(e => e.state === state);
     }
 
     envelopes.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
