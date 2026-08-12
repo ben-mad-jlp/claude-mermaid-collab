@@ -111,10 +111,11 @@ export type BackendTestRunner = (file: string, timeoutMs: number) => Promise<{ c
  */
 export function collectBackendTestFiles(
   roots: string[] = DEFAULT_TEST_ROOTS,
-  filter?: string,
+  filter?: string | readonly string[],
 ): { fast: string[]; serial: string[]; nested: string[] } {
   let files = roots.flatMap((root) => findBunTestFiles(root)).sort();
-  if (filter) files = files.filter((f) => f.includes(filter));
+  const filters = filter == null ? [] : Array.isArray(filter) ? filter : [filter];
+  if (filters.length) files = files.filter((f) => filters.some((sel) => f.includes(sel)));
 
   const { fast, serial, nested } = partitionTestLanes(files, (f) => readFileSync(f, 'utf8'));
   return { fast, serial, nested };
@@ -217,7 +218,8 @@ if (import.meta.main) {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const concurrency = Number(args.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? '6');
-  const filter = args.find((a) => !a.startsWith('--')) ?? '';
+  const filterArgs = args.filter((a) => !a.startsWith('--'));
+  const filter = filterArgs.length ? filterArgs : undefined;
   const baselinePath = args.find((a) => a.startsWith('--baseline='))?.split('=')[1];
   const writeBaselinePath = args.find((a) => a.startsWith('--write-baseline='))?.split('=')[1];
   const lane = (args.find((a) => a.startsWith('--lane='))?.split('=')[1] ?? 'all') as 'fast' | 'nested' | 'serial' | 'all';
@@ -239,7 +241,7 @@ async function main(): Promise<void> {
   const filesToRun =
     lane === 'fast' ? [...fast, ...serial] : lane === 'nested' ? nested : lane === 'serial' ? serial : [...fast, ...serial, ...nested];
   if (filesToRun.length === 0) {
-    console.error(`No bun:test files found${filter ? ` matching "${filter}"` : ''}.`);
+    console.error(`No bun:test files found${filterArgs.length ? ` matching "${filterArgs.join(', ')}"` : ''}.`);
     process.exit(1);
   }
 
