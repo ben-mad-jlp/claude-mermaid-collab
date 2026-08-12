@@ -15,8 +15,8 @@
  * lives HERE in a SEPARATE `.collab/mission.db`, keyed by the node's todo id.
  */
 import Database from 'bun:sqlite';
-import { join, isAbsolute, relative } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { join, dirname, isAbsolute, relative } from 'node:path';
+import { mkdirSync, existsSync } from 'node:fs';
 import { listTodos, resolveShortId, isHollowLand, stampMissionNodeApprovedIfNull, updateTodo, getTodo, type Todo } from './todo-store.ts';
 import { retireDecisionRecordsForTodo } from './decision-record-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
@@ -24,10 +24,13 @@ import { listLeafRuns, getMissionSpend } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
 import { createEscalation } from './supervisor-store.ts';
 import { recordAutonomousMutation } from './autonomy-log.ts';
+import { canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths.ts';
+import { openCollabDb, closeCollabDb, _closeAllCollabDbs } from './collab-db.ts';
 import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } from './harness-caps.ts';
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
-import { isLanded, isEpicStatusDone } from './epic-landedness.ts';
+import { isLanded, isEpicStatusDone, landedVia, type LandedVia } from './epic-landedness.ts';
+
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord } from './epic-land-record-store.ts';
@@ -143,6 +146,8 @@ export interface MissionCriterion {
   droppedReason: string | null;
   droppedAt: number | null;
   droppedBy: string | null;
+  /** Count of times this criterion has been re-armed (caps reset). */
+  reArmCount: number;
   /** VERIFY-gate audit trail: why the judge ruled this met/unmet, WHO judged it,
    *  and WHEN — set by an INDEPENDENT verify (not the maker). Null until verified. */
   evidence: string | null;
@@ -258,7 +263,8 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   status TEXT NOT NULL DEFAULT 'active',
   droppedReason TEXT,
   droppedAt INTEGER,
-  droppedBy TEXT
+  droppedBy TEXT,
+  reArmCount INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
 CREATE TABLE IF NOT EXISTS mission_recheck (
@@ -285,7 +291,12 @@ CREATE TABLE IF NOT EXISTS mission_criterion_verdict_history (
 CREATE INDEX IF NOT EXISTS idx_mcvh_criterion ON mission_criterion_verdict_history(criterionId);
 `;
 
-const dbCache = new Map<string, Database>();
+/**
+ * Roots whose legacy shape-repair block has already run in this process. The HANDLE cache lives
+ * in collab-db, which owns the file — a second cache here would let `_resetMissionDbCache` close
+ * a handle collab-db still hands out.
+ */
+const prepared = new Set<string>();
 
 function addColumnIfMissing(db: Database, table: string, column: string, decl: string): void {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -343,12 +354,22 @@ function backfillCriterionNicknames(db: Database): void {
 }
 
 function openDb(project: string): Database {
-  const cached = dbCache.get(project);
-  if (cached) return cached;
-  const dir = join(project, '.collab');
-  mkdirSync(dir, { recursive: true });
-  const db = new Database(join(dir, 'mission.db'));
-  db.exec('PRAGMA journal_mode = WAL;');
+  // Key the cache on the SAME canonical root storePath resolves to. Keying on the raw string
+  // gave one repo two cached handles when it was reached by two paths (a worktree, a symlink,
+  // /tmp vs /private/tmp).
+  project = canonicalProjectRoot(project);
+  if (!existsSync(project)) {
+    throw new Error(`unknown project: ${project}`);
+  }
+  // Mission control state now lives WITH its node, in the project's consolidated database, so
+  // `mission.todoId → todos.id` is a real foreign key instead of a convention spanning two files.
+  // openCollabDb owns the handle cache, performs the one-time move on a machine's first open,
+  // and turns foreign keys on.
+  const db = openCollabDb(project);
+  if (prepared.has(project)) return db;
+
+  // Legacy shape-repair, unchanged and idempotent. Every statement no-ops against a migrated
+  // database — the consolidated schema already declares these columns.
   db.exec(SCHEMA);
   // VERIFY-gate audit trail on each criterion (independent-judge evidence + provenance).
   addColumnIfMissing(db, 'mission_criterion', 'evidence', 'evidence TEXT');
@@ -385,6 +406,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'droppedAt', 'droppedAt INTEGER');
   addColumnIfMissing(db, 'mission_criterion', 'droppedBy', 'droppedBy TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'measurementPendingUntil', 'measurementPendingUntil INTEGER');
+  addColumnIfMissing(db, 'mission_criterion', 'reArmCount', 'reArmCount INTEGER NOT NULL DEFAULT 0');
   // Archive storage layer: additive, nullable column. New/existing rows read
   // archivedAt = NULL for free — hot by default, no backfill needed.
   addColumnIfMissing(db, 'mission', 'archivedAt', 'archivedAt INTEGER');
@@ -393,18 +415,20 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'nickname', 'nickname TEXT');
   backfillCriterionNicknames(db);
   migrateDropPhaseMachine(db);
-  dbCache.set(project, db);
+  prepared.add(project);
   return db;
 }
 
 /** Drop a possibly-stale cached handle (test isolation / after a rebuild). */
 export function _resetMissionDbCache(project?: string): void {
   if (project) {
-    dbCache.get(project)?.close();
-    dbCache.delete(project);
+    // MUST canonicalise exactly as openDb does — keying eviction on the raw string misses the
+    // entry openDb stored under the canonical root, leaving the caller on a stale handle.
+    prepared.delete(canonicalProjectRootLoose(project));
+    closeCollabDb(project);
   } else {
-    for (const db of dbCache.values()) db.close();
-    dbCache.clear();
+    prepared.clear();
+    _closeAllCollabDbs();
   }
 }
 
@@ -507,6 +531,15 @@ function resolveMissionTodoId(project: string, todoId: string): string | undefin
   } catch {
     return undefined; // ambiguous prefix — never guess
   }
+}
+
+/**
+ * Test whether a mission exists in the store, returning true if the missionId resolves
+ * to an exact or short-id match in the mission table. Used by mission-diagnostic to guard
+ * against lying null-field diagnostics for nonexistent missions.
+ */
+export function missionExists(project: string, todoId: string): boolean {
+  return resolveMissionTodoId(project, todoId) != null;
 }
 
 /**
@@ -621,7 +654,8 @@ export async function setMissionAbandoned(project: string, todoId: string, aband
  *  un-converge stopped history. NOT called for abandonment — setMissionAbandoned keeps its own
  *  status and never touches this column. */
 export function setMissionClosed(project: string, todoId: string, at: number | null): void {
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   const res = openDb(project)
     .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
     .run(at, nowMs(), id);
@@ -629,7 +663,8 @@ export function setMissionClosed(project: string, todoId: string, at: number | n
 }
 
 export function setMissionForgeState(project: string, todoId: string, state: 'forging' | 'forge-failed' | null): void {
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   const res = openDb(project)
     .prepare('UPDATE mission SET forgeState = ?, updatedAt = ? WHERE todoId = ?')
     .run(state, nowMs(), id);
@@ -755,16 +790,19 @@ function retireConstraintsForDeletedTodo(project: string, todoId: string): void 
 }
 
 /** Delete a mission's control state (does NOT touch the graph node). Resolves a short
- *  id; a not-found id is a silent no-op (unchanged prior behavior — this never threw). */
+ *  id; an id that resolves to no row is a refusal — throws instead of silently doing
+ *  nothing. */
 export function deleteMission(project: string, todoId: string): void {
   const db = openDb(project);
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { reopenConsumedFor } = require('./bucket-consumption.ts');
   reopenConsumedFor(project, id);
   retireConstraintsForDeletedTodo(project, id);
   db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(id);
-  db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
+  const res = db.prepare('DELETE FROM mission WHERE todoId = ?').run(id);
+  if (res.changes === 0) throw new Error(`mission delete matched no row: ${todoId}`);
   import('./mission-digest.ts').then((m) => m.deleteMissionDigest(project, id)).catch(() => {});
 }
 
@@ -789,7 +827,8 @@ export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): 
 /** Set a mission's active flag directly (low-level; prefer activateMission to keep
  *  the one-active-per-session invariant). Resolves a short id. */
 export function setMissionActive(project: string, todoId: string, active: boolean): void {
-  const id = resolveMissionTodoId(project, todoId) ?? todoId;
+  const id = resolveMissionTodoId(project, todoId);
+  if (!id) throw new Error(`mission not found: ${todoId}`);
   const res = openDb(project)
     .prepare('UPDATE mission SET active = ?, updatedAt = ? WHERE todoId = ?')
     .run(active ? 1 : 0, nowMs(), id);
@@ -948,6 +987,7 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     droppedReason: (r.droppedReason as string | null) ?? null,
     droppedAt: (r.droppedAt as number | null) ?? null,
     droppedBy: (r.droppedBy as string | null) ?? null,
+    reArmCount: (r.reArmCount as number | null) ?? 0,
     measurementPendingUntil: (r.measurementPendingUntil as number | null) ?? null,
   }));
 }
@@ -1010,7 +1050,7 @@ export function addCriterion(
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt, type, dependsOn, nickname) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)')
     .run(id, resolved, trimmed, order, ts, type, JSON.stringify(dependsOn), nickname);
-  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null, measurementPendingUntil: null };
+  return { id, todoId: resolved, text: trimmed, nickname, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, verifyAttemptCount: 0, serveAttemptCount: 0, lastReopenSha: null, type, dependsOn, status: 'active', droppedReason: null, droppedAt: null, droppedBy: null, reArmCount: 0, measurementPendingUntil: null };
 }
 
 /** Set a criterion's dependsOn edges. Validated for self-edges, unknown ids, and cycles
@@ -1157,6 +1197,31 @@ export function undropCriterion(project: string, criterionId: string): void {
     .prepare("UPDATE mission_criterion SET status = 'active', droppedReason = NULL, droppedAt = NULL, droppedBy = NULL, updatedAt = ? WHERE id = ?")
     .run(nowMs(), criterionId);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+/** Reset an exhausted acceptance criterion's serve/verify attempt caps in place so it can
+ *  be re-served/re-verified without dropping and re-adding it. Zeroes serveAttemptCount and
+ *  verifyAttemptCount; increments the durable reArmCount so repeated use is visible. Refuses
+ *  (throws criterion-already-met: <id>) when the criterion is already met — re-arming a met
+ *  criterion is never valid. text, evidence, evidencePaths, verifiedBy/verifiedAt and verdict
+ *  history are all preserved untouched. */
+export function reArmCriterion(
+  project: string,
+  criterionId: string,
+  opts: { reason: string; by: string },
+): { reArmCount: number; clearedServeAttempts: number; clearedVerifyAttempts: number } {
+  const db = openDb(project);
+  return db.transaction(() => {
+    const row = db.query('SELECT met, serveAttemptCount, verifyAttemptCount, reArmCount FROM mission_criterion WHERE id = ?').get(criterionId) as Record<string, unknown> | null;
+    if (!row) throw new Error(`criterion not found: ${criterionId}`);
+    if (row.met) throw new Error(`criterion-already-met: ${criterionId}`);
+    const clearedServeAttempts = (row.serveAttemptCount as number) ?? 0;
+    const clearedVerifyAttempts = (row.verifyAttemptCount as number) ?? 0;
+    const nextReArmCount = ((row.reArmCount as number) ?? 0) + 1;
+    db.prepare('UPDATE mission_criterion SET serveAttemptCount = 0, verifyAttemptCount = 0, reArmCount = ?, updatedAt = ? WHERE id = ?')
+      .run(nextReArmCount, nowMs(), criterionId);
+    return { reArmCount: nextReArmCount, clearedServeAttempts, clearedVerifyAttempts };
+  })();
 }
 
 /** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
@@ -1414,7 +1479,7 @@ export interface MissionCriterionFacts {
   /** Every epic serving this criterion (primary edge or servesCriterionIds), with its
    *  landed-ness — for the Mission screen's per-criterion serving-epics list. Optional so
    *  existing fact fixtures need no change; set by collectMissionStatusFacts. */
-  servingEpics?: { id: string; title: string; landed: boolean }[];
+  servingEpics?: { id: string; title: string; landed: boolean; landedVia: LandedVia }[];
   /** ids from this criterion's `dependsOn` that exist on the same mission and are not yet
    *  met — 'blocked' when non-empty. Optional so existing fact fixtures need no change;
    *  set by collectMissionStatusFacts. */
@@ -1788,7 +1853,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
         (e) => todoServesCriterion(e, c.id) &&
           !isHollowDone(e) && countsTowardServeCap(e),
       ).length;
-      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: resolveLanded(e) }));
+      const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: resolveLanded(e), landedVia: landedVia(e) }));
       const servingEpicIds = new Set(serving.map((e) => e.id));
       const rejectedParkedCount = runs.filter(
         (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
@@ -1846,7 +1911,7 @@ export function listCriteriaWithActions(
   project: string,
   todoId: string,
   opts?: { landTruth?: Map<string, boolean> },
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpics: { id: string; title: string; landed: boolean }[] })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m, undefined, opts);
@@ -1886,7 +1951,7 @@ export interface MissionSummary {
   mission: MissionRow;
   rollup: MissionRollup;
   /** Acceptance criteria (the CAPABILITY gauge's underlying items). */
-  criteria: (MissionCriterion & { servingEpics: { id: string; title: string; landed: boolean }[] })[];
+  criteria: (MissionCriterion & { servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[];
   /** The mission's direct `[EPIC]` children (the MECHANICAL gauge's items). */
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus: string | null }>;
 }
@@ -1931,7 +1996,7 @@ export function listMissions(
       ...c,
       servingEpics: epicRows
         .filter((e) => todoServesCriterion(e, c.id))
-        .map((e) => ({ id: e.id, title: e.title, landed: isLanded(e) })),
+        .map((e) => ({ id: e.id, title: e.title, landed: isLanded(e), landedVia: landedVia(e) })),
     })); // cheap indexed lookup — the capability gauge
     const raw = withFacts ? getMission(project, node.id) : getMissionRaw(project, node.id);
     let mission = raw && !withFacts

@@ -12,6 +12,13 @@
  * "Missing required: …" validation error, whereas an unwired name returns null
  * (the "fall through to setup.ts's switch" sentinel). Either non-null return or a
  * throw proves the case exists; a null return is the bug this guard exists to catch.
+ *
+ * The per-group length assertions are FLOORS (toBeGreaterThanOrEqual), never exact
+ * counts. An exact count is a cross-epic time bomb: any epic that adds a tool reds the
+ * BASE gate of every other epic project-wide, including its own, and a self-inflicted
+ * base red cannot be repaired from inside the epic that caused it. The floor still
+ * catches a group being silently emptied, the loop below still proves every declared
+ * name is wired, and the list-tools snapshot fixture is what guards removals.
  */
 import { describe, it, expect } from 'bun:test';
 import { SNIPPET_TOOL_DEFS, handleSnippetTool } from '../snippet-tools.js';
@@ -29,7 +36,7 @@ import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from '../workgraph-tools.js'
 import { DECISION_TOOL_DEFS, handleDecisionTool } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from '../system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from '../session-tools.js';
-import { DESKTOP_TOOL_DEFS, handleDesktopTool, DESKTOP_TOOL_HANDLER_NAMES } from '../desktop-tools.js';
+import { getDesktopToolDefs, handleDesktopTool } from '../desktop-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -128,7 +135,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every BROWSER_TOOL_DEFS name is wired in handleBrowserTool', async () => {
-    expect(BROWSER_TOOL_DEFS.length).toBe(30);
+    expect(BROWSER_TOOL_DEFS.length).toBeGreaterThanOrEqual(30);
     for (const def of BROWSER_TOOL_DEFS) {
       expect(await isRecognized(handleBrowserTool, def.name)).toBe(true);
     }
@@ -179,7 +186,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every DESIGN_TOOL_DEFS name is wired in handleDesignTool', async () => {
-    expect(DESIGN_TOOL_DEFS.length).toBe(43);
+    expect(DESIGN_TOOL_DEFS.length).toBeGreaterThanOrEqual(43);
     for (const def of DESIGN_TOOL_DEFS) {
       expect(await isRecognized(handleDesignTool, def.name)).toBe(true);
     }
@@ -190,7 +197,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every SUPERVISOR_TOOL_DEFS name is wired in handleSupervisorTool', async () => {
-    expect(SUPERVISOR_TOOL_DEFS.length).toBe(24);
+    expect(SUPERVISOR_TOOL_DEFS.length).toBeGreaterThanOrEqual(24);
     for (const def of SUPERVISOR_TOOL_DEFS) {
       expect(await isRecognized(handleSupervisorTool, def.name)).toBe(true);
     }
@@ -201,7 +208,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every EPIC_TOOL_DEFS name is wired in handleEpicTool', async () => {
-    expect(EPIC_TOOL_DEFS.length).toBe(20);
+    expect(EPIC_TOOL_DEFS.length).toBeGreaterThanOrEqual(20);
     for (const def of EPIC_TOOL_DEFS) {
       expect(await isRecognized(handleEpicTool, def.name)).toBe(true);
     }
@@ -213,7 +220,7 @@ describe('tool dispatch coverage', () => {
 
   it('WORKGRAPH_TOOL_DEFS declares exactly the expected workgraph surface', () => {
     expect(new Set(WORKGRAPH_TOOL_DEFS.map((d) => d.name))).toEqual(
-      new Set(['create_epic', 'add_leaves', 'file_to_bucket', 'inspect_workgraph']),
+      new Set(['create_epic', 'add_leaves', 'file_explore', 'file_finding', 'file_to_bucket', 'inspect_workgraph']),
     );
   });
 
@@ -239,7 +246,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every DECISION_TOOL_DEFS name is wired in handleDecisionTool', async () => {
-    expect(DECISION_TOOL_DEFS.length).toBe(13);
+    expect(DECISION_TOOL_DEFS.length).toBeGreaterThanOrEqual(13);
     for (const def of DECISION_TOOL_DEFS) {
       expect(await isRecognized(handleDecisionTool, def.name)).toBe(true);
     }
@@ -255,17 +262,17 @@ describe('tool dispatch coverage', () => {
         'check_server_health', 'fleet_status', 'deploy_self', 'instance_topology',
         'launch_remote_server', 'system_status', 'daemon_status', 'friction_trends',
         'orchestrator_off', 'runtime_config', 'orchestrator_status', 'set_watchdog_threshold',
-        'set_context_recycle', 'context_usage', 'list_conductor_passes', 'get_job',
+        'set_context_recycle', 'context_usage', 'list_conductor_passes', 'get_job', 'host_load',
       ]),
     );
   });
 
-  // Drives all 16 real system-tool handlers sequentially (health probes, fleet/daemon
+  // Drives all 17 real system-tool handlers sequentially (health probes, fleet/daemon
   // status, topology), so it sits right at bun's 5s default and intermittently timed out
   // at ~5001ms — which reds the epic BASE gate project-wide, blocking every leaf. Give it
   // headroom explicitly rather than let a slow-but-passing check wedge the daemon.
   it('every SYSTEM_TOOL_DEFS name is wired in handleSystemTool', async () => {
-    expect(SYSTEM_TOOL_DEFS.length).toBe(16);
+    expect(SYSTEM_TOOL_DEFS.length).toBeGreaterThanOrEqual(17);
     for (const def of SYSTEM_TOOL_DEFS) {
       expect(await isRecognized(handleSystemTool, def.name)).toBe(true);
     }
@@ -276,7 +283,7 @@ describe('tool dispatch coverage', () => {
   });
 
   it('every SESSION_TOOL_DEFS name is wired in handleSessionTool', async () => {
-    expect(SESSION_TOOL_DEFS.length).toBe(40);
+    expect(SESSION_TOOL_DEFS.length).toBeGreaterThanOrEqual(41);
     for (const def of SESSION_TOOL_DEFS) {
       expect(await isRecognized(handleSessionTool, def.name)).toBe(true);
     }
@@ -286,9 +293,9 @@ describe('tool dispatch coverage', () => {
     expect(await handleSessionTool('definitely_not_a_session_tool', {})).toBeNull();
   });
 
-  it('every DESKTOP_TOOL_DEFS name is wired in handleDesktopTool', () => {
-    for (const def of DESKTOP_TOOL_DEFS) {
-      expect(DESKTOP_TOOL_HANDLER_NAMES.has(def.name)).toBe(true);
+  it('every DESKTOP_TOOL_DEFS name is wired in handleDesktopTool', async () => {
+    for (const def of getDesktopToolDefs()) {
+      expect(await isRecognized(handleDesktopTool, def.name)).toBe(true);
     }
   });
 

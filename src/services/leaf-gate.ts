@@ -8,14 +8,16 @@
  * repo-specific string.
  */
 import { join } from 'node:path';
+import { isQuarantined } from './quarantine.js';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
-import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listObservations } from './worker-ledger';
+import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
 import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
+import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
@@ -938,8 +940,12 @@ export async function runBaseGate(
     if (observe) {
       const WINDOW_MS = 7 * 24 * 60 * 60_000; // matches promoteQuarantineCandidates's default window (flaky-quarantine.ts)
       const watched = new Set(fingerprints);
-      for (const o of listObservations(observe.project, Date.now() - WINDOW_MS)) {
-        if (o.lane === lane.key) watched.add(o.test);
+      // Ask SQLite for exactly the distinct names on THIS lane. The previous form loaded
+      // every observation in the window and filtered by lane in JS — 1.38M rows and ~8.7s of
+      // blocked event loop per lane once the table had grown, which is what drove the
+      // watchdog kill loop.
+      for (const test of listWatchedTests(observe.project, lane.key, Date.now() - WINDOW_MS)) {
+        watched.add(test);
       }
       for (const q of activeQuarantine(observe.project)) watched.add(q.test);
       recordBaseGateTestRuns({
@@ -1013,6 +1019,7 @@ export async function resolveBaseGreen(io: {
   const r = await runBaseGateShared(
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
     () => io.runGate(wt.path),
+    { project: io.targetProject },
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
@@ -1034,6 +1041,13 @@ export async function resolveBaseGreen(io: {
         };
       }
     }
+  }
+  if (result.status === 'fail' && isDepOptimizerCorruption(result.output)) {
+    result = {
+      ...result,
+      status: 'error',
+      reasons: ['dep-optimizer cache corruption (stale vitest/vite deps cache), not a base defect', ...result.reasons],
+    };
   }
   if (isCacheableBaseGateStatus(result.status)) {
     // Stamp checkedAt from the SAME clock the TTL is later measured against
@@ -1118,7 +1132,12 @@ export function routeSpecsToLanes(specs: readonly string[], lanes: readonly Gate
   { byLane: Map<GateTestLane, string[]>; unmatched: string[] } {
   const unmatched: string[] = [];
   const byLane = new Map<GateTestLane, string[]>();
-  for (const spec of [...new Set(specs)]) {
+  // QUARANTINE: repros committed red on purpose (see services/quarantine.ts). They are excluded
+  // here rather than per-caller because this is the ONE routing point every lane-based gate uses
+  // — the per-file leaf gate and the epic land gate both flow through it. They are dropped, not
+  // reported unmatched: `unmatched` means "no lane claims this", which would surface as a gate
+  // config warning, and a quarantined spec is deliberately laneless.
+  for (const spec of [...new Set(specs)].filter((sp) => !isQuarantined(sp))) {
     const lane = lanes.find((l) => l.match.test(spec));
     if (!lane) {
       unmatched.push(spec);

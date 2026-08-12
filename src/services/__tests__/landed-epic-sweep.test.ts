@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: inert - tests reference git worktree add in error contexts but don't execute it
+ */
 // Store-integration tests for reconcileLandedEpics — real project DB (mission-store.test.ts
 // harness), injected git probe (epic-branch-status.test.ts style, no real repo needed).
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';

@@ -55,8 +55,8 @@ describe('per-criterion servingEpics', () => {
 
     const rows = listCriteriaWithActions(project, m.id);
     const critC = rows.find((r) => r.id === c.id)!;
-    expect(critC.servingEpics).toContainEqual({ id: e1.id, title: e1.title, landed: false });
-    expect(critC.servingEpics).toContainEqual({ id: e2.id, title: e2.title, landed: true });
+    expect(critC.servingEpics).toContainEqual({ id: e1.id, title: e1.title, landed: false, landedVia: 'neither' });
+    expect(critC.servingEpics).toContainEqual({ id: e2.id, title: e2.title, landed: true, landedVia: 'stamp' });
 
     const critD = rows.find((r) => r.id === d.id)!;
     expect(critD.servingEpics).toEqual([]);
@@ -64,7 +64,7 @@ describe('per-criterion servingEpics', () => {
     const summaries = listMissions(project, { withFacts: false });
     const summary = summaries.find((s) => s.node.id === m.id)!;
     const cheapCritC = summary.criteria.find((r) => r.id === c.id)!;
-    expect(cheapCritC.servingEpics).toContainEqual({ id: e1.id, title: e1.title, landed: false });
-    expect(cheapCritC.servingEpics).toContainEqual({ id: e2.id, title: e2.title, landed: true });
+    expect(cheapCritC.servingEpics).toContainEqual({ id: e1.id, title: e1.title, landed: false, landedVia: 'neither' });
+    expect(cheapCritC.servingEpics).toContainEqual({ id: e2.id, title: e2.title, landed: true, landedVia: 'stamp' });
   });
 });

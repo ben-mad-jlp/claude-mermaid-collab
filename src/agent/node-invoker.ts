@@ -23,6 +23,8 @@ import { resolveGrokModel } from './grok-model.js';
 import { SETTING_SOURCES_ARGS } from './contracts.js';
 import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
 import { parseNodeCommands } from '../services/node-commands.js';
+import { leafScratchFor } from '../services/leaf-scratch.js';
+import { pythonPathFor } from './python-env.js';
 import { recordSpend } from '../services/spend-ledger.js';
 
 export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
@@ -39,12 +41,25 @@ export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
  *
  * Fix: build the child env from process.env but (a) DELETE GIT_DIR + GIT_WORK_TREE so they
  * can't override the worktree, and (b) set GIT_CEILING_DIRECTORIES to the worktree's PARENT
- * so git discovery cannot climb past the worktree. Exported + pure for unit testing.
+ * so git discovery cannot climb past the worktree. Exported for unit testing.
+ *
+ * (c) PYTHONPATH — the same class of leak through a different mechanism. A shared `.venv`
+ * (symlinked in by `linkSharedDeps`) carries an EDITABLE-INSTALL `.pth` holding an absolute
+ * path into the MAIN CHECKOUT, so a leaf's pytest imports the package from there and tests
+ * code it did not change. Prepending the worktree's own Python source dirs fixes it because
+ * PYTHONPATH is processed BEFORE site-packages. See src/agent/python-env.ts for the full
+ * mechanism + the live reproduction. Reads the filesystem (bounded, depth 3) — so this is no
+ * longer a pure function, deliberately: env-level beats prompt-level precisely because it
+ * does not depend on the leaf complying.
  */
 export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
   delete env.GIT_DIR;
   delete env.GIT_WORK_TREE;
+  // Only set when the worktree actually has Python project dirs — a non-Python repo must not
+  // receive an empty or ":"-only PYTHONPATH. Inherited value is preserved, appended after ours.
+  const pyPath = pythonPathFor(cwd, base?.PYTHONPATH);
+  if (pyPath) env.PYTHONPATH = pyPath;
   // Ceiling at the worktree's parent: discovery may find the worktree's own `.git` file
   // but must not climb above it to the main checkout. (No-effect for a non-worktree cwd.)
   env.GIT_CEILING_DIRECTORIES = dirname(cwd);
@@ -54,6 +69,7 @@ export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.
   // build123d incident (leaves cd'd to the main checkout, ran pytest there, false-green with
   // empty worktree diffs). Absent var = "not a confined node" → the hook allows everything.
   env.MERMAID_LEAF_WORKTREE = cwd;
+  env.MERMAID_LEAF_SCRATCH = leafScratchFor(cwd);
   // GROK HOOK ISOLATION: when MERMAID_GROK_HOOKS_HOME is set (test isolation), redirect HOME
   // so grok CLI reads hooks from the test-isolated directory, not the user's ~/.grok/hooks.
   // This allows concurrent tests on the same machine to avoid interference: each test gets its

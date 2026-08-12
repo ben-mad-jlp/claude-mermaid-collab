@@ -165,12 +165,16 @@ describe('drop-site cascade census — flow (real entry points)', () => {
 
   test('delete_mission cascades and leaves zero invariant violations', async () => {
     const { handleMissionTool } = await import('../../mcp/mission-tools');
+    const { upsertMission } = await import('../mission-store');
     const mission = await createTodo(project, {
       allowOrphan: true,
       title: 'test mission',
       ownerSession: 'test',
       kind: 'mission',
     });
+    // Production always pairs a [MISSION] node with a control row; deleteMission refuses an
+    // id that resolves to no row, so the fixture must create one to exercise the cascade.
+    upsertMission(project, mission.id);
     const epicChild = await createTodo(project, {
       title: 'mission epic',
       ownerSession: 'test',

@@ -33,6 +33,7 @@ import {
 import {
   recordFrictionTool,
   listFrictionTool,
+  retractFrictionTool,
   reportDogfoodTool,
 } from './tools/friction.js';
 import {
@@ -322,6 +323,7 @@ export const SESSION_TOOL_DEFS = [
   {"name":"reorder_session_todos","description":"Reorder per-session todos by providing a full permutation of existing todo ids. Assigns new order values (10, 20, 30, ...) in the provided sequence.","inputSchema":{"properties":{"orderedIds":{"description":"Full permutation of existing todo ids in desired order","items":{"type":"string"},"type":"array"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","orderedIds"],"type":"object"}},
   {"name":"assign_session_todo","description":"Assign a session todo to a specific session (assigneeSession). Pass null to unassign.","inputSchema":{"properties":{"assigneeSession":{"description":"Session to assign the todo to, or null to unassign","type":["string","null"]},"id":{"description":"Todo id to assign","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"}},"required":["project","session","id","assigneeSession"],"type":"object"}},
   {"name":"complete_linked_todos","description":"Mark completed all session todos linked to a blueprint (and optional taskId). Used to sync linked todos when a Go task finishes.","inputSchema":{"properties":{"blueprintId":{"description":"Blueprint id to match","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"session":{"description":"Session name","type":"string"},"taskId":{"description":"Task id to match (optional; matches all tasks in blueprint when omitted)","type":"string"}},"required":["project","session","blueprintId"],"type":"object"}},
+  {"name":"retract_friction","description":"RETRACT a friction note whose ANALYSIS WAS WRONG — not one that was merely fixed (a fixed problem is still real evidence and must keep counting). Sets retractedAt/retractedReason/supersededBy so the note stops surfacing in list_friction and friction_trends, which default to excluding retracted notes; pass includeRetracted on list_friction to see them. Exists because friction_notes was append-only: a confidently-argued but incorrect note stayed queryable and indistinguishable from a correct one, was counted as recurrence signal, and biased every mission-forge survey that touched it — its only correction was ANOTHER note that a reader had to happen to find. THROWS if the id matches no note (a zero-row write must never report success). Idempotent: re-retracting returns the existing state without overwriting the original reason.","inputSchema":{"properties":{"id":{"description":"The friction note id to retract.","type":"string"},"project":{"description":"Absolute path to project root","type":"string"},"reason":{"description":"Why the note is INVALID. Required — a retraction without a stated reason is not reviewable.","type":"string"},"supersededBy":{"description":"Optional id of the note or record that supersedes this one.","type":"string"}},"required":["project","id","reason"],"type":"object"}},
 ];
 
 export async function handleSessionTool(name: string, args: any): Promise<string | null> {
@@ -834,10 +836,18 @@ export async function handleSessionTool(name: string, args: any): Promise<string
       const a = args as {
         project: string; todoId?: string; session?: string;
         layer?: import('../services/friction-store.js').FrictionLayer;
+        includeRetracted?: boolean;
       };
       if (!a.project) throw new Error('Missing required: project');
       const result = listFrictionTool(a);
       return JSON.stringify(result, null, 2);
+    }
+    case 'retract_friction': {
+      const a = args as { project: string; id: string; reason: string; supersededBy?: string };
+      if (!a.project) throw new Error('Missing required: project');
+      if (!a.id) throw new Error('Missing required: id');
+      if (!a.reason) throw new Error('Missing required: reason');
+      return JSON.stringify(retractFrictionTool(a), null, 2);
     }
 
     case 'list_session_todos': {

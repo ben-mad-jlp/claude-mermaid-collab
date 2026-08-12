@@ -23,11 +23,11 @@ import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner'
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
 import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-authority';
-import { hasLandStamp } from './epic-landedness';
+import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
 import { recordFriction, recordFrictionOnce, getWatchState, setWatchState } from './friction-store';
-import { recordLandCycle, captureLandCycleFields } from './epic-land-record-store.js';
+import { recordLandCycle, captureLandCycleFields, recordLandAttempt } from './epic-land-record-store.js';
 import { guardPostLandTree } from './tree-integrity';
 import { recordSelfLand, isSelfProject } from './deploy-service';
 // shared with coordinator-live: kept there because accept-time code (acceptTimeAncestorGate,
@@ -35,6 +35,7 @@ import { recordSelfLand, isSelfProject } from './deploy-service';
 // coordinator-land" markers in coordinator-live.ts.
 import { getWorktreeManager, resolveEpicId, execAsync, epicAutoLandAuthority, isMissionEpic, MISSION_AUTOLAND_ARMED } from './coordinator-live';
 import { teardownEpic } from './epic-teardown';
+import { snapshotEpicWorkGraph, diffWorkGraphSnapshot, restoreWorkGraphSnapshot } from './land-workgraph-guard';
 
 // --- durable condition identity for the land escalations --------------------------
 // createEscalation's keyed dedup (supervisor-store.ts) bumps an OPEN row with the same
@@ -614,7 +615,15 @@ export async function convergeObservedMerge(
 export async function surfaceEpicLand(
   project: string,
   epicId: string,
-  opts: { sessionHint?: string; preferLinkTodoId?: string; landLeafId?: string } = {},
+  opts: {
+    sessionHint?: string;
+    preferLinkTodoId?: string;
+    landLeafId?: string;
+    landednessProbe?: {
+      isEpicLandedInGit: typeof isEpicLandedInGit;
+      isEpicTreeIdenticalToTrunk: typeof isEpicTreeIdenticalToTrunk;
+    };
+  } = {},
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
   const id = opts.preferLinkTodoId;
@@ -681,6 +690,33 @@ export async function surfaceEpicLand(
         epicBranch,
         proofGreen ? 'green' : landReasonClass(readiness.blockers[0]?.code ?? 'land-not-ready'),
       ]);
+
+      // Short-circuit: suppress the epic-ready-to-land card if git shows nothing to merge.
+      // Use injected probes (landednessProbe) if provided; otherwise use the real functions.
+      const landedness = opts.landednessProbe ?? { isEpicLandedInGit, isEpicTreeIdenticalToTrunk };
+      const [gitStatus, treeStatus] = await Promise.all([
+        landedness.isEpicLandedInGit(repo, epicId).catch(() => 'indeterminate' as const),
+        landedness.isEpicTreeIdenticalToTrunk(repo, epicId).catch(() => 'indeterminate' as const),
+      ]);
+      const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
+      if (nothingToMerge) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session,
+          detail: JSON.stringify({
+            todoId: epicId,
+            epicId,
+            epicBranch,
+            repo,
+            landSurface: 'nothing-to-merge',
+            gitStatus,
+            treeStatus,
+          }),
+        });
+        continue;
+      }
+
       const { escalation } = createEscalation({
         project,
         session,
@@ -1163,6 +1199,49 @@ export const defaultLandStageDeps: LandStageDeps = {
 };
 
 /**
+ * Restore work-graph state after a land stage failure.
+ * If outcome.landed === true, the land succeeded and all writes (teardown, roll-up, etc.)
+ * must survive; return outcome unchanged.
+ * Otherwise, re-read the work-graph, diff it against the pre-land snapshot, and restore
+ * any drifted leaves. Record friction if any drift was detected.
+ */
+async function restoreOnFailure(
+  project: string,
+  targetProject: string,
+  epicId: string,
+  epicBranch: string,
+  snapshot: Map<string, any>,
+  outcome: LandEpicOutcome,
+): Promise<LandEpicOutcome> {
+  // Success path: landed === true means the merge and all subsequent writes succeeded.
+  // Do not restore.
+  if (outcome.landed === true) {
+    return outcome;
+  }
+
+  // Failure path: re-read the work-graph and check for drift.
+  const freshTodos = listTodos(project, { includeCompleted: true });
+  const after = snapshotEpicWorkGraph(project, epicId, freshTodos);
+  const drift = diffWorkGraphSnapshot(snapshot, after);
+
+  if (drift.length > 0) {
+    // Restore the drifted leaves.
+    await restoreWorkGraphSnapshot(project, drift);
+
+    // Record friction for observability.
+    const driftedLeafIds = [...new Set(drift.map((d) => d.leafId))];
+    await recordFriction(project, {
+      layer: 'orchestration',
+      retryReason: 'land-workgraph-drift',
+      todoId: epicId,
+      detail: JSON.stringify({ epicBranch, driftCount: drift.length, leafIds: driftedLeafIds }),
+    }).catch(() => {});
+  }
+
+  return outcome;
+}
+
+/**
  * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
  * land-readiness server-side at click time (never trust the summary baked into the
  * card at roll-up) and, on a green proof, perform ONE --no-ff epic→master merge behind
@@ -1187,15 +1266,21 @@ export async function landEpic(
   const epicId = resolveEpicId(child, project);
   const wm = getWorktreeManager(targetProject);
   const epicBranch = wm.epicBranchName(epicId);
+  let threw = false;
 
-  return withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
+  const outcome = await withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
+    // Snapshot the epic's work-graph BEFORE the first stage runs. If any stage fails,
+    // restoreOnFailure will re-read the graph and restore any drifted leaf state.
+    const todosBeforeLand = listTodos(project, { includeCompleted: true });
+    const snapshot = snapshotEpicWorkGraph(project, epicId, todosBeforeLand);
+
     try {
       const ctx = { project, escalationId, session: esc.session, epicId, epicBranch, targetProject, todoId };
 
       const dirtyResult = await deps.checkDirtyTree(wm, opts, ctx);
       if (!dirtyResult.ok) {
         const outcome = dirtyResult as LandEpicOutcome;
-        return outcome;
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
       const dirty = (dirtyResult as { ok: boolean; dirty?: string[] }).dirty ?? [];
 
@@ -1203,7 +1288,7 @@ export async function landEpic(
       const stewardResult = await deps.runStewardPrecheck(project, epicId, epicBranch, targetProject, todosAtProofTime, { escalationId, session: esc.session });
       if (!stewardResult.ok) {
         const outcome = stewardResult as LandEpicOutcome;
-        return outcome;
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
       const stewardOk = stewardResult as { ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] };
       const epic = stewardOk.epic ?? null;
@@ -1212,13 +1297,13 @@ export async function landEpic(
       const stalenessResult = await deps.checkStaleness(wm, targetProject, epicId, epicBranch, ctx);
       if (!stalenessResult.ok) {
         const outcome = stalenessResult as LandEpicOutcome;
-        return outcome;
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
       const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: esc.session, todoId });
       if (!proofResult.ok) {
         const outcome = proofResult as LandEpicOutcome;
-        return outcome;
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
       const proofOk = proofResult as { ok: boolean; proof?: LandProof };
       const proof = proofOk.proof!;
@@ -1226,13 +1311,13 @@ export async function landEpic(
       const openChildResult = await deps.checkOpenChildren(project, epicId, { escalationId, session: esc.session, epicBranch });
       if (!openChildResult.ok) {
         const outcome = openChildResult as LandEpicOutcome;
-        return outcome;
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
       const mergeResult = await deps.runMerge(wm, epicId, dirty, opts, proof, ctx);
       if (!mergeResult.ok) {
         const outcome = mergeResult as LandEpicOutcome;
-        return outcome;
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
       const mergeOk = mergeResult as { ok: boolean; land?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>> };
       const land = mergeOk.land!;
@@ -1260,10 +1345,24 @@ export async function landEpic(
       await refreshProjectDigestOnLand(targetProject);
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
+      threw = true;
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
-      return { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };
+      const errorOutcome = { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };
+      return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, errorOutcome);
     }
   });
+
+  try {
+    recordLandAttempt(targetProject, {
+      epicId,
+      outcome: outcome.ok ? 'merged' : (threw ? 'errored' : 'refused'),
+      reason: outcome.reason,
+      landPath: 'escalation-land',
+      session: esc.session,
+      mergeSha: outcome.masterSha ?? null,
+    });
+  } catch { /* recordLandAttempt already never throws; belt-and-suspenders */ }
+  return outcome;
 }
 
 // --- Stranded-EPIC self-heal (accepted ⇒ landed, at the epic level) --------------

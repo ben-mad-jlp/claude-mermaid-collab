@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTodo, claimTodo, _closeProject } from '../todo-store';
@@ -75,6 +75,19 @@ describe('buildMissionDiagnostic', () => {
     });
     expect(Object.keys(result).sort()).toEqual(
       ['baseHealth', 'conductorPass', 'criteria', 'leaves', 'rollup', 'status'].sort(),
+    );
+  });
+
+  test('rejects an unresolvable project instead of returning a null-field diagnostic', async () => {
+    await expect(buildMissionDiagnostic('/nonexistent/definitely-not-a-project', 'deadbeef')).rejects.toThrow(
+      /nonexistent\/definitely-not-a-project/,
+    );
+    expect(existsSync(join('/nonexistent/definitely-not-a-project', '.collab'))).toBe(false);
+  });
+
+  test('rejects an unknown missionId under a real project instead of returning a null-field diagnostic', async () => {
+    await expect(buildMissionDiagnostic(project, 'ffffffff-not-a-real-mission')).rejects.toThrow(
+      /ffffffff-not-a-real-mission/,
     );
   });
 });

@@ -20,6 +20,9 @@ import {
   buildMissionDoneLeafIndex, findDuplicateDoneLeaf, missionOfEpic,
   type DoneLeafEntry, type DuplicateLeafMatch,
 } from '../services/leaf-dup-guard.js';
+import { runQuarantinedSpec } from '../services/quarantine-runner.js';
+import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } from '../services/finding-store.js';
+import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -77,12 +80,23 @@ export class DuplicateOfDoneLeafError extends Error {
   }
 }
 
+/** Thrown by fileExploreRequest when the oracle is empty or whitespace,
+ *  before any bucket or leaf rows are written. */
+export class ExploreOracleRefusedError extends Error {
+  readonly code = 'explore-oracle-refused';
+  constructor(refusal: string) {
+    super(`file_explore: ${refusal}`);
+    this.name = 'ExploreOracleRefusedError';
+  }
+}
+
 /** Returns `err.code` for any typed workgraph error, else undefined. */
 export function workgraphErrorCode(err: unknown): string | undefined {
   if (
     err instanceof MissingServesCriterionError
     || err instanceof MissingTargetProjectError
     || err instanceof DuplicateOfDoneLeafError
+    || err instanceof ExploreOracleRefusedError
   ) {
     return err.code;
   }
@@ -369,6 +383,133 @@ export async function fileToBucketLeaf(
   return leaf;
 }
 
+export interface FileFindingOpts {
+  violatedClaim: string;
+  repro: string;
+  implicatedFiles?: string[];
+  ruledOut?: string[];
+  surface?: string;
+  title?: string;
+}
+
+/**
+ * File a reproducible finding (a red quarantined spec) as a leaf under the Bugfix bucket epic.
+ * Uses runQuarantinedSpec as a behavioural admission gate that must pass BEFORE either write.
+ *
+ * Gate order (mirrors runQuarantinedSpec's short-circuit result shape):
+ * 1. repro is required (non-empty string)
+ * 2. repro must have a __quarantine__ segment (quarantined check)
+ * 3. repro must be committed to git (committed check)
+ * 4. repro must run RED (red check)
+ *
+ * If failureIdentity is non-null and matches a prior finding, bumps its recurrence count
+ * and returns the existing leaf/finding without writing new rows. Otherwise, after all
+ * four gates pass: create the leaf under 'bugfix' bucket and record the finding.
+ * Returns { leaf, finding, recurrence } where leaf is null only if the prior finding's
+ * todo row was since removed.
+ */
+export async function fileFindingLeaf(
+  project: string,
+  session: string,
+  opts: FileFindingOpts,
+): Promise<{ leaf: Todo | null; finding: Finding; recurrence: boolean }> {
+  // Gate 1: repro is required
+  if (!opts.repro?.trim()) {
+    throw new Error('fileFindingLeaf: repro is required');
+  }
+
+  // Gate 2-4: Run the quarantined spec
+  const result = await runQuarantinedSpec(project, opts.repro);
+
+  // Gate 2: Check if quarantined
+  if (!result.quarantined) {
+    throw new Error(
+      `fileFindingLeaf: repro has no __quarantine__ segment — ${opts.repro} is not a quarantined spec file`,
+    );
+  }
+
+  // Gate 3: Check if committed
+  if (!result.committed) {
+    throw new Error(
+      `fileFindingLeaf: repro is not committed to HEAD — ${opts.repro} must be checked into git before filing a finding`,
+    );
+  }
+
+  // Gate 4: Check if red
+  if (!result.red) {
+    throw new Error(
+      'fileFindingLeaf: repro runs GREEN — not a reproducible finding',
+    );
+  }
+
+  // All gates passed. Check for recurrence: if failureIdentity is non-null and matches
+  // a prior finding, bump its recurrence count and return early without creating rows.
+  if (result.failureIdentity) {
+    const priors = await findByFailureIdentity(project, result.failureIdentity);
+    if (priors.length > 0) {
+      const prior = priors[0]; // Most recent (ordered by createdAt DESC, rowid DESC)
+      const now = new Date().toISOString();
+      const bumped = await bumpRecurrence(project, prior.id, now);
+      const leaf = getTodo(project, bumped.todoId) ?? null;
+      return { leaf, finding: bumped, recurrence: true };
+    }
+  }
+
+  // No prior match: create the leaf under 'bugfix' bucket
+  const parentId = await ensureBucket(project, 'bugfix');
+  const leaf = await addSessionTodo(project, session, opts.title ?? opts.violatedClaim.slice(0, 120), undefined, {
+    kind: 'leaf',
+    parentId,
+    description: opts.violatedClaim,
+    status: 'backlog',
+  });
+
+  // Record the finding in the findings store
+  const finding = await recordFinding(project, {
+    todoId: leaf.id,
+    violatedClaim: opts.violatedClaim,
+    implicatedFiles: opts.implicatedFiles,
+    ruledOut: opts.ruledOut,
+    reproPath: opts.repro,
+    failureIdentity: result.failureIdentity,
+    surface: opts.surface,
+  });
+
+  return { leaf, finding, recurrence: false };
+}
+
+export interface FileExploreOpts {
+  scope: string;
+  target: string;
+  oracle: string;
+  not?: string;
+  reach?: string;
+  title?: string;
+  description?: string;
+  status?: Extract<TodoStatus, 'backlog' | 'planned'>;
+}
+
+export async function fileExploreRequest(
+  project: string,
+  session: string,
+  opts: FileExploreOpts,
+): Promise<{ leaf: Todo; warnings: ExploreVacuityWarning[] }> {
+  const { refusal, warnings } = validateExploreRequest({ oracle: opts.oracle, scope: opts.scope, target: opts.target });
+  if (refusal !== null) throw new ExploreOracleRefusedError(refusal);
+
+  const parentId = await ensureBucket(project, 'explore');
+  const leaf = await addSessionTodo(project, session, opts.title ?? opts.oracle, undefined, {
+    kind: 'leaf',
+    parentId,
+    type: 'explore',
+    description: opts.description,
+    status: opts.status ?? 'backlog',
+    exploreSpec: { scope: opts.scope, target: opts.target, oracle: opts.oracle, not: opts.not ?? null, reach: opts.reach ?? null },
+  });
+
+  return { leaf, warnings };
+}
+
 // ============= Tool definitions =============
 
 export const WORKGRAPH_TOOL_DEFS = [
@@ -394,7 +535,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'add_leaves',
     description:
-      "The SOLE public leaf-creation verb — bulk-add leaf todos under an existing epic (not a bucket, not a mission). `leaves` entries may reference EARLIER entries in the same batch via dependsOn:['$0','$1',...] (0-indexed positional refs), or existing todo ids for cross-epic dependencies. Pass status:'ready' on an entry to approve it at creation (skips the planned→ready promotion step). ENFORCED DUP-CHECK: filing a leaf whose title matches an already-DONE leaf (accepted, or under a landed epic) in the SAME mission is refused with error code `duplicate-of-done-leaf`, naming the prior leaf and its epic — accept the criterion as served or re-scope, or pass allowDuplicate:true on that entry for a deliberate re-do.",
+      "The SOLE public leaf-creation verb — bulk-add leaf todos under an existing epic (not a bucket, not a mission). `leaves` entries may reference EARLIER entries in the same batch via dependsOn:['$0','$1',...] (0-indexed positional refs), or existing todo ids for cross-epic dependencies. Pass status:'ready' on an entry to approve it at creation (skips the planned→ready promotion step). WITHOUT it a leaf is created UNAPPROVED and stays that way — it is never auto-promoted, so it sits unclaimable indefinitely while planner-created siblings in the same epic run. That is deliberate (a hand-filed leaf should be approved on purpose), but it means a watcher intervention filed without status:'ready' is silently inert. ENFORCED DUP-CHECK: filing a leaf whose title matches an already-DONE leaf (accepted, or under a landed epic) in the SAME mission is refused with error code `duplicate-of-done-leaf`, naming the prior leaf and its epic — accept the criterion as served or re-scope, or pass allowDuplicate:true on that entry for a deliberate re-do.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -443,6 +584,46 @@ export const WORKGRAPH_TOOL_DEFS = [
         link: { type: 'object', properties: { blueprintId: { type: 'string' } } },
       },
       required: ['project', 'session', 'title'],
+    },
+  },
+  {
+    name: 'file_finding',
+    description:
+      "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green. A second filing against the same failureIdentity does not create a new leaf or finding row — it bumps recurrenceCount on the existing finding and returns the existing leaf with recurrence:true in the response.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        violatedClaim: { type: 'string' },
+        repro: { type: 'string', description: 'Path to a committed quarantined spec file (must contain __quarantine__ in the path and be red at HEAD).' },
+        implicatedFiles: { type: 'array', items: { type: 'string' }, description: 'Files involved in the failing test.' },
+        ruledOut: { type: 'array', items: { type: 'string' }, description: 'Files checked but found not to be the cause.' },
+        surface: { type: 'string', description: 'Where the failure manifests (e.g., "ui", "backend", "integration").' },
+        title: { type: 'string', description: 'Leaf title (defaults to first 120 chars of violatedClaim).' },
+      },
+      required: ['project', 'session', 'violatedClaim', 'repro'],
+    },
+  },
+  {
+    name: 'file_explore',
+    description:
+      "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        scope: { type: 'string' },
+        target: { type: 'string' },
+        oracle: { type: 'string' },
+        not: { type: 'string' },
+        reach: { type: 'string' },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        status: { type: 'string', enum: ['backlog', 'planned'] },
+      },
+      required: ['project', 'session', 'scope', 'target', 'oracle'],
     },
   },
   {
@@ -527,6 +708,34 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [created])[0] }, null, 2);
+    }
+    case 'file_finding': {
+      const { project, session, violatedClaim, repro } = args as { project: string; session: string; violatedClaim: string; repro: string };
+      if (!project || !session || violatedClaim === undefined || repro === undefined) throw new Error('Missing required: project, session, violatedClaim, repro');
+      const { leaf, finding, recurrence } = await fileFindingLeaf(project, session, {
+        violatedClaim,
+        repro,
+        implicatedFiles: args.implicatedFiles,
+        ruledOut: args.ruledOut,
+        surface: args.surface,
+        title: args.title,
+      });
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: leaf ? deriveTodoViews(project, [leaf])[0] : null, finding, recurrence }, null, 2);
+    }
+    case 'file_explore': {
+      const { project, session, scope, target, oracle } = args as { project: string; session: string; scope: string; target: string; oracle: string };
+      if (!project || !session || !scope || !target || !oracle) throw new Error('Missing required: project, session, scope, target, oracle');
+      const { leaf, warnings } = await withWorkgraphErrorCode(() => fileExploreRequest(project, session, {
+        scope, target, oracle,
+        not: args.not,
+        reach: args.reach,
+        title: args.title,
+        description: args.description,
+        status: args.status,
+      }));
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
     }
     case 'inspect_workgraph': {
       const { project, epicId } = args as { project: string; epicId?: string };

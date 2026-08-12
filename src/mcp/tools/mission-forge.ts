@@ -44,7 +44,8 @@ import {
   listDecisionRecords,
   type DecisionRecord,
 } from '../../services/decision-record-store.js';
-import { writeMissionDigest } from '../../services/mission-digest.js';
+import { writeMissionDigest, readMissionDigest, formatConsumedFindingsSection } from '../../services/mission-digest.js';
+import { getFindingByTodoId } from '../../services/finding-store.js';
 import { stripLabel } from '../../services/todo-kind.js';
 import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
 import { consumeBucketItems } from '../../services/bucket-consumption.js';
@@ -213,15 +214,23 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   }
 
   // 4. Orientation digest → .collab/mission-digests/<missionId>.md (payload A). Curated text,
-  //    written verbatim.
+  //    written verbatim. Compose with findings section from consumed bucket items.
+  const consumedBucketItems = await consumeBucketItems(project, input.consumesTodoIds ?? [], { id: missionId, kind: 'mission' });
+
   let digestWritten = false;
-  const digest = input.digest?.trim();
-  if (digest) {
-    writeMissionDigest(project, missionId, digest);
+  const findings = [];
+  for (const id of consumedBucketItems.consumed) {
+    const f = await getFindingByTodoId(project, id);
+    if (f) findings.push(f);
+  }
+  const baseDigest = input.digest?.trim()
+    || (!input.digest && input.intoMissionId ? readMissionDigest(project, missionId) ?? '' : '');
+  const findingsSection = formatConsumedFindingsSection(findings);
+  const composed = [baseDigest, findingsSection].filter((s) => s && s.length > 0).join('\n\n');
+  if (composed) {
+    writeMissionDigest(project, missionId, composed);
     digestWritten = true;
   }
-
-  const consumedBucketItems = await consumeBucketItems(project, input.consumesTodoIds ?? [], { id: missionId, kind: 'mission' });
 
   if (input.intoMissionId) setMissionForgeState(project, missionId, null);
 

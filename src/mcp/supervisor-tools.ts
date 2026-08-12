@@ -65,9 +65,9 @@ export const SUPERVISOR_TOOL_DEFS = [
       { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
       { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: { supervisorEpoch: { type: 'number', description: 'Ownership epoch; a superseded supervisor is rejected.' } } } },
       { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
-      { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'escalation_list', description: 'List open escalations with optional project, kind, and limit filters. Returns a summary shape by default (id, kind, todoId, project, createdAt, recurrenceCount, excerpt) — use escalation_get for the full untruncated text.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Filter to escalations for a specific project.' }, kind: { type: 'string', description: 'Filter to a specific escalation kind.' }, limit: { type: 'number', description: 'Limit the number of results.' }, full: { type: 'boolean', description: 'Return the full untruncated row instead of the summary shape.' } } } },
       { name: 'escalation_history', description: "Read-only escalation history — OPEN and RESOLVED escalations with how each was triaged and resolved (escalation_list shows OPEN only). The store is GLOBAL, so an unfiltered call spans all projects and defaults to the recent-N newest-first. FILTERS (all optional): epicId (resolves escalation.todoId → parentId chain → [EPIC] ancestor), project, todoId, session, status, kind, routedTo ('steward'=ai-resolved | 'human'=escalated-to-human), since/until (createdAt ms range), limit (default 50). PER-ROW: kind, status, createdAt/resolvedAt, timeToResolutionMs, routedTo, stewardAttempts, suggestedAction (Grok bucket+confidence+rationale), the human decision (optionId/note/decidedBy), resolutionActor (decider handle | 'daemon-auto'), recurrenceCount (how many escalations share project+session+questionText). With epicId, folds in that epic's decision records. summary:true returns aggregate counts (auto-resolved vs escalated-to-human), avg stewardAttempts, median timeToResolution, grouped by epic/project — answers 'is drive-level Grok triage resolving escalations or just bouncing them to the human?'.", inputSchema: { type: 'object', properties: { epicId: { type: 'string' }, project: { type: 'string' }, todoId: { type: 'string' }, session: { type: 'string' }, status: { type: 'string' }, kind: { type: 'string' }, routedTo: { type: 'string', enum: ['steward', 'human'] }, since: { type: 'number', description: 'Lower bound on createdAt (ms epoch).' }, until: { type: 'number', description: 'Upper bound on createdAt (ms epoch).' }, limit: { type: 'number', description: 'Recent-N cap, newest-first (default 50).' }, summary: { type: 'boolean', description: 'Return the aggregate breakdown instead of rows.' } } } },
-      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is "acknowledged", routes to acknowledgeEscalation instead of resolveEscalation.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, note: { type: 'string', description: 'Free-text resolution note/prose — put explanatory text here, not in status.' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
+      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status. Canonical statuses: open, acknowledged, resolved, stale, decided, superseded, obsolete, linear — put any explanatory prose in note, not status. When status is "acknowledged", routes to acknowledgeEscalation instead of resolveEscalation. When optionId is present, routes through the structured-decision path (decideEscalation) instead.', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Full escalation id or leading-8-char short id (ambiguous/unknown prefixes are refused).' }, status: { type: 'string' }, note: { type: 'string', description: 'Free-text resolution note/prose — put explanatory text here, not in status.' }, optionId: { type: 'string', description: 'When present, resolve via the structured-decision path (decideEscalation) instead of the status/note path; refused if the card does not offer this option.' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, audience: { type: 'string', enum: ['human', 'internal'], description: "Who must act on this escalation: 'human' if a person needs to clear it, 'internal' if it's daemon/conductor self-talk nothing human-facing consumes." }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch. Workers escalating omit this; a superseded supervisor that passes its stale epoch is rejected (superseded).' } }, required: ['project', 'session', 'kind', 'questionText', 'audience'] } },
       { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
       { name: 'supervisor_next_decision', description: 'On-demand supervisor LLM poll: return the oldest PENDING ambiguous-stop decision request (id, workerSession, signal, snapshot) the watchdog daemon enqueued, or null when the queue is empty. Read the snapshot, JUDGE, then call supervisor_resolve_decision. The LLM never loops or acts — it only judges; the daemon acts on the verdict.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional project scope; omit for all watched projects.' } } } },
@@ -85,6 +85,7 @@ export const SUPERVISOR_TOOL_DEFS = [
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       { name: 'set_node_profile_override', description: 'Set (or clear, by passing model/effort/provider all null) a per-project, per-node-kind model/effort/provider override.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, model: { type: ['string', 'null'] }, effort: { type: ['string', 'null'] }, provider: { type: ['string', 'null'] } }, required: ['project', 'kind'] } },
       { name: 'get_bridge_snapshot', description: 'Read-only aggregate snapshot for the Bridge dashboard: projects, todos, missions, openEscalations, coverage, summaries. One call replaces the per-source fan-out.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, view: { type: 'string', enum: ['full', 'core'] }, serverIds: { type: 'array', items: { type: 'string' } }, pagination: { type: 'object', properties: { todosLimit: { type: 'number' }, missionsLimit: { type: 'number' }, missionsCursor: { type: 'string' } } } }, required: ['project'] } },
+      { name: 'escalation_get', description: 'Full-text read of ONE escalation by id (full or short id), for ANY status (open/acknowledged/decided/resolved/stale/superseded/obsolete/linear) — escalation_list only returns status=open, and escalation_history\'s row shape omits the untruncated questionText. Returns the complete escalation (questionText, options[], recommended, ui, audience, status, ...) plus its recorded decision (optionId/note/decidedBy), or { found: false, id } if no match.', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
 ];
 
 export async function handleSupervisorTool(name: string, args: any): Promise<string | null> {
@@ -150,7 +151,24 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             return JSON.stringify(await lastAssistantTurn(claudeSessionId), null, 2);
           }
           case 'escalation_list': {
-            return JSON.stringify(supervisorStore.listOpenEscalations(), null, 2);
+            const { project, kind, limit, full } = args as { project?: string; kind?: string; limit?: number; full?: boolean };
+            const rows = supervisorStore.listOpenEscalations({ project, kind, limit });
+            if (full) {
+              return JSON.stringify(rows, null, 2);
+            }
+            // Return summary shape: {id, kind, todoId, project, createdAt, recurrenceCount, excerpt}
+            const { computeRecurrence } = await import('../services/escalation-history.js');
+            const recurrenceMap = computeRecurrence(rows);
+            const summary = rows.map((esc) => ({
+              id: esc.id,
+              kind: esc.kind,
+              todoId: esc.todoId,
+              project: esc.project,
+              createdAt: esc.createdAt,
+              recurrenceCount: recurrenceMap.get(`${esc.project}|${esc.session}|${esc.questionText}`) ?? esc.recurrenceCount,
+              excerpt: esc.questionText.length > 200 ? esc.questionText.slice(0, 200) + '…' : esc.questionText,
+            }));
+            return JSON.stringify(summary, null, 2);
           }
           case 'escalation_history': {
             const { getEscalationHistory } = await import('../services/escalation-history.js');
@@ -162,16 +180,35 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             return JSON.stringify(getEscalationHistory(f), null, 2);
           }
           case 'escalation_resolve': {
-            const { id, status, note, supervisorEpoch } = args as { id: string; status: string; note?: string; supervisorEpoch?: number };
+            const { id, status, note, optionId, supervisorEpoch } = args as { id: string; status: string; note?: string; optionId?: string; supervisorEpoch?: number };
             if (!id || !status) throw new Error('Missing required: id, status');
             { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
-            if (status === 'acknowledged') {
-              supervisorStore.acknowledgeEscalation(id, 'human');
-            } else {
-              supervisorStore.resolveEscalation(id, status, undefined, note);
+            let fullId: string;
+            try {
+              fullId = supervisorStore.resolveFullEscalationId(id);
+            } catch (e) {
+              const errorMsg = e instanceof Error ? e.message : String(e);
+              if (errorMsg.startsWith('ambiguous escalation short id')) {
+                // Extract the list of candidate ids from the error message
+                return JSON.stringify({ error: errorMsg }, null, 2);
+              }
+              return JSON.stringify({ error: errorMsg }, null, 2);
             }
-            const updated = supervisorStore.getEscalation(id);
-            return JSON.stringify({ success: true, id, status: updated?.status ?? status, note: updated?.resolutionNote ?? null }, null, 2);
+            if (optionId !== undefined) {
+              const { decideEscalation } = await import('../services/escalation-decide.js');
+              const result = decideEscalation(fullId, { optionId, note: note ?? null, decidedBy: 'human' });
+              if (result.ok === false) {
+                return JSON.stringify(result, null, 2);
+              }
+              return JSON.stringify({ success: true, id: result.escalation.id, status: 'decided', optionId: result.decision.optionId, note: result.decision.note ?? null }, null, 2);
+            }
+            if (status === 'acknowledged') {
+              supervisorStore.acknowledgeEscalation(fullId, 'human');
+            } else {
+              supervisorStore.resolveEscalation(fullId, status, undefined, note);
+            }
+            const updated = supervisorStore.getEscalation(fullId);
+            return JSON.stringify({ success: true, id: fullId, status: updated?.status ?? status, note: updated?.resolutionNote ?? null }, null, 2);
           }
           case 'escalation_create': {
             const { project, session, kind, questionText, audience, todoId, options, recommended, ui, operatorGated, supervisorEpoch } = args as { project: string; session: string; kind: string; questionText: string; audience: 'human' | 'internal'; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown; operatorGated?: boolean; supervisorEpoch?: number };
@@ -426,6 +463,18 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             const { buildBridgeSnapshot } = await import('../services/bridge-snapshot.js');
             const snapshot = await buildBridgeSnapshot(project, { view, serverIds, pagination });
             return JSON.stringify(snapshot, null, 2);
+          }
+          case 'escalation_get': {
+            const { id } = args as { id?: string };
+            if (!id) throw new Error('Missing required: id');
+            let fullId = id;
+            let esc = supervisorStore.getEscalation(id);
+            if (!esc) {
+              const resolved = supervisorStore.resolveEscalationShortId(id);
+              if (resolved) { fullId = resolved; esc = supervisorStore.getEscalation(resolved); }
+            }
+            if (!esc) return JSON.stringify({ found: false, id }, null, 2);
+            return JSON.stringify({ ...esc, decision: supervisorStore.getEscalationDecision(fullId) }, null, 2);
           }
           default:
             return null;

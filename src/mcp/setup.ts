@@ -43,7 +43,7 @@ import {
   unregisterProjectSchema,
 } from './tools/projects.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
-import { projectRegistry } from '../services/project-registry.js';
+import { projectRegistry, resolveProjectArg } from '../services/project-registry.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
@@ -70,7 +70,7 @@ import { EPIC_TOOL_DEFS, handleEpicTool } from './epic-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from './decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from './system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from './session-tools.js';
-import { DESKTOP_TOOL_DEFS, handleDesktopTool } from './desktop-tools.js';
+import { handleDesktopTool, ensureDesktopBridge } from './desktop-tools.js';
 // BUG 7fb16985: orchestrator_status and system_status MUST derive running/level/
 // projects from ONE source of truth. system_status reaches getOrchestratorHealth
 // via system-status.js → './orchestrator-live.js'; the daemon lifecycle in
@@ -108,6 +108,7 @@ import {
   completeLinkedTodosSchema,
   assignSessionTodoSchema,
 } from './tools/session-todos.js';
+import { buildAdvertisedTools } from './advertised-tools.js';
 
 
 // Configuration (API_BASE_URL, buildUrl, asJson, AnyJson, sessionParamsDesc
@@ -165,7 +166,7 @@ export function createElicitationRequest(
 export async function setupMCPServer(): Promise<Server> {
   const server = new Server(
     { name: 'mermaid-diagram-server', version: SERVER_VERSION },
-    { capabilities: { tools: {}, resources: {} } }
+    { capabilities: { tools: { listChanged: true }, resources: {} } }
   );
 
   // Session params description (shared across tools)
@@ -192,77 +193,20 @@ export async function setupMCPServer(): Promise<Server> {
 
   // Tools list
   // Every advertised tool def is now co-located with its handler in a domain
-  // module (*_TOOL_DEFS). They are spread here at their ordinal positions; the
-  // only literals left are request_user_input and submit_reconcile_result, which
-  // have no owning module (their handlers live inline in this file). The order
-  // below is pinned byte-and-order identical by list-tools-snapshot.test.ts.
+  // module (*_TOOL_DEFS). The order is defined in advertised-tools.ts/ADVERTISED_ORDER
+  // and resolved by buildAdvertisedTools(), pinned byte-and-order identical by
+  // list-tools-snapshot.test.ts.
   // NOTE: add_session_todo is intentionally NOT advertised (a deprecated
   // migration-guidance stub kept in SESSION_TOOL_DEFS only for its handler/error
-  // path — see tool-defs-advertised-parity.test.ts DELIBERATELY_UNADVERTISED),
-  // so SESSION_TOOL_DEFS is spread as slices/indices that skip index 32.
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      ...SESSION_TOOL_DEFS.slice(0, 7),        // generate_session_name..unregister_project
-      ...DIAGRAM_TOOL_DEFS,
-      ...DOCUMENT_TOOL_DEFS,
-      ...SESSION_TOOL_DEFS.slice(7, 9),        // generate_session_summary, validate_session_links
-      ...DESIGN_TOOL_DEFS,
-      ...SESSION_TOOL_DEFS.slice(9, 12),       // render_ui, update_ui, dismiss_ui
-      {
-        name: 'request_user_input',
-        description: 'Ask the user a question and wait for their response. Returns the user-provided value.',
-        inputSchema: requestUserInputSchema,
-      },
-      ...SESSION_TOOL_DEFS.slice(12, 14),      // get_ui_response, register_claude_session
-      ...SYSTEM_TOOL_DEFS.slice(0, 2),         // check_server_health, fleet_status
-      ...SESSION_TOOL_DEFS.slice(14, 18),      // get_install_path, clear_session_artifacts, archive_session, archive_by_prefix
-      ...SESSION_TOOL_DEFS.slice(20, 22),      // consult_grok, consult_codex
-      // Browser tools (CDP via VS Code debug session)
-      ...BROWSER_TOOL_DEFS,
-      // Desktop (Electron) tools — empty when electron-agent-bridge is absent
-      ...DESKTOP_TOOL_DEFS,
-      ...SESSION_TOOL_DEFS.slice(22, 29),      // update_task_status..record_friction
-      SESSION_TOOL_DEFS[30],                   // list_friction (module order: report_dogfood before list_friction)
-      SESSION_TOOL_DEFS[29],                   // report_dogfood
-      SESSION_TOOL_DEFS[31],                   // list_session_todos
-      ...SESSION_TOOL_DEFS.slice(33, 38),      // update/toggle/remove/clear/reorder_session_todos (skips add_session_todo@32)
-      SESSION_TOOL_DEFS[39],                   // complete_linked_todos (module order: assign before complete)
-      SESSION_TOOL_DEFS[38],                   // assign_session_todo
-      ...SUPERVISOR_TOOL_DEFS.slice(0, 7),
-      ...EPIC_TOOL_DEFS.slice(0, 1),           // land_epic
-      SYSTEM_TOOL_DEFS[2],                     // deploy_self
-      ...SUPERVISOR_TOOL_DEFS.slice(7, 15),
-      ...EPIC_TOOL_DEFS.slice(1, 11),          // inbox..forward_integrate_epic
-      SYSTEM_TOOL_DEFS[3],                     // instance_topology
-      SYSTEM_TOOL_DEFS[4],                     // launch_remote_server
-      SYSTEM_TOOL_DEFS[8],                     // orchestrator_off
-      SYSTEM_TOOL_DEFS[7],                     // friction_trends
-      ...EPIC_TOOL_DEFS.slice(11, 17),         // reset_todo..create_gate
-      ...SUPERVISOR_TOOL_DEFS.slice(15, 17),   // checkpoint_ready, supervisor_clear_session
-      { name: 'submit_reconcile_result', description: 'A reconcile session reports its merged plan graph back to the waiting reconciliation request. Call this at the END of the reconcile skill with the id you were given.', inputSchema: { type: 'object', properties: { reconcileId: { type: 'string' }, mergedGraph: { type: 'array', description: 'The merged PlanNode[] ({id, dependsOn[], parentId?, title?}).', items: { type: 'object' } }, newConstraints: { type: 'array', description: 'Optional new constraints surfaced by the merge ({title, rationale?}).', items: { type: 'object' } } }, required: ['reconcileId', 'mergedGraph'] } },
-      ...DECISION_TOOL_DEFS.slice(0, 12),       // create_decision_record..decide_requirement
-      ...SUPERVISOR_TOOL_DEFS.slice(17, 20),    // supervisor_pause, supervisor_resume, supervisor_pause_status
-      DECISION_TOOL_DEFS[12],                   // check_graph_drift
-      ...SUPERVISOR_TOOL_DEFS.slice(20, 21),    // supervisor_audit_list
-      SYSTEM_TOOL_DEFS[10],                     // orchestrator_status
-      SYSTEM_TOOL_DEFS[5],                      // system_status
-      SYSTEM_TOOL_DEFS[6],                      // daemon_status
-      ...EPIC_TOOL_DEFS.slice(17, 20),          // leaf_inspect, leaf_failures, adopt_branch_as_epic
-      SYSTEM_TOOL_DEFS[9],                      // runtime_config
-      ...SYSTEM_TOOL_DEFS.slice(11, 13),        // set_watchdog_threshold, set_context_recycle
-      ...SUPERVISOR_TOOL_DEFS.slice(21, 24),    // supervisor_watchdog_scan, set_node_profile_override, get_bridge_snapshot
-      ...MISSION_TOOL_DEFS,
-      ...WORKGRAPH_TOOL_DEFS,
-      SYSTEM_TOOL_DEFS[13],                     // context_usage
-      SYSTEM_TOOL_DEFS[14],                     // list_conductor_passes
-      SYSTEM_TOOL_DEFS[15],                     // get_job
-      ...SPREADSHEET_TOOL_DEFS,
-      ...SNIPPET_TOOL_DEFS,
-      ...EMBED_TOOL_DEFS,
-      ...IMAGE_TOOL_DEFS,
-      ...SESSION_TOOL_DEFS.slice(18, 20),       // deprecate_artifact, set_artifact_metadata
-    ],
-  }));
+  // path — see tool-defs-advertised-parity.test.ts DELIBERATELY_UNADVERTISED).
+  // The desktop bridge is loaded lazily (af3ab792 replaced the module's top-level
+  // await with ensureDesktopBridge()), so nothing populated the DESKTOP defs before
+  // a list. Ensure it here: without this the 8 desktop_* tools are declared but never
+  // advertised, so no client can ever call one.
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    await ensureDesktopBridge();
+    return buildAdvertisedTools();
+  });
 
   // Tool call handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -289,6 +233,17 @@ export async function setupMCPServer(): Promise<Server> {
           ruiArgs,
         );
         return res as any;
+      }
+
+      // Resolve `project` ONCE, here at the boundary, before any handler sees it. A caller may
+      // pass a path OR a registered project NAME; a name used to fall through to path
+      // resolution against the server's cwd and address a database that did not exist, which
+      // SQLite creates empty — so list_missions answered {count: 0} for a project holding a
+      // live mission. resolveProjectArg takes a real path, resolves a registered name, and
+      // otherwise THROWS naming what it tried. Never a silent empty store.
+      if (args && typeof (args as { project?: unknown }).project === 'string') {
+        (args as { project: string }).project =
+          resolveProjectArg((args as { project: string }).project);
       }
 
       const result = await (async () => {

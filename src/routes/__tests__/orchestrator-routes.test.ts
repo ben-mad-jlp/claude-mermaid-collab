@@ -211,7 +211,7 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(Array.isArray(body.groups)).toBe(true);
     // The retired 'waves' group and the non-configurable 'zen' group were removed; their kinds
     // (research/wimplement/verify/fix + summary) are MATRIX_HIDDEN_NODE_KINDS and belong to no group.
-    expect(body.groups.length).toBe(3);
+    expect(body.groups.length).toBe(4);
     const expectedGrouped = new Set(
       [...LEAF_NODE_KINDS, ...ORCHESTRATION_NODE_KINDS].filter((k) => !(MATRIX_HIDDEN_NODE_KINDS as string[]).includes(k)),
     );

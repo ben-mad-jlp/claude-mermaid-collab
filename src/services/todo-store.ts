@@ -1,7 +1,7 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick, fireConductorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
-import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel } from './todo-kind';
+import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel, isLand } from './todo-kind';
 import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
@@ -16,6 +16,8 @@ import { ensureBucket, isBucketEpic, reviveBucketRow, type BucketType } from './
 import { setOverride as setCorpusOverride } from './replay-corpus-store';
 import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
+import { storePath, canonicalProjectRoot, canonicalProjectRootLoose, hasProjectWorkGraph } from './store-paths';
+import { openCollabDb, closeCollabDb } from './collab-db';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -36,6 +38,16 @@ export type TodoStatus = 'backlog' | 'planned' | 'todo' | 'ready' | 'in_progress
 export interface TodoLink {
   blueprintId: string;
   taskId?: string;
+}
+
+/** Typed spec for an `explore` bucket leaf: what to explore, the falsifiable check that
+ *  decides pass/fail, and optional negative-space / reachability notes. */
+export interface ExploreSpec {
+  scope: string;
+  target: string;
+  oracle: string;
+  not?: string | null;
+  reach?: string | null;
 }
 
 /** De-conflate refactor (S1): the in-progress claim collapsed to ONE value.
@@ -219,6 +231,9 @@ export interface Todo {
    *  every fixture to add it and re-redded master repeatedly (the non-additive migration
    *  churn). Read-tolerant per the mission's own NULL-tolerant constraint. */
   nickname?: string;
+  /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach).
+   *  OPTIONAL — pre-migration rows / non-explore leaves read null. */
+  exploreSpec?: ExploreSpec | null;
 }
 
 export interface TodoFilter {
@@ -300,6 +315,8 @@ export interface CreateTodoInput {
    *  Explicit opt-in (0/absent = normal hold). */
   baseRepair?: number;
   approvedBy?: string | null;
+  /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach). */
+  exploreSpec?: ExploreSpec | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -585,6 +602,7 @@ interface TodoRow {
   reservedReason: string | null;
   archivedAt: number | null;
   nickname: string | null;
+  exploreSpec: string | null;
 }
 
 const DDL = `
@@ -640,20 +658,30 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
-const dbCache = new Map<string, Database>();
+/**
+ * Roots whose one-shot column/backfill block has already run in this process. The HANDLE cache
+ * lives in collab-db (it owns the file, the import and the pragma); duplicating it here would
+ * give one file two owners and let `_closeProject` close a handle collab-db still hands out.
+ */
+const prepared = new Set<string>();
 
 export function openDb(project: string): Database {
   // A worker whose cwd is its isolation worktree (<repo>/.collab/agent-sessions/...)
-  // must resolve to the TRACKING repo's todos.db, never a worktree-local one — else
+  // must resolve to the TRACKING repo's database, never a worktree-local one — else
   // it opens an empty/absent db (silent 'no such table', or SQLITE_IOERR creating it
   // on a full disk) and the Coordinator's rows are invisible. See decision 20106f26.
-  project = trackingProjectRoot(project);
-  const cached = dbCache.get(project);
-  if (cached) return cached;
-  const path = join(project, '.collab', 'todos.db');
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
-  db.exec('PRAGMA journal_mode = WAL');
+  // canonicalProjectRoot is the SAME function storePath uses, so the key can never disagree
+  // with the file it names.
+  project = canonicalProjectRoot(project);
+  // The consolidated database. On a machine meeting this code for the first time, this call
+  // also performs the one-time move out of todos.db + mission.db and turns foreign keys on.
+  const db = openCollabDb(project);
+  if (prepared.has(project)) return db;
+
+  // Everything below is legacy shape-repair, kept because a database that predates the
+  // consolidated schema (or one restored from a backup) can still be short a column. Against a
+  // migrated database every statement here is a no-op: the schema already declares the shape,
+  // and `user_version` was carried across by the import so the gated backfills stay spent.
   db.exec(DDL);
   addColumnIfMissing(db, 'todos', 'sessionName', 'sessionName TEXT');
   addColumnIfMissing(db, 'todos', 'executedBySession', 'executedBySession TEXT');
@@ -753,6 +781,9 @@ export function openDb(project: string): Database {
   // Display nickname (additive, nullable): a deterministic slug derived from the title.
   // Pre-migration rows read NULL and are filled once by backfillNicknameV10 below.
   addColumnIfMissing(db, 'todos', 'nickname', 'nickname TEXT');
+  // Explore bucket typed spec (additive, nullable): raw JSON text, same shape as `link`.
+  // Pre-migration rows read NULL — no backfill needed.
+  addColumnIfMissing(db, 'todos', 'exploreSpec', 'exploreSpec TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
@@ -826,19 +857,23 @@ export function openDb(project: string): Database {
     backfillNicknameV10(db);
     db.exec(`PRAGMA user_version = ${TODO_NICKNAME_V10}`);
   }
-  dbCache.set(project, db);
+  if (ver < TODO_EXPLORE_SPEC_V11) {
+    db.exec(`PRAGMA user_version = ${TODO_EXPLORE_SPEC_V11}`);
+  }
+  prepared.add(project);
   return db;
 }
 
 export interface KindMigrationResult { project: string; ok: boolean; error?: string }
 
 /** Eagerly run the openDb migration block (incl. the stage-C `kind` backfill) for ONE
- *  project. Returns false when the project has no `.collab/todos.db` — we never CREATE
- *  a DB here (openDb would), because a project with no DB has no todos. */
+ *  project. Returns false when the project has no work-graph on disk — we never CREATE
+ *  a DB here (openDb would), because a project with no DB has no todos. Both spellings
+ *  count: a migrated project has collab.db, an unmigrated one still has todos.db. */
 export function migrateProjectKinds(project: string): boolean {
   const root = trackingProjectRoot(project);
   if (isTransientProjectPath(project)) return false;
-  if (!existsSync(join(root, '.collab', 'todos.db'))) return false;
+  if (!hasProjectWorkGraph(root)) return false;
   openDb(root);   // reuse — never duplicate the migration SQL
   return true;
 }
@@ -891,6 +926,9 @@ export const TODO_TITLE_PREFIX_V9 = 9;
 
 /** user_version marker for the one-shot display-nickname backfill. */
 export const TODO_NICKNAME_V10 = 10;
+
+/** user_version marker for the exploreSpec column add (nullable, no backfill). */
+export const TODO_EXPLORE_SPEC_V11 = 11;
 
 /**
  * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
@@ -1255,12 +1293,13 @@ export function backfillParentReleaseV2(db: Database): void {
 
 /** For tests: drop the cached handle so a fresh dir opens a fresh DB. */
 export function _closeProject(project: string): void {
-  project = trackingProjectRoot(project);
-  const db = dbCache.get(project);
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-    dbCache.delete(project);
-  }
+  // MUST canonicalise the same way openDb does, or eviction silently misses the entry it was
+  // meant to drop and the caller goes on using the stale handle. LOOSE, because teardown runs
+  // against projects that may not exist yet (or any more) and cleanup must never throw.
+  // LOOSE canonicalisation, because teardown runs against projects that may not exist yet (or
+  // any more) and cleanup must never throw. closeCollabDb keys the same way.
+  prepared.delete(canonicalProjectRootLoose(project));
+  closeCollabDb(project);
 }
 
 // Per-project serialized write lock (mirrors session-todos.ts withLock, keyed on project).
@@ -1415,6 +1454,87 @@ export function writeClaim(db: Database, id: string, claim: ClaimStruct | null):
  *  (behavior-identical to a separate writeClaim(db,id,null), one fewer write). */
 const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, claim=NULL';
 
+/**
+ * Land-workgraph-guard writer: restore mutable leaf state (status, decisions, claim)
+ * after a land stage fails. Bypasses updateTodo's translation seam intentionally —
+ * a guard-only writer that sets raw columns directly to restore pre-land state,
+ * never interpreting a status write as a decision.
+ *
+ * Callers (land-workgraph-guard.ts) own the logic of which columns to restore and
+ * the decision to restore; this writer merely issues an atomic UPDATE over exactly
+ * the columns present in `cols`.
+ *
+ * Issues a single UPDATE under the project write-lock.
+ * Do NOT make this a general write path.
+ */
+export async function restoreTodoStoredState(
+  project: string,
+  id: string,
+  cols: Partial<{
+    status: TodoStatus;
+    acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
+    approvedAt: string | null;
+    heldAt: string | null;
+    claim: ClaimStruct | null;
+    claimedBy: string | null;
+    claimToken: string | null;
+    claimedAt: string | null;
+    completedAt: string | null;
+  }>,
+): Promise<void> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    const sets: string[] = [];
+    const vals: (unknown)[] = [];
+
+    // Build the SET clause incrementally from present columns.
+    if ('status' in cols) {
+      sets.push('status=?');
+      vals.push(cols.status);
+    }
+    if ('acceptanceStatus' in cols) {
+      sets.push('acceptanceStatus=?');
+      vals.push(cols.acceptanceStatus);
+    }
+    if ('approvedAt' in cols) {
+      sets.push('approvedAt=?');
+      vals.push(cols.approvedAt);
+    }
+    if ('heldAt' in cols) {
+      sets.push('heldAt=?');
+      vals.push(cols.heldAt);
+    }
+    if ('claimedBy' in cols) {
+      sets.push('claimedBy=?');
+      vals.push(cols.claimedBy);
+    }
+    if ('claimToken' in cols) {
+      sets.push('claimToken=?');
+      vals.push(cols.claimToken);
+    }
+    if ('claimedAt' in cols) {
+      sets.push('claimedAt=?');
+      vals.push(cols.claimedAt);
+    }
+    if ('completedAt' in cols) {
+      sets.push('completedAt=?');
+      vals.push(cols.completedAt);
+    }
+    // Handle claim: JSON-encode if present, NULL if explicitly cleared.
+    if ('claim' in cols) {
+      sets.push('claim=?');
+      vals.push(cols.claim == null ? null : JSON.stringify(cols.claim));
+    }
+
+    // No columns to restore — return early.
+    if (sets.length === 0) return;
+
+    // Issue the atomic UPDATE with the constructed SET clause.
+    const sql = `UPDATE todos SET ${sets.join(', ')} WHERE id=?`;
+    (db.prepare(sql) as any).run(...vals, id);
+  });
+}
+
 /** The EXPLICIT container set (decision 3021daa6). Deliberately NOT "has descendants":
  *  any node that acquires a child would become a drop-bomb, and blast radius stops being
  *  legible from the node's label. */
@@ -1538,6 +1658,8 @@ function rowToTodo(row: TodoRow): Todo {
   try { declaredFiles = JSON.parse(row.declaredFiles ?? '[]'); } catch { /* default [] */ }
   let link: TodoLink | null = null;
   if (row.link) { try { link = JSON.parse(row.link); } catch { /* null */ } }
+  let exploreSpec: ExploreSpec | null = null;
+  if (row.exploreSpec) { try { exploreSpec = JSON.parse(row.exploreSpec); } catch { /* null */ } }
   return {
     id: row.id,
     ownerSession: row.ownerSession,
@@ -1599,6 +1721,7 @@ function rowToTodo(row: TodoRow): Todo {
     reservedReason: row.reservedReason ?? null,
     archivedAt: row.archivedAt ?? null,
     nickname: row.nickname ?? '',
+    exploreSpec,
   };
 }
 
@@ -1753,7 +1876,7 @@ export function todoNotFoundMessage(project: string, id: string): string {
     const root = trackingProjectRoot(candidate);
     if (root === self) continue;
     try {
-      if (!existsSync(join(root, '.collab', 'todos.db'))) continue;
+      if (!hasProjectWorkGraph(root)) continue;
       const db = openDb(root);
       if (db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) {
         return `${base} — it exists in ${root} (pass project=${root})`;
@@ -2026,8 +2149,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair, nickname)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair, nickname, exploreSpec)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -2039,7 +2162,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -3229,6 +3352,23 @@ export async function collapseSplit(project: string, leafId: string): Promise<Co
   return { leafId, droppedChildIds, alreadyCollapsed: droppedChildIds.length === 0 };
 }
 
+export function partitionLandedLeftovers(
+  children: Todo[],
+  leftover: Todo[],
+): { survivors: Todo[]; retirable: Todo[] } {
+  const survivors = leftover.filter((c) => {
+    if (c.claim != null) return false; // claim/claimedBy are kept in lockstep (todo-store.ts:51-54) — checking `claim` alone is equivalent to also checking `claimedBy`
+    if (c.status === 'done' || c.status === 'dropped') return false;
+    if (isLand(c)) return false;
+    const supersededBy = children.find((s) => s.supersedes === c.id && s.status !== 'dropped');
+    if (supersededBy != null) return false;
+    return true;
+  });
+  const survivorIds = new Set(survivors.map((c) => c.id));
+  const retirable = leftover.filter((c) => !survivorIds.has(c.id));
+  return { survivors, retirable };
+}
+
 export function sweepEpicRollups(project: string, opts: { now?: number; motionlessAfterMs?: number; landedGraceMs?: number } = {}): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
@@ -3358,28 +3498,47 @@ export function sweepEpicRollups(project: string, opts: { now?: number; motionle
             } else if (anyLive) {
               // Actively building — no flag, no drop, no epic mutation this pass.
             } else {
-              // All leftovers are moot (backlog/planned/todo/ready/blocked) — drop them and roll epic.
-              const ts = nowIso();
-              for (const leftoverChild of leftover) {
-                const fullChildId = resolveFullId(project, leftoverChild.id);
-                // Drop the leftover node itself
-                db.prepare(
-                  `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
-                ).run(ts, fullChildId);
-                // Cascade to any descendants if the leftover is itself a container
-                cascadeDropDescendants(db, fullChildId, ts);
-              }
-              settledChildIds[epic.id] = leftover.map((c) => c.id);
+              // All leftovers are moot (backlog/planned/todo/ready/blocked) — partition them.
+              // survivors: unclaimed, non-terminal, not superseded by a live sibling
+              // retirable: everything else (terminal or superseded by live sibling)
+              const { survivors, retirable } = partitionLandedLeftovers(children, leftover);
 
-              // Close the epic with the standard done+accepted update.
-              const closed = closeEpicIfChildrenSettled(project, db, epic, {
-                ts,
-                requireAccepted: true,
-                allowZeroChildren: true,
-              });
-              if (closed) {
-                rolledUp.push(epic.id);
-                closedThisPass++;
+              if (survivors.length > 0) {
+                // Unclaimed non-terminal leftovers still exist — flag and don't drop.
+                if (!flaggedSeen.has(epic.id)) {
+                  flagged.push({
+                    epicId: epic.id,
+                    reason: 'landed-needs-review',
+                    children: children.length,
+                  });
+                  flaggedSeen.add(epic.id);
+                }
+              } else {
+                // All leftovers are retirable (terminal or superseded) — drop and close.
+                const ts = nowIso();
+                for (const leftoverChild of retirable) {
+                  const fullChildId = resolveFullId(project, leftoverChild.id);
+                  // Drop the leftover node itself
+                  db.prepare(
+                    `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+                  ).run(ts, fullChildId);
+                  // Cascade to any descendants if the leftover is itself a container
+                  cascadeDropDescendants(db, fullChildId, ts);
+                }
+                if (retirable.length > 0) {
+                  settledChildIds[epic.id] = retirable.map((c) => c.id);
+                }
+
+                // Close the epic with the standard done+accepted update.
+                const closed = closeEpicIfChildrenSettled(project, db, epic, {
+                  ts,
+                  requireAccepted: true,
+                  allowZeroChildren: true,
+                });
+                if (closed) {
+                  rolledUp.push(epic.id);
+                  closedThisPass++;
+                }
               }
             }
           } else {
@@ -3591,13 +3750,34 @@ export function removeTodo(project: string, id: string): Promise<void> {
   });
 }
 
+/**
+ * Clear this session's completed todos.
+ *
+ * `todos.parentId` now cascades on delete, which turns the obvious one-shot DELETE into a
+ * data-loss bug: a DONE container in the matched set would drag its whole subtree with it —
+ * including `in_progress` children, and children owned by OTHER sessions that the WHERE clause
+ * deliberately excludes — while still reporting only the directly-matched count. So this deletes
+ * BOTTOM-UP: each pass removes only matched rows with no surviving children, and repeats until
+ * nothing more qualifies. A fully-done subtree clears completely; a container holding any child
+ * this session may not touch is left standing, with its children. Bounded by tree depth.
+ */
 export function clearCompleted(project: string, session: string): Promise<{ removed: number }> {
   return withLock(project, () => {
     const db = openDb(project);
-    const res = db
-      .prepare("DELETE FROM todos WHERE (ownerSession = ? OR assigneeSession = ?) AND status = 'done'")
-      .run(session, session);
-    return { removed: res.changes };
+    const stmt = db.prepare(
+      `DELETE FROM todos
+       WHERE (ownerSession = ? OR assigneeSession = ?) AND status = 'done'
+         AND NOT EXISTS (SELECT 1 FROM todos child WHERE child.parentId = todos.id)`,
+    );
+    let removed = 0;
+    db.transaction(() => {
+      for (;;) {
+        const res = stmt.run(session, session);
+        if (res.changes === 0) break;
+        removed += res.changes;
+      }
+    })();
+    return { removed };
   });
 }
 

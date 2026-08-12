@@ -49,7 +49,7 @@ afterAll(() => {
 
 describe('terminal-epic-no-live-children', () => {
   describe('(a) rolled to done via sweepEpicRollups', () => {
-    it('epic with landedAt + done child + planned leftover → leftover dropped, zero violations', async () => {
+    it('epic with landedAt + done child + planned leftover → leftover SURVIVES, epic stays open, zero violations', async () => {
       const project = freshProject();
       try {
         const epic = await createTodo(project, {
@@ -79,21 +79,29 @@ describe('terminal-epic-no-live-children', () => {
           .run('done', 'accepted', doneChild.id);
         _closeProject(project);
 
-        // Sweep should drop the leftover and close the epic
+        // Roll-up must NOT retire an unclaimed, non-terminal leaf: the planned leftover
+        // is unclaimed and non-terminal, so it survives and the epic stays open (flagged
+        // landed-needs-review) instead of being swept to done. See sweepEpicRollups'
+        // survivor partition in todo-store.ts.
         const result = await sweepEpicRollups(project);
 
         const updated = listTodos(project, { includeCompleted: true }).find((t) => t.id === epic.id);
-        expect(updated?.status).toBe('done');
-        expect(result.rolledUp).toContain(epic.id);
+        expect(updated?.status).not.toBe('done');
+        expect(result.rolledUp).not.toContain(epic.id);
 
-        const droppedLeftover = listTodos(project, { includeCompleted: true }).find((t) => t.id === leftoverChild.id);
-        expect(droppedLeftover?.status).toBe('dropped');
+        const survivingLeftover = listTodos(project, { includeCompleted: true }).find((t) => t.id === leftoverChild.id);
+        expect(survivingLeftover?.status).toBe('planned');
 
-        // No violations of the new kind
+        // The survivor is REPORTED, not hidden: the epic still carries a landedAt stamp, and
+        // isTerminalEpic counts that stamp as terminal, so the surviving leaf raises exactly one
+        // live-child-under-terminal-epic violation naming it. This is the same coexistence the
+        // invariant-check suite pins for a planned child of a landed epic — the leaf is held
+        // claimable AND surfaced for review, rather than being silently retired.
         const todos = listTodos(project, { includeCompleted: true });
         const violations = findViolations(todos);
         const liveChildViolations = violations.filter((v) => v.kind === 'live-child-under-terminal-epic');
-        expect(liveChildViolations).toHaveLength(0);
+        expect(liveChildViolations).toHaveLength(1);
+        expect(liveChildViolations[0]?.todoId).toBe(leftoverChild.id);
       } finally {
         _closeProject(project);
       }

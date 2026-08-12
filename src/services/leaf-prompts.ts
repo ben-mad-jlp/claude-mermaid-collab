@@ -10,6 +10,8 @@
  */
 
 import type { Todo } from './todo-store';
+import type { ExploreSpec } from './todo-store';
+import { EXPLORE_REPORT_SENTINEL, VERIFY_GATE_VERB } from './leaf-parsing';
 import type { ReviewLens } from './leaf-parsing';
 import type { OrchestrationNodeKind } from './node-kinds';
 import { ORCHESTRATION_NODE_KINDS } from './node-kinds';
@@ -22,14 +24,13 @@ export type LeafNodeKind =
   | 'blueprint' | 'implement' | 'review' // floor (unchanged)
   | 'research' | 'wimplement' | 'verify' | 'fix' // waves (P5)
   | 'driveplan' | 'driveexec' | 'report' // verify pipeline (epic f5c7fc46)
+  | 'explore' // explore shape: read-only investigation, emits a findings report
   | 'summary'; // zen mode (design-zen-mode Phase 4): session-summary model knob
 
-/** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
- *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
- *  T14 dogfoods). The execute node is constrained to the resolved verb's MCP tool so the LLM
- *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
- *  (see {@link resolveVerifyGate}); this is just the fallback verb. */
-export const VERIFY_GATE_VERB = 'build_assembly_plan';
+/** Re-exported for the existing import sites (leaf-executor imports it from here). The
+ *  constant is DEFINED in leaf-parsing — see the note there: defining it in this module
+ *  closes a value-level import cycle and TDZ-crashes at module init. */
+export { VERIFY_GATE_VERB };
 
 /** One-line description of what each node kind does — surfaced in the matrix editor. */
 export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
@@ -43,6 +44,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
   driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
   driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
   report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
+  explore: 'Explore: read-only investigation of an open question; emits a findings report.',
   summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
 };
 
@@ -52,7 +54,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
  *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
  *  ORCHESTRATION_NODE_KINDS. */
 export interface LeafNodeGroup {
-  key: 'floor' | 'verify-cad' | 'orchestration';
+  key: 'floor' | 'verify-cad' | 'orchestration' | 'explore';
   label: string;
   firesWhen: string;
   kinds: (LeafNodeKind | OrchestrationNodeKind)[];
@@ -88,6 +90,11 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
       + 'a criterion into an epic).',
     kinds: ORCHESTRATION_NODE_KINDS,
   },
+  {
+    key: 'explore', label: 'Explore', defaultCollapsed: true,
+    firesWhen: 'Only when leaf.type === explore — a read-only investigation whose deliverable is a committed report.',
+    kinds: ['explore'],
+  },
 ];
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
@@ -115,6 +122,12 @@ export function verifyReportPath(leaf: Todo): string {
  *  completion gate's work-committed re-verify sees real work. */
 export function reviewReportPath(leaf: Todo): string {
   return `docs/review/${leaf.id}.report.md`;
+}
+
+/** The committed deliverable of an `explore`-shape leaf: a findings report
+ *  emitted by the explore node. Worktree-relative; the executor writes + commits it. */
+export function exploreReportPath(leaf: Todo): string {
+  return `docs/explore/${leaf.id}.report.md`;
 }
 
 /** Stable per-leaf lane name. WorktreeManager keys records on this; `fresh:true`
@@ -243,6 +256,8 @@ export interface NodeRoots {
   worktree: string;
   /** The MAIN checkout of the same repo (the leaf's tracking root). Reference only. */
   mainCheckout?: string | null;
+  /** Per-leaf scratch directory for probe/fixture work that must not appear in the diff. Reaped when the leaf terminates. */
+  scratch?: string;
 }
 
 /** The PRIVILEGE BOUNDARY, written down for the same reason the working root is: nothing in
@@ -285,6 +300,30 @@ export function workingRootLines(roots?: NodeRoots): string[] {
       'there is NOT — that work is discarded and your leaf is filed as an empty diff.',
     );
   }
+  if (roots.scratch) {
+    lines.push(
+      '',
+      `SCRATCH DIRECTORY: ${roots.scratch}`,
+      'This is the sanctioned place for probe/fixture work that must not appear in the diff.',
+      'It is reaped when the leaf terminates. No path outside the working root other than this one',
+      'may be written to.',
+    );
+  }
+  // A leaf that cannot find an interpreter WILL go looking for one, and the only one that
+  // exists is in the main checkout — so it `cd`s there, trips the working-root gate, and is
+  // blocked for a scope incident it had no way to avoid (yolox-markup mission 6e7ef04d: 5
+  // escapes, 2 leaves, one morning; one reached reviewVerdict:"pass" and was blocked anyway).
+  // The worktree is now PROVISIONED with the interpreter (worktree-manager linkSharedDeps),
+  // so say where it is. Provisioning without telling the leaf just leaves it guessing.
+  lines.push(
+    'DEPENDENCIES ARE ALREADY PROVISIONED IN YOUR WORKING ROOT. Dependency directories that are',
+    'gitignored (node_modules, .venv/venv) are symlinked in for every project dir that has them,',
+    'so run tools from HERE, never from the tracking root: e.g. `./backend/.venv/bin/python -m',
+    'pytest ...` or `./.venv/bin/python -m pytest ...` (relative to this working root), and the',
+    'repo\'s usual node/bun commands. If a tool seems missing, look for its dependency dir inside',
+    'the working root FIRST — `cd`-ing to the tracking root to borrow one is a scope violation that',
+    'discards your work, even when the change itself is correct.',
+  );
   lines.push(...PRIVILEGE_BOUNDARY_LINES);
   lines.push('');
   return lines;
@@ -450,6 +489,50 @@ export function buildNodePrompt(
         '`VERDICT: FAIL — <reason>`  (otherwise)',
       );
       return reviewLines.join('\n');
+    }
+    case 'explore': {
+      const exploreSpec = leaf.exploreSpec as ExploreSpec | null | undefined;
+      const exploreLines = [
+        'You are the EXPLORE node. Conduct a READ-ONLY investigation (Read/Grep/Glob and Bash for inspection ONLY; no edits).',
+        ...rootLines,
+      ];
+      if (exploreSpec) {
+        exploreLines.push(
+          `Scope: ${exploreSpec.scope}`,
+          `Target: ${exploreSpec.target}`,
+          `Oracle: ${exploreSpec.oracle}`,
+        );
+        if (exploreSpec.not) {
+          exploreLines.push(`Not: ${exploreSpec.not}`);
+        }
+        if (exploreSpec.reach) {
+          exploreLines.push(`Reach: ${exploreSpec.reach}`);
+        }
+      } else {
+        exploreLines.push(
+          `Title: ${title}`,
+          `Description: ${description}`,
+        );
+      }
+      exploreLines.push(
+        '',
+        'IMPORTANT: This is a READ-ONLY investigation. You MUST NOT Write or edit any file — the EXECUTOR writes and commits the report.',
+        '',
+        'Investigate thoroughly. Your FINAL reply message must contain the findings as markdown:',
+        '',
+        '## Findings',
+        '',
+        '- <finding 1>',
+        '- <finding 2>',
+        '...',
+        '',
+        'Finding NOTHING is a valid, successful exploration. Your report must ALWAYS end with the sentinel line (even with zero findings):',
+        '',
+        `\`${EXPLORE_REPORT_SENTINEL}: FINDINGS=<count>\``,
+        '',
+        'where <count> is the number of findings you listed (0 if none). Do not omit this line.',
+      );
+      return exploreLines.join('\n');
     }
     default:
       // Verify-pipeline kinds (driveplan/driveexec/report) are built by buildVerifyPrompt;
@@ -712,6 +795,21 @@ export function buildVerifyPrompt(
         'file the todos. (Do not edit any source code.)',
       ].filter(Boolean).join('\n');
   }
+}
+
+/** Build the wrap-up directive for explore-node segments that have reached the soft budget
+ *  threshold or are approaching the max-segment ceiling. This directive tells the node to stop
+ *  opening new investigation lines and instead emit its findings report from the observations
+ *  it has already gathered. Self-contained instruction string (mirrors other build* prompt
+ *  functions). */
+export function buildExploreWrapUpDirective(): string {
+  return [
+    'WRAP-UP SIGNAL: You have gathered sufficient observations and budget is approaching limits.',
+    'Stop opening new investigation lines. Instead, FINALIZE your findings report from what you have',
+    'already discovered. Your next report MUST include the sentinel line:',
+    `\`${EXPLORE_REPORT_SENTINEL}: FINDINGS=<count>\``,
+    'where <count> is the number of findings you have identified so far (0 if none).',
+  ].join('\n');
 }
 
 export const REVIEW_LENS_INSTRUCTIONS: Record<ReviewLens, string> = {

@@ -5,6 +5,8 @@
  * an operation, and throws if they differ unexpectedly.
  */
 
+import { quarantineAndRestoreMainCheckout } from './worktree-write-leak';
+
 export type GitRunner = (
   cwd: string,
   args: string[],
@@ -15,7 +17,7 @@ export interface MainCheckoutState {
   branch: string | null;
   /** git rev-parse HEAD, trimmed; '' if unresolved (non-git / no commits). */
   sha: string;
-  /** git status --porcelain --untracked-files=no, trimmed non-empty lines; [] on probe failure. */
+  /** git status --porcelain --untracked-files=all, trimmed non-empty lines; [] on probe failure. */
   residue: string[];
 }
 
@@ -47,8 +49,13 @@ export class MainCheckoutResidueError extends Error {
     public readonly addedResidue: string[],
     public readonly before: MainCheckoutState,
     public readonly after: MainCheckoutState,
+    public readonly quarantinePath?: string,
   ) {
-    super(`Main checkout residue introduced by ${opName} at ${projectRoot}: ${addedResidue.join(', ')}`);
+    const basePath = `${addedResidue.join(', ')}`;
+    const fullMessage = quarantinePath
+      ? `Main checkout residue introduced by ${opName} at ${projectRoot}: ${basePath} (leaked content quarantined at ${quarantinePath})`
+      : `Main checkout residue introduced by ${opName} at ${projectRoot}: ${basePath}`;
+    super(fullMessage);
   }
 }
 
@@ -67,6 +74,41 @@ export function residuePath(entry: string): string {
   return arrow === -1 ? withoutStatus : withoutStatus.slice(arrow + 4).trim();
 }
 
+/** Pure matcher for sanctioned residue lines. Parses a porcelain line and checks if the
+ *  repo-relative path matches any of the allowed prefixes using segment-boundary matching.
+ *  Returns false (fail closed) for empty/invalid lines, lines with no space, or empty allowlist. */
+export function isSanctionedResidue(porcelainLine: string, allowedPrefixes: readonly string[]): boolean {
+  // Fail closed: empty allowlist means nothing is sanctioned
+  if (allowedPrefixes.length === 0) return false;
+
+  // Trim the line and fail closed on empty/whitespace-only
+  const trimmed = porcelainLine.trim();
+  if (!trimmed) return false;
+
+  // Parse the porcelain line: first space separates status from path
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) return false;
+
+  // Extract path (everything after the first space) and strip trailing `/` (git's dir collapse)
+  let path = trimmed.slice(spaceIdx + 1);
+  if (path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+
+  // Check each allowed prefix using segment-boundary matching (not simple startsWith)
+  for (const prefix of allowedPrefixes) {
+    // Normalize each prefix by stripping trailing `/`
+    let normalizedPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+
+    // Match iff path === prefix OR path.startsWith(prefix + '/')
+    if (path === normalizedPrefix || path.startsWith(normalizedPrefix + '/')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /** Read the current HEAD of the main checkout (branch name, sha, and porcelain residue).
  *  On any git error, treats branch/sha/residue as null/''/[] (non-git fallback tolerance,
  *  mirrors isGitRepo/detectBaseBranch at worktree-manager.ts:2337-2352).
@@ -78,7 +120,7 @@ export async function readMainCheckoutHead(
   const [branchResult, shaResult, statusResult] = await Promise.all([
     runGit(projectRoot, ['symbolic-ref', '--short', 'HEAD']),
     runGit(projectRoot, ['rev-parse', 'HEAD']),
-    runGit(projectRoot, ['status', '--porcelain', '--untracked-files=no']),
+    runGit(projectRoot, ['status', '--porcelain', '--untracked-files=all']),
   ]);
 
   const branch = branchResult.code === 0 ? branchResult.stdout.trim() || null : null;
@@ -106,6 +148,8 @@ export async function withMainCheckoutInvariant<T>(
   opts: {
     opName?: string;
     onViolation?: (err: MainCheckoutResidueError | MainCheckoutBranchChangedError) => void;
+    quarantineDir?: string;
+    allowedResidue?: string[];
   } = {},
 ): Promise<T> {
   const opName = opts.opName ?? 'operation';
@@ -147,9 +191,20 @@ export async function withMainCheckoutInvariant<T>(
   // Path-level comparison keeps the guard's real purpose — catching files the operation
   // genuinely ADDED — while ignoring a staged/unstaged transition on something already dirty.
   const beforeSet = new Set(before.residue.map(residuePath));
-  const addedResidue = after.residue.filter(r => !beforeSet.has(residuePath(r)));
+  let addedResidue = after.residue.filter(r => !beforeSet.has(residuePath(r)));
+  // Filter out sanctioned residue before the throw or quarantine
+  addedResidue = addedResidue.filter(r => !isSanctionedResidue(r, opts.allowedResidue ?? []));
   if (addedResidue.length > 0) {
-    const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after);
+    let quarantinePath: string | undefined;
+    if (opts.quarantineDir) {
+      try {
+        quarantineAndRestoreMainCheckout(projectRoot, addedResidue, opts.quarantineDir);
+        quarantinePath = opts.quarantineDir;
+      } catch {
+        // best-effort: quarantine failure must not mask the residue error
+      }
+    }
+    const err = new MainCheckoutResidueError(projectRoot, opName, addedResidue, before, after, quarantinePath);
     try { opts.onViolation?.(err); } catch { /* best-effort: never mask the throw */ }
     throw err;
   }

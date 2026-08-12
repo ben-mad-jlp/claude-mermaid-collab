@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite';
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listTodos, createTodo, _closeProject } from '../todo-store.ts';
+import { listTodos, createTodo, openDb, _closeProject } from '../todo-store.ts';
 
 // Minimal legacy schema: pre-migration shape (prefixed titles, no `kind` column
 // at all). `openDb`'s `CREATE TABLE IF NOT EXISTS` leaves this table as-is, and
@@ -82,35 +82,53 @@ function seedLegacyDb(): void {
   db.close();
 }
 
-function rows(): Array<{ id: string; title: string; kind: string | null }> {
+/**
+ * The seeded file, opened read-only and BY HAND. Only valid before the store has opened this
+ * project: `openCollabDb` imports todos.db into `.collab/collab.db` on first open and then
+ * leaves it untouched as the rollback copy, so reading it after a migration reports the
+ * PRE-migration state — which is exactly what the before/after invariants must not do.
+ */
+function legacySnapshot<T>(read: (db: Database) => T): T {
   const db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
   try {
-    return db.query('SELECT id, title, kind FROM todos ORDER BY id').all() as Array<{
-      id: string;
-      title: string;
-      kind: string | null;
-    }>;
+    return read(db);
   } finally {
     db.close();
   }
 }
 
+/** Post-migration reads take the store's own (cached, never test-closed) handle. */
+function migrated(): Database {
+  return openDb(project);
+}
+
+function readRows(db: Database): Array<{ id: string; title: string; kind: string | null }> {
+  return db.query('SELECT id, title, kind FROM todos ORDER BY id').all() as Array<{
+    id: string;
+    title: string;
+    kind: string | null;
+  }>;
+}
+
+function readMeasure(db: Database): { role: number; brack: number; total: number } {
+  const row = db
+    .query(
+      `SELECT
+         SUM(TRIM(title) LIKE '[MISSION]%' OR TRIM(title) LIKE '[EPIC]%' OR TRIM(title) LIKE '[LAND]%') AS role,
+         SUM(TRIM(title) LIKE '[%]%') AS brack,
+         COUNT(*) AS total
+       FROM todos`
+    )
+    .get() as { role: number | null; brack: number | null; total: number };
+  return { role: Number(row.role ?? 0), brack: Number(row.brack ?? 0), total: Number(row.total) };
+}
+
+function rows(): Array<{ id: string; title: string; kind: string | null }> {
+  return readRows(migrated());
+}
+
 function measure(): { role: number; brack: number; total: number } {
-  const db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-  try {
-    const row = db
-      .query(
-        `SELECT
-           SUM(TRIM(title) LIKE '[MISSION]%' OR TRIM(title) LIKE '[EPIC]%' OR TRIM(title) LIKE '[LAND]%') AS role,
-           SUM(TRIM(title) LIKE '[%]%') AS brack,
-           COUNT(*) AS total
-         FROM todos`
-      )
-      .get() as { role: number | null; brack: number | null; total: number };
-    return { role: Number(row.role ?? 0), brack: Number(row.brack ?? 0), total: Number(row.total) };
-  } finally {
-    db.close();
-  }
+  return readMeasure(migrated());
 }
 
 function triggerMigration(): void {
@@ -120,7 +138,7 @@ function triggerMigration(): void {
 describe('stage-C strip migration — relative invariants', () => {
   test('role prefixes go to zero; bracketed titles lose exactly the role ones', () => {
     seedLegacyDb();
-    const before = measure();
+    const before = legacySnapshot(readMeasure);
     expect(before.role).toBeGreaterThan(0);
     expect(before.brack).toBeGreaterThan(before.role);
 
@@ -171,9 +189,7 @@ describe('stage-C strip migration — relative invariants', () => {
   test('no row is left with a NULL kind', () => {
     seedLegacyDb();
     triggerMigration();
-    const db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-    const { c } = db.query('SELECT COUNT(*) AS c FROM todos WHERE kind IS NULL').get() as { c: number };
-    db.close();
+    const { c } = migrated().query('SELECT COUNT(*) AS c FROM todos WHERE kind IS NULL').get() as { c: number };
     expect(c).toBe(0);
   });
 
@@ -242,30 +258,27 @@ describe('[GATE] strip migration (Part B residual)', () => {
 
     db.close();
 
-    // Count GATE prefixes BEFORE migration
-    const beforeDb = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-    const beforeGate = (beforeDb.query(
+    // Count GATE prefixes BEFORE migration — by hand, off the seeded legacy file, since the
+    // store has not opened this project yet and opening it here would BE the migration.
+    const beforeGate = legacySnapshot((d) => (d.query(
       `SELECT COUNT(*) AS c FROM todos WHERE (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
-    ).get() as { c: number }).c;
-    beforeDb.close();
+    ).get() as { c: number }).c);
 
     expect(beforeGate).toBeGreaterThan(0);
 
     // Trigger migration
     listTodos(project);
 
-    // Count GATE prefixes AFTER migration — should be zero
-    const afterDb = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-    const afterGate = (afterDb.query(
+    // Count GATE prefixes AFTER migration — should be zero. The migrated rows live in the
+    // consolidated collab.db the store imported them into, not in the legacy file above.
+    const afterGate = (migrated().query(
       `SELECT COUNT(*) AS c FROM todos WHERE (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
     ).get() as { c: number }).c;
-    afterDb.close();
 
     expect(afterGate).toBe(0);
 
     // Verify topic tags survived by checking the stripped rows
-    const afterDbRead = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-    const rows = afterDbRead.query('SELECT id, title FROM todos ORDER BY id').all() as Array<{ id: string; title: string }>;
+    const rows = migrated().query('SELECT id, title FROM todos ORDER BY id').all() as Array<{ id: string; title: string }>;
     const byId = new Map(rows.map((r) => [r.id, r]));
 
     // gate1: [GATE] Gate 1 → "Gate 1"
@@ -279,8 +292,6 @@ describe('[GATE] strip migration (Part B residual)', () => {
 
     // gate4: [GATE:ci] [BUG] CI gate with bug tag → "[BUG] CI gate with bug tag" (topic tag survives)
     expect(byId.get('gate4')?.title).toBe('[BUG] CI gate with bug tag');
-
-    afterDbRead.close();
   });
 
   test('[GATE] strip is idempotent — second run changes nothing', () => {
@@ -297,15 +308,11 @@ describe('[GATE] strip migration (Part B residual)', () => {
     db.close();
 
     listTodos(project);
-    const after1Db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-    const rows1 = after1Db.query('SELECT id, title FROM todos').all() as Array<{ id: string; title: string }>;
-    after1Db.close();
+    const rows1 = migrated().query('SELECT id, title FROM todos').all() as Array<{ id: string; title: string }>;
 
     _closeProject(project);
     listTodos(project);
-    const after2Db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
-    const rows2 = after2Db.query('SELECT id, title FROM todos').all() as Array<{ id: string; title: string }>;
-    after2Db.close();
+    const rows2 = migrated().query('SELECT id, title FROM todos').all() as Array<{ id: string; title: string }>;
 
     expect(rows2).toEqual(rows1);
   });

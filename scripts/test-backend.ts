@@ -15,10 +15,14 @@
  * Usage: bun run scripts/test-backend.ts [--concurrency=N] [pathFilter]
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
+import { QUARANTINE_SEGMENT } from '../src/services/quarantine.ts';
+import { partitionTestLanes } from '../src/services/nested-runner-lane.ts';
 import path from 'path';
 import { extractFailingTests } from '../src/services/gate-runner';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+
+export const DEFAULT_TEST_ROOTS = [path.join(ROOT, 'src'), path.join(ROOT, 'desktop', 'src')];
 
 export interface BaselineFileEntryV2 {
   file: string;
@@ -97,11 +101,103 @@ export function diffAgainstBaseline(
   return { netNew, netFixed, countGrowth, warnings };
 }
 
+/** Type for injectable test runner (allows testing without real process spawning). */
+export type BackendTestRunner = (file: string, timeoutMs: number) => Promise<{ code: number; output: string }>;
+
+/**
+ * Walk test roots and partition files into fast (bounded concurrency), serial (single-threaded),
+ * and nested (sequential for nested runners) lanes. Applies the same filter substring behavior
+ * main() has, and returns all three partitions separately without merging.
+ */
+export function collectBackendTestFiles(
+  roots: string[] = DEFAULT_TEST_ROOTS,
+  filter?: string,
+): { fast: string[]; serial: string[]; nested: string[] } {
+  let files = roots.flatMap((root) => findBunTestFiles(root)).sort();
+  if (filter) files = files.filter((f) => f.includes(filter));
+
+  const { fast, serial, nested } = partitionTestLanes(files, (f) => readFileSync(f, 'utf8'));
+  return { fast, serial, nested };
+}
+
+/**
+ * Run test files through three lanes: fast (bounded concurrency pool), serial (sequential at PER_TEST_TIMEOUT_MS),
+ * and nested (sequential at nestedTimeoutMs). Skips whichever lanes opts.lane excludes, but always returns
+ * ranFast/ranSerial/ranNested counts.
+ */
+export async function runLanes(opts: {
+  lane: 'fast' | 'nested' | 'serial' | 'all';
+  fast: string[];
+  serial: string[];
+  nested: string[];
+  concurrency: number;
+  timeoutMs: number;
+  nestedTimeoutMs: number;
+  runner: BackendTestRunner;
+}): Promise<{
+  failed: { file: string; output: string }[];
+  ranFast: string[];
+  ranSerial: string[];
+  ranNested: string[];
+}> {
+  const failed: { file: string; output: string }[] = [];
+  const ranFast: string[] = [];
+  const ranSerial: string[] = [];
+  const ranNested: string[] = [];
+
+  // Fast lane: bounded concurrency pool
+  if (opts.lane === 'fast' || opts.lane === 'all') {
+    let cursor = 0;
+
+    async function worker(): Promise<void> {
+      while (cursor < opts.fast.length) {
+        const i = cursor++;
+        const file = opts.fast[i];
+        ranFast.push(file);
+        const result = await opts.runner(file, opts.timeoutMs);
+        if (result.code !== 0) {
+          failed.push({ file: path.relative(ROOT, file), output: result.output });
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(opts.concurrency, opts.fast.length) }, () => worker()));
+  }
+
+  // Serial lane: sequential (concurrency 1) at standard timeout
+  if (opts.lane === 'fast' || opts.lane === 'serial' || opts.lane === 'all') {
+    for (const file of opts.serial) {
+      ranSerial.push(file);
+      const result = await opts.runner(file, opts.timeoutMs);
+      if (result.code !== 0) {
+        failed.push({ file: path.relative(ROOT, file), output: result.output });
+      }
+    }
+  }
+
+  // Nested lane: sequential (concurrency 1) at nested timeout
+  if (opts.lane === 'nested' || opts.lane === 'all') {
+    for (const file of opts.nested) {
+      ranNested.push(file);
+      const result = await opts.runner(file, opts.nestedTimeoutMs);
+      if (result.code !== 0) {
+        failed.push({ file: path.relative(ROOT, file), output: result.output });
+      }
+    }
+  }
+
+  return { failed, ranFast, ranSerial, ranNested };
+}
+
 function findBunTestFiles(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       if (e.name === 'node_modules') continue;
+      // QUARANTINE: red-by-design repros (services/quarantine.ts). The regression floor is the
+      // base gate — a quarantined test landing here would red every epic project-wide, which is
+      // the exact thing quarantine exists to prevent.
+      if (e.name === QUARANTINE_SEGMENT) continue;
       findBunTestFiles(full, out);
     } else if (/\.test\.tsx?$/.test(e.name)) {
       try {
@@ -119,20 +215,37 @@ if (import.meta.main) {
 }
 
 async function main(): Promise<void> {
-  const TEST_ROOTS = [path.join(ROOT, 'src'), path.join(ROOT, 'desktop', 'src')];
-
   const args = process.argv.slice(2);
   const concurrency = Number(args.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? '6');
   const filter = args.find((a) => !a.startsWith('--')) ?? '';
   const baselinePath = args.find((a) => a.startsWith('--baseline='))?.split('=')[1];
   const writeBaselinePath = args.find((a) => a.startsWith('--write-baseline='))?.split('=')[1];
+  const lane = (args.find((a) => a.startsWith('--lane='))?.split('=')[1] ?? 'all') as 'fast' | 'nested' | 'serial' | 'all';
+  const nestedTimeoutMs = Number(
+    args.find((a) => a.startsWith('--nested-timeout='))?.split('=')[1] ?? process.env.NESTED_LANE_TIMEOUT_MS ?? '900000',
+  );
 
-  let files = TEST_ROOTS.flatMap((root) => findBunTestFiles(root)).sort();
-  if (filter) files = files.filter((f) => f.includes(filter));
+  const { fast, serial, nested } = collectBackendTestFiles(DEFAULT_TEST_ROOTS, filter);
 
-  if (files.length === 0) {
+  // Report collected files
+  if (nested.length > 0) {
+    console.log(`Nested-runner files (${nested.length}):`);
+    for (const f of nested) {
+      console.log(`  ${path.relative(ROOT, f)}`);
+    }
+  }
+
+  // Check if there are files to run for the requested lane
+  const filesToRun =
+    lane === 'fast' ? [...fast, ...serial] : lane === 'nested' ? nested : lane === 'serial' ? serial : [...fast, ...serial, ...nested];
+  if (filesToRun.length === 0) {
     console.error(`No bun:test files found${filter ? ` matching "${filter}"` : ''}.`);
     process.exit(1);
+  }
+
+  // Report skipped files if running only fast
+  if (lane === 'fast' && nested.length > 0) {
+    console.log(`\nSkipping ${nested.length} nested-runner file(s) — run \`npm run test:backend:nested\``);
   }
 
   // Gate on a clean desktop typecheck before running any backend test files, so a type break
@@ -153,45 +266,76 @@ async function main(): Promise<void> {
     console.log('✓ desktop typecheck passed\n');
   }
 
-  console.log(`Running ${files.length} backend test file(s) under bun, ${concurrency} at a time (per-file isolation)…\n`);
+  const totalFiles =
+    lane === 'fast'
+      ? fast.length + serial.length
+      : lane === 'nested'
+        ? nested.length
+        : lane === 'serial'
+          ? serial.length
+          : fast.length + serial.length + nested.length;
+
+  let laneLabel =
+    lane === 'all'
+      ? `all (${fast.length} fast + ${serial.length} serial + ${nested.length} nested)`
+      : lane === 'fast'
+        ? `fast (${fast.length} @ ${concurrency}x + ${serial.length} serial)`
+        : lane;
+
+  const concurrencyNote =
+    lane === 'fast' && serial.length > 0
+      ? ` (${concurrency} at a time for fast, 1 at a time for serial)`
+      : lane === 'all'
+        ? ` (${concurrency} at a time for fast, 1 at a time for serial+nested)`
+        : ` (${lane === 'serial' || lane === 'nested' ? '1 at a time' : `${concurrency} at a time`})`;
+
+  console.log(
+    `Running ${totalFiles} backend test file(s) [lane: ${laneLabel}] under bun${concurrencyNote} (per-file isolation)…\n`,
+  );
 
   const PER_TEST_TIMEOUT_MS = Number(
     args.find((a) => a.startsWith('--timeout='))?.split('=')[1] ?? process.env.BACKEND_TEST_TIMEOUT_MS ?? '30000',
   );
 
-  const failed: { file: string; output: string }[] = [];
   let done = 0;
+  const totalToRun =
+    lane === 'fast'
+      ? fast.length + serial.length
+      : lane === 'nested'
+        ? nested.length
+        : lane === 'serial'
+          ? serial.length
+          : fast.length + serial.length + nested.length;
 
-  async function runOne(file: string): Promise<void> {
+  // Create a real BackendTestRunner that wraps Bun.spawn
+  const runner: BackendTestRunner = async (file: string, timeoutMs: number) => {
     const rel = path.relative(ROOT, file);
     // bun's default per-test timeout is 5000ms. This pool runs `concurrency` bun processes at
     // once, and the git/subprocess-heavy suites (rescue-ref, mutation-check, reconcile-pass,
     // leaf-executor) routinely exceed 5s purely from machine contention — producing a RED base
     // gate whose failing test NAMES rotate run to run. Raise the per-test ceiling so a timeout
     // means "hung", not "the box was busy".
-    const proc = Bun.spawn(['bun', 'test', '--timeout', String(PER_TEST_TIMEOUT_MS), '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const proc = Bun.spawn(['bun', 'test', '--timeout', String(timeoutMs), '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     const code = await proc.exited;
     done++;
-    if (code === 0) {
-      console.log(`  ✓ (${done}/${files.length}) ${rel}`);
-    } else {
-      console.log(`  ✗ (${done}/${files.length}) ${rel}`);
-      failed.push({ file: rel, output: (err + out).trim() });
-    }
-  }
+    const status = code === 0 ? '✓' : '✗';
+    console.log(`  ${status} (${done}/${totalToRun}) ${rel}`);
+    return { code, output: (err + out).trim() };
+  };
 
-  // Simple bounded-concurrency worker pool.
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    while (cursor < files.length) {
-      const i = cursor++;
-      await runOne(files[i]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, () => worker()));
+  const { failed } = await runLanes({
+    lane,
+    fast,
+    serial,
+    nested,
+    concurrency,
+    timeoutMs: PER_TEST_TIMEOUT_MS,
+    nestedTimeoutMs,
+    runner,
+  });
 
-  console.log(`\n${files.length - failed.length}/${files.length} files passed.`);
+  console.log(`\n${totalFiles - failed.length}/${totalFiles} files passed.`);
 
   if (writeBaselinePath) {
     const baselineFiles: BaselineFileEntryV2[] = failed.map((f) => {

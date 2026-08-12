@@ -10,7 +10,6 @@ import {
   resolveEscalation,
   acknowledgeEscalation,
   getEscalation,
-  recordEscalationDecision,
   getSupervisorIdentity,
   SUPERVISOR_HEARTBEAT_INTERVAL_MS,
   SUPERVISOR_STALE_AFTER_MS,
@@ -36,7 +35,7 @@ import {
   isWorkerSessionName,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
-import { applyRebetDecision, OVER_BUDGET_REBET_KIND } from '../services/mission-budget-gate.ts';
+import { decideEscalation } from '../services/escalation-decide.ts';
 import { TOKEN_BURN_KIND } from '../services/burn-watch.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
@@ -852,35 +851,12 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       try {
         const id = decodeURIComponent(decideMatch[1]);
         const { optionId, note } = (await req.json()) as { optionId?: string; note?: string };
-        const esc = getEscalation(id);
-        if (!esc) return jsonError(`escalation not found: ${id}`, 404);
-        // When the escalation carries structured options, the optionId must name
-        // one of them; a note-only answer (no options / no optionId) is allowed.
-        if (esc.options && esc.options.length > 0) {
-          if (!optionId) return jsonError('optionId is required for a structured escalation', 400);
-          if (!esc.options.some((o) => o.id === optionId)) {
-            return jsonError(`optionId "${optionId}" is not one of the escalation's options`, 400);
-          }
+        const result = decideEscalation(id, { optionId, note });
+        if (!result.ok) {
+          const status = result.reason === 'not-found' ? 404 : 400;
+          return jsonError(result.message, status);
         }
-        const decision = recordEscalationDecision({ escalationId: id, optionId: optionId ?? null, note: note ?? null, decidedBy: 'human' });
-        // Over-budget re-bet: 'raise' is the one option the machine can APPLY, and it does so
-        // through setMissionBudget — the store's only supported budget mutation (audited,
-        // attributed). 'park-and-reshape' / 'drop-criteria' are judgment calls left to the
-        // human/conductor; applyRebetDecision returns a noop for them rather than pretending.
-        // Fail-open: a budget-apply fault must never lose the human's recorded decision.
-        if (esc.kind === OVER_BUDGET_REBET_KIND && esc.todoId) {
-          try {
-            applyRebetDecision(esc.project, esc.todoId, optionId ?? null, {
-              actor: 'human:rebet-card',
-              reason: `over-budget re-bet decision on escalation ${id}`,
-            });
-          } catch (e) {
-            console.warn(`[rebet] budget raise failed for mission ${esc.todoId}: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
-        resolveEscalation(id, 'decided', 'human');
-        getWebSocketHandler()?.broadcast({ type: 'escalation_decided', project: esc.project, session: esc.session, id, optionId: decision.optionId });
-        return Response.json({ ok: true, decision });
+        return Response.json({ ok: true, decision: result.decision });
       } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
       }

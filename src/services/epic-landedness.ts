@@ -8,6 +8,12 @@
  *   GIT-BACKED probe (`isEpicLandedInGit`) that proves reachability WITHOUT the land record,
  *   so it can still detect a real land even when the record write was skipped.
  * REACHABILITY: descendant work audit — all accepted code leaves carry committed trailers reachable from the epic branch.
+ * CONTENT-DELTA: `isEpicTreeIdenticalToTrunk` — do the epic branch's and trunk's working
+ *   trees hold byte-identical content, via `git rev-parse <ref>^{tree}`. NOT a synonym for
+ *   any count-based notion (`ahead`/`newCount`/ahead-of-master refusal in
+ *   epic-landed-stamp-gate.ts): a branch can carry commits (ahead>0) while its tree matches
+ *   trunk exactly (e.g. a revert-then-reapply, or a forward-integrate merge that changed no
+ *   files) — the two failure modes this predicate exists to distinguish.
  *
  * These notions disagree in real states: a stamp without a merge (land started, then failed),
  * a merge without a status (completed by direct commit), landed-but-stranded work (a leaf
@@ -19,6 +25,8 @@
 import type { Todo } from './todo-store.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
 import { getEpicLandReadiness, type LandFinding } from './epic-land-readiness.js';
+import { epicBranchName } from './epic-branch-status.js';
+import { getTrunkLandIndex, lookupEpicLand } from './trunk-land-index.js';
 
 /**
  * Characterization of whether an epic's descendant work is reachable from the epic branch.
@@ -56,6 +64,29 @@ export function isLanded(epic: Todo): boolean {
  * e.g., invariant-check.ts:172 (landedAt-divergence checks). Using isLanded there
  * would make a status-done, never-stamped epic read as stamped (false positive).
  */
+/** WHY `landed` can be true while `landedAt` is NULL — and why we do NOT backfill.
+ *  `isLanded` is a DUAL predicate — status-done OR stamp-present — because a land path
+ *  can leave an epic landed while its status lags, AND a direct-commit completion can set status
+ *  without ever stamping. epic-landedness.ts states the doctrine outright: these notions "must
+ *  NEVER be collapsed into one boolean". A watcher comparing `landed:true` against a NULL
+ *  `landedAt` therefore sees a contradiction that is really two different questions being asked.
+ *  Backfilling the stamp would collapse them and destroy the distinction that module exists to
+ *  preserve; naming the PROVENANCE keeps both readable. */
+export type LandedVia = 'status' | 'stamp' | 'both' | 'neither';
+
+export function landedVia(epic: Todo): LandedVia {
+  // COMPOSES the two existing producers rather than re-reading `status`/`landedAt` itself.
+  // single-producer-audit enforces EXACTLY two landedness producers (isLanded, hasLandStamp);
+  // a third raw reader would be a third source of truth for the same question, which is the
+  // drift this module exists to prevent.
+  const byStatus = isEpicStatusDone(epic);
+  const byStamp = hasLandStamp(epic);
+  if (byStatus && byStamp) return 'both';
+  if (byStatus) return 'status';
+  if (byStamp) return 'stamp';
+  return 'neither';
+}
+
 export function hasLandStamp(epic: Todo): boolean {
   return epic.landedAt != null;
 }
@@ -179,10 +210,45 @@ export async function isEpicLandedInGit(
     const runGit = deps?.runGit ?? defaultRunGit;
     const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
     if (!trunk) return 'indeterminate';
-    const res = await runGit(project, ['log', trunk, `--grep=Collab-Epic: ${epicId}`, '--format=%H', '-1']).catch(() => null);
-    if (res === null) return 'indeterminate';
-    if (res.code !== 0) return 'indeterminate';
-    return res.stdout.trim().length > 0 ? 'landed' : 'not-landed';
+    const index = await getTrunkLandIndex(project, trunk, runGit);
+    if (index === null) return 'indeterminate';
+    const entry = lookupEpicLand(index, epicId);
+    return entry ? 'landed' : 'not-landed';
+  } catch {
+    return 'indeterminate';
+  }
+}
+
+/**
+ * Content-delta predicate: do the epic branch and trunk have byte-identical working trees?
+ *
+ * Returns 'identical' when both refs' `git rev-parse <ref>^{tree}` SHAs match exactly,
+ * 'differs' when they diverge, and 'indeterminate' if either rev-parse fails or a probe
+ * error occurs. Never throws; all errors resolve to 'indeterminate'.
+ *
+ * This predicate is independent of commit counts — an epic branch can be ahead (more commits)
+ * while its tree content matches the trunk exactly (e.g. after a revert-then-reapply or a
+ * forward-integrate merge with no file changes). Use this to distinguish commits-with-no-delta
+ * from no-commits-at-all failures.
+ */
+export async function isEpicTreeIdenticalToTrunk(
+  project: string,
+  epicId: string,
+  deps?: { runGit?: GitRunner; trunk?: string },
+): Promise<'identical' | 'differs' | 'indeterminate'> {
+  try {
+    const runGit = deps?.runGit ?? defaultRunGit;
+    const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
+    if (!trunk) return 'indeterminate';
+
+    const branch = epicBranchName(epicId);
+    const branchTree = await runGit(project, ['rev-parse', `${branch}^{tree}`]).catch(() => null);
+    if (branchTree === null || branchTree.code !== 0) return 'indeterminate';
+
+    const baseTree = await runGit(project, ['rev-parse', `${trunk}^{tree}`]).catch(() => null);
+    if (baseTree === null || baseTree.code !== 0) return 'indeterminate';
+
+    return branchTree.stdout.trim() === baseTree.stdout.trim() ? 'identical' : 'differs';
   } catch {
     return 'indeterminate';
   }
@@ -203,14 +269,11 @@ export async function getEpicLandCommit(
     const runGit = deps?.runGit ?? defaultRunGit;
     const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
     if (!trunk) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    const res = await runGit(project, ['log', trunk, `--grep=Collab-Epic: ${epicId}`, '--format=%H%x09%cI', '-1']).catch(() => null);
-    if (res === null) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    if (res.code !== 0) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    const trimmed = res.stdout.trim();
-    if (trimmed.length === 0) return { status: 'not-landed', sha: null, committedAtIso: null };
-    const parts = trimmed.split('\x09');
-    if (parts.length !== 2 || !parts[0] || !parts[1]) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    return { status: 'landed', sha: parts[0], committedAtIso: parts[1] };
+    const index = await getTrunkLandIndex(project, trunk, runGit);
+    if (index === null) return { status: 'indeterminate', sha: null, committedAtIso: null };
+    const entry = lookupEpicLand(index, epicId);
+    if (!entry) return { status: 'not-landed', sha: null, committedAtIso: null };
+    return { status: 'landed', sha: entry.sha, committedAtIso: entry.committedAtIso };
   } catch {
     return { status: 'indeterminate', sha: null, committedAtIso: null };
   }

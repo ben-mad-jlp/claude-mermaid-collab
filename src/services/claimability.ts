@@ -18,6 +18,7 @@ import type { Todo } from './todo-store';
 // from this module — it would re-form the cycle.
 import { isEpic, isMission, stripLabel } from './todo-kind.ts';
 import { isBucketEpic as registryIsBucketEpic } from './bucket-registry.ts';
+import { exploreInflightBlocked } from './leaf-execution-mode.js';
 
 /** The per-project default epic that orphan/triage todos auto-file under
  *  (constraint 373a2d52). Planning-only: its children must never be auto-executed.
@@ -118,7 +119,8 @@ export type ClaimReason =
   | 'parent-unreleased' // an EPIC ancestor on the parent chain has approvedAt == null — release the epic (status='ready')
   | 'parent-held'     // an EPIC ancestor on the parent chain has heldAt != null — release the held epic
   | 'parent-dropped'  // an EPIC ancestor on the parent chain is terminal (done/dropped) — the epic closed; re-home this todo to a live epic
-  | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
+  | 'deps-pending'    // a dep is not yet terminal — recoverable by waiting
+  | 'explore-inflight'; // only one exploration per project may run at a time
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
 /**
@@ -300,6 +302,7 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(resolveDepId(id, byId)))) {
     return 'deps-pending';
   }
+  if (exploreInflightBlocked(t, byId.values())) return 'explore-inflight';
   if (t.assigneeKind === 'human') return 'human-assignee';
   return 'claimable';
 }

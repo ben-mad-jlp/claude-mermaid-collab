@@ -57,6 +57,7 @@ import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markL
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, reclaimPreDirtyScopeOverlap, type RootSnapshot } from './worktree-write-leak';
+import { allocateLeafScratch, reapLeafScratch } from './leaf-scratch';
 import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
@@ -72,6 +73,10 @@ export { NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, lea
 export type { LeafNodeGroup } from './leaf-prompts';
 import { validateReviewGrounding, checkConstraintCitations, extractCitations, type ReviewGrounding } from './review-citations';
 import { detectWorkingRootEscape, detectPrivilegeEscalation, detectOutsideWorktreeWrite, evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
+import { checkContestedHypothesis } from './contested-hypothesis.js';
+import { leafExecutionMode, leafRunKinds } from './leaf-execution-mode.js';
+export { leafExecutionMode, leafRunKinds } from './leaf-execution-mode.js';
+import { runExplorePipeline } from './leaf-explore';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
 import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
@@ -459,6 +464,10 @@ export interface LeafExecutorDeps {
   }) => Promise<'split' | 'linear' | 'timeout'>;
   /** SR-3: close the proposal card once the run has acted on it. Default → `resolveEscalation`. */
   resolveProposal?: (escalationId: string, status: string, resolvedBy?: 'ai' | 'human') => void;
+  /** Count call sites of `symbol` under `cwd` — the one-command falsifier for a contested
+   *  reviewer's "X was dropped" claim. Optional: absent means the hypothesis check is skipped
+   *  (advisory only, it must never gate a run). See contested-hypothesis.ts. */
+  countCallSites?: (cwd: string, symbol: string) => Promise<number>;
   /** crit 4: raise a bounded-wait CONTESTED-ACCEPT decision card for a GREEN-mechanical change
    *  whose falsifiable review FAIL is UNCOVERED and same-walled — instead of a silent park.
    *  Default → `proposeContested`. Unwired ⇒ the caller falls straight through to today's park. */
@@ -755,7 +764,7 @@ export interface LeafRunContext {
   epicId: string;
   epicBranch: string;
   sessionKey: string;
-  state: { attempt: number; nodesSpent: number; pathTaken: 'floor' | 'waves' | 'review' | null };
+  state: { attempt: number; nodesSpent: number; pathTaken: 'floor' | 'waves' | 'review' | 'explore' | null };
   budgetState: { value: number; raises: number };
   escalatedKinds: Set<LeafNodeKind>;
   checkBudget: () => boolean;
@@ -829,77 +838,12 @@ export const FILE_THRESHOLD = envInt('MERMAID_FILE_THRESHOLD', 8);
 export const SPLIT_CEILING = FILE_THRESHOLD;
 
 export { VERIFY_GATE_VERB } from './leaf-prompts';
-/** Node wall-clock cap for the verify EXECUTE node. The default 600s node timeout is sized for
- *  a code node; a CAD assembly build (load vendor STEP parts → build subassemblies → run
- *  geometry/DOF/clearance gates) legitimately runs longer, and the L4 dogfood hit the 600s
- *  kill mid-build. 20min gives heavy assemblies room while still bounding a true runaway. */
-export const VERIFY_EXEC_TIMEOUT_MS = 1_200_000;
-
-/** Per-node model + tool allowlist (blueprint §3). Bash is read-only by prompt
- *  convention (the CLI has no RO-bash flag). The space-separated list is passed
- *  straight to `--allowedTools` by the P1 invoker. */
-/** Per-node reasoning effort baseline (epic: daemon-set effort). Reasoning-heavy
- *  nodes (the opus ones: blueprint/review/driveplan) default to 'high'; the
- *  implementation/read nodes (sonnet) default to 'medium'. A per-project override
- *  (getProjectEffort) or MERMAID_NODE_EFFORT can replace these uniformly. */
-/** Every leaf-executor node kind, in a stable display order (drives the matrix editor). */
-export const LEAF_NODE_KINDS: LeafNodeKind[] = [
-  'blueprint', 'implement', 'review',
-  'research', 'wimplement', 'verify', 'fix',
-  'driveplan', 'driveexec', 'report',
-  'summary',
-];
-
-/** Wall-clock cap for nodes that DO the build (implement-class). The invoker default
- *  (600s) killed real work mid-build — long implement runs are routine, especially on a
- *  Haiku node_profile_override pin. Stall detection is NOT slowed by this: the invoker's
- *  START WINDOW still kills a zero-output node at 600s (see node-invoker START_WINDOW_MS). */
-export const IMPLEMENT_TIMEOUT_MS = 1_800_000;
-
-/** Wall-clock cap for the blueprint node. Distinct from (and smaller than)
- *  {@link IMPLEMENT_TIMEOUT_MS} — blueprint does not edit code, but a large REMOVAL leaf's
- *  blueprint node was observed GROUNDING (enumerating every site to delete) past the
- *  invoker's 600s default before it ever reaches the citability gate, parking correct work
- *  as a start-window/timeout failure rather than a real rejection. 900s gives it room without
- *  matching implement's 1800s (blueprint still writes no code — a runaway blueprint should
- *  fail faster than a runaway build). */
-export const BLUEPRINT_TIMEOUT_MS = 900_000;
-
-export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel; timeoutMs?: number }> = {
-  // Demoted opus→sonnet (2026-07-21): blueprint was the #1 cost center ($368/wk, more than
-  // implement) with no measured reliability gain over sonnet at 'high' effort. A project that
-  // wants opus back can set a per-(project,kind) override (resolveNodeModel in node-provider.ts).
-  // Effort stays 'high' — reasoning depth, not model tier, is what blueprint needs most.
-  blueprint: { model: 'sonnet', allowedTools: 'Read Write Grep Glob Bash', effort: 'high', timeoutMs: BLUEPRINT_TIMEOUT_MS },
-  implement: { model: 'sonnet', allowedTools: 'Read Edit Write Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS },
-  review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
-  // P5 waves:
-  research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read-only (spec §12: sonnet for non-blueprint/review)
-  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Write Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
-  verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read + bash-tsc
-  fix: { model: 'sonnet', allowedTools: 'Read Edit Write Grep Glob Bash', effort: 'medium', timeoutMs: IMPLEMENT_TIMEOUT_MS }, // read+edit
-  // verify pipeline (epic f5c7fc46): plan authors an AssemblyBuildPlan; driveexec is
-  // CONSTRAINED to the single deterministic gate verb (invokes, authors nothing); report
-  // writes+commits findings and files one session-todo per finding.
-  driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
-  driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}`, effort: 'medium' },
-  // No Bash, no Write: the report node only READS the verdicts, files finding todos via MCP,
-  // and EMITS the report markdown as its final message — the EXECUTOR writes it into the
-  // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
-  // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
-  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__file_to_bucket', effort: 'medium' },
-  // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
-  // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
-  summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
-};
-
-/** In-place start-failure escalation target (see the `escalatedKinds` mechanism in runLeaf):
- *  a node that starts failing on its pinned model retries ONCE on something STRONGER. This
- *  used to just read NODE_PROFILE.blueprint.model, which worked while blueprint was pinned to
- *  opus — but blueprint was demoted to sonnet (cost), which would have silently made the
- *  escalation a no-op for every kind already pinned at sonnet (implement, driveexec, ...).
- *  Kept as an explicit constant so a future blueprint-tier change can't neuter escalation again. */
-export const ESCALATION_MODEL = 'opus';
+export {
+  VERIFY_EXEC_TIMEOUT_MS, LEAF_NODE_KINDS, IMPLEMENT_TIMEOUT_MS, BLUEPRINT_TIMEOUT_MS,
+  EXPLORE_NODE_ALLOWED_TOOLS, NODE_PROFILE, ESCALATION_MODEL, BLUEPRINT_REFRESH_PROFILE,
+  leafTranscriptPath,
+} from './leaf-node-profile';
+import { NODE_PROFILE, leafTranscriptPath, ESCALATION_MODEL, BLUEPRINT_REFRESH_PROFILE, VERIFY_EXEC_TIMEOUT_MS } from './leaf-node-profile';
 
 export function resolveLightPathEnabled(project?: string): boolean {
   try {
@@ -908,12 +852,6 @@ export function resolveLightPathEnabled(project?: string): boolean {
     return false;
   }
 }
-
-/** SR-7: a split child inherits its parent's plan slice, so its blueprint node RECONCILES
- *  instead of re-deriving. Cheap model, low effort. It is NOT skipped: the parent plan
- *  encodes cross-file contracts + test strategy that later siblings can invalidate, and
- *  SR-6's dependsOn bounds — but does not eliminate — that staleness. */
-export const BLUEPRINT_REFRESH_PROFILE = { model: 'sonnet', effort: 'low' as EffortLevel };
 
 /** Process-wide effort override: MERMAID_NODE_EFFORT forces every spawned node to a
  *  single level (blunt instrument; the per-project knob is preferred). */
@@ -924,58 +862,20 @@ const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
 
 import type { LeafNodeKind, LeafNodeGroup, BallotPromptRequirement } from './leaf-prompts';
 import {
-  blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath,
+  blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
   NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey,
 } from './leaf-prompts';
 
-/**
- * Absolute path of a leaf's per-run stream-json transcript, under the TRACKING
- * project (stable; the reader endpoint resolves the same path). Every node of the
- * leaf appends here with a boundary marker, so the file reads as one transcript
- * across the leaf's plan→build→verify→report chain (and across retries). Exported
- * so the reader route resolves the identical path.
- */
-export function leafTranscriptPath(project: string, leafId: string): string {
-  return join(project, '.collab', 'leaf-transcripts', `${leafId}.jsonl`);
-}
-
 export {
   buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
+  blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
 } from './leaf-prompts';
 export type { NodeRoots } from './leaf-prompts';
-
-/** Which EXECUTION SHAPE a leaf runs (epic f5c7fc46). 'code' (default) is the proven
- *  blueprint→implement/waves→tsc-review AUTHORING pipeline; 'verify' is the non-code
- *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report);
- *  'review' (epic d8ac1a18 dogfood) is a completeness review over an epic's union change-set
- *  (one LLM judgment node → committed report → file gap todos). Both verify and review are
- *  NON-AUTHORING shapes whose deliverable is a COMMITTED report (so they survive the
- *  completion gate's work-committed re-verify, exactly like the code path's commit).
- *  Keyed off the leaf's `type`: 'verify'/'cad-dogfood'/'dogfood' → verify; 'reviewer' →
- *  review; else code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only a few
- *  real shapes; see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
-export function leafExecutionMode(leaf: Todo): 'code' | 'verify' | 'review' {
-  const t = (leaf.type ?? '').toLowerCase();
-  if (t === 'verify' || t === 'cad-dogfood' || t === 'dogfood') return 'verify';
-  if (t === 'reviewer') return 'review';
-  return 'code';
-}
-
-/** The node kinds a leaf's run will actually execute, keyed off leafExecutionMode. Drives the
- *  kind-scoped grok/xai auth pre-flight (bug 3764675c) so a dead-kind override can't gate a
- *  floor leaf. Pure. */
-export function leafRunKinds(leaf: Todo): LeafNodeKind[] {
-  switch (leafExecutionMode(leaf)) {
-    case 'verify': return ['driveplan', 'driveexec', 'report'];
-    case 'review': return ['review'];
-    default: return ['blueprint', 'implement', 'review']; // floor
-  }
-}
 
 /** One warning per (project, epic): an undeclared gate is a legitimate config, but its absence must
  *  never be invisible — a 1.00 accept rate looks identical with and without a mechanical gate. */
@@ -1533,6 +1433,10 @@ export async function runLeaf(
       // or a throw (aborted/blocked/rejected) never reaches the daemon's own
       // `clearLeafResume` call (that lives on the RETURNED-result continuation path only).
       try { deps.clearResume?.(leaf.id); } catch { /* best-effort */ }
+      // Reap the per-worktree scratch directory; guard on lastRootSnap being non-null.
+      if (lastRootSnap) {
+        try { reapLeafScratch(lastRootSnap.cwd); } catch { /* best-effort cleanup */ }
+      }
     }
     return r;
   };
@@ -1541,7 +1445,7 @@ export async function runLeaf(
   // ALL attempts and ALL node kinds).
   // nodesSpent is SEEDED from startNodesSpent (P3 resume) so the master budget is
   // global across pause/resume cycles, not reset per re-dispatch.
-  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0, pathTaken: null as 'floor' | 'waves' | 'review' | null };
+  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0, pathTaken: null as 'floor' | 'waves' | 'review' | 'explore' | null };
   // C2: accumulate recorded commands from each node for evidence gating in review
   const recordedCommands: RecordedCommand[] = [];
   // WORKING-ROOT GUARD: the last detected escape of the shell out of the lane worktree by a
@@ -2121,6 +2025,7 @@ export async function runLeaf(
       prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings, {
         worktree: cwd,
         mainCheckout: deps.mainCheckoutRoot ?? null,
+        scratch: allocateLeafScratch(cwd),
       }, ballotRequirements),
       // Retry ladder + wall-based tier escalation: compose the attempt ladder with the
       // cross-dispatch wall bump so implement models escalate monotonically via both paths.
@@ -2348,6 +2253,13 @@ export async function runLeaf(
       buildVerifySpec, nodeModel, nodeEffort, untrackedAtStart };
     return await runReviewPipeline(ctx);
   }
+  if (leafExecutionMode(leaf) === 'explore') {
+    const ctx: LeafRunContext = { project, leaf, deps, epicId, epicBranch, sessionKey,
+      state, budgetState, escalatedKinds, checkBudget, runNode, parkBlocked,
+      parkNodeStartFailure, pausedResult, pausedForWorktreeAddFault, finalizeReportLeaf,
+      buildVerifySpec, nodeModel, nodeEffort, untrackedAtStart };
+    return await runExplorePipeline(ctx);
+  }
 
   // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this
   // leaf's work onto the epic branch but died before the acceptance gate finished.
@@ -2422,6 +2334,7 @@ export async function runLeaf(
   // merely TIMED OUT does not: a timeout means nobody looked, which is exactly when the next
   // cycle should ask again. `contested-answered` is recorded only on a real human decision.
   let contestedCardRaised = (deps.countLeafNodes?.(leaf.id, 'contested-answered') ?? 0) > 0;
+  let contestedHypothesisNote: string | null = null; // falsified cause → next implement cycle
 
   // Payload B (retryContext): capture the PRIOR run's terminal BEFORE any node of THIS dispatch
   // is recorded, so getLeafRun's latest-run scoping returns the prior dispatch's failure. Lazy
@@ -3527,14 +3440,26 @@ export async function runLeaf(
                 } else {
                   // Re-arm: a timeout must not suppress the next cycle's card.
                   contestedCardRaised = false;
+                  // FALSIFY THE STATED CAUSE BEFORE RE-ARMING. A timed-out card used to park
+                  // leaving the reviewer's hypothesis standing as the leaf's working theory, so
+                  // cycle 2 acted on cycle 1's unexamined guess and re-hit the identical wall
+                  // (yolox-markup 9acbb620: "the merge dropped the capture_service and
+                  // ssh_service imports" — both had ZERO call sites, so restoring them was a
+                  // no-op). One grep decides it. A falsified cause is appended to the findings
+                  // the next implement cycle reads, so it starts somewhere else.
+                  // Falsify the stated cause before re-arming — see contested-hypothesis.ts.
+                  const hypothesisNote = await checkContestedHypothesis(review.text, deps.countCallSites ? (sym) => deps.countCallSites!(cwd, sym) : undefined,
+                    (r) => deps.recordNode({ project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id, nodeKind: 'contested-hypothesis-check', nodesSpent: 0, verdict: r.verdict, outcomeDetail: r.detail, outputText: r.text }));
                   try {
                     deps.recordNode({
                       project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
                       nodeKind: 'contested-timeout', nodesSpent: 0, verdict: 'fail',
                       outcomeDetail: JSON.stringify({ reason: 'contested-card-timed-out-unanswered' }),
-                      outputText: 'contested-timeout: the contested card expired with no human answer — parking as the safe default, but the protection stays ARMED for later cycles.',
+                      outputText: 'contested-timeout: the contested card expired with no human answer — parking as the safe default, but the protection stays ARMED for later cycles.'
+                        + (hypothesisNote ? `\n\n${hypothesisNote}` : ''),
                     });
                   } catch { /* telemetry — never break the run */ }
+                  if (hypothesisNote) contestedHypothesisNote = hypothesisNote;
                 }
                 // reject | timeout → leave reviewAdvisory false → keep gating → today's park.
               }
@@ -3549,6 +3474,14 @@ export async function runLeaf(
           llm = 'fail';
         } else {
           findings = (review.text ?? '').trim();
+        }
+        // APPEND (never substitute) the falsified cause to the findings implement reads next
+        // cycle — in telemetry alone it would not stop cycle 2 restarting from the disproven guess.
+        if (contestedHypothesisNote) {
+          findings = `${findings}\n\n${contestedHypothesisNote}`.trim();
+          contestedHypothesisNote = null; // one cycle only
+        }
+        if (proseRetryFindings === null) {
           // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive
           // constraint id. Pairs Payload C's injected ACTIVE CONSTRAINTS block with a
           // warn-only enforcement half. Result is surfaced/recorded ONLY — it does not

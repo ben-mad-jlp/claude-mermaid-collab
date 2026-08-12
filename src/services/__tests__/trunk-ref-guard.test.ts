@@ -1,3 +1,6 @@
+/**
+ * @serial-test-lane: inert - test comments reference `worktree add trial master` but don't execute it
+ */
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';

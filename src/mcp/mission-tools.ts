@@ -9,12 +9,13 @@ import {
 } from '../services/todo-store.js';
 import {
   upsertMission, getMission,
-  addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, setCriterionDependsOn, setCriterionMeasurementPendingUntil, dropCriterion, listCriteria, listCriteriaWithActions, getMissionRollup,
+  addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, setCriterionDependsOn, setCriterionMeasurementPendingUntil, dropCriterion, listCriteria, listCriteriaWithActions, getMissionRollup, reArmCriterion,
   activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
   assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
   missionIdOfCriterion,
   type CriterionType,
 } from '../services/mission-store.js';
+import { recordSupervisorAudit } from '../services/supervisor-store.js';
 import { raiseCriterionDropCard } from '../services/criterion-drop-card.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
@@ -27,8 +28,9 @@ import { joinPanelVerdicts, normalizePanelVerdicts, VERIFY_LENSES, type PanelVer
 import { coerceArrayArg } from './arg-coercion.js';
 import { detectForwardAccrual, ForwardAccrualCriterionError } from '../services/criterion-closeability.js';
 import { buildMissionDiagnostic } from '../services/mission-diagnostic.js';
-import { isEpicLandedInGit } from '../services/epic-landedness.js';
+import { isEpicLandedInGit, detectTrunkBranch } from '../services/epic-landedness.js';
 import { deriveConductorPassLiveness } from '../services/conductor-pass-liveness.js';
+import { assertServingEpicModulesReachable } from '../services/module-reachability.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -49,6 +51,7 @@ export const MISSION_TOOL_DEFS = [
       { name: 'mission_diagnostic', description: "Read-only diagnostic aggregate for a mission: status, rollup, per-criterion actions + serving-epic landedness (git-verified), leaves, conductorPass, and baseHealth. A convenience view over get_mission-adjacent data for status inspection.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, missionId: { type: 'string', description: 'The mission node id (alias: todoId).' }, todoId: { type: 'string', description: 'Alias for missionId, for consistency with sibling mission verbs.' } }, required: ['project', 'missionId'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' }, type: { type: 'string', enum: ['capability', 'one-shot'], description: "Criterion type. Defaults to 'capability'." }, dependsOn: { type: 'array', items: { type: 'string' }, description: 'Criterion ids this criterion depends on (must be met first). Optional.' } }, required: ['project', 'todoId', 'text'] } },
       { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. When a criterion is high-stakes (reopened by land, contested by humans, or approaching serve limits), supply panelVerdicts (≥2 independent lenses) to join them by strict-majority vote; fewer than 2 will error fail-closed. Pass remove=true to reversibly DROP the criterion instead (preserves the row, cascades any live serving epics to dropped; a future undrop re-arms it). Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, panelVerdicts: { type: 'array', items: { type: 'object', properties: { lens: { type: 'string' }, met: { type: 'boolean' }, reason: { type: 'string' } }, required: ['lens', 'met', 'reason'] }, description: 'High-stakes verdict panel: array of independent lens verdicts. Required when a criterion is reopened-by-land, contested, or serving ≥2 epics; must have ≥2 verdicts or the call will fail closed.' }, remove: { type: 'boolean', description: 'If true, reversibly drop the criterion (ignores met).' }, reason: { type: 'string', description: 'Why the criterion is being dropped (recorded with remove=true; defaults to a generic note).' } }, required: ['project', 'criterionId'] } },
+      { name: 'rearm_mission_criterion', description: "Reset an exhausted acceptance criterion's serve/verify attempt caps in place so it can be re-served/re-verified without dropping and re-adding it. Zeroes serveAttemptCount and verifyAttemptCount; increments the durable reArmCount so repeated use is visible. Refuses (throws criterion-already-met: <id>) when the criterion is already met — re-arming a met criterion is never valid. text, evidence, evidencePaths, verifiedBy/verifiedAt and verdict history are all preserved untouched. Records a durable 'override' audit entry.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, criterionId: { type: 'string' }, reason: { type: 'string', description: 'Why the caps are being reset.' }, actor: { type: 'string', description: "Who is re-arming (default 'operator')." } }, required: ['project', 'session', 'criterionId', 'reason'] } },
 ];
 
 /**
@@ -178,10 +181,11 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       // directly per unique serving epic and feed the result back into the derivation.
       const rawCriteria = listCriteriaWithActions(project, todoId);
       const servingEpicIds = new Set(rawCriteria.flatMap((c) => c.servingEpics.map((e) => e.id)));
+      const trunk = await detectTrunkBranch(project).catch(() => undefined);
       const landTruth = new Map<string, boolean>();
       for (const epicId of servingEpicIds) {
         try {
-          const status = await isEpicLandedInGit(project, epicId);
+          const status = await isEpicLandedInGit(project, epicId, { trunk });
           if (status === 'landed') landTruth.set(epicId, true);
           else if (status === 'not-landed') landTruth.set(epicId, false);
           // 'indeterminate' (or a throw below): leave epicId OUT of the map — falls back to isLanded.
@@ -325,6 +329,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       let recordedMet = met;
 
       if (met === true) {
+        await assertServingEpicModulesReachable(project, criterionId);
         const stakes = classifyVerifyStakes(collectVerifyStakesInput(project, criterionId));
         panel = stakes.panel;
         trigger = stakes.trigger;
@@ -367,6 +372,14 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       }
 
       return JSON.stringify({ criterionId, met: recordedMet, evidence: evidence ?? null, verifiedBy: verifiedBy ?? null, verifiedAtSha: verifiedAtSha ?? null, evidencePaths: evidencePaths ?? [], panel, trigger }, null, 2);
+    }
+    case 'rearm_mission_criterion': {
+      const { project, session, criterionId, reason, actor } = args as { project: string; session: string; criterionId: string; reason: string; actor?: string };
+      if (!project || !session || !criterionId || !reason) throw new Error('Missing required: project, session, criterionId, reason');
+      const who = actor ?? 'operator';
+      const result = reArmCriterion(project, criterionId, { reason, by: who });
+      recordSupervisorAudit({ kind: 'override', project, session, detail: JSON.stringify({ criterionId, actor: who, reason, reArmCount: result.reArmCount }) });
+      return JSON.stringify({ criterionId, ...result }, null, 2);
     }
     default:
       return null;

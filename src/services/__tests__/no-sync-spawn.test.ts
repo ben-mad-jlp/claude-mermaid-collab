@@ -52,10 +52,12 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'index-only ops bounded by untracked-file count, ~100-500ms worst case.',
   },
   'services/worktree-write-leak.ts': {
-    count: 5,
+    count: 6,
     reason:
-      'import + git status + per-leaked-path `git checkout HEAD --` restores — ' +
-      'bounded by the (small) leak count, each ~50ms; runs on leak detection only.',
+      'import + git status + three per-path `git checkout HEAD --` restores ' +
+      '(tracked-file recovery in quarantineAndRestoreMainCheckout, reclaimPreDirtyScopeOverlap, ' +
+      'and residue restore in sweepLeakedWrites) — bounded by the (small) leak count, ' +
+      'each ~50ms; runs on leak detection/restore only.',
   },
   'services/epic-land-gate.ts': {
     count: 2,
@@ -64,6 +66,16 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'merge-base/diff) plus ONE detached-worktree add/remove per gate run (~1-3s ' +
       'worst case on this repo). The gate\'s SUITE runs go through the async ' +
       'defaultGateSpawn (418427a5), never this helper.',
+  },
+  'services/mutation-probe.ts': {
+    count: 6,
+    reason:
+      'import + one-shot git plumbing per probe run: worktree add --detach, ' +
+      'worktree remove --force + prune (cleanup), and `diff HEAD --binary` piped ' +
+      'into `apply --binary` to carry the dirty tree into the trial worktree — ' +
+      '~1-3s worst case on this repo. The probe ARMS (the actual test-suite runs, ' +
+      'the only unbounded work here) go through the async Bun.spawn ArmRunner, ' +
+      'never this plumbing.',
   },
   'services/system-status.ts': {
     count: 3,

@@ -6,7 +6,6 @@
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { parseSplitDecision } from './split-decision';
 import type { Todo } from './todo-store';
-import { VERIFY_GATE_VERB } from './leaf-prompts';
 
 // Re-export types so they're available to users of leaf-parsing.ts
 export type { LeafSplitItem, LeafSplitDecision } from './split-decision';
@@ -81,6 +80,77 @@ export function parseVerdict(text: string | undefined): LeafReviewVerdict {
   const m = stripSentinelFmt(text).match(/^\s*VERDICT:\s*(PASS|FAIL)\b/im);
   if (!m) return 'error';
   return m[1].toUpperCase() === 'PASS' ? 'pass' : 'fail';
+}
+
+export const EXPLORE_REPORT_SENTINEL = 'EXPLORE-REPORT';
+
+export type ExploreReportParse =
+  | { ok: true; findings: string[]; report: string }
+  | { ok: false; reason: 'empty' | 'unparseable' };
+
+export function parseExploreReport(text: string | undefined): ExploreReportParse {
+  if (!text || !text.trim()) return { ok: false, reason: 'empty' };
+
+  const stripped = stripSentinelFmt(text);
+  const lines = stripped.split('\n');
+  let lastNonEmptyLine = '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim()) {
+      lastNonEmptyLine = lines[i];
+      break;
+    }
+  }
+
+  const sentinelRe = new RegExp(`^${EXPLORE_REPORT_SENTINEL}:\\s*FINDINGS=(\\d+)\\s*$`, 'i');
+  const match = lastNonEmptyLine.match(sentinelRe);
+  if (!match) return { ok: false, reason: 'unparseable' };
+
+  // Parse findings from the ORIGINAL (unstripped) text
+  const findings: string[] = [];
+  const originalLines = text.split('\n');
+  let inFindingsSection = false;
+
+  for (let i = 0; i < originalLines.length; i++) {
+    const line = originalLines[i];
+    const trimmed = line.trim();
+
+    // Check for ## Findings heading (case-insensitive)
+    if (/^##\s+Findings\b/i.test(trimmed)) {
+      inFindingsSection = true;
+      continue;
+    }
+
+    // Stop at next ## heading or end of findings section
+    if (inFindingsSection && /^##\s+/i.test(trimmed)) {
+      break;
+    }
+
+    // Collect bullet lines under Findings section
+    if (inFindingsSection) {
+      if (/^-\s+.+/.test(trimmed)) {
+        findings.push(trimmed.slice(2).trim()); // Remove the "- " prefix
+      } else if (trimmed === '' && i < originalLines.length - 1) {
+        // Blank line might signal end of list, check if next non-blank line is not a bullet
+        let nextNonBlank = '';
+        for (let j = i + 1; j < originalLines.length; j++) {
+          const nextTrimmed = originalLines[j].trim();
+          if (nextTrimmed) {
+            nextNonBlank = nextTrimmed;
+            break;
+          }
+        }
+        if (nextNonBlank && !/^-\s+/.test(nextNonBlank)) {
+          break;
+        }
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    findings,
+    report: text.trim(),
+  };
 }
 
 /** Join multiple review pass results using stricter-wins logic. A fail in any pass yields
@@ -203,6 +273,16 @@ export function parseSizeManifest(
  *  build123d-ocp-mcp/.mcp.json). A Claude Code node addresses its tools as
  *  `mcp__bsync-cad__<verb>`. Confirmed against the live MCP in L4. */
 export const VERIFY_GATE_MCP_SERVER = 'bsync-cad';
+/** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
+ *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
+ *  T14 dogfoods). The execute node is constrained to the resolved verb's MCP tool so the LLM
+ *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
+ *  (see {@link resolveVerifyGate}); this is just the fallback verb.
+ *
+ *  OWNED HERE, not in leaf-prompts: leaf-prompts imports EXPLORE_REPORT_SENTINEL from this
+ *  module, so a VERIFY_GATE_VERB defined there would close a value-level import cycle and
+ *  TDZ-crash at module init (VERIFY_GATE_MCP_TOOL below reads it at top level). */
+export const VERIFY_GATE_VERB = 'build_assembly_plan';
 /** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. Kept as one
  *  function so every call site generalizes together. */
 export function verbMcpTool(verb: string): string {

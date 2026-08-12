@@ -16,16 +16,15 @@ import {
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { claimReason } from '../claimability';
-import Database from 'bun:sqlite';
 
 let project: string;
 
-/** Directly stamp a mission control row's archivedAt (no setter exists yet). */
+/** Directly stamp a mission control row's archivedAt (no setter exists yet).
+ *  Mission control state lives in the project's consolidated collab.db, reached through the
+ *  store's own handle — there is no `.collab/mission.db` to open on a fresh project. */
 function archiveMissionRaw(proj: string, todoId: string) {
-  const db = new Database(join(proj, '.collab', 'mission.db'));
+  const db = openDb(proj);
   db.exec(`UPDATE mission SET archivedAt = ${Date.now()} WHERE todoId = '${todoId}'`);
-  db.close();
-  _resetMissionDbCache(proj);
 }
 
 /** Create the `[MISSION]` graph node (a top-level durable root). Explicit kind
@@ -115,20 +114,19 @@ describe('mission-store: control state', () => {
     // Two todos whose full ids happen to share an 8-hex prefix are indistinguishable by that
     // prefix — resolveDepId-style (claimability.ts:152), this must read as NOT-FOUND, never
     // silently pick one. createTodo always mints a fresh uuid, so the collision is forced via
-    // a raw insert (same technique as archiveMissionRaw above) into the SAME todos.db the
-    // mission node lives in.
+    // a raw insert (same technique as archiveMissionRaw above) through the STORE's handle on
+    // the consolidated collab.db — opening the path by hand would create an empty second file.
     const a = await makeMissionNode('[MISSION] a');
     upsertMission(project, a);
     const prefix = a.slice(0, 8);
     const bId = `${prefix}${'1'.repeat(a.length - 8)}`;
-    const db = new Database(join(project, '.collab', 'todos.db'));
+    const db = openDb(project);
     const now = new Date().toISOString();
     db.exec(
       `INSERT INTO todos (id, ownerSession, title, status, ord, createdAt, updatedAt, kind)
        VALUES ('${bId}', 's1', '[MISSION] b', 'todo', 999999, '${now}', '${now}', 'mission')`,
     );
-    db.close();
-    _closeProject(project); // force todo-store to reopen its cached handle and see the new row
+    // No close/evict: this IS the store's cached handle, so the row is already visible to it.
 
     expect(getMission(project, prefix)).toBeUndefined();
     expect(() => getMissionRollup(project, prefix)).toThrow(/mission not found/);
@@ -149,6 +147,15 @@ describe('mission-store: control state', () => {
     deleteMission(project, id);
     expect(getMission(project, id)).toBeUndefined();
     expect(listCriteria(project, id)).toHaveLength(0);
+  });
+
+  test('deleteMission refuses an id that resolves to no row', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const before = listMissions(project, { withFacts: false, includeArchived: true }).length;
+    expect(() => deleteMission(project, 'deadbeef')).toThrow(/mission not found: deadbeef/);
+    const after = listMissions(project, { withFacts: false, includeArchived: true }).length;
+    expect(after).toBe(before); // unrelated mission row untouched — no partial delete
   });
 });
 
@@ -929,10 +936,10 @@ describe('per-criterion discovery', () => {
     expect(before.hasOpenEpic).toBe(true);
 
     // Archive the leaf directly (no setter exists yet) — it must vanish from the facts scan.
-    const db = new Database(join(project, '.collab', 'todos.db'));
+    // Through the store's handle on the consolidated collab.db: opening a path by hand would
+    // create an empty file rather than reach the todos table.
+    const db = openDb(project);
     db.exec(`UPDATE todos SET archivedAt = ${Date.now()} WHERE id = '${leaf.id}'`);
-    db.close();
-    _closeProject(project);
 
     const after = collectMissionStatusFacts(project, getMission(project, m)!);
     expect(after.hasBuildingLeaf).toBe(false);
@@ -1671,29 +1678,22 @@ describe('mission-store: criterion type column', () => {
   test("backfill sets type='capability' for legacy rows with no type column", async () => {
     const missionId = await makeMissionNode();
 
-    const db = new Database(join(project, '.collab', 'mission.db'));
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS mission_criterion (
-        id TEXT PRIMARY KEY,
-        todoId TEXT NOT NULL,
-        text TEXT NOT NULL,
-        met INTEGER NOT NULL DEFAULT 0,
-        "order" INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL,
-        verifiedAtSha TEXT,
-        evidencePaths TEXT,
-        reopenCount INTEGER NOT NULL DEFAULT 0,
-        lastReopenSha TEXT
-      )
-    `);
+    // The pre-`type` shape, reconstructed in place: the consolidated schema declares the column
+    // at CREATE time, so the only way to reach a database that predates it is to take the column
+    // back off. Everything else — notably the todoId → todos.id foreign key — stays, so the rows
+    // below are inserted against the same enforcement production has. What is under test is
+    // openDb's legacy shape-repair (addColumnIfMissing with a NOT NULL DEFAULT), which is still
+    // live for a database restored from a backup or predating the consolidation.
+    const db = openDb(project);
+    db.exec('ALTER TABLE mission_criterion DROP COLUMN type');
     db.prepare(
       'INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
     ).run('crit_legacy_1', missionId, 'legacy criterion one', 0, 0, Date.now());
     db.prepare(
       'INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
     ).run('crit_legacy_2', missionId, 'legacy criterion two', 1, 1, Date.now());
-    db.close();
 
+    // Evict so the next store call re-runs openDb's column repair against the shape above.
     _resetMissionDbCache(project);
 
     const criteria = listCriteria(project, missionId);

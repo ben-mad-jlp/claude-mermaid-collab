@@ -39,6 +39,13 @@ export interface FrictionNote {
   retryReason: string;
   /** Optional free-text elaboration. */
   detail: string | null;
+  /** ISO timestamp a retraction was recorded, or null while the note stands. A retracted
+   *  note is WRONG, not merely handled — see retractFriction. */
+  retractedAt: string | null;
+  /** Why the note is invalid. Required at retraction time. */
+  retractedReason: string | null;
+  /** Optional id of the note (or record) that supersedes this one. */
+  supersededBy: string | null;
   createdAt: string;
 }
 
@@ -55,6 +62,10 @@ export interface FrictionFilter {
   todoId?: string;
   session?: string;
   layer?: FrictionLayer;
+  /** Include RETRACTED notes. Default false — a note whose analysis was proven wrong must not
+   *  keep surfacing as evidence. friction is a primary input to mission-forge's survey step, so
+   *  an un-excluded wrong note silently biases every future survey that touches it. */
+  includeRetracted?: boolean;
 }
 
 const DDL = `
@@ -66,7 +77,10 @@ CREATE TABLE IF NOT EXISTS friction_notes (
   layer TEXT NOT NULL,
   retryReason TEXT NOT NULL,
   detail TEXT,
-  createdAt TEXT NOT NULL
+  createdAt TEXT NOT NULL,
+  retractedAt TEXT,
+  retractedReason TEXT,
+  supersededBy TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_friction_todo ON friction_notes(todoId);
 CREATE INDEX IF NOT EXISTS idx_friction_layer ON friction_notes(layer);
@@ -102,6 +116,12 @@ function openDb(project: string): Database {
                SELECT id, todoId, session, attempt, layer, retryReason, detail, createdAt FROM friction_notes_old`);
       db.exec(`DROP TABLE friction_notes_old`);
     })();
+  }
+
+  // Migration: retraction columns are additive — add them to any pre-existing table.
+  const have = new Set((db.prepare(`PRAGMA table_info(friction_notes)`).all() as Array<{ name: string }>).map((c) => c.name));
+  for (const [col, ddl] of [['retractedAt', 'TEXT'], ['retractedReason', 'TEXT'], ['supersededBy', 'TEXT']] as const) {
+    if (!have.has(col)) db.exec(`ALTER TABLE friction_notes ADD COLUMN ${col} ${ddl}`);
   }
 
   dbCache.set(project, db);
@@ -140,6 +160,9 @@ function rowToNote(row: any): FrictionNote {
     retryReason: row.retryReason,
     detail: row.detail ?? null,
     createdAt: row.createdAt,
+    retractedAt: row.retractedAt ?? null,
+    retractedReason: row.retractedReason ?? null,
+    supersededBy: row.supersededBy ?? null,
   };
 }
 
@@ -206,8 +229,51 @@ export function listFriction(project: string, filter: FrictionFilter = {}): Fric
   if (filter.todoId) { where.push('todoId = ?'); params.push(filter.todoId); }
   if (filter.session) { where.push('session = ?'); params.push(filter.session); }
   if (filter.layer) { where.push('layer = ?'); params.push(filter.layer); }
+  if (!filter.includeRetracted) where.push('retractedAt IS NULL');
   const sql = `SELECT * FROM friction_notes${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC, rowid DESC`;
   return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
+}
+
+/**
+ * RETRACT a friction note whose analysis was WRONG.
+ *
+ * friction_notes was append-only, so a confidently-argued but incorrect note stayed in the
+ * queryable record indistinguishable from a correct one — counted by friction_trends, and read
+ * as prior art by anyone grepping for it. Paid for in a real incident: note 95c5c237 argued at
+ * length that no public verb could retire a superseded leaf and asked for a `drop_todo` that
+ * would have duplicated `reset_todo` (which already accepts the dropped status). Its only
+ * available correction was ANOTHER note, which relies on a reader finding both.
+ *
+ * Retraction means "this note is wrong", NOT "this was fixed" — a fixed problem is still real
+ * evidence and must keep counting. Retracted notes are excluded from listFriction (and therefore
+ * from frictionTrends) unless includeRetracted is passed.
+ *
+ * Throws when the id matches no row: a zero-row write that reports success is the
+ * silently-accepted-then-discarded failure this store must not have.
+ */
+export function retractFriction(
+  project: string,
+  input: { id: string; reason: string; supersededBy?: string },
+): FrictionNote {
+  const id = input.id?.trim();
+  const reason = input.reason?.trim();
+  if (!id) throw new Error('retractFriction: id is required');
+  if (!reason) throw new Error('retractFriction: reason is required — a retraction without a stated reason is not reviewable');
+
+  const db = openDb(project);
+  const existing = db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id) as any;
+  if (!existing) {
+    throw new Error(`retractFriction: no friction note with id ${id} (nothing was written)`);
+  }
+  if (existing.retractedAt) {
+    // Idempotent: re-retracting is a no-op that returns the existing state rather than
+    // silently overwriting the original reason.
+    return rowToNote(existing);
+  }
+  db.prepare(
+    'UPDATE friction_notes SET retractedAt = ?, retractedReason = ?, supersededBy = ? WHERE id = ?',
+  ).run(new Date().toISOString(), reason, input.supersededBy ?? null, id);
+  return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
 }
 
 /** True iff a friction note already exists for this retryReason (optionally scoped by

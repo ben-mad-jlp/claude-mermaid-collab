@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 import fg from 'fast-glob';
 
@@ -18,7 +19,7 @@ describe('spawn machinery removed', () => {
       if (path === testFile) continue;
 
       try {
-        const content = await import('fs/promises').then((m) => m.readFile(path, 'utf-8'));
+        const content = await readFile(path, 'utf-8');
         if (/source\s*===\s*['"]spawn['"]/.test(content)) {
           spawned.push(path.replace(uiSrcDir, ''));
         }
