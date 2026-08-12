@@ -35,8 +35,14 @@ function git(cwd: string, ...args: string[]) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' });
 }
 
+// POSIX ERE only: `git grep -E` on macOS rejects GNU-isms (\s, \b) SILENTLY — the
+// pattern compiles but matches nothing, which flipped this guard's positive control
+// red on every Mac while staying green on Linux. [[:space:]] and an explicit
+// non-word-char alternative are portable to both.
 const GIT_ADD_ALL_PATTERN =
-  "\\[.add.\\s*(,\\s*)?['\\\"]?-[Au]|exec.*git.*add\\s+(-A|-u|\\\\.)\\b|git\\s+add\\s+(-A|-u|\\\\.)\\b";
+  "\\[.add.[[:space:]]*(,[[:space:]]*)?['\\\"]?-[Au]" +
+  "|exec.*git.*add[[:space:]]+(-A|-u|\\\\.)([^A-Za-z0-9_]|$)" +
+  "|git[[:space:]]+add[[:space:]]+(-A|-u|\\\\.)([^A-Za-z0-9_]|$)";
 const GIT_ADD_ALL_FILTER =
   "grep -vE ':[0-9]+:[[:space:]]*//' | grep -viE '(never|forbidden|must not).{0,30}git[[:space:]]+add'";
 
