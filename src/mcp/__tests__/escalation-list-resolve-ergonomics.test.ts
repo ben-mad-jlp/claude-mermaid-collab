@@ -256,4 +256,99 @@ describe('escalation_list and escalation_resolve ergonomics', () => {
     expect(freshRead!.status).toBe('resolved');
     expect(resolveResult.status).toBe(freshRead!.status);
   });
+
+  it('escalation_resolve on the resolve branch refuses success when a post-write re-read diverges', async () => {
+    const { escalation } = createEscalation({
+      project: '/p',
+      session: 's',
+      kind: 'question',
+      questionText: 'Divergence test',
+      audience: 'human',
+    });
+
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+
+    try {
+      const triggerId = `divert_resolve_1`;
+      directDb.prepare(
+        `CREATE TRIGGER ${triggerId} AFTER UPDATE ON escalation WHEN NEW.id='${escalation.id}' AND NEW.status<>'obsolete' BEGIN UPDATE escalation SET status='obsolete' WHERE id=NEW.id; END;`
+      ).run();
+
+      const resolveResultStr = await handleSupervisorTool('escalation_resolve', {
+        id: escalation.id,
+        status: 'resolved',
+        note: 'n',
+      });
+      expect(resolveResultStr).not.toBeNull();
+      const resolveResult = JSON.parse(resolveResultStr!);
+
+      expect(resolveResult.error).toBeDefined();
+      expect(resolveResult.error).toContain('did not verify');
+      expect(resolveResult.error).toContain('expected status "resolved"');
+      expect(resolveResult.error).toContain('observed "obsolete"');
+      expect(resolveResult.success).not.toBe(true);
+    } finally {
+      directDb.prepare('DROP TRIGGER IF EXISTS divert_resolve_1').run();
+      directDb.close();
+    }
+  });
+
+  it('escalation_resolve on the acknowledged branch refuses success when the row vanishes after write', async () => {
+    const { escalation } = createEscalation({
+      project: '/p',
+      session: 's',
+      kind: 'question',
+      questionText: 'Vanish test',
+      audience: 'human',
+    });
+
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
+
+    try {
+      const triggerId = `divert_resolve_2`;
+      directDb.prepare(
+        `CREATE TRIGGER ${triggerId} AFTER UPDATE ON escalation WHEN NEW.id='${escalation.id}' AND NEW.status='acknowledged' BEGIN DELETE FROM escalation WHERE id=NEW.id; END;`
+      ).run();
+
+      const resolveResultStr = await handleSupervisorTool('escalation_resolve', {
+        id: escalation.id,
+        status: 'acknowledged',
+      });
+      expect(resolveResultStr).not.toBeNull();
+      const resolveResult = JSON.parse(resolveResultStr!);
+
+      expect(resolveResult.error).toBeDefined();
+      expect(resolveResult.error).toContain('did not verify');
+      expect(resolveResult.error).toContain('expected status "acknowledged"');
+      expect(resolveResult.error).toContain('observed no row');
+      expect(resolveResult.success).not.toBe(true);
+    } finally {
+      directDb.prepare('DROP TRIGGER IF EXISTS divert_resolve_2').run();
+      directDb.close();
+    }
+  });
+
+  it('escalation_resolve happy path returns the re-read normalized status and note, not the caller-supplied strings', async () => {
+    const { escalation } = createEscalation({
+      project: '/p',
+      session: 's',
+      kind: 'question',
+      questionText: 'Happy path test',
+      audience: 'human',
+    });
+
+    const resolveResultStr = await handleSupervisorTool('escalation_resolve', {
+      id: escalation.id,
+      status: 'resolved - all set',
+      note: undefined,
+    });
+    expect(resolveResultStr).not.toBeNull();
+    const resolveResult = JSON.parse(resolveResultStr!);
+
+    expect(resolveResult.success).toBe(true);
+    expect(resolveResult.status).toBe('resolved');
+    expect(resolveResult.note).toBe('all set');
+  });
 });
