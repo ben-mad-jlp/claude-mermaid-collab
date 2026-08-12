@@ -19,6 +19,7 @@ import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main
 import { installLinuxAutostart } from './linux-autostart';
 import { deriveCdpPort } from '../../../src/services/project-registry';
 import { attachRendererRecovery } from './renderer-recovery';
+import { runStartupSequence } from './startup-sequence';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -683,7 +684,14 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
       mainWindow?.webContents.send('mc:bootstrap-progress', { phase: info.phase, message, elapsedMs: info.elapsedMs });
     },
   });
-  const { port, attached } = await supervisor.start();
+  const { port, attached } = await runStartupSequence({
+    startSidecar: () => supervisor!.start(),
+    connectRemotes: async () => {
+      store = new ConnectionStore();
+      await store.init();
+      await store.refreshLocal();
+    },
+  });
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
   // Phase-2 deploy (49e3c1f6): the deploy script asks main (via DesktopControl)
   // to restart ONLY the sidecar child after swapping its binary, so the window
@@ -703,14 +711,10 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   const { port: proxyPort } = await proxy.start(9180);
   console.log(`[bootstrap] proxy on ${proxyPort} → sidecar ${port}`);
 
-  // Connection store: persisted server list + auto-listed local instances.
-  store = new ConnectionStore();
-  await store.init();
-  await store.refreshLocal();
   // Auto-pair the desktop's OWN primary local server (the sidecar on `port`) so
   // the home server is never gated by pairing (P4a). Other discovered instances
   // stay 'pending' until the user explicitly pairs them.
-  store.pairLocalByPort(port);
+  store?.pairLocalByPort(port);
   // Resolver: live lookup keeps tokens in main and lets per-server WS bridges
   // pick the right upstream regardless of which server is "active".
   proxy.setResolver((id) => {
