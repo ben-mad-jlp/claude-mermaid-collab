@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { parseExploreReport, EXPLORE_REPORT_SENTINEL, ExploreReportParse } from '../leaf-parsing';
+import { parseExploreReport, EXPLORE_REPORT_SENTINEL, ExploreReportParse, exploreAssertsFindings } from '../leaf-parsing';
 import { exploreReportPath } from '../leaf-prompts';
 import type { Todo } from '../todo-store';
 
@@ -200,5 +200,63 @@ EXPLORE-REPORT: FINDINGS=2`;
     if (!result.ok) {
       expect(result.reason).toBe('empty');
     }
+  });
+
+  it('parses findingsCount from FINDINGS=99', () => {
+    const text = `# Investigation Report
+
+## Findings
+
+- Issue 1
+- Issue 2
+- Issue 3
+
+EXPLORE-REPORT: FINDINGS=99`;
+
+    const result = parseExploreReport(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.findingsCount).toBe(99);
+    }
+  });
+});
+
+describe('exploreAssertsFindings', () => {
+  it('is false for FINDINGS=0 with no bullets', () => {
+    const text = `# Report
+
+## Findings
+
+EXPLORE-REPORT: FINDINGS=0`;
+
+    const result = parseExploreReport(text);
+    expect(exploreAssertsFindings(result)).toBe(false);
+  });
+
+  it('is true for FINDINGS=0 with one bullet', () => {
+    const text = `# Report
+
+## Findings
+
+- One finding was discovered
+
+EXPLORE-REPORT: FINDINGS=0`;
+
+    const result = parseExploreReport(text);
+    expect(exploreAssertsFindings(result)).toBe(true);
+  });
+
+  it('is true for FINDINGS=2', () => {
+    const text = `# Report
+
+## Findings
+
+- First issue
+- Second issue
+
+EXPLORE-REPORT: FINDINGS=2`;
+
+    const result = parseExploreReport(text);
+    expect(exploreAssertsFindings(result)).toBe(true);
   });
 });
