@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { parseSplitDecision, hasCycle, topoSortSplitItems, type LeafSplitDecision, type LeafSplitItem } from '../split-decision';
 import { parseSizeManifest, type LeafSizeManifest } from '../leaf-executor';
@@ -269,12 +272,22 @@ describe('parseSizeManifest with splitDecision', () => {
 });
 
 describe('splitLeafInto with items', () => {
-  // These tests split leaves into a PERSISTENT on-disk 'proj-test' DB. Without a reset, a
-  // prior run's accumulated children inflate childIds counts (Received > Expected) — a
-  // test-isolation flake. Clear the DB before each test so counts are deterministic.
+  // A UNIQUE TMPDIR PROJECT PER TEST — never the relative name proj.
+  //
+  // WHY (paid for twice, at scale): proj is a RELATIVE path. Resolved from the repo
+  // root it points at the TRACKED fixture directory, so the old beforeEach rmSync DELETED
+  // tracked files — the exact dirt that made every epic worktree read epic-worktree-dirty and
+  // blocked forward-integration all day on 2026-08-11. Resolved under other cwds/config it
+  // landed these fixtures in the REAL project collab.db: 2,124 leaf-complex-dag/-edges/-legacy/
+  // -multifile/-idempotent rows accumulated there by 2026-08-12 morning (bucket dd5d2087) and
+  // had to be bulk-dropped. A mkdtemp project cannot collide with anything and needs no reset.
+  let proj = '';
   beforeEach(() => {
-    _closeProject('proj-test');
-    rmSync('proj-test', { recursive: true, force: true });
+    proj = mkdtempSync(join(tmpdir(), 'split-decision-'));
+  });
+  afterEach(() => {
+    try { _closeProject(proj); } catch { /* ignore */ }
+    rmSync(proj, { recursive: true, force: true });
   });
 
   /**
@@ -287,7 +300,7 @@ describe('splitLeafInto with items', () => {
    * beforeEach wipes the DB, so the per-test names are only for readability in the child titles.
    */
   function makeLeaf(title: string): Promise<Todo> {
-    return createTodo('proj-test', {
+    return createTodo(proj, {
       allowOrphan: true,
       kind: 'leaf',
       ownerSession: 'coordinator',
@@ -303,39 +316,39 @@ describe('splitLeafInto with items', () => {
 
   it('two items with edges ⇒ two children, edge preserved', async () => {
     const leaf = await makeLeaf('leaf-edges-test');
-    const result = await splitLeafInto('proj-test', leaf, [
+    const result = await splitLeafInto(proj, leaf, [
       { id: 'mod-a', files: ['a.ts'], dependsOn: [] },
       { id: 'mod-b', files: ['b.ts'], dependsOn: ['mod-a'] },
     ]);
     expect(result.childIds.length).toBe(2);
-    const childB = getTodo('proj-test', result.childIds[1]);
+    const childB = getTodo(proj, result.childIds[1]);
     expect(childB?.dependsOn).toContain(result.childIds[0]); // child b depends on child a
     expect(childB?.status).toBe('planned');
   });
 
   it('multi-file item ⇒ ONE child, not per-file split', async () => {
     const leaf = await makeLeaf('leaf-multifile-test');
-    const result = await splitLeafInto('proj-test', leaf, [
+    const result = await splitLeafInto(proj, leaf, [
       { id: 'multi', files: ['a.ts', 'b.ts', 'c.ts'], dependsOn: [] },
     ]);
     expect(result.childIds.length).toBe(1);
-    const child = getTodo('proj-test', result.childIds[0]);
+    const child = getTodo(proj, result.childIds[0]);
     expect(child?.title).toContain('a.ts, b.ts, c.ts');
   });
 
   it('legacy string[] ⇒ one edgeless child per file (back-compat)', async () => {
     const leaf = await makeLeaf('leaf-legacy-test');
-    const result = await splitLeafInto('proj-test', leaf, ['a.ts', 'b.ts']);
+    const result = await splitLeafInto(proj, leaf, ['a.ts', 'b.ts']);
     expect(result.childIds.length).toBe(2);
-    const childA = getTodo('proj-test', result.childIds[0]);
+    const childA = getTodo(proj, result.childIds[0]);
     expect(childA?.dependsOn.length).toBe(0);
     expect(childA?.title).toContain('a.ts');
   });
 
   it('re-entrancy: second split on a leaf with live children is a no-op', async () => {
     const leaf = await makeLeaf('leaf-idempotent');
-    const result1 = await splitLeafInto('proj-test', leaf, ['a.ts']);
-    const result2 = await splitLeafInto('proj-test', leaf, ['a.ts', 'b.ts', 'c.ts']);
+    const result1 = await splitLeafInto(proj, leaf, ['a.ts']);
+    const result2 = await splitLeafInto(proj, leaf, ['a.ts', 'b.ts', 'c.ts']);
     expect(result2.childIds).toEqual(result1.childIds); // no new children
   });
 
@@ -348,7 +361,7 @@ describe('splitLeafInto with items', () => {
       { id: 'mcp', files: ['mcp-tool.ts'], dependsOn: ['parenting'] },
       { id: 'api', files: ['api-route.ts'], dependsOn: ['parenting'] },
     ];
-    const result = await splitLeafInto('proj-test', leaf, items);
+    const result = await splitLeafInto(proj, leaf, items);
     expect(result.childIds.length).toBe(5);
     // Verify the DAG structure
     const childIds = result.childIds;
@@ -357,9 +370,9 @@ describe('splitLeafInto with items', () => {
     const testsId = childIds[2];
     const mcpId = childIds[3];
     const apiId = childIds[4];
-    const testsChild = getTodo('proj-test', testsId);
-    const mcpChild = getTodo('proj-test', mcpId);
-    const apiChild = getTodo('proj-test', apiId);
+    const testsChild = getTodo(proj, testsId);
+    const mcpChild = getTodo(proj, mcpId);
+    const apiChild = getTodo(proj, apiId);
     expect(testsChild?.dependsOn).toContain(parentingId);
     expect(mcpChild?.dependsOn).toContain(parentingId);
     expect(apiChild?.dependsOn).toContain(parentingId);

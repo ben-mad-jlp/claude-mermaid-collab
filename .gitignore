@@ -88,3 +88,9 @@ Thumbs.db
 
 # Quarantined ghost store files (local recovery only, never shared)
 /.collab/.trash/
+
+# Runtime residue — the leak-quarantine guard's holding area and the test-fixture scratch dir.
+# proj-test stopped being tracked on 2026-08-12; untracked runtime copies must not dirty the
+# main checkout (adopt/FI refuse on ANY dirt — this class blocked integration repeatedly).
+.collab/leak-quarantine/
+proj-test/
