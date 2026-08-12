@@ -7141,6 +7141,14 @@
           "title": {
             "type": "string",
             "description": "Leaf title (defaults to first 120 chars of violatedClaim)."
+          },
+          "sourceLeafId": {
+            "type": "string",
+            "description": "The leaf todo id (e.g. an explore leaf) that observed this finding."
+          },
+          "reproCwd": {
+            "type": "string",
+            "description": "Working tree to run the repro gate from, when it differs from `project` — e.g. an explore leaf's own worktree whose commits are not yet in `project`'s checkout."
           }
         },
         "required": [

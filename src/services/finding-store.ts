@@ -20,6 +20,7 @@ export interface Finding {
   reproPath: string;
   failureIdentity: string | null;
   surface: string | null;
+  sourceLeafId: string | null;
   recurrenceCount: number;
   createdAt: string;
   lastSeenAt: string;
@@ -33,6 +34,7 @@ export interface RecordFindingInput {
   reproPath: string;
   failureIdentity?: string | null;
   surface?: string | null;
+  sourceLeafId?: string | null;
 }
 
 const DDL = `
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS finding (
   reproPath TEXT NOT NULL,
   failureIdentity TEXT,
   surface TEXT,
+  sourceLeafId TEXT,
   recurrenceCount INTEGER NOT NULL DEFAULT 1,
   createdAt TEXT NOT NULL,
   lastSeenAt TEXT NOT NULL
@@ -55,6 +58,11 @@ CREATE INDEX IF NOT EXISTS idx_finding_failureIdentity ON finding(failureIdentit
 
 const dbCache = new Map<string, Database>();
 
+function addColumnIfMissing(db: Database, table: string, col: string, ddl: string): void {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+}
+
 function openDb(project: string): Database {
   const cached = dbCache.get(project);
   if (cached) return cached;
@@ -63,6 +71,8 @@ function openDb(project: string): Database {
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  addColumnIfMissing(db, 'finding', 'sourceLeafId', 'TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_finding_sourceLeaf ON finding(sourceLeafId)');
 
   dbCache.set(project, db);
   return db;
@@ -99,6 +109,7 @@ function rowToFinding(row: any): Finding {
     reproPath: row.reproPath,
     failureIdentity: row.failureIdentity ?? null,
     surface: row.surface ?? null,
+    sourceLeafId: row.sourceLeafId ?? null,
     recurrenceCount: row.recurrenceCount,
     createdAt: row.createdAt,
     lastSeenAt: row.lastSeenAt,
@@ -117,8 +128,8 @@ export function recordFinding(project: string, input: RecordFindingInput): Promi
     const ts = nowIso();
 
     db.prepare(
-      `INSERT INTO finding (id, todoId, violatedClaim, implicatedFiles, ruledOut, reproPath, failureIdentity, surface, createdAt, lastSeenAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO finding (id, todoId, violatedClaim, implicatedFiles, ruledOut, reproPath, failureIdentity, surface, sourceLeafId, createdAt, lastSeenAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       id,
       input.todoId,
@@ -128,6 +139,7 @@ export function recordFinding(project: string, input: RecordFindingInput): Promi
       input.reproPath,
       input.failureIdentity ?? null,
       input.surface ?? null,
+      input.sourceLeafId ?? null,
       ts,
       ts,
     );
@@ -162,6 +174,13 @@ export function listFindings(project: string): Promise<Finding[]> {
 export function findByFailureIdentity(project: string, identity: string): Promise<Finding[]> {
   const db = openDb(project);
   const rows = db.prepare('SELECT * FROM finding WHERE failureIdentity = ? ORDER BY createdAt DESC, rowid DESC').all(identity) as any[];
+  return Promise.resolve(rows.map(rowToFinding));
+}
+
+/** Find all findings by source leaf id. Returns array ordered by recency. */
+export function findBySourceLeafId(project: string, leafId: string): Promise<Finding[]> {
+  const db = openDb(project);
+  const rows = db.prepare('SELECT * FROM finding WHERE sourceLeafId = ? ORDER BY createdAt DESC, rowid DESC').all(leafId) as any[];
   return Promise.resolve(rows.map(rowToFinding));
 }
 
