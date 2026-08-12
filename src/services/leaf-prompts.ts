@@ -531,6 +531,12 @@ export function buildNodePrompt(
         `\`${EXPLORE_REPORT_SENTINEL}: FINDINGS=<count>\``,
         '',
         'where <count> is the number of findings you listed (0 if none). Do not omit this line.',
+        '',
+        'Any finding you assert (FINDINGS >= 1) MUST be filed via mcp__mermaid__file_finding',
+        `with sourceLeafId=${leaf.id}, project=<the main checkout root printed above>,`,
+        'reproCwd=<this worktree, printed above>, and a committed reproducible test under a',
+        '`__quarantine__` directory (the one write this read-only investigation may make).',
+        'A FINDINGS count with no filed finding is rejected — file every finding you report.',
       );
       return exploreLines.join('\n');
     }
