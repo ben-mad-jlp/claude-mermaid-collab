@@ -110,7 +110,7 @@ describe('WorktreeManager — listUnlandedEpics TTL memo', () => {
     expect(resultB.some((e) => e.epicId8 === 'aaaaaaaa')).toBe(false);
   });
 
-  it('advancing the clock past the TTL triggers a fresh branch walk', async () => {
+  it('advancing the clock past the TTL triggers a fresh branch walk (in the background — stale-while-revalidate)', async () => {
     const nowRef = { t: 0 };
     const { mgr, revListCalls } = makeCountingManager(repoA, nowRef);
 
@@ -121,7 +121,10 @@ describe('WorktreeManager — listUnlandedEpics TTL memo', () => {
     expect(revListCalls()).toBe(1);
 
     nowRef.t += UNLANDED_EPICS_TTL_MS + 1;
+    // SWR: the stale entry answers this call immediately; the fresh walk runs as a
+    // shared background refresh, so we wait for it to settle before counting.
     await mgr.listUnlandedEpics();
+    await new Promise((res) => setTimeout(res, 500));
     expect(revListCalls()).toBe(2);
   });
 });

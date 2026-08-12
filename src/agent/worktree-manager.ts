@@ -267,13 +267,26 @@ interface SpawnResult {
 const DEFAULT_STEP_TIMEOUT_MS = 5 * 60_000;
 const QUICK_TIMEOUT_MS = 30_000;
 
-export const UNLANDED_EPICS_TTL_MS = 5000;
+// 60s, not 5s: unlanded-ness moves at land/adopt speed (minutes), but the Bridge's
+// reconnect-resync can hit this endpoint many times a second during a WS drop storm —
+// a 5s TTL turned each storm into O(branches) git spawns per miss, which fed the very
+// server busyness that caused the drops (the 2026-08-11/12 sidecar-pin feedback loop).
+export const UNLANDED_EPICS_TTL_MS = 60_000;
 const unlandedEpicsCache = new Map<
   string,
   { at: number; value: Array<{ branch: string; epicId8: string; ahead: number }> }
 >();
+// Concurrent-call coalescing: during the same reconnect storms, parallel requests all
+// missed the (expired) cache and each ran its own full scan. One in-flight scan per
+// (project, baseRef); latecomers share it — or, stale-while-revalidate, get the stale
+// value immediately while the shared scan refreshes the cache in the background.
+const unlandedEpicsInflight = new Map<
+  string,
+  Promise<Array<{ branch: string; epicId8: string; ahead: number }>>
+>();
 export function _resetUnlandedEpicsCache(): void {
   unlandedEpicsCache.clear();
+  unlandedEpicsInflight.clear();
 }
 function _invalidateUnlandedEpicsCacheFor(projectRoot: string): void {
   const prefix = `${projectRoot}::`;
@@ -1254,10 +1267,31 @@ export class WorktreeManager {
     const key = `${this.opts.projectRoot}::${baseRef}`;
     const cached = unlandedEpicsCache.get(key);
     if (cached && this.now() - cached.at < UNLANDED_EPICS_TTL_MS) return cached.value;
+    let inflight = unlandedEpicsInflight.get(key);
+    if (!inflight) {
+      inflight = this.scanUnlandedEpics(key, baseRef).finally(() => {
+        unlandedEpicsInflight.delete(key);
+      });
+      unlandedEpicsInflight.set(key, inflight);
+    }
+    // Stale-while-revalidate: a caller holding an expired entry answers from it NOW —
+    // the shared scan above refreshes the cache for the next caller. Only a cold cache
+    // (first call ever for this key) waits on the scan.
+    return cached ? cached.value : inflight;
+  }
+
+  private async scanUnlandedEpics(
+    key: string,
+    baseRef: string,
+  ): Promise<Array<{ branch: string; epicId8: string; ahead: number }>> {
     const trunk = await this.resolveBase(baseRef); // main vs master — a `main` repo has no master
+    // --no-merged: a branch whose tip is an ancestor of trunk (every --no-ff-landed epic
+    // leaves one behind) would count ahead=0 anyway — filtering it here in the SAME spawn
+    // as the listing turns the common case (~40 landed leftovers, ~0-3 live) from
+    // O(branches) rev-list spawns into O(live).
     const list = await this.runGit(
       this.opts.projectRoot,
-      ['branch', '--list', 'collab/epic/*', '--format=%(refname:short)'],
+      ['branch', '--list', 'collab/epic/*', '--no-merged', trunk, '--format=%(refname:short)'],
       QUICK_TIMEOUT_MS,
     ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
     if (list.code !== 0) return [];

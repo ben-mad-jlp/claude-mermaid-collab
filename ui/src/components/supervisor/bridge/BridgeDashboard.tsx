@@ -38,6 +38,7 @@ import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { selectHumanActionableEscalations } from '@/lib/statusSelectors';
 import { useLeafDaemon } from './leafDaemon';
+import { makeCooldownGate } from './reconnectCooldown';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
@@ -176,6 +177,19 @@ export const BridgeDashboard: React.FC = () => {
     resyncBridge();
   }, [resyncBridge]);
 
+  // Reconnect-driven resyncs go through a cooldown gate (see reconnectCooldown.ts:
+  // the resync-on-every-reconnect storm was one edge of the 2026-08-11/12 sidecar-pin
+  // feedback loop). The gate lives in a ref via the latest-resync indirection so a
+  // resyncBridge identity change (project switch) doesn't reset the cooldown clock.
+  // Mount, project-switch, and manual-↺ resyncs stay immediate — only WS reconnects
+  // are gated.
+  const resyncRef = useRef(resyncBridge);
+  useEffect(() => {
+    resyncRef.current = resyncBridge;
+  }, [resyncBridge]);
+  const gatedReconnectResync = useMemo(() => makeCooldownGate(() => resyncRef.current()), []);
+  useEffect(() => () => gatedReconnectResync.cancel(), [gatedReconnectResync]);
+
   useEffect(() => {
     resyncBridge();
   }, [resyncBridge]);
@@ -189,7 +203,7 @@ export const BridgeDashboard: React.FC = () => {
   useEffect(() => {
     const client = getWebSocketClient();
     const sub = client.onConnect(() => {
-      resyncBridge();
+      gatedReconnectResync();
     });
     // Live-update the Bridge todo cards on ANY session_todos_updated — including
     // DAEMON-driven transitions (reclaim→blocked, retry-exhaust, claim→in_progress)
@@ -229,7 +243,7 @@ export const BridgeDashboard: React.FC = () => {
       msgSub.unsubscribe();
       if (todoNudgeTimerRef.current) clearTimeout(todoNudgeTimerRef.current);
     };
-  }, [resyncBridge, serverScope, refetchSnapshot, project, loadEscalations, watchedProjects]);
+  }, [gatedReconnectResync, serverScope, refetchSnapshot, project, loadEscalations, watchedProjects]);
 
   // The broadcast above only reaches clients on the SAME server process that
   // handled escalation_create. A CROSS-PROJECT worker can be served by a different
