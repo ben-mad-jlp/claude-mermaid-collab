@@ -128,6 +128,21 @@ only content — so there is no traversal surface.
 5. **`dismiss_artifact { envelopeId }`** — marks `dismissed`. No deletion verb in v1;
    a later reaper can age out non-pending envelopes.
 
+## Receiver notification (D6 — nothing to tell, three surfaces)
+
+The receiver is never told out of band; arrival is visible on every surface they already
+look at:
+1. **Bridge open** → the inbox route's WS `artifact_inbox_updated` broadcast updates the
+   "Artifact inbox (N)" card live.
+2. **Nothing open** → envelopes are durable files; the card shows the pending count on
+   next launch. Mail can be read late, never missed.
+3. **Live agent session, Bridge not visible** → the route also fires the existing
+   session-subscriptions NUDGE at active sessions on the receiving server, so a working
+   session gets poked in its terminal. (Reuses `session-subscriptions.ts` delivery; no
+   new channel.)
+The SENDER gets the verified receipt (envelopeId re-read from the target), so delivery
+is confirmed independent of when the receiver looks.
+
 ## Discovery (D5 — settled: the receiver tells the sender)
 
 **v1 has no discovery machinery. The target address is told out of band** — the receiving
