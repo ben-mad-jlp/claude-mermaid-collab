@@ -26,7 +26,7 @@ import { type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, checkLandDeps, type LandReadinessVerdict } from './land-authority';
+import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor } from './land-authority';
 import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -249,6 +249,7 @@ async function deriveEpicLandProof(a: {
   todos: Todo[];
   epicWorktreeCwd: string;
   snapshot?: { baseSha: string; epicTipSha: string };
+  actor?: LandActor;
 }): Promise<LandProof> {
   const notRun: EpicLandGateResult = {
     status: 'error',
@@ -268,6 +269,7 @@ async function deriveEpicLandProof(a: {
     todos: a.todos,
     probes: { worktreeCwd: () => a.epicWorktreeCwd },
     snapshot: a.snapshot,
+    actor: a.actor,
   });
   const gate = readiness.gate ?? notRun;
 
@@ -984,7 +986,7 @@ async function runProofStage(
   epicBranch: string,
   todosAtProofTime: Todo[],
   epic: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null,
-  ctx: { escalationId: string | null; session: string; todoId: string },
+  ctx: { escalationId: string | null; session: string; todoId: string; actor?: LandActor },
 ): Promise<{ ok: boolean; proof?: LandProof } | LandEpicOutcome> {
   const wm = getWorktreeManager(targetProject);
 
@@ -1008,6 +1010,7 @@ async function runProofStage(
     todos: todosAtProofTime,
     epicWorktreeCwd: epic?.path ?? targetProject,
     snapshot,
+    actor: ctx.actor,
   });
   if (!proof.ok) {
     const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
@@ -1374,7 +1377,7 @@ export function resolveLandTarget(
 export async function landEpic(
   project: string,
   target: LandTarget,
-  opts?: { allowDirty?: boolean },
+  opts?: { allowDirty?: boolean; actor?: LandActor },
   deps: LandStageDeps = defaultLandStageDeps,
 ): Promise<LandEpicOutcome> {
   const resolved = resolveLandTarget(project, target);
@@ -1416,7 +1419,7 @@ export async function landEpic(
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
-      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId });
+      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor });
       if (!proofResult.ok) {
         const outcome = proofResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
