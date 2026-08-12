@@ -55,4 +55,10 @@ describe('mission_diagnostic MCP tool', () => {
       'Missing required: project, missionId',
     );
   });
+
+  test('rejects a non-absolute project name instead of an empty-but-healthy diagnostic', async () => {
+    await expect(
+      handleMissionTool('mission_diagnostic', { project: 'mermaid-collab', missionId: 'deadbeef' }),
+    ).rejects.toThrow(/mermaid-collab/);
+  });
 });

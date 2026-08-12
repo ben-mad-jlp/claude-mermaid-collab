@@ -40,7 +40,7 @@ import { TOKEN_BURN_KIND } from '../services/burn-watch.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
-import { projectRegistry } from '../services/project-registry.ts';
+import { projectRegistry, resolveProjectArg } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo, resetTodo, overrideAcceptTodo, deriveTodoViews } from '../services/todo-store.ts';
 import { listMissions } from '../services/mission-store.ts';
 import { nicknamesForProject } from '../services/nickname-lookup.ts';
@@ -266,8 +266,9 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const project = url.searchParams.get('project');
       const missionId = url.searchParams.get('missionId');
       if (!project || !missionId) return jsonError('project and missionId are required', 400);
+      const resolvedProject = resolveProjectArg(project);
       const { buildMissionDiagnostic } = await import('../services/mission-diagnostic.ts');
-      const diagnostic = await buildMissionDiagnostic(project, missionId);
+      const diagnostic = await buildMissionDiagnostic(resolvedProject, missionId);
       return Response.json(diagnostic);
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
