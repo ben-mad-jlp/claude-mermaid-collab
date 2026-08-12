@@ -85,6 +85,15 @@ describe('buildMissionDiagnostic', () => {
     expect(existsSync(join('/nonexistent/definitely-not-a-project', '.collab'))).toBe(false);
   });
 
+  test('rejects a non-absolute project instead of resolving against server cwd', async () => {
+    await expect(buildMissionDiagnostic('mermaid-collab', 'deadbeef')).rejects.toThrow(
+      /mermaid-collab/,
+    );
+    await expect(buildMissionDiagnostic('mermaid-collab', 'deadbeef')).rejects.toThrow(
+      /absolute|resolveProjectArg/,
+    );
+  });
+
   test('rejects an unknown missionId under a real project instead of returning a null-field diagnostic', async () => {
     await expect(buildMissionDiagnostic(project, 'ffffffff-not-a-real-mission')).rejects.toThrow(
       /ffffffff-not-a-real-mission/,

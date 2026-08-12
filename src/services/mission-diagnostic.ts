@@ -2,6 +2,7 @@
 // serving-epic landedness), plus stubbed fields owned by sibling leaves. Every source read
 // is independently try/catch'd so a throwing reader degrades that field, not the whole call.
 import { existsSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { getMission, getMissionRollup, listCriteriaWithActions, missionExists } from './mission-store.js';
 import type { MissionStatus, MissionRollup, CriterionAction } from './mission-store.js';
 import { isEpicLandedInGit } from './epic-landedness.js';
@@ -112,6 +113,11 @@ export async function buildMissionDiagnostic(
     readMachineLoad?: () => { loadAvg: [number, number, number]; cpuCount: number } | null;
   },
 ): Promise<MissionDiagnostic> {
+  if (!isAbsolute(project)) {
+    throw new Error(
+      `mission_diagnostic: project must be an absolute path, got ${JSON.stringify(project)} — a registered project NAME is resolved only at the MCP boundary by resolveProjectArg (src/services/project-registry.ts)`,
+    );
+  }
   if (!existsSync(project)) {
     throw new Error(`mission_diagnostic: unknown project: ${project}`);
   }
