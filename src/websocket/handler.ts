@@ -172,7 +172,9 @@ export type WSMessage =
   | { type: 'browser_resize'; session: string;
       width: number; height: number; deviceScaleFactor?: number }
   | { type: 'browser_quality'; session: string;
-      quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number };
+      quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number }
+  /** An artifact envelope arrived in (or changed state within) the artifact inbox. */
+  | { type: 'artifact_inbox_updated' };
 
 export type BrowserInputMsg = Extract<WSMessage, { type: 'browser_input' }>;
 export type BrowserResizeMsg  = Extract<WSMessage, { type: 'browser_resize' }>;
