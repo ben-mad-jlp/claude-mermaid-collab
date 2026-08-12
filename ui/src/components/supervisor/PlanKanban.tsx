@@ -213,7 +213,10 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     };
     const tally = (items: SessionTodo[]): Record<FunnelKey, number> => {
       const c: Record<FunnelKey, number> = { backlog: 0, ready: 0, inflight: 0, blocked: 0, done: 0 };
-      for (const t of items) c[liveBucketTodo(t, byId, inflightLeafIds) ?? 'backlog']++;
+      for (const t of items) {
+        if (t.status === 'dropped') continue; // dropped is not a funnel state — never a Backlog chip
+        c[liveBucketTodo(t, byId, inflightLeafIds) ?? 'backlog']++;
+      }
       return c;
     };
     const minWave = (items: SessionTodo[]) =>
@@ -242,8 +245,10 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       });
     }
 
-    // "No epic" lane.
-    const orphans = h.orphans.slice().sort(byWaveOrder);
+    // "No epic" lane. Dropped orphans are pure residue (no epic context to fade
+    // them into, and bulk purges leave hundreds) — exclude them entirely, matching
+    // how a fully-dropped epic lane is skipped above.
+    const orphans = h.orphans.filter((t) => t.status !== 'dropped').sort(byWaveOrder);
     if (orphans.length > 0) {
       out.push({
         key: 'orphans',
