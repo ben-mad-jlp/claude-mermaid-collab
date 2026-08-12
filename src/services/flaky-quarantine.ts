@@ -16,6 +16,7 @@ import {
   removeTestQuarantine as removeTestQuarantineDefault,
 } from './worker-ledger';
 import { listTodos, updateTodo as updateTodoDefault } from './todo-store';
+import { quarantineDedupKey } from './quarantine-dedup';
 
 export interface FlakyCandidate {
   test: string;
@@ -208,10 +209,12 @@ export async function closeQuarantineOnGreen(
       if (testObs.length > 0 && !testObs.some((o) => o.failed)) {
         removeTestQuarantineFn(project, r.test);
 
-        const title = `[BUG] flaky test quarantined: ${r.test}`;
         const allTodos = listTodosFn(project, { includeCompleted: true });
         const todo = allTodos.find(
-          (t) => t.title === title && t.status !== 'done' && t.status !== 'dropped',
+          (t) =>
+            quarantineDedupKey(t.title.slice('[BUG] flaky test quarantined: '.length)) === quarantineDedupKey(r.test) &&
+            t.status !== 'done' &&
+            t.status !== 'dropped',
         );
 
         if (todo) {
