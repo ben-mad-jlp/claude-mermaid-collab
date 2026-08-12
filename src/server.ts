@@ -40,6 +40,7 @@ import { handleAttachments } from './routes/agent-attachments';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
 import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
+import { handleArtifactInboxAPI } from './routes/artifact-inbox-api.js';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
 import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
@@ -489,6 +490,11 @@ const server = Bun.serve<WsData>({
     }
     if (url.pathname.startsWith('/api/worktree/files')) {
       return handleWorktreeFilesAPI(req);
+    }
+
+    if (url.pathname.startsWith('/api/artifact-inbox')) {
+      const res = await handleArtifactInboxAPI(req, url);
+      if (res) return res;
     }
 
     if (url.pathname.startsWith('/api/artifact')) {
