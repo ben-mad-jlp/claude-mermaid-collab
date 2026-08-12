@@ -12,10 +12,20 @@
  * git's patch-id equivalence — a mocked runner would assert my belief about `git cherry`, not
  * its behaviour.
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// Set up supervisor dir BEFORE importing modules that depend on it
+const supervisorDir = mkdtempSync(join(tmpdir(), 'orphan-report-test-'));
+const oldSupervisorDir = process.env.MERMAID_SUPERVISOR_DIR;
+process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
+
+// Now import modules that need the supervisor dir
+import { reportOrphanedEpicCommits } from '../leaf-worktree-reaper';
+import { listTodos, _closeProject } from '../todo-store';
+import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 
 let repo: string;
 
@@ -117,5 +127,69 @@ describe('orphan detection counts PATCHES, not commits', () => {
     // Same intent, different bytes ⇒ different patch-id ⇒ still reported. This is a KNOWN
     // false positive and the filed todo says so, rather than the GC pretending to judge intent.
     expect(orphanShas('master', 'epic/reimplemented')).toHaveLength(1);
+  });
+});
+
+describe('orphan reporting — supersede-check recipe', () => {
+  beforeAll(() => {
+    _closeSupervisorDb();
+  });
+
+  afterEach(() => {
+    _closeProject(repo);
+    for (const d of made.splice(0)) {
+      try { rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  });
+
+  afterAll(() => {
+    _closeSupervisorDb();
+    rmSync(supervisorDir, { recursive: true, force: true });
+    if (oldSupervisorDir) {
+      process.env.MERMAID_SUPERVISOR_DIR = oldSupervisorDir;
+    } else {
+      delete process.env.MERMAID_SUPERVISOR_DIR;
+    }
+  });
+
+  it('filed description includes repo-wide supersede-check recipe with per-commit subjects', async () => {
+    freshRepo();
+    git(['checkout', '-q', 'master']);
+    git(['checkout', '-q', '-b', 'epic/orphaned']);
+    commit('orphan.txt', 'unique content\n', 'fix: the fix that got away');
+    const orphanSha = git(['rev-parse', 'HEAD']).trim();
+
+    // Call reportOrphanedEpicCommits directly
+    const epicId = '12345678abcdefgh';
+    const result = await reportOrphanedEpicCommits(
+      repo,
+      epicId,
+      'Test Epic',
+      'epic/orphaned',
+      [orphanSha],
+      repo,
+    );
+    expect(result).toBe(true);
+
+    // Fetch the filed todo and verify its description
+    const todos = listTodos(repo, { includeCompleted: true, includeArchived: true });
+    const filed = todos.find((t) => t.title?.includes('Orphaned commits'));
+    expect(filed).toBeDefined();
+    const desc = filed?.description ?? '';
+
+    // 1. Must contain a repo-wide grep instruction (not path-scoped to the old commit's files)
+    expect(desc).toMatch(/repo-wide/i);
+    expect(desc).toMatch(/git\s+(log|grep)/);
+
+    // 2. Must contain explicit do-NOT-path-scope clause
+    expect(desc).toMatch(/must\s+NOT\s+be\s+scoped/i);
+    expect(desc).toMatch(/re-implement/i);
+
+    // 3. Per-sha line must include the commit's exact subject
+    expect(desc).toContain(orphanSha.slice(0, 8));
+    expect(desc).toContain('fix: the fix that got away');
+
+    // 4. Files line should list the touched file
+    expect(desc).toContain('orphan.txt');
   });
 });
