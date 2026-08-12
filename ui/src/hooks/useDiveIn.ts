@@ -33,6 +33,7 @@ export interface DiveTarget {
 function selectSession(
   sessions: Session[],
   setCurrentSession: (s: Session) => void,
+  setActiveProject: (p: string | null) => void,
   target: DiveTarget,
 ): void {
   const match: Session | undefined = sessions.find(
@@ -46,6 +47,7 @@ function selectSession(
   };
 
   setCurrentSession(session);
+  setActiveProject(target.project);
 
   // Best-effort activation side-effects. Never block on them.
   const card: SessionCardData = {
@@ -62,13 +64,14 @@ export function useDiveIn() {
   const sessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const setMode = useUIStore((s) => s.setMode);
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
 
   return useCallback(
     (target: DiveTarget) => {
-      selectSession(sessions, setCurrentSession, target);
+      selectSession(sessions, setCurrentSession, setActiveProject, target);
       setMode('studio');
     },
-    [sessions, setCurrentSession, setMode],
+    [sessions, setCurrentSession, setActiveProject, setMode],
   );
 }
 
@@ -80,12 +83,13 @@ export function useDiveIn() {
 export function useSelectSessionInPlace() {
   const sessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
 
   return useCallback(
     (target: DiveTarget) => {
-      selectSession(sessions, setCurrentSession, target);
+      selectSession(sessions, setCurrentSession, setActiveProject, target);
     },
-    [sessions, setCurrentSession],
+    [sessions, setCurrentSession, setActiveProject],
   );
 }
 

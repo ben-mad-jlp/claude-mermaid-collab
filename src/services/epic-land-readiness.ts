@@ -35,8 +35,20 @@ export interface CommitProbeResult {
 }
 export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<CommitProbeResult>;
 
-export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic' | 'dup-settled';
-export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified';
+export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic' | 'dup-settled' | 'adopted';
+export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified' | 'adopt-unverified';
+
+/** Provenance handle written by adoptBranchAsEpic: `adopt_branch_as_epic:<sha8>`.
+ *  The bare verb (no sha) is the pre-2026-08-07 form and carries no evidence. */
+const ADOPTED_RE = /^adopt_branch_as_epic(?::([0-9a-fA-F]{4,40}))?$/;
+
+/** Parse a leaf's `completedBy` for adoption provenance. `sha` is null on the legacy
+ *  bare-verb form, which has nothing to verify. */
+export function parseAdopted(completedBy: string | null | undefined): { sha: string | null } | null {
+  if (typeof completedBy !== 'string') return null;
+  const m = ADOPTED_RE.exec(completedBy.trim());
+  return m ? { sha: m[1] ?? null } : null;
+}
 
 /** Provenance handle written by settleDupOfLanded: `dup-of-landed:<sha8>[:<landedTodoId8>]`. */
 const DUP_OF_LANDED_RE = /^dup-of-landed:([0-9a-fA-F]{4,40})(?::([0-9a-fA-F]{4,40}))?$/;
@@ -279,6 +291,44 @@ export async function buildLandReadiness(
             (dup.landedTodoId ? ` (leaf ${dup.landedTodoId})` : '') +
             `, but that commit is not reachable from ${epicBranch}` +
             (reachProbe ? '' : ' (no reach probe supplied)'),
+        });
+      }
+      continue;
+    }
+
+    // 6. Adopted — the leaf was minted by adopt_branch_as_epic over pre-existing commits.
+    //    Those commits carry whatever trailer they already had (typically the ORIGINAL
+    //    leaf's, or none), never this leaf's id, so the trailer check below can never pass
+    //    and the land fails `epic-leaves-unlanded` forever. Observed 2026-08-07 recovering
+    //    stranded work: adopt succeeded, the branch carried the fix, and the land refused
+    //    because the commit said `Collab-Todo: 641ef628` rather than the adopted leaf's id.
+    //
+    //    Verified, not assumed — same rule as dup-settled above: exempt only when the
+    //    adopted TIP SHA recorded in the handle is reachable from the epic tip. Every
+    //    adopted commit is an ancestor of that tip, so reachability proves the whole
+    //    adopted range is present in what this epic would land. The LEGACY bare-verb
+    //    handle (no sha) carries no evidence and stays BLOCKING — that is the pre-existing
+    //    behaviour for those rows, so this is strictly an improvement, never a loosening.
+    const adopted = parseAdopted(desc.completedBy);
+    if (adopted) {
+      const reachable = adopted.sha && reachProbe ? await reachProbe(adopted.sha) : false;
+      if (reachable) {
+        exemptions.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          reason: 'adopted',
+          childCount: 0,
+        });
+      } else {
+        findings.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          kind: 'adopt-unverified',
+          strayShas: adopted.sha ? [adopted.sha] : [],
+          reason: adopted.sha
+            ? `adopted at ${adopted.sha}, but that commit is not reachable from ${epicBranch}` +
+              (reachProbe ? '' : ' (no reach probe supplied)')
+            : 'adopted by a pre-2026-08-07 adopt_branch_as_epic that recorded no sha — nothing to verify; re-adopt the branch to stamp one',
         });
       }
       continue;

@@ -14,6 +14,7 @@
 import { getTodo, updateTodo, overrideAcceptTodo, type Todo } from './todo-store.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../mcp/workgraph-tools.js';
+import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.js';
 
 export interface AdoptBranchAsEpicOpts {
   source: string;
@@ -54,21 +55,14 @@ export async function runGit(
 }
 
 /**
- * Resolve the repo's trunk branch by probing local refs: `main` first, then
- * `master`, else the literal fallback `'master'`. This mirrors
- * WorktreeManager.detectBaseBranch()'s local-ref preference so a repo whose trunk
- * is `main` (no `master` ref) resolves correctly, while a `master`-trunk repo
- * resolves to `'master'` unchanged (behaviour-preserving). Never throws.
+ * Resolve the repo's trunk branch: delegates to the shared origin/HEAD-first resolver in
+ * trunk-ref.ts, injecting this module's own git runner. Never throws.
  */
 export async function detectBaseTrunk(
   gitRoot: string,
   runGitFn: typeof runGit,
 ): Promise<string> {
-  for (const cand of ['main', 'master']) {
-    const r = await runGitFn(gitRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${cand}`]);
-    if (r.code === 0 && r.stdout.trim()) return cand;
-  }
-  return 'master';
+  return sharedResolveTrunkRef(gitRoot, runGitFn);
 }
 
 export interface AdoptBranchAsEpicDeps {
@@ -146,8 +140,9 @@ export async function adoptBranchAsEpic(
 ): Promise<AdoptBranchAsEpicResult> {
   const gitRoot = opts.targetProject ?? project;
 
-  // Resolve the trunk ONCE (main-then-master probe; 'master' on a master-trunk repo,
-  // so all downstream git commands are behaviour-preserving there). Injectable for tests.
+  // Resolve the trunk ONCE (origin/HEAD, then main, then master; the historical
+  // master-trunk default when nothing resolves) so all downstream git commands agree
+  // with the real default branch. Injectable for tests.
   const trunk = await (deps.detectBase ?? detectBaseTrunk)(gitRoot, deps.runGit);
 
   // 1. Resolve source to SHA
@@ -249,8 +244,18 @@ export async function adoptBranchAsEpic(
     );
   }
 
-  // 7. Override-accept the leaf (same done+accepted semantics as override_accept_todo)
-  await overrideAcceptTodo(project, leafId, 'adopt_branch_as_epic');
+  // 7. Override-accept the leaf (same done+accepted semantics as override_accept_todo).
+  //    The marker carries the ADOPTED TIP SHA, not just the verb. Without it the leaf is
+  //    accepted with no evidence anywhere: the adopted commits keep whatever trailer they
+  //    already had (usually the ORIGINAL leaf's `Collab-Todo:`, or none at all), so
+  //    epic_land_readiness — which looks for `Collab-Todo: <this leaf id>` reachable from
+  //    the epic tip — reports "accepted with no commit on any ref" and the land fails
+  //    `epic-leaves-unlanded`. An adopted leaf can NEVER satisfy the trailer check, so the
+  //    gate needs a different, checkable fact. The tip sha is that fact: every adopted
+  //    commit is an ancestor of it, so tip-reachable ⇒ the whole adopted range is present
+  //    in what the epic would land. Same shape as the `dup-of-landed:<sha>` handle.
+  //    (2026-08-07: recovering stranded work by adopting it hit exactly this wall.)
+  await overrideAcceptTodo(project, leafId, `adopt_branch_as_epic:${sourceSha.slice(0, 8)}`);
 
   // 8. Return the result
   return {

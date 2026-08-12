@@ -10,6 +10,7 @@ import { ensureBucket } from './bucket-registry.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
 import { getStatuses } from './session-status-store.js';
 import { CRASH_MS } from './session-runtime.js';
+import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -317,13 +318,10 @@ function epicWorktreeId8(name: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Resolve trunk's base ref for the `merge-base --is-ancestor` check: `master` if the
- *  branch exists in `projectRoot`, else `main` (mirrors WorktreeManager's private
- *  resolveBase/detectBaseBranch fallback — not reachable from here, so duplicated as a
- *  small local helper rather than assuming `master` always exists). */
+/** Resolve trunk's base ref for the `merge-base --is-ancestor` check: delegates to the
+ *  shared origin/HEAD-first resolver, injecting this module's own read-only git runner. */
 async function resolveTrunkRef(projectRoot: string): Promise<string> {
-  const res = await gcGitRead(projectRoot, ['rev-parse', '--verify', '--quiet', 'refs/heads/master']);
-  return res.code === 0 && res.stdout.trim() ? 'master' : 'main';
+  return sharedResolveTrunkRef(projectRoot, gcGitRead);
 }
 
 /** Best-effort: is any live process's cwd (or an open fd) under `dir`? Shells out to
@@ -390,6 +388,11 @@ export interface ReclaimabilityInput {
    *  gated by the other checks; caller decides whether to flag separately). */
   leafTodoId: string | null;
   now: number;
+  /** Optional caller-supplied, pre-guard snapshot of the candidate's mtime/atime — taken
+   *  before any guard (e.g. `git status`) can perturb atime under `relatime` mount policy.
+   *  When omitted, `isReclaimable` falls back to a `stat(dir)` taken before running the
+   *  other guards. */
+  ageStat?: { mtimeMs: number; atimeMs: number };
 }
 
 /**
@@ -466,19 +469,31 @@ async function checkReclaimGuardsExceptAge(
  * function only ever REFUSES reclamation; it never removes or moves anything.
  */
 export async function isReclaimable(input: ReclaimabilityInput): Promise<boolean> {
-  const { now } = input;
+  const { now, dir, ageStat } = input;
+
+  // (f) very old — both mtime and atime. Captured BEFORE running the other guards (which
+  // include a `git status` read that bumps atime under `relatime`), or taken from the
+  // caller-supplied pre-guard snapshot when provided.
+  let mtimeMs: number;
+  let atimeMs: number;
+  if (ageStat) {
+    ({ mtimeMs, atimeMs } = ageStat);
+  } else {
+    let st;
+    try {
+      st = await stat(dir);
+    } catch {
+      return false;
+    }
+    mtimeMs = st.mtimeMs;
+    atimeMs = st.atimeMs;
+  }
+
   const realDir = await checkReclaimGuardsExceptAge(input);
   if (realDir == null) return false;
 
-  // (f) very old — both mtime and atime.
-  let st;
-  try {
-    st = await stat(realDir);
-  } catch {
-    return false;
-  }
-  if (now - st.mtimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
-  if (now - st.atimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
+  if (now - mtimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
+  if (now - atimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
 
   return true;
 }
@@ -635,6 +650,18 @@ export async function gcLeafWorktrees(
     // ── Candidate class 2: orphan non-leaf / lane worktree ──────────────────────────
     report.scanned += 1;
 
+    // Pre-guard age snapshot — captured before ANY guard below (including the `git
+    // status` reads at guard 7 and inside isReclaimable's own guard chain) can bump
+    // atime under `relatime`. Fail-open to undefined on stat failure, same shape as the
+    // mtimeMs capture at guard 6 below.
+    let ageStat: { mtimeMs: number; atimeMs: number } | undefined;
+    try {
+      const s = await stat(dir);
+      ageStat = { mtimeMs: s.mtimeMs, atimeMs: s.atimeMs };
+    } catch {
+      ageStat = undefined;
+    }
+
     // 1. Live epic — silent skip.
     const epicId8 = epicWorktreeId8(entry.name);
     let epicTodo: ReturnType<typeof findLeafTodoByShortId> = null;
@@ -749,7 +776,7 @@ export async function gcLeafWorktrees(
       const statusRow = getStatuses(project).find((s) => s.session === record.sessionId);
       const sessionDeadMs = statusRow == null ? Infinity : now - statusRow.updatedAt;
       if (sessionDeadMs >= POOL_LANE_DEAD_MS) {
-        const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now });
+        const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now, ageStat });
         if (reclaimable) {
           if (!opts?.dryRun) {
             try {
@@ -812,7 +839,7 @@ export async function gcLeafWorktrees(
     //    SUFFICIENT condition; isReclaimable() re-checks independently (live-cwd,
     //    in-progress git state, the stricter WORKTREE_RECLAIM_MIN_AGE_MS floor) before any
     //    data moves. A dir that fails isReclaimable here is flagged, never removed.
-    const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now });
+    const reclaimable = await isReclaimable({ dir, baseDir: wm.baseDir(), leafTodoId: null, now, ageStat });
     if (!reclaimable) {
       await flagOrphan(dir, 'orphan-not-reclaimable');
       continue;

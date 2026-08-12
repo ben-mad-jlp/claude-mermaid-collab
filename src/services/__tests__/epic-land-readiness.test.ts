@@ -7,6 +7,7 @@ import {
   buildLandReadiness,
   isGateTodo,
   parseDupOfLanded,
+  parseAdopted,
   type CommitProbe,
   type CommitProbeResult,
 } from '../epic-land-readiness';
@@ -613,5 +614,76 @@ describe('dup-of-landed settlement', () => {
     const report = await buildLandReadiness([epic(), work], 'e1', noCommits, '', async () => true);
     expect(report.blocking).toBe(true);
     expect(report.findings[0].kind).toBe('missing');
+  });
+});
+
+/**
+ * adopt_branch_as_epic mints a leaf over PRE-EXISTING commits, which carry whatever trailer
+ * they already had — the ORIGINAL leaf's `Collab-Todo:`, or none. Never the adopted leaf's id.
+ * So the trailer check can never pass for an adopted leaf and the land fails
+ * `epic-leaves-unlanded` forever (observed 2026-08-07 while recovering stranded work: the
+ * adopted commit read `Collab-Todo: 641ef628`, not the new leaf's id).
+ *
+ * The handle now records the adopted TIP SHA, and the exemption is conditional on that sha
+ * being reachable from the epic tip — every adopted commit is its ancestor, so reachability
+ * proves the whole adopted range is present in what the epic would land.
+ */
+describe('adopt_branch_as_epic adoption', () => {
+  const adoptedLeaf = (over: Partial<Todo> = {}) =>
+    todo({
+      id: 'a1',
+      title: 'adopted stray work',
+      parentId: 'e1',
+      status: 'done',
+      acceptanceStatus: 'accepted',
+      completedBy: 'adopt_branch_as_epic:31c0c832',
+      ...over,
+    });
+  const epic = () => todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
+  const noCommits = probeFrom({});
+
+  test('parseAdopted reads the sha, tolerates the legacy bare verb, rejects anything else', () => {
+    expect(parseAdopted('adopt_branch_as_epic:31c0c832')).toEqual({ sha: '31c0c832' });
+    expect(parseAdopted('adopt_branch_as_epic')).toEqual({ sha: null });
+    expect(parseAdopted('steward')).toBeNull();
+    expect(parseAdopted(null)).toBeNull();
+    expect(parseAdopted('adopt_branch_as_epic:$(rm -rf /)')).toBeNull();
+  });
+
+  test('EXEMPT when the adopted tip sha is reachable from the epic tip', async () => {
+    const report = await buildLandReadiness([epic(), adoptedLeaf()], 'e1', noCommits, '', async (sha) => {
+      expect(sha).toBe('31c0c832');
+      return true;
+    });
+    expect(report.blocking).toBe(false);
+    expect(report.exemptions.map((e) => e.reason)).toContain('adopted');
+    expect(report.checked).toBe(0);
+  });
+
+  test('BLOCKS when the adopted sha is not reachable — the branch does not carry the work', async () => {
+    const report = await buildLandReadiness([epic(), adoptedLeaf()], 'e1', noCommits, '', async () => false);
+    expect(report.blocking).toBe(true);
+    expect(report.findings[0].kind).toBe('adopt-unverified');
+    expect(report.findings[0].strayShas).toEqual(['31c0c832']);
+  });
+
+  test('the LEGACY bare-verb handle keeps blocking — no sha means nothing to verify', async () => {
+    // Pre-2026-08-07 rows recorded only the verb. They blocked before this change and must
+    // keep blocking: exempting on a bare marker would be trusting an unverifiable claim.
+    const report = await buildLandReadiness(
+      [epic(), adoptedLeaf({ completedBy: 'adopt_branch_as_epic' })],
+      'e1', noCommits, '', async () => true,
+    );
+    expect(report.blocking).toBe(true);
+    expect(report.findings[0].kind).toBe('adopt-unverified');
+    expect(report.findings[0].reason).toContain('re-adopt');
+  });
+
+  test('a normal accepted leaf on the same epic still needs its own trailer', async () => {
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
+    const report = await buildLandReadiness([epic(), adoptedLeaf(), work], 'e1', noCommits, '', async () => true);
+    expect(report.blocking).toBe(true);
+    expect(report.findings.map((f) => f.kind)).toEqual(['missing']); // only w1
+    expect(report.exemptions.map((e) => e.reason)).toContain('adopted');
   });
 });
