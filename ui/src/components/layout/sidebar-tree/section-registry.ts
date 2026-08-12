@@ -14,6 +14,17 @@ export type SectionDef = {
 
 export const SECTION_DEFS: SectionDef[] = [
   {
+    id: 'inbox',
+    label: 'Inbox',
+    renderer: 'custom',
+    multiselectable: false,
+    collapsible: true,
+    // Intentional: inbox rows are built externally by useArtifactInbox (machine-level,
+    // not project-scoped tree nodes) and passed directly to InboxSection — this filter
+    // is never called by the section registry itself.
+    filter: () => false,
+  },
+  {
     id: 'implementing',
     label: 'Implementing',
     renderer: 'custom',
@@ -122,6 +133,7 @@ export const SECTION_DEFS: SectionDef[] = [
 export const ALL_SECTION_IDS = SECTION_DEFS.map((s) => s.id);
 
 export const MULTISELECT_EXCLUDED_SECTIONS = new Set([
+  'inbox',
   'pins',
   'recent',
   'implementing',
