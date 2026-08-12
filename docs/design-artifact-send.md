@@ -143,6 +143,22 @@ look at:
 The SENDER gets the verified receipt (envelopeId re-read from the target), so delivery
 is confirmed independent of when the receiver looks.
 
+## UI placement (D7 — an Inbox section in the existing sidebar rail)
+
+The left rail is a section registry (`ui/src/components/layout/sidebar-tree/
+section-registry.ts`) — Recent, Pins, per-type artifact sections, Archived, Servers. The
+inbox is one more section:
+- **"Inbox (N)"** near the top, badge from `GET /api/artifact-inbox` + the WS event.
+  Machine-level, so it stays visible regardless of the selected project/session (the
+  Servers section already sets this precedent).
+- Rows show type icon, name, sender, received-time, styled as MAIL (distinct from owned
+  artifacts, the way Archived is distinct).
+- **Click = read-only preview** rendered straight from envelope content — you can read
+  mail without accepting it; nothing is imported by looking.
+- Row actions: **Adopt** (opens an existing-project+session picker per D3; on success
+  the row leaves the count and the artifact appears in its normal type section) and
+  **Dismiss**.
+
 ## Discovery (D5 — settled: the receiver tells the sender)
 
 **v1 has no discovery machinery. The target address is told out of band** — the receiving
