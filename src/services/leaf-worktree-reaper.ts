@@ -249,6 +249,17 @@ async function orphanedPatchShas(dir: string, trunkRef: string, branch: string):
     .filter(Boolean);
 }
 
+/** Extract subject and touched files for a commit via git show/diff-tree. Used to build
+ *  per-sha summaries in the filed orphan-report todo. */
+async function commitSummary(dir: string, sha: string): Promise<{ subject: string; files: string[] }> {
+  const subjRes = await gcGitRead(dir, ['show', '-s', '--format=%s', sha]);
+  const filesRes = await gcGitRead(dir, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]);
+  return {
+    subject: subjRes.stdout.trim() || '(unknown subject)',
+    files: filesRes.stdout.split('\n').map((l) => l.trim()).filter(Boolean),
+  };
+}
+
 /** File orphaned epic commits as REAL WORK, once, and report whether that succeeded.
  *
  *  A worktree removal is safe (the branch keeps every commit) but SILENT — and silence is how
@@ -259,12 +270,13 @@ async function orphanedPatchShas(dir: string, trunkRef: string, branch: string):
  *
  *  Returns false if the todo could not be filed — the caller must then REFUSE to reclaim, so
  *  the directory itself stays as the evidence of record. Never delete what you failed to report. */
-async function reportOrphanedEpicCommits(
+export async function reportOrphanedEpicCommits(
   project: string,
   epicId: string,
   epicTitle: string,
   branch: string,
   shas: string[],
+  dir: string,
 ): Promise<boolean> {
   try {
     const id8 = epicId.slice(0, 8);
@@ -274,6 +286,8 @@ async function reportOrphanedEpicCommits(
     const existing = listTodos(project, { includeCompleted: true, includeArchived: true })
       .find((t) => t.description?.includes(marker));
     if (existing) return true;
+
+    const summaries = await Promise.all(shas.map((sha) => commitSummary(dir, sha)));
 
     const parentId = await ensureBucket(project, 'bugfix');
     await createTodo(project, {
@@ -285,10 +299,11 @@ async function reportOrphanedEpicCommits(
         `Epic "${epicTitle}" (${epicId}) is TERMINAL, but ${shas.length} commit(s) on ${branch} ` +
         `are not on trunk by patch-id and never landed. Its worktree was reclaimed by the GC ` +
         `(the branch retains every commit — nothing is lost, but nothing was pointing at it either).\n\n` +
-        `Commits:\n${shas.map((sha) => `  ${sha}`).join('\n')}\n\n` +
-        `Triage: inspect with \`git show <sha>\`, then either land the content through a new epic ` +
-        `or close this as superseded if trunk already carries it under a different sha ` +
-        `(re-implementations do NOT match by patch-id, so \`git cherry\` cannot tell them apart).`,
+        `Commits:\n${summaries.map((s, i) => `  ${shas[i]} — ${s.subject}\n    files: ${s.files.join(', ') || '(none)'}`).join('\n\n')}\n\n` +
+        `Triage: to check if this content landed under a different sha, run \`git show <sha>\` and extract its added exported symbols and test-file basenames, then search the trunk repo-wide for those symbols/names (e.g. \`git log --source -S symbol -p master\` or \`git grep -l symbol master\`). ` +
+        `This repo-wide search must NOT be scoped to the paths in the \`files:\` lines above — ` +
+        `re-implementations can move contracts to different call sites, rename or split modules across files, and still carry the same intent. ` +
+        `Only if the repo-wide search finds nothing should this be closed as an orphan; if trunk already carries it under a different sha, close this as superseded.`,
     });
     return true;
   } catch {
@@ -698,7 +713,7 @@ export async function gcLeafWorktrees(
             const orphans = await orphanedPatchShas(dir, trunkRefForCherry, branch);
             if (orphans.length > 0) {
               const reported = await reportOrphanedEpicCommits(
-                project, epicTodo.id, epicTodo.title ?? '(untitled)', branch, orphans,
+                project, epicTodo.id, epicTodo.title ?? '(untitled)', branch, orphans, dir,
               );
               if (!reported) {
                 report.refused.push({ path: dir, reason: 'orphan-report-failed', sample: orphans.slice(0, 5) });
