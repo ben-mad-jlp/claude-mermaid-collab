@@ -22,7 +22,7 @@ const supervisorDir = mkdtempSync(join(tmpdir(), 'sup-landed-at-equiv-'));
 process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import type { Todo } from '../todo-store';
-import { createTodo, completeTodo, listTodos, _closeProject } from '../todo-store';
+import { createTodo, completeTodo, listTodos, stampEpicLandedAt, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { findLandedAtDivergence } from '../invariant-check';
 
@@ -137,9 +137,10 @@ describe('findLandedAtDivergence — fixture-based bidirectional equivalence', (
     const epic = baseTodo({ id: 'epic-6', kind: 'epic', title: 'epic', landedAt: '2026-01-02T00:00:00.000Z' });
     const land = baseTodo({ id: 'land-6', kind: 'land', title: 'land', parentId: 'epic-6', status: 'planned' });
     const violations = findLandedAtDivergence([epic, land]);
-    expect(violations).toHaveLength(1);
-    expect(violations[0].kind).toBe('landed-at-divergence');
-    expect(violations[0].todoId).toBe('epic-6');
+    // Post-cutover (invariant-check.ts:278-280) this direction fires ONLY when the epic is
+    // genuinely git-stranded (ahead>0 via the injected AheadLookup). With no aheadOf probe,
+    // ahead defaults to 0 and landedAt alone satisfies the invariant.
+    expect(violations).toHaveLength(0);
   });
 });
 
@@ -204,12 +205,16 @@ describe('findLandedAtDivergence — live-store sweep', () => {
       allowOrphan: true, title: '[LAND] → master', ownerSession: 'test', kind: 'land', parentId: inertEpic.id, status: 'dropped',
     });
 
-    // The dual-write (stampEpicLandedAt) is called from coordinator-live's stamp sites,
-    // not from raw completeTodo — the two landed epics above have a done land leaf but
-    // no landedAt yet from THIS test's writes. The backfill in openDb() only runs once
-    // per DB and this is a fresh DB opened AFTER those rows were created within the same
-    // process (openDb caches per project), so re-open via _closeProject + a fresh op to
-    // force the backfill to see the now-done land leaves.
+    // The dual-write (stampEpicLandedAt) is called from coordinator-live's stamp sites, not
+    // from raw completeTodo — so the two landed epics above have a done land leaf but no
+    // landedAt from THIS test's writes. The one-shot user_version-gated backfill
+    // (backfillLandedAtAndGateV8, todo-store.ts:1090) already ran when the DB was first
+    // opened, BEFORE these rows existed, and _closeProject does not re-trigger it. Mirror the
+    // real call sites instead: stamp the two landed epics directly.
+    const stampedAt = '2026-01-02T00:00:00.000Z';
+    stampEpicLandedAt(project, missionEpic.id, stampedAt);
+    stampEpicLandedAt(project, rootEpic.id, stampedAt);
+
     _closeProject(project);
     const todos = listTodos(project, { includeCompleted: true });
     const violations = findLandedAtDivergence(todos);

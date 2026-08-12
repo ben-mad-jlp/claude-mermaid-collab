@@ -50,8 +50,15 @@ describe('runSweepMeasurement', () => {
     const land = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] divergent → master', parentId: dEpic.id, kind: 'land', status: 'planned' });
     await completeTodo(project, land.id, 'accepted');
 
-    // 4. Fully-on-master branch epic G — no land leaf, GC acts purely on the probe.
+    // 4. Fully-on-master branch epic G — TERMINAL (landed) so gcEpicBranches's live-epic guard
+    //    (landed-epic-sweep.ts:328 — a non-terminal epic's branch is never GC'd regardless of the
+    //    probe) lets the probe decide. Land leaf created before the epic goes terminal, and
+    //    landedAt stamped so G contributes no landed-at divergence of its own.
     const gEpic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] gc me', kind: 'epic', status: 'planned' });
+    const gLand = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] gc me → master', parentId: gEpic.id, kind: 'land', status: 'planned' });
+    await completeTodo(project, gLand.id, 'accepted');
+    await completeTodo(project, gEpic.id, 'accepted');
+    stampEpicLandedAt(project, gEpic.id, new Date(0).toISOString());
 
     const deletedBranches = new Set<string>();
     const gBranch = epicBranchName(gEpic.id);

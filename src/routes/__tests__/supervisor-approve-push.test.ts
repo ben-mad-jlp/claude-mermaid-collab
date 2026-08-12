@@ -24,10 +24,13 @@ describe('POST /api/supervisor/approve-push', () => {
     const json = (await res!.json()) as any;
     expect(json.ok).toBe(true);
     expect(json.session).toBe('s1');
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatch(/proceed/i);       // proceed marker
-    expect(sent[0]).toContain('✅');            // approval marker
-    expect(sent[0]).toMatch(/^\[\d{2}:\d{2}/);  // [HH:MM …] stamp prefix
+    // tmux DELIVERY was retired (deliverNudge, supervisor-routes.ts:96-105): the route composes
+    // and surfaces the stamped text and always reports sent:false. Assert the response, not the
+    // retired send-keys mock.
+    expect(json.text).toMatch(/proceed/i);       // proceed marker
+    expect(json.text).toContain('✅');            // approval marker
+    expect(json.text).toMatch(/^\[\d{2}:\d{2}/);  // [HH:MM …] stamp prefix
+    expect(json.sent).toBe(false);
   });
 
   test('missing session → 400', async () => {

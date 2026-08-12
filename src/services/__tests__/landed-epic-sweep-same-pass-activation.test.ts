@@ -40,9 +40,12 @@ async function seedMissionA() {
   for (const c of listCriteria(project, mission.id)) setCriterionMet(project, c.id, true);
 
   const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] land me', parentId: mission.id, kind: 'epic', status: 'planned' });
+  // Create the land leaf BEFORE completing the epic (terminal-parent-approve constraint:
+  // createTodo throws TerminalParentApproveError for an approved child under a terminal
+  // epic — todo-store.ts:2130). Mirrors landed-epic-sweep.test.ts:43-49.
+  const land = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] land me → master', parentId: epic.id, kind: 'land', status: 'todo' });
   await completeTodo(project, epic.id, 'accepted');
   stampEpicLandedAt(project, epic.id, new Date(0).toISOString());
-  const land = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[LAND] land me → master', parentId: epic.id, kind: 'land', status: 'ready' });
   return { mission, epic: getTodo(project, epic.id)!, land };
 }
 
