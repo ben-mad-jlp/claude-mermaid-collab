@@ -85,7 +85,7 @@ export function parseVerdict(text: string | undefined): LeafReviewVerdict {
 export const EXPLORE_REPORT_SENTINEL = 'EXPLORE-REPORT';
 
 export type ExploreReportParse =
-  | { ok: true; findings: string[]; report: string }
+  | { ok: true; findings: string[]; findingsCount: number; report: string }
   | { ok: false; reason: 'empty' | 'unparseable' };
 
 export function parseExploreReport(text: string | undefined): ExploreReportParse {
@@ -104,6 +104,8 @@ export function parseExploreReport(text: string | undefined): ExploreReportParse
   const sentinelRe = new RegExp(`^${EXPLORE_REPORT_SENTINEL}:\\s*FINDINGS=(\\d+)\\s*$`, 'i');
   const match = lastNonEmptyLine.match(sentinelRe);
   if (!match) return { ok: false, reason: 'unparseable' };
+
+  const findingsCount = Number(match[1]);
 
   // Parse findings from the ORIGINAL (unstripped) text
   const findings: string[] = [];
@@ -149,8 +151,13 @@ export function parseExploreReport(text: string | undefined): ExploreReportParse
   return {
     ok: true,
     findings,
+    findingsCount,
     report: text.trim(),
   };
+}
+
+export function exploreAssertsFindings(parse: ExploreReportParse): boolean {
+  return parse.ok && (parse.findingsCount >= 1 || parse.findings.length >= 1);
 }
 
 /** Join multiple review pass results using stricter-wins logic. A fail in any pass yields
