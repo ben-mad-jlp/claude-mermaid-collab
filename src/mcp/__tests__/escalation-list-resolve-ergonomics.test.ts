@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'bun:sqlite';
 
 // Isolate the global supervisor.db BEFORE the store module opens it.
 const dir = mkdtempSync(join(tmpdir(), 'escalation-list-resolve-ergonomics-'));
@@ -132,61 +133,41 @@ describe('escalation_list and escalation_resolve ergonomics', () => {
   });
 
   it('escalation_resolve on an ambiguous prefix refuses naming both candidate ids and leaves both rows open', async () => {
-    // Create several escalations and find two that share a prefix
-    const escalations = [];
-    for (let i = 0; i < 30; i++) {
-      const { escalation: esc } = createEscalation({
-        project: '/p',
-        session: 's',
-        kind: 'question',
-        questionText: `Question ${i}`,
-        audience: 'human',
-      });
-      escalations.push(esc);
-    }
+    // Insert two escalations with a shared 8-char prefix
+    const dbPath = join(dir, 'supervisor.db');
+    const directDb = new Database(dbPath);
 
-    // Check if any two share a short prefix (collision is likely with 30 tries)
-    let ambiguous = false;
-    let ambiguousPrefix = '';
-    let candidateIds: string[] = [];
-    for (let len = 1; len < 8; len++) {
-      const prefixes = new Map<string, string[]>();
-      for (const esc of escalations) {
-        const prefix = esc.id.slice(0, len);
-        if (!prefixes.has(prefix)) prefixes.set(prefix, []);
-        prefixes.get(prefix)!.push(esc.id);
-      }
-      for (const [prefix, ids] of prefixes) {
-        if (ids.length > 1) {
-          ambiguous = true;
-          ambiguousPrefix = prefix;
-          candidateIds = ids;
-          break;
-        }
-      }
-      if (ambiguous) break;
-    }
+    const id1 = 'bbbbbbbb-0000-0000-0000-000000000001';
+    const id2 = 'bbbbbbbb-0000-0000-0000-000000000002';
+    const prefix = 'bbbbbbbb';
+    const now = Date.now();
 
-    if (ambiguous) {
-      // Now test escalation_resolve with the ambiguous prefix
-      const resolveResultStr = await handleSupervisorTool('escalation_resolve', {
-        id: ambiguousPrefix,
-        status: 'resolved',
-      });
-      expect(resolveResultStr).not.toBeNull();
-      const resolveResult = JSON.parse(resolveResultStr!);
-      // Should be an error with both ids listed
-      expect(resolveResult.error).toBeDefined();
-      expect(resolveResult.error).toContain('ambiguous');
-      expect(resolveResult.error).toContain(ambiguousPrefix);
+    directDb.prepare(
+      'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, audience) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(id1, '/p', 'ambig-sess', 'test', 'test question 1', 'open', now, 'human');
+    directDb.prepare(
+      'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, audience) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(id2, '/p', 'ambig-sess', 'test', 'test question 2', 'open', now, 'human');
 
-      // Verify both rows are still open
-      for (const candId of candidateIds) {
-        const esc = getEscalation(candId);
-        expect(esc?.status).toBe('open');
-      }
-    }
-    // If we didn't get a collision naturally, the test still passes (collision is probabilistic)
+    directDb.close();
+
+    // Try to resolve with the ambiguous prefix
+    const resolveResultStr = await handleSupervisorTool('escalation_resolve', {
+      id: prefix,
+      status: 'resolved',
+    });
+    expect(resolveResultStr).not.toBeNull();
+    const resolveResult = JSON.parse(resolveResultStr!);
+    // Should be an error with ambiguous and the prefix
+    expect(resolveResult.error).toBeDefined();
+    expect(resolveResult.error).toContain('ambiguous');
+    expect(resolveResult.error).toContain(prefix);
+
+    // Verify both rows are still open
+    const esc1 = getEscalation(id1);
+    expect(esc1?.status).toBe('open');
+    const esc2 = getEscalation(id2);
+    expect(esc2?.status).toBe('open');
   });
 
   it('escalation_resolve on an unknown id refuses naming the passed id', async () => {
@@ -247,5 +228,32 @@ describe('escalation_list and escalation_resolve ergonomics', () => {
     expect(item?.questionText).toBe(longText);
     expect(item?.questionText.length).toBe(300);
     expect(item?.status).toBe('open');
+  });
+
+  it('escalation_resolve never answers success:true unless the re-read status matches what was written', async () => {
+    const { escalation } = createEscalation({
+      project: '/p',
+      session: 's',
+      kind: 'question',
+      questionText: 'Verification test',
+      audience: 'human',
+    });
+
+    // Resolve via the tool
+    const resolveResultStr = await handleSupervisorTool('escalation_resolve', {
+      id: escalation.id,
+      status: 'resolved',
+      note: 'Test note',
+    });
+    expect(resolveResultStr).not.toBeNull();
+    const resolveResult = JSON.parse(resolveResultStr!);
+    expect(resolveResult.success).toBe(true);
+    expect(resolveResult.status).toBe('resolved');
+
+    // Verify with a fresh read
+    const freshRead = getEscalation(escalation.id);
+    expect(freshRead).not.toBeNull();
+    expect(freshRead!.status).toBe('resolved');
+    expect(resolveResult.status).toBe(freshRead!.status);
   });
 });
