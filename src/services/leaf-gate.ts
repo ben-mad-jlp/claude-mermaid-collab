@@ -616,13 +616,93 @@ export function gateNiceness(): number {
  * competing load comes from outside this process tree (on the measured box, a separate Electron
  * app held ~210%). It removes the self-inflicted share, which is the share we control.
  */
-export function gateSpawnArgv(command: string, niceness: number = gateNiceness()): string[] {
-  return niceness > 0
-    ? ['nice', '-n', String(niceness), 'sh', '-c', command]
-    : ['sh', '-c', command];
+/** The resident timeout warden (see gateSpawnArgv): own pgroup, group-KILL on alarm,
+ *  exit-status passthrough otherwise. Exposed for the argv test. */
+export const GATE_WARDEN_PERL =
+  'setpgrp(0,0); $SIG{ALRM}=sub{warn "gate hard-timeout\\n"; kill "KILL", -$$}; ' +
+  'alarm(shift @ARGV); my $rc = system(@ARGV); ' +
+  'exit($rc == -1 ? 127 : ($rc & 127) ? 128 + ($rc & 127) : $rc >> 8);';
+
+export function gateSpawnArgv(
+  command: string,
+  niceness: number = gateNiceness(),
+  opts: { platform?: NodeJS.Platform; timeoutSecs?: number } = {},
+): string[] {
+  const platform = opts.platform ?? process.platform;
+  const timeoutSecs = opts.timeoutSecs ?? gateTimeoutSecs();
+  let argv: string[] = ['sh', '-c', command];
+  if (niceness > 0) argv = ['nice', '-n', String(niceness), ...argv];
+  // Hard wall-clock cap that SURVIVES parent death: the perl warden stays resident,
+  // puts the gate in its OWN process group, and on alarm KILLs the whole group — so
+  // the cap holds even if the sidecar was SIGKILLed mid-run, and it takes the full
+  // descendant tree (sh -> bun test -> workers), not just the shell. MEASURED
+  // 2026-08-12: two orphaned `bun test` gates ran for 16h47m and 1d00h10m at ~25-40%
+  // CPU each — their in-process kill timers died with their parent and nothing ever
+  // reaped them.
+  if (timeoutSecs > 0) argv = ['perl', '-e', GATE_WARDEN_PERL, String(timeoutSecs), ...argv];
+  // Darwin: nice is nearly advisory under the macOS scheduler — MEASURED 2026-08-12:
+  // four nice-10 vitest suites at 200%+ CPU each drove load to 82 and starved the
+  // sidecar's health responses anyway (read as "daemon died" in the UI). taskpolicy's
+  // utility band is an actual QoS demotion the scheduler honours; it inherits to the
+  // whole child tree. Utility (not background): background also throttles I/O so hard
+  // that gate wall-clocks blow their own timeouts.
+  if (platform === 'darwin') argv = ['taskpolicy', '-c', 'utility', ...argv];
+  return argv;
+}
+
+export const DEFAULT_GATE_TIMEOUT_SECS = 20 * 60;
+
+/** Hard wall-clock cap for one gate command. 0 disables (tests). */
+export function gateTimeoutSecs(): number {
+  const raw = process.env.MERMAID_GATE_TIMEOUT_SECS;
+  if (raw === undefined || raw === '') return DEFAULT_GATE_TIMEOUT_SECS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_GATE_TIMEOUT_SECS;
+  return Math.floor(n);
+}
+
+export const DEFAULT_GATE_CONCURRENCY = 2;
+
+/** Max gate commands running at once across THIS server process (all consumers of
+ *  defaultGateSpawn: leaf gates, epic base gates, land gates, quarantine, probes).
+ *  MEASURED 2026-08-12: with no cap, three gating epics ran four full vitest suites
+ *  simultaneously (two epic worktrees + two main-checkout lanes) — load 82, sidecar
+ *  starved, every UI surface read "dead". Suites have no deadline; queueing them
+ *  costs wall-clock and saves the box. */
+export function gateConcurrency(): number {
+  const raw = process.env.MERMAID_GATE_CONCURRENCY;
+  if (raw === undefined || raw === '') return DEFAULT_GATE_CONCURRENCY;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_GATE_CONCURRENCY;
+  return Math.floor(n);
+}
+
+// FIFO semaphore state for defaultGateSpawn. Module-level on purpose: every gate
+// consumer imports this one seam, so one process = one queue.
+let gateSlotsInUse = 0;
+const gateWaiters: Array<() => void> = [];
+/** Test-only visibility. */
+export function _gateSemaphoreState(): { inUse: number; queued: number } {
+  return { inUse: gateSlotsInUse, queued: gateWaiters.length };
+}
+
+async function acquireGateSlot(): Promise<void> {
+  if (gateSlotsInUse < gateConcurrency()) {
+    gateSlotsInUse += 1;
+    return;
+  }
+  await new Promise<void>((resolve) => gateWaiters.push(resolve));
+  gateSlotsInUse += 1;
+}
+
+function releaseGateSlot(): void {
+  gateSlotsInUse -= 1;
+  const next = gateWaiters.shift();
+  if (next) next();
 }
 
 export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
+  await acquireGateSlot();
   try {
     const proc = Bun.spawn(gateSpawnArgv(command), { cwd, stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, code] = await Promise.all([
@@ -633,9 +713,14 @@ export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
     if (proc.signalCode != null) {
       return { ran: false, code: -1, output: `${stdout}${stderr}` };
     }
+    // A hard-timeout gate dies of the warden's group-KILL: the warden kills its own
+    // group including itself, so signalCode is set and the generic ran:false INFRA
+    // branch above catches it — stderr carries the "gate hard-timeout" marker.
     return { ran: true, code, output: `${stdout}${stderr}` };
   } catch (e) {
     return { ran: false, code: -1, output: e instanceof Error ? (e.message ?? String(e)) : String(e) };
+  } finally {
+    releaseGateSlot();
   }
 };
 
