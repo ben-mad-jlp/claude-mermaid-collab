@@ -724,6 +724,13 @@ export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
   }
 };
 
+/** Strip the run-positional "(N/M) " prefix a test-backend failing entry carries, so a
+ *  fingerprint can be compared against a stored quarantine row (bare path or case title).
+ *  The ordinal is an artifact of ONE run's file ordering — never identity. */
+export function normalizeGateFingerprint(fp: string): string {
+  return fp.replace(/^\(\d+\/\d+\)\s+/, '').trim();
+}
+
 /** Diff a lane's RAN-red failure fingerprints against its epic-base baseline. Fail-closed:
  *  an unparsed lane failure (`failing.length === 0`) is always treated as net-new — a lane
  *  that reported failure but produced no attributable fingerprints must never pass silently
@@ -1208,11 +1215,19 @@ export async function resolveBaseGreen(io: {
   } catch { /* best-effort: a promotion or close failure must never break the gate */ }
   let result: LeafGateResult = r;
   if (r.status === 'fail' && r.baselineFailures) {
+    // Fingerprint normalization is load-bearing here. MEASURED 2026-08-12: the gate's
+    // failing fingerprints carry a POSITIONAL prefix — "(500/600) src/…/x.test.ts" —
+    // whose ordinal changes run to run as the file count moves, while quarantine rows
+    // store bare paths/titles. Raw set-membership therefore NEVER matched: six
+    // actively-quarantined load-fragile files kept redding every epic base all day
+    // with the downgrade structurally dead. Both sides normalize before comparing.
     const union = new Set<string>();
     for (const fps of Object.values(r.baselineFailures)) for (const fp of fps) union.add(fp);
     if (union.size > 0) {
-      const quarantined = new Set(activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test));
-      if ([...union].every((fp) => quarantined.has(fp))) {
+      const quarantined = new Set(
+        activeQuarantine(io.targetProject, io.now?.()).map((q) => normalizeGateFingerprint(q.test)),
+      );
+      if ([...union].every((fp) => quarantined.has(normalizeGateFingerprint(fp)))) {
         const sorted = [...union].sort();
         result = {
           ...r,
