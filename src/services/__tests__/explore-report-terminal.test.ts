@@ -15,6 +15,7 @@ import {
   type LeafExecutorDeps,
 } from '../leaf-executor';
 import type { Todo } from '../todo-store';
+import type { Finding } from '../finding-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
 import { classifyWorktreeAddFault } from '../../agent/node-invoker';
 
@@ -111,6 +112,7 @@ interface Spies {
 /** Build a deps object for explore testing, with configurable explore node results. */
 function makeExploreDeps(opts: {
   exploreText?: string; // The explore node's output text
+  findings?: Finding[]; // Stubbed findings for the gate
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -187,6 +189,7 @@ function makeExploreDeps(opts: {
     writeArtifact: async (_cwd, relPath, content) => {
       spies.writeArtifactCalls.push({ path: relPath, content });
     },
+    findingsForLeaf: async () => opts.findings ?? [],
   };
 
   return { deps, spies };
@@ -213,11 +216,25 @@ describe('explore pipeline', () => {
   });
 
   it('multi-finding parseable report is accepted, written, and merged', async () => {
+    const leaf = makeLeaf();
     const { deps, spies } = makeExploreDeps({
       exploreText:
         '## Findings\n\n- first issue\n- second issue\n\nEXPLORE-REPORT: FINDINGS=2',
+      findings: [{
+        id: 'finding-1',
+        todoId: 'todo-1',
+        sourceLeafId: leaf.id,
+        violatedClaim: 'Test claim',
+        implicatedFiles: ['a.ts'],
+        ruledOut: [],
+        reproPath: '__quarantine__/test.test.ts',
+        failureIdentity: null,
+        surface: null,
+        recurrenceCount: 1,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      }],
     });
-    const leaf = makeLeaf();
     const res = await runLeaf('proj', leaf, deps);
     expect(res.outcome).toBe('accepted');
     expect(spies.mergeCalls).toBe(1);
@@ -272,18 +289,33 @@ describe('explore pipeline', () => {
   it('mutation probe: zero finding case must actually check the FINDINGS count', async () => {
     // This tests that the parser actually reads the FINDINGS=0 vs FINDINGS=N distinction
     const testCases = [
-      { text: 'EXPLORE-REPORT: FINDINGS=0', shouldParse: true },
-      { text: 'EXPLORE-REPORT: FINDINGS=1', shouldParse: true },
-      { text: 'EXPLORE-REPORT: FINDINGS=99', shouldParse: true },
-      { text: 'EXPLORE-REPORT: FINDINGS=', shouldParse: false }, // malformed
-      { text: 'EXPLORE-REPORT: FINDINGS', shouldParse: false }, // missing =
+      { text: 'EXPLORE-REPORT: FINDINGS=0', shouldParse: true, findings: [] },
+      { text: 'EXPLORE-REPORT: FINDINGS=1', shouldParse: true, findings: ['finding-1'] },
+      { text: 'EXPLORE-REPORT: FINDINGS=99', shouldParse: true, findings: ['finding-1'] },
+      { text: 'EXPLORE-REPORT: FINDINGS=', shouldParse: false, findings: [] },
+      { text: 'EXPLORE-REPORT: FINDINGS', shouldParse: false, findings: [] },
     ];
 
     for (const tc of testCases) {
+      const leaf = makeLeaf();
+      const findingRows: Finding[] = tc.findings.map((id) => ({
+        id,
+        todoId: 'todo-1',
+        sourceLeafId: leaf.id,
+        violatedClaim: 'Test claim',
+        implicatedFiles: ['a.ts'],
+        ruledOut: [],
+        reproPath: '__quarantine__/test.test.ts',
+        failureIdentity: null,
+        surface: null,
+        recurrenceCount: 1,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      }));
       const { deps, spies } = makeExploreDeps({
         exploreText: `## Findings\n\n${tc.text}`,
+        findings: findingRows,
       });
-      const leaf = makeLeaf();
       const res = await runLeaf('proj', leaf, deps);
       if (tc.shouldParse) {
         expect(res.outcome).toBe('accepted');
@@ -298,15 +330,31 @@ describe('explore pipeline', () => {
     // Test case 1: zero findings
     const { deps: deps0 } = makeExploreDeps({
       exploreText: 'EXPLORE-REPORT: FINDINGS=0',
+      findings: [],
     });
     const res0 = await runLeaf('proj', makeLeaf(), deps0);
     expect(res0.outcome).toBe('accepted');
 
     // Test case 2: multi findings
+    const leaf2 = makeLeaf();
     const { deps: depsMulti } = makeExploreDeps({
       exploreText: 'EXPLORE-REPORT: FINDINGS=5',
+      findings: [{
+        id: 'finding-1',
+        todoId: 'todo-1',
+        sourceLeafId: leaf2.id,
+        violatedClaim: 'Test claim',
+        implicatedFiles: ['a.ts'],
+        ruledOut: [],
+        reproPath: '__quarantine__/test.test.ts',
+        failureIdentity: null,
+        surface: null,
+        recurrenceCount: 1,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      }],
     });
-    const resMulti = await runLeaf('proj', makeLeaf(), depsMulti);
+    const resMulti = await runLeaf('proj', leaf2, depsMulti);
     expect(resMulti.outcome).toBe('accepted');
 
     // Both should reach finalizeReportLeaf with 'pass' verdict

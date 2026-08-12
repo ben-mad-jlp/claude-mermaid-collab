@@ -24,7 +24,9 @@ import { join, isAbsolute } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { Todo } from './todo-store';
+import type { Finding } from './finding-store';
 import { splitLeafInto, getTodo } from './todo-store';
+import { findBySourceLeafId } from './finding-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { type OrchestrationNodeKind, ORCHESTRATION_NODE_KINDS } from './node-kinds';
 import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
@@ -629,6 +631,11 @@ export interface LeafExecutorDeps {
    *  the worktree — so a node-written report never reaches mergeToEpic and the accept reverses.
    *  Default writes `path.join(cwd, relPath)` via fs (mkdir -p); tests stub it. */
   writeArtifact?: (cwd: string, relPath: string, content: string) => Promise<void>;
+  /** Explore accept-gate seam: fetch typed Finding rows filed against this leaf
+   *  (finding-store.findBySourceLeafId). Default wired to the real store in
+   *  makeLeafExecutorDeps; tests inject a stub. Consumed via `?? findBySourceLeafId`
+   *  at the leaf-explore.ts call site, never `?.` — an unwired dep must not fail open. */
+  findingsForLeaf?: (project: string, leafId: string) => Promise<Finding[]>;
   /** L3 verify command-gate seam (epic f5c7fc46 e9ce8693): run a {@link VerifyGateConfig.command}
    *  shell gate (e.g. `pytest -q`) in the worktree. `ran:false` ⇒ the command could not execute
    *  (spawn error / missing tool) → INFRA failure → park blocked; `ran:true, ok:false` ⇒ the gate
@@ -3903,6 +3910,7 @@ export async function makeLeafExecutorDeps(
       await fs.mkdir(path.dirname(full), { recursive: true });
       await fs.writeFile(full, content, 'utf8');
     },
+    findingsForLeaf: findBySourceLeafId,
     // L3 command-gate (epic f5c7fc46): run the config's shell gate in the worktree. A spawn
     // failure (missing tool) ⇒ ran:false (infra → block); a non-zero exit ⇒ ran:true/ok:false
     // (a finding). Output is captured (stdout+stderr) for the report.

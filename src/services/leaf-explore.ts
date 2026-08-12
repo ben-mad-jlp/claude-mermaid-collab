@@ -5,8 +5,9 @@ import { mcpConfigFor, classifyWorktreeAddFault } from '../agent/node-invoker';
 import { config } from '../config';
 import { NODE_PROFILE, leafTranscriptPath } from './leaf-node-profile';
 import { buildNodePrompt, buildExploreWrapUpDirective, exploreReportPath } from './leaf-prompts';
-import { parseExploreReport } from './leaf-parsing';
+import { parseExploreReport, exploreAssertsFindings, type ExploreReportParse } from './leaf-parsing';
 import { composeInjectedContext } from './prompt-injection';
+import { findBySourceLeafId } from './finding-store';
 import { getInjectionFlags } from './runtime-config';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import {
@@ -42,6 +43,7 @@ export async function runExplorePipeline(ctx: LeafRunContext): Promise<LeafRunRe
   let segmentsRun = 0;
   let wrapUpSignalled = false;
   let lastReport: string | undefined;
+  let lastParse: ExploreReportParse | undefined;
   let lastParseFailReason: 'empty' | 'unparseable' | undefined;
   let curSpec: NodeSpec = {
     prompt: buildNodePrompt('explore', ctx.leaf),
@@ -82,6 +84,7 @@ export async function runExplorePipeline(ctx: LeafRunContext): Promise<LeafRunRe
     const parsed = parseExploreReport(res.text);
     if (parsed.ok) {
       lastReport = parsed.report;
+      lastParse = parsed;
       lastParseFailReason = undefined;
     } else {
       lastParseFailReason = parsed.reason;
@@ -121,6 +124,14 @@ export async function runExplorePipeline(ctx: LeafRunContext): Promise<LeafRunRe
 
   // Terminal handling after loop breaks (hard-stop path)
   if (lastReport !== undefined) {
+    if (lastParse && exploreAssertsFindings(lastParse)) {
+      const rows = await (ctx.deps.findingsForLeaf ?? findBySourceLeafId)(ctx.project, ctx.leaf.id);
+      const valid = rows.some(
+        (r) => r.sourceLeafId === ctx.leaf.id && r.violatedClaim.trim() !== '' &&
+          r.implicatedFiles.length > 0 && r.reproPath.trim() !== '',
+      );
+      if (!valid) return ctx.parkBlocked('explore-findings-claimed-no-typed-finding');
+    }
     try {
       await ctx.deps.writeArtifact?.(cwd, exploreReportPath(ctx.leaf), lastReport);
     } catch (e) {

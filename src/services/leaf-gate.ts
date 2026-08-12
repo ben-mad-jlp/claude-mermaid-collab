@@ -209,6 +209,30 @@ function normalizeLanes(
   return { lanes, error: null };
 }
 
+/** Detect an unfiltered `scripts/test-backend.ts` invocation in a command.
+ *  Returns true iff the command runs the full suite with no change-set narrowing.
+ *  - `{file}` or `{files}` template ⇒ false (filtered by file/files)
+ *  - Any bare (non-flag) token after the script name ⇒ false (selection present)
+ *  - Otherwise ⇒ true (unfiltered) */
+export function isUnfilteredFullSuiteCommand(command: string): boolean {
+  if (!/scripts\/test-backend\.ts/.test(command)) return false;
+  if (/\{files?\}/.test(command)) return false;
+  const afterScript = command.split('scripts/test-backend.ts')[1] ?? '';
+  const tokens = afterScript.trim().split(/\s+/).filter(Boolean);
+  return !tokens.some((t) => !t.startsWith('-'));
+}
+
+/** Check if any command in a set of lanes is an unfiltered full-suite command.
+ *  Returns a reason string on a hit, or null if all commands are OK. */
+function findUnfilteredFullSuiteLane(kind: string, commands: readonly string[]): string | null {
+  for (const command of commands) {
+    if (isUnfilteredFullSuiteCommand(command)) {
+      return `gate.${kind}[] declares an unfiltered scripts/test-backend.ts command: ${command} — move it to gate.floors[] (epic base + land only)`;
+    }
+  }
+  return null;
+}
+
 /** Normalize and validate the `gate.typechecks` array. Returns { lanes, error } where
  *  exactly one is present. Throws are NOT allowed — errors are returned as strings. */
 function normalizeTypecheckLanes(
@@ -459,7 +483,16 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
   const gate = manifest?.gate;
   if (gate === undefined) {
     const bridged = manifest ? bridgeLegacyGate(manifest) : null;
-    if (bridged) return { kind: 'declared', cfg: bridged, manifestPath: src.path };
+    if (bridged) {
+      // Check legacy-bridged commands for unfiltered full-suite.
+      const testCmds = bridged.tests?.map((lane) => lane.command) ?? [];
+      const suiteCmds = bridged.suites?.map((lane) => lane.command) ?? [];
+      const legacyTestReason = findUnfilteredFullSuiteLane('tests', testCmds);
+      if (legacyTestReason) return { kind: 'misconfigured', manifestPath: src.path, reason: legacyTestReason };
+      const legacySuiteReason = findUnfilteredFullSuiteLane('suites', suiteCmds);
+      if (legacySuiteReason) return { kind: 'misconfigured', manifestPath: src.path, reason: legacySuiteReason };
+      return { kind: 'declared', cfg: bridged, manifestPath: src.path };
+    }
     return { kind: 'absent', manifestPath: src.path, reason: 'manifest declares no gate block' };
   }
   if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
@@ -471,29 +504,42 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
     return { kind: 'misconfigured', manifestPath: src.path, reason: 'gate declares both test and tests' };
   }
 
-  // Check lane validity.
-  const { error: laneError } = normalizeLanes(gate.tests);
+  // Check lane validity and capture lanes.
+  const { lanes: testLanes, error: laneError } = normalizeLanes(gate.tests);
   if (laneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: laneError };
   }
 
-  // Check typecheck lane validity.
-  const { error: typecheckLaneError } = normalizeTypecheckLanes(gate.typechecks);
+  // Check typecheck lane validity and capture lanes.
+  const { lanes: typecheckLanes, error: typecheckLaneError } = normalizeTypecheckLanes(gate.typechecks);
   if (typecheckLaneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: typecheckLaneError };
   }
 
-  // Check suite lane validity.
-  const { error: suiteLaneError } = normalizeSuiteLanes(gate.suites);
+  // Check suite lane validity and capture lanes.
+  const { lanes: suiteLanes, error: suiteLaneError } = normalizeSuiteLanes(gate.suites);
   if (suiteLaneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: suiteLaneError };
   }
 
-  // Check floor lane validity.
+  // Check floor lane validity (floors are exempt from the unfiltered-full-suite check).
   const { error: floorLaneError } = normalizeFloorLanes(gate.floors);
   if (floorLaneError) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: floorLaneError };
   }
+
+  // Check for unfiltered full-suite commands in tests, typechecks, and suites (not floors).
+  const testCmds = testLanes?.map((lane) => lane.command) ?? [];
+  const testReason = findUnfilteredFullSuiteLane('tests', testCmds);
+  if (testReason) return { kind: 'misconfigured', manifestPath: src.path, reason: testReason };
+
+  const typecheckCmds = typecheckLanes?.map((lane) => lane.command) ?? [];
+  const typecheckReason = findUnfilteredFullSuiteLane('typechecks', typecheckCmds);
+  if (typecheckReason) return { kind: 'misconfigured', manifestPath: src.path, reason: typecheckReason };
+
+  const suiteCmds = suiteLanes?.map((lane) => lane.command) ?? [];
+  const suiteReason = findUnfilteredFullSuiteLane('suites', suiteCmds);
+  if (suiteReason) return { kind: 'misconfigured', manifestPath: src.path, reason: suiteReason };
 
   const cfg = resolveLeafGate(manifest);
   if (!cfg) {
