@@ -1,24 +1,24 @@
 /**
- * missionRailProjectMismatch repro (be1b0c01) — QUARANTINED, expected RED.
+ * missionRailProjectMismatch repro (be1b0c01) — quarantined, RED at HEAD.
  *
- * Reproduces: after Bridge is pinned to project A elsewhere (useUIStore.activeProject),
- * and the Header's top-nav session dropdown switches to project B (which only calls
- * useSessionStore.setCurrentSession — see App.tsx handleSessionSelect, wired to
- * Header's onSessionSelect — and never calls useUIStore.setActiveProject),
- * BridgeDashboard.tsx's `activeProjectPref ?? currentSession?.project ?? ...` keeps
- * preferring the stale pinned project A. Every Bridge mission consumer fed by that one
- * `project` variable (MissionStrip, MissionDetailPanel, useMissions) goes on rendering
- * project A's data while the switcher/localStorage both show B.
+ * Reproduces: the Header's top-nav session-select handler (App.tsx:1390-1395)
+ * calls setCurrentSession() only — it never calls useUIStore's setActiveProject.
+ * BridgeDashboard.tsx:139 resolves its `project` as
+ * `activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? ''`,
+ * so once activeProject has been pinned elsewhere (SupervisorPanel, SubscriptionsPanel,
+ * FleetGraph, OpsSessionCards), switching projects via the Header dropdown leaves every
+ * Bridge mission surface (MissionStrip, MissionDetailPanel, useMissions) rendering the
+ * stale pinned project's data while the switcher/localStorage show the new one.
  *
- * This file is excluded from every gate lane by the __quarantine__ path segment and
- * must stay RED until a real fix lands (do not weaken the assertion to pass).
+ * This test is excluded from every gate lane by the __quarantine__ path segment and is
+ * expected to stay RED until a real fix lands (activeProject should be cleared/updated
+ * on Header project switch). Do not weaken the assertion to pass.
  */
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 
-// --- Fake WS client. ---
 const connectHandlers = new Set<() => void>();
 const messageHandlers = new Set<(msg: any) => void>();
 const fakeClient = {
@@ -35,7 +35,6 @@ vi.mock('@/lib/websocket', () => ({
   getWebSocketClient: () => fakeClient,
 }));
 
-// --- Stub presentational children. ---
 vi.mock('../../../SplitDeck', () => ({ SplitDeck: () => <div data-testid="bridge-split-deck" /> }));
 vi.mock('../../../focal/DecisionCard', () => ({ DecisionCard: () => null }));
 vi.mock('@/hooks/useDiveIn', () => ({
@@ -51,28 +50,27 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 
 const STALE_PINNED_PROJECT = '/Users/benmaderazo/Code/claude-mermaid-collab';
-const SWITCHED_TO_PROJECT = '/Users/benmaderazo/Code/build123d-ocp-mcp';
+const HEADER_SWITCHED_PROJECT = '/Users/benmaderazo/Code/build123d-ocp-mcp';
 
-// --- Mocked fetch, capturing the `project` query-string value of missions requests. ---
-let capturedMissionsProject: string | null = null;
+const capturedMissionsProjects: string[] = [];
 
 const mockFetch = vi.fn(async (url: string | Request) => {
   const raw = typeof url === 'string' ? url : url.url;
   const parsed = new URL(raw, 'http://localhost');
+  const pathname = parsed.pathname;
 
-  if (parsed.pathname === '/api/supervisor/missions' || parsed.pathname === '/api/supervisor/bridge-snapshot') {
-    capturedMissionsProject = parsed.searchParams.get('project');
+  if (pathname === '/api/supervisor/bridge-snapshot') {
+    capturedMissionsProjects.push(parsed.searchParams.get('project') ?? '');
+    return { ok: true, json: async () => ({ projects: [], todos: [], openEscalations: [], coverage: {} }) };
   }
 
   return {
     ok: true,
     json: async () => {
-      if (parsed.pathname === '/api/supervisor/bridge-snapshot') return { projects: [], todos: [], openEscalations: [], coverage: {} };
-      if (parsed.pathname === '/api/supervisor/missions') return { missions: [] };
-      if (parsed.pathname === '/api/supervisor/unlanded-epics') return { unlandedEpics: [] };
-      if (parsed.pathname === '/api/supervisor/escalations') return { escalations: [] };
-      if (parsed.pathname === '/api/supervisor/audit') return { entries: [] };
-      if (parsed.pathname === '/api/supervisor/requirements') return { requirements: [] };
+      if (pathname === '/api/supervisor/unlanded-epics') return { unlandedEpics: [] };
+      if (pathname === '/api/supervisor/escalations') return { escalations: [] };
+      if (pathname === '/api/supervisor/audit') return { entries: [] };
+      if (pathname === '/api/supervisor/requirements') return { requirements: [] };
       return {};
     },
   };
@@ -81,7 +79,7 @@ const mockFetch = vi.fn(async (url: string | Request) => {
 beforeEach(() => {
   connectHandlers.clear();
   messageHandlers.clear();
-  capturedMissionsProject = null;
+  capturedMissionsProjects.length = 0;
   global.fetch = mockFetch as any;
 
   useSupervisorStore.setState({
@@ -89,7 +87,7 @@ beforeEach(() => {
     openEscalations: [],
     watchedProjects: [
       { project: STALE_PINNED_PROJECT, addedAt: 1 },
-      { project: SWITCHED_TO_PROJECT, addedAt: 1 },
+      { project: HEADER_SWITCHED_PROJECT, addedAt: 1 },
     ],
     todosByProject: {},
     unlandedEpicsByProject: {},
@@ -99,14 +97,15 @@ beforeEach(() => {
     bridgeSnapshotStateByProject: {},
   } as any);
 
-  // Bridge was pinned to A elsewhere (e.g. SupervisorPanel.handleSelectProject or
-  // FleetGraph's node-click) BEFORE the Header dropdown switch below.
+  // Bridge was pinned to A elsewhere (e.g. SupervisorPanel.handleSelectProject,
+  // SubscriptionsPanel, FleetGraph node-click, OpsSessionCards).
   useUIStore.setState({ activeProject: STALE_PINNED_PROJECT } as any);
 
-  // The Header dropdown's ONLY side effect (App.tsx handleSessionSelect,
-  // App.tsx:1390-1395) is setCurrentSession — it never calls setActiveProject.
+  // The Header dropdown then switched sessions to project B. Its only side effect
+  // (App.tsx:1390-1395 handleSessionSelect) is setCurrentSession — it never touches
+  // useUIStore's activeProject.
   useSessionStore.setState({
-    currentSession: { project: SWITCHED_TO_PROJECT, name: 's', serverId: 'local' },
+    currentSession: { project: HEADER_SWITCHED_PROJECT, name: 's', serverId: 'local' },
   } as any);
 });
 
@@ -119,11 +118,11 @@ describe('missionRailProjectMismatch repro (be1b0c01)', () => {
     render(<BridgeDashboard />);
 
     await waitFor(() => {
-      expect(capturedMissionsProject).not.toBeNull();
+      expect(capturedMissionsProjects.length).toBeGreaterThan(0);
     });
 
-    // Expected (post-fix) behavior: Bridge should follow the Header's session
-    // switch and request data for the project the user just selected there.
-    expect(capturedMissionsProject).toBe(SWITCHED_TO_PROJECT);
+    // Expected (user-facing) behavior: Bridge should follow the Header dropdown's
+    // current session project, since that's the project the user just switched to.
+    expect(capturedMissionsProjects[0]).toBe(HEADER_SWITCHED_PROJECT);
   });
 });
