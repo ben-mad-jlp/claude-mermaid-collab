@@ -6108,6 +6108,59 @@
       }
     },
     {
+      "name": "quarantine_test",
+      "description": "Manually quarantine a flaky test: writes a seededFrom:'manual' record to the ledger with a (ttlHours ?? 72)h TTL. Re-reads the row after writing (the ledger write is best-effort/swallow-on-error) and throws if it did not land. A second call for the same (project, test) refreshes the TTL by design.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (filesystem repo root)."
+          },
+          "test": {
+            "type": "string",
+            "description": "Test identifier (case title or file path) to quarantine."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional human-readable reason, returned as metadata only (no ledger column)."
+          },
+          "ttlHours": {
+            "type": "number",
+            "description": "TTL in hours before this quarantine record expires (default 72)."
+          },
+          "sha": {
+            "type": "string",
+            "description": "Optional sha to record as quarantinedAtSha (default 'manual')."
+          }
+        },
+        "required": [
+          "project",
+          "test"
+        ]
+      }
+    },
+    {
+      "name": "list_quarantine",
+      "description": "List quarantined tests for a project. By default only active (TTL-valid) records; pass includeExpired:true to include expired ones too. Each row carries a resolved testFile (best-effort) so a bare case-title row is legible.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (filesystem repo root)."
+          },
+          "includeExpired": {
+            "type": "boolean",
+            "description": "Include expired (TTL-passed) quarantine records (default false)."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
       "name": "runtime_config",
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {
