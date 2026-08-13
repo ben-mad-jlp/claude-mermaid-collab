@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap, servingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict } from '../mission-status-predicates.ts';
+import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap, servingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict, isRolledBackReplanGap } from '../mission-status-predicates.ts';
 import type { Todo } from '../todo-store.ts';
 import type { LeafRunSummary } from '../ledger-stats.ts';
 
@@ -575,6 +575,48 @@ describe('mission-status-predicates', () => {
         met: false,
         verifiedAt: 200,
         servingWorkCompletedAt: 100,
+      });
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('isRolledBackReplanGap', () => {
+    it('returns true when action is discover and servingEpicState is none', () => {
+      const result = isRolledBackReplanGap({
+        action: 'discover',
+        servingEpicState: 'none',
+        servingEpicLive: false,
+      });
+
+      expect(result).toBe(true);
+    });
+
+    it('returns false when servingEpicState is open (inert epic)', () => {
+      const result = isRolledBackReplanGap({
+        action: 'discover',
+        servingEpicState: 'open',
+        servingEpicLive: false,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when servingEpicState is landed', () => {
+      const result = isRolledBackReplanGap({
+        action: 'discover',
+        servingEpicState: 'landed',
+        servingEpicLive: false,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when action is not discover', () => {
+      const result = isRolledBackReplanGap({
+        action: 'building',
+        servingEpicState: 'none',
+        servingEpicLive: false,
       });
 
       expect(result).toBe(false);

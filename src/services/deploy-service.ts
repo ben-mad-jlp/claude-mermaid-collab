@@ -30,6 +30,7 @@ import { mkdirSync } from 'node:fs';
 import { listLeafInflight, reapStaleInflight } from './worker-ledger';
 import { treeStatus } from './tree-integrity';
 import { recordAutonomousMutation } from './autonomy-log';
+import type { DeployMismatch } from './deploy-verify';
 
 /** B6 observability — record a deploy-gate refusal, fail-open (a throw here must never
  *  turn a safe refusal into an unsafe deploy or crash the gate). */
@@ -78,6 +79,9 @@ export interface SelfDeployStatus {
   message?: string;
   ts: number;
   pid?: number;
+  headSha?: string;
+  buildVerified?: boolean;
+  mismatches?: DeployMismatch[];
 }
 
 /** Read the last self-deploy outcome, or null if none/unreadable/malformed. */
@@ -93,6 +97,36 @@ export function readSelfDeployStatus(): SelfDeployStatus | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Merge verification fields into the deploy-status file, preserving the
+ * shell-written fields (phase, ts, servedPid, escalated, shadow, pid).
+ * If no prior status exists, synthesize one with phase:'done'.
+ */
+export function writeDeployVerification(
+  status: Pick<SelfDeployStatus, 'ok' | 'mode' | 'headSha' | 'buildVerified' | 'mismatches' | 'message'>,
+): void {
+  const logDir = deployLogDir();
+  mkdirSync(logDir, { recursive: true });
+
+  const prior = readSelfDeployStatus();
+  const merged: SelfDeployStatus = {
+    phase: prior?.phase ?? 'done',
+    ok: status.ok ?? prior?.ok ?? null,
+    ts: prior?.ts ?? Date.now(),
+    mode: status.mode ?? prior?.mode,
+    servedPid: prior?.servedPid,
+    escalated: prior?.escalated,
+    shadow: prior?.shadow,
+    pid: prior?.pid,
+    headSha: status.headSha,
+    buildVerified: status.buildVerified,
+    mismatches: status.mismatches,
+    message: status.message,
+  };
+
+  writeFileSync(deployStatusPath(), JSON.stringify(merged));
 }
 
 /**

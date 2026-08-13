@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { getFreePort } from './server-supervisor';
+import { mainBuildStamp } from './build-stamp';
 import type { BrowserPaneManager } from './browser-pane';
 
 export class DesktopControl {
@@ -50,7 +51,7 @@ export class DesktopControl {
     // cosmetic deploy (app window stuck) — the script escalates to a full external
     // relaunch when this doesn't answer 200 in time. `pid` lets the caller correlate.
     if (req.method === 'GET' && req.url === '/main/ping') {
-      send(200, { ok: true, pid: process.pid, ts: Date.now() });
+      send(200, { ok: true, pid: process.pid, ts: Date.now(), ...mainBuildStamp() });
       return;
     }
 
