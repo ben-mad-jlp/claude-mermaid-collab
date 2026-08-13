@@ -591,7 +591,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
     for (const c of criteriaWithActions) {
       const matching = allTodos.filter(
-        (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
+        (t) => t.parentId === missionId && t.kind === 'epic' && t.status !== 'dropped' && todoServesCriterion(t, c.id),
       );
       servingEpicsByComp.set(c.id, matching.map((t) => t.id));
       for (const t of matching) {
