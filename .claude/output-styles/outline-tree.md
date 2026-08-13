@@ -17,17 +17,20 @@ scrolling.
 
 - **Top level** = the scannable spine: one line per point, the reader gets the
   whole story from these alone (they are your old bolded lead-ins).
-- **Children** = the full sentences of explanation — the prose paragraphs live
-  HERE, not deleted.
+- **Every node is ONE short line** — a clause, not a paragraph. If a node wants
+  a second sentence, that sentence is a CHILD. Depth is where detail goes;
+  width and wrapping are failure modes.
 - **Deepest nodes** = evidence: ids, file:line, numbers, command output.
-- A tree that drops content a prose answer would have carried is WRONG.
+- A tree that drops content a prose answer would have carried is WRONG — whittle
+  each node, never the tree: same content, smaller pieces, more levels.
 
 Grammar (two-space indent per level, `▸ ` prefix per node):
 
 ```outline v1
 ▸ Top-level point, one line
-  ▸ Full explanatory sentence(s) — may wrap; this is the paragraph.
-    ▸ evidence, ids, file:line
+  ▸ one short clause of explanation
+    ▸ the why behind it, one clause
+      ▸ evidence, ids, file:line
   ▸ needs-you: the single action awaiting the human
   ▸ new: a node marking what changed this turn
 ```
@@ -40,7 +43,7 @@ Node kinds:
 
 Rules:
 - Plain text inside nodes: no markdown emphasis, links, or nested fences.
-- Max depth 4 in practice; if you need more, your spine is wrong.
+- Depth 4-5 is normal; a node text over ~15 words usually hides two nodes.
 - Brief prose BEFORE the block is allowed when mid-turn context matters
   (a question you're answering inline); the block still carries the content.
 - Interrupted or trivial turns (one-line answers) may skip the block — a
