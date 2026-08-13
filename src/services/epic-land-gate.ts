@@ -27,6 +27,8 @@ import { activeQuarantine } from './flaky-quarantine';
 import type { TestQuarantineRow } from './worker-ledger';
 import { runLandTypecheckFloor } from './land-typecheck-floor';
 import { quarantineCoversFailure } from './quarantine-match';
+import type { FloorPlan } from './impacted-tests';
+import { planImpactedFloor } from './impacted-tests';
 
 export type LandGateStatus = 'pass' | 'fail' | 'error' | 'abstain';
 
@@ -57,6 +59,11 @@ export interface EpicLandGateResult {
   baseSha: string | null;
   sweep?: SourceGuardSweepResult;
   floor?: { command: string; status: 'pass' | 'fail' | 'error'; failing: string[]; output?: string };
+  /** Which floor strategy ran: an impacted subset or the full suite. Absent when the
+   *  declaration has no floor lanes. */
+  floorMode?: 'impacted' | 'full';
+  /** How many test files the impacted floor ran (impacted mode only). */
+  floorImpactedCount?: number;
   quarantinedOnlyFailures?: string[];
 }
 
@@ -149,6 +156,9 @@ export interface EpicLandGateOpts {
   snapshot?: { baseSha: string; epicTipSha: string };
   quarantineLookup?: (project: string) => TestQuarantineRow[];
   actor?: LandActor;
+  /** Injectable impacted-floor planner (tests). Defaults to planImpactedFloor over the
+   *  epic worktree's real filesystem. */
+  floorPlanner?: (o: { repoRoot: string; changedFiles: string[] }) => FloorPlan;
 }
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -252,33 +262,80 @@ export function floorFailureIsQuarantined(
   return quarantineCoversFailure(failingPath, quarantinedEntries, floorOutput, { project });
 }
 
+/** Floor commands that understand `--files=` — only these can be narrowed to the
+ *  impacted set. Anything else keeps its declared command verbatim. */
+const FLOOR_FILES_CAPABLE_RE = /scripts\/test-backend(\.ts)?\b/;
+
+interface RegressionFloorRun {
+  floor: EpicLandGateResult['floor'] | undefined;
+  mode?: 'impacted' | 'full';
+  impactedCount?: number;
+  /** One reasons-line documenting what the impacted path ran or why it fell back. */
+  note?: string;
+}
+
 async function runRegressionFloor(o: {
   epicWorktreeCwd: string;
   floors: GateFloorLane[] | undefined;
   changedFiles: string[];
   spawn: GateSpawn;
-}): Promise<EpicLandGateResult['floor'] | undefined> {
+  planner?: (p: { repoRoot: string; changedFiles: string[] }) => FloorPlan;
+}): Promise<RegressionFloorRun> {
   if (!o.floors || o.floors.length === 0) {
-    return undefined;
+    return { floor: undefined };
   }
 
-  const results: Array<{ command: string; status: 'pass' | 'fail' | 'error'; failing: string[] }> = [];
+  // Impacted-set narrowing applies ONLY here — the land-gate floor. The leaf and base
+  // gates keep their full behavior, and the daemon's continuous master base gate still
+  // runs the FULL suite: any test the static import graph misses self-surfaces there on
+  // the next base run, so an impacted miss is a delayed signal, never a lost one.
+  let plan: FloorPlan;
+  const anyCapable = o.floors.some((l) => FLOOR_FILES_CAPABLE_RE.test(l.command));
+  if (!anyCapable) {
+    plan = { mode: 'full', candidateCount: 0, trigger: 'floor command does not support --files' };
+  } else {
+    const planner = o.planner ?? planImpactedFloor;
+    try {
+      plan = planner({ repoRoot: o.epicWorktreeCwd, changedFiles: o.changedFiles });
+    } catch (e) {
+      plan = { mode: 'full', candidateCount: 0, trigger: `planner threw: ${(e as Error).message}` };
+    }
+  }
+  const impacted = plan.mode === 'impacted' && plan.tests ? plan.tests : null;
+  const mode: 'impacted' | 'full' = impacted ? 'impacted' : 'full';
+  const note = impacted
+    ? `impacted floor: ran ${impacted.length} of ${plan.candidateCount} test files (fallback triggers: none)`
+    : `impacted floor: full suite (fallback trigger: ${plan.trigger ?? 'unknown'})`;
+  const meta = { mode, ...(impacted ? { impactedCount: impacted.length } : {}), note };
 
+  const commands: string[] = [];
   for (const lane of o.floors) {
+    let command = lane.command;
+    if (impacted && FLOOR_FILES_CAPABLE_RE.test(command)) {
+      if (impacted.length === 0) {
+        // Nothing the diff can reach (e.g. docs-only, or a pure fixture change with no
+        // import edge — infra trigger already vetoed the dangerous ones). Running the
+        // runner with an empty --files list would exit 1 ("no files"), so skip the spawn.
+        commands.push(`${command} --files= (0 impacted test files — skipped)`);
+        continue;
+      }
+      command = `${command} --files=${impacted.join(',')}`;
+    }
+    commands.push(command);
+
     const cwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
-    const r = await o.spawn(cwd, lane.command);
+    const r = await o.spawn(cwd, command);
 
     if (!r.ran) {
-      return { command: lane.command, status: 'error', failing: [], output: r.output };
+      return { floor: { command, status: 'error', failing: [], output: r.output }, ...meta };
     }
     if (r.code !== 0) {
       const failing = parseFloorFailingNames(r.output) || extractFailingTests(r.output);
-      return { command: lane.command, status: 'fail', failing, output: r.output };
+      return { floor: { command, status: 'fail', failing, output: r.output }, ...meta };
     }
-    results.push({ command: lane.command, status: 'pass', failing: [] });
   }
 
-  return { command: o.floors.map((l) => l.command).join('; '), status: 'pass', failing: [] };
+  return { floor: { command: commands.join('; '), status: 'pass', failing: [] }, ...meta };
 }
 
 export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGateResult> {
@@ -483,7 +540,23 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   let floorInherited: LandGateUnit[] = [];
 
   // --- regression floor ---
-  const floor = await runRegressionFloor({ epicWorktreeCwd: o.epicWorktreeCwd, floors: cfg.floors, changedFiles, spawn });
+  const floorRun = await runRegressionFloor({
+    epicWorktreeCwd: o.epicWorktreeCwd,
+    floors: cfg.floors,
+    changedFiles,
+    spawn,
+    planner: o.floorPlanner,
+  });
+  const floor = floorRun.floor;
+  // Spread into every result built after this point so the record shows which floor
+  // strategy ran and what the impacted path dropped.
+  const floorMeta = floor
+    ? {
+        ...(floorRun.mode ? { floorMode: floorRun.mode } : {}),
+        ...(floorRun.impactedCount !== undefined ? { floorImpactedCount: floorRun.impactedCount } : {}),
+      }
+    : {};
+  const floorNote = floor ? floorRun.note : undefined;
   if (floor?.status === 'error') {
     return {
       status: 'error',
@@ -491,11 +564,12 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       manifestPath: decl.manifestPath,
       typecheck,
       floor,
+      ...floorMeta,
       units: [],
       regressions: [],
       inherited: [...floorInherited],
       incidents: [],
-      reasons: [`land gate: regression floor could not run: ${floor.command}`],
+      reasons: [`land gate: regression floor could not run: ${floor.command}`, ...(floorNote ? [floorNote] : [])],
       specFiles,
       epicTipSha,
       baseSha,
@@ -550,6 +624,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
           ? [`inherited (already failing at base): ${inheritedFloor.inherited.length}`]
           : []),
         ...(floor.failing.length ? floor.failing : [lastLines(floor.output ?? '', 20)]),
+        ...(floorNote ? [floorNote] : []),
       ];
       const res: EpicLandGateResult = {
         status: 'fail',
@@ -557,6 +632,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
         manifestPath: decl.manifestPath,
         typecheck,
         floor,
+        ...floorMeta,
         units: [],
         // Name the NET-NEW failures as regressions so land-authority reports the accurate
         // `gate-regression` with a count, instead of the opaque catch-all `gate-failed`.
@@ -581,6 +657,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     }
     if (floor) {
       reasons.push(`land gate: regression floor ${floor.status} (${floor.command})`);
+      if (floorNote) reasons.push(floorNote);
     }
     const res: EpicLandGateResult = {
       status: 'pass',
@@ -588,6 +665,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       manifestPath: decl.manifestPath,
       typecheck,
       floor,
+      ...floorMeta,
       units: [],
       regressions: [],
       inherited: [...floorInherited],
@@ -614,11 +692,12 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       manifestPath: decl.manifestPath,
       typecheck,
       floor,
+      ...floorMeta,
       units: [],
       regressions: [],
       inherited: [...floorInherited],
       incidents: [],
-      reasons: ['land gate: no test lanes declared'],
+      reasons: ['land gate: no test lanes declared', ...(floorNote ? [floorNote] : [])],
       specFiles,
       epicTipSha,
       baseSha,
@@ -636,6 +715,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       manifestPath: decl.manifestPath,
       typecheck,
       floor,
+      ...floorMeta,
       units: [],
       regressions: [],
       inherited: [...floorInherited],
@@ -822,6 +902,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   } else {
     reasons.push(`land gate: green (${specFiles.length} spec file(s)${inherited.length > 0 ? `; ${inherited.length} also fail on master` : ''})`);
   }
+  if (floorNote) reasons.push(floorNote);
 
   const res: EpicLandGateResult = {
     status,
@@ -829,6 +910,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     manifestPath: decl.manifestPath,
     typecheck,
     floor,
+    ...floorMeta,
     units,
     regressions,
     // Unit-level inherited PLUS any floor failures that were already red at the base —
