@@ -565,13 +565,13 @@ describe('mcpConfigFor', () => {
 describe('mcp-bearing lane guards', () => {
   it('invokeGrokNode refuses an mcp__-bearing allowedTools', async () => {
     await expect(
-      invokeGrokNode({ ...base, allowedTools: 'Read mcp__mermaid__file_to_bucket' }),
+      invokeGrokNode({ ...base, allowedTools: 'Read mcp__mermaid__file_bugfix' }),
     ).rejects.toThrow(/mcp__/);
   });
 
   it('invokeXaiApiNode refuses an mcp__-bearing allowedTools', async () => {
     await expect(
-      invokeXaiApiNode({ ...base, allowedTools: 'Read mcp__mermaid__file_to_bucket' }),
+      invokeXaiApiNode({ ...base, allowedTools: 'Read mcp__mermaid__file_bugfix' }),
     ).rejects.toThrow(/mcp__/);
   });
 });

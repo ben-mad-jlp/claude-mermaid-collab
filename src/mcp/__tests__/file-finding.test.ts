@@ -230,9 +230,10 @@ describe('test', () => {
     expect(findingsAfter).toBe(findingsBefore + 1);
   });
 
-  test('EXPLORE_NODE_ALLOWED_TOOLS includes file_finding and excludes file_to_bucket', () => {
+  test('EXPLORE_NODE_ALLOWED_TOOLS includes file_finding and excludes file_to_bucket and file_bugfix', () => {
     expect(EXPLORE_NODE_ALLOWED_TOOLS.includes('mcp__mermaid__file_finding')).toBe(true);
-    expect(EXPLORE_NODE_ALLOWED_TOOLS.includes('file_to_bucket')).toBe(false);
+    expect(EXPLORE_NODE_ALLOWED_TOOLS.includes('mcp__mermaid__file_to_bucket')).toBe(false);
+    expect(EXPLORE_NODE_ALLOWED_TOOLS.includes('mcp__mermaid__file_bugfix')).toBe(false);
   });
 
   test('same observation filed twice collapses to one finding row with recurrenceCount 2', async () => {

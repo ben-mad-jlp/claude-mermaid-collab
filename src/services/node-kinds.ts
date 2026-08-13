@@ -14,7 +14,7 @@ export const ORCHESTRATION_NODE_PROFILE: Record<OrchestrationNodeKind, { model: 
     allowedTools: [
       'Read', 'Grep', 'Glob', 'Bash',
       'mcp__mermaid__get_mission', 'mcp__mermaid__get_task_graph', 'mcp__mermaid__get_todo',
-      'mcp__mermaid__plan_mission_criterion', 'mcp__mermaid__file_to_bucket',
+      'mcp__mermaid__plan_mission_criterion', 'mcp__mermaid__file_bugfix',
       'mcp__mermaid__set_mission_criterion', 'mcp__mermaid__add_mission_criterion',
       'mcp__mermaid__escalation_list', 'mcp__mermaid__epic_land_readiness', 'mcp__mermaid__verify_epic',
       'mcp__mermaid__land_epic', 'mcp__mermaid__consult_grok',
