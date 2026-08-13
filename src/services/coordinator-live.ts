@@ -76,7 +76,7 @@ import {
   DEFAULT_SLOTS_PER_TYPE,
 } from './worker-pool';
 import { getConfig } from './config-service';
-import { recordFriction } from './friction-store';
+import { recordFriction, type RecordFrictionInput } from './friction-store';
 import { recordLandCycle, captureLandCycleFields, recordLandAttempt } from './epic-land-record-store.js';
 import { runLandTypecheckFloor, landTypecheckRefuses, type LandTypecheckProof } from './land-typecheck-floor';
 
@@ -283,6 +283,99 @@ const lastSpawnAttempt = new Map<string, number>();
 function respawnBackoffMs(retryCount: number): number {
   if (retryCount <= 0) return 0;
   return Math.min(5_000 * 2 ** (retryCount - 1), 5 * 60_000); // 5s,10s,20s,40s… cap 5m
+}
+
+// --- Zero-node claim-lost visibility (crit_*) -----------------------------------------
+// A leaf that is claimed, immediately loses its claim (leaf-abort.ts:24 → 'claim-lost')
+// and returns with nodesSpent === 0 — looks identical to a deliberate drop/hold abort
+// and starves silently across dispatches. This module-scoped counter tracks consecutive
+// zero-node claim-lost aborts per todo id and raises a friction card on the 3rd one.
+export const ZERO_NODE_CLAIM_LOST_CARD_AT = 3;
+const zeroNodeClaimLostStreak = new Map<string, number>();
+
+export function _resetZeroNodeClaimLostState(): void {
+  zeroNodeClaimLostStreak.clear();
+}
+
+export function resetZeroNodeClaimLostStreak(todoId: string, nodesSpent: number): void {
+  if (nodesSpent > 0) {
+    zeroNodeClaimLostStreak.delete(todoId);
+  }
+}
+
+export interface ZeroNodeClaimLostSinks {
+  audit?: (detail: Record<string, unknown>) => void;
+  friction?: (project: string, args: RecordFrictionInput) => Promise<void>;
+  escalate?: (args: Record<string, unknown>) => Promise<void>;
+}
+
+export async function noteExecutorAbort(args: {
+  project: string;
+  session: string;
+  todoId: string;
+  reason: string | undefined;
+  nodesSpent: number;
+  launchToken: string | null;
+  liveClaimToken: string | null;
+  sinks?: ZeroNodeClaimLostSinks;
+}): Promise<{ source: 'executor-aborted' | 'zero-node-claim-lost'; streak: number; escalated: boolean }> {
+  const { project, session, todoId, reason, nodesSpent, launchToken, liveClaimToken, sinks } = args;
+
+  // Resolve sink defaults
+  const auditSink = sinks?.audit ?? ((detail: Record<string, unknown>) => {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify(detail) });
+  });
+  const frictionSink = sinks?.friction ?? ((p: string, fargs: RecordFrictionInput) => recordFriction(p, fargs));
+  const escalateSink = sinks?.escalate ?? ((eargs: Record<string, unknown>) => createEscalation(eargs as any));
+
+  // Non-claim-lost or claim-lost with nodes spent
+  if (reason !== 'claim-lost' || nodesSpent > 0) {
+    auditSink({ source: 'executor-aborted', todoId, reason });
+    return { source: 'executor-aborted', streak: 0, escalated: false };
+  }
+
+  // Zero-node claim-lost: increment streak and emit audit
+  const streak = (zeroNodeClaimLostStreak.get(todoId) ?? 0) + 1;
+  zeroNodeClaimLostStreak.set(todoId, streak);
+
+  auditSink({
+    source: 'zero-node-claim-lost',
+    todoId,
+    reason,
+    launchToken: launchToken ? launchToken.slice(0, 8) : null,
+    liveClaimToken: liveClaimToken ? liveClaimToken.slice(0, 8) : null,
+    streak,
+  });
+
+  // Raise card on 3rd consecutive zero-node claim-lost
+  let escalated = false;
+  if (streak === ZERO_NODE_CLAIM_LOST_CARD_AT) {
+    try {
+      await frictionSink(project, {
+        todoId: todoId ?? undefined,
+        layer: 'operational' as const,
+        retryReason: 'zero-node-claim-lost',
+        detail: `Leaf ${todoId.slice(0, 8)} aborted with claim-lost and nodesSpent=0 three times consecutively; the claim is being lost before any work runs.`,
+      });
+    } catch { /* telemetry never breaks the abort path */ }
+
+    try {
+      const { conditionKey, conditionTuple } = coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.zeroNodeClaimLost);
+      await escalateSink({
+        audience: 'human',
+        project,
+        session,
+        kind: 'blocker',
+        todoId,
+        questionText: `Leaf ${todoId.slice(0, 8)} has been aborted with a claim-lost error and no nodes spent three times in a row. This suggests the leaf's claim is being lost immediately upon assignment, preventing any work from running.`,
+        conditionKey,
+        conditionTuple,
+      });
+      escalated = true;
+    } catch { /* telemetry never breaks the abort path */ }
+  }
+
+  return { source: 'zero-node-claim-lost', streak, escalated };
 }
 // MAX_REDISPATCH (HARD RE-DISPATCH CAP loop breaker) moved to harness-caps.ts (the
 // harness's single loop-breaker cap surface); imported above.
@@ -1998,13 +2091,26 @@ async function coordinatorLaunchWorker(project: string, todo: Todo): Promise<boo
         execDeps.clearResume = (id) => clearLeafResume(id);
         const res = await runLeaf(project, todo, execDeps);
         recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+        resetZeroNodeClaimLostStreak(todo.id, res.nodesSpent);
         if (res.outcome === 'aborted') {
           // The daemon (ancestor-drop cascade, hold, or a claim-loss it detected
           // elsewhere) already decided this todo's terminal state — do NOT
           // recordResume/resetBreakerStreak and do NOT releaseClaim (re-releasing
           // could stomp a claim a fresh run already took). Just clear this run's
           // own bookkeeping and stop.
-          recordSupervisorAudit({ kind: 'reconcile', project, session: poolName, detail: JSON.stringify({ source: 'executor-aborted', todoId: todo.id, reason: res.reason }) });
+          const liveClaimToken = (() => {
+            try { return getTodo(project, todo.id)?.claimToken ?? null; }
+            catch { return null; }
+          })();
+          await noteExecutorAbort({
+            project,
+            session: poolName,
+            todoId: todo.id,
+            reason: res.reason,
+            nodesSpent: res.nodesSpent,
+            launchToken,
+            liveClaimToken,
+          });
           clearLeafInflight(todo.id);
           clearLeafResume(todo.id);
           return;
@@ -2109,8 +2215,8 @@ async function coordinatorReapDeadWorkers(
   const wlDeps: WorkerLivenessDeps = {
     listTodos,
     getTodo,
-    reclaimClaim,
-    reclaimOrphan,
+    reclaimClaim: (p, id, hp, expectToken) => reclaimClaim(p, id, hp, { expectToken }),
+    reclaimOrphan: (p, id, hp, expectToken) => reclaimOrphan(p, id, hp, { expectToken }),
     leafHadProgress: () => leafHadProgress,
     isRunLive,
     isLeafInflightLive,
