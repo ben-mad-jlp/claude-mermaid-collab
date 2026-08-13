@@ -16,10 +16,11 @@ import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
+import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen, sweepExpiringQuarantine } from './flaky-quarantine';
 import { pruneBaseGateTestRuns } from './worker-ledger';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
+import { quarantineCoversFailure } from './quarantine-match';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
 export interface GateTestLane {
@@ -1183,6 +1184,7 @@ export async function resolveBaseGreen(io: {
   ensureEpicWorktree: () => Promise<{ path: string } | null>;
   runGate: (cwd: string) => Promise<LeafGateResult>;
   now?: () => number;
+  resolveTestFile?: (project: string, test: string) => string | null;
 }): Promise<(LeafGateResult & { fresh: boolean }) | null> {
   const { epicId, project, epicBaseSha, gateCfg } = io;
   if (!gateCfg) return null; // absent → abstain (unchanged)
@@ -1208,6 +1210,7 @@ export async function resolveBaseGreen(io: {
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
     await closeQuarantineOnGreen(io.targetProject, io.now?.());
+    await sweepExpiringQuarantine(io.targetProject, io.now?.() ?? Date.now());
     // Retention on the observation table it just read. The sweep existed since it was written
     // and had ZERO callers — the table grew ~500k rows/day unbounded (1.86M measured
     // 2026-08-11) while every quarantine pass scanned it. Self-throttled internally.
@@ -1224,10 +1227,8 @@ export async function resolveBaseGreen(io: {
     const union = new Set<string>();
     for (const fps of Object.values(r.baselineFailures)) for (const fp of fps) union.add(fp);
     if (union.size > 0) {
-      const quarantined = new Set(
-        activeQuarantine(io.targetProject, io.now?.()).map((q) => normalizeGateFingerprint(q.test)),
-      );
-      if ([...union].every((fp) => quarantined.has(normalizeGateFingerprint(fp)))) {
+      const quarantineTests = activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test);
+      if ([...union].every((fp) => quarantineCoversFailure(normalizeGateFingerprint(fp), quarantineTests, r.output ?? '', { project: io.targetProject, resolveTestFile: io.resolveTestFile }))) {
         const sorted = [...union].sort();
         result = {
           ...r,

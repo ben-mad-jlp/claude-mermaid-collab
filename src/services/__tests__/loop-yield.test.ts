@@ -1,4 +1,7 @@
 /**
+ * @serial-test-lane: this file MEASURES event-loop scheduling lag; co-scheduled test processes
+ * competing for CPU corrupt both the stall and yielded samples it compares.
+ *
  * Phase 0 responsiveness guard (mission c4eb4fcc, crit-1) for src/services/loop-yield.ts.
  *
  * The falsifiable property the mission requires: a heavy per-project pass, when composed of
@@ -42,23 +45,35 @@ async function heavyPass(): Promise<void> {
   }
 }
 
+/** Resolve once `getBeats()` has advanced by `delta` from its value at call time, or when
+ *  `deadlineMs` elapses — an observed condition instead of a fixed nap. */
+async function waitForBeats(getBeats: () => number, delta: number, deadlineMs: number): Promise<void> {
+  const target = getBeats() + delta;
+  const start = performance.now();
+  while (getBeats() < target && performance.now() - start < deadlineMs) {
+    await new Promise((r) => setTimeout(r, 1));
+  }
+}
+
 /** Measure the max scheduling lag of a fixed-interval heartbeat while `work` runs. */
 async function measureMaxLag(work: () => Promise<void>): Promise<number> {
   let maxLag = 0;
   let lastBeat = performance.now();
+  let beats = 0;
   const hb = setInterval(() => {
     const now = performance.now();
     const lag = now - lastBeat - HEARTBEAT_MS; // scheduling delay beyond the nominal interval
     if (lag > maxLag) maxLag = lag;
     lastBeat = now;
+    beats++;
   }, HEARTBEAT_MS);
   try {
     // Let the heartbeat settle, then baseline right before the work.
-    await new Promise((r) => setTimeout(r, 40));
+    await waitForBeats(() => beats, 3, 500);
     lastBeat = performance.now();
     await work();
     // One more window so post-work lag is captured.
-    await new Promise((r) => setTimeout(r, HEARTBEAT_MS * 3));
+    await waitForBeats(() => beats, 3, 500);
   } finally {
     clearInterval(hb);
   }

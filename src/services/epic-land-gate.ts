@@ -25,6 +25,7 @@ import { defaultGateSpawn } from './leaf-gate';
 import { recordEpicLandGate, getEpicLandGate, listObservations } from './worker-ledger';
 import { activeQuarantine } from './flaky-quarantine';
 import type { TestQuarantineRow } from './worker-ledger';
+import { quarantineCoversFailure } from './quarantine-match';
 
 export type LandGateStatus = 'pass' | 'fail' | 'error' | 'abstain';
 
@@ -245,52 +246,9 @@ export function floorFailureIsQuarantined(
   failingPath: string,
   quarantinedEntries: string[],
   floorOutput: string,
+  project?: string,
 ): boolean {
-  // Normalize each quarantine entry by stripping a leading bun progress prefix.
-  const normalizedQuarantine = new Set(
-    quarantinedEntries.map((entry) => entry.replace(/^\(\d+\/\d+\)\s+/, '')),
-  );
-
-  // Direct hit: if the normalized set contains failingPath verbatim.
-  if (normalizedQuarantine.has(failingPath)) {
-    return true;
-  }
-
-  // Section hit: extract the output slice for failingPath and parse its test names.
-  // Find the section header for this failingPath: ──── path ────
-  const headerRegex = new RegExp(`─{4,}\\s+${failingPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+─{4,}`);
-  const headerMatch = floorOutput.match(headerRegex);
-
-  if (!headerMatch) {
-    return false;
-  }
-
-  // Find the start index of this header
-  const headerStartIndex = floorOutput.indexOf(headerMatch[0]);
-  if (headerStartIndex === -1) {
-    return false;
-  }
-
-  // Find the next header (or end of output) to determine section bounds
-  const afterHeaderIndex = headerStartIndex + headerMatch[0].length;
-  const remainingText = floorOutput.slice(afterHeaderIndex);
-  const nextHeaderMatch = remainingText.match(/\n─{4,}/);
-  const sectionEndIndex = nextHeaderMatch
-    ? afterHeaderIndex + remainingText.indexOf(nextHeaderMatch[0])
-    : floorOutput.length;
-
-  // Extract the section text (from after the header to the next header or EOF)
-  const sectionText = floorOutput.slice(afterHeaderIndex, sectionEndIndex);
-
-  // Extract test names from the section.
-  const testNames = extractFailingTests(sectionText);
-
-  // Return true only if all test names are in the quarantine set.
-  if (testNames.length === 0) {
-    return false;
-  }
-
-  return testNames.every((name) => normalizedQuarantine.has(name));
+  return quarantineCoversFailure(failingPath, quarantinedEntries, floorOutput, { project });
 }
 
 async function runRegressionFloor(o: {
@@ -532,7 +490,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     const quarantineTests = lookupQuarantine(o.project).map((q) => q.test);
     const quarantinedOnly =
       floor.failing.length > 0 &&
-      floor.failing.every((fp) => floorFailureIsQuarantined(fp, quarantineTests, floor.output ?? ''));
+      floor.failing.every((fp) => floorFailureIsQuarantined(fp, quarantineTests, floor.output ?? '', o.project));
     inheritedFloor = partitionFloorAgainstBase(o.project, baseSha, floor.failing);
     if (quarantinedOnly) {
       // Downgrade: floor failed but all failures are quarantined.

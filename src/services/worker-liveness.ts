@@ -20,8 +20,8 @@ export interface WorkerReapResult {
 export interface WorkerLivenessDeps {
   listTodos: (project: string, opts?: { status?: 'in_progress'; includeCompleted?: boolean }) => Todo[];
   getTodo: (project: string, id: string) => Todo | null | undefined;
-  reclaimClaim: (project: string, id: string, hadProgress?: (id: string) => boolean) => Promise<'ready' | 'blocked' | null>;
-  reclaimOrphan: (project: string, id: string, hadProgress?: (id: string) => boolean) => Promise<'ready' | 'blocked' | null>;
+  reclaimClaim: (project: string, id: string, hadProgress?: (id: string) => boolean, expectToken?: string | null) => Promise<'ready' | 'blocked' | null>;
+  reclaimOrphan: (project: string, id: string, hadProgress?: (id: string) => boolean, expectToken?: string | null) => Promise<'ready' | 'blocked' | null>;
   /** Progress reader for 0-node kill detection (per-project closure, matches the
    *  `leafHadProgress` local in makeCoordinatorDeps). */
   leafHadProgress: (project: string) => (id: string) => boolean;
@@ -78,6 +78,31 @@ async function leafShieldedFromReap(
   if (deps.isLeafInflightLive(todoId)) return 'inflight-live'; // bug 0f1df3d2: a live current-epoch node (e.g. a long blueprint) is NOT an orphan — inProcessLaneAlive is blind to the node-invoker `claude -p` subprocess, so the leaf claim is the authoritative signal
   if (sessionName && (await deps.inProcessLaneAlive(sessionName))) return 'in-process-live'; // live in-process lane — no tmux to probe (§6.7)
   return null;
+}
+
+/** Audit when an observed claim token fails a CAS check (raced to another reaper). */
+function auditStaleTokenSkip(
+  project: string,
+  rule: string,
+  todoId: string,
+  observedToken: string | null,
+  deps: Pick<WorkerLivenessDeps, 'getTodo' | 'recordSupervisorAudit'>,
+): void {
+  // Re-read to capture what another reaper may have just written.
+  const liveRow = deps.getTodo?.(project, todoId);
+  const liveToken = liveRow?.claim?.token ?? liveRow?.claimToken ?? null;
+  deps.recordSupervisorAudit({
+    kind: 'reconcile',
+    project,
+    session: 'coordinator',
+    detail: JSON.stringify({
+      source: 'reclaim-skipped-stale-token',
+      rule,
+      todoId,
+      observedToken: observedToken ? observedToken.substring(0, 8) : null,
+      liveToken: liveToken ? liveToken.substring(0, 8) : null,
+    }),
+  });
 }
 
 /**
@@ -151,7 +176,12 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     // In-process lanes have no tmux — ask the harness before the tmux probe, or a
     // healthy in-process worker reads as dead (§6.7 bootstrap).
     if (await leafShieldedFromReap(t.id, session, deps)) continue;
-    const next = await deps.reclaimClaim(project, t.id, hadProgress);
+    const observedToken = t.claim?.token ?? t.claimToken ?? null;
+    const next = await deps.reclaimClaim(project, t.id, hadProgress, observedToken);
+    if (next === null) {
+      auditStaleTokenSkip(project, 'reapDeadClaims', t.id, observedToken, deps);
+      continue;
+    }
     // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
     // The slot lives in the project the worker's lane ran in (target for cross-project).
     if (session) deps.markIdle(t.targetProject ?? project, session);
@@ -248,23 +278,29 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
   // leaf-executor runs in-process, so it cannot have outlived that process —
   // reclaim on sight, NO liveness probe (a lingering reusable tmux shell must
   // not shield it; that gap stranded leaves across a sidecar hot-swap until
-  // lease expiry). Claims with no epoch (legacy/pre-this-feature) are left to
-  // the pulse/grace probes below — never worse than today.
-  for (const id of planPriorEpochReap(inProgress, deps.coordinatorEpoch)) {
-    if (reaped.has(id)) continue; // rule (a) already reclaimed this row this sweep
-    const t = inProgress.find((x) => x.id === id)!;
-    const next = await deps.reclaimOrphan(project, id, hadProgress);
-    if (next == null) continue; // raced to terminal
-    deps.clearLeafInflight(id); // drop the dead executor's inflight row
+  // lease expiry). Claims with no epoch (legacy/pre-this-feature) are shielded
+  // below via the liveness probes — never worse than today.
+  for (const c of planPriorEpochReap(inProgress, deps.coordinatorEpoch)) {
+    if (reaped.has(c.id)) continue; // rule (a) already reclaimed this row this sweep
+    const t = inProgress.find((x) => x.id === c.id)!;
+    // Shield unstamped (claimEpoch=null) claims only — foreign-epoch claims reap on sight.
+    if (c.claimEpoch === null && await leafShieldedFromReap(c.id, t.sessionName, deps)) continue;
+    const observedToken = t.claim?.token ?? t.claimToken ?? null;
+    const next = await deps.reclaimOrphan(project, c.id, hadProgress, observedToken);
+    if (next === null) {
+      auditStaleTokenSkip(project, 'prior-epoch-reap', c.id, observedToken, deps);
+      continue;
+    }
+    deps.clearLeafInflight(c.id); // drop the dead executor's inflight row
     if (t.sessionName) deps.markIdle(t.targetProject ?? project, t.sessionName); // free pool slot
-    reaped.add(id);
-    if (next === 'ready') reclaimed.push(id);
-    else exhausted.push(id);
+    reaped.add(c.id);
+    if (next === 'ready') reclaimed.push(c.id);
+    else exhausted.push(c.id);
     deps.recordSupervisorAudit({
       kind: 'reconcile',
       project,
       session: t.sessionName ?? '',
-      detail: JSON.stringify({ source: 'prior-epoch-reap', todoId: id, outcome: next, claimEpoch: t.claim?.epoch, liveEpoch: deps.coordinatorEpoch }),
+      detail: JSON.stringify({ source: 'prior-epoch-reap', todoId: c.id, outcome: next, claimEpoch: c.claimEpoch, liveEpoch: deps.coordinatorEpoch }),
     });
   }
 
@@ -285,8 +321,12 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     if (pulseAt == null || nowMs - pulseAt <= deps.pulseStaleMs) continue; // fresh/absent → fall back
     if (await leafShieldedFromReap(t.id, session, deps)) continue;
     if (!shouldPulseReap(pulseAt, nowMs, deps.pulseStaleMs, true)) continue;
-    const next = await deps.reclaimOrphan(project, t.id, hadProgress);
-    if (next == null) continue; // raced to a terminal state
+    const observedToken = t.claim?.token ?? t.claimToken ?? null;
+    const next = await deps.reclaimOrphan(project, t.id, hadProgress, observedToken);
+    if (next === null) {
+      auditStaleTokenSkip(project, 'pulse-reap', t.id, observedToken, deps);
+      continue;
+    }
     deps.markIdle(t.targetProject ?? project, session); // free any pool slot it held
     reaped.add(t.id);
     if (next === 'ready') reclaimed.push(t.id);
@@ -312,11 +352,16 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
     // reclaimOrphan (NOT reclaimClaim) reclaims regardless of claimToken — an
     // orphan's whole problem is the missing token. Retry-budget-aware: → ready,
     // or blocked once the retry cap is exceeded.
-    const next = await deps.reclaimOrphan(project, c.id, hadProgress);
-    if (next == null) continue; // raced to a terminal state — nothing to reap
+    const row = inProgress.find((t) => t.id === c.id);
+    const observedToken = row?.claim?.token ?? row?.claimToken ?? null;
+    const next = await deps.reclaimOrphan(project, c.id, hadProgress, observedToken);
+    if (next === null) {
+      auditStaleTokenSkip(project, 'orphan-reap', c.id, observedToken, deps);
+      continue;
+    }
     if (c.sessionName) {
       // The slot lives in the project the worker's lane ran in (target for cross-project).
-      const cProject = inProgress.find((t) => t.id === c.id)?.targetProject ?? project;
+      const cProject = row?.targetProject ?? project;
       deps.markIdle(cProject, c.sessionName); // free any pool slot it held
     }
     reaped.add(c.id);
