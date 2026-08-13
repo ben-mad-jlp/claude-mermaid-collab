@@ -1,6 +1,7 @@
 # Design: turn outlines — the terminating message as an expandable tree
 
-Status: SPEC (decisions settled in conversation, 2026-08-12 evening)
+Status: SPEC — PAUSED after live dogfood (see Learnings); renderer-side value
+stands, but D1/D2's "the outline IS the chat message" was falsified in practice.
 Origin: human idea — "the terminating message of every response is an outline tree,
 stored per watched session, so the human reads as deep or as shallow as he wants."
 
@@ -154,3 +155,20 @@ renders greyed with its age), and format carries a version (```outline v1).
   mocked fetch/WS.)
 - Contract test on the OUTPUT STYLE side is judgment, not code: ships as skill
   wording; graded by dogfood.
+
+## Learnings (live dogfood, 2026-08-12 evening)
+
+Three formats were tried as the actual chat terminating message (fenced glyph
+tree, sentinel + bullets, dotted-number outline). Human verdict: NOT easier to
+read than prose. Diagnosis:
+- A tree pays off only where it can COLLAPSE. Rendered flat in chat it has the
+  same length as prose minus the connective tissue — the reader supplies the
+  flow themselves. Fences additionally clip (no soft-wrap); same-glyph bullets
+  hide depth; dotted numbers show depth but read as a document, not a message.
+- Therefore: chat keeps PROSE. The outline is a machine-facing artifact for
+  renderers that collapse (Bridge tree, zen). Open question re-opened: is an
+  agent-authored appendix worth its per-turn token cost vs a server-side derive
+  pass? D1 is no longer settled; D3-D8 (transport, storage, UI, reply, scope)
+  are unaffected whenever an outline source exists.
+- Kept from the experiment: node addresses (dotted numbers) are the right
+  anchor for replies and UI expansion state, whatever authors the tree.
