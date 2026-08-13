@@ -272,6 +272,9 @@ const QUICK_TIMEOUT_MS = 30_000;
 // a 5s TTL turned each storm into O(branches) git spawns per miss, which fed the very
 // server busyness that caused the drops (the 2026-08-11/12 sidecar-pin feedback loop).
 export const UNLANDED_EPICS_TTL_MS = 60_000;
+// Collab epic accumulation branches — the scan's candidate set is branch-name-owned, so
+// foreign linked worktrees (.claude/worktrees/* and any other tool's) are structurally outside it.
+export const COLLAB_EPIC_BRANCH_GLOB = 'collab/epic/*';
 const unlandedEpicsCache = new Map<
   string,
   { at: number; value: Array<{ branch: string; epicId8: string; ahead: number }> }
@@ -1291,7 +1294,7 @@ export class WorktreeManager {
     // O(branches) rev-list spawns into O(live).
     const list = await this.runGit(
       this.opts.projectRoot,
-      ['branch', '--list', 'collab/epic/*', '--no-merged', trunk, '--format=%(refname:short)'],
+      ['branch', '--list', COLLAB_EPIC_BRANCH_GLOB, '--no-merged', trunk, '--format=%(refname:short)'],
       QUICK_TIMEOUT_MS,
     ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
     if (list.code !== 0) return [];
