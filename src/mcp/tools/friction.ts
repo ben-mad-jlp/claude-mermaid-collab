@@ -10,6 +10,7 @@ import {
   countFriction,
   type FrictionLayer,
   type FrictionNote, retractFriction } from '../../services/friction-store.js';
+import { autoFileRecurringFriction } from '../../services/friction-recurrence-filer.js';
 
 export const DEFAULT_LIMIT = 100;
 export const MAX_LIMIT = 500;
@@ -68,6 +69,8 @@ export async function recordFrictionTool(args: {
     attempt: args.attempt,
     detail: args.detail ?? null,
   });
+  try { await autoFileRecurringFriction(args.project, { signature, priorCount, priorNoteIds, note }); }
+  catch (err) { console.warn('[record_friction] auto-filer failed (non-fatal):', err); }
   return { success: true, note, signature, priorCount, priorNoteIds };
 }
 
