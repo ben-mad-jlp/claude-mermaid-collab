@@ -31,7 +31,8 @@ inferred from a title (`src/services/todo-kind.ts`).
 | **gate** | A pass/fail check that admits or blocks work. `kind='gate'` as a node; also the general mechanism (§4). |
 | **todo** | The generic graph node. Every mission/epic/leaf/land/gate is a todo. Table: `todos`. |
 | **workgraph** | The dependency graph over todos. Read it with `inspect_workgraph`. |
-| **bucket** | A todo marked `isBucket` (Inbox, Bugfix inbox) — a filing destination, excluded from convergence work and mission parenting. Orthogonal to `kind`. |
+| **bucket** | A todo marked `isBucket` (Explore, Bugfix, Feature) — a filing destination, excluded from convergence work and mission parenting. Orthogonal to `kind`. |
+| **work request** | an unplanned item filed into one of the three typed bucket epics: `explore` (a question to investigate), `bugfix` (a defect to repair), `feature` (a capability to add). The lane is carried by the todo's `bucketType` column (`ui/src/lib/workRequestRegistry.ts:3` `WorkRequestType`), with an optional `frictionLayer` tag (`domain` / `orchestration` / `operational`) as metadata only. The legacy `inbox` bucketType normalizes to `explore` (`normalizeWorkRequestType`, `ui/src/lib/workRequestRegistry.ts:34`). **Work request** is the canonical user-facing name for what the UI's work-requests surface renders. |
 
 ## 2. Namespace and runtime
 
@@ -98,7 +99,7 @@ in dispatch order:
 | **adopt** | Take an existing branch and make it an epic (`adopt_branch_as_epic`). |
 | **park** | Stop a leaf without failing it — infra fault, not a spec defect. Reversible via `reset_todo`. |
 | **drop** | Remove a todo from the graph. Cascades to non-terminal children. |
-| **escalation** | A blocking question surfaced to a human or triaged internally. `audience: 'human' \| 'internal'`. |
+| **escalation** | A blocking question surfaced to a human, or resolved by the daemon internally. `audience: 'human' \| 'internal'`. |
 | **friction** | A recorded instance of the harness hurting. Feeds trend analysis; the input to a mission. |
 | **drain** | A campaign that clears an accumulated backlog (e.g. of base-red epics) to zero. |
 
@@ -115,6 +116,7 @@ Enforced by `src/services/vocab-lint.ts` on changed files only.
 | "supervised session", "subscription" (as user attention) | **watched session** | ❌ *decided 2026-08-04; blocked on the merge in §7b* |
 | "supervisor" (as a role or subsystem) | *(split by concern — §7a)* | ❌ *not a rename; needs decomposition* |
 | "steward" | *(concept removed)* | ❌ *no rule yet — residue in `steward-proof.ts` + 10 files* |
+| "triage" (as a work-request surface) | **work request** | ✅ enforced by ui/src/lib/workRequestVocabGate.test.ts |
 
 **Why the `daemon` rule can't be added yet.** The lint's allowlist model assumes the
 retired term survives in a *handful* of un-migrated files. It doesn't here:
