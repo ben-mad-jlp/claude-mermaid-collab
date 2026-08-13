@@ -138,6 +138,58 @@ function readLimit(raw: string | undefined, fallback: number): number {
 
 const inFlight = new Map<string, Promise<LeafGateResult>>();
 
+/** Observability sidecar for `inFlight` — WHY the map's entries exist and since when, so the
+ *  UI can tell a leaf queued behind a long base gate apart from a dead one. Written strictly
+ *  in lockstep with `inFlight` (set before the run's promise is stored, deleted by the same
+ *  settle handler). Never consulted by the coalescing logic itself. */
+interface InflightGateMeta {
+  project: string;
+  baseSha: string | null;
+  /** Every epic that dispatched or coalesced onto this run — recorded from `opts.epicId`
+   *  at the call site, so the leaf↔gate join downstream is exact, not inferred. */
+  epicIds: Set<string>;
+  startedAt: number;
+  /** true once the run holds its concurrency slots and is actually executing;
+   *  false while it is still queued behind the per-project/global caps. */
+  running: boolean;
+}
+const inFlightMeta = new Map<string, InflightGateMeta>();
+
+export interface InflightBaseGate {
+  key: string;
+  project: string;
+  baseSha: string | null;
+  epicIds: string[];
+  startedAt: number;
+  running: boolean;
+}
+
+/** Read-only snapshot of the base gates in flight right now (executing OR queued behind the
+ *  caps). Purely observational — mutating the result changes nothing. */
+export function listInflightBaseGates(): InflightBaseGate[] {
+  return [...inFlightMeta.entries()].map(([key, m]) => ({
+    key,
+    project: m.project,
+    baseSha: m.baseSha,
+    epicIds: [...m.epicIds],
+    startedAt: m.startedAt,
+    running: m.running,
+  }));
+}
+
+/** Recover {project, baseSha} from a `baseGateKey`-produced key (JSON `[project, baseSha,
+ *  lanes]`). Falls back to the caller-supplied project and a null sha for foreign keys —
+ *  the meta entry still exists, it just carries less detail. */
+function parseGateKey(key: string, fallbackProject: string): { project: string; baseSha: string | null } {
+  try {
+    const arr = JSON.parse(key) as unknown;
+    if (Array.isArray(arr) && typeof arr[0] === 'string') {
+      return { project: arr[0], baseSha: typeof arr[1] === 'string' && arr[1] !== '' ? arr[1] : null };
+    }
+  } catch { /* not a baseGateKey-shaped key */ }
+  return { project: fallbackProject, baseSha: null };
+}
+
 /** Slots currently held per project, and the FIFO of callers waiting for one. */
 const running = new Map<string, number>();
 const waiting = new Map<string, Array<() => void>>();
@@ -180,10 +232,15 @@ function release(project: string): void {
 export function runBaseGateShared(
   key: string,
   run: () => Promise<LeafGateResult>,
-  opts?: { project?: string; verdict?: SharedVerdictScope },
+  opts?: { project?: string; epicId?: string; verdict?: SharedVerdictScope },
 ): Promise<LeafGateResult> {
   const existing = inFlight.get(key);
-  if (existing) return existing;
+  if (existing) {
+    // A coalescing sibling still shows up in the observability meta — its epic is waiting
+    // on this run just as much as the dispatcher's.
+    if (opts?.epicId) inFlightMeta.get(key)?.epicIds.add(opts.epicId);
+    return existing;
+  }
 
   // Durable shared-verdict consult, BEFORE any slot is taken or run dispatched. In-flight
   // wins above on purpose: a live run for this key is at least as fresh as any stored row.
@@ -210,6 +267,18 @@ export function runBaseGateShared(
   const project = opts?.project ?? '';
   const limit = maxConcurrentBaseGates();
 
+  // Meta goes in BEFORE the IIFE below starts: with free slots its body runs synchronously
+  // up to `run()`, and the `running` flip must land on an entry that already exists.
+  const parsed = parseGateKey(key, project);
+  const meta: InflightGateMeta = {
+    project: parsed.project,
+    baseSha: parsed.baseSha,
+    epicIds: new Set(opts?.epicId ? [opts.epicId] : []),
+    startedAt: Date.now(),
+    running: false,
+  };
+  inFlightMeta.set(key, meta);
+
   const p = (async () => {
     // GLOBAL first, then project — a fixed acquisition order, so two callers can never each
     // hold one slot while waiting for the other's. Both are released in reverse.
@@ -219,6 +288,7 @@ export function runBaseGateShared(
       const waitProject = acquire(project, limit);
       if (waitProject) await waitProject;
       try {
+        meta.running = true; // both slots held — the gate is executing, not queued
         const r = await run();
         // Persist the settled verdict for siblings. 'error' is an incident, not a base
         // fact — never stored (mirrors isCacheableBaseGateStatus / recordEpicBaseGate).
@@ -243,7 +313,10 @@ export function runBaseGateShared(
   })();
   inFlight.set(key, p);
   const clear = () => {
-    if (inFlight.get(key) === p) inFlight.delete(key);
+    if (inFlight.get(key) === p) {
+      inFlight.delete(key);
+      inFlightMeta.delete(key);
+    }
   };
   p.then(clear, clear);
   return p;
@@ -274,6 +347,7 @@ function parseStoredVerdict(resultJson: string | null, status: 'pass' | 'fail'):
 /** Test-only: clear all in-flight entries and release every queued/held slot. */
 export function resetBaseGateCoalescer(): void {
   inFlight.clear();
+  inFlightMeta.clear();
   running.clear();
   for (const q of waiting.values()) for (const resolve of q) resolve();
   waiting.clear();

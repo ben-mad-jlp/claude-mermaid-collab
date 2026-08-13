@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { runBaseGate, type GateSpawn, type LeafGateConfig } from '../leaf-gate';
-import { baseGateKey, runBaseGateShared, resetBaseGateCoalescer } from '../base-gate-coalescer';
+import { baseGateKey, runBaseGateShared, resetBaseGateCoalescer, listInflightBaseGates } from '../base-gate-coalescer';
 
 /** Builds a scripted GateSpawn: keyed by exact command string, records every call. */
 function stubSpawn(script: Record<string, { ran: boolean; code?: number; output?: string }>) {
@@ -136,6 +136,70 @@ describe('runBaseGateShared', () => {
 
     expect(shared).toEqual(direct);
     expect(scriptA.calls).toEqual(scriptB.calls);
+  });
+});
+
+describe('listInflightBaseGates', () => {
+  const PASS: import('../leaf-gate').LeafGateResult = { status: 'pass', output: '', reasons: [], declared: true };
+
+  it('exposes a pending run (with project/baseSha/epicId/startedAt), accretes coalescing epics, and drops the entry on settle', async () => {
+    let resolveRun!: (r: import('../leaf-gate').LeafGateResult) => void;
+    const key = baseGateKey('proj', 'sha1', CFG);
+    const before = Date.now();
+    const p = runBaseGateShared(
+      key,
+      () => new Promise((res) => { resolveRun = res; }),
+      { project: 'proj', epicId: 'epicA' },
+    );
+
+    const list = listInflightBaseGates();
+    expect(list).toHaveLength(1);
+    expect(list[0].key).toBe(key);
+    expect(list[0].project).toBe('proj');
+    expect(list[0].baseSha).toBe('sha1');
+    expect(list[0].epicIds).toEqual(['epicA']);
+    expect(list[0].running).toBe(true); // free slots ⇒ executing, not queued
+    expect(list[0].startedAt).toBeGreaterThanOrEqual(before);
+
+    // A sibling epic coalescing onto the same key is recorded as waiting on this run.
+    const p2 = runBaseGateShared(key, () => { throw new Error('must coalesce, never run'); }, { project: 'proj', epicId: 'epicB' });
+    expect([...listInflightBaseGates()[0].epicIds].sort()).toEqual(['epicA', 'epicB']);
+
+    resolveRun(PASS);
+    await Promise.all([p, p2]);
+    expect(listInflightBaseGates()).toHaveLength(0);
+  });
+
+  it('reports running=false for a gate queued behind the concurrency cap', async () => {
+    const resolvers: Array<(r: import('../leaf-gate').LeafGateResult) => void> = [];
+    const pending = () => new Promise<import('../leaf-gate').LeafGateResult>((res) => { resolvers.push(res); });
+    // Default global cap is 2 — the third distinct key must queue.
+    const ps = ['sha1', 'sha2', 'sha3'].map((sha, i) =>
+      runBaseGateShared(baseGateKey('proj' + i, sha, CFG), pending, { project: 'proj' + i, epicId: 'epic' + i }));
+    const byShaQueued = listInflightBaseGates().find((g) => g.baseSha === 'sha3');
+    expect(listInflightBaseGates()).toHaveLength(3);
+    expect(listInflightBaseGates().filter((g) => g.running)).toHaveLength(2);
+    expect(byShaQueued?.running).toBe(false);
+
+    // Drain: each settle releases a slot, which hands off to the queued gate a few
+    // microtasks later — flush repeatedly, resolving whatever run has started.
+    for (let i = 0; i < 20; i++) {
+      while (resolvers.length > 0) resolvers.shift()!(PASS);
+      await Promise.resolve();
+    }
+    await Promise.all(ps);
+    expect(listInflightBaseGates()).toHaveLength(0);
+  });
+
+  it('a foreign (non-baseGateKey) key still lists, with the caller project and a null sha', async () => {
+    let resolveRun!: (r: import('../leaf-gate').LeafGateResult) => void;
+    const p = runBaseGateShared('opaque-key', () => new Promise((res) => { resolveRun = res; }), { project: 'projX' });
+    const list = listInflightBaseGates();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ key: 'opaque-key', project: 'projX', baseSha: null, epicIds: [] });
+    resolveRun(PASS);
+    await p;
+    expect(listInflightBaseGates()).toHaveLength(0);
   });
 });
 

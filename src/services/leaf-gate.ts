@@ -1267,6 +1267,9 @@ export async function resolveBaseGreen(io: {
       : undefined),
     {
       project: io.targetProject,
+      // Recorded so listInflightBaseGates() can name the epics waiting on this run —
+      // the In-flight UI's leaf↔gate join is this exact id, not an inferred match.
+      epicId: io.epicId,
       // Durable shared verdict: sibling epics forward-integrated to the same base sha
       // consume ONE measurement. The quarantine hash keeps the key honest — the downgrade
       // below judges against the same active set the measuring run was keyed under. No

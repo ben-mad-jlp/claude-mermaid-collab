@@ -4205,7 +4205,7 @@ export async function makeLeafExecutorDeps(
     // Through the coalescer (single-flight + concurrency cap) but WITHOUT a verdict scope:
     // an explicit re-measure answered from the stored verdict would be a lie — the caller
     // asked for a fresh run precisely because the cached picture is suspect.
-    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }), { project: targetProject }); } catch { return null; } },
+    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }), { project: targetProject, epicId }); } catch { return null; } },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
     // WorktreeManager so the git plumbing lives in one place.
