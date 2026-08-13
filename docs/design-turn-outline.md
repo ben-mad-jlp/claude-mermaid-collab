@@ -57,6 +57,12 @@ channel, the Bridge reply affordance is DISABLED for it (no fallback — the tmu
 nudge has been REMOVED from the system and is not an option). The same channel
 later carries artifact-inbox arrivals and conductor cards.
 
+**D8 — Scope: WATCHED (interactive) SESSIONS ONLY.** Daemon-driven sessions
+(conductor, leaf builders) are handled in the daemon and already have their own
+surfaces (mission_diagnostic, Bridge cards, the work-graph); they never emit or
+store outlines. This makes D4's latest-only rationale airtight: every in-scope
+session pauses awaiting the human by definition.
+
 **D7 — Zen renders the same store, FULL tree, expandable.** `update_zen_summary`
 today synthesizes an approximation of "where things stand"; the outline IS that,
 agent-authored and exact. Zen shows the complete tree (collapsed to the top level
@@ -102,10 +108,6 @@ watched-session store, Bridge tree rendering machinery, WS broadcast. New pieces
 ## Blind spots (watcher + grok adversarial pass, 2026-08-12)
 
 Decisions still OWED before build:
-- **B1 Autonomous sessions:** "latest-only because the session pauses" holds ONLY
-  for interactive sessions; daemon/conductor sessions terminate turns continuously,
-  making their stream lossy by design. v1 scopes to interactive watched sessions;
-  autonomous handling is an explicit later decision, not a default.
 - **B2 needs-you unification:** escalation cards auto-reap; outline nodes persist to
   the next turn. Rule: a needs-you node REFERENCES an escalation id when one exists,
   and the renderer greys it once that card resolves. Never duplicated state.
