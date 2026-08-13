@@ -13,6 +13,7 @@ function makeGc() {
     quarantined: [],
     prunedRegistrations: 0,
     scanned: 0,
+    records: [],
   };
   return {
     calls: () => calls,
