@@ -317,7 +317,9 @@ async function main(): Promise<void> {
     // leaf-executor) routinely exceed 5s purely from machine contention — producing a RED base
     // gate whose failing test NAMES rotate run to run. Raise the per-test ceiling so a timeout
     // means "hung", not "the box was busy".
-    const proc = Bun.spawn(['bun', 'test', '--timeout', String(timeoutMs), '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    // Use process.execPath to resolve the interpreter independent of PATH, avoiding ENOENT if
+    // PATH is stripped or modified (bugfix 7dc5f49a).
+    const proc = Bun.spawn([process.execPath, 'test', '--timeout', String(timeoutMs), '--preload', './src/testing/hermetic-tripwire.ts', file], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     const code = await proc.exited;
     done++;

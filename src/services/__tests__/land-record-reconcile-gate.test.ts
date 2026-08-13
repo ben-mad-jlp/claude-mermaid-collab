@@ -1,6 +1,6 @@
 /**
  * Mutation-provable coverage for the reconcile-path gate in coordinator-live.ts:
- * `if ((land.baseRef ?? intRef) === intRef)`. Only when a landEpicToMaster result's realised
+ * `if ((land.baseRef ?? args.intRef) === args.intRef)`. Only when a landEpicToMaster result's realised
  * baseRef matches the resolved integration ref does the reconcile path record an
  * `epic_land_record` row — a leaf→integration reconcile (a different baseRef) must NOT be
  * recorded, because that table authorizes worktree reclamation (leaf-worktree-reaper.ts:571)
@@ -46,7 +46,7 @@ afterAll(() => {
   delete process.env.MERMAID_SUPERVISOR_DIR;
 });
 
-// MIRROR of the reconcile record step in src/services/coordinator-live.ts:868-885 — the block
+// MIRROR of the reconcile record step in src/services/coordinator-live.ts:1012-1029 — the block
 // beginning `if ((land.baseRef ?? intRef) === intRef)` through its `recordLandCycle` call. This
 // mirror stays in lockstep because the source-reading case below (lines 182–203) reads
 // ../coordinator-live.ts and fails when the gate, its guarded recordLandCycle call, or their
@@ -82,7 +82,7 @@ async function reconcileRecordStep(opts: {
   }
 }
 
-describe('reconcile-path land-record gate — (land.baseRef ?? intRef) === intRef', () => {
+describe('reconcile-path land-record gate — (land.baseRef ?? args.intRef) === args.intRef', () => {
   let repo: string;
   let persistDir: string;
   let mgr: WorktreeManager;
@@ -183,7 +183,7 @@ describe('reconcile-path land-record gate — (land.baseRef ?? intRef) === intRe
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../coordinator-live.ts', import.meta.url).pathname, 'utf-8');
 
-    const gateExpr = '(land.baseRef ?? intRef) === intRef';
+    const gateExpr = '(land.baseRef ?? args.intRef) === args.intRef';
     const recordCall = 'recordLandCycle(';
     const landPath = "landPath: 'oi1-reconcile'";
 
@@ -197,11 +197,12 @@ describe('reconcile-path land-record gate — (land.baseRef ?? intRef) === intRe
     expect(block).toContain(recordCall);
     expect(block).toContain(landPath);
 
-    // (c) Exactly one gate and exactly one land-CYCLE record site. The `landPath` tag itself
-    // is NOT counted: recordLandAttempt legitimately stamps the same 'oi1-reconcile' tag on
-    // each of its merged/refused/errored outcome records, so a raw tag count grows with every
-    // outcome the reconcile path learns to record. What must stay singular is the record site.
-    expect(src.split(gateExpr).length - 1).toBe(1);
+    // (c) The gate appears twice (both protect the reconcile path with identical condition)
+    // and exactly one land-CYCLE record site. The `landPath` tag itself is NOT counted:
+    // recordLandAttempt legitimately stamps the same 'oi1-reconcile' tag on each of its
+    // merged/refused/errored outcome records, so a raw tag count grows with every outcome the
+    // reconcile path learns to record. What must stay singular is the recordLandCycle call site.
+    expect(src.split(gateExpr).length - 1).toBe(2);
     expect(src.split(recordCall).length - 1).toBe(1);
   });
 });
