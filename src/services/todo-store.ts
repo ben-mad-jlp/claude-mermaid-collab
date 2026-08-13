@@ -203,6 +203,9 @@ export interface Todo {
    *  the same `bugfix` bucket by their originating layer. OPTIONAL for the same reason as
    *  bucketType; pre-V6 rows read null. */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
+  /** Friction-signature opaque key for deduplicating recurring friction filings. OPTIONAL for
+   *  backward compat; pre-migration rows read null. */
+  frictionSignature?: string | null;
   /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
    *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
   promotedTo?: string | null;
@@ -308,6 +311,8 @@ export interface CreateTodoInput {
   /** R2 friction-triage layer tag: set by friction-triage when filing recurring-friction
    *  children under the `bugfix` bucket. Caller-settable (unlike bucketType). */
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
+  /** Friction-signature opaque key for deduplicating recurring friction filings. */
+  frictionSignature?: string | null;
   tier?: LeafTier;
   /** EPIC-only base-repair exemption: when 1, skips the epic-base-red hold (G2) for this
    *  epic's leaves, allowing each leaf's gate to judge net-new-vs-base (crit-8 lazy baseline).
@@ -593,6 +598,7 @@ interface TodoRow {
   isBucket: number;
   bucketType: string | null;
   triageTag: string | null;
+  frictionSignature: string | null;
   promotedTo: string | null;
   consumedAt: string | null;
   tier: string | null;
@@ -747,6 +753,7 @@ export function openDb(project: string): Database {
   // index created inside the V5 backfill AFTER duplicate bucket rows are collapsed.
   addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
   addColumnIfMissing(db, 'todos', 'triageTag', 'triageTag TEXT');
+  addColumnIfMissing(db, 'todos', 'frictionSignature', 'frictionSignature TEXT');
   // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
   // the epic's id. Nullable; non-null only on promoted items.
   addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
@@ -785,6 +792,7 @@ export function openDb(project: string): Database {
   // Pre-migration rows read NULL — no backfill needed.
   addColumnIfMissing(db, 'todos', 'exploreSpec', 'exploreSpec TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_todos_friction_signature ON todos(frictionSignature)');
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -1711,6 +1719,7 @@ function rowToTodo(row: TodoRow): Todo {
     isBucket: row.isBucket === 1,
     bucketType: (row.bucketType as BucketType | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
+    frictionSignature: row.frictionSignature ?? null,
     promotedTo: row.promotedTo ?? null,
     consumedAt: row.consumedAt ?? null,
     landedAt: row.landedAt ?? null,
@@ -1908,6 +1917,15 @@ export function getTodo(project: string, id: string): Todo | null {
   if (resolved === null) return null;
   const row2 = db.query('SELECT * FROM todos WHERE id = ?').get(resolved) as TodoRow | null;
   return row2 ? rowToTodo(row2) : null;
+}
+
+export function findOpenTodoBySignature(project: string, signature: string): Todo | null {
+  if (!signature) return null;
+  const db = openDb(trackingProjectRoot(project));
+  const row = db.query(
+    `SELECT * FROM todos WHERE targetProject = ? AND frictionSignature = ? AND status NOT IN ('done','dropped') ORDER BY rowid ASC LIMIT 1`
+  ).get(trackingProjectRoot(project), signature) as TodoRow | null;
+  return row ? rowToTodo(row) : null;
 }
 
 export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
@@ -2149,8 +2167,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, tier, baseRepair, nickname, exploreSpec)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, tier, baseRepair, nickname, exploreSpec)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -2162,7 +2180,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
