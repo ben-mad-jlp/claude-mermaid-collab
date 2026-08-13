@@ -1,4 +1,8 @@
 /**
+ * @serial-test-lane: this file spawns real `git` processes (init/add/commit/rev-parse) across
+ * its cases plus a module-reachability scan; the contended resource is process spawn + fs, not
+ * a wall-clock assertion.
+ *
  * Guard enforcement: module reachability scanner prevents grading met=true when
  * a serving epic has landed source modules with no non-test importers.
  *
