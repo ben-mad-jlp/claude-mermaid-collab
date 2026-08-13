@@ -72,29 +72,29 @@ views.
 
 ## Format (v1)
 
-A fenced block the agent emits as (the tail of) its final message. Plain-text
-readable in the terminal, mechanically parseable:
+A sentinel line + nested markdown bullets the agent emits as (the tail of) its
+final message. Bullets, NOT a fenced code block: fences don't soft-wrap, so
+nodes clip on narrow renderers (observed live in the Claude app); bullets wrap
+everywhere and indent depth parses identically:
 
-````text
-```outline v1
-▸ Top-level point in one line
-  ▸ Full sentence(s) of explanation — the prose that would have been the paragraph.
-    ▸ Evidence, ids, file:line — the deepest detail.
-  ▸ needs-you: the single action awaiting the human (node kind, not prose)
+```text
+Outline v1
+- Top-level point in one line
+  - one short clause of explanation
+    - evidence, ids, file:line
+  - needs-you: the single action awaiting the human (node kind, not prose)
 ```
-````
 
-Parse rules: two-space indent = child; `▸ ` prefix per node; `needs-you:` /
-`new:` prefixes mark node kinds/properties; everything after the prefix is
-verbatim text (may wrap). Absent block = no outline recorded for the turn
-(surface as "no outline", never synthesize one).
-
+Parse rules: the section starts at the LAST line matching /^Outline v1$/ and runs
+to end of message; two-space indent = child; `- ` node prefix; `needs-you:`/`new:`
+prefixes mark node kinds/properties; text is verbatim and may wrap. Absent
+sentinel = no outline recorded (surface as "no outline", never synthesize one).
 ## Feasibility
 
 HIGH, small epic. Existing pieces: plugin hook shipping, session registration,
 watched-session store, Bridge tree rendering machinery, WS broadcast. New pieces:
 - Output-style/skill rule (the writing contract, D2 wording matters most).
-- Stop hook script: extract ```outline block from `last_assistant_message`,
+- Stop hook script: extract the Outline-v1 section from `last_assistant_message`,
   POST to :9002; silent no-op when absent or server down (never block the turn).
 - Route + store: POST/GET /api/turn-outlines (one row per project+session).
 - Bridge: outline tree panel per watched session; needs-you pinning; NEW

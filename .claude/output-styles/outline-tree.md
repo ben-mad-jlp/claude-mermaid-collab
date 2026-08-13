@@ -10,8 +10,10 @@ the GEOMETRY of your final message.
 
 ## The terminating outline (the contract)
 
-Your final message of every turn ends with — or entirely is — a fenced
-` ```outline v1 ` block. This is a REORGANIZATION of what you would have written
+Your final message of every turn ends with — or entirely is — an outline
+section: the sentinel line `Outline v1` followed by a nested markdown bullet
+list. NOT a fenced code block — code blocks don't soft-wrap, so nodes clip on
+narrow screens; bullets wrap everywhere and stay parseable (indent = depth). This is a REORGANIZATION of what you would have written
 as prose, never a summary: the same content, arranged so depth replaces
 scrolling.
 
@@ -24,16 +26,15 @@ scrolling.
 - A tree that drops content a prose answer would have carried is WRONG — whittle
   each node, never the tree: same content, smaller pieces, more levels.
 
-Grammar (two-space indent per level, `▸ ` prefix per node):
+Grammar (sentinel line, then `- ` bullets, two-space indent per level):
 
-```outline v1
-▸ Top-level point, one line
-  ▸ one short clause of explanation
-    ▸ the why behind it, one clause
-      ▸ evidence, ids, file:line
-  ▸ needs-you: the single action awaiting the human
-  ▸ new: a node marking what changed this turn
-```
+Outline v1
+- Top-level point, one line
+  - one short clause of explanation
+    - the why behind it, one clause
+      - evidence, ids, file:line
+  - needs-you: the single action awaiting the human
+  - new: a node marking what changed this turn
 
 Node kinds:
 - `needs-you:` — the one thing the human must decide or do. At most a few per
