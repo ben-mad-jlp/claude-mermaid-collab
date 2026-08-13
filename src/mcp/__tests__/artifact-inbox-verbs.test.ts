@@ -102,17 +102,21 @@ async function sendEnvelope(
   name: string,
   content: string,
   serverUrl: string,
+  metadata?: Record<string, unknown>,
 ): Promise<string> {
   // For image types, the data URI regex doesn't support trailing newlines,
   // so strip them for transmission (but the test will keep the version with newline for comparison)
   const envelopeContent = type === 'image' ? content.trim() : content;
 
   const projACanonical = (globalThis as any).projACanonical;
-  const body = {
+  const body: any = {
     schemaVersion: 1,
     from: { project: projACanonical, session: 'sender' },
     artifact: { type, name, content: envelopeContent },
   };
+  if (metadata) {
+    body.artifact.metadata = metadata;
+  }
 
   const res = await fetch(new URL('/api/artifact-inbox', serverUrl), {
     method: 'POST',
@@ -175,6 +179,23 @@ async function countArtifacts(
   const data = (await res.json()) as Record<string, any[]>;
   const key = listEndpoint;
   return (data[key] || []).length;
+}
+
+/** Fetch metadata for an artifact */
+async function fetchMetadata(
+  artifactId: string,
+  project: string,
+  session: string,
+  serverUrl: string,
+): Promise<Record<string, any>> {
+  const url = new URL('/api/metadata', serverUrl);
+  url.searchParams.set('project', project);
+  url.searchParams.set('session', session);
+
+  const res = await fetch(url);
+  expect(res.status).toBe(200);
+  const data = (await res.json()) as { items: Record<string, any> };
+  return data.items[artifactId] || {};
 }
 
 // ============ Test Setup ============
@@ -469,5 +490,78 @@ describe('artifact-inbox round-trip verbs', () => {
     // Check file still exists
     const envelopeFilePath = join(inboxDir, envelopeId + '.json');
     expect(existsSync(envelopeFilePath)).toBe(true);
+  });
+});
+
+describe('metadata replay', () => {
+  // This suite validates that setArtifactMetadata() is called correctly in adoptArtifact.
+  // If the setArtifactMetadata(...) call in adoptArtifact is deleted, these tests will fail.
+
+  it('replays a pinned-only envelope without locking the adopted artifact', async () => {
+    const projBCanonical = (globalThis as any).projBCanonical;
+
+    // Send envelope with pinned flag only
+    const envelopeId = await sendEnvelope(
+      'document',
+      'pinned-only-test',
+      'Pinned only document\n',
+      serverUrl,
+      { pinned: true },
+    );
+
+    // Adopt
+    const adoptResult = JSON.parse(await adoptArtifact(envelopeId, projBCanonical, 'receiver'));
+    const artifactId = adoptResult.id;
+
+    // Fetch metadata and verify
+    const metadata = await fetchMetadata(artifactId, projBCanonical, 'receiver', serverUrl);
+    expect(metadata.pinned).toBe(true);
+    expect(metadata.locked).toBeFalsy(); // Regression: should not be seeded as true
+    expect(metadata.blueprint).toBeFalsy();
+  });
+
+  it('replays a blueprint envelope and the adopted artifact is blueprint and locked', async () => {
+    const projBCanonical = (globalThis as any).projBCanonical;
+
+    // Send envelope with blueprint flag
+    const envelopeId = await sendEnvelope(
+      'diagram',
+      'blueprint-test',
+      'graph LR\n  A --> B\n',
+      serverUrl,
+      { blueprint: true },
+    );
+
+    // Adopt
+    const adoptResult = JSON.parse(await adoptArtifact(envelopeId, projBCanonical, 'receiver'));
+    const artifactId = adoptResult.id;
+
+    // Fetch metadata and verify blueprint implies locked
+    const metadata = await fetchMetadata(artifactId, projBCanonical, 'receiver', serverUrl);
+    expect(metadata.blueprint).toBe(true);
+    expect(metadata.locked).toBe(true); // blueprint ⇒ locked
+  });
+
+  it('an envelope with no metadata leaves the adopted artifact with no pinned, locked or blueprint flags', async () => {
+    const projBCanonical = (globalThis as any).projBCanonical;
+
+    // Send envelope with no metadata
+    const envelopeId = await sendEnvelope(
+      'snippet',
+      'no-metadata-test',
+      'const x = 1;\n',
+      serverUrl,
+    );
+
+    // Adopt
+    const adoptResult = JSON.parse(await adoptArtifact(envelopeId, projBCanonical, 'receiver'));
+    const artifactId = adoptResult.id;
+
+    // Fetch metadata and verify all flags are falsy
+    const metadata = await fetchMetadata(artifactId, projBCanonical, 'receiver', serverUrl);
+    expect(metadata.pinned).toBeFalsy();
+    expect(metadata.locked).toBeFalsy();
+    expect(metadata.blueprint).toBeFalsy();
+    expect(metadata.deprecated).toBeFalsy();
   });
 });

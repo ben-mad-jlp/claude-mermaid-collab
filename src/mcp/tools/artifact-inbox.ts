@@ -6,6 +6,7 @@
 
 import { existsSync } from 'fs';
 import { buildUrl, apiFetch } from './http-util.js';
+import { setArtifactMetadata } from '../session-tools.js';
 import { resolveProjectArg } from '../../services/project-registry.js';
 import { sessionRegistry } from '../../services/session-registry.js';
 import {
@@ -134,27 +135,12 @@ export async function adoptArtifact(
 
   // Step 5: Metadata replay if present
   if (envelope.artifact.metadata && Object.keys(envelope.artifact.metadata).length > 0) {
-    const metadataBody: Record<string, boolean> = {
-      locked: true, // blueprint implies locked
-    };
-    if ('locked' in envelope.artifact.metadata) {
-      metadataBody.locked = envelope.artifact.metadata.locked as boolean;
-    }
-    if ('pinned' in envelope.artifact.metadata) {
-      metadataBody.pinned = envelope.artifact.metadata.pinned as boolean;
-    }
-    if ('deprecated' in envelope.artifact.metadata) {
-      metadataBody.deprecated = envelope.artifact.metadata.deprecated as boolean;
-    }
-
-    const metaResponse = await apiFetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(metadataBody),
+    await setArtifactMetadata(project, session, id, {
+      blueprint: envelope.artifact.metadata.blueprint as boolean | undefined,
+      locked: envelope.artifact.metadata.locked as boolean | undefined,
+      pinned: envelope.artifact.metadata.pinned as boolean | undefined,
+      deprecated: envelope.artifact.metadata.deprecated as boolean | undefined,
     });
-    if (!metaResponse.ok) {
-      throw new Error(`Failed to set metadata: ${metaResponse.statusText}`);
-    }
   }
 
   // Step 6: Verified re-read via GET
