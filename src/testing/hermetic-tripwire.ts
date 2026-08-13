@@ -189,27 +189,34 @@ if ((fs.writeFileSync as any).__hermeticTripwire !== true) {
 
 // Guard bun:sqlite Database construction — separate idempotency marker from the fs/spawn
 // patches above since this patches a different module's export, not a global.
+// Use a Proxy around the original constructor to maintain prototype transparency:
+// - Database.prototype === OrigDatabase.prototype (same object)
+// - instances are instanceof OrigDatabase
+// - prototype patches (e.g., Database.prototype.query) are observed by all instances
 const sqlite: any = require('bun:sqlite');
 const OrigDatabase: any = sqlite.Database;
 if (!OrigDatabase.__hermeticTripwire) {
-  class HermeticDatabase extends OrigDatabase {
-    constructor(path?: any, options?: any) {
+  // Create a Proxy that intercepts `new` calls, checks the path, then constructs with the original
+  const DatabaseProxy = new Proxy(OrigDatabase, {
+    construct(target, args) {
+      const [path, options] = args;
       if (typeof path === 'string' && path !== ':memory:') {
         assertHermeticWritePath(path);
       }
-      super(path, options);
+      return Reflect.construct(target, args);
     }
-  }
-  (HermeticDatabase as any).__hermeticTripwire = true;
+  });
+
+  (DatabaseProxy as any).__hermeticTripwire = true;
 
   Object.defineProperty(sqlite, 'Database', {
-    value: HermeticDatabase,
+    value: DatabaseProxy,
     configurable: true,
     writable: true,
   });
   if (sqlite.default && sqlite.default.Database === OrigDatabase) {
     Object.defineProperty(sqlite.default, 'Database', {
-      value: HermeticDatabase,
+      value: DatabaseProxy,
       configurable: true,
       writable: true,
     });

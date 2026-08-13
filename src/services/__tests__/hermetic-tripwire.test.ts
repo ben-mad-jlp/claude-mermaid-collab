@@ -79,4 +79,32 @@ describe('hermetic-tripwire', () => {
       fs.rmSync(tmpPath, { recursive: true, force: true });
     }
   });
+
+  it('maintains prototype transparency — Database.prototype is the original and patches are observed', () => {
+    // Verify Database.prototype exists and is an object
+    expect(Database.prototype).toBeDefined();
+    expect(typeof Database.prototype).toBe('object');
+
+    // Verify we can patch Database.prototype.prepare and the patch is observed through an instance
+    const originalPrepare = Database.prototype.prepare;
+    let patchWasCalled = false;
+
+    try {
+      // Patch Database.prototype.prepare
+      (Database.prototype as any).prepare = function (this: any, sql: string) {
+        patchWasCalled = true;
+        return originalPrepare.call(this, sql);
+      };
+
+      // Create a new instance and call prepare
+      const testDb = new Database(':memory:');
+      testDb.prepare('create table t(id)');
+
+      // The patch should have been observed
+      expect(patchWasCalled).toBe(true);
+    } finally {
+      // Restore the original
+      (Database.prototype as any).prepare = originalPrepare;
+    }
+  });
 });
