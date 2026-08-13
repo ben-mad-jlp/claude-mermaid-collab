@@ -18,11 +18,11 @@
 import { isEpic, stripLabel, type KindBearing } from './todo-kind.ts';
 import { trackingProjectRoot } from './project-registry.ts';
 
-/** The three live bucket kinds. `inbox` = the triage Inbox; `bugfix` = the Bugfix
+/** The five live bucket kinds. `inbox` = the triage Inbox; `bugfix` = the Bugfix
  *  inbox (the legacy "Collab gaps" title folds into `bugfix`); `flaky` = the Flaky
- *  quarantine inbox. Defined AND exported HERE — this module is the source of the
- *  type, not a re-exporter. */
-export type BucketType = 'inbox' | 'bugfix' | 'flaky' | 'explore';
+ *  quarantine inbox; `explore` = Explore requests; `feature` = Feature requests.
+ *  Defined AND exported HERE — this module is the source of the type, not a re-exporter. */
+export type BucketType = 'inbox' | 'bugfix' | 'flaky' | 'explore' | 'feature';
 
 /** Canonical (post-strip) titles for the singleton row `ensureBucket` mints. */
 export const BUCKET_TITLE: Readonly<Record<BucketType, string>> = {
@@ -30,6 +30,7 @@ export const BUCKET_TITLE: Readonly<Record<BucketType, string>> = {
   bugfix: 'Bugfix inbox',
   flaky: 'Flaky quarantine',
   explore: 'Explore requests',
+  feature: 'Feature requests',
 };
 
 /** The UNION of all four legacy per-module bucket-title lists:
@@ -55,10 +56,12 @@ const CANONICAL_BUCKET_TITLES: readonly string[] = [
   'bugfix inbox',
   'collab gaps',
   'explore requests',
+  'feature requests',
 ];
 
 /** Which BucketType a legacy title maps to (Inbox -> 'inbox'; Bugfix inbox /
- *  Collab gaps -> 'bugfix'; Flaky quarantine -> 'flaky'). null = not a bucket title.
+ *  Collab gaps -> 'bugfix'; Flaky quarantine -> 'flaky'; Explore requests -> 'explore';
+ *  Feature requests -> 'feature'). null = not a bucket title.
  *  Normalizes the [EPIC] label. */
 export function bucketTypeOfTitle(title: string | null | undefined): BucketType | null {
   const norm = stripLabel(title ?? '').toLowerCase();
@@ -66,6 +69,7 @@ export function bucketTypeOfTitle(title: string | null | undefined): BucketType 
   if (norm.startsWith('bugfix inbox') || norm.startsWith('collab gaps')) return 'bugfix';
   if (norm.startsWith('flaky quarantine')) return 'flaky';
   if (norm.startsWith('explore requests')) return 'explore';
+  if (norm.startsWith('feature requests')) return 'feature';
   return null;
 }
 

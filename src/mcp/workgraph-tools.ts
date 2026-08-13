@@ -23,6 +23,7 @@ import {
 import { runQuarantinedSpec } from '../services/quarantine-runner.js';
 import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } from '../services/finding-store.js';
 import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
+import { BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -97,6 +98,8 @@ export function workgraphErrorCode(err: unknown): string | undefined {
     || err instanceof MissingTargetProjectError
     || err instanceof DuplicateOfDoneLeafError
     || err instanceof ExploreOracleRefusedError
+    || err instanceof BugfixFilingRefusedError
+    || err instanceof FeatureFilingRefusedError
   ) {
     return err.code;
   }
