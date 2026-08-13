@@ -19,11 +19,27 @@ export interface TrunkLandEntry {
   committedAtIso: string;
 }
 
+/** Optional dependencies for getTrunkLandIndex. */
+export interface TrunkLandIndexDeps {
+  /** Time-to-live for the tip sha memo in milliseconds. Default 0 (memo is opt-in). */
+  tipTtlMs?: number;
+  /** Clock function for memo age comparison. Default Date.now. */
+  now?: () => number;
+  /** Pre-resolved trunk tip sha. If supplied, skips the rev-parse call entirely. */
+  tipSha?: string;
+}
+
+/** Default TTL for tip memoization. Set to 0 to disable by default. */
+export const DEFAULT_TIP_TTL_MS = 0;
+
 /** Cache: key is `project + '\0' + trunk`, value is tip sha + memoised entries. */
 const cache = new Map<string, { tipSha: string; entries: Map<string, TrunkLandEntry> }>();
 
 /** In-flight walk promises, keyed by `project + '\0' + trunk`. */
 const inFlight = new Map<string, Promise<Map<string, TrunkLandEntry> | null>>();
+
+/** Tip sha memo: key is `project + '\0' + trunk`, value is { tipSha, atMs }. */
+const tipMemo = new Map<string, { tipSha: string; atMs: number }>();
 
 /**
  * Retrieve the memoised trunk trailer index for a project+trunk pair.
@@ -34,18 +50,42 @@ const inFlight = new Map<string, Promise<Map<string, TrunkLandEntry> | null>>();
  *
  * Returns the entries Map on success, or null if the walk fails or trunk is unreachable.
  * A failed walk is never cached — the next call walks again (criterion f).
+ *
+ * Optional deps allow pre-resolved tip sha and tip memoization with TTL.
  */
 export async function getTrunkLandIndex(
   project: string,
   trunk: string,
   runGit: GitRunner,
+  deps?: TrunkLandIndexDeps,
 ): Promise<Map<string, TrunkLandEntry> | null> {
   const key = project + '\0' + trunk;
 
   try {
-    // Resolve the tip sha. Never throw past this point.
-    const rev = await runGit(project, ['rev-parse', trunk]).catch(() => null);
-    const tipSha = rev && rev.code === 0 ? rev.stdout.trim() : null;
+    // Resolve the tip sha. Three-way resolution in order:
+    // 1. Explicit tipSha in deps (no git call).
+    // 2. Live memo entry within TTL (no git call).
+    // 3. Rev-parse, then store in memo if successful (one git call).
+    const now = deps?.now ?? Date.now;
+    const effectiveTtl = deps?.tipTtlMs ?? DEFAULT_TIP_TTL_MS;
+
+    let tipSha: string | null = null;
+
+    if (deps?.tipSha) {
+      tipSha = deps.tipSha;
+    } else {
+      const memoEntry = tipMemo.get(key);
+      if (memoEntry && (now() - memoEntry.atMs) < effectiveTtl) {
+        tipSha = memoEntry.tipSha;
+      } else {
+        // Resolve the tip sha via rev-parse. Never throw past this point.
+        const rev = await runGit(project, ['rev-parse', trunk]).catch(() => null);
+        tipSha = rev && rev.code === 0 ? rev.stdout.trim() : null;
+        if (tipSha) {
+          tipMemo.set(key, { tipSha, atMs: now() });
+        }
+      }
+    }
 
     // Criterion (a)/(b): cache hit returns directly with zero further git calls.
     if (tipSha && cache.get(key)?.tipSha === tipSha) {
@@ -160,4 +200,5 @@ export function lookupEpicLand(
 export function resetTrunkLandIndex(): void {
   cache.clear();
   inFlight.clear();
+  tipMemo.clear();
 }

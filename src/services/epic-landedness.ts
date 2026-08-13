@@ -204,13 +204,13 @@ export async function detectTrunkBranch(projectRoot: string, runGit: GitRunner =
 export async function isEpicLandedInGit(
   project: string,
   epicId: string,
-  deps?: { runGit?: GitRunner; trunk?: string },
+  deps?: { runGit?: GitRunner; trunk?: string; tipSha?: string },
 ): Promise<GitLandStatus> {
   try {
     const runGit = deps?.runGit ?? defaultRunGit;
     const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
     if (!trunk) return 'indeterminate';
-    const index = await getTrunkLandIndex(project, trunk, runGit);
+    const index = await getTrunkLandIndex(project, trunk, runGit, { tipSha: deps?.tipSha });
     if (index === null) return 'indeterminate';
     const entry = lookupEpicLand(index, epicId);
     return entry ? 'landed' : 'not-landed';
@@ -263,13 +263,13 @@ export interface EpicLandCommit {
 export async function getEpicLandCommit(
   project: string,
   epicId: string,
-  deps?: { runGit?: GitRunner; trunk?: string },
+  deps?: { runGit?: GitRunner; trunk?: string; tipSha?: string },
 ): Promise<EpicLandCommit> {
   try {
     const runGit = deps?.runGit ?? defaultRunGit;
     const trunk = deps?.trunk ?? (await detectTrunkBranch(project, runGit).catch(() => undefined));
     if (!trunk) return { status: 'indeterminate', sha: null, committedAtIso: null };
-    const index = await getTrunkLandIndex(project, trunk, runGit);
+    const index = await getTrunkLandIndex(project, trunk, runGit, { tipSha: deps?.tipSha });
     if (index === null) return { status: 'indeterminate', sha: null, committedAtIso: null };
     const entry = lookupEpicLand(index, epicId);
     if (!entry) return { status: 'not-landed', sha: null, committedAtIso: null };
