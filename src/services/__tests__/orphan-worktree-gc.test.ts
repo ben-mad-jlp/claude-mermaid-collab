@@ -283,6 +283,12 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
     const epicId8 = epicTodo.id.slice(0, 8);
     const epicDir = join(wm.baseDir(), `__epic-${epicId8}__`);
     await runGit(repo, ['worktree', 'add', '-b', `epic-${epicId8}`, epicDir]);
+    // The record-verified fast path requires the trunk-land INDEX to confirm too
+    // (constraint a383bc2c: the durable record alone is never trusted) — so trunk
+    // must carry a land commit with the Collab-Epic trailer the index greps for.
+    await runGit(repo, ['commit', '-q', '--allow-empty',
+      '-m', `collab: land epic ${epicId8} → master`,
+      '-m', `Collab-Epic: ${epicTodo.id}`]);
     return { epicId: epicTodo.id, epicDir };
   }
 
@@ -750,6 +756,10 @@ describe('MEASURED: full reaper+GC pass over a worktree set', () => {
     const epicHeadRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
     const epicTipSha = epicHeadRes.stdout.trim();
     recordEpicLand(repo, { epicId: epicTodo.id, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+    // Trunk-land-index confirmation (constraint a383bc2c) — same as makeDoneEpicWorktree.
+    await runGit(repo, ['commit', '-q', '--allow-empty',
+      '-m', `collab: land epic ${epicId8} → master`,
+      '-m', `Collab-Epic: ${epicTodo.id}`]);
 
     // (b) DEAD POOL LANE: bound-but-dead reclaim path (mirrors case 1 at lines 394-411).
     const poolLaneDir = (await wm.ensure('measured-dead-pool', { baseBranch: 'master' })).path;

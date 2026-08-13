@@ -86,6 +86,11 @@ describe('gcLeafWorktrees — GcRemovalRecord emission', () => {
     const headRes = await runGit(epicDir, ['rev-parse', 'HEAD']);
     const epicTipSha = headRes.stdout.trim();
     recordEpicLand(repo, { epicId: epicTodo.id, epicTipSha, landedMergeSha: 'deadbeef', landedAt: Date.now() });
+    // Trunk-land-index confirmation (constraint a383bc2c): the record alone is never
+    // trusted — trunk must carry the land commit with the Collab-Epic trailer.
+    await runGit(repo, ['commit', '-q', '--allow-empty',
+      '-m', `collab: land epic ${epicId8} → master`,
+      '-m', `Collab-Epic: ${epicTodo.id}`]);
 
     // Capture console.log output
     const originalLog = console.log;
