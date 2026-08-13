@@ -5,6 +5,7 @@
  */
 import {
   recordFriction,
+  recordFrictionWithRecurrence,
   listFriction,
   countFriction,
   type FrictionLayer,
@@ -58,8 +59,8 @@ export async function recordFrictionTool(args: {
   session?: string;
   attempt?: number;
   detail?: string;
-}): Promise<{ success: true; note: FrictionNote }> {
-  const note = await recordFriction(args.project, {
+}): Promise<{ success: true; note: FrictionNote; signature: string; priorCount: number; priorNoteIds: string[] }> {
+  const { note, signature, priorCount, priorNoteIds } = await recordFrictionWithRecurrence(args.project, {
     todoId: args.todoId ?? null,
     layer: args.layer,
     retryReason: args.retryReason,
@@ -67,7 +68,7 @@ export async function recordFrictionTool(args: {
     attempt: args.attempt,
     detail: args.detail ?? null,
   });
-  return { success: true, note };
+  return { success: true, note, signature, priorCount, priorNoteIds };
 }
 
 export function listFrictionTool(args: {
