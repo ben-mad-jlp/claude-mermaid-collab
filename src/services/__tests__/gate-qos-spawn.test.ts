@@ -18,10 +18,12 @@ import {
   GATE_WARDEN_PERL,
   DEFAULT_GATE_NICE,
   DEFAULT_GATE_TIMEOUT_SECS,
+  DEFAULT_TASKPOLICY_PATH,
+  taskpolicyPath,
   _gateSemaphoreState,
 } from '../leaf-gate';
 
-const ENV_KEYS = ['MERMAID_GATE_NICE', 'MERMAID_GATE_TIMEOUT_SECS', 'MERMAID_GATE_CONCURRENCY'];
+const ENV_KEYS = ['MERMAID_GATE_NICE', 'MERMAID_GATE_TIMEOUT_SECS', 'MERMAID_GATE_CONCURRENCY', 'MERMAID_TASKPOLICY_PATH'];
 const saved = new Map(ENV_KEYS.map((k) => [k, process.env[k]]));
 afterEach(() => {
   for (const [k, v] of saved) {
@@ -32,8 +34,12 @@ afterEach(() => {
 
 describe('gateSpawnArgv composition', () => {
   it('darwin wraps with taskpolicy utility, warden, and nice — in protection order', () => {
+    // Pin taskpolicy to /bin/sh which always exists for deterministic testing on CI.
+    process.env.MERMAID_TASKPOLICY_PATH = '/bin/sh';
+    const resolved = taskpolicyPath();
+    expect(resolved).not.toBeNull();
     const argv = gateSpawnArgv('echo hi', DEFAULT_GATE_NICE, { platform: 'darwin', timeoutSecs: 60 });
-    expect(argv.slice(0, 3)).toEqual(['taskpolicy', '-c', 'utility']);
+    expect(argv.slice(0, 3)).toEqual([resolved!, '-c', 'utility']);
     expect(argv[3]).toBe('perl');
     expect(argv[4]).toBe('-e');
     expect(argv[5]).toBe(GATE_WARDEN_PERL);
@@ -46,6 +52,15 @@ describe('gateSpawnArgv composition', () => {
     const argv = gateSpawnArgv('echo hi', DEFAULT_GATE_NICE, { platform: 'linux', timeoutSecs: 60 });
     expect(argv[0]).toBe('perl');
     expect(argv).not.toContain('taskpolicy');
+  });
+
+  it('a missing taskpolicy is skipped gracefully, not spawned as a bare name', () => {
+    process.env.MERMAID_TASKPOLICY_PATH = '/nonexistent/taskpolicy-does-not-exist';
+    const argv = gateSpawnArgv('echo hi', DEFAULT_GATE_NICE, { platform: 'darwin', timeoutSecs: 60 });
+    expect(argv[0]).toBe('perl');
+    expect(argv[1]).toBe('-e');
+    expect(argv[2]).toBe(GATE_WARDEN_PERL);
+    expect(argv.some((a) => a.includes('taskpolicy'))).toBe(false);
   });
 
   it('timeoutSecs 0 disables the warden; niceness 0 disables nice', () => {
@@ -82,6 +97,22 @@ describe('defaultGateSpawn semaphore', () => {
     const after = _gateSemaphoreState();
     expect(after.inUse).toBe(0);
     expect(after.queued).toBe(0);
+  });
+
+  it('the gate command still executes on a PATH stripped to /usr/bin:/bin', async () => {
+    const savedPath = process.env.PATH;
+    try {
+      process.env.PATH = '/usr/bin:/bin';
+      process.env.MERMAID_GATE_TIMEOUT_SECS = '30';
+      process.env.MERMAID_GATE_CONCURRENCY = '4';
+      const r = await defaultGateSpawn('/tmp', 'echo hermetic-path-ok');
+      expect(r.ran).toBe(true);
+      expect(r.code).toBe(0);
+      expect(r.output).toContain('hermetic-path-ok');
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+    }
   });
 });
 
