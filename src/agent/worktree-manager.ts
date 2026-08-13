@@ -340,6 +340,14 @@ export class WorktreeManager {
     return run;
   }
 
+  /** Public delegate to withWorktreeLock for sections that need to hold the lock across
+   *  multiple worktree mutations. NON-REENTRANT: code inside `fn` must call the
+   *  `*HoldingLock` variants (removePathHoldingLock, quarantineMovePathHoldingLock, etc.),
+   *  never the locking wrappers (removePath, quarantineMove), else it will self-deadlock. */
+  runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.withWorktreeLock(fn);
+  }
+
   // ---------------------------------------------------------------------------
   // ensure — create or resume a worktree for the session; non-git fallback.
   // ---------------------------------------------------------------------------
@@ -892,6 +900,12 @@ export class WorktreeManager {
     await this.deleteRecord(path.basename(worktreePath));
   }
 
+  /** Lock-held variant: calls _removePathInner directly without re-acquiring the lock.
+   *  Must be called from inside a runExclusive section. */
+  async removePathHoldingLock(worktreePath: string): Promise<void> {
+    return this._removePathInner(worktreePath);
+  }
+
   /** Reversible reclamation (locked constraint d7f5eb20: unknown=keep, only a reversible
    *  move ever runs). Moves `worktreePath` to `.collab/.trash/<epoch-ts>/<basename>/` and
    *  writes a manifest.json (orig path, reason, ts, branch/head best-effort), then detaches
@@ -943,6 +957,12 @@ export class WorktreeManager {
     await this.deleteRecord(basename);
 
     return { trashDir, manifestPath };
+  }
+
+  /** Lock-held variant: calls _quarantineMoveInner directly without re-acquiring the lock.
+   *  Must be called from inside a runExclusive section. */
+  async quarantineMovePathHoldingLock(worktreePath: string, reason: string): Promise<QuarantineMoveResult> {
+    return this._quarantineMoveInner(worktreePath, reason);
   }
 
   /** Hard-delete pass: removes `.collab/.trash/<ts>/*` entries whose `<ts>` (epoch ms, the
