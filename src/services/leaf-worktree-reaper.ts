@@ -400,6 +400,17 @@ async function hasInProgressGitState(dir: string): Promise<boolean> {
   return false;
 }
 
+export type ReclaimRefusal =
+  | 'unreadable'
+  | 'outside-base-dir'
+  | 'main-checkout'
+  | 'live-claim'
+  | 'pending-leaf'
+  | 'git-locked'
+  | 'in-progress-git-state'
+  | 'live-process-cwd'
+  | 'dirty-tree';
+
 export interface ReclaimabilityInput {
   /** Absolute, POSSIBLY-symlinked worktree dir path as read from the directory scan. */
   dir: string;
@@ -414,22 +425,30 @@ export interface ReclaimabilityInput {
    *  When omitted, `isReclaimable` falls back to a `stat(dir)` taken before running the
    *  other guards. */
   ageStat?: { mtimeMs: number; atimeMs: number };
+  /** Project name — when provided with epicTodoId, used to resolve the epic todo and
+   *  check its live-claim and children's pending-leaf status. */
+  project?: string;
+  /** Epic todo id (8-char or full) — when provided with project, consulted for extended
+   *  live-claim guard (epic + children) and pending-leaf guard. */
+  epicTodoId?: string | null;
 }
 
 /**
  * Shared guard body for (a)-(e),(g) of the reclamation-safety predicate — every guard
- * EXCEPT (f) the age floor. Resolves realpath identity first (g), then live-claim (c),
- * lock (b), in-progress git state (e), live process cwd (d), and clean tree (a). ANY
- * check throwing / erroring / returning "unknown" resolves that guard to FALSE (not
- * reclaimable) — locked constraint d7f5eb20: default KEEP, unknown=keep.
+ * EXCEPT (f) the age floor. Resolves realpath identity first (g), then extended live-claim
+ * checks (c: leaf inflight, epic+children claims), lock (b), in-progress git state (e),
+ * live process cwd (d), and clean tree (a). ANY check throwing / erroring / returning
+ * "unknown" resolves that guard to FALSE (not reclaimable) — locked constraint d7f5eb20:
+ * default KEEP, unknown=keep.
  *
- * Returns the resolved realDir on success (so callers needing it, e.g. for the age
- * check in `isReclaimable`, don't re-resolve realpath), or null on any guard failure.
+ * Returns a success object with the resolved realDir on success (so callers needing it,
+ * e.g. for the age check in `isReclaimable`, don't re-resolve realpath), or a refusal
+ * object on any guard failure.
  */
 async function checkReclaimGuardsExceptAge(
   input: Omit<ReclaimabilityInput, 'now'>,
-): Promise<string | null> {
-  const { dir, baseDir, leafTodoId } = input;
+): Promise<{ realDir: string } | { refusal: ReclaimRefusal }> {
+  const { dir, baseDir, leafTodoId, project, epicTodoId } = input;
 
   // (g) realpath identity — resolve symlinks before any path-based comparison.
   let realDir: string;
@@ -438,39 +457,110 @@ async function checkReclaimGuardsExceptAge(
     realDir = await fsRealpath(dir);
     realBase = await fsRealpath(baseDir);
   } catch {
-    return null; // dir vanished or unreadable → unknown → keep
+    return { refusal: 'unreadable' };
   }
   const rel = path.relative(realBase, realDir);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return { refusal: 'outside-base-dir' };
+
+  // main-checkout guard: refuse if this is a primary checkout (not a linked worktree).
+  // Detect via: .git-dir resolves to <realDir>/.git (linked worktrees always point
+  // outside their own tree). Also refuse if realDir === the project root itself.
+  if (project) {
+    try {
+      const projectReal = await fsRealpath(project);
+      if (realDir === projectReal) return { refusal: 'main-checkout' };
+    } catch {
+      // If project path is unreadable, treat as unknown → keep
+    }
+  }
+
+  const gitCommonDirRes = await gcGitRead(realDir, ['rev-parse', '--git-common-dir']);
+  if (gitCommonDirRes.code === 0 && gitCommonDirRes.stdout.trim()) {
+    const gitCommonDir = path.isAbsolute(gitCommonDirRes.stdout.trim())
+      ? gitCommonDirRes.stdout.trim()
+      : path.join(realDir, gitCommonDirRes.stdout.trim());
+    // A primary checkout's --git-common-dir is its own .git (a real directory).
+    // A linked worktree's --git-common-dir points outside the worktree.
+    try {
+      const st = await stat(path.join(realDir, '.git'));
+      if (st.isDirectory() && gitCommonDir === path.join(realDir, '.git')) {
+        return { refusal: 'main-checkout' };
+      }
+    } catch {
+      // .git doesn't exist or is unreadable — not a primary checkout, proceed
+    }
+  }
 
   // (c) no live claim / inflight run.
   if (leafTodoId) {
-    if (isLeafInflightLive(leafTodoId)) return null;
-    if (listLeafInflight().some((r) => r.leafId === leafTodoId)) return null;
+    if (isLeafInflightLive(leafTodoId)) return { refusal: 'live-claim' };
+    if (listLeafInflight().some((r) => r.leafId === leafTodoId)) return { refusal: 'live-claim' };
+  }
+
+  // Extended live-claim guard: check epic and its children for live claims.
+  if (project && epicTodoId) {
+    try {
+      const epic = findLeafTodoByShortId(project, epicTodoId);
+      if (epic) {
+        // Refuse if the epic itself has a live claim.
+        if (epic.claim != null) return { refusal: 'live-claim' };
+
+        // Refuse if any child of the epic has a live claim.
+        const children = listTodos(project, { includeCompleted: true });
+        for (const child of children) {
+          if (child.parentId === epic.id && child.claim != null) {
+            return { refusal: 'live-claim' };
+          }
+        }
+
+        // Refuse if any child has non-terminal status (pending/paused leaf).
+        for (const child of children) {
+          if (child.parentId === epic.id && child.status !== 'done' && child.status !== 'dropped') {
+            return { refusal: 'pending-leaf' };
+          }
+        }
+      }
+      // If epic is unresolvable, treat as unknown → keep (don't refuse)
+    } catch {
+      // Any read failure → unknown → keep (don't refuse)
+    }
   }
 
   // (b) not git-locked.
   const lockRes = await gcGitRead(realDir, ['rev-parse', '--git-dir']);
-  if (lockRes.code !== 0 || !lockRes.stdout.trim()) return null;
+  if (lockRes.code !== 0 || !lockRes.stdout.trim()) return { refusal: 'git-locked' };
   const gitDirForLock = path.isAbsolute(lockRes.stdout.trim())
     ? lockRes.stdout.trim()
     : path.join(realDir, lockRes.stdout.trim());
-  if (await pathExists(path.join(gitDirForLock, 'locked'))) return null;
+  if (await pathExists(path.join(gitDirForLock, 'locked'))) return { refusal: 'git-locked' };
 
   // (e) no in-progress git state.
-  if (await hasInProgressGitState(realDir)) return null;
+  if (await hasInProgressGitState(realDir)) return { refusal: 'in-progress-git-state' };
 
   // (d) no live process cwd under the dir.
-  if (await hasLiveProcessUnder(realDir)) return null;
+  if (await hasLiveProcessUnder(realDir)) return { refusal: 'live-process-cwd' };
 
   // (a) clean — tracked changes, then untracked-but-unique-to-checkout.
   const statusRes = await gcGitRead(realDir, ['status', '--porcelain']);
-  if (statusRes.code !== 0) return null; // unusable checkout → unknown → keep
+  if (statusRes.code !== 0) return { refusal: 'dirty-tree' };
   const lines = statusRes.stdout.split('\n').filter((l) => l.length > 0);
   const tracked = lines.filter((l) => !l.startsWith('??'));
-  if (tracked.length > 0) return null;
+  if (tracked.length > 0) return { refusal: 'dirty-tree' };
 
-  return realDir;
+  return { realDir };
+}
+
+/**
+ * Typed reason-returning variant of reclamation predicate. Returns the refusal reason
+ * (if any), or null if all guards pass (reclaimable, ignoring age floor). Used by both
+ * terminal-epic call sites to record why a directory is not being reclaimed.
+ */
+export async function reclaimRefusalIgnoringAge(
+  input: Omit<ReclaimabilityInput, 'now'>,
+): Promise<ReclaimRefusal | null> {
+  const result = await checkReclaimGuardsExceptAge(input);
+  if ('refusal' in result) return result.refusal;
+  return null;
 }
 
 /**
@@ -510,8 +600,9 @@ export async function isReclaimable(input: ReclaimabilityInput): Promise<boolean
     atimeMs = st.atimeMs;
   }
 
-  const realDir = await checkReclaimGuardsExceptAge(input);
-  if (realDir == null) return false;
+  const result = await checkReclaimGuardsExceptAge(input);
+  if ('refusal' in result) return false;
+  const realDir = result.realDir;
 
   if (now - mtimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
   if (now - atimeMs < WORKTREE_RECLAIM_MIN_AGE_MS) return false;
@@ -529,7 +620,8 @@ export async function isReclaimable(input: ReclaimabilityInput): Promise<boolean
 export async function isReclaimableIgnoringAge(
   input: Omit<ReclaimabilityInput, 'now'>,
 ): Promise<boolean> {
-  return (await checkReclaimGuardsExceptAge(input)) != null;
+  const result = await checkReclaimGuardsExceptAge(input);
+  return 'realDir' in result;
 }
 
 /**
@@ -725,29 +817,32 @@ export async function gcLeafWorktrees(
             continue;
           }
 
-          const reclaimable = await isReclaimableIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null });
-          if (reclaimable) {
-            if (!opts?.dryRun) {
-              try {
-                const { trashDir } = await wm.quarantineMove(dir, 'landed-epic-reclaimed');
-                report.quarantined.push({ path: dir, trashDir });
-                emitGcRemoval(report, {
-                  path: dir,
-                  reasonClass: 'epic-terminal-landed',
-                  epicId8,
-                  leafTodoId: null,
-                  trashDir,
-                  atIso,
-                });
-              } catch {
-                report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
-                continue;
-              }
-            } else {
-              report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
-            }
+          const refusal = await reclaimRefusalIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null, project, epicTodoId: epicTodo.id });
+          if (refusal) {
+            report.refused.push({ path: dir, reason: `reclaim-refused:${refusal}`, sample: [] });
             continue;
           }
+
+          if (!opts?.dryRun) {
+            try {
+              const { trashDir } = await wm.quarantineMove(dir, 'landed-epic-reclaimed');
+              report.quarantined.push({ path: dir, trashDir });
+              emitGcRemoval(report, {
+                path: dir,
+                reasonClass: 'epic-terminal-landed',
+                epicId8,
+                leafTodoId: null,
+                trashDir,
+                atIso,
+              });
+            } catch {
+              report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+              continue;
+            }
+          } else {
+            report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+          }
+          continue;
         }
       }
     }
@@ -774,43 +869,46 @@ export async function gcLeafWorktrees(
         // HEAD reachable from the epic branch ⇒ nothing exists ONLY in this directory.
         const onBranch = await gcGitRead(dir, ['merge-base', '--is-ancestor', 'HEAD', branch]);
         if (onBranch.code === 0) {
-          const reclaimable = await isReclaimableIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null });
-          if (reclaimable) {
-            // Work that never reached trunk must become VISIBLE before its directory goes away.
-            // Reclaiming is safe for the commits (the branch holds them) but it removes the last
-            // thing anyone would trip over — so if the report cannot be filed, keep the evidence.
-            const trunkRefForCherry = await resolveTrunkRef(project);
-            const orphans = await orphanedPatchShas(dir, trunkRefForCherry, branch);
-            if (orphans.length > 0) {
-              const reported = await reportOrphanedEpicCommits(
-                project, epicTodo.id, epicTodo.title ?? '(untitled)', branch, orphans, dir,
-              );
-              if (!reported) {
-                report.refused.push({ path: dir, reason: 'orphan-report-failed', sample: orphans.slice(0, 5) });
-                continue;
-              }
-            }
-            if (!opts?.dryRun) {
-              try {
-                const { trashDir } = await wm.quarantineMove(dir, 'terminal-epic-safe-on-branch');
-                report.quarantined.push({ path: dir, trashDir });
-                emitGcRemoval(report, {
-                  path: dir,
-                  reasonClass: 'epic-terminal-landed',
-                  epicId8,
-                  leafTodoId: null,
-                  trashDir,
-                  atIso,
-                });
-              } catch {
-                report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
-                continue;
-              }
-            } else {
-              report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
-            }
+          const refusal = await reclaimRefusalIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null, project, epicTodoId: epicTodo.id });
+          if (refusal) {
+            report.refused.push({ path: dir, reason: `reclaim-refused:${refusal}`, sample: [] });
             continue;
           }
+
+          // Work that never reached trunk must become VISIBLE before its directory goes away.
+          // Reclaiming is safe for the commits (the branch holds them) but it removes the last
+          // thing anyone would trip over — so if the report cannot be filed, keep the evidence.
+          const trunkRefForCherry = await resolveTrunkRef(project);
+          const orphans = await orphanedPatchShas(dir, trunkRefForCherry, branch);
+          if (orphans.length > 0) {
+            const reported = await reportOrphanedEpicCommits(
+              project, epicTodo.id, epicTodo.title ?? '(untitled)', branch, orphans, dir,
+            );
+            if (!reported) {
+              report.refused.push({ path: dir, reason: 'orphan-report-failed', sample: orphans.slice(0, 5) });
+              continue;
+            }
+          }
+          if (!opts?.dryRun) {
+            try {
+              const { trashDir } = await wm.quarantineMove(dir, 'terminal-epic-safe-on-branch');
+              report.quarantined.push({ path: dir, trashDir });
+              emitGcRemoval(report, {
+                path: dir,
+                reasonClass: 'epic-terminal-landed',
+                epicId8,
+                leafTodoId: null,
+                trashDir,
+                atIso,
+              });
+            } catch {
+              report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+              continue;
+            }
+          } else {
+            report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+          }
+          continue;
         }
       }
     }
