@@ -1,7 +1,8 @@
 import React from 'react';
+import { Download, Trash2 } from 'lucide-react';
 import { SectionBranchRow } from '../TreeBranchRow';
 import { useArtifactInbox } from '../useArtifactInbox';
-import { InboxPreview } from './InboxPreview';
+import { InboxViewer } from './InboxViewer';
 import { InboxAdoptPicker } from './InboxAdoptPicker';
 import { inboxDismissPath, type InboxEnvelope, type ArtifactType } from '../artifactInbox';
 
@@ -81,23 +82,25 @@ function renderEnvelopeRow(
       </span>
       <button
         data-testid={`inbox-adopt-${envelope.envelopeId}`}
+        title="Adopt into a project/session"
         onClick={(e) => {
           e.stopPropagation();
           onAdopt(envelope);
         }}
-        className="flex-shrink-0 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium"
+        className="flex-shrink-0 p-1 rounded text-gray-500 hover:text-success-600 dark:hover:text-success-400 hover:bg-gray-100 dark:hover:bg-gray-700"
       >
-        Adopt
+        <Download size={14} />
       </button>
       <button
         data-testid={`inbox-dismiss-${envelope.envelopeId}`}
+        title="Dismiss"
         onClick={(e) => {
           e.stopPropagation();
           onDismiss(envelope);
         }}
-        className="flex-shrink-0 px-2 py-1 bg-gray-400 hover:bg-gray-500 text-white rounded text-xs font-medium"
+        className="flex-shrink-0 p-1 rounded text-gray-500 hover:text-danger-600 dark:hover:text-danger-400 hover:bg-gray-100 dark:hover:bg-gray-700"
       >
-        Dismiss
+        <Trash2 size={14} />
       </button>
     </div>
   );
@@ -152,8 +155,10 @@ export function InboxSection({
       />
       {showChildren && envelopes.map((env) => renderEnvelopeRow(env, handleSelectEnvelope, handleAdoptEnvelope, handleDismissEnvelope))}
       {previewEnvelope && (
-        <InboxPreview
+        <InboxViewer
           envelope={previewEnvelope}
+          onAdopt={(e) => { setPreviewEnvelope(null); handleAdoptEnvelope(e); }}
+          onDismiss={(e) => { setPreviewEnvelope(null); void handleDismissEnvelope(e); }}
           onClose={() => setPreviewEnvelope(null)}
         />
       )}
