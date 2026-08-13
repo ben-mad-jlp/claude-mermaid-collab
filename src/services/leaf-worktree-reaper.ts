@@ -9,6 +9,7 @@ import { recordSupervisorAudit } from './supervisor-store.js';
 import { recordFrictionOnce } from './friction-store.js';
 import { ensureBucket } from './bucket-registry.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
+import { isEpicLandedInGit } from './epic-landedness.js';
 import { getStatuses } from './session-status-store.js';
 import { CRASH_MS } from './session-runtime.js';
 import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.js';
@@ -714,33 +715,38 @@ export async function gcLeafWorktrees(
 
         if (clean && headMatches) {
           const trunkRef = await resolveTrunkRef(project);
-          const ancestorRes = await gcGitRead(dir, ['merge-base', '--is-ancestor', 'HEAD', trunkRef]);
-          const isAncestor = ancestorRes.code === 0;
+          const landStatus = await isEpicLandedInGit(project, epicTodo.id, { runGit: gcGitRead, trunk: trunkRef });
+          if (landStatus !== 'landed') {
+            report.refused.push({
+              path: dir,
+              reason: landStatus === 'indeterminate' ? 'land-index-indeterminate' : 'land-index-not-landed',
+              sample: [],
+            });
+            continue;
+          }
 
-          if (isAncestor) {
-            const reclaimable = await isReclaimableIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null });
-            if (reclaimable) {
-              if (!opts?.dryRun) {
-                try {
-                  const { trashDir } = await wm.quarantineMove(dir, 'landed-epic-reclaimed');
-                  report.quarantined.push({ path: dir, trashDir });
-                  emitGcRemoval(report, {
-                    path: dir,
-                    reasonClass: 'epic-terminal-landed',
-                    epicId8,
-                    leafTodoId: null,
-                    trashDir,
-                    atIso,
-                  });
-                } catch {
-                  report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
-                  continue;
-                }
-              } else {
-                report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
+          const reclaimable = await isReclaimableIgnoringAge({ dir, baseDir: wm.baseDir(), leafTodoId: null });
+          if (reclaimable) {
+            if (!opts?.dryRun) {
+              try {
+                const { trashDir } = await wm.quarantineMove(dir, 'landed-epic-reclaimed');
+                report.quarantined.push({ path: dir, trashDir });
+                emitGcRemoval(report, {
+                  path: dir,
+                  reasonClass: 'epic-terminal-landed',
+                  epicId8,
+                  leafTodoId: null,
+                  trashDir,
+                  atIso,
+                });
+              } catch {
+                report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
+                continue;
               }
-              continue;
+            } else {
+              report.quarantined.push({ path: dir, trashDir: '(dry-run)' });
             }
+            continue;
           }
         }
       }
