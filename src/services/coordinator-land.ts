@@ -41,6 +41,13 @@ import { getWorktreeManager, resolveEpicId, execAsync, epicAutoLandAuthority, is
 import { teardownEpic } from './epic-teardown';
 import { snapshotEpicWorkGraph, diffWorkGraphSnapshot, restoreWorkGraphSnapshot } from './land-workgraph-guard';
 
+/** Timeout honesty: how long an 'epic-ready-to-land' card is PROMISED to live before
+ *  the reconcile stale sweep may reap it. Before expiresAt existed, the sweep killed
+ *  these cards after ~60s — mid-land, forcing the create-and-consume-immediately
+ *  ritual. 30 minutes; each keyed re-raise (every reconcile tick while the epic is
+ *  still up) refreshes the deadline, so a live card never expires mid-surface. */
+export const EPIC_LAND_CARD_TIMEOUT_MS = 30 * 60 * 1000;
+
 // --- durable condition identity for the land escalations --------------------------
 // createEscalation's keyed dedup (supervisor-store.ts) bumps an OPEN row with the same
 // `conditionKey` and suppresses a RESOLVED row whose `conditionTuple` hash is unchanged.
@@ -708,6 +715,7 @@ export async function surfaceEpicLand(
             questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)}) rolled up READ-ONLY: tree identical to master, nothing to decide. Auto-landing to close the epic — this card is a record, not a request.`,
             conditionKey: cond.conditionKey,
             conditionTuple: cond.conditionTuple,
+            timeoutMs: EPIC_LAND_CARD_TIMEOUT_MS,
           });
           if (escalation?.id) {
             const doLand = opts.landEpicFn ?? landEpic;
@@ -773,6 +781,7 @@ export async function surfaceEpicLand(
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
         conditionKey: cond.conditionKey,
         conditionTuple: cond.conditionTuple,
+        timeoutMs: EPIC_LAND_CARD_TIMEOUT_MS,
       });
       recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proofGreen, reason: readiness.blockers.map((b) => b.code).join(',') || 'ok', landGate: readiness.gate?.status ?? 'unknown', children: repoChildIds.length, behindMaster: behind, multiRepo, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
 
