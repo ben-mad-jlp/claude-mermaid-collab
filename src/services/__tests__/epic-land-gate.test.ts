@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { GateDeclaration, GateSpawn } from '../leaf-gate';
 import type { EpicLandGateOpts, EpicLandGateResult } from '../epic-land-gate';
 import { runEpicLandGate, landGateTrailer, landGateSummary } from '../epic-land-gate';
@@ -332,6 +335,62 @@ describe('epic-land-gate', () => {
 
       expect(result.status).toBe('abstain');
       expect(result.declared).toBe(false);
+    });
+
+    it('should fail for absent gate when the typecheck floor fails', async () => {
+      const result = await runEpicLandGate({
+        project: 'test',
+        repo: '/repo',
+        epicId: 'test123',
+        epicBranch: 'collab/epic/test123',
+        epicWorktreeCwd: '/epic',
+        decl: mockAbsentGate,
+        spawn: async () => ({ ran: true, code: 2, output: 'src/a.ts(1,1): error TS2554: x\n' }),
+        git: createMockGit(),
+        fs: { exists: () => true, symlink: () => {} },
+        skipCache: true,
+      });
+
+      expect(result.status).toBe('fail');
+      expect(result.typecheck?.status).toBe('fail');
+      expect(result.reasons.some(r => r.includes('typecheck failed'))).toBe(true);
+    });
+
+    it('should error for absent gate when the typecheck floor cannot run', async () => {
+      const result = await runEpicLandGate({
+        project: 'test',
+        repo: '/repo',
+        epicId: 'test123',
+        epicBranch: 'collab/epic/test123',
+        epicWorktreeCwd: '/epic',
+        decl: mockAbsentGate,
+        spawn: async () => ({ ran: false, code: undefined, output: 'ENOENT' }),
+        git: createMockGit(),
+        fs: { exists: () => true, symlink: () => {} },
+        skipCache: true,
+      });
+
+      expect(result.status).toBe('error');
+      expect(result.typecheck?.status).toBe('error');
+      expect(result.reasons.some(r => r.includes('typecheck could not run'))).toBe(true);
+    });
+
+    it('should abstain for absent gate when no compile check is detectable', async () => {
+      const emptyDir = mkdtempSync(join(tmpdir(), 'landgate-'));
+      const result = await runEpicLandGate({
+        project: 'test',
+        repo: emptyDir,
+        epicId: 'test123',
+        epicBranch: 'collab/epic/test123',
+        epicWorktreeCwd: emptyDir,
+        decl: mockAbsentGate,
+        spawn: async () => ({ ran: true, code: 0, output: '' }),
+        git: createMockGit(),
+        fs: { exists: () => true, symlink: () => {} },
+        skipCache: true,
+      });
+
+      expect(result.status).toBe('abstain');
     });
   });
 

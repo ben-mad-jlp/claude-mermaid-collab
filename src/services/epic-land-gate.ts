@@ -25,6 +25,7 @@ import { defaultGateSpawn } from './leaf-gate';
 import { recordEpicLandGate, getEpicLandGate, listObservations } from './worker-ledger';
 import { activeQuarantine } from './flaky-quarantine';
 import type { TestQuarantineRow } from './worker-ledger';
+import { runLandTypecheckFloor } from './land-typecheck-floor';
 
 export type LandGateStatus = 'pass' | 'fail' | 'error' | 'abstain';
 
@@ -44,7 +45,7 @@ export interface EpicLandGateResult {
   status: LandGateStatus;
   declared: boolean;
   manifestPath: string;
-  typecheck?: { command: string; status: 'pass' | 'fail' | 'error'; output: string };
+  typecheck?: { command: string; status: 'pass' | 'fail' | 'error'; output: string; exitCode?: number | null };
   units: LandGateUnit[];
   regressions: LandGateUnit[];
   inherited: LandGateUnit[];
@@ -357,10 +358,48 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   }
 
   if (decl.kind === 'absent') {
+    const proof = await runLandTypecheckFloor({ repo: o.repo, epicWorktreeCwd: o.epicWorktreeCwd, spawn });
+
+    if (proof.status === 'fail') {
+      return {
+        status: 'fail',
+        declared: false,
+        manifestPath: decl.manifestPath,
+        typecheck: { command: proof.command!, status: 'fail', output: proof.output, exitCode: proof.exitCode },
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: [`land gate: typecheck failed on ${o.epicBranch}`, lastLines(proof.output, 20)],
+        specFiles: [],
+        epicTipSha: null,
+        baseSha: null,
+      };
+    }
+
+    if (proof.status === 'error') {
+      return {
+        status: 'error',
+        declared: false,
+        manifestPath: decl.manifestPath,
+        typecheck: { command: proof.command ?? '', status: 'error', output: proof.output, exitCode: proof.exitCode },
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: ['land gate: typecheck could not run'],
+        specFiles: [],
+        epicTipSha: null,
+        baseSha: null,
+      };
+    }
+
+    // proof.status === 'pass' or 'not-applicable'
     return {
       status: 'abstain',
       declared: false,
       manifestPath: decl.manifestPath,
+      ...(proof.status === 'pass' ? { typecheck: { command: proof.command!, status: 'pass', output: '', exitCode: 0 } } : {}),
       units: [],
       regressions: [],
       inherited: [],
@@ -871,6 +910,7 @@ export function landGateTrailer(r: EpicLandGateResult): string {
   let trailer = `Land-Gate: ${r.status}`;
   if (r.typecheck) {
     trailer += `\nLand-Gate-Command: ${r.typecheck.command}`;
+    trailer += `\nLand-Gate-Exit: ${r.typecheck.exitCode ?? 0}`;
   }
   trailer += `\nLand-Gate-Specs: ${r.specFiles.length}`;
   if (r.floor) {
