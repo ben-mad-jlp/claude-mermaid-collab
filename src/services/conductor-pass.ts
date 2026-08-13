@@ -30,6 +30,7 @@ import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
 import { runConductorLandArm, type LandArmResult } from './conductor-land-arm.js';
+import { runUnlandedEpicLandArm, type UnlandedEpicArmResult } from './conductor-unlanded-epic-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -281,6 +282,8 @@ export interface ConductorPassDeps {
   cardTriageArm?: typeof runCardTriageArm;
   /** Injectable deterministic land arm (test spy). Defaults to runConductorLandArm. */
   landArm?: typeof runConductorLandArm;
+  /** Injectable unlanded-epic arm (test spy). Defaults to runUnlandedEpicLandArm. */
+  unlandedEpicArm?: typeof runUnlandedEpicLandArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
   /** Injectable approach attempts read for the serve-cap diagnosis. Defaults to the store fn. */
@@ -591,7 +594,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
     for (const c of criteriaWithActions) {
       const matching = allTodos.filter(
-        (t) => t.parentId === missionId && t.kind === 'epic' && t.status !== 'dropped' && todoServesCriterion(t, c.id),
+        (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
       );
       servingEpicsByComp.set(c.id, matching.map((t) => t.id));
       for (const t of matching) {
@@ -858,7 +861,19 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: filedRedecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
-  const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
+  // UNLANDED-EPIC ARM. Detect done-but-unlanded serving epics and mint their land cards
+  // deterministically, before the conductor node is ever invoked — zero node spend for a
+  // card the existing runConductorLandArm already knows how to drive. Fail-open: a throw
+  // yields empty armed-set and the pass continues.
+  let unlandedEpicArmResult: UnlandedEpicArmResult = { carded: [], skipped: [], criterionIds: [] };
+  try {
+    unlandedEpicArmResult = await (deps.unlandedEpicArm ?? runUnlandedEpicLandArm)(project, missionId, session, {});
+  } catch {
+    unlandedEpicArmResult = { carded: [], skipped: [], criterionIds: [] };
+  }
+  const landArmedCriterionIds = new Set<string>(unlandedEpicArmResult.criterionIds);
+
+  const hasGap = actions.some((a) => a.action === 'verify' || (a.action === 'discover' && !landArmedCriterionIds.has(a.id)));
   // ONE post-arm escalation snapshot, taken AFTER runInfraRejectionArm so the arm's own
   // leaf-infra-rejected cards are already in it (that is what breaks the debounce for a
   // newly-carded stuck leaf) — feeds BOTH the hard-block and land-ready card id sets.
@@ -997,13 +1012,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       lastPassAt,
       openCards,
       resolvedCards,
-      actions: criteriaWithActions.map((c) => ({
-        id: c.id,
-        action: c.action,
-        text: c.text,
-        verdict: c.verifiedAt != null ? (c.met ? 'MET' : 'NOT MET') : undefined,
-        evidence: c.evidence ?? undefined,
-      })),
+      actions: criteriaWithActions
+        .filter((c) => !landArmedCriterionIds.has(c.id))
+        .map((c) => ({
+          id: c.id,
+          action: c.action,
+          text: c.text,
+          verdict: c.verifiedAt != null ? (c.met ? 'MET' : 'NOT MET') : undefined,
+          evidence: c.evidence ?? undefined,
+        })),
       rechecks: pendingRechecks.map((r) => ({ criterionId: r.criterionId, reason: r.reason, landedSha: r.landedSha, enqueuedAt: r.enqueuedAt })),
       stakes,
     });
