@@ -900,11 +900,17 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const productivePass = latestProductivePassFp(project, missionId);
   const lastKey = productivePass?.passFp ?? null;
   const selfKey = productivePass?.selfFp ?? null;
+  // Detect an unserved gap: a discover criterion with no live serving epic. A create-then-drop
+  // cycle restores the exact prior state (byte-identical signature), so the fingerprint debounce
+  // cannot observe it. Instead, we bypass the equality check when an unserved gap exists — a
+  // rolled-back delta is unserved work, not a served state.
+  const hasUnservedGap = criteriaWithActions.some(
+    (c) => c.action === 'discover' && !c.servingEpicLive && c.servingEpicState !== 'landed');
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
   // a self-echo, not a wake-up.
-  if (lastKey === fp || selfKey === fp) return done({ ran: false, reason: 'debounced', missionId });
+  if (!hasUnservedGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId });
   // The fail-retry counter is derived from the journal's contiguous run of node-failed passes on
   // this exact serveFp (excluding this pass's own in-flight row), not from a hand-rolled
   // `${serveFp}|fail:N` string parse on the mission column. Bounded, not a permanent wedge — and

@@ -53,7 +53,12 @@ export function collectMissionCardIds(
 /** Debounce fingerprint: the derived mission status + the per-criterion actions, plus (when
  *  non-empty) the hard-block card ids. Back-compat contract (load-bearing): with hardCardIds
  *  empty/omitted the output is byte-identical to the pre-extraction conductorFingerprint, so
- *  live lastConductorKey values keep matching. */
+ *  live lastConductorKey values keep matching.
+ *
+ *  Note: the signature is a STATE snapshot and by design cannot observe a create-then-drop
+ *  cycle (both endpoints are the same state). Liveness of a discover gap — a criterion with
+ *  action:'discover' and no live serving epic — is the observable delta the conductor-pass
+ *  debounce gate acts on to detect rolled-back replans and bypass the equality debounce. */
 export function buildServeSignature(input: {
   status: string;
   actions: ConductorActionRow[];
