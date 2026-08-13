@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs';
+import { Database } from 'bun:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -57,6 +58,53 @@ describe('hermetic-tripwire', () => {
       } else {
         delete process.env[ALLOW_DETACHED_ENV];
       }
+    }
+  });
+
+  it('throws HermeticTripwireError on new Database under ~/.mermaid-collab', () => {
+    const forbiddenPath = join(FORBIDDEN_HOME_DIR, 'tripwire-test-forbidden.db');
+    expect(() => new Database(forbiddenPath)).toThrow(HermeticTripwireError);
+  });
+
+  it('allows new Database(":memory:") and a Database under tmpdir', () => {
+    const memDb = new Database(':memory:');
+    expect(() => memDb.run('create table t(a)')).not.toThrow();
+
+    const tmpPath = fs.mkdtempSync(join(tmpdir(), 'tripwire-db-test-'));
+    try {
+      const dbPath = join(tmpPath, 'test.db');
+      const tmpDb = new Database(dbPath);
+      expect(() => tmpDb.run('create table t(a)')).not.toThrow();
+    } finally {
+      fs.rmSync(tmpPath, { recursive: true, force: true });
+    }
+  });
+
+  it('maintains prototype transparency — Database.prototype is the original and patches are observed', () => {
+    // Verify Database.prototype exists and is an object
+    expect(Database.prototype).toBeDefined();
+    expect(typeof Database.prototype).toBe('object');
+
+    // Verify we can patch Database.prototype.prepare and the patch is observed through an instance
+    const originalPrepare = Database.prototype.prepare;
+    let patchWasCalled = false;
+
+    try {
+      // Patch Database.prototype.prepare
+      (Database.prototype as any).prepare = function (this: any, sql: string) {
+        patchWasCalled = true;
+        return originalPrepare.call(this, sql);
+      };
+
+      // Create a new instance and call prepare
+      const testDb = new Database(':memory:');
+      testDb.prepare('create table t(id)');
+
+      // The patch should have been observed
+      expect(patchWasCalled).toBe(true);
+    } finally {
+      // Restore the original
+      (Database.prototype as any).prepare = originalPrepare;
     }
   });
 });
