@@ -1,5 +1,6 @@
 import { stat, readdir, realpath as fsRealpath } from 'node:fs/promises';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import { getWorktreeManager } from './coordinator-live.js';
 import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
 import { isRunLive } from './leaf-subprocess-registry.js';
@@ -21,6 +22,8 @@ const REAP_THROTTLE_MS = 5 * 60_000;
  *  30-min gate here is what keeps it off that cadence. Exported + clock-injectable
  *  (see `tickGcLeafWorktrees(opts.now)`) so the throttle is deterministically testable. */
 export const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
+export const MUTATION_PROBE_TEMP_MAX_AGE_MS = 60 * 60_000;
+const MUTATION_PROBE_TEMP_PREFIX = 'collab-mutation-probe-';
 /** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase can have NO live claim
  *  (a claim is released the moment the run stops executing) yet is still live — and the
  *  leaf-executor's own self-merge runs in THIS window. Reaping then yanks the worktree out
@@ -932,13 +935,61 @@ export async function gcLeafWorktrees(
  *  Fire-and-forget — mirrors `reapOrphanedLeafWorktrees`'s own throttle-and-call shape.
  *  `opts.now` injects the clock and `opts.gc` the underlying work so the throttle is
  *  unit-testable without real time or a real fs+git scan. */
+export async function sweepStrayMutationProbeTemps(
+  project: string,
+  opts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean;
+           remove?: (p: string) => Promise<void> },
+): Promise<string[]> {
+  const root = opts?.tmpRoot ?? tmpdir();
+  const now = opts?.now ?? Date.now();
+  const maxAgeMs = opts?.maxAgeMs ?? MUTATION_PROBE_TEMP_MAX_AGE_MS;
+  const removed: string[] = [];
+
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  for (const e of entries) {
+    if (!e.isDirectory() || !e.name.startsWith(MUTATION_PROBE_TEMP_PREFIX)) continue;
+
+    const p = path.join(root, e.name);
+    let s;
+    try {
+      s = await stat(p);
+    } catch {
+      continue;
+    }
+
+    if (now - s.mtimeMs < maxAgeMs) continue;
+
+    if (!opts?.dryRun) {
+      try {
+        await (opts?.remove ?? ((dir) => getWorktreeManager(project).removePath(dir)))(p);
+      } catch {
+        continue;
+      }
+    }
+
+    removed.push(p);
+  }
+
+  if (removed.length > 0) {
+    console.log(`[worktree-gc] swept ${removed.length} stray mutation-probe temp${removed.length === 1 ? '' : 's'}`);
+  }
+  return removed;
+}
+
 export async function tickGcLeafWorktrees(
   project: string,
-  opts: { now?: number; gc?: (project: string) => Promise<GcReport> } = {},
+  opts: { now?: number; gc?: (project: string) => Promise<GcReport>; sweep?: (project: string, o?: { now?: number }) => Promise<string[]> } = {},
 ): Promise<GcReport | null> {
   const now = opts.now ?? Date.now();
   if ((now - (lastGcMs.get(project) ?? 0)) < WORKTREE_GC_INTERVAL_MS) return null;
   lastGcMs.set(project, now);
+  try { await (opts.sweep ?? sweepStrayMutationProbeTemps)(project, { now }); } catch { /* best-effort */ }
   return (opts.gc ?? gcLeafWorktrees)(project);
 }
 
