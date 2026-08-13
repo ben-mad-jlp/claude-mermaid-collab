@@ -2180,6 +2180,74 @@ describe('Parallel-burst starvation fix: 0-node kill must not charge a retry', (
     expect(after!.retryCount).toBe(1); // still bumps (backwards-compat)
     expect(result).toBe('ready');
   });
+
+  test('reclaimNow: stale expectToken is a no-op — row stays in_progress with the fresh claimToken', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    // Capture stale token, then reclaim once and re-claim with a fresh token
+    const staleTokenRow = await getTodo(project, t.id);
+    const staleToken = staleTokenRow!.claimToken;
+    await reclaimNow(project, t.id);
+    const afterFirstReclaim = await getTodo(project, t.id);
+    const retryCountAfterFirstReclaim = afterFirstReclaim!.retryCount;
+    await claimTodo(project, t.id, 'agent-2', 60_000);
+
+    // Now the row has a fresh token; calling reclaimNow with stale expectToken should be a no-op
+    const freshTokenRow = await getTodo(project, t.id);
+    const freshToken = freshTokenRow!.claimToken;
+    expect(freshToken).not.toBe(staleToken); // verify we got a fresh token
+
+    // CAS with stale token should return null and write nothing
+    const result = await reclaimNow(project, t.id, undefined, { expectToken: staleToken });
+    expect(result).toBeNull();
+
+    // Verify row is unchanged: still in_progress with fresh token and same retryCount
+    const afterCas = await getTodo(project, t.id);
+    expect(afterCas!.status).toBe('in_progress');
+    expect(afterCas!.claimToken).toBe(freshToken);
+    expect(afterCas!.retryCount).toBe(retryCountAfterFirstReclaim); // unchanged from before the CAS attempt
+  });
+
+  test('reclaimNow: matching expectToken still reclaims to ready', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    const beforeRow = await getTodo(project, t.id);
+    const token = beforeRow!.claimToken;
+
+    // CAS with matching token should succeed
+    const result = await reclaimNow(project, t.id, undefined, { expectToken: token });
+    expect(result).toBe('ready');
+
+    // Verify claim was cleared and retryCount was bumped
+    const afterReclaim = await getTodo(project, t.id);
+    expect(afterReclaim!.status).toBe('planned');
+    expect(afterReclaim!.claimToken).toBeNull();
+    expect(afterReclaim!.retryCount).toBe(1);
+  });
+
+  test('reclaimNow: expectToken omitted behaves identically to before (unconditional reclaim)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+
+    // Record 2 nodes spent (normal path that bumps retryCount)
+    recordLeafResume({ leafId: t.id, project, nodesSpent: 2 });
+
+    const hadProgress = (id: string) => (getLeafResume(project, id)?.nodesSpent ?? 0) >= 1;
+
+    // Call reclaimNow WITHOUT opts (backwards-compat path)
+    const result = await reclaimNow(project, t.id, hadProgress);
+
+    expect(result).toBe('ready');
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('planned');
+    expect(after!.claimToken).toBeNull();
+    expect(after!.retryCount).toBe(1); // bumped as normal
+  });
 });
 
 describe('tier schema', () => {
