@@ -7,10 +7,12 @@
  *
  * Wired as a `bun test` preload via bunfig.toml; guards every test that runs.
  *
- * bun:sqlite writes (e.g. supervisor-store.ts's `new Database(path)`) never go through
- * node:fs, so the patches below cannot see or block them. Store isolation for those paths
- * is instead achieved by defaulting MERMAID_SUPERVISOR_DIR to a per-process tmpdir (below),
- * so every store that reads that env var opens its DB under tmpdir in tests.
+ * bun:sqlite `new Database(path)` construction (e.g. supervisor-store.ts) never goes through
+ * node:fs, so it is guarded separately below: the bun:sqlite `Database` export is replaced
+ * with a subclass whose constructor runs the same assertHermeticWritePath check on string
+ * paths before calling super(). Store isolation is further reinforced by defaulting
+ * MERMAID_SUPERVISOR_DIR to a per-process tmpdir (below), so every store that reads that env
+ * var opens its DB under tmpdir in tests — the two mechanisms are complementary.
  */
 
 import fs from 'node:fs';
@@ -183,4 +185,33 @@ if ((fs.writeFileSync as any).__hermeticTripwire !== true) {
 
   // Mark as patched
   (fs.writeFileSync as any).__hermeticTripwire = true;
+}
+
+// Guard bun:sqlite Database construction — separate idempotency marker from the fs/spawn
+// patches above since this patches a different module's export, not a global.
+const sqlite: any = require('bun:sqlite');
+const OrigDatabase: any = sqlite.Database;
+if (!OrigDatabase.__hermeticTripwire) {
+  class HermeticDatabase extends OrigDatabase {
+    constructor(path?: any, options?: any) {
+      if (typeof path === 'string' && path !== ':memory:') {
+        assertHermeticWritePath(path);
+      }
+      super(path, options);
+    }
+  }
+  (HermeticDatabase as any).__hermeticTripwire = true;
+
+  Object.defineProperty(sqlite, 'Database', {
+    value: HermeticDatabase,
+    configurable: true,
+    writable: true,
+  });
+  if (sqlite.default && sqlite.default.Database === OrigDatabase) {
+    Object.defineProperty(sqlite.default, 'Database', {
+      value: HermeticDatabase,
+      configurable: true,
+      writable: true,
+    });
+  }
 }
