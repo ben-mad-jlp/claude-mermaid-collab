@@ -11,8 +11,6 @@ import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR, MERMAID_DOC_DROP_DIR, MERMAID_DOC_DROP_SESSION } from './config';
-import { checkAuth } from './auth';
-import { isAllowedOrigin } from './services/origin-guard.ts';
 import { handlePairRoutes } from './routes/pair-routes.js';
 import { migrateEnvAuthToken, writePortFile, clearPortFile } from './services/config-file.js';
 import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
@@ -40,7 +38,7 @@ import { handleAttachments } from './routes/agent-attachments';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
 import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
-import { handleArtifactInboxAPI } from './routes/artifact-inbox-api.js';
+import { dispatchRequest } from './routes/dispatch.js';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
 import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
@@ -445,18 +443,8 @@ const server = Bun.serve<WsData>({
     // mid-session. When a WS client is connected, idle is already cancelled.
     if (MERMAID_IDLE_SHUTDOWN_MS > 0 && wsHandler.getConnectionCount() === 0) armIdle();
 
-    // Auth gate — precedes WS upgrades, /mcp, and all /api routes. The peer IP
-    // drives the loopback exemption: the desktop UI + local MCP (loopback) stay
-    // tokenless; a non-loopback peer (the phone over Tailscale) must present the
-    // token once MERMAID_AUTH_TOKEN is set and the server is bound beyond loopback.
-    const denied = checkAuth(req, url, server.requestIP(req)?.address);
-    if (denied) return denied;
-
-    // Cross-origin drive-by guard — a browser page on a foreign origin must not
-    // drive this API/WS once the port is LAN-reachable. Native clients send no
-    // Origin and pass; same-origin (desktop UI) passes; a foreign Origin is 403'd
-    // BEFORE any WS upgrade or /api route. Health + /mcp* stay exempt (parity).
-    if (!isAllowedOrigin(req, url)) return new Response('Forbidden', { status: 403 });
+    const gated = await dispatchRequest(req, url, server.requestIP(req)?.address);
+    if (gated) return gated;
 
     // WebSocket upgrade for collaboration
     if (url.pathname === '/ws') {
@@ -490,11 +478,6 @@ const server = Bun.serve<WsData>({
     }
     if (url.pathname.startsWith('/api/worktree/files')) {
       return handleWorktreeFilesAPI(req);
-    }
-
-    if (url.pathname.startsWith('/api/artifact-inbox')) {
-      const res = await handleArtifactInboxAPI(req, url);
-      if (res) return res;
     }
 
     if (url.pathname.startsWith('/api/artifact')) {
