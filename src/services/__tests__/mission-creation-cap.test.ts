@@ -1,3 +1,8 @@
+/**
+ * @serial-test-lane: fillToCeiling runs MAX_MISSIONS_PER_PROJECT real forgeMission sqlite write
+ * bursts, four times over; the fixed 30s per-file gate ceiling is fragile under co-scheduled
+ * CPU/spawn contention even though no assertion here is wall-clock derived.
+ */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';

@@ -1,4 +1,8 @@
 /**
+ * @serial-test-lane: this file drives a real SIGTERM/SIGKILL escalation race against a fake
+ * child process on a fixed grace window (TERM_GRACE_MS); CPU contention from co-scheduled
+ * test processes can starve the compliant child's process.nextTick exit past the timer.
+ *
  * The liveness watchdog must ASK before it shoots.
  *
  * WHY (2026-08-10 incident): a wedged sidecar is normally mid-work — a leaf executing, a base
@@ -15,6 +19,10 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ServerSupervisor } from '../../../desktop/src/main/server-supervisor';
+
+/** Generous grace so a compliant child's process.nextTick exit always wins the race against the
+ *  timer even on a loaded box; the wedged tests pay this once each (~1.5s total). */
+const TERM_GRACE_MS = 750;
 
 /** Records every signal it receives. `compliant` decides whether SIGTERM makes it exit. */
 class SignalRecordingChild extends EventEmitter {
@@ -61,7 +69,7 @@ describe('watchdog kill escalates SIGTERM → SIGKILL', () => {
       healthWatchdogGraceMs: 0,
       healthWatchdogPollMs: 15_000,
       healthWatchdogThresholdMs: 45_000,
-      watchdogTermGraceMs: 20, // keep the test fast; the escalation path is what matters
+      watchdogTermGraceMs: TERM_GRACE_MS,
       forensicsFilePath: join(forensicsDir, 'forensics.log'),
       project: '/fake/project', session: 'test-session',
       spawnImpl: () => { const c = new SignalRecordingChild(compliant); children.push(c); return c as never; },
