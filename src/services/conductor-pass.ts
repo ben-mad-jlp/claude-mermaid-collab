@@ -43,6 +43,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
+import { isRolledBackReplanGap } from './mission-status-predicates.js';
 import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
@@ -904,17 +905,18 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const productivePass = latestProductivePassFp(project, missionId);
   const lastKey = productivePass?.passFp ?? null;
   const selfKey = productivePass?.selfFp ?? null;
-  // Detect an unserved gap: a discover criterion with no live serving epic. A create-then-drop
-  // cycle restores the exact prior state (byte-identical signature), so the fingerprint debounce
-  // cannot observe it. Instead, we bypass the equality check when an unserved gap exists — a
-  // rolled-back delta is unserved work, not a served state.
-  const hasUnservedGap = criteriaWithActions.some(
-    (c) => c.action === 'discover' && !c.servingEpicLive && c.servingEpicState !== 'landed');
+  // Detect a rolled-back replan gap: a discover criterion where the serving epic was dropped.
+  // When an epic is deleted, servingEpicState becomes 'none'. This is the ONLY state that
+  // indicates a genuine rolled-back delta, not a served state. An 'open' serving epic (however
+  // inert or base-red) must NOT trigger the bypass — an inert epic takes the bypass on every
+  // tick otherwise, causing unbounded self-excitation (2026-07-23 incident: expected 1 node, got 20).
+  // The 'none' arm stays bounded by CONDUCTOR_SERVE_RETRY_CAP.
+  const hasRolledBackGap = criteriaWithActions.some((c) => isRolledBackReplanGap(c));
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
   // a self-echo, not a wake-up.
-  if (!hasUnservedGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId });
+  if (!hasRolledBackGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId });
   // The fail-retry counter is derived from the journal's contiguous run of node-failed passes on
   // this exact serveFp (excluding this pass's own in-flight row), not from a hand-rolled
   // `${serveFp}|fail:N` string parse on the mission column. Bounded, not a permanent wedge — and
