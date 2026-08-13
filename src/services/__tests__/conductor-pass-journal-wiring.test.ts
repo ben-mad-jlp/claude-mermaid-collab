@@ -124,7 +124,8 @@ describe('conductor-pass-journal wiring', () => {
       });
       // A still-open serving epic derives 'building'. Dropped serves stay in the LIFETIME
       // serve count (the thrash history) while leaving no live/landed epic, which is exactly
-      // the burned-cap-and-still-unmet shape that derives 'escalate'.
+      // the burned-cap-and-still-unmet shape that derives 'escalate'. Dropped epics are also
+      // serve-inert in servingEpicsByComp, so servedEpicId is null.
       await updateTodo(project, e.id, { status: 'dropped' });
       epicIds.push(e.id);
     }
@@ -145,7 +146,8 @@ describe('conductor-pass-journal wiring', () => {
     ]);
     const acted = row.criteriaActed.find((a) => a.criterionId === crit.id);
     expect(acted).toBeTruthy();
-    expect(epicIds).toContain(acted!.servedEpicId ?? '');
+    expect(acted!.servedEpicId).toBeNull();
+    expect(epicIds.length).toBe(CRITERION_SERVE_CAP);
   });
 
   test('journal export failures degrade to a normal pass, no throw', async () => {
