@@ -17,6 +17,7 @@ import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
+import { planImpactedBaseGate, narrowBaseGateConfig, type ImpactedBaseGateOpts } from './base-gate-impacted.js';
 import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen, sweepExpiringQuarantine } from './flaky-quarantine';
 import { pruneBaseGateTestRuns } from './worker-ledger';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
@@ -138,6 +139,13 @@ export interface LeafGateResult {
   /** Leaf-gate only: true when the diff contains ONLY spec (test) files and a lane failed.
    *  A leaf that ships no production change must not be accepted on a red test. */
   hollow?: boolean;
+  /** Base-gate only: present when the gate ran an IMPACTED SUBSET of the suite anchored on
+   *  a full-suite green of trunk sha `anchor` (base-gate-impacted.ts). Rides into the
+   *  persisted shared verdict via resultJson — that is the HONESTY marker: a PASS carrying
+   *  this field may be served to leaves, but is never accepted as the green anchor for a
+   *  further impacted run (isFullSuiteAnchorVerdict). Reporting/marker only — never affects
+   *  pass/fail/error semantics. */
+  impactedBase?: { anchor: string; ran: number; candidates: number };
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -1045,6 +1053,7 @@ export async function runBaseGate(
     probe: (cwd: string) => Promise<PoisonedCheckout>;
     restore?: (cwd: string, paths: string[]) => Promise<{ restored: string[]; failed: string[] }>;
   },
+  impacted?: ImpactedBaseGateOpts,
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: [], declared: false };
 
@@ -1075,6 +1084,27 @@ export async function runBaseGate(
     }
   }
 
+  // Impacted-set narrowing (opt-in via `impacted`): when trunk sha M reachable from this
+  // base carries a stored FULL-SUITE green in the shared-verdict layer, only the impacted
+  // set of the diff M..base needs to run — the anchor already proves the rest. Any doubt
+  // (no anchor, planner fallback trigger, git failure) runs the full suite exactly as
+  // before. Safety net: the daemon's continuous master base gate still runs the FULL suite
+  // on trunk, so anchor greens keep being produced and an impacted miss self-surfaces
+  // there. See base-gate-impacted.ts.
+  let effCfg = cfg;
+  let impactedMeta: LeafGateResult['impactedBase'];
+  let impactedNote: string | undefined;
+  if (impacted) {
+    const plan = await planImpactedBaseGate(cwd, cfg, impacted);
+    if (plan.mode === 'impacted') {
+      effCfg = narrowBaseGateConfig(cfg, plan.tests);
+      impactedMeta = { anchor: plan.anchor, ran: plan.tests.length, candidates: plan.candidateCount };
+      impactedNote = `impacted base gate: ran ${plan.tests.length} of ${plan.candidateCount} candidates (anchor ${plan.anchor.slice(0, 8)})`;
+    } else {
+      impactedNote = `impacted base gate: full suite (fallback: ${plan.reason})`;
+    }
+  }
+
   const baselineFailures: LaneBaselineMap = {};
   let firstFailCommand: string | undefined;
   let firstFailOutput = '';
@@ -1089,20 +1119,20 @@ export async function runBaseGate(
     cwd?: string;
   };
   const lanes: BaseLane[] = [];
-  if (cfg.typecheck) {
-    lanes.push({ key: 'typecheck', command: cfg.typecheck, kind: 'typecheck', reason: (c) => `typecheck failed: ${c}` });
+  if (effCfg.typecheck) {
+    lanes.push({ key: 'typecheck', command: effCfg.typecheck, kind: 'typecheck', reason: (c) => `typecheck failed: ${c}` });
   }
-  for (const l of cfg.typechecks ?? []) {
+  for (const l of effCfg.typechecks ?? []) {
     lanes.push({ key: `typechecks:${l.match.source}`, command: l.command, kind: 'typecheck', reason: (c) => `typecheck lane failed: ${c}`, cwd: l.cwd });
   }
-  for (const l of cfg.suites ?? []) {
+  for (const l of effCfg.suites ?? []) {
     lanes.push({ key: `suites:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `suite lane failed: ${c}`, cwd: l.cwd });
   }
-  for (const l of cfg.floors ?? []) {
+  for (const l of effCfg.floors ?? []) {
     lanes.push({ key: `floors:${l.match.source}`, command: l.command, kind: 'tests', reason: (c) => `floor lane failed: ${c}`, cwd: l.cwd });
   }
-  if (cfg.baseTest) {
-    lanes.push({ key: 'baseTest', command: cfg.baseTest, kind: 'tests', reason: (c) => `base test failed: ${c}` });
+  if (effCfg.baseTest) {
+    lanes.push({ key: 'baseTest', command: effCfg.baseTest, kind: 'tests', reason: (c) => `base test failed: ${c}` });
   }
 
   for (const lane of lanes) {
@@ -1159,16 +1189,18 @@ export async function runBaseGate(
       status: 'fail',
       command: firstFailCommand,
       output: firstFailOutput,
-      reasons: [firstFailReason!, lastLines(firstFailOutput, 20)],
+      reasons: [firstFailReason!, lastLines(firstFailOutput, 20), ...(impactedNote ? [impactedNote] : [])],
       declared: true,
       baselineFailures,
       ...(poisonedCheckout ? { poisonedCheckout } : {}),
+      ...(impactedMeta ? { impactedBase: impactedMeta } : {}),
     };
   }
 
   return {
-    status: 'pass', output: '', reasons: [], declared: true, baselineFailures,
+    status: 'pass', output: '', reasons: impactedNote ? [impactedNote] : [], declared: true, baselineFailures,
     ...(poisonedCheckout ? { poisonedCheckout } : {}),
+    ...(impactedMeta ? { impactedBase: impactedMeta } : {}),
   };
 }
 
@@ -1202,7 +1234,9 @@ export async function resolveBaseGreen(io: {
   epicBaseSha: string | null | undefined;
   gateCfg: LeafGateConfig | null;
   ensureEpicWorktree: () => Promise<{ path: string } | null>;
-  runGate: (cwd: string) => Promise<LeafGateResult>;
+  /** The second arg (present only when a base sha exists) lets the gate try the impacted
+   *  path — production closures thread it into runBaseGate; injected test fakes may ignore it. */
+  runGate: (cwd: string, impacted?: ImpactedBaseGateOpts) => Promise<LeafGateResult>;
   now?: () => number;
   resolveTestFile?: (project: string, test: string) => string | null;
 }): Promise<(LeafGateResult & { fresh: boolean }) | null> {
@@ -1223,9 +1257,14 @@ export async function resolveBaseGreen(io: {
   }
   const wt = await io.ensureEpicWorktree();
   if (!wt) return null; // non-git fallback ⇒ no base gate
+  // ONE quarantine-hash computation feeds both the shared-verdict scope and the impacted
+  // anchor lookup — the anchor must be keyed under the SAME active set this run is.
+  const qHash = quarantineSetHash(activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test));
   const r = await runBaseGateShared(
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
-    () => io.runGate(wt.path),
+    () => io.runGate(wt.path, epicBaseSha
+      ? { project: io.targetProject, baseSha: epicBaseSha, quarantineHash: qHash }
+      : undefined),
     {
       project: io.targetProject,
       // Durable shared verdict: sibling epics forward-integrated to the same base sha
@@ -1237,7 +1276,7 @@ export async function resolveBaseGreen(io: {
         verdict: {
           project: io.targetProject,
           baseSha: epicBaseSha,
-          quarantineHash: quarantineSetHash(activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test)),
+          quarantineHash: qHash,
           now: io.now,
         },
       } : {}),

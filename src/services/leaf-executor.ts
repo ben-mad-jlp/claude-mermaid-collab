@@ -4164,9 +4164,10 @@ export async function makeLeafExecutorDeps(
         // resolves upward), AFTER forwardIntegrateEpic so we gate the base a leaf will
         // actually fork from.
         ensureEpicWorktree: () => wm.ensureEpic(epicId, targetProject),
-        runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn,
+        runGate: (p, impacted) => runBaseGate(p, gateCfg, defaultGateSpawn,
           epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined,
-          { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }),
+          { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
+          impacted),
       });
     },
     // G2 base-red re-probe: how many commits the epic branch is behind trunk.
@@ -4193,9 +4194,10 @@ export async function makeLeafExecutorDeps(
           epicBaseSha: newSha,
           gateCfg,
           ensureEpicWorktree: () => wm.ensureEpic(epicId, targetProject),
-          runGate: (p) => runBaseGate(p, gateCfg, defaultGateSpawn,
+          runGate: (p, impacted) => runBaseGate(p, gateCfg, defaultGateSpawn,
             newSha ? { project: targetProject, baseSha: newSha } : undefined,
-            { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }),
+            { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
+            impacted),
         });
       } catch { return null; }
     },

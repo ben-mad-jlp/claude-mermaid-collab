@@ -33,6 +33,7 @@ import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHo
 import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
 import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, reapRecoveredLaneBaseRepairEpics, type RaiseBaseRepairArgs } from './base-repair-epic.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
+import type { ImpactedBaseGateOpts } from './base-gate-impacted.js';
 import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
 import { activeQuarantine } from './flaky-quarantine.js';
 import { loadManifestSource } from '../config/project-manifest.js';
@@ -149,7 +150,7 @@ export interface EpicBaseProbeIo {
   headSha: (epicId: string, targetProject: string) => Promise<string | null | undefined>;
   gateDecl: (targetProject: string) => ReturnType<typeof resolveGateDeclaration>;
   ensureEpicWorktree: (epicId: string, targetProject: string) => Promise<{ path: string } | null>;
-  runGate: (cwd: string, cfg: LeafGateConfig) => Promise<LeafGateResult>;
+  runGate: (cwd: string, cfg: LeafGateConfig, impacted?: ImpactedBaseGateOpts) => Promise<LeafGateResult>;
   forwardIntegrate: (epicId: string, targetProject: string) => Promise<{ advanced: boolean; conflict: boolean }>;
   now?: () => number;
 }
@@ -183,9 +184,10 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
     try {
       try { await forwardIntegrate(epicId, targetProject); } catch { /* best-effort */ }
       const sha = await headSha(epicId, targetProject);
-      const runGate = injectedRunGate ?? ((cwd: string, cfg: LeafGateConfig) =>
+      const runGate = injectedRunGate ?? ((cwd: string, cfg: LeafGateConfig, impacted?: ImpactedBaseGateOpts) =>
         runBaseGate(cwd, cfg, defaultGateSpawn, sha ? { project: targetProject, baseSha: sha } : undefined,
-          { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }));
+          { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
+          impacted));
       const cached = getEpicBaseGate(epicId, sha);
       if (cached && shouldHonourCachedBaseGate(cached, now?.()) === 'honour') {
         return cached.status === 'pass' ? 'pass' : cached.status === 'fail' ? 'fail' : 'error';
@@ -197,9 +199,14 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
       if (decl.kind !== 'declared') return 'unknown';
       const wt = await ensureEpicWorktree(epicId, targetProject);
       if (!wt) return 'unknown'; // non-git fallback ⇒ no base gate
+      // ONE hash feeds both the shared-verdict scope and the impacted anchor lookup — the
+      // anchor must be keyed under the SAME active quarantine set this run is.
+      const qHash = quarantineSetHash(activeQuarantine(targetProject, now?.()).map((q) => q.test));
       const r = await runBaseGateShared(
         baseGateKey(targetProject, sha, decl.cfg),
-        () => runGate(wt.path, decl.cfg),
+        () => runGate(wt.path, decl.cfg, sha
+          ? { project: targetProject, baseSha: sha, quarantineHash: qHash }
+          : undefined),
         {
           project: targetProject,
           // Same shared-verdict scope as ensureBaseGreen's resolveBaseGreen — the probe and
@@ -208,7 +215,7 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
             verdict: {
               project: targetProject,
               baseSha: sha,
-              quarantineHash: quarantineSetHash(activeQuarantine(targetProject, now?.()).map((q) => q.test)),
+              quarantineHash: qHash,
               now,
             },
           } : {}),
