@@ -4,6 +4,7 @@ import {
   ARTIFACT_TYPES,
   writeEnvelope,
   listEnvelopes,
+  readEnvelope,
   ArtifactKind,
   type ArtifactEnvelope,
 } from '../services/artifact-inbox-store.js';
@@ -155,6 +156,54 @@ export async function handleArtifactInboxAPI(
   }
 
   if (url.pathname === '/api/artifact-inbox') {
+    return jsonError('method not allowed', 405);
+  }
+
+  // Per-envelope routes. The LIST above is deliberately a metadata projection
+  // (no content); the viewer fetches the FULL envelope here, and the UI's
+  // adopt/dismiss buttons finally have HTTP counterparts to the MCP verbs
+  // (they shipped pointing at these paths with no handler behind them).
+  const m = url.pathname.match(/^\/api\/artifact-inbox\/([^/]+)(?:\/(adopt|dismiss))?$/);
+  if (m) {
+    const [, envelopeId, action] = m;
+
+    if (!action && req.method === 'GET') {
+      const envelope = readEnvelope(envelopeId);
+      if (!envelope) return jsonError('envelope not found', 404);
+      return Response.json(envelope, { status: 200 });
+    }
+
+    if (action === 'adopt' && req.method === 'POST') {
+      let body: { project?: string; session?: string; name?: string };
+      try {
+        body = (await req.json()) as typeof body;
+      } catch {
+        return jsonError('invalid JSON', 400);
+      }
+      if (!body.project || !body.session) return jsonError('project and session are required', 400);
+      try {
+        // Lazy import: the MCP tool chain pulls in session-tools/config; loading it at
+        // module scope broadens dispatch's import graph and breaks narrow test mocks.
+        const { adoptArtifact } = await import('../mcp/tools/artifact-inbox.js');
+        const result = JSON.parse(await adoptArtifact(envelopeId, body.project, body.session, body.name));
+        try { getWebSocketHandler()?.broadcast({ type: 'artifact_inbox_updated' }); } catch { /* never fails the adopt */ }
+        return Response.json(result, { status: 200 });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'adopt failed', 400);
+      }
+    }
+
+    if (action === 'dismiss' && req.method === 'POST') {
+      try {
+        const { dismissArtifact } = await import('../mcp/tools/artifact-inbox.js');
+        const result = JSON.parse(await dismissArtifact(envelopeId));
+        try { getWebSocketHandler()?.broadcast({ type: 'artifact_inbox_updated' }); } catch { /* never fails the dismiss */ }
+        return Response.json(result, { status: 200 });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'dismiss failed', 400);
+      }
+    }
+
     return jsonError('method not allowed', 405);
   }
 
