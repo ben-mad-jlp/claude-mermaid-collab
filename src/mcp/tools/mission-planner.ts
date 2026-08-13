@@ -15,30 +15,33 @@ import { resolveNodeModel, resolveNodeProvider, resolveOrchestrationEffort } fro
 import { config } from '../../config.js';
 import type { EffortLevel } from '../../agent/contracts.js';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, type CriterionAction } from '../../services/mission-store.js';
-import { listTodos, updateTodo, type Todo } from '../../services/todo-store.js';
+import { listTodos, updateTodo, getTodo, type Todo } from '../../services/todo-store.js';
 import { consumeBucketItems } from '../../services/bucket-consumption.js';
 import { todoServesCriterion } from '../../services/criterion-edges.js';
 import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import { isEpic } from '../../services/todo-kind.js';
+import { findUnlandedDoneServingEpics, type UnlandedEpicArmDeps } from '../../services/conductor-unlanded-epic-arm.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export class ServeIntegrityError extends Error {
-  readonly code = 'serve-integrity';
   constructor(
     readonly criterionId: string,
     readonly derivedAction: CriterionAction,
     readonly servingEpicId: string | undefined,
     readonly servingEpicTitle: string | undefined,
     readonly servingEpicState: 'landed' | 'open' | 'none',
+    readonly code: string = 'serve-integrity',
+    messageOverride?: string,
   ) {
     const epicInfo = servingEpicId && servingEpicTitle
       ? `epic ${servingEpicId.slice(0, 8)} ("${servingEpicTitle}")`
       : 'a serving epic';
     super(
-      `plan_mission_criterion refused: criterion ${criterionId.slice(0, 8)} is already being served by ${epicInfo} — ` +
-      `derived action is '${derivedAction}' (servingEpicState: ${servingEpicState}), not 'discover'.`,
+      messageOverride ??
+      (`plan_mission_criterion refused: criterion ${criterionId.slice(0, 8)} is already being served by ${epicInfo} — ` +
+      `derived action is '${derivedAction}' (servingEpicState: ${servingEpicState}), not 'discover'.`),
     );
     this.name = 'ServeIntegrityError';
   }
@@ -266,6 +269,7 @@ export interface PlanCriterionDeps {
   invoke?: (spec: NodeSpec) => Promise<NodeResult>;
   resolveCriteria?: (project: string, missionId: string, criterionIds: string[]) => { id: string; text: string }[];
   resolveActions?: typeof listCriteriaWithActions;
+  unlandedArmDeps?: UnlandedEpicArmDeps;
 }
 export interface PlanCriterionResult {
   epicId: string;
@@ -335,15 +339,53 @@ function reservationKey(project: string, missionId: string, criterionId: string)
   return `${project}|${missionId}|${criterionId}`;
 }
 
+/** Refuse if any requested criterion's only settled serving epic is done but not landed
+ *  (probes 'not-landed' in git). The correct move is to LAND the existing epic, not re-plan
+ *  a duplicate. Fails open on a store/detector fault — a hiccup here must not wedge planning;
+ *  the older checks in assertServeIntegrity still guard. */
+export async function assertNoUnlandedDoneServingEpic(
+  project: string,
+  missionId: string,
+  criterionIds: string[],
+  armDeps?: UnlandedEpicArmDeps,
+): Promise<void> {
+  const want = new Set(criterionIds);
+  let results: { criterionId: string; epicId: string }[];
+  try {
+    results = await findUnlandedDoneServingEpics(project, missionId, armDeps);
+  } catch {
+    return;
+  }
+  const match = results.find((r) => want.has(r.criterionId));
+  if (!match) return;
+  const epic = getTodo(project, match.epicId);
+  const epicInfo = epic
+    ? `epic ${match.epicId.slice(0, 8)} ("${epic.title}")`
+    : `epic ${match.epicId.slice(0, 8)}`;
+  throw new ServeIntegrityError(
+    match.criterionId,
+    'discover',
+    match.epicId,
+    epic?.title,
+    'landed',
+    'unlanded-done-epic',
+    `plan_mission_criterion refused: criterion ${match.criterionId.slice(0, 8)} is already served by ` +
+    `${epicInfo}, which is DONE but not yet landed — LAND it (land_epic / the Land card) instead of ` +
+    `re-planning a duplicate epic.`,
+  );
+}
+
 /** Serve-integrity guard: refuse if any requested criterion is already being served
  *  (not in 'discover' state) or was recently created. Prevents duplicate serving epics on
  *  stale mission snapshots. */
-function assertServeIntegrity(
+async function assertServeIntegrity(
   project: string,
   missionId: string,
   criterionIds: string[],
   resolveActions: typeof listCriteriaWithActions,
-): void {
+  armDeps?: UnlandedEpicArmDeps,
+): Promise<void> {
+  await assertNoUnlandedDoneServingEpic(project, missionId, criterionIds, armDeps);
   const now = Date.now();
   const actions = resolveActions(project, missionId);
   const byId = new Map(actions.map((a) => [a.id, a]));
@@ -385,12 +427,12 @@ export async function planMissionCriterion(
   const criteria = (deps.resolveCriteria ?? defaultResolveCriteria)(project, input.missionId, input.criterionIds);
   if (criteria.length === 0) throw new Error('plan_mission_criterion: none of the criterionIds match this mission');
 
-  // First serve-integrity guard: refuse if any requested criterion is already being served.
   const resolveActions = deps.resolveActions ?? listCriteriaWithActions;
-  assertServeIntegrity(project, input.missionId, input.criterionIds, resolveActions);
 
-  // In-flight reservation: dedupe concurrent/retried serves for the same criteria.
-  // Compute reservation keys; if any are already in-flight, return the existing promise.
+  // In-flight reservation: dedupe concurrent/retried serves for the same criteria. Computed and
+  // checked SYNCHRONOUSLY (no await before this point) so two back-to-back calls for the same
+  // criteria can never both fall through to create separate epics — the first call's synchronous
+  // prefix always reserves the key before a second call's code can run.
   const keys = input.criterionIds.map((id) => reservationKey(project, input.missionId, id));
   for (const key of keys) {
     const existing = inFlightServes.get(key);
@@ -399,6 +441,11 @@ export async function planMissionCriterion(
 
   // Wrap the remaining body in a promise, store it under all keys, and clear on completion.
   const promise = (async () => {
+    // First serve-integrity guard: refuse if any requested criterion is already being served.
+    // Runs as the FIRST step inside the reserved promise (before any node invoke), so a refusal
+    // still leaves no epic row written; the reservation is released via the .finally below.
+    await assertServeIntegrity(project, input.missionId, input.criterionIds, resolveActions, deps.unlandedArmDeps);
+
     const provider = resolveNodeProvider(project, 'planner', ORCHESTRATION_NODE_PROFILE.planner.allowedTools);
     const model = input.model ?? resolveNodeModel(project, 'planner', provider, ORCHESTRATION_NODE_PROFILE.planner.model);
     const effort: EffortLevel = input.effort ?? resolveOrchestrationEffort(project, 'planner');
@@ -448,7 +495,7 @@ export async function planMissionCriterion(
     // Second serve-integrity check before instantiation: a criterion may have been served by
     // another concurrent request during the (potentially long) planner node invocation.
     // Use a FRESH resolveActions read, not the stale actions from before the node invoke.
-    assertServeIntegrity(project, input.missionId, input.criterionIds, resolveActions);
+    await assertServeIntegrity(project, input.missionId, input.criterionIds, resolveActions, deps.unlandedArmDeps);
 
     // Instantiate: one epic homed to the mission, serving the criteria, with its leaves promoted to
     // READY (claimable by the daemon). Approve the epic (status:'ready' stamps approvedAt; the
