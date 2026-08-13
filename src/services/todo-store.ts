@@ -2467,7 +2467,7 @@ function assertProjectLocal(project: string): void {
   }
 }
 
-export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number, epoch?: string): Promise<Todo | null> {
+export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number, epoch: string = PROCESS_CLAIM_EPOCH): Promise<Todo | null> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -2483,7 +2483,7 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     //   status NOT IN done/dropped — not terminal
     //   approvedAt IS NOT NULL    — Planner-approved
     //   heldAt IS NULL            — not held
-    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs, ...(epoch ? { epoch } : {}) } satisfies ClaimStruct);
+    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs, epoch: epoch || PROCESS_CLAIM_EPOCH } satisfies ClaimStruct);
     const res = db.prepare(
       `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=?, updatedAt=?
        WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped')
@@ -2493,6 +2493,11 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     return res.changes === 1 ? getTodo(project, fullId) : null;
   });
 }
+
+/** Process-lifetime epoch stamped on every claim so a claim row can never lack one.
+ *  The coordinator passes its own COORDINATOR_EPOCH at the caller layer; this is the
+ *  fallback for any store path that claims without an explicit epoch argument. */
+export const PROCESS_CLAIM_EPOCH = crypto.randomUUID();
 
 /** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2).
  *  Override with MERMAID_MAX_CLAIM_RETRIES. */

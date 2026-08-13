@@ -237,7 +237,7 @@ describe('planPriorEpochReap (heal-on-restart)', () => {
 
   test('reclaims an in_progress leaf claimed by a PRIOR epoch', () => {
     const t = makeTodo({ id: 'a', status: 'in_progress', parentId: 'epic', claim: claim('epoch-dead') });
-    expect(planPriorEpochReap([t], LIVE)).toEqual(['a']);
+    expect(planPriorEpochReap([t], LIVE)).toEqual([{ id: 'a', claimEpoch: 'epoch-dead' }]);
   });
 
   test('leaves a leaf claimed by the LIVE epoch alone', () => {
@@ -245,14 +245,24 @@ describe('planPriorEpochReap (heal-on-restart)', () => {
     expect(planPriorEpochReap([t], LIVE)).toEqual([]);
   });
 
-  test('leaves a legacy (no-epoch) claim to the probes', () => {
+  test('selects an unstamped (no-epoch) in_progress leaf — this generation always stamps', () => {
     const t = makeTodo({ id: 'a', status: 'in_progress', parentId: 'epic', claim: claim(undefined) });
-    expect(planPriorEpochReap([t], LIVE)).toEqual([]);
+    expect(planPriorEpochReap([t], LIVE)).toEqual([{ id: 'a', claimEpoch: null }]);
+    // This generation's store layer always stamps an epoch on claim writes (PROCESS_CLAIM_EPOCH default
+    // or passed COORDINATOR_EPOCH), so an unstamped claim only comes from a prior generation. The caller
+    // (worker-liveness.ts) runs the liveness shield chain for only this class, restoring never-worse-than-
+    // today safety for claims that might have live-but-stale executors.
   });
 
   test('never touches epics (no parent) or human-owned leaves', () => {
     const epic = makeTodo({ id: 'e', status: 'in_progress', parentId: null, claim: claim('epoch-dead') });
     const human = makeTodo({ id: 'h', status: 'in_progress', parentId: 'epic', assigneeKind: 'human', claim: claim('epoch-dead') });
+    expect(planPriorEpochReap([epic, human], LIVE)).toEqual([]);
+  });
+
+  test('excludes epics and humans even when unstamped', () => {
+    const epic = makeTodo({ id: 'e', status: 'in_progress', parentId: null, claim: claim(undefined) });
+    const human = makeTodo({ id: 'h', status: 'in_progress', parentId: 'epic', assigneeKind: 'human', claim: claim(undefined) });
     expect(planPriorEpochReap([epic, human], LIVE)).toEqual([]);
   });
 
