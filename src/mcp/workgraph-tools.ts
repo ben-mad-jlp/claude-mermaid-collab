@@ -23,7 +23,7 @@ import {
 import { runQuarantinedSpec } from '../services/quarantine-runner.js';
 import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } from '../services/finding-store.js';
 import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
-import { BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
+import { validateBugfixFiling, validateFeatureFiling, BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -145,7 +145,7 @@ export async function createEpicWithLandLeaf(
   const strippedTitle = stripLabel(opts.title);
   if (!strippedTitle) throw new Error('create_epic: title must be non-empty after stripping the role prefix');
   if (isBucketEpicTitle(strippedTitle)) {
-    throw new Error('create_epic: bucket titles are refused — use file_to_bucket for Inbox/Bugfix inbox');
+    throw new Error('create_epic: bucket titles are refused — use file_bugfix/file_feature for quick-capture');
   }
 
   // Resolve `home` into the epic's missionId extra. Present-vs-absent is load-bearing:
@@ -253,7 +253,7 @@ export async function addLeavesToEpic(
   if (!parent) throw new Error('add_leaves: no such epic ' + epicId);
   if (!isEpic(parent)) throw new Error('add_leaves: parentId must be an epic');
   if (parent.isBucket) {
-    throw new Error('add_leaves: bucket epics are quick-capture only — use file_to_bucket, not add_leaves');
+    throw new Error('add_leaves: bucket epics are quick-capture only — use file_bugfix/file_feature, not add_leaves');
   }
 
   // Inherit the parent epic's targetProject onto every created leaf so leaves execute
@@ -352,16 +352,19 @@ export interface FileToBucketOpts {
 }
 
 /**
- * Quick-capture a leaf under the Inbox (default) or Bugfix inbox bucket epic,
- * auto-creating the singleton bucket via ensureBucket. Only the two bucket-relevant
+ * Quick-capture a leaf under the Inbox (default), Bugfix inbox, or Feature requests bucket epic,
+ * auto-creating the singleton bucket via ensureBucket. Only the bucket-relevant
  * statuses (backlog|planned) are exposed by the verb; defaults to 'backlog'.
+ * Accepts any BucketType; defaults to 'inbox' when opts.bucket is absent/unknown.
  */
 export async function fileToBucketLeaf(
   project: string,
   session: string,
   opts: FileToBucketOpts,
 ): Promise<Todo> {
-  const bucketType: BucketType = opts.bucket === 'bugfix' ? 'bugfix' : 'inbox';
+  const bucketType: BucketType = (opts.bucket && ['bugfix', 'feature', 'explore'].includes(opts.bucket))
+    ? opts.bucket
+    : 'inbox';
   const parentId = await ensureBucket(project, bucketType);
   const leaf = await addSessionTodo(project, session, opts.title, opts.link, {
     kind: 'leaf',
@@ -522,7 +525,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'create_epic',
     description:
-      "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
+      "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox/Feature requests — those are quick-capture only, created via file_bugfix/file_feature). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -571,25 +574,6 @@ export const WORKGRAPH_TOOL_DEFS = [
         },
       },
       required: ['project', 'session', 'epicId', 'leaves'],
-    },
-  },
-  {
-    name: 'file_to_bucket',
-    description:
-      "Quick-capture: file a leaf under the Inbox or Bugfix inbox bucket epic (auto-created if missing). For unplanned thoughts/bugs that don't yet warrant a full epic — re-home later via promote_to_epic.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string' },
-        session: { type: 'string' },
-        title: { type: 'string' },
-        bucket: { type: 'string', enum: ['inbox', 'bugfix'] },
-        description: { type: 'string' },
-        priority: { type: 'number', enum: [0, 1, 2, 3, 4] },
-        status: { type: 'string', enum: ['backlog', 'planned'] },
-        link: { type: 'object', properties: { blueprintId: { type: 'string' } } },
-      },
-      required: ['project', 'session', 'title'],
     },
   },
   {
@@ -644,6 +628,40 @@ export const WORKGRAPH_TOOL_DEFS = [
         epicId: { type: 'string', description: 'Optional — scope the report to this one epic (its own row plus any of its direct children that are orphans/open).' },
       },
       required: ['project'],
+    },
+  },
+  {
+    name: 'file_bugfix',
+    description:
+      'File a typed bugfix report. Creates a leaf under the Bugfix bucket epic (auto-created if missing) with structured metadata (observed failure, evidence anchor, fixed means). Required fields: project, session, observedFailure, evidence, fixedMeans. The validator refuses filings with codes no-failure-shape (observedFailure lacks failure keywords), no-named-anchor (evidence has no path:line or identifier), or no-falsifiable-predicate (fixedMeans lacks measurable assertion). A refusal writes ZERO rows and returns error code bugfix-filing-refused.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        observedFailure: { type: 'string', description: 'Description of the concrete symptom or error observed.' },
+        evidence: { type: 'string', description: 'Grounding anchor: a file path:line, identifier, or hash reference.' },
+        fixedMeans: { type: 'string', description: 'Measurable assertion of what was fixed.' },
+        title: { type: 'string', description: 'Leaf title (defaults to observedFailure).' },
+        description: { type: 'string' },
+      },
+      required: ['project', 'session', 'observedFailure', 'evidence', 'fixedMeans'],
+    },
+  },
+  {
+    name: 'file_feature',
+    description:
+      'File a typed feature request. Creates a leaf under the Feature requests bucket epic (auto-created if missing) with a user-visible outcome statement. Required fields: project, session, outcome. The validator refuses filings with code no-user-visible-outcome (outcome lacks both a surface term and an action verb). A refusal writes ZERO rows and returns error code feature-filing-refused.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        outcome: { type: 'string', description: 'What the user can now see or do (must name a surface like "operator", "card", "panel" and an action like "sees", "shows", "displays").' },
+        title: { type: 'string', description: 'Leaf title (defaults to outcome).' },
+        description: { type: 'string' },
+      },
+      required: ['project', 'session', 'outcome'],
     },
   },
 ];
@@ -744,6 +762,40 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         description: args.description,
         status: args.status,
       }));
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
+    }
+    case 'file_bugfix': {
+      const { project, session, observedFailure, evidence, fixedMeans } = args as { project: string; session: string; observedFailure: string; evidence: string; fixedMeans: string };
+      if (!project || !session || !observedFailure || !evidence || !fixedMeans) throw new Error('Missing required: project, session, observedFailure, evidence, fixedMeans');
+      const { refusal, warnings } = validateBugfixFiling({ observedFailure, evidence, fixedMeans, title: args.title, description: args.description });
+      if (refusal !== null) {
+        await withWorkgraphErrorCode(() => {
+          throw new BugfixFilingRefusedError(refusal);
+        });
+      }
+      const leaf = await fileToBucketLeaf(project, session, {
+        title: args.title ?? observedFailure,
+        bucket: 'bugfix',
+        description: args.description ?? `Failure: ${observedFailure}\nEvidence: ${evidence}\nFixed: ${fixedMeans}`,
+      });
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
+    }
+    case 'file_feature': {
+      const { project, session, outcome } = args as { project: string; session: string; outcome: string };
+      if (!project || !session || !outcome) throw new Error('Missing required: project, session, outcome');
+      const { refusal, warnings } = validateFeatureFiling({ outcome, title: args.title, description: args.description });
+      if (refusal !== null) {
+        await withWorkgraphErrorCode(() => {
+          throw new FeatureFilingRefusedError(refusal);
+        });
+      }
+      const leaf = await fileToBucketLeaf(project, session, {
+        title: args.title ?? outcome,
+        bucket: 'feature',
+        description: args.description,
+      });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
     }
