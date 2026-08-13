@@ -66,6 +66,10 @@ beforeEach(() => {
 describe('closeQuarantineOnGreen reads per TEST, not per PROJECT', () => {
   it('closes a green quarantine WITHOUT issuing the project-wide observation query', async () => {
     quarantine('green.test', NOW - 60_000);
+    // A full green streak (MIN_GREEN_OBSERVATIONS_TO_CLOSE) so the row is eligible to close;
+    // this test pins the QUERY SHAPE, the streak threshold is pinned in flaky-quarantine.test.ts.
+    seedObservation('green.test', false, NOW - 3000);
+    seedObservation('green.test', false, NOW - 2000);
     seedObservation('green.test', false, NOW - 1000);
     seedObservation('noisy.other.test', true, NOW - 1000); // must simply not matter
 
