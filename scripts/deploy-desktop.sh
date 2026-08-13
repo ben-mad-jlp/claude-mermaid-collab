@@ -4,8 +4,8 @@
 # Mermaid Collab.app (realizes the d0d59599 deploy-script todo).
 #
 # Does the whole recipe that was previously hand-run:
-#   1. build the sidecar (mc-server) + the UI bundle (vite)
-#   2. back up the app's current mc-server + ui/dist (timestamped .bak-<ts>)
+#   1. build the sidecar (mc-server), UI bundle (vite), and app.asar (electron main)
+#   2. back up the app's current mc-server, ui/dist, and app.asar (timestamped .bak-<ts>)
 #   3. swap the freshly-built artifacts in (ditto)
 #   4. FORCE-restart the app so a fresh sidecar respawns on the freed port
 #      — the sidecar is detached and survives a plain quit/kill, and `open`
@@ -17,6 +17,7 @@
 # Usage:
 #   bash scripts/deploy-desktop.sh            # full build + deploy
 #   bash scripts/deploy-desktop.sh --no-build # deploy the already-built artifacts
+#   bash scripts/deploy-desktop.sh --no-asar  # deploy without packing a fresh app.asar
 #
 # Env overrides:
 #   APP_PATH   default "/Applications/Mermaid Collab.app"
@@ -30,10 +31,12 @@ RES="$APP_PATH/Contents/Resources"
 PORT="${MC_PORT:-9002}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-45}"
 DO_BUILD=1
+DO_ASAR=1
 HOT_SWAP=0
 for arg in "$@"; do
   case "$arg" in
     --no-build) DO_BUILD=0 ;;
+    --no-asar) DO_ASAR=0 ;;
     # Phase-2 (49e3c1f6): after swapping the binary, ask Electron main to restart
     # ONLY the sidecar child (app window survives) instead of pkill+relaunch.
     # Falls back to the full relaunch if the control call fails.
@@ -138,9 +141,26 @@ UI_SRC="$REPO/ui/dist"
 [ -f "$SIDECAR_SRC" ] || die "built sidecar missing: $SIDECAR_SRC"
 [ -f "$UI_SRC/index.html" ] || die "built UI missing: $UI_SRC/index.html"
 
+ASAR_SRC="$REPO/desktop/out-asar/app.asar"
+MANIFEST_SRC="$REPO/desktop/out-asar/build-manifest.json"
+if [ "$DO_ASAR" = 1 ]; then
+  log "packing app.asar (electron main)…"
+  PACK_ARGS=(); [ "$DO_BUILD" = 1 ] || PACK_ARGS+=(--no-build)
+  ( cd "$REPO" && bun scripts/pack-app-asar.ts "${PACK_ARGS[@]+"${PACK_ARGS[@]}"}" ) \
+    || die "pack-app-asar failed — refusing to deploy a sidecar over a stale app.asar"
+  [ -f "$ASAR_SRC" ] || die "packed asar missing: $ASAR_SRC"
+else
+  log "--no-asar: leaving the app's existing app.asar in place (loose-only deploy)"
+fi
+
 # ── 2 & 3. backup + swap ─────────────────────────────────────────────────────
 TS="$(date +%s)"
 log "backing up current artifacts (.bak-$TS) and swapping in the new build…"
+if [ "$DO_ASAR" = 1 ]; then
+  cp "$RES/app.asar" "$RES/app.asar.bak-$TS"
+  ditto "$ASAR_SRC" "$RES/app.asar"
+  ditto "$MANIFEST_SRC" "$RES/build-manifest.json"
+fi
 cp "$RES/mc-server" "$RES/mc-server.bak-$TS"
 mv "$RES/ui/dist" "$RES/ui/dist.bak-$TS"
 ditto "$SIDECAR_SRC" "$RES/mc-server"
@@ -167,7 +187,11 @@ for bin in ffmpeg ffprobe; do
     log "WARNING: $REPO/desktop/resources/$bin missing — sprite video tools will 501"
   fi
 done
-log "swapped (rollback: restore mc-server.bak-$TS / ui/dist.bak-$TS)"
+if [ "$DO_ASAR" = 1 ]; then
+  log "swapped (rollback: restore app.asar.bak-$TS / mc-server.bak-$TS / ui/dist.bak-$TS)"
+else
+  log "swapped (rollback: restore mc-server.bak-$TS / ui/dist.bak-$TS)"
+fi
 
 # ── 4. force-restart ─────────────────────────────────────────────────────────
 restart() {
@@ -259,4 +283,8 @@ fi
 write_status true "$MODE" "$SIDECAR_PID" false "$UI_OK"
 printf '\033[1;32m[deploy] DONE\033[0m — sidecar PID %s on :%s, health 200 (mode %s, escalated %s)\n' "${SIDECAR_PID:-?}" "$PORT" "$MODE" "$([ "$ESCALATED" = 1 ] && echo yes || echo no)"
 log "$UI_OK"
-log "backups: $RES/mc-server.bak-$TS , $RES/ui/dist.bak-$TS"
+if [ "$DO_ASAR" = 1 ]; then
+  log "backups: $RES/app.asar.bak-$TS , $RES/mc-server.bak-$TS , $RES/ui/dist.bak-$TS"
+else
+  log "backups: $RES/mc-server.bak-$TS , $RES/ui/dist.bak-$TS"
+fi
