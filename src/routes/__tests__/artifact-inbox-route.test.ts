@@ -1,3 +1,11 @@
+/**
+ * MUTATION PROBE: this test drives dispatchRequest's auth gate (src/routes/dispatch.ts:26-27,
+ * checkAuth call) via case (a) without a token, which must 401 and NOT reach the handler.
+ * With checkAuth neutered (returning null instead of a 401 response), case (a) fails because
+ * it no longer receives 401 — proof that checkAuth is called and its result is observed.
+ * Observed armed-run outcome: verdict: 'graded', execution: 'called-observed'.
+ * Control run passed; neutered and throw arms both failed as expected (exitCode: 1).
+ */
 import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +21,7 @@ mock.module('../../services/config-file.ts', () => ({
 }));
 
 import { handleArtifactInboxAPI } from '../artifact-inbox-api.js';
-const { checkAuth } = await import('../../auth.js');
+const { dispatchRequest } = await import('../dispatch.js');
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -43,6 +51,21 @@ async function get(query?: string): Promise<Response> {
   );
   expect(res).not.toBeNull();
   return res!;
+}
+
+async function dispatchGet(
+  peer: string,
+  headers?: Record<string, string>
+): Promise<Response | null> {
+  const url = new URL('http://localhost:9002/api/artifact-inbox');
+  return await dispatchRequest(
+    new Request(url.toString(), {
+      method: 'GET',
+      headers,
+    }),
+    url,
+    peer
+  );
 }
 
 describe('POST /api/artifact-inbox', () => {
@@ -136,33 +159,36 @@ describe('POST /api/artifact-inbox', () => {
     expect(envelope?.state).toBe('pending');
   });
 
-  it('gates /api/artifact-inbox for a non-loopback peer', async () => {
-    const url = new URL('http://localhost:9002/api/artifact-inbox');
+  it('drives dispatchRequest: 401 without a token, 200 with one, 403 for a public peer', async () => {
+    // Case (a): Private peer without token → 401 and handler not reached
+    const countBefore = ((await get()) as Response & { envelopes?: unknown[] }).envelopes
+      ?.length ?? 0;
+    const resBefore = await get();
+    const bodyBefore = (await resBefore.json()) as { envelopes: unknown[] };
+    const envelopeCountBefore = bodyBefore.envelopes.length;
 
-    // Non-private peer (should get 403)
-    const req1 = new Request(url.toString(), { method: 'GET' });
-    const res1 = checkAuth(req1, url, '203.0.113.1');
+    const res1 = await dispatchGet('192.168.1.50');
     expect(res1).not.toBeNull();
-    expect(res1!.status).toBe(403);
+    expect(res1!.status).toBe(401);
 
-    // Loopback peer (should be allowed - no auth required)
-    const req2 = new Request(url.toString(), { method: 'GET' });
-    const res2 = checkAuth(req2, url, '127.0.0.1');
-    expect(res2).toBeNull();
+    const resAfter = await get();
+    const bodyAfter = (await resAfter.json()) as { envelopes: unknown[] };
+    const envelopeCountAfter = bodyAfter.envelopes.length;
+    expect(envelopeCountAfter).toBe(envelopeCountBefore);
 
-    // Private peer without token (should get 401)
-    const req3 = new Request(url.toString(), { method: 'GET' });
-    const res3 = checkAuth(req3, url, '192.168.1.50');
-    expect(res3).not.toBeNull();
-    expect(res3!.status).toBe(401);
-
-    // Private peer with valid token (should be allowed)
-    const req4 = new Request(url.toString(), {
-      method: 'GET',
-      headers: { authorization: 'Bearer test-token-12345' },
+    // Case (b): Same peer with valid token → 200 and handler reached (envelopes present)
+    const res2 = await dispatchGet('192.168.1.50', {
+      authorization: 'Bearer test-token-12345',
     });
-    const res4 = checkAuth(req4, url, '192.168.1.50');
-    expect(res4).toBeNull();
+    expect(res2).not.toBeNull();
+    expect(res2!.status).toBe(200);
+    const body2 = (await res2!.json()) as { envelopes: unknown[] };
+    expect(Array.isArray(body2.envelopes)).toBe(true);
+
+    // Case (c): Public peer → 403
+    const res3 = await dispatchGet('203.0.113.1');
+    expect(res3).not.toBeNull();
+    expect(res3!.status).toBe(403);
   });
 });
 
