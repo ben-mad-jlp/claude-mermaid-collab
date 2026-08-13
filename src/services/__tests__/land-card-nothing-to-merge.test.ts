@@ -191,3 +191,61 @@ describe('surfaceEpicLand — nothing-to-merge short-circuit', () => {
     expect(cards.length).toBe(1);
   });
 });
+
+describe('surfaceEpicLand — read-only auto-land (identical tree, not yet merged)', () => {
+  it('creates a RECORD card and lands through the injected landEpic, no human question left open', async () => {
+    const project = freshProject();
+    const epic = await createTodo(project, {
+      allowOrphan: true, ownerSession: 'planner', title: 'Read-only Epic', kind: 'epic', status: 'planned',
+    });
+    const child = await createTodo(project, {
+      allowOrphan: true, ownerSession: 'worker', title: 'Explore Leaf', kind: 'leaf', parentId: epic.id, status: 'ready',
+    });
+    await updateTodo(project, child.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const landedWith: string[] = [];
+    await surfaceEpicLand(project, epic.id, {
+      sessionHint: 'test-session',
+      landednessProbe: {
+        isEpicLandedInGit: async () => 'not-landed',
+        isEpicTreeIdenticalToTrunk: async () => 'identical',
+      },
+      landEpicFn: async (_project, target) => {
+        landedWith.push(typeof target === 'string' ? target : target.escalationId ?? '');
+        return { landed: true, reason: 'ok' } as never;
+      },
+    });
+
+    const cards = listEscalationsByKindInWindow(project, 'epic-ready-to-land', 0, Date.now());
+    expect(cards.length).toBe(1); // the record card exists…
+    expect(cards[0]!.questionText).toContain('READ-ONLY'); // …and says so
+    expect(landedWith.length).toBe(1); // the land actually fired, once
+    expect(landedWith[0]).toBe(cards[0]!.id); // through the record card's own id
+  });
+
+  it('an INDETERMINATE tree probe never auto-lands (fail-closed to the normal card path)', async () => {
+    const project = freshProject();
+    const epic = await createTodo(project, {
+      allowOrphan: true, ownerSession: 'planner', title: 'Indeterminate Epic', kind: 'epic', status: 'planned',
+    });
+    const child = await createTodo(project, {
+      allowOrphan: true, ownerSession: 'worker', title: 'Leaf', kind: 'leaf', parentId: epic.id, status: 'ready',
+    });
+    await updateTodo(project, child.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const landedWith: string[] = [];
+    await surfaceEpicLand(project, epic.id, {
+      sessionHint: 'test-session',
+      landednessProbe: {
+        isEpicLandedInGit: async () => 'not-landed',
+        isEpicTreeIdenticalToTrunk: async () => 'indeterminate',
+      },
+      landEpicFn: async (_project, target) => {
+        landedWith.push(typeof target === 'string' ? target : target.escalationId ?? '');
+        return { landed: true, reason: 'ok' } as never;
+      },
+    });
+
+    expect(landedWith.length).toBe(0); // no auto-land on an uncertain probe
+  });
+});
