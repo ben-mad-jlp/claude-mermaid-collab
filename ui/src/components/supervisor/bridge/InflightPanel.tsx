@@ -53,6 +53,14 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
     () => new Set((daemon?.paused ?? []).map((p) => p.todoId)),
     [daemon],
   );
+  // epic → its in-flight base gate. Between-nodes rows have no daemon leaf entry (that is
+  // exactly why they read "between nodes"), so the join runs here off the todo's parentId
+  // (its epic) against the gate's recorded epicIds.
+  const gateByEpic = useMemo(() => {
+    const m = new Map<string, { startedAt: number }>();
+    for (const g of daemon?.baseGates ?? []) for (const e of g.epicIds ?? []) m.set(e, g);
+    return m;
+  }, [daemon]);
   const runningCount = (daemon?.inflight ?? []).length;
   const breakerOpen = !!daemon?.breaker?.open;
 
@@ -109,6 +117,11 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
           const nodeLabel = leaf?.nodeKind ? NODE_LABEL[leaf.nodeKind] ?? leaf.nodeKind : null;
           const elapsed = leaf ? now - leaf.startedAt : null;
           const paused = pausedSet.has(row.id);
+          // Leaf's server-computed wait wins; between-nodes rows join via their epic.
+          const epicGate = (t?.parentId && gateByEpic.get(t.parentId)) || (leaf?.epicId && gateByEpic.get(leaf.epicId)) || null;
+          const gateWaitMs = leaf?.baseGateWait?.running
+            ? leaf.baseGateWait.sinceMs ?? null
+            : epicGate ? now - epicGate.startedAt : null;
           const clickable = !!(onSelectTodo && t);
           return (
             <div
@@ -158,6 +171,13 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
                   <span className="text-warning-600 dark:text-warning-400" title="lease retries">⟳{t.retryCount}</span>
                 )}
               </div>
+              {/* Why nothing is executing: the epic's base gate is still running/queued —
+                  the leaf is waiting on it, not dead. */}
+              {gateWaitMs != null && (
+                <div className="pl-4 text-3xs italic text-gray-500 dark:text-gray-400" title="the epic's base gate (full typecheck + suite) is in flight — this leaf resumes when it settles">
+                  waiting on base gate · {gateWaitMs < 60000 ? '<1m' : `${Math.floor(gateWaitMs / 60000)}m`}
+                </div>
+              )}
             </div>
           );
         })}

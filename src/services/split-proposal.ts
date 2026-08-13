@@ -20,6 +20,31 @@ export function raisedNodeBudget(base: number): number {
 
 export type SplitProposalAnswer = 'split' | 'linear' | 'timeout';
 
+/** Stamp a card that fell through on TIMEOUT so the record is distinguishable from a
+ *  real decision: resolvedBy='timeout-default' + a fixed, greppable resolutionNote
+ *  marker naming the printed timeout and the defaulted action. Best-effort — the run
+ *  proceeds on the default either way. The store's resolve write keeps this label
+ *  sticky, so the executor's later mechanical 'ai' resolve cannot relabel it.
+ *  (Silence-override breadcrumb: audits query `resolvedBy='timeout-default'`. There is
+ *  no natural seam HERE to also note the overridden card id in the post-timeout retry's
+ *  telemetry — that retry lands inside the leaf executor, outside this module — so the
+ *  durable trace is the escalation row itself.) */
+export function stampTimeoutDefault(
+  escalationId: string,
+  timeoutMs: number,
+  defaultedTo: string,
+  resolveCard: typeof resolveEscalation = resolveEscalation,
+): void {
+  try {
+    resolveCard(
+      escalationId,
+      'resolved',
+      'timeout-default',
+      `timeout-default: human never answered within ${Math.round(timeoutMs / 60_000)} minutes; outcome defaulted to ${defaultedTo}`,
+    );
+  } catch { /* best-effort — never block the default path */ }
+}
+
 export interface SplitProposal {
   escalationId: string;
   createdAt: number;
@@ -73,6 +98,9 @@ export function proposeSplit(input: {
     ],
     recommended: 'linear',
     operatorGated: false,
+    // Timeout honesty: the card PRINTS "Timeout: 10 minutes" above — pass the SAME
+    // value so the reconcile stale sweep cannot reap the card before that deadline.
+    timeoutMs: SPLIT_PROPOSAL_TIMEOUT_MS,
   });
 
   return { escalationId: escalation.id, createdAt: escalation.createdAt, isNew };
@@ -102,6 +130,7 @@ export async function awaitSplitDecision(input: {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   readDecision?: (id: string) => { optionId: string | null } | null;
+  resolveCard?: typeof resolveEscalation;
 }): Promise<SplitProposalAnswer> {
   const timeoutMs = input.timeoutMs ?? SPLIT_PROPOSAL_TIMEOUT_MS;
   const pollMs = input.pollMs ?? SPLIT_PROPOSAL_POLL_MS;
@@ -123,6 +152,9 @@ export async function awaitSplitDecision(input: {
 
     const currentTime = now();
     if (currentTime >= deadline) {
+      // Label the fallthrough BEFORE returning: the record must say a timeout
+      // default happened, not that someone decided 'linear'.
+      stampTimeoutDefault(input.escalationId, timeoutMs, 'linear (the safe default)', input.resolveCard);
       return 'timeout';
     }
 
@@ -180,6 +212,11 @@ export function proposeContested(input: {
     ],
     recommended: 'reject',
     operatorGated: false,
+    // Timeout honesty: the card PRINTS "Timeout: 10 minutes" above — pass the SAME
+    // value so the reconcile stale sweep cannot reap the card before that deadline
+    // (the incident: four contested cards died in 60-180s, so the human tie-breaker
+    // effectively did not exist).
+    timeoutMs: SPLIT_PROPOSAL_TIMEOUT_MS,
   });
   return { escalationId: escalation.id, createdAt: escalation.createdAt, isNew };
 }
@@ -194,6 +231,7 @@ export async function awaitContestedDecision(input: {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   readDecision?: (id: string) => { optionId: string | null } | null;
+  resolveCard?: typeof resolveEscalation;
 }): Promise<ContestedAnswer> {
   const timeoutMs = input.timeoutMs ?? SPLIT_PROPOSAL_TIMEOUT_MS;
   const pollMs = input.pollMs ?? SPLIT_PROPOSAL_POLL_MS;
@@ -207,7 +245,14 @@ export async function awaitContestedDecision(input: {
       return decision.optionId === 'accept' ? 'accept' : 'reject';
     }
     const currentTime = now();
-    if (currentTime >= deadline) return 'timeout';
+    if (currentTime >= deadline) {
+      // Silence-override breadcrumb: the contested card expired unanswered and the run
+      // will proceed on the safe default (park). Record it as a TIMEOUT DEFAULT, never
+      // as a decision — resolvedBy='timeout-default' + the fixed marker note, sticky
+      // against the executor's later best-effort 'ai' resolve.
+      stampTimeoutDefault(input.escalationId, timeoutMs, 'reject (the safe default = park)', input.resolveCard);
+      return 'timeout';
+    }
     const remaining = deadline - currentTime;
     const sleepTime = Math.min(pollMs, remaining);
     if (sleepTime > 0) await sleep(sleepTime);

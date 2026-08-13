@@ -158,6 +158,39 @@ export async function runReconcilePass(project: string): Promise<void> {
       // auto-close) clears, so aging one out just re-raises it on the next tick.
       if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND || esc.kind === DEP_STRAND_DECISION_KIND) continue;
       const age = now - esc.createdAt;
+
+      // TIMEOUT HONESTY: a card that PRINTS a timeout (expiresAt stamped at create)
+      // lives at least until that deadline — the ~60s stale window NEVER applies to it.
+      // (The incident: contested-review cards promising "Timeout: 10 minutes" were
+      // reaped in 60-180s, so the human tie-breaker effectively did not exist.) Once
+      // the promised deadline passes, the card is reaped as a labeled TIMEOUT DEFAULT,
+      // not as an anonymous 'ai' close: resolvedBy='timeout-default' + a durable
+      // resolutionNote so audits can find every human call overridden by silence.
+      if (esc.expiresAt != null) {
+        if (now < esc.expiresAt) continue; // promise not yet expired — hands off
+        const promisedMs = esc.expiresAt - esc.createdAt;
+        resolveEscalation(
+          esc.id,
+          'stale',
+          'timeout-default',
+          `timeout-default: human never answered within ${formatIdleMs(promisedMs)}; outcome defaulted to ${esc.recommended ?? 'none (card expired unactioned)'}`,
+        );
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: esc.session,
+          detail: JSON.stringify({
+            source: 'reconcile-pass',
+            escalationId: esc.id,
+            ageMs: age,
+            reason: 'expired',
+            expiresAt: esc.expiresAt,
+          }),
+        });
+        continue;
+      }
+
+      // Legacy path (expiresAt NULL): today's stale-window sweep, byte-identical.
       if (age < SUPERVISOR_STALE_AFTER_MS) continue;
 
       resolveEscalation(esc.id, 'stale', 'ai');

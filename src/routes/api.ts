@@ -3229,6 +3229,23 @@ export async function handleAPI(
     const failLimit = Number(url.searchParams.get('failLimit') ?? 20);
     const now = Date.now();
     const STALE_MS = 15 * 60 * 1000;
+    // Base gates in flight RIGHT NOW (executing or queued behind the concurrency caps),
+    // so the UI can say WHY a claimed leaf sits "between nodes" for 40 minutes instead of
+    // reading as dead. The leaf↔gate join is EXACT: each gate entry carries the epicIds
+    // recorded at its dispatch/coalesce call sites (resolveBaseGreen & the conductor's
+    // base probe pass their epicId), and a leaf waits on the gate of its own epic. The
+    // only approximation: a gate dispatched by a path that didn't name its epic (e.g. an
+    // explicit re-measure filed before this shipped) appears in `baseGates` but joins to
+    // no leaf. In-process read, this server only — same scope as the rest of this route.
+    let baseGates: Array<{ key: string; project: string; baseSha: string | null; epicIds: string[]; startedAt: number; running: boolean; sinceMs: number }> = [];
+    try {
+      const { listInflightBaseGates } = await import('../services/base-gate-coalescer');
+      baseGates = listInflightBaseGates()
+        .filter((g) => !project || g.project === project)
+        .map((g) => ({ ...g, sinceMs: now - g.startedAt }));
+    } catch { /* best-effort observability — never block the live read */ }
+    const gateByEpic = new Map<string, (typeof baseGates)[number]>();
+    for (const g of baseGates) for (const e of g.epicIds) gateByEpic.set(e, g);
     const inflight = listLeafInflight({ project }).map((r) => ({
       leafId: r.leafId,
       project: r.project,
@@ -3239,6 +3256,11 @@ export async function handleAPI(
       startedAt: r.startedAt,
       elapsedMs: now - r.startedAt,
       stale: now - r.startedAt > STALE_MS,
+      // Present iff this leaf's epic has a base gate in flight — the leaf is queued
+      // behind it, not dead.
+      ...(r.epicId && gateByEpic.has(r.epicId)
+        ? { baseGateWait: { running: true, forEpicId: r.epicId, sinceMs: gateByEpic.get(r.epicId)!.sinceMs } }
+        : {}),
     }));
     const paused = (project ? pausedLeavesFor(project) : []).map((p) => ({
       todoId: p.todoId,
@@ -3278,6 +3300,10 @@ export async function handleAPI(
       now,
       state,
       inflight,
+      // Top-level too: the In-flight panel's "between nodes" rows come from LOCAL todos
+      // (no leaf-inflight ledger row), so the UI joins todo.parentId (its epic) against
+      // these epicIds itself.
+      baseGates,
       breaker: { open: breakerOpen(now), openUntil: breakerOpenUntil() },
       paused,
       recentSpawns,
