@@ -33,7 +33,8 @@ import { getEpicBaseGate, recordEpicBaseGate, recordEpicProbeSignature, shouldHo
 import { laneSignature, shouldReprobeEpicBase, UNKNOWN_LANE_SIGNATURE } from './conductor-wake-gate.js';
 import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, reapRecoveredLaneBaseRepairEpics, type RaiseBaseRepairArgs } from './base-repair-epic.js';
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
-import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
+import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
+import { activeQuarantine } from './flaky-quarantine.js';
 import { loadManifestSource } from '../config/project-manifest.js';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
@@ -199,7 +200,19 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
       const r = await runBaseGateShared(
         baseGateKey(targetProject, sha, decl.cfg),
         () => runGate(wt.path, decl.cfg),
-        { project: targetProject },
+        {
+          project: targetProject,
+          // Same shared-verdict scope as ensureBaseGreen's resolveBaseGreen — the probe and
+          // the executor measure the same thing, so they must share the same durable row.
+          ...(sha ? {
+            verdict: {
+              project: targetProject,
+              baseSha: sha,
+              quarantineHash: quarantineSetHash(activeQuarantine(targetProject, now?.()).map((q) => q.test)),
+              now,
+            },
+          } : {}),
+        },
       );
       const { isCacheableBaseGateStatus } = await import('./leaf-executor.js');
       if (isCacheableBaseGateStatus(r.status)) {

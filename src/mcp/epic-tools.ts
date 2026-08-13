@@ -14,7 +14,7 @@ import { gateStatus } from '../services/gate-status.js';
 import { getEpicBranchStatus } from '../services/epic-branch-status.js';
 import { verifyEpic } from '../services/verify-epic.js';
 import { getLeafRun, listLeafRuns } from '../services/ledger-stats.js';
-import { editLeafRequirement, editContractField, invalidateEpicBaseGate } from '../services/worker-ledger.js';
+import { editLeafRequirement, editContractField, invalidateEpicBaseGate, deleteBaseGateVerdictsForBase } from '../services/worker-ledger.js';
 import { makeCoordinatorDeps, resolveEpicId } from '../services/coordinator-live.js';
 import { landEpic, resolveLandTarget } from '../services/coordinator-land.js';
 import { checkOwnership, landedByTrailer, type LandActor } from '../services/land-authority.js';
@@ -294,10 +294,16 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
             if (!project || !session || !epicId || !reason) throw new Error('Missing required: project, session, epicId, reason');
             const { deleted, row } = invalidateEpicBaseGate(epicId);
             if (!deleted) throw new Error(`no-cached-base-gate: ${epicId}`);
+            // The durable SHARED verdict layer (base_gate_verdict) must die with the
+            // per-epic row: siblings consume the shared row first, so clearing only
+            // epic_base_gate would make this verb a no-op against the cache that is
+            // actually served. Quarantine edits need no such clear — they change the
+            // verdict key itself.
+            const clearedSharedVerdicts = row?.baseSha ? deleteBaseGateVerdictsForBase(row.baseSha) : 0;
             const actorName = actor ?? 'operator';
-            const detail = JSON.stringify({ epicId, actor: actorName, reason, clearedBaseSha: row?.baseSha ?? null, clearedStatus: row?.status ?? null });
+            const detail = JSON.stringify({ epicId, actor: actorName, reason, clearedBaseSha: row?.baseSha ?? null, clearedStatus: row?.status ?? null, clearedSharedVerdicts });
             supervisorStore.recordSupervisorAudit({ kind: 'override', project, session, detail });
-            return JSON.stringify({ ok: true, deleted, epicId, clearedRow: row }, null, 2);
+            return JSON.stringify({ ok: true, deleted, epicId, clearedRow: row, clearedSharedVerdicts }, null, 2);
           }
           default:
             return null;

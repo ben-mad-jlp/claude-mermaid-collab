@@ -2,9 +2,20 @@
  * In-process single-flight coalescer around `runBaseGate`. Two independent callers
  * (`ensureBaseGreen` in leaf-executor.ts and `defaultEpicBaseProbe` in
  * conductor-infra-arm.ts) can enter `runBaseGate` concurrently for the SAME epic base —
- * this module de-duplicates concurrent runs only. It is NOT a verdict cache: the durable
- * cache stays `epic_base_gate`, and the entry here is dropped the instant its promise
+ * this module de-duplicates concurrent runs. The durable per-EPIC cache stays
+ * `epic_base_gate`, and the in-flight entry here is dropped the instant its promise
  * settles.
+ *
+ * LAYERED IN FRONT of the run (opt-in via `opts.verdict`) sits the durable SHARED verdict
+ * (`base_gate_verdict` in the worker ledger): keyed by what was measured — project, baseSha,
+ * lane signature, active-quarantine-set hash — not by who asked. Sibling epics
+ * forward-integrated to the same base sha resolve to the same key and consume ONE stored
+ * measurement with zero suite spawns, instead of each re-running the ~20-minute suite
+ * serially (only in-flight runs coalesced before; 3 siblings on one sha starved 6 claimed
+ * leaves for an hour, 2026-08-13). Reuse is ASYMMETRIC: a PASS is served indefinitely while
+ * the key matches, a FAIL only within a bounded budget — a flake-red has nothing to commit,
+ * so the base sha never moves, and without the budget one false red would pin every sibling
+ * forever.
  *
  * It ALSO bounds how many base gates may run at once, per project AND globally. Coalescing
  * alone cannot
@@ -15,7 +26,9 @@
  * health probes, which gets it killed and restarted — re-invalidating every verdict and
  * starting the storm over. The cap is what breaks that loop.
  */
+import { createHash } from 'node:crypto';
 import type { LeafGateConfig, LeafGateResult } from './leaf-gate.js';
+import { getBaseGateVerdict, recordBaseGateVerdict, takeBaseGateFailServe } from './worker-ledger.js';
 
 /** Stable signature for a base-gate run: project + baseSha + the exact lane sequence
  *  `runBaseGate` would execute, in its fixed order (leaf-gate.ts:807-830), each lane
@@ -41,6 +54,42 @@ export function baseGateKey(project: string, baseSha: string | null | undefined,
     }
   }
   return JSON.stringify([project, baseSha ?? '', lanes]);
+}
+
+/** A stored FAIL may be served to at most this many consumers before the next asker must
+ *  re-measure. Deliberately small: each serve propagates a possibly-flaky red to another
+ *  epic's leaves, and the whole point of the budget is that ONE re-measure is always within
+ *  two consumers' reach. */
+export const BASE_GATE_FAIL_VERDICT_SERVE_BUDGET = 2;
+
+/** A stored FAIL older than this is never served regardless of remaining budget — the
+ *  wall-clock half of "2 consumers or 15 minutes, whichever first". */
+export const BASE_GATE_FAIL_VERDICT_TTL_MS = 15 * 60_000;
+
+/** Hash of the ACTIVE quarantine set (sorted test names), the third leg of the shared
+ *  verdict key. Quarantining or un-quarantining a test changes this hash, which changes the
+ *  key — that IS the invalidation for quarantine edits; no explicit delete is needed, the
+ *  old row is simply never looked up again. */
+export function quarantineSetHash(tests: string[]): string {
+  return createHash('sha256').update(JSON.stringify([...tests].sort())).digest('hex');
+}
+
+/** The durable row's key: the coalescer key (project+baseSha+lanes) extended with the
+ *  quarantine-set hash. Exported so tests assert on real rows instead of duplicating the
+ *  format. */
+export function sharedVerdictKey(coalescerKey: string, quarantineHash: string): string {
+  return `${coalescerKey}|q:${quarantineHash}`;
+}
+
+/** What a caller must know about itself to participate in the durable shared verdict.
+ *  Absent ⇒ pure single-flight + cap semantics, no ledger touch (explicit re-measures and
+ *  callers with no citable base sha stay out of the shared layer). */
+export interface SharedVerdictScope {
+  project: string;
+  baseSha: string;
+  quarantineHash: string;
+  /** Injectable clock for the FAIL TTL (tests must control time; defaults to Date.now). */
+  now?: () => number;
 }
 
 const DEFAULT_MAX_CONCURRENT_BASE_GATES = 2;
@@ -131,10 +180,31 @@ function release(project: string): void {
 export function runBaseGateShared(
   key: string,
   run: () => Promise<LeafGateResult>,
-  opts?: { project?: string },
+  opts?: { project?: string; verdict?: SharedVerdictScope },
 ): Promise<LeafGateResult> {
   const existing = inFlight.get(key);
   if (existing) return existing;
+
+  // Durable shared-verdict consult, BEFORE any slot is taken or run dispatched. In-flight
+  // wins above on purpose: a live run for this key is at least as fresh as any stored row.
+  const verdict = opts?.verdict;
+  const verdictKey = verdict ? sharedVerdictKey(key, verdict.quarantineHash) : null;
+  if (verdict && verdictKey) {
+    const stored = getBaseGateVerdict(verdictKey);
+    const replay = stored ? parseStoredVerdict(stored.resultJson, stored.status) : null;
+    if (stored && replay) {
+      if (stored.status === 'pass') return Promise.resolve(replay);
+      // A stored FAIL is served only within the budget: fresh enough AND a CAS-taken serve
+      // slot. Either bound failing sends THIS asker to a real run (the ONE re-measure);
+      // concurrent siblings then coalesce onto it via the in-flight map above, and the
+      // fresh write below resets the budget.
+      const nowMs = verdict.now?.() ?? Date.now();
+      if (nowMs - stored.measuredAt <= BASE_GATE_FAIL_VERDICT_TTL_MS
+        && takeBaseGateFailServe(verdictKey, BASE_GATE_FAIL_VERDICT_SERVE_BUDGET)) {
+        return Promise.resolve(replay);
+      }
+    }
+  }
 
   // Callers that don't name a project share one bucket rather than escaping the cap.
   const project = opts?.project ?? '';
@@ -149,7 +219,21 @@ export function runBaseGateShared(
       const waitProject = acquire(project, limit);
       if (waitProject) await waitProject;
       try {
-        return await run();
+        const r = await run();
+        // Persist the settled verdict for siblings. 'error' is an incident, not a base
+        // fact — never stored (mirrors isCacheableBaseGateStatus / recordEpicBaseGate).
+        // Write failure is invisible here by design: the next asker just re-runs.
+        if (verdict && verdictKey && r.status !== 'error') {
+          recordBaseGateVerdict({
+            key: verdictKey,
+            project: verdict.project,
+            baseSha: verdict.baseSha,
+            status: r.status,
+            resultJson: stringifyVerdictResult(r),
+            quarantineHash: verdict.quarantineHash,
+          }, verdict.now?.() ?? Date.now());
+        }
+        return r;
       } finally {
         release(project);
       }
@@ -163,6 +247,28 @@ export function runBaseGateShared(
   };
   p.then(clear, clear);
   return p;
+}
+
+/** Cap on the `output` embedded in a persisted verdict — capped BEFORE serializing, because
+ *  truncating the serialized JSON would corrupt it into a permanent parse-miss. */
+const MAX_VERDICT_OUTPUT_CHARS = 200_000;
+
+function stringifyVerdictResult(r: LeafGateResult): string | null {
+  try {
+    return JSON.stringify({ ...r, output: (r.output ?? '').slice(0, MAX_VERDICT_OUTPUT_CHARS) });
+  } catch { return null; }
+}
+
+/** Parse a stored verdict back into the result its consumers replay. Anything off — null,
+ *  corrupt JSON, a status that disagrees with the row's own column — reads as a MISS, and a
+ *  miss means re-measure: extra work, never a skipped or wrong-status gate. */
+function parseStoredVerdict(resultJson: string | null, status: 'pass' | 'fail'): LeafGateResult | null {
+  if (resultJson == null) return null;
+  try {
+    const r = JSON.parse(resultJson) as LeafGateResult;
+    if (!r || typeof r !== 'object' || r.status !== status) return null;
+    return r;
+  } catch { return null; }
 }
 
 /** Test-only: clear all in-flight entries and release every queued/held slot. */

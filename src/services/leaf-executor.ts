@@ -65,6 +65,7 @@ import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
+import { baseGateKey, runBaseGateShared } from './base-gate-coalescer';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
@@ -4140,7 +4141,10 @@ export async function makeLeafExecutorDeps(
       } catch { return null; }
     },
     isEpicBranchDiffEmpty: async () => { try { const r = await defaultRunGit(targetProject, ['diff', '--quiet', `${baseBranch}...${wm.epicBranchName(epicId)}`]); return r.code === 0; } catch { return false; } },
-    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }); } catch { return null; } },
+    // Through the coalescer (single-flight + concurrency cap) but WITHOUT a verdict scope:
+    // an explicit re-measure answered from the stored verdict would be a lie — the caller
+    // asked for a fresh run precisely because the cached picture is suspect.
+    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }), { project: targetProject }); } catch { return null; } },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
     // WorktreeManager so the git plumbing lives in one place.

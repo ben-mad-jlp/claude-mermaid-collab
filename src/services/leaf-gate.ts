@@ -16,7 +16,7 @@ import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
-import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
+import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
 import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen, sweepExpiringQuarantine } from './flaky-quarantine';
 import { pruneBaseGateTestRuns } from './worker-ledger';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
@@ -1226,7 +1226,22 @@ export async function resolveBaseGreen(io: {
   const r = await runBaseGateShared(
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
     () => io.runGate(wt.path),
-    { project: io.targetProject },
+    {
+      project: io.targetProject,
+      // Durable shared verdict: sibling epics forward-integrated to the same base sha
+      // consume ONE measurement. The quarantine hash keeps the key honest — the downgrade
+      // below judges against the same active set the measuring run was keyed under. No
+      // base sha ⇒ nothing citable to key a shared verdict to (mirrors the fail→error
+      // guard further down), so such runs stay out of the shared layer.
+      ...(epicBaseSha ? {
+        verdict: {
+          project: io.targetProject,
+          baseSha: epicBaseSha,
+          quarantineHash: quarantineSetHash(activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test)),
+          now: io.now,
+        },
+      } : {}),
+    },
   );
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
