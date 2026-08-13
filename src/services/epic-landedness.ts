@@ -158,7 +158,7 @@ const GIT_PROBE_TIMEOUT_MS = 15_000;
 
 /** Default async GitRunner: Bun.spawn + await exited, never spawnSync (would block the
  *  sidecar event loop), never throws (probe failures resolve to a non-zero code). */
-async function defaultRunGit(cwd: string, gitArgs: string[]): Promise<{ code: number; stdout: string }> {
+export async function defaultRunGit(cwd: string, gitArgs: string[]): Promise<{ code: number; stdout: string }> {
   try {
     const p = Bun.spawn(['git', ...gitArgs], {
       cwd,
