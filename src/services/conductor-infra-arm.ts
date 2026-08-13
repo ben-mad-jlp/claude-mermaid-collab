@@ -202,6 +202,8 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
         () => runGate(wt.path, decl.cfg),
         {
           project: targetProject,
+          // For listInflightBaseGates() — names the epic waiting on this probe's run.
+          epicId,
           // Same shared-verdict scope as ensureBaseGreen's resolveBaseGreen — the probe and
           // the executor measure the same thing, so they must share the same durable row.
           ...(sha ? {
