@@ -645,7 +645,7 @@ export async function isReclaimableIgnoringAge(
  */
 export async function gcLeafWorktrees(
   project: string,
-  opts?: { dryRun?: boolean; orphanMaxAgeMs?: number },
+  opts?: { dryRun?: boolean; orphanMaxAgeMs?: number; sweepOpts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean; remove?: (p: string) => Promise<void> }; skipProbeSweep?: boolean },
 ): Promise<GcReport> {
   const wm = getWorktreeManager(project);
   const report: GcReport = { removed: [], refused: [], quarantined: [], prunedRegistrations: 0, scanned: 0, records: [] };
@@ -661,6 +661,14 @@ export async function gcLeafWorktrees(
   return wm.runExclusive(async () => {
     const now = Date.now();
     const orphanMaxAgeMs = opts?.orphanMaxAgeMs ?? ORPHAN_WORKTREE_MAX_AGE_MS;
+
+    if (!opts?.skipProbeSweep) {
+      try {
+        await sweepStrayMutationProbeTemps(project, { now, ...opts?.sweepOpts, report, atIso });
+      } catch {
+        // best-effort: a probe-sweep failure must never sink the GC pass
+      }
+    }
 
     // Pre-compute the two reconcile inputs once: what git knows about + what the durable
     // wm records own. The reaper treats "a durable record claims this path" ⇒ bound ⇒
@@ -1044,11 +1052,12 @@ export async function gcLeafWorktrees(
 export async function sweepStrayMutationProbeTemps(
   project: string,
   opts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean;
-           remove?: (p: string) => Promise<void> },
+           remove?: (p: string) => Promise<void>; report?: GcReport; atIso?: string },
 ): Promise<string[]> {
   const root = opts?.tmpRoot ?? tmpdir();
   const now = opts?.now ?? Date.now();
   const maxAgeMs = opts?.maxAgeMs ?? MUTATION_PROBE_TEMP_MAX_AGE_MS;
+  const atIso = opts?.atIso ?? new Date().toISOString();
   const removed: string[] = [];
 
   let entries;
@@ -1073,13 +1082,23 @@ export async function sweepStrayMutationProbeTemps(
 
     if (!opts?.dryRun) {
       try {
-        await (opts?.remove ?? ((dir) => getWorktreeManager(project).removePath(dir)))(p);
+        await (opts?.remove ?? ((dir) => getWorktreeManager(project).removePathHoldingLock(dir)))(p);
       } catch {
         continue;
       }
     }
 
     removed.push(p);
+    if (opts?.report && !opts?.dryRun) {
+      emitGcRemoval(opts.report, {
+        path: p,
+        reasonClass: 'probe-stale',
+        epicId8: null,
+        leafTodoId: null,
+        trashDir: null,
+        atIso,
+      });
+    }
   }
 
   if (removed.length > 0) {
@@ -1090,13 +1109,16 @@ export async function sweepStrayMutationProbeTemps(
 
 export async function tickGcLeafWorktrees(
   project: string,
-  opts: { now?: number; gc?: (project: string) => Promise<GcReport>; sweep?: (project: string, o?: { now?: number }) => Promise<string[]> } = {},
+  opts: { now?: number; gc?: (project: string, o?: { skipProbeSweep?: boolean; sweepOpts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean; remove?: (p: string) => Promise<void> } }) => Promise<GcReport>; sweep?: (project: string, o?: { now?: number }) => Promise<string[]> } = {},
 ): Promise<GcReport | null> {
   const now = opts.now ?? Date.now();
   if ((now - (lastGcMs.get(project) ?? 0)) < WORKTREE_GC_INTERVAL_MS) return null;
   lastGcMs.set(project, now);
-  try { await (opts.sweep ?? sweepStrayMutationProbeTemps)(project, { now }); } catch { /* best-effort */ }
-  return (opts.gc ?? gcLeafWorktrees)(project);
+  if (opts.sweep) {
+    try { await opts.sweep(project, { now }); } catch { /* best-effort */ }
+    return (opts.gc ?? gcLeafWorktrees)(project, { skipProbeSweep: true });
+  }
+  return (opts.gc ?? gcLeafWorktrees)(project, { sweepOpts: { now } });
 }
 
 const lastTrashSweepMs = new Map<string, number>();
