@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs';
+import { Database } from 'bun:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -57,6 +58,25 @@ describe('hermetic-tripwire', () => {
       } else {
         delete process.env[ALLOW_DETACHED_ENV];
       }
+    }
+  });
+
+  it('throws HermeticTripwireError on new Database under ~/.mermaid-collab', () => {
+    const forbiddenPath = join(FORBIDDEN_HOME_DIR, 'tripwire-test-forbidden.db');
+    expect(() => new Database(forbiddenPath)).toThrow(HermeticTripwireError);
+  });
+
+  it('allows new Database(":memory:") and a Database under tmpdir', () => {
+    const memDb = new Database(':memory:');
+    expect(() => memDb.run('create table t(a)')).not.toThrow();
+
+    const tmpPath = fs.mkdtempSync(join(tmpdir(), 'tripwire-db-test-'));
+    try {
+      const dbPath = join(tmpPath, 'test.db');
+      const tmpDb = new Database(dbPath);
+      expect(() => tmpDb.run('create table t(a)')).not.toThrow();
+    } finally {
+      fs.rmSync(tmpPath, { recursive: true, force: true });
     }
   });
 });
