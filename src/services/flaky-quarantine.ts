@@ -18,6 +18,7 @@ import {
 import { listTodos, updateTodo as updateTodoDefault } from './todo-store';
 import { quarantineDedupKey } from './quarantine-dedup';
 import { resolveQuarantineTestFile } from './quarantine-test-file';
+import { recordFrictionOnce } from './friction-store';
 
 export interface FlakyCandidate {
   test: string;
@@ -256,6 +257,51 @@ export async function closeQuarantineOnGreen(
       );
     }
   }
+}
+
+export interface DeflakeEvidence {
+  runs: number;
+  passRuns: number;
+  failRuns: number;
+  sha: string;
+}
+
+/** Deterministic friction detail string for a de-flake retirement, so recordFrictionOnce's
+ *  SQL dedup (layer + retryReason + detail) actually dedupes repeated retirements of the
+ *  same (test, evidence, sha) rather than writing a fresh note every time. */
+export function deflakeFrictionDetail(test: string, e: DeflakeEvidence): string {
+  return `quarantine-deflaked: ${test} | runs=${e.runs} pass=${e.passRuns} fail=${e.failRuns} | sha=${e.sha}`;
+}
+
+/**
+ * Retire a quarantine record because fresh evidence shows it no longer flakes: the ONLY
+ * sanctioned deliberate-retirement path (as opposed to a raw DELETE), so a de-flake is
+ * observable — it removes the row AND records a deduplicated `quarantine-deflaked`
+ * friction note carrying the measured evidence.
+ *
+ * @returns recordFrictionOnce's boolean: true iff a NEW friction note landed (false if an
+ * identical note already exists, i.e. this retirement was already recorded).
+ */
+export async function retireQuarantineDeflaked(
+  project: string,
+  test: string,
+  evidence: DeflakeEvidence,
+  now: number = Date.now(),
+  deps?: {
+    removeTestQuarantine?: typeof removeTestQuarantineDefault;
+    recordFrictionOnce?: typeof recordFrictionOnce;
+  },
+): Promise<boolean> {
+  const removeTestQuarantineFn = deps?.removeTestQuarantine ?? removeTestQuarantineDefault;
+  const recordFrictionOnceFn = deps?.recordFrictionOnce ?? recordFrictionOnce;
+
+  removeTestQuarantineFn(project, test);
+
+  return recordFrictionOnceFn(project, {
+    layer: 'operational',
+    retryReason: 'quarantine-deflaked',
+    detail: deflakeFrictionDetail(test, evidence),
+  });
 }
 
 /**
