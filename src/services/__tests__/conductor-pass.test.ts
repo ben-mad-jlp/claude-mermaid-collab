@@ -1090,24 +1090,15 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
 
   /** Forge a capped mission like forgeCappedMission, but also return the serving epic ids so
    *  the caller can attach leaf-run reasons to them (distinctReasons is keyed off these epics).
-   *  @param liveEpicIndices - indices of epics to keep LIVE (non-dropped with a settled child leaf)
    */
-  async function forgeCappedMissionWithEpicIds(title = 'MEASURED-live: p95 latency < 100ms in prod', liveEpicIndices: number[] = []) {
+  async function forgeCappedMissionWithEpicIds(title = 'MEASURED-live: p95 latency < 100ms in prod') {
     const forged = await forgeMission(project, { session: 's1', title, criteria: ['p95 latency measured under 100ms on the live deploy'] });
     const crit = listCriteria(project, forged.missionId)[0];
     const epicIds: string[] = [];
     for (let i = 0; i < CRITERION_SERVE_CAP; i++) {
       const e = await createTodo(project, { ownerSession: 's1', title: `[EPIC] serve ${i}`, kind: 'epic', parentId: forged.missionId, servesCriterionIds: [crit.id] });
-      if (liveEpicIndices.includes(i)) {
-        // Keep this epic live with a settled child leaf (to avoid childless grace period).
-        // Set status to 'ready' and add a child leaf that's rejected (accepted then dropped).
-        await updateTodo(project, e.id, { status: 'ready' });
-        const settledLeaf = await createTodo(project, { ownerSession: 's1', title: 'settled leaf', parentId: e.id, status: 'ready' });
-        await updateTodo(project, settledLeaf.id, { status: 'dropped', acceptanceStatus: 'rejected' });
-      } else {
-        // Drop the epic directly.
-        await updateTodo(project, e.id, { status: 'dropped' });
-      }
+      // Drop the epic directly.
+      await updateTodo(project, e.id, { status: 'dropped' });
       epicIds.push(e.id);
     }
     recordApproachAttempt({
@@ -1148,9 +1139,8 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
   test('all-base-red distinctReasons + GREEN re-measure on every serving epic ⇒ suppresses the serve-cap card', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged, epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod', [0]);
+    const { forged, epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod');
     recordBaseRedLeafRun(epicIds[0]);
-    recordContentLeafRun(epicIds[1]); // Record a non-base-red reason on a dropped epic.
 
     const escCalls: any[] = [];
     const createEscalationSpy = ((input: any) => {
@@ -1174,7 +1164,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
   test('all-base-red distinctReasons + a FAILING re-measure still raises the serve-cap card', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod', [0]);
+    const { epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod');
     recordBaseRedLeafRun(epicIds[0]);
 
     const escCalls: any[] = [];
@@ -1197,7 +1187,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
   test('all-base-red distinctReasons + a THROWING probe fails open: card raised and the pass still returns', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod', [0]);
+    const { epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod');
     recordBaseRedLeafRun(epicIds[0]);
 
     const escCalls: any[] = [];
@@ -1220,7 +1210,7 @@ describe('runConductorPass — criterion serve-cap escalation', () => {
   test('mixed reasons (not all epic-base-red) still raise the card even when the probe would pass', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod', [0, 1]);
+    const { epicIds } = await forgeCappedMissionWithEpicIds('MEASURED-live: p95 latency < 100ms in prod');
     recordBaseRedLeafRun(epicIds[0]);
     recordContentLeafRun(epicIds[1]);
 

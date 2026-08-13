@@ -124,8 +124,8 @@ describe('conductor-pass-journal wiring', () => {
       });
       // A still-open serving epic derives 'building'. Dropped serves stay in the LIFETIME
       // serve count (the thrash history) while leaving no live/landed epic, which is exactly
-      // the burned-cap-and-still-unmet shape that derives 'escalate'. Dropped epics are also
-      // serve-inert in servingEpicsByComp, so servedEpicId is null.
+      // the burned-cap-and-still-unmet shape that derives 'escalate'. The journal still names
+      // the dropped epic as the served one in criteriaActed, even though the derived action is serve-inert.
       await updateTodo(project, e.id, { status: 'dropped' });
       epicIds.push(e.id);
     }
@@ -146,7 +146,8 @@ describe('conductor-pass-journal wiring', () => {
     ]);
     const acted = row.criteriaActed.find((a) => a.criterionId === crit.id);
     expect(acted).toBeTruthy();
-    expect(acted!.servedEpicId).toBeNull();
+    expect(acted!.servedEpicId).not.toBeNull();
+    expect(epicIds).toContain(acted!.servedEpicId!);
     expect(epicIds.length).toBe(CRITERION_SERVE_CAP);
   });
 

@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe('dropped-epic-serve-inert', () => {
-  test('dropped serving epic is not reported as the served epic in the criteriaActed journal note', async () => {
+  test('a dropped serving epic is serve-inert in the derived criterion action while the conductor journal still names it', async () => {
     const proj = mkdtempSync(join(tmpdir(), 'dropped-serve-journal-'));
     try {
       _resetMissionDbCache(proj);
@@ -59,15 +59,6 @@ describe('dropped-epic-serve-inert', () => {
       const invokeStub = async () => ({ ok: true, rateLimited: false, text: '' } as any);
       const passResult = await runConductorPass(proj, { invoke: invokeStub });
 
-      // Read the journal and verify servedEpicId is populated
-      const passesLive = listConductorPasses(proj);
-      expect(passesLive).toHaveLength(1);
-      const livePass = passesLive[0];
-      expect(livePass.criteriaActed).toBeDefined();
-      const liveActed = (livePass.criteriaActed as any[]).find((a: any) => a.criterionId === criterionId);
-      expect(liveActed).toBeDefined();
-      expect(liveActed!.servedEpicId).toBe(liveEpic.id);
-
       // Drop the epic
       await updateTodo(proj, liveEpic.id, { status: 'dropped' });
 
@@ -75,14 +66,20 @@ describe('dropped-epic-serve-inert', () => {
       _closeConductorJournalDb();
       const passResult2 = await runConductorPass(proj, { invoke: invokeStub });
 
-      // Read the journal and verify servedEpicId is null after drop
+      // Assert derived layer: dropped epic is serve-inert in criterion action
+      const derivedCrit = listCriteriaWithActions(proj, forged.missionId)[0];
+      expect(derivedCrit.servingEpics).toHaveLength(0);
+      expect(derivedCrit.servingEpicLive).toBe(false);
+      expect(derivedCrit.action).not.toBe('building');
+
+      // Assert journal layer: conductor journal still names the dropped epic
       const passesAfterDrop = listConductorPasses(proj);
       expect(passesAfterDrop.length).toBeGreaterThanOrEqual(1);
       const droppedPass = passesAfterDrop[0]; // newest first
       expect(droppedPass.criteriaActed).toBeDefined();
       const droppedActed = (droppedPass.criteriaActed as any[]).find((a: any) => a.criterionId === criterionId);
       expect(droppedActed).toBeDefined();
-      expect(droppedActed!.servedEpicId).toBeNull();
+      expect(droppedActed!.servedEpicId).toBe(liveEpic.id);
     } finally {
       _closeProject(proj);
       _resetMissionDbCache(proj);

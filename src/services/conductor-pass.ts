@@ -586,7 +586,11 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
   // Serving epics for EVERY criterion (not just the escalated ones), from one listTodos call: the
   // criteriaActed note below records which epic serves each criterion, and the serve-cap loop
-  // further down reads the same map.
+  // further down reads the same map. UNFILTERED BY DESIGN: this map feeds the serve-cap reason
+  // collection (:690), the base-red GREEN-re-measure probe (:716-724), the deferred-ref (:650),
+  // and the journal's criteriaActed.servedEpicId (:607) — every one of which is a HISTORY read
+  // over BURNED (dropped) epics. Filtering dropped here empties the map by construction.
+  // Serve-inertness belongs at mission-store.ts:1688, not here.
   const servingEpicsByComp: Map<string, string[]> = new Map();
   const epicTargetProjectById: Map<string, string | null> = new Map();
   const servingEpicNicknameById: Map<string, string | null> = new Map();
