@@ -18,7 +18,7 @@ import { forgeMission } from '../../mcp/tools/mission-forge';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import { openPassRow, finalizePassRow } from '../conductor-pass-journal';
 import { buildServeSignature, buildPassSignature } from '../conductor-signature';
-import { createTodo } from '../todo-store';
+import { createTodo, updateTodo } from '../todo-store';
 
 let project: string;
 let invokeCalls: number;
@@ -192,5 +192,79 @@ describe('discover-with-no-live-epic debounce bypass', () => {
     // takes precedence and the pass debounces.
     const capped = await tick();
     expect(capped.reason).toBe('debounced');
+  });
+
+  test('a discover criterion whose OPEN serving epic is base-red still debounces', async () => {
+    const forged = await forgeMission(project, {
+      session: 's1',
+      title: 'Base-red inert epic',
+      criteria: ['a measurement'],
+    });
+    const missionId = forged.missionId;
+
+    // First pass: no serving epic yet, criterion derives 'discover', node runs.
+    const first = await tick();
+    expect(first.reason).toBe('node-failed');
+    expect(invokeCalls).toBe(1);
+
+    // Get the criterion and create a live serving epic (childless = live by grace period).
+    const criteria = listCriteriaWithActions(project, missionId);
+    expect(criteria.length).toBe(1);
+    const criterionId = criteria[0].id;
+
+    const epic = await createTodo(project, {
+      ownerSession: 's1',
+      title: '[EPIC] base-red but live',
+      parentId: missionId,
+      kind: 'epic',
+      servesCriterionIds: [criterionId],
+    });
+
+    // Add one rejected leaf so the epic is 'open' (not 'landed').
+    const leaf = await createTodo(project, {
+      ownerSession: 's1',
+      title: 'rejected leaf',
+      parentId: epic.id,
+      status: 'ready',
+    });
+    await updateTodo(project, leaf.id, { acceptanceStatus: 'rejected' });
+
+    // Recompute the fingerprint. Action is still 'discover' because the epic is not live
+    // (has children, so grace period doesn't apply; no pending/in-progress runs yet).
+    _resetMissionDbCache(project);
+    const mission = getMission(project, missionId)!;
+    const status = mission.status!;
+    const actions = listCriteriaWithActions(project, missionId).map((a) => ({
+      action: a.action,
+      id: a.id,
+      rejectedParked: a.rejectedParkedCount,
+    }));
+    const serveFp = buildServeSignature({ status, actions, hardCardIds: [] });
+    const fp = buildPassSignature(serveFp, []);
+
+    // Verify servingEpicState is 'open' and servingEpicLive is false.
+    const updated = listCriteriaWithActions(project, missionId)[0];
+    expect(updated.servingEpicState).toBe('open');
+    expect(updated.servingEpicLive).toBe(false);
+    expect(updated.action).toBe('discover');
+
+    // Seed the journal with a successful pass on this fingerprint.
+    const startedAt = Date.now() + 1000;
+    const journalId = openPassRow(project, missionId, startedAt) as string;
+    finalizePassRow(journalId, {
+      endedAt: startedAt + 500,
+      serveFp,
+      passFp: fp,
+      selfFp: fp,
+      outcome: 'conducted',
+      ran: true,
+    });
+
+    // The next pass should debounce because the serving epic is 'open' (not 'none').
+    // The narrow bypass triggers only on 'none', so the fingerprint debounce applies.
+    const invokesBeforeDebounce = invokeCalls;
+    const debounced = await tick();
+    expect(debounced.reason).toBe('debounced');
+    expect(invokeCalls).toBe(invokesBeforeDebounce);
   });
 });
