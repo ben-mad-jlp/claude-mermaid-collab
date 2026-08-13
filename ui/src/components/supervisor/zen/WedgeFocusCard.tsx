@@ -1,6 +1,6 @@
 import React from 'react';
 import type { SessionSummary } from '@/stores/supervisorStore';
-import { wedgeMinutes } from '@/lib/triageSelectors';
+import { wedgeMinutes } from '@/lib/attentionSelectors';
 
 export interface WedgeFocusCardProps {
   summary: SessionSummary;

@@ -49,7 +49,7 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
     return rec !== undefined ? new Set([rec]) : new Set();
   });
 
-  // Stable item id — matches triageItemId session: style
+  // Stable item id — matches attentionItemId session: style
   const itemId = escalation?.id ?? `session:${summary.project}::${summary.session}`;
 
   // Store subscriptions
