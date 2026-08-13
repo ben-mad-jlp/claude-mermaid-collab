@@ -1,4 +1,5 @@
 import type { TodoKind } from '@/lib/todoKind';
+import type { FrictionLayer, WorkRequestType } from '@/lib/workRequestRegistry';
 
 // Mirrors the backend unified work-graph (src/services/todo-store.ts).
 // `planned`/`ready`/`dropped` are work-graph states the Planner/Coordinator use.
@@ -66,13 +67,13 @@ export interface SessionTodo {
    *  containers and stay roots, never mission children. Read from the server column. */
   isBucket?: boolean;
   /** Structural bucket-type marker (server column). null = not a typed bucket. */
-  bucketType?: 'inbox' | 'bugfix' | null;
+  bucketType?: WorkRequestType | null;
   /** ISO. Set once when this epic's `land_leaf`/land record lands onto master
    *  (backend dual-write, W3 land-property redesign — src/services/todo-store.ts
    *  rowToTodo). null = not landed. Only ever set on epics. */
   landedAt?: string | null;
   /** Mission→criterion edge this epic serves (server column, mirrors servesCriterionIds). */
   servesCriterionIds?: string[];
-  /** Friction-triage classification of a bucket item (server column, R2). */
-  triageTag?: 'domain' | 'orchestration' | 'operational' | null;
+  /** Friction-layer classification of a bucket item (server column, R2). */
+  frictionLayer?: FrictionLayer | null;
 }
