@@ -1,4 +1,4 @@
-import { setQuarantinePromotionHook, type FlakyCandidate } from './flaky-quarantine';
+import { setQuarantinePromotionHook, setQuarantineExpiryHook, type FlakyCandidate, type QuarantineExpiryEvent } from './flaky-quarantine';
 import { recordFrictionOnce } from './friction-store';
 import { createTodo, listTodos, updateTodo } from './todo-store';
 import { ensureBucket } from './bucket-registry';
@@ -99,9 +99,44 @@ export async function runQuarantinePromotionReport(
   }
 }
 
+/**
+ * Best-effort friction note for a quarantine row that lapsed without renewal: a
+ * deduplicated `quarantine-expired:<test>` entry, keyed only on stored row fields so a
+ * repeat sweep's identical detail payload is rejected by recordFrictionOnce's dedup.
+ * No todo, no bucket — the base gate already stopped excluding the test; this is a note.
+ */
+export async function runQuarantineExpiryReport(
+  e: QuarantineExpiryEvent,
+  deps: QuarantineReportDeps = {},
+): Promise<void> {
+  const recordFrictionOnceFn = deps.recordFrictionOnce ?? recordFrictionOnce;
+
+  try {
+    await recordFrictionOnceFn(e.project, {
+      layer: 'operational',
+      retryReason: 'quarantine-expired',
+      detail: JSON.stringify({
+        key: `quarantine-expired:${e.test}`,
+        test: e.test,
+        quarantinedAtSha: e.quarantinedAtSha,
+        evidence: e.evidence,
+        ttlExpiresAt: e.ttlExpiresAt,
+      }),
+    });
+  } catch (err) {
+    console.warn(
+      `[flaky-quarantine-report] ${e.project}: failed to report quarantine expiry for "${e.test}":`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 export function registerQuarantinePromotionReport(deps: QuarantineReportDeps = {}): void {
   setQuarantinePromotionHook((c) => {
     void runQuarantinePromotionReport(c, deps).catch(() => {});
+  });
+  setQuarantineExpiryHook((e) => {
+    void runQuarantineExpiryReport(e, deps).catch(() => {});
   });
 }
 
