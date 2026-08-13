@@ -4,9 +4,10 @@ import { recordSupervisorAudit } from './supervisor-store';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
 import { isBucketEpic } from './bucket-registry.js';
 import { yieldToLoop } from './loop-yield.ts';
-import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe, detectTrunkRef } from './epic-branch-status.ts';
-import { hasLandStamp, isLanded, isEpicLandedInGit } from './epic-landedness';
+import { buildEpicBranchStatus, listEpicBranchesIn, makeGitProbe, detectTrunkRef, type GitProbe } from './epic-branch-status.ts';
+import { hasLandStamp, isLanded, defaultRunGit, type GitRunner } from './epic-landedness';
 import { getLastEpicLandAttempt } from './epic-land-record-store.js';
+import { getTrunkLandIndex, lookupEpicLand } from './trunk-land-index.js';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -317,18 +318,46 @@ export function findLandedAtDivergence(todos: Todo[], aheadOf?: AheadLookup): In
   return violations;
 }
 
+/** Predicate for epics whose ahead status is relevant: land-stamped epics with no done [LAND] child.
+ *  This is the exact set whose ahead value is read by findLandedAtDivergence. */
+export function selectAheadProbeCandidates(todos: Todo[]): Todo[] {
+  const childrenOf = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (t.parentId) {
+      const arr = childrenOf.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenOf.set(t.parentId, arr);
+    }
+  }
+
+  const candidates: Todo[] = [];
+  for (const t of todos) {
+    if (!isEpic(t) || !hasLandStamp(t)) continue;
+    const hasDoneLand = (childrenOf.get(t.id) ?? []).some((c) => isLand(c) && c.status === 'done');
+    if (!hasDoneLand) {
+      candidates.push(t);
+    }
+  }
+  return candidates;
+}
+
 /** Find epics that are reachable on trunk (git-landed) but have no merged land attempt record.
  *  Advisory check — never throws; probes and DB reads are individually caught. */
 export async function findUnrecordedTrunkLands(
   project: string,
   todos: Todo[],
   trunk: string,
+  deps?: { runGit?: GitRunner; tipSha?: string },
 ): Promise<InvariantViolation[]> {
   const violations: InvariantViolation[] = [];
+  const runGit = deps?.runGit ?? defaultRunGit;
+  const index = await getTrunkLandIndex(project, trunk, runGit, { tipSha: deps?.tipSha }).catch(() => null);
+  if (index === null) return violations;
+
   for (const t of todos) {
     if (!isEpic(t)) continue;
-    const status = await isEpicLandedInGit(project, t.id, { trunk }).catch(() => 'indeterminate' as const);
-    if (status !== 'landed') continue;
+    const entry = lookupEpicLand(index, t.id);
+    if (!entry) continue;
     const last = getLastEpicLandAttempt(project, t.id);
     if (last?.outcome === 'merged') continue;
     violations.push({
@@ -342,15 +371,41 @@ export async function findUnrecordedTrunkLands(
 }
 
 /** DB-backed wrapper: load the project's full work-graph and return its violations. */
-export async function checkInvariants(project: string): Promise<InvariantViolation[]> {
+export async function checkInvariants(
+  project: string,
+  deps?: { runGit?: GitRunner; probe?: GitProbe },
+): Promise<InvariantViolation[]> {
   const todos = listTodos(project, { includeCompleted: true });
   const trunk = await detectTrunkRef(project);
-  const branchReport = await buildEpicBranchStatus(todos, makeGitProbe(project), trunk, project, () =>
-    listEpicBranchesIn(project),
-  );
-  const aheadById = new Map(branchReport.epics.map((e) => [e.epicId, e.ahead]));
+  const runGit = deps?.runGit ?? defaultRunGit;
+
+  // Resolve trunk tip once for threading into both branch status and land index.
+  let tipSha: string | undefined;
+  try {
+    const rev = await runGit(project, ['rev-parse', trunk]);
+    tipSha = rev.code === 0 ? rev.stdout.trim() : undefined;
+  } catch {
+    // Fail-open: if rev-parse fails, continue without tipSha.
+  }
+
+  // Narrow the git branch probes to only land-stamped epics with no done land leaf.
+  const candidates = selectAheadProbeCandidates(todos);
+  const probe = deps?.probe ?? makeGitProbe(project);
+
+  let aheadById = new Map<string, number | null>();
+  if (candidates.length > 0) {
+    const branchReport = await buildEpicBranchStatus(candidates, probe, trunk, project, () =>
+      listEpicBranchesIn(project),
+    );
+    aheadById = new Map(branchReport.epics.map((e) => [e.epicId, e.ahead]));
+  }
+
   const aheadOf: AheadLookup = (epicId) => aheadById.get(epicId);
-  return [...findViolations(todos), ...findLandedAtDivergence(todos, aheadOf), ...(await findUnrecordedTrunkLands(project, todos, trunk))];
+  return [
+    ...findViolations(todos),
+    ...findLandedAtDivergence(todos, aheadOf),
+    ...(await findUnrecordedTrunkLands(project, todos, trunk, { runGit, tipSha })),
+  ];
 }
 
 // ───────────────────────────────────────────────────────────────────────────

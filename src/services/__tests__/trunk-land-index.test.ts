@@ -226,4 +226,83 @@ describe('getTrunkLandIndex', () => {
     const notFound = lookupEpicLand(index!, 'nonexistent-id-12345678');
     expect(notFound).toBeNull();
   });
+
+  it('five consecutive calls within the tip TTL issue exactly one rev-parse and one log', async () => {
+    const fake = fakeGitRunner();
+    fake.setLogOutput({
+      code: 0,
+      stdout: '\x1eabc123def456\x092024-01-01T00:00:00Z\x09Collab-Epic: dc8aa05d-a060-4a02-85d2-ca1c45a8cbb5\n',
+    });
+
+    let now = 1000;
+    const deps = {
+      tipTtlMs: 5000,
+      now: () => now,
+    };
+
+    // Five consecutive calls with the clock advancing slightly each time
+    for (let i = 0; i < 5; i++) {
+      now += 100; // Advance by 100ms each iteration, well within the 5000ms TTL
+      await getTrunkLandIndex(PROJECT, TRUNK, fake.runner, deps);
+    }
+
+    // Should have exactly one rev-parse call (first call) and one log call
+    const revParseCalls = fake.callLog.filter((c) => c.args[0] === 'rev-parse');
+    const logCalls = fake.callLog.filter((c) => c.args[0] === 'log');
+
+    expect(revParseCalls.length).toBe(1);
+    expect(logCalls.length).toBe(1);
+  });
+
+  it('advancing the clock past the tip TTL issues a second rev-parse', async () => {
+    const fake = fakeGitRunner();
+    fake.setLogOutput({
+      code: 0,
+      stdout: '\x1eabc123def456\x092024-01-01T00:00:00Z\x09Collab-Epic: dc8aa05d-a060-4a02-85d2-ca1c45a8cbb5\n',
+    });
+
+    let now = 1000;
+    const deps = {
+      tipTtlMs: 5000,
+      now: () => now,
+    };
+
+    // First call at time 1000
+    await getTrunkLandIndex(PROJECT, TRUNK, fake.runner, deps);
+    const callsAfterFirst = fake.callLog.filter((c) => c.args[0] === 'rev-parse').length;
+    expect(callsAfterFirst).toBe(1);
+
+    // Advance the clock beyond the TTL
+    now = 7000; // 6000ms later, past the 5000ms TTL
+
+    // Second call should issue a new rev-parse because the memo is stale
+    await getTrunkLandIndex(PROJECT, TRUNK, fake.runner, deps);
+    const callsAfterSecond = fake.callLog.filter((c) => c.args[0] === 'rev-parse').length;
+
+    expect(callsAfterSecond).toBe(2);
+  });
+
+  it('an explicitly supplied tipSha issues zero rev-parse calls', async () => {
+    const fake = fakeGitRunner();
+    fake.setLogOutput({
+      code: 0,
+      stdout: '\x1eabc123def456\x092024-01-01T00:00:00Z\x09Collab-Epic: dc8aa05d-a060-4a02-85d2-ca1c45a8cbb5\n',
+    });
+
+    const deps = {
+      tipSha: 'abc123def456',
+    };
+
+    // Call with explicit tipSha
+    const result = await getTrunkLandIndex(PROJECT, TRUNK, fake.runner, deps);
+
+    // Should have exactly zero rev-parse calls and one log call
+    const revParseCalls = fake.callLog.filter((c) => c.args[0] === 'rev-parse');
+    const logCalls = fake.callLog.filter((c) => c.args[0] === 'log');
+
+    expect(revParseCalls.length).toBe(0);
+    expect(logCalls.length).toBe(1);
+    expect(result).toBeDefined();
+    expect(result!.size).toBe(1);
+  });
 });

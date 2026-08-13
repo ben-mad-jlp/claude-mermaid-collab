@@ -1,4 +1,4 @@
-/** Condition keys for the coordinator-live raise sites (14 `createEscalation` call sites).
+/** Condition keys for the coordinator-live raise sites (15 `createEscalation` call sites).
  *
  *  Mirrors `infraRejectedConditionKey` (conductor-infra-arm.ts:114) and
  *  `depStrandConditionKey` (reconcile-pass.ts:68): `conditionKey` is the store's durable
@@ -22,7 +22,8 @@ export type CoordinatorConditionReason =
   | 'retry-exhausted'
   | 'budget-hard-cap'
   | 'rate-cap-exhausted'
-  | 'gate-rejected';
+  | 'gate-rejected'
+  | 'zero-node-claim-lost';
 
 /** `BP0_STRANDED_SUMMARY_KIND` reused as a literal here (coordinator-live.ts:1142) since the
  *  bp0 summary site's `kind` IS the discriminator (no reason-class part). */
@@ -42,6 +43,7 @@ export const COORDINATOR_CONDITION_REASONS: Readonly<Record<string, CoordinatorC
   budgetHardCap: 'budget-hard-cap',
   rateCapExhausted: 'rate-cap-exhausted',
   gateRejected: 'gate-rejected',
+  zeroNodeClaimLost: 'zero-node-claim-lost',
 });
 
 /** Build `{ conditionKey, conditionTuple }` from a `kind` plus its ordered discriminator
