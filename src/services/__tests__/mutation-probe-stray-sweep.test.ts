@@ -118,6 +118,7 @@ describe('mutation-probe stray sweep', () => {
         quarantined: [],
         prunedRegistrations: 0,
         scanned: 0,
+        records: [],
       };
     };
 
