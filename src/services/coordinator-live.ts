@@ -78,6 +78,7 @@ import {
 import { getConfig } from './config-service';
 import { recordFriction } from './friction-store';
 import { recordLandCycle, captureLandCycleFields, recordLandAttempt } from './epic-land-record-store.js';
+import { runLandTypecheckFloor, landTypecheckRefuses, type LandTypecheckProof } from './land-typecheck-floor';
 
 // ---------------------------------------------------------------------------
 // Pure pane-scrape detectors — the in-app terminal UI + interactive-launch tmux
@@ -788,6 +789,203 @@ async function parkRedispatchCap(project: string, todoId: string, title: string,
   }
 }
 
+// --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate: step 2 helper ---------------
+// Narrow worktree interface for step 2 epic→integration reconcile.
+export interface Oi1LandWorktree {
+  ensureEpic(epicId: string, project?: string, baseRef?: string): Promise<{ path: string } | null>;
+  landEpicToMaster(
+    epicId: string,
+    opts?: { baseRef?: string },
+  ): Promise<{
+    landed?: boolean;
+    conflict?: boolean;
+    reason?: string;
+    masterSha?: string | null;
+    baseRef?: string;
+  }>;
+  epicHeadSha(epicId: string): Promise<string | null>;
+}
+
+// Optional dependency bag for step 2, with fail-closed floor and post-land hooks.
+export interface Oi1LandDeps {
+  typecheckFloor?: (o: { repo: string; epicWorktreeCwd: string }) => Promise<LandTypecheckProof>;
+  recordAttempt?: (
+    project: string,
+    a: {
+      epicId: string;
+      outcome: 'merged' | 'refused' | 'errored';
+      reason?: string | null;
+      landPath?: string | null;
+      session?: string | null;
+      mergeSha?: string | null;
+      typecheckCommand?: string | null;
+      typecheckExitCode?: number | null;
+      typecheckFirstError?: string | null;
+    },
+  ) => void;
+  afterLanded?: (land: {
+    landed?: boolean;
+    conflict?: boolean;
+    reason?: string;
+    masterSha?: string | null;
+    baseRef?: string;
+  }) => Promise<void>;
+}
+
+/**
+ * OI-1 step 2: one-shot idempotent epic→integration land reconcile with fail-closed
+ * typecheck floor. Returns landConflict to signal the reversal logic at step 3.
+ * All side effects (record land, audit, escalate) are guaranteed: the helper never
+ * sinks them on an error.
+ */
+export async function oi1ReconcileLandStep(args: {
+  project: string;
+  todoId: string;
+  epicId: string;
+  intRef: string;
+  session: string;
+  targetProject: string;
+  wm: Oi1LandWorktree;
+  deps?: Oi1LandDeps;
+}): Promise<{ landConflict: boolean }> {
+  const deps = args.deps ?? {};
+  const floor = deps.typecheckFloor ?? runLandTypecheckFloor;
+  const recordAttempt = deps.recordAttempt ?? recordLandAttempt;
+  const allTodos = listTodos(args.project, { includeCompleted: true });
+
+  let landConflict = false;
+  try {
+    // --- Floor gate: resolve epicWorktreeCwd and run typecheck floor ---
+    const epicWorktreeCwd = (await args.wm.ensureEpic(args.epicId).catch(() => null))?.path ?? args.targetProject;
+    const proof = await floor({ repo: args.targetProject, epicWorktreeCwd });
+
+    // Refuse land if typecheck fails (fail-closed: fail and error both refuse).
+    if (landTypecheckRefuses(proof)) {
+      recordAttempt(args.targetProject, {
+        epicId: args.epicId,
+        outcome: 'refused',
+        reason:
+          proof.status === 'fail'
+            ? `land-typecheck-red: ${proof.firstError ?? 'unknown'}`
+            : 'land-typecheck-could-not-run',
+        landPath: 'oi1-reconcile',
+        session: args.session,
+        mergeSha: null,
+        typecheckCommand: proof.command,
+        typecheckExitCode: proof.exitCode,
+        typecheckFirstError: proof.firstError,
+      });
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project: args.project,
+        session: args.session,
+        detail: JSON.stringify({
+          todoId: args.todoId,
+          epicId: args.epicId,
+          intRef: args.intRef,
+          oi1: 'land-refused-typecheck',
+          status: proof.status,
+          firstError: proof.firstError,
+        }),
+      });
+      return { landConflict: false };
+    }
+
+    // Floor passes or not-applicable: proceed with land as today.
+    const land = await args.wm.landEpicToMaster(args.epicId, { baseRef: args.intRef });
+    landConflict = land.conflict === true;
+    recordSupervisorAudit({
+      kind: 'reconcile',
+      project: args.project,
+      session: args.session,
+      detail: JSON.stringify({
+        todoId: args.todoId,
+        epicId: args.epicId,
+        intRef: args.intRef,
+        oi1: 'land-reconcile',
+        landed: land.landed,
+        conflict: land.conflict,
+        reason: land.reason,
+      }),
+    });
+
+    if (land.landed === true) {
+      // Call afterLanded (or default implementation).
+      if (deps.afterLanded) {
+        await deps.afterLanded(land);
+      } else {
+        // Default afterLanded: stampEpicLandedAtGated + cycle capture/record.
+        await stampEpicLandedAtGated(args.project, args.epicId, new Date().toISOString(), { session: args.session });
+        if ((land.baseRef ?? args.intRef) === args.intRef) {
+          const cycle = await captureLandCycleFields({
+            epicId: args.epicId,
+            todos: allTodos,
+            repoRoot: args.targetProject,
+            epicHeadSha: () => args.wm.epicHeadSha(args.epicId).catch(() => null),
+          });
+          await recordLandCycle(args.project, {
+            epicId: args.epicId,
+            epicTipSha: cycle.epicTipSha,
+            landedMergeSha: land.masterSha ?? '',
+            source: 'reconcile-land',
+            session: args.session,
+            nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
+            postLandClean: cycle.postLandClean,
+            landPath: 'oi1-reconcile',
+          });
+        }
+      }
+
+      // Record merged outcome with typecheck proof, guarded by base-ref integrity.
+      if ((land.baseRef ?? args.intRef) === args.intRef) {
+        recordAttempt(args.targetProject, {
+          epicId: args.epicId,
+          outcome: 'merged',
+          reason: 'ok',
+          landPath: 'oi1-reconcile',
+          session: args.session,
+          mergeSha: land.masterSha ?? null,
+          typecheckCommand: proof.command,
+          typecheckExitCode: proof.exitCode,
+          typecheckFirstError: proof.firstError,
+        });
+      }
+    } else {
+      recordAttempt(args.targetProject, {
+        epicId: args.epicId,
+        outcome: 'refused',
+        reason: land.reason ?? (land.conflict ? 'conflict' : 'not-landed'),
+        landPath: 'oi1-reconcile',
+        session: args.session,
+        mergeSha: null,
+      });
+    }
+  } catch (e) {
+    recordSupervisorAudit({
+      kind: 'reconcile',
+      project: args.project,
+      session: args.session,
+      detail: JSON.stringify({
+        todoId: args.todoId,
+        epicId: args.epicId,
+        intRef: args.intRef,
+        oi1: 'land-reconcile-error',
+        reason: e instanceof Error ? e.message : String(e),
+      }),
+    });
+    recordAttempt(args.targetProject, {
+      epicId: args.epicId,
+      outcome: 'errored',
+      reason: e instanceof Error ? e.message : String(e),
+      landPath: 'oi1-reconcile',
+      session: args.session,
+      mergeSha: null,
+    });
+  }
+
+  return { landConflict };
+}
+
 // --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate -----------------------------
 // Close the stranded-acceptance class: `accepted` must imply `reachable from the
 // integration branch`, so accepted work can never silently fail to ship. This runs
@@ -814,6 +1012,7 @@ export async function acceptTimeAncestorGate(
   rolledUp: string[],
   title: string,
   session: string,
+  deps?: Oi1LandDeps,
 ): Promise<boolean> {
   // OI-1 A1 re-key: the master-reachability gate accompanies AUTO-LANDING, so it applies exactly
   // when the epic is auto-land-authorized (a live mission epic + armed) — NOT keyed on level.
@@ -850,49 +1049,8 @@ export async function acceptTimeAncestorGate(
   }
 
   // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
-  // landEpicToMaster is a no-op when nothing is ahead (already up to date); a
-  // conflict leaves integration untouched and we fall through to reversal below.
-  let landConflict = false;
-  try {
-    const land = await wm.landEpicToMaster(epicId, { baseRef: intRef });
-    landConflict = land.conflict === true;
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
-    if (land.landed === true) {
-      await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
-      // This reconcile lands the EPIC accumulation branch onto `intRef`. resolveIntegrationRef
-      // (worktree-manager.ts:1915-1945) resolves `intRef` to the local trunk, so it IS an
-      // epic→master land and MUST be recorded on the same terms as path A (escalation-land).
-      // A hypothetical land whose realised `baseRef` is NOT the integration ref (a
-      // leaf→integration reconcile shape) is deliberately NOT recorded, because `epic_land_record`
-      // is the proof that an EPIC reached trunk and the reaper (leaf-worktree-reaper.ts:571)
-      // reclaims worktrees off it — recording a non-trunk merge would authorise a reclaim of
-      // unlanded work.
-      if ((land.baseRef ?? intRef) === intRef) {
-        const cycle = await captureLandCycleFields({
-          epicId,
-          todos: allTodos,
-          repoRoot: targetProject,
-          epicHeadSha: () => wm.epicHeadSha(epicId).catch(() => null),
-        });
-        await recordLandCycle(project, {
-          epicId,
-          epicTipSha: cycle.epicTipSha,
-          landedMergeSha: land.masterSha ?? '',
-          source: 'reconcile-land',
-          session,
-          nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
-          postLandClean: cycle.postLandClean,
-          landPath: 'oi1-reconcile',
-        });
-        recordLandAttempt(targetProject, { epicId, outcome: 'merged', reason: 'ok', landPath: 'oi1-reconcile', session, mergeSha: land.masterSha ?? null });
-      }
-    } else {
-      recordLandAttempt(targetProject, { epicId, outcome: 'refused', reason: land.reason ?? (land.conflict ? 'conflict' : 'not-landed'), landPath: 'oi1-reconcile', session, mergeSha: null });
-    }
-  } catch (e) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
-    recordLandAttempt(targetProject, { epicId, outcome: 'errored', reason: e instanceof Error ? e.message : String(e), landPath: 'oi1-reconcile', session, mergeSha: null });
-  }
+  // Delegated to oi1ReconcileLandStep with fail-closed typecheck floor.
+  const { landConflict } = await oi1ReconcileLandStep({ project, todoId, epicId, intRef, session, targetProject, wm, deps });
 
   // 3. re-probe after the reconcile attempt.
   reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
