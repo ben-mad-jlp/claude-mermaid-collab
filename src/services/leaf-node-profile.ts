@@ -94,7 +94,7 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // and EMITS the report markdown as its final message — the EXECUTOR writes it into the
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
-  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__file_to_bucket', effort: 'medium' },
+  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__file_bugfix', effort: 'medium' },
   // explore shape: investigation that emits a findings report. Drives a live UI over CDP when
   // the request points at one — the allowlist is the constant above, not a literal, because a
   // literal here is exactly how that constant sat dead and unread since 2026-08-07.

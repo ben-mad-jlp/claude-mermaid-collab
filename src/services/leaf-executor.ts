@@ -1175,9 +1175,9 @@ export async function runReviewPipeline(ctx: LeafRunContext): Promise<LeafRunRes
   // e.g. legacy test fixtures); a non-master-trunk project no longer silently diffs
   // against a nonexistent 'master'. The node is told to fall back if the ref doesn't resolve.
   const baseRef = ctx.deps.baseBranch ?? 'master';
-  // The review node needs file_to_bucket (file gap todos) on top of the read-only set;
+  // The review node needs file_bugfix (file gap todos) on top of the read-only set;
   // NO Write (the executor commits the report — a node Write resolves to the project root).
-  const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_to_bucket`;
+  const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__file_bugfix`;
   const reviewInjected = composeInjectedContext({ kind: 'review', project: ctx.project, epicId: ctx.epicId, flags: getInjectionFlags(ctx.project) });
 
   // Route review depth based on diff risk (hot-path changes, large diffs, etc.).

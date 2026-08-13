@@ -3708,8 +3708,8 @@ export async function handleAPI(
     if (kind === 'mission') message = 'POST /api/session-todos is removed. Use create_mission to create a mission.';
     else if (kind === 'epic') message = 'POST /api/session-todos is removed. Use create_epic to create an epic.';
     else if (parentId) message = 'POST /api/session-todos is removed. Use add_leaves to add a leaf under an existing epic.';
-    else if (inbox) message = 'POST /api/session-todos is removed. Use file_to_bucket to file an unplanned item into the Inbox.';
-    else message = 'POST /api/session-todos is removed. Use create_epic, add_leaves, create_mission, or file_to_bucket.';
+    else if (inbox) message = 'POST /api/session-todos is removed. Use file_bugfix to file a bug or file_feature to file a feature request.';
+    else message = 'POST /api/session-todos is removed. Use create_epic, add_leaves, create_mission, file_bugfix, or file_feature.';
     return Response.json({ error: message }, { status: 410 });
   }
 
