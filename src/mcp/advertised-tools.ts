@@ -297,6 +297,8 @@ export const ADVERTISED_ORDER: OrderEntry[] = [
   { group: 'EPIC', name: 'adopt_branch_as_epic' },
   { group: 'EPIC', name: 'invalidate_base_gate' },
   { group: 'EPIC', name: 'mutation_probe' },
+  { group: 'EPIC', name: 'quarantine_test' },
+  { group: 'EPIC', name: 'list_quarantine' },
   { group: 'SYSTEM', name: 'runtime_config' },
   { group: 'SYSTEM', name: 'set_watchdog_threshold' },
   { group: 'SYSTEM', name: 'set_context_recycle' },

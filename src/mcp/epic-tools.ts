@@ -22,6 +22,7 @@ import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { adoptBranchAsEpic } from '../services/adopt-branch-as-epic.js';
 import { settleDupOfLandedToolDef, settleDupOfLandedHandler } from './tools/settle-dup-of-landed.js';
 import { mutationProbeToolDef, mutationProbeHandler } from './tools/mutation-probe.js';
+import { quarantineTestToolDef, quarantineTestHandler, listQuarantineToolDef, listQuarantineHandler } from './tools/quarantine.js';
 import { recordSupervisorDecision } from './setup.js';
 import { createJob, markJobRunning, markJobSucceeded, markJobFailed } from '../services/async-job-store.js';
 
@@ -48,6 +49,8 @@ export const EPIC_TOOL_DEFS = [
       { name: 'adopt_branch_as_epic', description: 'Adopt a git branch or worktree ref as a new epic, capturing its commits (oldest first). Creates an epic, a leaf under it, marks the leaf immediately accepted (no gate), and creates a branch at the source SHA. Returns the epic id, epic branch name (collab/epic/<id8>), leaf id, and the ordered list of commits adopted. Use to claim stray work that was built outside the mission system (e.g. a hotfix branch, a worktree ref). Home defaults to root epic (not mission-scoped) unless explicitly set. The leaf is immediately accepted, so no blueprint/implement/verify cycle runs — use for work that is already proven done.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the epic and leaf are created).' }, session: { type: 'string', description: 'Session id of the adopter (stamped as assigneeSession).' }, source: { type: 'string', description: 'Git ref or branch name to adopt (any ref rev-parse understands: "main", "HEAD", a sha, a worktree path, etc.).' }, title: { type: 'string', description: 'Epic + leaf title.' }, description: { type: 'string', description: 'Epic + leaf description (optional).' }, home: { type: ['string', 'null'], description: 'Mission id to home the epic under, or null for a root epic (default).' }, servesCriterionIds: { type: 'array', items: { type: 'string' }, description: 'Criterion ids this epic serves (required if home is a mission).' }, targetProject: { type: 'string', description: 'Implementation repo (worker cwd + gate location). Default: same as tracking project.' } }, required: ['project', 'session', 'source', 'title'] } },
       { name: 'invalidate_base_gate', description: "Clear one epic's cached base-gate verdict (epic_base_gate) so the next leaf re-measures the base instead of trusting a stale cached row. Use to recover from a false base-gate red (contention/flake) without waiting for TTL/reverify-attempt self-heal. Refuses (throws) when there is no cached row for the epic — a no-op is reported as failure, not success. Records a durable 'override' audit entry naming the cleared row's baseSha/status.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project.' }, session: { type: 'string', description: 'Caller session, for the audit trail.' }, epicId: { type: 'string' }, reason: { type: 'string', description: 'Why the cached verdict is being cleared.' }, actor: { type: 'string', description: "Who is invalidating (default 'operator')." } }, required: ['project', 'session', 'epicId', 'reason'] } },
       mutationProbeToolDef,
+      quarantineTestToolDef,
+      listQuarantineToolDef,
 ];
 
 export async function handleEpicTool(name: string, args: any): Promise<string | null> {
@@ -267,6 +270,8 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
           }
           case 'settle_dup_of_landed': return await settleDupOfLandedHandler(args as any);
           case 'mutation_probe': return await mutationProbeHandler(args as any);
+          case 'quarantine_test': return await quarantineTestHandler(args as any);
+          case 'list_quarantine': return await listQuarantineHandler(args as any);
           case 'edit_contract_field': {
             const { leafId, mutation } = args as { leafId: string; mutation: { target: 'filesToEdit' | 'task'; file: string; taskId?: string } };
             if (!leafId || !mutation?.target || !mutation?.file) throw new Error('Missing required: leafId, mutation.target, mutation.file');
