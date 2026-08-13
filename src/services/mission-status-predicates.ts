@@ -80,6 +80,28 @@ export function servingEpicLive(
 }
 
 /**
+ * Rolled-back replan gap: a discover criterion that has NO serving epic at all.
+ * When an epic is dropped (rolled back), it vanishes from the serving set and
+ * servingEpicState becomes 'none'. This distinguishes a genuine rolled-back delta
+ * from a live-but-inert epic ('open' state).
+ *
+ * An 'open' serving epic — however inert — is NOT a rolled-back replan and must
+ * fall through to the fingerprint debounce. A statically red epic (all leaves base-red-parked)
+ * takes the bypass on every tick otherwise, causing unbounded self-excitation
+ * (incident 2026-07-23 20:45-21:20: expected 1 node, got 20).
+ *
+ * The 'none' arm stays bounded by CONDUCTOR_SERVE_RETRY_CAP, which is what prevents
+ * the bypass from becoming an unbounded excitation of its own.
+ */
+export function isRolledBackReplanGap(c: {
+  action: string;
+  servingEpicState: 'landed' | 'open' | 'none';
+  servingEpicLive: boolean;
+}): boolean {
+  return c.action === 'discover' && c.servingEpicState === 'none' && !c.servingEpicLive;
+}
+
+/**
  * A hollow-landed done epic doesn't burn the serve cap (LS-1).
  */
 export function isHollowDone(e: Todo, allTodos: readonly Todo[]): boolean {

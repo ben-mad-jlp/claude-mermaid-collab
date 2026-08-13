@@ -30,6 +30,7 @@ import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
 import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
 import { runConductorLandArm, type LandArmResult } from './conductor-land-arm.js';
+import { runUnlandedEpicLandArm, type UnlandedEpicArmResult } from './conductor-unlanded-epic-arm.js';
 import { drainMissionRechecks } from './mission-recheck-drain.js';
 import { listTodos } from './todo-store.js';
 import { syncMissionSubscription } from './mission-subscription.js';
@@ -42,6 +43,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
+import { isRolledBackReplanGap } from './mission-status-predicates.js';
 import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
@@ -281,6 +283,8 @@ export interface ConductorPassDeps {
   cardTriageArm?: typeof runCardTriageArm;
   /** Injectable deterministic land arm (test spy). Defaults to runConductorLandArm. */
   landArm?: typeof runConductorLandArm;
+  /** Injectable unlanded-epic arm (test spy). Defaults to runUnlandedEpicLandArm. */
+  unlandedEpicArm?: typeof runUnlandedEpicLandArm;
   /** Injected base re-probe, forwarded into the default arm so tests stay hermetic (no git/gate). */
   epicBaseProbe?: EpicBaseProbe;
   /** Injectable approach attempts read for the serve-cap diagnosis. Defaults to the store fn. */
@@ -583,7 +587,11 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const criteriaWithActions = listCriteriaWithActions(project, missionId);
   // Serving epics for EVERY criterion (not just the escalated ones), from one listTodos call: the
   // criteriaActed note below records which epic serves each criterion, and the serve-cap loop
-  // further down reads the same map.
+  // further down reads the same map. UNFILTERED BY DESIGN: this map feeds the serve-cap reason
+  // collection (:690), the base-red GREEN-re-measure probe (:716-724), the deferred-ref (:650),
+  // and the journal's criteriaActed.servedEpicId (:607) — every one of which is a HISTORY read
+  // over BURNED (dropped) epics. Filtering dropped here empties the map by construction.
+  // Serve-inertness belongs at mission-store.ts:1688, not here.
   const servingEpicsByComp: Map<string, string[]> = new Map();
   const epicTargetProjectById: Map<string, string | null> = new Map();
   const servingEpicNicknameById: Map<string, string | null> = new Map();
@@ -858,7 +866,19 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     return done({ ran: true, reason: 'redecomposed', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, redecomposed: filedRedecomposed.length,
                   infraResets: arm.reset.length, infraCards: arm.cardsRaised });
 
-  const hasGap = actions.some((a) => a.action === 'discover' || a.action === 'verify');
+  // UNLANDED-EPIC ARM. Detect done-but-unlanded serving epics and mint their land cards
+  // deterministically, before the conductor node is ever invoked — zero node spend for a
+  // card the existing runConductorLandArm already knows how to drive. Fail-open: a throw
+  // yields empty armed-set and the pass continues.
+  let unlandedEpicArmResult: UnlandedEpicArmResult = { carded: [], skipped: [], criterionIds: [] };
+  try {
+    unlandedEpicArmResult = await (deps.unlandedEpicArm ?? runUnlandedEpicLandArm)(project, missionId, session, {});
+  } catch {
+    unlandedEpicArmResult = { carded: [], skipped: [], criterionIds: [] };
+  }
+  const landArmedCriterionIds = new Set<string>(unlandedEpicArmResult.criterionIds);
+
+  const hasGap = actions.some((a) => a.action === 'verify' || (a.action === 'discover' && !landArmedCriterionIds.has(a.id)));
   // ONE post-arm escalation snapshot, taken AFTER runInfraRejectionArm so the arm's own
   // leaf-infra-rejected cards are already in it (that is what breaks the debounce for a
   // newly-carded stuck leaf) — feeds BOTH the hard-block and land-ready card id sets.
@@ -885,11 +905,18 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const productivePass = latestProductivePassFp(project, missionId);
   const lastKey = productivePass?.passFp ?? null;
   const selfKey = productivePass?.selfFp ?? null;
+  // Detect a rolled-back replan gap: a discover criterion where the serving epic was dropped.
+  // When an epic is deleted, servingEpicState becomes 'none'. This is the ONLY state that
+  // indicates a genuine rolled-back delta, not a served state. An 'open' serving epic (however
+  // inert or base-red) must NOT trigger the bypass — an inert epic takes the bypass on every
+  // tick otherwise, causing unbounded self-excitation (2026-07-23 incident: expected 1 node, got 20).
+  // The 'none' arm stays bounded by CONDUCTOR_SERVE_RETRY_CAP.
+  const hasRolledBackGap = criteriaWithActions.some((c) => isRolledBackReplanGap(c));
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
   // a self-echo, not a wake-up.
-  if (lastKey === fp || selfKey === fp) return done({ ran: false, reason: 'debounced', missionId });
+  if (!hasRolledBackGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId });
   // The fail-retry counter is derived from the journal's contiguous run of node-failed passes on
   // this exact serveFp (excluding this pass's own in-flight row), not from a hand-rolled
   // `${serveFp}|fail:N` string parse on the mission column. Bounded, not a permanent wedge — and
@@ -997,13 +1024,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       lastPassAt,
       openCards,
       resolvedCards,
-      actions: criteriaWithActions.map((c) => ({
-        id: c.id,
-        action: c.action,
-        text: c.text,
-        verdict: c.verifiedAt != null ? (c.met ? 'MET' : 'NOT MET') : undefined,
-        evidence: c.evidence ?? undefined,
-      })),
+      actions: criteriaWithActions
+        .filter((c) => !landArmedCriterionIds.has(c.id))
+        .map((c) => ({
+          id: c.id,
+          action: c.action,
+          text: c.text,
+          verdict: c.verifiedAt != null ? (c.met ? 'MET' : 'NOT MET') : undefined,
+          evidence: c.evidence ?? undefined,
+        })),
       rechecks: pendingRechecks.map((r) => ({ criterionId: r.criterionId, reason: r.reason, landedSha: r.landedSha, enqueuedAt: r.enqueuedAt })),
       stakes,
     });

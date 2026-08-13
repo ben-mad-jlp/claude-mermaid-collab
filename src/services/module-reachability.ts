@@ -382,7 +382,7 @@ export async function assertServingEpicModulesReachable(
     // Find epics serving this criterion
     const todos = listTodos(project);
     const servingEpics = todos.filter(
-      t => isEpicTodo(t) && todoServesCriterion(t, criterionId),
+      t => isEpicTodo(t) && t.status !== 'dropped' && todoServesCriterion(t, criterionId),
     );
 
     if (servingEpics.length === 0) {
