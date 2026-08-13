@@ -122,6 +122,17 @@ export async function reapOrphanedLeafWorktrees(project: string): Promise<number
 
 const lastGcMs = new Map<string, number>();
 
+export type GcRemovalReasonClass = 'epic-terminal-landed' | 'probe-stale' | 'leaf-accepted';
+
+export interface GcRemovalRecord {
+  path: string;
+  reasonClass: GcRemovalReasonClass;
+  epicId8: string | null;
+  leafTodoId: string | null;
+  trashDir: string | null;
+  atIso: string;
+}
+
 export interface GcReport {
   removed: string[];            // worktree paths deleted
   refused: Array<{ path: string; reason: string; sample: string[] }>;
@@ -129,6 +140,12 @@ export interface GcReport {
   prunedRegistrations: number;  // reserved for a future direct prune count (always 0 today —
                                  // `removePath` itself prunes as part of each removal)
   scanned: number;
+  records: GcRemovalRecord[];
+}
+
+function emitGcRemoval(rep: GcReport, rec: GcRemovalRecord): void {
+  rep.records.push(rec);
+  console.log(`[worktree-gc] removal ${JSON.stringify(rec)}`);
 }
 
 const GC_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', 'out']);
@@ -535,7 +552,8 @@ export async function gcLeafWorktrees(
   opts?: { dryRun?: boolean; orphanMaxAgeMs?: number },
 ): Promise<GcReport> {
   const wm = getWorktreeManager(project);
-  const report: GcReport = { removed: [], refused: [], quarantined: [], prunedRegistrations: 0, scanned: 0 };
+  const report: GcReport = { removed: [], refused: [], quarantined: [], prunedRegistrations: 0, scanned: 0, records: [] };
+  const atIso = new Date().toISOString();
 
   let entries: Array<{ name: string; isDirectory(): boolean }>;
   try {
@@ -637,13 +655,22 @@ export async function gcLeafWorktrees(
       if (!opts?.dryRun) {
         try {
           await wm.removePath(dir);
-          console.log(`[worktree-gc] removed orphaned worktree dir ${dir} (todo=${todo.id.slice(0, 8)} status=${todo.status})`);
+          report.removed.push(dir);
+          emitGcRemoval(report, {
+            path: dir,
+            reasonClass: 'leaf-accepted',
+            epicId8: null,
+            leafTodoId: todo.id,
+            trashDir: null,
+            atIso,
+          });
         } catch {
           report.refused.push({ path: dir, reason: 'remove-failed', sample: [] });
           continue;
         }
+      } else {
+        report.removed.push(dir);
       }
-      report.removed.push(dir);
       continue;
     }
 
@@ -694,7 +721,14 @@ export async function gcLeafWorktrees(
                 try {
                   const { trashDir } = await wm.quarantineMove(dir, 'landed-epic-reclaimed');
                   report.quarantined.push({ path: dir, trashDir });
-                  console.log(`[worktree-gc] quarantined landed epic worktree ${dir} -> ${trashDir}`);
+                  emitGcRemoval(report, {
+                    path: dir,
+                    reasonClass: 'epic-terminal-landed',
+                    epicId8,
+                    leafTodoId: null,
+                    trashDir,
+                    atIso,
+                  });
                 } catch {
                   report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
                   continue;
@@ -751,7 +785,14 @@ export async function gcLeafWorktrees(
               try {
                 const { trashDir } = await wm.quarantineMove(dir, 'terminal-epic-safe-on-branch');
                 report.quarantined.push({ path: dir, trashDir });
-                console.log(`[worktree-gc] quarantined terminal epic worktree ${dir} -> ${trashDir} (work on ${branch})`);
+                emitGcRemoval(report, {
+                  path: dir,
+                  reasonClass: 'epic-terminal-landed',
+                  epicId8,
+                  leafTodoId: null,
+                  trashDir,
+                  atIso,
+                });
               } catch {
                 report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
                 continue;
@@ -782,9 +823,14 @@ export async function gcLeafWorktrees(
             try {
               const { trashDir } = await wm.quarantineMove(dir, 'dead-pool-lane-reclaimed');
               report.quarantined.push({ path: dir, trashDir });
-              console.log(
-                `[worktree-gc] quarantined dead pool-lane worktree ${dir} -> ${trashDir} (session=${record.sessionId})`,
-              );
+              emitGcRemoval(report, {
+                path: dir,
+                reasonClass: 'leaf-accepted',
+                epicId8: null,
+                leafTodoId: null,
+                trashDir,
+                atIso,
+              });
             } catch {
               report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
             }
@@ -849,7 +895,14 @@ export async function gcLeafWorktrees(
       try {
         const { trashDir } = await wm.quarantineMove(dir, 'orphan-reclaimed');
         report.quarantined.push({ path: dir, trashDir });
-        console.log(`[worktree-gc] quarantined orphan non-leaf worktree ${dir} -> ${trashDir}`);
+        emitGcRemoval(report, {
+          path: dir,
+          reasonClass: 'leaf-accepted',
+          epicId8: epicWorktreeId8(entry.name),
+          leafTodoId: null,
+          trashDir,
+          atIso,
+        });
       } catch {
         report.refused.push({ path: dir, reason: 'quarantine-failed', sample: [] });
         continue;
