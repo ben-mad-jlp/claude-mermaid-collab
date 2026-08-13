@@ -8405,6 +8405,52 @@
       }
     },
     {
+      "name": "adopt_artifact",
+      "description": "Adopt a pending artifact from the inbox into a project session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "envelopeId": {
+            "type": "string",
+            "description": "The envelope ID from the artifact inbox."
+          },
+          "project": {
+            "type": "string",
+            "description": "Absolute path to the project root directory or registered project name."
+          },
+          "session": {
+            "type": "string",
+            "description": "Session name (e.g., \"bright-calm-river\")."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional name override for the adopted artifact; defaults to envelope artifact name."
+          }
+        },
+        "required": [
+          "envelopeId",
+          "project",
+          "session"
+        ]
+      }
+    },
+    {
+      "name": "dismiss_artifact",
+      "description": "Dismiss a pending artifact from the inbox without adopting it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "envelopeId": {
+            "type": "string",
+            "description": "The envelope ID from the artifact inbox."
+          }
+        },
+        "required": [
+          "envelopeId"
+        ]
+      }
+    },
+    {
       "name": "send_artifact",
       "description": "Send a local artifact to a remote mermaid-collab inbox. Verifies receipt by re-reading the target inbox.",
       "inputSchema": {

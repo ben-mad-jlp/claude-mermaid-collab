@@ -70,6 +70,7 @@ import { EPIC_TOOL_DEFS, handleEpicTool } from './epic-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from './decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from './system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from './session-tools.js';
+import { handleArtifactInboxTool } from './tools/artifact-inbox.js';
 import { ARTIFACT_SEND_TOOL_DEFS, handleArtifactSendTool } from './artifact-send-tools.js';
 import { handleDesktopTool, ensureDesktopBridge } from './desktop-tools.js';
 // BUG 7fb16985: orchestrator_status and system_status MUST derive running/level/
@@ -316,6 +317,9 @@ export async function setupMCPServer(): Promise<Server> {
         const desktopResult = await handleDesktopTool(name, args);
         if (desktopResult !== null) return desktopResult;
 
+        // Artifact inbox tool group lives in ./tools/artifact-inbox.ts; delegate by name.
+        const artifactInboxResult = await handleArtifactInboxTool(name, args);
+        if (artifactInboxResult !== null) return artifactInboxResult;
         // Artifact send tool group lives in ./artifact-send-tools.ts; delegate by name.
         const artifactSendResult = await handleArtifactSendTool(name, args);
         if (artifactSendResult !== null) return artifactSendResult;

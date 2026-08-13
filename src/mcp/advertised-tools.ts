@@ -101,6 +101,11 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
     const m = require('./session-tools.js');
     return m.SESSION_TOOL_DEFS;
   })();
+  const ARTIFACT_INBOX_TOOL_DEFS = (() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const m = require('./tools/artifact-inbox.js');
+    return m.ARTIFACT_INBOX_TOOL_DEFS;
+  })();
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const desktopToolsMod = require('./desktop-tools.js');
 
@@ -123,6 +128,7 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
     SNIPPET: SNIPPET_TOOL_DEFS,
     EMBED: EMBED_TOOL_DEFS,
     IMAGE: IMAGE_TOOL_DEFS,
+    ARTIFACT_INBOX: ARTIFACT_INBOX_TOOL_DEFS,
     ARTIFACT_SEND: ARTIFACT_SEND_TOOL_DEFS,
   };
 
@@ -310,6 +316,8 @@ export const ADVERTISED_ORDER: OrderEntry[] = [
   { group: 'IMAGE' },
   { group: 'SESSION', name: 'deprecate_artifact' },
   { group: 'SESSION', name: 'set_artifact_metadata' },
+  { group: 'ARTIFACT_INBOX', name: 'adopt_artifact' },
+  { group: 'ARTIFACT_INBOX', name: 'dismiss_artifact' },
   { group: 'ARTIFACT_SEND', name: 'send_artifact' },
 ];
 
