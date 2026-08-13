@@ -10,11 +10,12 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import type { Todo, TodoStatus } from '../todo-store';
-import { findViolations, findLandedAtDivergence, checkInvariants } from '../invariant-check';
+import { findViolations, findLandedAtDivergence, checkInvariants, findUnrecordedTrunkLands } from '../invariant-check';
 import { mkTodo, mkLegacyTodo } from './fixtures/mk-todo';
 import { MissingKindError } from '../todo-kind';
-import { createTodo, openDb, stampEpicLandedAt, _closeProject } from '../todo-store';
+import { createTodo, openDb, stampEpicLandedAt, _closeProject, listTodos } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import { resetTrunkLandIndex } from '../trunk-land-index';
 
 let seq = 0;
 function todo(partial: Partial<Todo> & { id?: string; title: string; status?: TodoStatus; kind: string }): Todo {
@@ -453,6 +454,124 @@ describe('checkInvariants (DB-backed)', () => {
       const phantomOpen = violations.filter((v) => v.kind === 'phantom-open-epic');
       expect(phantomOpen.length > 0).toBe(true);
       expect(phantomOpen[0].todoId).toBe(epic.id);
+    } finally {
+      _closeProject(project);
+    }
+  });
+
+  test('checkInvariants: probes the git branch only for the land-stamped epic', async () => {
+    const project = freshProject();
+    try {
+      // Create one land-stamped epic and three unstamped epics
+      const stamped = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] stamped-epic',
+        kind: 'epic',
+      });
+      const unstamped1 = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] unstamped-1',
+        kind: 'epic',
+      });
+      const unstamped2 = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] unstamped-2',
+        kind: 'epic',
+      });
+      const unstamped3 = await createTodo(project, {
+        ownerSession: 'test',
+        title: '[EPIC] unstamped-3',
+        kind: 'epic',
+      });
+
+      stampEpicLandedAt(project, stamped.id, '2026-01-01T00:00:00Z');
+      _closeProject(project);
+
+      // Counting probe that tracks which branches it has been called on
+      const probeCallCount: string[] = [];
+      const mockProbe = async (branch: string) => {
+        probeCallCount.push(branch);
+        return { exists: true, ahead: 1, behind: 0, mergeable: true };
+      };
+
+      // Stub runGit that returns a dummy rev-parse result
+      const stubRunGit = async (cwd: string, args: string[]) => {
+        if (args[0] === 'rev-parse') {
+          return { code: 0, stdout: 'abc123def456\n' };
+        }
+        return { code: 1, stdout: '' };
+      };
+
+      const violations = await checkInvariants(project, { runGit: stubRunGit, probe: mockProbe });
+
+      // Assert that the probe was called exactly once, and it was for the stamped epic
+      expect(probeCallCount).toHaveLength(1);
+      // Check that the branch name matches the stamped epic's ID pattern
+      expect(probeCallCount[0]).toContain(stamped.id.slice(0, 8));
+
+      // Assert that the landed-at-divergence violation is present (ahead=1 on stamped epic)
+      const divergenceViolations = violations.filter((v) => v.kind === 'landed-at-divergence');
+      expect(divergenceViolations).toHaveLength(1);
+      expect(divergenceViolations[0].todoId).toBe(stamped.id);
+    } finally {
+      _closeProject(project);
+    }
+  });
+
+  test('findUnrecordedTrunkLands: 10 epics issue exactly one git log', async () => {
+    const project = freshProject();
+    resetTrunkLandIndex();
+
+    try {
+      // Create 10 test epics in the DB
+      const epicIds: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        const epic = await createTodo(project, {
+          ownerSession: 'test',
+          title: `[EPIC] epic-${i}`,
+          kind: 'epic',
+        });
+        epicIds.push(epic.id);
+      }
+
+      _closeProject(project);
+
+      // Counting runGit: track call types and count
+      const callLog: string[] = [];
+      const countingRunGit = async (cwd: string, args: string[]) => {
+        const cmd = args[0];
+        callLog.push(cmd);
+        if (cmd === 'rev-parse') {
+          return { code: 0, stdout: 'abc123def456\n' };
+        }
+        if (cmd === 'log') {
+          // Return a log with one landing commit for the first epic
+          return {
+            code: 0,
+            stdout: `\x1eabc123def456\t2026-01-01T00:00:00Z\tCollab-Epic: ${epicIds[0]}\nsome content`,
+          };
+        }
+        return { code: 1, stdout: '' };
+      };
+
+      const todos = listTodos(project, { includeCompleted: true });
+      const violations = await findUnrecordedTrunkLands(project, todos, 'master', {
+        runGit: countingRunGit,
+        tipSha: 'abc123def456',
+      });
+
+      // Assert exactly one git log call
+      const logCalls = callLog.filter((c) => c === 'log');
+      expect(logCalls).toHaveLength(1);
+
+      // Assert zero rev-parse calls (we supplied tipSha)
+      const revParseCalls = callLog.filter((c) => c === 'rev-parse');
+      expect(revParseCalls).toHaveLength(0);
+
+      // First epic should have an unrecorded land violation
+      expect(violations).toHaveLength(1);
+      expect(violations[0].todoId).toBe(epicIds[0]);
+      expect(violations[0].kind).toBe('unrecorded-trunk-land');
     } finally {
       _closeProject(project);
     }
