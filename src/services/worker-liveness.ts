@@ -278,27 +278,29 @@ export async function reapDeadWorkers(project: string, deps: WorkerLivenessDeps)
   // leaf-executor runs in-process, so it cannot have outlived that process —
   // reclaim on sight, NO liveness probe (a lingering reusable tmux shell must
   // not shield it; that gap stranded leaves across a sidecar hot-swap until
-  // lease expiry). Claims with no epoch (legacy/pre-this-feature) are left to
-  // the pulse/grace probes below — never worse than today.
-  for (const id of planPriorEpochReap(inProgress, deps.coordinatorEpoch)) {
-    if (reaped.has(id)) continue; // rule (a) already reclaimed this row this sweep
-    const t = inProgress.find((x) => x.id === id)!;
+  // lease expiry). Claims with no epoch (legacy/pre-this-feature) are shielded
+  // below via the liveness probes — never worse than today.
+  for (const c of planPriorEpochReap(inProgress, deps.coordinatorEpoch)) {
+    if (reaped.has(c.id)) continue; // rule (a) already reclaimed this row this sweep
+    const t = inProgress.find((x) => x.id === c.id)!;
+    // Shield unstamped (claimEpoch=null) claims only — foreign-epoch claims reap on sight.
+    if (c.claimEpoch === null && await leafShieldedFromReap(c.id, t.sessionName, deps)) continue;
     const observedToken = t.claim?.token ?? t.claimToken ?? null;
-    const next = await deps.reclaimOrphan(project, id, hadProgress, observedToken);
+    const next = await deps.reclaimOrphan(project, c.id, hadProgress, observedToken);
     if (next === null) {
-      auditStaleTokenSkip(project, 'prior-epoch-reap', id, observedToken, deps);
+      auditStaleTokenSkip(project, 'prior-epoch-reap', c.id, observedToken, deps);
       continue;
     }
-    deps.clearLeafInflight(id); // drop the dead executor's inflight row
+    deps.clearLeafInflight(c.id); // drop the dead executor's inflight row
     if (t.sessionName) deps.markIdle(t.targetProject ?? project, t.sessionName); // free pool slot
-    reaped.add(id);
-    if (next === 'ready') reclaimed.push(id);
-    else exhausted.push(id);
+    reaped.add(c.id);
+    if (next === 'ready') reclaimed.push(c.id);
+    else exhausted.push(c.id);
     deps.recordSupervisorAudit({
       kind: 'reconcile',
       project,
       session: t.sessionName ?? '',
-      detail: JSON.stringify({ source: 'prior-epoch-reap', todoId: id, outcome: next, claimEpoch: t.claim?.epoch, liveEpoch: deps.coordinatorEpoch }),
+      detail: JSON.stringify({ source: 'prior-epoch-reap', todoId: c.id, outcome: next, claimEpoch: c.claimEpoch, liveEpoch: deps.coordinatorEpoch }),
     });
   }
 
