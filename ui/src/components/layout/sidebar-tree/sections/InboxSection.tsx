@@ -1,6 +1,7 @@
 import React from 'react';
 import { SectionBranchRow } from '../TreeBranchRow';
 import { useArtifactInbox } from '../useArtifactInbox';
+import { InboxPreview } from './InboxPreview';
 import type { InboxEnvelope, ArtifactType } from '../artifactInbox';
 
 export interface InboxSectionProps {
@@ -47,7 +48,10 @@ function getArtifactTypeGlyph(type: ArtifactType): string {
   return glyphs[type] || '📦';
 }
 
-function renderEnvelopeRow(envelope: InboxEnvelope): React.ReactElement {
+function renderEnvelopeRow(
+  envelope: InboxEnvelope,
+  onSelect: (e: InboxEnvelope) => void
+): React.ReactElement {
   const sender = envelope.from.serverOwner ?? envelope.from.baseUrl ?? 'unknown';
   const time = formatReceived(envelope.receivedAt);
   const glyph = getArtifactTypeGlyph(envelope.artifact.type);
@@ -57,7 +61,10 @@ function renderEnvelopeRow(envelope: InboxEnvelope): React.ReactElement {
       key={envelope.envelopeId}
       data-testid={`inbox-row-${envelope.envelopeId}`}
       style={{ paddingLeft: '16px' }}
-      className="flex items-center gap-2 py-1.5 px-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+      onClick={() => onSelect(envelope)}
+      role="button"
+      tabIndex={0}
+      className="flex items-center gap-2 py-1.5 px-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 select-none cursor-pointer"
     >
       <span className="flex-shrink-0">{glyph}</span>
       <span className="flex-grow truncate font-medium">{envelope.artifact.name}</span>
@@ -77,8 +84,17 @@ export function InboxSection({
   onToggle,
 }: InboxSectionProps): React.ReactElement {
   const { envelopes } = useArtifactInbox();
+  const [previewEnvelope, setPreviewEnvelope] = React.useState<InboxEnvelope | null>(null);
 
   const showChildren = !collapsed || forceExpanded;
+
+  const handleSelectEnvelope = (envelope: InboxEnvelope) => {
+    if (previewEnvelope?.envelopeId === envelope.envelopeId) {
+      setPreviewEnvelope(null);
+    } else {
+      setPreviewEnvelope(envelope);
+    }
+  };
 
   return (
     <React.Fragment>
@@ -90,7 +106,13 @@ export function InboxSection({
         onToggle={onToggle}
         level={0}
       />
-      {showChildren && envelopes.map(renderEnvelopeRow)}
+      {showChildren && envelopes.map((env) => renderEnvelopeRow(env, handleSelectEnvelope))}
+      {previewEnvelope && (
+        <InboxPreview
+          envelope={previewEnvelope}
+          onClose={() => setPreviewEnvelope(null)}
+        />
+      )}
     </React.Fragment>
   );
 }
