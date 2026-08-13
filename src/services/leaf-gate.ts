@@ -1281,6 +1281,11 @@ export async function resolveBaseGreen(io: {
           baseSha: epicBaseSha,
           quarantineHash: qHash,
           now: io.now,
+          // Reaching this point WITH a cached row for the same sha means the re-verify
+          // policy above decided a fresh measure is due — a stored sibling FAIL must not
+          // answer it (the shared serve budget would outlive the attempt budget and the
+          // re-run would never happen). A true sibling (no own row) still consumes it.
+          allowStoredFail: !cached,
         },
       } : {}),
     },
