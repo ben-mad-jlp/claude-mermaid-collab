@@ -29,6 +29,7 @@ import { EmbedsSection } from './sections/EmbedsSection';
 import { PinsSection } from './sections/PinsSection';
 import { RecentSection } from './sections/RecentSection';
 import { ArchivedSection } from './sections/ArchivedSection';
+import { InboxSection } from './sections/InboxSection';
 import {
   getActionsForNode,
   type ArtifactType,
@@ -1132,6 +1133,11 @@ export function ArtifactTree({ className, studio }: ArtifactTreeProps) {
       </div>
 
       <div className="overflow-y-auto flex-1 pl-2" role="tree">
+        <InboxSection
+          collapsed={collapsedSections.has('inbox')}
+          forceExpanded={forceExpandedSections.has('inbox')}
+          onToggle={() => toggleSection('inbox')}
+        />
         <PinsSection
           nodes={pinnedNodes}
           collapsed={collapsedSections.has('pins')}
