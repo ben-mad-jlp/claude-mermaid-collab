@@ -1,6 +1,7 @@
 import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { computeFrictionSignature } from './friction-signature';
 
 /**
  * Per-PROJECT friction-signal store (SEAM·collab — friction persistence).
@@ -39,6 +40,9 @@ export interface FrictionNote {
   retryReason: string;
   /** Optional free-text elaboration. */
   detail: string | null;
+  /** Stable signature computed from reason + salient detail tokens (invariant across
+   *  cosmetic differences like ids, paths, timestamps). Null for pre-migration rows. */
+  signature: string | null;
   /** ISO timestamp a retraction was recorded, or null while the note stands. A retracted
    *  note is WRONG, not merely handled — see retractFriction. */
   retractedAt: string | null;
@@ -66,6 +70,16 @@ export interface FrictionFilter {
    *  keep surfacing as evidence. friction is a primary input to mission-forge's survey step, so
    *  an un-excluded wrong note silently biases every future survey that touches it. */
   includeRetracted?: boolean;
+  /** Filter by retryReason (exact match). */
+  retryReason?: string;
+  /** Inclusive lower bound on createdAt. Compared lexicographically as ISO-8601 UTC text
+   *  (≥) because createdAt is written by nowIso() as fixed-width UTC. */
+  since?: string;
+  /** Maximum number of rows to return. Ignored by countFriction. */
+  limit?: number;
+  /** Offset into the result set; requires limit. If offset is set without limit,
+   *  SQL will use LIMIT -1 (sqlite's "no bound" sentinel). */
+  offset?: number;
 }
 
 const DDL = `
@@ -77,6 +91,7 @@ CREATE TABLE IF NOT EXISTS friction_notes (
   layer TEXT NOT NULL,
   retryReason TEXT NOT NULL,
   detail TEXT,
+  signature TEXT,
   createdAt TEXT NOT NULL,
   retractedAt TEXT,
   retractedReason TEXT,
@@ -118,10 +133,17 @@ function openDb(project: string): Database {
     })();
   }
 
-  // Migration: retraction columns are additive — add them to any pre-existing table.
+  // Migration: retraction and signature columns are additive — add them to any pre-existing table.
   const have = new Set((db.prepare(`PRAGMA table_info(friction_notes)`).all() as Array<{ name: string }>).map((c) => c.name));
-  for (const [col, ddl] of [['retractedAt', 'TEXT'], ['retractedReason', 'TEXT'], ['supersededBy', 'TEXT']] as const) {
+  for (const [col, ddl] of [['retractedAt', 'TEXT'], ['retractedReason', 'TEXT'], ['supersededBy', 'TEXT'], ['signature', 'TEXT']] as const) {
     if (!have.has(col)) db.exec(`ALTER TABLE friction_notes ADD COLUMN ${col} ${ddl}`);
+  }
+
+  // Create the signature index if it doesn't exist (deferred from DDL to avoid trying to index non-existent column).
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_friction_signature ON friction_notes(signature)`);
+  } catch {
+    // Ignore if index already exists or other benign errors.
   }
 
   dbCache.set(project, db);
@@ -159,6 +181,7 @@ function rowToNote(row: any): FrictionNote {
     layer: row.layer as FrictionLayer,
     retryReason: row.retryReason,
     detail: row.detail ?? null,
+    signature: row.signature ?? null,
     createdAt: row.createdAt,
     retractedAt: row.retractedAt ?? null,
     retractedReason: row.retractedReason ?? null,
@@ -166,23 +189,31 @@ function rowToNote(row: any): FrictionNote {
   };
 }
 
+/** Unlocked helper that performs validation + INSERT + read-back. Used by recordFriction
+ *  and recordFrictionWithRecurrence to avoid self-deadlock when calling withLock from
+ *  inside a withLock body. */
+function insertNoteUnlocked(db: Database, input: RecordFrictionInput, signature: string): FrictionNote {
+  if (!input.retryReason) throw new Error('recordFriction: retryReason is required');
+  if (!VALID_LAYERS.includes(input.layer)) {
+    throw new Error(`recordFriction: layer must be one of ${VALID_LAYERS.join(' | ')} (got ${String(input.layer)})`);
+  }
+  const id = crypto.randomUUID();
+  const ts = nowIso();
+  const attempt = input.attempt ?? 1;
+  db.prepare(
+    `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, signature, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  ).run(id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, signature, ts);
+  return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
+}
+
 /** Persist a worker's friction note. Validates the layer (the whole point of the
  *  store is a clean orchestration-vs-domain split). Returns the stored note. */
 export function recordFriction(project: string, input: RecordFrictionInput): Promise<FrictionNote> {
   return withLock(project, () => {
-    if (!input.retryReason) throw new Error('recordFriction: retryReason is required');
-    if (!VALID_LAYERS.includes(input.layer)) {
-      throw new Error(`recordFriction: layer must be one of ${VALID_LAYERS.join(' | ')} (got ${String(input.layer)})`);
-    }
     const db = openDb(project);
-    const id = crypto.randomUUID();
-    const ts = nowIso();
-    const attempt = input.attempt ?? 1;
-    db.prepare(
-      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
-       VALUES (?,?,?,?,?,?,?,?)`
-    ).run(id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, ts);
-    return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
+    const signature = computeFrictionSignature(input.retryReason, input.detail);
+    return insertNoteUnlocked(db, input, signature);
   });
 }
 
@@ -191,7 +222,9 @@ export function recordFriction(project: string, input: RecordFrictionInput): Pro
  *  same (layer, retryReason, detail) — same process or two separate daemon processes sharing
  *  this sqlite file — can never both win. Requires an EXACT `detail` (not a substring probe
  *  like hasFrictionNote's detailIncludes) because the caller's dedup key must be fully
- *  reproducible SQL-side. Returns true iff this call inserted a NEW row. */
+ *  reproducible SQL-side. Returns true iff this call inserted a NEW row.
+ *  The signature is computed and persisted but NOT part of the dedup predicate —
+ *  the WHERE NOT EXISTS key stays (layer, retryReason, detail) exactly. */
 export function recordFrictionOnce(
   project: string,
   input: RecordFrictionInput & { detail: string },
@@ -205,33 +238,130 @@ export function recordFrictionOnce(
     const id = crypto.randomUUID();
     const ts = nowIso();
     const attempt = input.attempt ?? 1;
+    const signature = computeFrictionSignature(input.retryReason, input.detail);
     const result = db.prepare(
-      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, signature, createdAt)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE NOT EXISTS (
          SELECT 1 FROM friction_notes WHERE layer = ? AND retryReason = ? AND detail = ?
        )`
     ).run(
-      id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail, ts,
+      id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail, signature, ts,
       input.layer, input.retryReason, input.detail,
     );
     return result.changes > 0;
   });
 }
 
-/** Query friction notes, newest first. Filter by todoId / session / layer — e.g.
- *  `listFriction(project, { layer: 'domain' })` answers "which todos hit
- *  domain-layer friction and why" without opening any worker transcript. */
-export function listFriction(project: string, filter: FrictionFilter = {}): FrictionNote[] {
+/** Return prior occurrences of notes matching this signature (within a windowed time range).
+ *  Retracted notes are excluded — recurrence must not be driven by evidence already proven
+ *  wrong. Returns the full prior count and the most-recent note ids (capped at 20).
+ *  Unlocked read, mirrors listFriction. */
+export function countPriorBySignature(
+  project: string,
+  signature: string,
+  opts?: { windowDays?: number },
+): { priorCount: number; priorNoteIds: string[] } {
   const db = openDb(project);
+  const windowDays = opts?.windowDays ?? 30;
+  const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db.prepare(
+    `SELECT id FROM friction_notes WHERE signature = ? AND retractedAt IS NULL AND createdAt >= ?
+     ORDER BY createdAt DESC, rowid DESC`
+  ).all(signature, cutoff) as Array<{ id: string }>;
+  return {
+    priorCount: rows.length,
+    priorNoteIds: rows.slice(0, 20).map((r) => r.id),
+  };
+}
+
+/** Record a friction note and return its signature + prior-occurrence counts.
+ *  Performs the prior-count query and the INSERT inside a single withLock section
+ *  to ensure two concurrent writers never both observe priorCount === 0.
+ *  The returned counts describe the state BEFORE this note: a first-ever note returns
+ *  priorCount: 0, and its own id is never in priorNoteIds. */
+export function recordFrictionWithRecurrence(
+  project: string,
+  input: RecordFrictionInput,
+): Promise<{ note: FrictionNote; signature: string; priorCount: number; priorNoteIds: string[] }> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    const signature = computeFrictionSignature(input.retryReason, input.detail);
+
+    // Query prior count within the same lock.
+    const windowDays = 30;
+    const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+    const priorRows = db.prepare(
+      `SELECT id FROM friction_notes WHERE signature = ? AND retractedAt IS NULL AND createdAt >= ?
+       ORDER BY createdAt DESC, rowid DESC`
+    ).all(signature, cutoff) as Array<{ id: string }>;
+    const priorCount = priorRows.length;
+    const priorNoteIds = priorRows.slice(0, 20).map((r) => r.id);
+
+    // Insert the new note using the unlocked helper.
+    const note = insertNoteUnlocked(db, input, signature);
+
+    return { note, signature, priorCount, priorNoteIds };
+  });
+}
+
+/** Build the WHERE clause and params for a FrictionFilter. Returns an object with
+ *  `where` (either '' or ' WHERE ...') and `params` ((string | number)[] to accommodate
+ *  numbers from LIMIT/OFFSET, though this helper returns only strings). Used by both
+ *  listFriction and countFriction. */
+function buildFrictionWhere(filter: FrictionFilter): { where: string; params: (string | number)[] } {
   const where: string[] = [];
-  const params: string[] = [];
+  const params: (string | number)[] = [];
   if (filter.todoId) { where.push('todoId = ?'); params.push(filter.todoId); }
   if (filter.session) { where.push('session = ?'); params.push(filter.session); }
   if (filter.layer) { where.push('layer = ?'); params.push(filter.layer); }
+  if (filter.retryReason) { where.push('retryReason = ?'); params.push(filter.retryReason); }
+  if (filter.since) { where.push('createdAt >= ?'); params.push(filter.since); }
   if (!filter.includeRetracted) where.push('retractedAt IS NULL');
-  const sql = `SELECT * FROM friction_notes${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC, rowid DESC`;
-  return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
+  return {
+    where: where.length ? ' WHERE ' + where.join(' AND ') : '',
+    params,
+  };
+}
+
+/** Query friction notes, newest first. Filter by todoId / session / layer / retryReason / since — e.g.
+ *  `listFriction(project, { layer: 'domain' })` answers "which todos hit
+ *  domain-layer friction and why" without opening any worker transcript.
+ *
+ *  NOTE: No default limit is applied at the store layer. Callers that need the full
+ *  result set (friction-trends.ts, profile-draft.ts, hasFrictionNote) depend on
+ *  receiving every matching row. A default LIMIT here would silently truncate those
+ *  callers' results. Pagination bounds belong at the MCP tool layer. */
+export function listFriction(project: string, filter: FrictionFilter = {}): FrictionNote[] {
+  const db = openDb(project);
+  const { where, params } = buildFrictionWhere(filter);
+  const sql = `SELECT * FROM friction_notes${where} ORDER BY createdAt DESC, rowid DESC`;
+  let sql_with_pagination = sql;
+  let params_with_pagination: (string | number)[] = params;
+
+  if (filter.limit !== undefined || filter.offset !== undefined) {
+    const offset = filter.offset ?? 0;
+    if (filter.limit !== undefined) {
+      sql_with_pagination = `${sql} LIMIT ? OFFSET ?`;
+      params_with_pagination = [...params, filter.limit, offset];
+    } else {
+      // offset without limit: use sqlite's "no bound" sentinel LIMIT -1
+      sql_with_pagination = `${sql} LIMIT -1 OFFSET ?`;
+      params_with_pagination = [...params, offset];
+    }
+  }
+
+  return (db.prepare(sql_with_pagination).all(...(params_with_pagination as any)) as any[]).map(rowToNote);
+}
+
+/** Count the number of friction notes matching a filter, ignoring limit/offset.
+ *  Mirrors listFriction's style: unlocked read. Returns the matching row count. */
+export function countFriction(project: string, filter: FrictionFilter = {}): number {
+  const db = openDb(project);
+  const { where, params } = buildFrictionWhere(filter);
+  const sql = `SELECT COUNT(*) AS n FROM friction_notes${where}`;
+  const result = db.prepare(sql).get(...(params as any)) as { n: number } | undefined;
+  return result?.n ?? 0;
 }
 
 /**

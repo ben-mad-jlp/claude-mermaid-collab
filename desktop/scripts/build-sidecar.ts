@@ -60,9 +60,16 @@ const unbakeBuilderPaths: import('bun').BunPlugin = {
   setup(build) {
     build.onLoad({ filter: /jsdom[\\/]living[\\/]xhr[\\/]XMLHttpRequest-impl\.js$/ }, async (args) => {
       const src = await Bun.file(args.path).text();
-      const needle = 'require.resolve ? require.resolve("./xhr-sync-worker.js") : null';
-      if (!src.includes(needle)) return undefined;
-      return { contents: src.replace(needle, 'null'), loader: 'js' };
+      // Two spellings across jsdom versions, both resolving the same worker file:
+      //   23.x/27.x:  require.resolve ? require.resolve("./xhr-sync-worker.js") : null
+      //   28.x:       require.resolve("./xhr-sync-worker.js")
+      // Match the guarded form FIRST so its `: null` tail is consumed as part of the
+      // expression rather than left dangling by the bare-call rule.
+      const resolveCall =
+        /require\.resolve\s*\?\s*require\.resolve\(\s*"\.\/xhr-sync-worker\.js"\s*\)\s*:\s*null|require\.resolve\(\s*"\.\/xhr-sync-worker\.js"\s*\)/g;
+      if (!resolveCall.test(src)) return undefined;
+      resolveCall.lastIndex = 0;
+      return { contents: src.replace(resolveCall, 'null'), loader: 'js' };
     });
 
     // Inline default-stylesheet.css as a literal so no __dirname survives into the binary.
