@@ -721,20 +721,6 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         2,
       );
     }
-    case 'file_to_bucket': {
-      const { project, session, title } = args as { project: string; session: string; title: string };
-      if (!project || !session || !title) throw new Error('Missing required: project, session, title');
-      const created = await fileToBucketLeaf(project, session, {
-        title,
-        bucket: args.bucket,
-        description: args.description,
-        priority: args.priority,
-        status: args.status,
-        link: args.link,
-      });
-      broadcastTodosUpdated(project, session);
-      return JSON.stringify({ leaf: deriveTodoViews(project, [created])[0] }, null, 2);
-    }
     case 'file_finding': {
       const { project, session, violatedClaim, repro } = args as { project: string; session: string; violatedClaim: string; repro: string };
       if (!project || !session || violatedClaim === undefined || repro === undefined) throw new Error('Missing required: project, session, violatedClaim, repro');
