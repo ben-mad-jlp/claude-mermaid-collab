@@ -52,9 +52,10 @@ gets a reply affordance (freeform text; optionally node-anchored): POST to :9002
 the collab channel server forwards into that session's context → the session
 resumes. This replaces the tmux poke for the human→session direction and makes the
 Bridge a remote console: read at your depth, answer in place. Caveats: channels are
-a research preview and per-session opt-in (`--channels`); ship the reply path
-behind that availability, with the tmux nudge as fallback. The same channel later
-carries artifact-inbox arrivals and conductor cards.
+a research preview and per-session opt-in (`--channels`); when a session has no
+channel, the Bridge reply affordance is DISABLED for it (no fallback — the tmux
+nudge has been REMOVED from the system and is not an option). The same channel
+later carries artifact-inbox arrivals and conductor cards.
 
 **D7 — Zen renders the same store.** `update_zen_summary` today synthesizes an
 approximation of "where things stand"; the outline IS that, agent-authored and
@@ -89,7 +90,8 @@ watched-session store, Bridge tree rendering machinery, WS broadcast. New pieces
   POST to :9002; silent no-op when absent or server down (never block the turn).
 - Route + store: POST/GET /api/turn-outlines (one row per project+session).
 - Bridge: outline tree panel per watched session; needs-you pinning; NEW
-  highlighting; reply box wired to the channel bridge (tmux-nudge fallback).
+  highlighting; reply box wired to the channel bridge (disabled when the
+  session has no channel — no other delivery path exists).
 - Channel server (reply direction): a small MCP channel the plugin registers;
   :9002 route forwards Bridge replies to it.
 - Zen: render top levels of the same row.
@@ -104,7 +106,8 @@ watched-session store, Bridge tree rendering machinery, WS broadcast. New pieces
 - Store: overwrite semantics (second POST replaces the first); per-session
   isolation.
 - UI: latest tree renders and expands; a needs-you node renders pinned regardless
-  of depth; a reply POSTs to the channel route and falls back to tmux nudge when
-  the session has no channel. (Component tests, mocked fetch/WS.)
+  of depth; a reply POSTs to the channel route, and the reply box renders disabled
+  with an explanatory tooltip when the session has no channel. (Component tests,
+  mocked fetch/WS.)
 - Contract test on the OUTPUT STYLE side is judgment, not code: ships as skill
   wording; graded by dogfood.
