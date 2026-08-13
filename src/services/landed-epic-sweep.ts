@@ -56,7 +56,7 @@ export async function reconcileLandedEpics(
   // their exact semantics (their probe already answers exists:false for free).
   const listBranches =
     opts.listBranches ?? (opts.probe ? undefined : () => makeBranchGcRunner(project).listEpicBranches());
-  const missions = listMissions(project).filter((m) => m.mission.status === 'converged' || m.mission.status === 'closed');
+  const missions = listMissions(project, { withFacts: false }).filter((m) => m.mission.status === 'converged' || m.mission.status === 'closed');
   const todos = listTodos(project, { includeCompleted: true });
 
   const missionEpicIds = new Set<string>();
@@ -404,7 +404,7 @@ export async function reapTerminalMissionEpics(
   const teardown = opts.teardown ?? teardownEpic;
   const wm = opts.wm ?? getWorktreeManager(project);
 
-  const missions = listMissions(project, { includeArchived: true });
+  const missions = listMissions(project, { includeArchived: true, withFacts: false });
   const todos = listTodos(project, { includeCompleted: true });
 
   const reaped: string[] = [];
