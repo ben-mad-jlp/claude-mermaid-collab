@@ -13,6 +13,11 @@ export interface Project {
 
 export interface ProjectRegistryData {
   projects: Project[];
+  /** Tombstones: paths the user explicitly removed. On-disk discovery (list()'s
+   *  session-registry cross-reference) would otherwise re-add a removed project on the
+   *  very next list — the "cannot remove" loop. A tombstoned path stays out until an
+   *  EXPLICIT register(path) clears it. */
+  removed?: string[];
 }
 
 // MERMAID_DATA_DIR lets tests (and any embed) isolate projects.json off the real
@@ -247,6 +252,12 @@ export class ProjectRegistry {
       console.warn(`Failed to backfill mission node approval for ${path}:`, err);
     }
 
+    // An explicit register wins over a prior removal: clear the tombstone so
+    // discovery works for this path again.
+    if (registry.removed?.includes(path)) {
+      registry.removed = registry.removed.filter(p => p !== path);
+    }
+
     // Check if project already exists
     const existingIndex = registry.projects.findIndex(p => p.path === path);
 
@@ -299,13 +310,15 @@ export class ProjectRegistry {
     // so cross-project enumeration sees live projects without manual
     // re-onboarding. (DOGFOOD #1)
     const knownPaths = new Set(validProjects.map(p => p.path));
+    const tombstoned = new Set(registry.removed ?? []);
     const discovered: Project[] = [];
     for (const path of await this.discoverProjectPaths()) {
       // A worker worktree under .collab/agent-sessions/ holds its own .collab/
       // (session refs), so on-disk discovery RE-FINDS it and re-adds it here even
       // after the load filter — the actual leak behind the picker pollution. Skip
-      // transient paths so they never re-enter via discovery either.
-      if (knownPaths.has(path) || isTransientProjectPath(path)) continue;
+      // transient paths so they never re-enter via discovery either. Tombstoned
+      // paths (explicitly removed by the user) stay out the same way.
+      if (knownPaths.has(path) || isTransientProjectPath(path) || tombstoned.has(path)) continue;
       let lastAccess: string;
       try {
         lastAccess = fs.statSync(join(path, '.collab')).mtime.toISOString();
@@ -384,7 +397,16 @@ export class ProjectRegistry {
 
     registry.projects = registry.projects.filter(p => p.path !== path);
 
-    if (registry.projects.length < initialLength) {
+    // Tombstone the path so list()'s on-disk discovery cannot re-add it — without
+    // this, a project with live session refs reappears seconds after removal.
+    // Tombstone even when the path wasn't in projects[]: a discovered-only entry
+    // is exactly the kind that must be removable.
+    const removed = new Set(registry.removed ?? []);
+    const newlyTombstoned = !removed.has(path);
+    removed.add(path);
+    registry.removed = [...removed];
+
+    if (registry.projects.length < initialLength || newlyTombstoned) {
       await this.save(registry);
       return true;
     }

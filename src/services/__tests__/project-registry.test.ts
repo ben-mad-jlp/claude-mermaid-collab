@@ -62,3 +62,54 @@ describe('ProjectRegistry.register — skip transient isolation dirs', () => {
     }
   });
 });
+
+describe('ProjectRegistry.unregister — tombstones beat on-disk discovery', () => {
+  let dataDir: string;
+  let proj: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(async () => {
+    dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'proj-reg-data-'));
+    proj = await fs.mkdtemp(path.join(os.tmpdir(), 'proj-reg-live-'));
+    await fs.mkdir(path.join(proj, '.collab'), { recursive: true });
+    prevEnv = process.env.MERMAID_DATA_DIR;
+    process.env.MERMAID_DATA_DIR = dataDir;
+    // A session ref on disk is what makes discovery re-add a removed project.
+    await fs.writeFile(
+      path.join(dataDir, 'sessions.json'),
+      JSON.stringify({ sessions: [{ project: proj, session: 'design', createdAt: new Date().toISOString() }] }),
+    );
+  });
+  afterEach(async () => {
+    if (prevEnv === undefined) delete process.env.MERMAID_DATA_DIR;
+    else process.env.MERMAID_DATA_DIR = prevEnv;
+    await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(proj, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('a removed project STAYS removed across list() despite a live session ref', async () => {
+    const reg = new ProjectRegistry(); // default-singleton semantics: discovery active
+    expect((await reg.list()).some((p) => p.path === proj)).toBe(true); // discovered
+
+    expect(await reg.unregister(proj)).toBe(true);
+    // Without the tombstone this list() re-discovers proj via sessions.json.
+    expect((await reg.list()).some((p) => p.path === proj)).toBe(false);
+    expect((await reg.list()).some((p) => p.path === proj)).toBe(false); // and stays gone
+  });
+
+  it('unregister returns true for a discovered-only project (never in projects[])', async () => {
+    const reg = new ProjectRegistry();
+    // No list() first: proj is not in projects[], only discoverable.
+    expect(await reg.unregister(proj)).toBe(true);
+    expect((await reg.list()).some((p) => p.path === proj)).toBe(false);
+  });
+
+  it('an explicit register() clears the tombstone and discovery works again', async () => {
+    const reg = new ProjectRegistry();
+    await reg.unregister(proj);
+    expect((await reg.list()).some((p) => p.path === proj)).toBe(false);
+
+    await reg.register(proj);
+    expect((await reg.list()).some((p) => p.path === proj)).toBe(true);
+  });
+});
