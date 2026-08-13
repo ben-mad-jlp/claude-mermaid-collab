@@ -90,6 +90,12 @@ export interface SharedVerdictScope {
   quarantineHash: string;
   /** Injectable clock for the FAIL TTL (tests must control time; defaults to Date.now). */
   now?: () => number;
+  /** A stored FAIL may only answer an epic that never measured this base ITSELF — a true
+   *  sibling consuming another epic's measurement. An epic re-verifying its OWN cached fail
+   *  (its re-verify-attempt policy decided a fresh measure is due) must actually re-measure:
+   *  the shared serve budget outlives the caller's attempt budget, so serving it the stored
+   *  fail would suppress the re-run forever. Stored PASSes are unaffected. Default: served. */
+  allowStoredFail?: boolean;
 }
 
 const DEFAULT_MAX_CONCURRENT_BASE_GATES = 2;
@@ -256,7 +262,8 @@ export function runBaseGateShared(
       // concurrent siblings then coalesce onto it via the in-flight map above, and the
       // fresh write below resets the budget.
       const nowMs = verdict.now?.() ?? Date.now();
-      if (nowMs - stored.measuredAt <= BASE_GATE_FAIL_VERDICT_TTL_MS
+      if (verdict.allowStoredFail !== false
+        && nowMs - stored.measuredAt <= BASE_GATE_FAIL_VERDICT_TTL_MS
         && takeBaseGateFailServe(verdictKey, BASE_GATE_FAIL_VERDICT_SERVE_BUDGET)) {
         return Promise.resolve(replay);
       }

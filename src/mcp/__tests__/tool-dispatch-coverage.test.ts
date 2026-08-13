@@ -220,7 +220,7 @@ describe('tool dispatch coverage', () => {
 
   it('WORKGRAPH_TOOL_DEFS declares exactly the expected workgraph surface', () => {
     expect(new Set(WORKGRAPH_TOOL_DEFS.map((d) => d.name))).toEqual(
-      new Set(['create_epic', 'add_leaves', 'file_explore', 'file_finding', 'file_to_bucket', 'inspect_workgraph']),
+      new Set(['create_epic', 'add_leaves', 'file_bugfix', 'file_explore', 'file_feature', 'file_finding', 'inspect_workgraph']),
     );
   });
 
