@@ -11,12 +11,15 @@
  * happily if `nice` were spelled wrong or absent from the image.
  */
 import { describe, it, expect, afterEach } from 'bun:test';
-import { gateSpawnArgv, gateNiceness, DEFAULT_GATE_NICE } from '../leaf-gate';
+import { gateSpawnArgv, gateNiceness, DEFAULT_GATE_NICE, taskpolicyPath } from '../leaf-gate';
 
-const ORIGINAL = process.env.MERMAID_GATE_NICE;
+const ORIGINAL_NICE = process.env.MERMAID_GATE_NICE;
+const ORIGINAL_TASKPOLICY = process.env.MERMAID_TASKPOLICY_PATH;
 afterEach(() => {
-  if (ORIGINAL === undefined) delete process.env.MERMAID_GATE_NICE;
-  else process.env.MERMAID_GATE_NICE = ORIGINAL;
+  if (ORIGINAL_NICE === undefined) delete process.env.MERMAID_GATE_NICE;
+  else process.env.MERMAID_GATE_NICE = ORIGINAL_NICE;
+  if (ORIGINAL_TASKPOLICY === undefined) delete process.env.MERMAID_TASKPOLICY_PATH;
+  else process.env.MERMAID_TASKPOLICY_PATH = ORIGINAL_TASKPOLICY;
 });
 
 describe('gate children are deprioritised below the sidecar', () => {
@@ -43,8 +46,12 @@ describe('gate children are deprioritised below the sidecar', () => {
   it('layers the darwin QoS demotion and the timeout warden OUTSIDE `nice`', () => {
     // Order matters: taskpolicy must be the exec'd binary so the utility band inherits to the
     // whole tree, and the warden must outlive the shell it is capping.
+    // Pin taskpolicy to /bin/sh which always exists for deterministic testing on CI.
+    process.env.MERMAID_TASKPOLICY_PATH = '/bin/sh';
+    const resolved = taskpolicyPath();
+    expect(resolved).not.toBeNull();
     const argv = gateSpawnArgv('bun test', 10, { platform: 'darwin', timeoutSecs: 600 });
-    expect(argv.slice(0, 3)).toEqual(['taskpolicy', '-c', 'utility']);
+    expect(argv.slice(0, 3)).toEqual([resolved!, '-c', 'utility']);
     expect(argv[3]).toBe('perl');
     expect(argv.slice(-7)).toEqual(['600', 'nice', '-n', '10', 'sh', '-c', 'bun test']);
   });
