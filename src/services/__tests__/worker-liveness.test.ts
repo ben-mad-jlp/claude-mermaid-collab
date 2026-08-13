@@ -229,6 +229,9 @@ describe('reapDeadWorkers — audit source strings are unchanged', () => {
       id: 'audit-pulse',
       kind: 'leaf',
       sessionName: 'lane-pulse',
+      // Live epoch matches makeDeps' coordinatorEpoch, so the prior-epoch rule (d) skips it
+      // and the pulse rule (e) owns the reclaim.
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-live' } as any,
     });
     const grace = makeTodo({
       id: 'audit-grace',
@@ -238,6 +241,9 @@ describe('reapDeadWorkers — audit source strings are unchanged', () => {
       claimedAt: null,
       claimLeaseMs: null,
       updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+      // Live epoch matches makeDeps' coordinatorEpoch, so the prior-epoch rule (d) skips it
+      // and the grace rule (e) owns the reclaim.
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-live' } as any,
     });
     const deadClaim = makeTodo({
       id: 'audit-dead-claims',
@@ -358,6 +364,9 @@ describe('reapDeadWorkers — observed claim token is threaded to every reclaim'
       claimLeaseMs: null,
       claimToken: 'tok-cas-loss-will-race',
       updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+      // Live epoch matches makeDeps' coordinatorEpoch, so the prior-epoch rule (d) skips it
+      // and the grace rule (e) owns the reclaim, observing the stale token.
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-live' } as any,
     });
 
     const deps = makeDeps({

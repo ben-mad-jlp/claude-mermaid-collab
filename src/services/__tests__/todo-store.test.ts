@@ -8,7 +8,7 @@ import {
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, refundBaseMovedRetryIfUnderCap, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, TerminalParentApproveError, resolveShortId, promoteBucketItemToEpic,
-  stampEpicLandedAt, isHollowLand, openDb,
+  stampEpicLandedAt, isHollowLand, openDb, PROCESS_CLAIM_EPOCH,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { trackingProjectRoot } from '../project-registry';
@@ -1494,7 +1494,7 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
 });
 
 describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
-  test('stamps the passed epoch into the claim; absent when omitted', async () => {
+  test('stamps the passed epoch into the claim; defaults to PROCESS_CLAIM_EPOCH when omitted', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] E', kind: 'epic' });
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'planned' });
     await updateTodo(project, t.id, { status: 'ready' }); // approve so the CAS claim succeeds
@@ -1505,10 +1505,10 @@ describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
     expect(got.status).toBe('in_progress');
     expect(got.claim?.epoch).toBe('epoch-XYZ');
 
-    // Reset + reclaim with NO epoch → legacy-shaped claim (epoch undefined).
+    // Reset + reclaim with NO epoch → claim stamped with PROCESS_CLAIM_EPOCH default.
     await resetTodo(project, t.id, 'ready');
     await claimTodo(project, t.id, 'coordinator', 60_000);
-    expect(getTodo(project, t.id)!.claim?.epoch).toBeUndefined();
+    expect(getTodo(project, t.id)!.claim?.epoch).toBe(PROCESS_CLAIM_EPOCH);
   });
 });
 
