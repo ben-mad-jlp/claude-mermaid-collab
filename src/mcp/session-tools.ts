@@ -134,6 +134,29 @@ async function deprecateItem(project: string, session: string, id: string): Prom
   if (!response.ok) throw new Error(`Failed to deprecate ${id}: ${response.statusText}`);
 }
 
+export async function setArtifactMetadata(
+  project: string,
+  session: string,
+  id: string,
+  flags: { blueprint?: boolean; locked?: boolean; pinned?: boolean; deprecated?: boolean },
+): Promise<Record<string, boolean>> {
+  const updates: Record<string, boolean> = {};
+  if (flags.blueprint !== undefined) {
+    updates.blueprint = flags.blueprint;
+    updates.locked = flags.blueprint;
+  }
+  if (flags.locked !== undefined) updates.locked = flags.locked;
+  if (flags.pinned !== undefined) updates.pinned = flags.pinned;
+  if (flags.deprecated !== undefined) updates.deprecated = flags.deprecated;
+  const response = await apiFetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!response.ok) throw new Error(`Failed to set metadata: ${response.statusText}`);
+  return updates;
+}
+
 async function deleteArchivedOriginal(
   project: string,
   session: string,
@@ -999,17 +1022,7 @@ export async function handleSessionTool(name: string, args: any): Promise<string
         blueprint?: boolean; locked?: boolean; pinned?: boolean; deprecated?: boolean;
       };
       if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-      const updates: Record<string, boolean> = {};
-      if (blueprint !== undefined) { updates.blueprint = blueprint; updates.locked = blueprint; }
-      if (locked !== undefined) updates.locked = locked;
-      if (pinned !== undefined) updates.pinned = pinned;
-      if (deprecated !== undefined) updates.deprecated = deprecated;
-      const response = await apiFetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (!response.ok) throw new Error(`Failed to set metadata: ${response.statusText}`);
+      const updates = await setArtifactMetadata(project, session, id, { blueprint, locked, pinned, deprecated });
       return JSON.stringify({ success: true, id, updates });
     }
 
