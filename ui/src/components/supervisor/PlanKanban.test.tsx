@@ -183,11 +183,11 @@ describe('PlanKanban', () => {
     expect(screen.getByTestId('triage-lane-bugfix')).toBeInTheDocument();
   });
 
-  it('triageTag filter narrows triage lane items', () => {
+  it('frictionLayer filter narrows triage lane items', () => {
     const todos = [
       todo({ id: 'INBOX', kind: 'epic', bucketType: 'inbox' }),
-      todo({ id: 'i1', status: 'ready', parentId: 'INBOX', triageTag: 'domain' }),
-      todo({ id: 'i2', status: 'ready', parentId: 'INBOX', triageTag: 'operational' }),
+      todo({ id: 'i1', status: 'ready', parentId: 'INBOX', frictionLayer: 'domain' }),
+      todo({ id: 'i2', status: 'ready', parentId: 'INBOX', frictionLayer: 'operational' }),
     ];
     render(<PlanKanban todos={todos} showCompleted={false} />);
     const inboxLane = screen.getByTestId('triage-lane-inbox');
