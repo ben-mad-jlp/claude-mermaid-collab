@@ -50,6 +50,7 @@ function notes(layer: FrictionLayer, reason: string, count: number, sessionCount
   for (let i = 0; i < count; i++) {
     arr.push({
       id: `${layer}:${reason}:${i}`,
+      signature: null,
       retractedAt: null,
       retractedReason: null,
       supersededBy: null,

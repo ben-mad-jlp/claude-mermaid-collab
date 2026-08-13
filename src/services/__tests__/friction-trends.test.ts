@@ -11,6 +11,7 @@ let seq = 0;
 function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; retryReason: string }): FrictionNote {
   return {
     id: `f${++seq}`,
+    signature: null,
     todoId: null,
     session: null,
     attempt: 1,
