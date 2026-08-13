@@ -2467,7 +2467,7 @@ function assertProjectLocal(project: string): void {
   }
 }
 
-export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number, epoch?: string): Promise<Todo | null> {
+export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number, epoch: string = PROCESS_CLAIM_EPOCH): Promise<Todo | null> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -2483,7 +2483,7 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     //   status NOT IN done/dropped — not terminal
     //   approvedAt IS NOT NULL    — Planner-approved
     //   heldAt IS NULL            — not held
-    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs, ...(epoch ? { epoch } : {}) } satisfies ClaimStruct);
+    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs, epoch: epoch || PROCESS_CLAIM_EPOCH } satisfies ClaimStruct);
     const res = db.prepare(
       `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=?, updatedAt=?
        WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped')
@@ -2493,6 +2493,11 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     return res.changes === 1 ? getTodo(project, fullId) : null;
   });
 }
+
+/** Process-lifetime epoch stamped on every claim so a claim row can never lack one.
+ *  The coordinator passes its own COORDINATOR_EPOCH at the caller layer; this is the
+ *  fallback for any store path that claims without an explicit epoch argument. */
+export const PROCESS_CLAIM_EPOCH = crypto.randomUUID();
 
 /** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2).
  *  Override with MERMAID_MAX_CLAIM_RETRIES. */
@@ -2578,11 +2583,16 @@ export function releaseExpiredClaims(project: string, now: string = nowIso(), is
  * is exceeded. Returns 'ready' (claim cleared) / 'blocked' (held), or null if the
  * row wasn't a reclaimable claim.
  *
+ * When opts.expectToken is supplied (explicitly, including null), performs a
+ * token-scoped CAS: returns null and writes nothing if the row's live claimToken
+ * does not match the expectation (the row is owned by a fresher run). Otherwise
+ * proceeds with the reclaim as normal.
+ *
  * NOTE: returns the legacy 'ready'|'blocked' labels for back-compat with callers —
  * 'ready' means "claim cleared, will re-derive claimable" and 'blocked' means
  * "parked via heldAt", matching the new decision model.
  */
-export function reclaimNow(project: string, id: string, hadProgress?: (id: string) => boolean): Promise<'ready' | 'blocked' | null> {
+export function reclaimNow(project: string, id: string, hadProgress?: (id: string) => boolean, opts?: { expectToken?: string | null }): Promise<'ready' | 'blocked' | null> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -2607,15 +2617,31 @@ export function reclaimNow(project: string, id: string, hadProgress?: (id: strin
     if (row.acceptanceStatus === 'accepted') return null;
     const hasClaim = readClaim(row) != null;
     if (!hasClaim && row.status !== 'in_progress') return null;
+
+    // CAS engagement: check by PRESENCE of the expectToken key, not truthiness.
+    const casOn = !!opts && 'expectToken' in opts;
+    const expect = opts?.expectToken ?? null;
+
+    // Pre-check: if CAS is engaged, verify the current token matches before attempting the write.
+    if (casOn) {
+      const currentToken = readClaim(row)?.token ?? row.claimToken ?? null;
+      if (currentToken !== expect) {
+        return null;
+      }
+    }
+
     // 0-node kill (hadProgress returns false): release without retry penalty and never park.
     // crit_693bbc27_2: the dispatch path bumps retryCount before spawning (coordinator-live.ts:1745
     // bumpRetryCountIfOwned). If the process dies pre-spawn, reclaimNow is the only site that can
     // refund the bump, netting retryCount back to pre-dispatch. Floor at 0 to avoid negatives.
     if (hadProgress && hadProgress(id) === false) {
-      db.prepare(
+      const casSql = casOn ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
-         retryCount=MAX(0, retryCount-1), updatedAt=? WHERE id=?`
-      ).run(nowIso(), id);
+         retryCount=MAX(0, retryCount-1), updatedAt=? WHERE id=?${casSql}`
+      );
+      const res = casOn ? stmt.run(nowIso(), id, expect) : stmt.run(nowIso(), id);
+      if (casOn && res.changes === 0) return null;
       return 'ready';
     }
     const exhausted = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES;
@@ -2624,15 +2650,21 @@ export function reclaimNow(project: string, id: string, hadProgress?: (id: strin
     // the derived 'ready'/'blocked' enum (behavior-neutral — claimReason ignores
     // those values; the return label below still uses them for caller back-compat).
     if (exhausted) {
-      db.prepare(
+      const casSql = casOn ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
-         retryCount=retryCount+1, updatedAt=? WHERE id=?`
-      ).run(nowIso(), nowIso(), id);
+         retryCount=retryCount+1, updatedAt=? WHERE id=?${casSql}`
+      );
+      const res = casOn ? stmt.run(nowIso(), nowIso(), id, expect) : stmt.run(nowIso(), nowIso(), id);
+      if (casOn && res.changes === 0) return null;
     } else {
-      db.prepare(
+      const casSql = casOn ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
-         retryCount=retryCount+1, updatedAt=? WHERE id=?`
-      ).run(nowIso(), id);
+         retryCount=retryCount+1, updatedAt=? WHERE id=?${casSql}`
+      );
+      const res = casOn ? stmt.run(nowIso(), id, expect) : stmt.run(nowIso(), id);
+      if (casOn && res.changes === 0) return null;
     }
     return next;
   });

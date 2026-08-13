@@ -37,6 +37,7 @@ const DESCRIPTORS: { name: string; kind: string; parts: string[] }[] = [
   { name: 'budget-hard-cap', kind: 'blocker', parts: ['55555555', COORDINATOR_CONDITION_REASONS.budgetHardCap] },
   { name: 'rate-cap-exhausted', kind: 'blocker', parts: ['66666666', COORDINATOR_CONDITION_REASONS.rateCapExhausted] },
   { name: 'gate-rejected', kind: 'blocker', parts: ['77777777', COORDINATOR_CONDITION_REASONS.gateRejected] },
+  { name: 'zero-node-claim-lost', kind: 'blocker', parts: ['88888888', COORDINATOR_CONDITION_REASONS.zeroNodeClaimLost] },
 ];
 
 const countRows = (project: string, conditionKey: string): number => {
@@ -47,9 +48,9 @@ const countRows = (project: string, conditionKey: string): number => {
   return rows.length;
 };
 
-describe('coordinatorCondition — 14 coordinator-live raise sites', () => {
-  it('covers exactly the 14 blueprinted raise sites', () => {
-    expect(DESCRIPTORS.length).toBe(14);
+describe('coordinatorCondition — 15 coordinator-live raise sites', () => {
+  it('covers exactly the 15 blueprinted raise sites', () => {
+    expect(DESCRIPTORS.length).toBe(15);
   });
 
   for (const d of DESCRIPTORS) {

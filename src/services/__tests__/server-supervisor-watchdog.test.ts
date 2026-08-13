@@ -1,9 +1,36 @@
+/**
+ * @serial-test-lane: this file drives fixed-window health-probe escalation against a fake
+ * spawned child and reads back forensics written by an async exit handler; CPU contention
+ * from co-scheduled test processes can delay that handler past a fixed tick count.
+ */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ServerSupervisor } from '../../../desktop/src/main/server-supervisor';
+
+/** Poll `path` until its content includes `needle`, or `deadlineMs` elapses. Returns whatever
+ *  was last read — the caller's assertions still fail on a genuinely missing forensics line. */
+async function waitForForensics(path: string, needle: string, deadlineMs: number): Promise<string> {
+  const start = performance.now();
+  let content = '';
+  while (performance.now() - start < deadlineMs) {
+    try {
+      content = readFileSync(path, 'utf-8');
+      if (content.includes(needle)) return content;
+    } catch {
+      // file may not exist yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  try {
+    content = readFileSync(path, 'utf-8');
+  } catch {
+    // leave content as last read
+  }
+  return content;
+}
 
 class FakeChildProcess extends EventEmitter {
   pid = 12345;
@@ -142,11 +169,12 @@ describe('ServerSupervisor watchdog: jitter tolerance + true exit uptime', () =>
     expect(lastResult).toBe('respawned');
     expect(spawnedChildren.length).toBe(2); // original + respawned
 
-    // Let the old child's async 'exit' handler run.
-    await new Promise((resolve) => process.nextTick(resolve));
-    await new Promise((resolve) => process.nextTick(resolve));
-
-    const content = readFileSync(forensicsDir + '/forensics.log', 'utf-8');
+    // Wait for the old child's async 'exit' handler to write forensics.
+    const content = await waitForForensics(
+      forensicsDir + '/forensics.log',
+      'reason=watchdog-unresponsive',
+      2000,
+    );
     expect(content).toContain('reason=watchdog-unresponsive');
     // Real uptime (~3h = 10_800_000ms), not the ~30ms a re-stamped spawnedAt would
     // have produced against the NEW child's just-set spawn time.
