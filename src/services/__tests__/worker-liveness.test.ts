@@ -229,6 +229,9 @@ describe('reapDeadWorkers — audit source strings are unchanged', () => {
       id: 'audit-pulse',
       kind: 'leaf',
       sessionName: 'lane-pulse',
+      // Live epoch matches makeDeps' coordinatorEpoch, so the prior-epoch rule (d) skips it
+      // and the pulse rule (e) owns the reclaim.
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-live' } as any,
     });
     const grace = makeTodo({
       id: 'audit-grace',
@@ -238,6 +241,9 @@ describe('reapDeadWorkers — audit source strings are unchanged', () => {
       claimedAt: null,
       claimLeaseMs: null,
       updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+      // Live epoch matches makeDeps' coordinatorEpoch, so the prior-epoch rule (d) skips it
+      // and the grace rule (e) owns the reclaim.
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-live' } as any,
     });
     const deadClaim = makeTodo({
       id: 'audit-dead-claims',
@@ -289,5 +295,108 @@ describe('reapDeadWorkers — retry/exhausted bookkeeping', () => {
     const res = await reapDeadWorkers('proj', deps);
     expect(res.reclaimed).not.toContain('raced-e');
     expect(res.exhausted).not.toContain('raced-e');
+  });
+});
+
+describe('reapDeadWorkers — observed claim token is threaded to every reclaim', () => {
+  test('each rule passes the row\'s observed claim token to its reclaim dep', async () => {
+    const deadClaim = makeTodo({
+      id: 'token-dead-claims',
+      kind: 'land',
+      sessionName: 'lane-a',
+      claimToken: 'tok-dead-claims-12345678',
+    });
+    const priorEpoch = makeTodo({
+      id: 'token-prior-epoch',
+      kind: 'leaf',
+      sessionName: 'lane-b',
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-dead' } as any,
+      claimToken: 'tok-prior-epoch-abcdef01',
+    });
+    const pulse = makeTodo({
+      id: 'token-pulse',
+      kind: 'leaf',
+      sessionName: 'lane-c',
+      claimToken: 'tok-pulse-fedcba98',
+    });
+    const grace = makeTodo({
+      id: 'token-grace',
+      kind: 'leaf',
+      sessionName: 'lane-d',
+      claimedBy: null,
+      claimedAt: null,
+      claimLeaseMs: null,
+      claimToken: 'tok-grace-87654321',
+      updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+    });
+
+    const recordedTokens: { rule: string; expectToken: string | null }[] = [];
+    const deps = makeDeps({
+      listTodos: (_p, opts) =>
+        (opts?.status === 'in_progress' ? [deadClaim, priorEpoch, pulse, grace] : [deadClaim, priorEpoch, pulse, grace]),
+      lanePulseAt: (_project, session) => (session === 'lane-c' ? Date.now() - 60_000 : null),
+      reclaimClaim: async (_p, id, _hp, expectToken) => {
+        recordedTokens.push({ rule: 'reclaimClaim', expectToken: expectToken ?? null });
+        return 'ready';
+      },
+      reclaimOrphan: async (_p, id, _hp, expectToken) => {
+        recordedTokens.push({ rule: 'reclaimOrphan', expectToken: expectToken ?? null });
+        return 'ready';
+      },
+    });
+
+    await reapDeadWorkers('proj', deps);
+
+    // Assert that each rule passed the observed token from its row.
+    expect(recordedTokens).toContainEqual({ rule: 'reclaimClaim', expectToken: 'tok-dead-claims-12345678' });
+    expect(recordedTokens).toContainEqual({ rule: 'reclaimOrphan', expectToken: 'tok-prior-epoch-abcdef01' });
+    expect(recordedTokens).toContainEqual({ rule: 'reclaimOrphan', expectToken: 'tok-pulse-fedcba98' });
+    expect(recordedTokens).toContainEqual({ rule: 'reclaimOrphan', expectToken: 'tok-grace-87654321' });
+  });
+
+  test('a CAS-lost (null) reclaim is neither reclaimed nor exhausted and emits a reclaim-skipped-stale-token audit', async () => {
+    const leaf = makeTodo({
+      id: 'cas-loss-id',
+      kind: 'leaf',
+      sessionName: 'lane-cas-loss',
+      claimedBy: null,
+      claimedAt: null,
+      claimLeaseMs: null,
+      claimToken: 'tok-cas-loss-will-race',
+      updatedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+      // Live epoch matches makeDeps' coordinatorEpoch, so the prior-epoch rule (d) skips it
+      // and the grace rule (e) owns the reclaim, observing the stale token.
+      claim: { at: new Date().toISOString(), leaseMs: 1000, epoch: 'epoch-live' } as any,
+    });
+
+    const deps = makeDeps({
+      listTodos: (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]),
+      getTodo: (_p, id) => (id === 'cas-loss-id' ? leaf : null),
+      reclaimOrphan: async (_p, id, _hp, expectToken) => {
+        // Simulate a CAS loss by returning null (another reaper won the race).
+        return null;
+      },
+    });
+
+    const res = await reapDeadWorkers('proj', deps);
+
+    // The row should not be in either reclaimed or exhausted.
+    expect(res.reclaimed).not.toContain('cas-loss-id');
+    expect(res.exhausted).not.toContain('cas-loss-id');
+
+    // An audit with source 'reclaim-skipped-stale-token' should be recorded.
+    const staleTokenAudits = deps._audits.filter((a) => {
+      try {
+        const d = JSON.parse(a.detail);
+        return d.source === 'reclaim-skipped-stale-token';
+      } catch {
+        return false;
+      }
+    });
+    expect(staleTokenAudits.length).toBeGreaterThan(0);
+    const detail = JSON.parse(staleTokenAudits[0].detail);
+    expect(detail.todoId).toBe('cas-loss-id');
+    expect(detail.rule).toBe('orphan-reap');
+    expect(detail.observedToken).toBe('tok-cas-'); // first 8 chars of the token
   });
 });
