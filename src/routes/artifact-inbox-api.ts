@@ -5,11 +5,47 @@ import {
   writeEnvelope,
   listEnvelopes,
   ArtifactKind,
+  type ArtifactEnvelope,
 } from '../services/artifact-inbox-store.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
+import {
+  listAllSubscriptions,
+  subscriptionMatches,
+  enqueueNotification,
+  type SubscribableEvent,
+} from '../services/session-subscriptions.js';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
+}
+
+function nudgeSubscribersForEnvelope(envelope: ArtifactEnvelope): void {
+  try {
+    // An envelope is a mailbox-level event with no work-graph identity: pathless
+    // (no todoId/epicId/missionId), so by session-subscriptions.ts:60-69 only
+    // 'project'-scope subs match. Reuse the matcher — never re-implement the rule.
+    for (const sub of listAllSubscriptions()) {
+      const evt: SubscribableEvent = { project: sub.project };
+      if (!subscriptionMatches(sub, evt)) continue;
+      enqueueNotification({
+        project: sub.project,
+        session: sub.session,
+        scope: sub.scope,
+        targetId: sub.targetId,
+        event: 'artifact_inbox_received',
+        summary: `artifact inbox: ${envelope.artifact.type} "${envelope.artifact.name}"`,
+        payload: {
+          envelopeId: envelope.envelopeId,
+          type: envelope.artifact.type,
+          name: envelope.artifact.name,
+          receivedAt: envelope.receivedAt,
+        },
+      });
+    }
+  } catch {
+    // A delivery that persisted MUST still 200 — an unwritable subscriptions.db
+    // never fails an accepted envelope.
+  }
 }
 
 export async function handleArtifactInboxAPI(
@@ -88,6 +124,8 @@ export async function handleArtifactInboxAPI(
     } catch {
       // Broadcast failure never fails an accepted delivery
     }
+
+    nudgeSubscribersForEnvelope(envelope);
 
     return Response.json(
       { envelopeId: envelope.envelopeId, receivedAt: envelope.receivedAt },

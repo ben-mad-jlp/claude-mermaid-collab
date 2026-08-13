@@ -114,7 +114,7 @@ export async function runArchivalSweep(
   // MISSIONS: the mission table is small (one row per mission, not per todo) — a single
   // listMissions call (already hot-only by default) is the same cost class as the
   // existing mission-loop pass; no chunking needed.
-  const missions = listMissions(project, { includeArchived: false });
+  const missions = listMissions(project, { includeArchived: false, withFacts: false });
   const staleMissionTodoIds = missions
     .filter(
       (m) =>

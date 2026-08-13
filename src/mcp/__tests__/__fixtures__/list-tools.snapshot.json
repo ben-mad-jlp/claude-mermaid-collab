@@ -8449,6 +8449,67 @@
           "envelopeId"
         ]
       }
+    },
+    {
+      "name": "send_artifact",
+      "description": "Send a local artifact to a remote mermaid-collab inbox. Verifies receipt by re-reading the target inbox.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Absolute path to the project root directory"
+          },
+          "session": {
+            "type": "string",
+            "description": "Session name (e.g., \"bright-calm-river\")."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "document",
+              "diagram",
+              "design",
+              "spreadsheet",
+              "snippet",
+              "image"
+            ],
+            "description": "The artifact type: document, diagram, design, spreadsheet, snippet, or image"
+          },
+          "id": {
+            "type": "string",
+            "description": "The artifact ID within the session"
+          },
+          "to": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "The target server base URL (e.g., http://localhost:9002 or https://collab.example.com)"
+              }
+            },
+            "required": [
+              "server"
+            ],
+            "description": "Target inbox location"
+          },
+          "note": {
+            "type": "string",
+            "description": "Optional history note (e.g., reason for sending)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Optional bearer token for authentication at the target server"
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "type",
+          "id",
+          "to"
+        ]
+      }
     }
   ]
 }

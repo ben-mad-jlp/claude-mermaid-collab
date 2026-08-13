@@ -27,7 +27,7 @@ describe('advertised-tools reorder invariance', () => {
     // Create a new groups object with swapped EPIC but copy all other groups from GROUP_REGISTRY
     const swappedGroups = {} as any;
     // Manually copy all groups from GROUP_REGISTRY through the Proxy
-    const groupNames = ['SESSION', 'DIAGRAM', 'DOCUMENT', 'DESIGN', 'SYSTEM', 'BROWSER', 'DESKTOP', 'SUPERVISOR', 'EPIC', 'DECISION', 'MISSION', 'WORKGRAPH', 'SPREADSHEET', 'SNIPPET', 'EMBED', 'IMAGE', 'ARTIFACT_INBOX'] as const;
+    const groupNames = ['SESSION', 'DIAGRAM', 'DOCUMENT', 'DESIGN', 'SYSTEM', 'BROWSER', 'DESKTOP', 'SUPERVISOR', 'EPIC', 'DECISION', 'MISSION', 'WORKGRAPH', 'SPREADSHEET', 'SNIPPET', 'EMBED', 'IMAGE', 'ARTIFACT_INBOX', 'ARTIFACT_SEND'] as const;
     for (const name of groupNames) {
       swappedGroups[name] = GROUP_REGISTRY[name];
     }
