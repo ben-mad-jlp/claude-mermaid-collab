@@ -151,10 +151,10 @@ describe('PlanKanban [kind E] acceptance spec', () => {
         onClearCompleted={() => {}}
       />,
     );
-    // A bucket epic (column-driven, not title-driven) renders in the Triage
-    // section, not a plan swimlane — see PlanKanban.test.tsx's Triage coverage.
+    // A bucket epic (column-driven, not title-driven) renders in the work-requests
+    // section, not a plan swimlane — see PlanKanban.test.tsx's work-requests coverage.
     expect(screen.queryByTestId('epic-lane-INBOX')).toBeNull();
-    const lane = screen.getByTestId('triage-lane-inbox');
+    const lane = screen.getByTestId('work-request-view-explore');
     expect(within(lane).queryByText('done item')).toBeNull();
     expect(within(lane).getByText('ready item')).toBeTruthy();
   });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Escalation } from '@/stores/supervisorStore';
 import { selectFreshness, selectVerdict, fmtHHMM, type Freshness } from './freshnessSelectors';
-import type { SessionSummary } from './triageSelectors';
+import type { SessionSummary } from './attentionSelectors';
 
 const GONE = 15 * 60_000;
 const NOW = 1_000_000;

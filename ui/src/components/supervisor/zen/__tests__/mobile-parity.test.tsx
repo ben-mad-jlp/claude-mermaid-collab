@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { useSupervisorStore, type SupervisedSession, type Escalation, type SessionSummary } from '@/stores/supervisorStore';
 import { useSubscriptionStore, type SubscribedSession } from '@/stores/subscriptionStore';
 import { useFreshnessStore } from '@/stores/freshnessStore';
-import { selectTriageTop, selectTriageStack } from '@/lib/triageSelectors';
+import { selectAttentionTop, selectAttentionStack } from '@/lib/attentionSelectors';
 import { selectParagraphStack } from '@/lib/paragraphStack';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ describe('Z9 client behaviors (existing API)', () => {
       expect(stored.snoozedUntil).toBe(snoozedUntil);
     });
 
-    it('snoozed session is excluded from triage stack while now < snoozedUntil', () => {
+    it('snoozed session is excluded from attention stack while now < snoozedUntil', () => {
       const key = '/repo::wedged-2';
       const snoozedUntil = NOW + 10 * 60_000;
       useSupervisorStore.setState({
@@ -166,7 +166,7 @@ describe('Z9 client behaviors (existing API)', () => {
           }),
         },
       });
-      const stack = selectTriageStack([], useSupervisorStore.getState().sessionSummaries, NOW);
+      const stack = selectAttentionStack([], useSupervisorStore.getState().sessionSummaries, NOW);
       expect(stack.find((i) => i.kind === 'wedge')).toBeUndefined();
     });
 
@@ -182,17 +182,17 @@ describe('Z9 client behaviors (existing API)', () => {
           }),
         },
       });
-      const stack = selectTriageStack([], useSupervisorStore.getState().sessionSummaries, NOW);
+      const stack = selectAttentionStack([], useSupervisorStore.getState().sessionSummaries, NOW);
       expect(stack.find((i) => i.kind === 'wedge')).toBeDefined();
     });
   });
 
   // C.2 — operator-gated outranking
-  describe('selectTriageTop — operator-gated outranking', () => {
+  describe('selectAttentionTop — operator-gated outranking', () => {
     it('operator-gated escalation outranks a routine escalation', () => {
       const routine = esc('esc-routine', { operatorGated: false, createdAt: NOW - 1000 });
       const gated = esc('esc-gated', { operatorGated: true, createdAt: NOW - 500 });
-      const top = selectTriageTop([routine, gated], {}, NOW);
+      const top = selectAttentionTop([routine, gated], {}, NOW);
       expect(top?.kind).toBe('escalation');
       expect((top as { escalation: Escalation }).escalation.id).toBe('esc-gated');
     });
@@ -204,7 +204,7 @@ describe('Z9 client behaviors (existing API)', () => {
         paneSeenAt: NOW - 1000, // newer than escalation → gated should win (older since)
       });
       const sessionSummaries = { '/repo::wedged-tie': wedgedSummary };
-      const top = selectTriageTop([gated], sessionSummaries, NOW);
+      const top = selectAttentionTop([gated], sessionSummaries, NOW);
       // Both share SEV_GATED_OR_WEDGED; tiebreak is age ASC (smallest since = oldest)
       expect(top?.kind).toBe('escalation'); // escalation.createdAt (NOW-2000) < paneSeenAt (NOW-1000)
     });
@@ -216,7 +216,7 @@ describe('Z9 client behaviors (existing API)', () => {
         paneSeenAt: NOW - 5000, // much older
       });
       const sessionSummaries = { '/repo::wedged-older': wedgedSummary };
-      const top = selectTriageTop([gated], sessionSummaries, NOW);
+      const top = selectAttentionTop([gated], sessionSummaries, NOW);
       expect(top?.kind).toBe('wedge'); // paneSeenAt (NOW-5000) < createdAt (NOW-1000)
     });
   });

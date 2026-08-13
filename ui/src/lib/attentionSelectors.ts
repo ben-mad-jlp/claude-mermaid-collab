@@ -5,13 +5,13 @@ import type { Escalation } from '@/stores/supervisorStore';
 // imported) so this pure selector module compiles independently of store edits.
 // They are structurally identical to the store's interfaces.
 //
-// MOBILE-PARITY INVARIANT (Z9): Every triage-zone selector is a pure function over
+// MOBILE-PARITY INVARIANT (Z9): Every attention-zone selector is a pure function over
 // `(openEscalations, sessionSummaries)` — both populated exclusively from HTTP
 // hydrate + WS ingest in the store. No DOM, no `window`, no `Date.now()` in this
-// module (callers inject `now`). `triageItemId` gives every item a uniform tap key
+// module (callers inject `now`). `attentionItemId` gives every item a uniform tap key
 // so the mobile port needs no per-kind hover-reveal branching. All item identity,
 // clear, only-you, snooze, and severity flow through these pure helpers, keeping
-// the triage zone SSR/test/mobile-portable.
+// the attention zone SSR/test/mobile-portable.
 export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
 
 export interface SessionSummary {
@@ -27,7 +27,7 @@ export interface SessionSummary {
   refreshState?: 'fresh' | 'stale-failing';
 }
 
-export type TriageItem =
+export type AttentionItem =
   | { kind: 'escalation'; severity: number; since: number; escalation: Escalation }
   | { kind: 'wedge';      severity: number; since: number; summary: SessionSummary }
   | { kind: 'unknown';    severity: number; since: number; summary: SessionSummary };
@@ -39,10 +39,10 @@ export const SEV_GATED_OR_WEDGED = 3; // operatorGated escalation | wedged sessi
 export const SEV_ROUTINE        = 2; // any other open escalation (approval/decision/etc.)
 export const SEV_UNKNOWN_SOFT   = 1; // unknown-liveness session
 
-/** Stable, kind-uniform id for a triage item. Escalations use their server id;
+/** Stable, kind-uniform id for an attention item. Escalations use their server id;
  *  session items use `${kind}:${project}::${session}`. The single key the store's
  *  optimistic-clear / only-you Sets and the UI tap handlers all key off of. */
-export function triageItemId(item: TriageItem): string {
+export function attentionItemId(item: AttentionItem): string {
   if (item.kind === 'escalation') return item.escalation.id;
   return `${item.kind}:${item.summary.project}::${item.summary.session}`;
 }
@@ -62,31 +62,31 @@ export function escalationSeverity(e: Escalation, onlyYouIds?: ReadonlySet<strin
   return effectiveOperatorGated(e, onlyYouIds) ? SEV_GATED_OR_WEDGED : SEV_ROUTINE;
 }
 
-// Z9: Options bag for selectTriageStack / selectTriageTop (all fields optional →
+// Z9: Options bag for selectAttentionStack / selectAttentionTop (all fields optional →
 // existing 3-arg callers and tests remain valid unchanged).
-export interface TriageStackOpts {
+export interface AttentionStackOpts {
   /** Items the operator has locally pinned to the top tier ("only you"). */
   onlyYouIds?: ReadonlySet<string>;
   /** Items optimistically cleared (action sent, awaiting server confirm). Excluded. */
   clearedIds?: ReadonlySet<string>;
 }
 
-/** Build the merged triage stack. Sorted by severity DESC, then age ASC
+/** Build the merged attention stack. Sorted by severity DESC, then age ASC
  *  (oldest `since` first within a tier). Snoozed and optimistically-cleared
  *  sessions are excluded. Only-you marks promote items to SEV_GATED_OR_WEDGED. */
-export function selectTriageStack(
+export function selectAttentionStack(
   openEscalations: Escalation[],
   sessionSummaries: Record<string, SessionSummary>,
   now: number,
-  opts: TriageStackOpts = {},
-): TriageItem[] {
+  opts: AttentionStackOpts = {},
+): AttentionItem[] {
   const { onlyYouIds, clearedIds } = opts;
-  const items: TriageItem[] = [];
+  const items: AttentionItem[] = [];
 
   for (const e of openEscalations) {
     if (e.status !== 'open') continue;
-    const item: TriageItem = { kind: 'escalation', severity: escalationSeverity(e, onlyYouIds), since: e.createdAt, escalation: e };
-    if (clearedIds?.has(triageItemId(item))) continue;
+    const item: AttentionItem = { kind: 'escalation', severity: escalationSeverity(e, onlyYouIds), since: e.createdAt, escalation: e };
+    if (clearedIds?.has(attentionItemId(item))) continue;
     items.push(item);
   }
 
@@ -94,14 +94,14 @@ export function selectTriageStack(
     if (s.snoozedUntil && now < s.snoozedUntil) continue; // snoozed → out
     if (s.progressState === 'wedged') {
       const baseSev = SEV_GATED_OR_WEDGED;
-      const item: TriageItem = { kind: 'wedge', severity: baseSev, since: s.paneSeenAt, summary: s };
-      if (clearedIds?.has(triageItemId(item))) continue;
+      const item: AttentionItem = { kind: 'wedge', severity: baseSev, since: s.paneSeenAt, summary: s };
+      if (clearedIds?.has(attentionItemId(item))) continue;
       items.push(item);
     } else if (s.progressState === 'unknown') {
       const id = `unknown:${s.project}::${s.session}`;
       const sev = onlyYouIds?.has(id) ? SEV_GATED_OR_WEDGED : SEV_UNKNOWN_SOFT;
-      const item: TriageItem = { kind: 'unknown', severity: sev, since: s.paneSeenAt, summary: s };
-      if (clearedIds?.has(triageItemId(item))) continue;
+      const item: AttentionItem = { kind: 'unknown', severity: sev, since: s.paneSeenAt, summary: s };
+      if (clearedIds?.has(attentionItemId(item))) continue;
       items.push(item);
     }
     // active/quiet/stalled do NOT enter the stack — stalled only tints the pill amber.
@@ -110,13 +110,13 @@ export function selectTriageStack(
   return items.sort((a, b) => (b.severity - a.severity) || (a.since - b.since));
 }
 
-export function selectTriageTop(
+export function selectAttentionTop(
   openEscalations: Escalation[],
   sessionSummaries: Record<string, SessionSummary>,
   now: number,
-  opts: TriageStackOpts = {},
-): TriageItem | null {
-  return selectTriageStack(openEscalations, sessionSummaries, now, opts)[0] ?? null;
+  opts: AttentionStackOpts = {},
+): AttentionItem | null {
+  return selectAttentionStack(openEscalations, sessionSummaries, now, opts)[0] ?? null;
 }
 
 /** Minutes of no-progress for a wedged/unknown session, for the card label. */
@@ -129,7 +129,7 @@ export function wedgeMinutes(summary: SessionSummary, now: number): number {
 export const UNDO_WINDOW_MS = 5_000;
 
 export interface PendingClear {
-  id: string;          // triageItemId of the cleared item
+  id: string;          // attentionItemId of the cleared item
   label: string;       // "sent → Approve" style toast text (caller-supplied)
   clearedAt: number;   // wall-clock when the optimistic clear fired
 }
