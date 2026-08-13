@@ -174,6 +174,11 @@ export interface Escalation {
   /** Trailing prose note attached to a resolved escalation, preserving context from
    *  prose-status legacy rows or explicit caller notes. Null while open or before resolution. */
   resolutionNote: string | null;
+  /** The deadline this card PROMISED on its face (createdAt + the caller's timeoutMs).
+   *  The reconcile stale sweep MUST NOT touch a card whose expiresAt is in the future —
+   *  a card that prints "Timeout: 10 minutes" lives at least 10 minutes. Null for cards
+   *  that promise no timeout (they keep the legacy stale-window heuristic). */
+  expiresAt: number | null;
 }
 
 export const ESCALATION_KINDS = [
@@ -245,7 +250,8 @@ CREATE TABLE IF NOT EXISTS escalation (
   briefingMd TEXT,
   briefingModel TEXT,
   briefingAt INTEGER,
-  audience TEXT DEFAULT 'human'
+  audience TEXT DEFAULT 'human',
+  expiresAt INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -385,6 +391,9 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'lastSeenAt', 'lastSeenAt INTEGER');
   addColumnIfMissing(db, 'escalation', 'recurrenceCount', 'recurrenceCount INTEGER DEFAULT 0');
   addColumnIfMissing(db, 'escalation', 'resolutionNote', 'resolutionNote TEXT');
+  // Timeout honesty (feat-card-timeout-honesty): the deadline the card printed.
+  // Additive, DEFAULT null so existing rows keep the legacy stale-window sweep.
+  addColumnIfMissing(db, 'escalation', 'expiresAt', 'expiresAt INTEGER');
   // One-shot backfill: migrate legacy prose-status rows to canonical status + resolutionNote.
   // Guard with `WHERE resolutionNote IS NULL` so a second run (already backfilled) touches 0 rows.
   // This query handles both `:` and ` - ` delimiters commonly found in prose status strings.
@@ -810,6 +819,7 @@ function mapEscalationRow(row: EscalationRow): Escalation {
     recurrenceCount: row.recurrenceCount ?? 0,
     resolutionNote: resolutionNote ?? null,
     audience: (row.audience as 'human' | 'internal' | null) ?? 'human',
+    expiresAt: row.expiresAt ?? null,
   };
 }
 
@@ -864,6 +874,12 @@ export function deriveAudience(kind: string, operatorGated: boolean): 'human' | 
 
 /** Canonical status values for escalations. */
 export const ESCALATION_STATUSES = ['open','acknowledged','resolved','stale','decided','superseded','obsolete','linear'] as const;
+
+/** Who settled an escalation: a real decision ('ai' | 'human'), or 'timeout-default' —
+ *  nobody answered and the recorded outcome is the card's printed fallthrough. Kept
+ *  distinguishable so audits can query for silence-overridden calls
+ *  (`resolvedBy='timeout-default'`). */
+export type EscalationResolvedBy = 'ai' | 'human' | 'timeout-default';
 
 /**
  * Normalize an escalation status to canonical form + extract trailing prose as resolutionNote.
@@ -926,6 +942,10 @@ export function createEscalation(input: {
   /** Required: who must act on this escalation. 'human' if a person needs to clear it,
    *  'internal' if it's daemon/conductor self-talk nothing human-facing consumes. */
   audience: 'human' | 'internal';
+  /** The timeout this card PRINTS on its face. Stamps expiresAt = createdAt + timeoutMs;
+   *  the reconcile stale sweep will not reap the card before that deadline. Callers that
+   *  print a timeout MUST pass the SAME value here — one field, printed and enforced. */
+  timeoutMs?: number | null;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   // Normalize the worktree cwd → tracking repo root. Under worker isolation a
@@ -948,8 +968,12 @@ export function createEscalation(input: {
       .get(project, conditionKey) as EscalationRow | null;
     if (openRow) {
       const now = Date.now();
-      d.prepare('UPDATE escalation SET lastSeenAt = ?, recurrenceCount = recurrenceCount + 1, questionText = ?, conditionHash = ? WHERE id = ?')
-        .run(now, input.questionText, conditionHash, openRow.id);
+      // A recurrence RE-PROMISES the printed timeout from the latest raise: refresh
+      // expiresAt to now + timeoutMs (a live re-raised card never expires mid-promise).
+      // Callers without a timeoutMs leave the stored deadline untouched.
+      const refreshedExpiresAt = input.timeoutMs != null && input.timeoutMs > 0 ? now + input.timeoutMs : null;
+      d.prepare('UPDATE escalation SET lastSeenAt = ?, recurrenceCount = recurrenceCount + 1, questionText = ?, conditionHash = ?, expiresAt = COALESCE(?, expiresAt) WHERE id = ?')
+        .run(now, input.questionText, conditionHash, refreshedExpiresAt, openRow.id);
       const refreshed = d.query('SELECT * FROM escalation WHERE id = ?').get(openRow.id) as EscalationRow;
       return { escalation: mapEscalationRow(refreshed), isNew: false };
     }
@@ -991,9 +1015,11 @@ export function createEscalation(input: {
     throw new Error(`createEscalation: invalid audience "${input.audience}"`);
   }
   const audience = operatorGated === 1 ? 'human' : input.audience;
+  // Timeout honesty: the deadline the card prints is the deadline the store enforces.
+  const expiresAt = input.timeoutMs != null && input.timeoutMs > 0 ? createdAt + input.timeoutMs : null;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, resolutionNote, audience) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, null, audience);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, resolutionNote, audience, expiresAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, null, audience, expiresAt);
   return {
     escalation: {
       id,
@@ -1024,6 +1050,7 @@ export function createEscalation(input: {
       lastSeenAt: createdAt,
       recurrenceCount: 0,
       resolutionNote: null,
+      expiresAt,
     },
     isNew: true,
   };
@@ -1137,10 +1164,15 @@ export function resolveFullEscalationId(id: string): string {
   return resolved;
 }
 
-export function applyEscalationResolveWrite(fullId: string, status: string, resolvedBy?: 'ai' | 'human', note?: string | null): { status: string; note: string | null } {
+export function applyEscalationResolveWrite(fullId: string, status: string, resolvedBy?: EscalationResolvedBy, note?: string | null): { status: string; note: string | null } {
   const d = openDb();
   const { status: normalizedStatus, note: normalizedNote } = normalizeEscalationStatus(status, note);
-  const info = d.prepare('UPDATE escalation SET status = ?, resolutionNote = COALESCE(?, resolutionNote), resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
+  // Honesty guard: once a row is labeled resolvedBy='timeout-default' (nobody answered;
+  // the outcome was a fallthrough), a later mechanical close (e.g. the executor's
+  // best-effort 'ai' resolve after its await returns 'timeout') must NOT relabel it as
+  // a real decision. A genuine re-decision goes through reopenEscalation, which clears
+  // resolvedBy to NULL first — so this never hides a real human answer.
+  const info = d.prepare("UPDATE escalation SET status = ?, resolutionNote = COALESCE(?, resolutionNote), resolvedAt = ?, resolvedBy = CASE WHEN resolvedBy = 'timeout-default' THEN resolvedBy ELSE COALESCE(?, resolvedBy) END, triageInFlight = 0 WHERE id = ?").run(
     normalizedStatus,
     normalizedNote,
     Date.now(),
@@ -1159,7 +1191,7 @@ export function applyEscalationAcknowledgeWrite(fullId: string, acknowledgedBy?:
   if (info.changes === 0) throw new Error(`escalation acknowledge matched no row: ${fullId}`);
 }
 
-export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human', note?: string | null): void {
+export function resolveEscalation(id: string, status: string, resolvedBy?: EscalationResolvedBy, note?: string | null): void {
   const fullId = resolveFullEscalationId(id);
   applyEscalationResolveWrite(fullId, status, resolvedBy, note);
 }

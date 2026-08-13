@@ -213,6 +213,26 @@ function openDb(): Database {
     if (!ebgc.some((c) => c.name === 'baselineFailures')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN baselineFailures TEXT');
     if (!ebgc.some((c) => c.name === 'failAttempts')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN failAttempts INTEGER');
   }
+  // Durable SHARED base-gate verdict, keyed by WHAT WAS MEASURED (the coalescer's
+  // project+baseSha+lane key, extended with the active-quarantine-set hash) — not by who
+  // asked. epic_base_gate above stays as the per-epic bookkeeping layer; THIS row is what
+  // lets N sibling epics forward-integrated to the same base sha consume ONE ~20-minute
+  // suite run instead of N serialized ones (observed 2026-08-13: 3 siblings, 1 sha,
+  // 6 claimed leaves starved for an hour). A PASS is served indefinitely while the key
+  // matches; a FAIL is served only within a bounded budget (`failServeCount` below),
+  // because a flake-red has nothing to commit — the base sha never moves, so without a
+  // budget one false red would pin every sibling forever.
+  db.exec(`CREATE TABLE IF NOT EXISTS base_gate_verdict (
+    key TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    baseSha TEXT,
+    status TEXT NOT NULL,
+    resultJson TEXT,
+    quarantineHash TEXT NOT NULL,
+    measuredAt INTEGER NOT NULL,
+    failServeCount INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_bgv_base ON base_gate_verdict(baseSha)`);
   // Flaky-test observation ledger: one row per test run (pass or fail) on the base lane,
   // to classify transient base-lane failures (flakes) against sha-correlated/red-on-branch issues.
   db.exec(`CREATE TABLE IF NOT EXISTS base_gate_test_run (
@@ -1034,6 +1054,84 @@ export function shouldHonourCachedBaseGate(row: EpicBaseGateRow, now: number = D
   if (row.failAttempts < BASE_GATE_FAIL_REVERIFY_ATTEMPTS) return 'reverify';
   if (now - row.checkedAt > BASE_GATE_FAIL_TTL_MS) return 'reverify';
   return 'honour';
+}
+
+// --- Durable shared base-gate verdict (base_gate_verdict) ---------------------------------
+
+/** One shared measurement of a base: keyed by what was measured, consumed by any epic whose
+ *  base resolves to the same key. `status` is only ever 'pass' | 'fail' — an 'error' is an
+ *  incident, not a base fact, and is never persisted (same guard as recordEpicBaseGate). */
+export interface BaseGateVerdictRow {
+  key: string;
+  project: string;
+  baseSha: string | null;
+  status: 'pass' | 'fail';
+  /** JSON-serialized LeafGateResult of the measuring run, replayed verbatim to consumers.
+   *  Null/corrupt reads back as a MISS at the consult site (re-measure, never a skipped gate). */
+  resultJson: string | null;
+  quarantineHash: string;
+  measuredAt: number;
+  failServeCount: number;
+}
+
+/** Upsert a shared verdict. Resets `failServeCount` to 0 — a fresh measurement opens a fresh
+ *  serve budget. Best-effort like its neighbors, BUT it re-reads after writing and returns
+ *  whether the row actually landed: this ledger swallows errors silently, and a schema
+ *  mismatch that silently no-ops the write would leave every sibling re-running the full
+ *  suite with nothing red anywhere to say why. Tests assert on the return value.
+ *
+ *  `resultJson` is NOT truncated here — slicing serialized JSON corrupts it into a permanent
+ *  parse-miss. The caller caps the embedded `output` field before serializing. */
+export function recordBaseGateVerdict(
+  v: Omit<BaseGateVerdictRow, 'measuredAt' | 'failServeCount'>,
+  now: number = Date.now(),
+): boolean {
+  try {
+    const db = openDb();
+    db.prepare(
+      `INSERT INTO base_gate_verdict (key, project, baseSha, status, resultJson, quarantineHash, measuredAt, failServeCount)
+       VALUES (?,?,?,?,?,?,?,0)
+       ON CONFLICT(key) DO UPDATE SET
+         project=excluded.project, baseSha=excluded.baseSha, status=excluded.status,
+         resultJson=excluded.resultJson, quarantineHash=excluded.quarantineHash,
+         measuredAt=excluded.measuredAt, failServeCount=0`,
+    ).run(v.key, v.project, v.baseSha ?? null, v.status, v.resultJson ?? null, v.quarantineHash, now);
+    const back = db.prepare('SELECT status, measuredAt FROM base_gate_verdict WHERE key=?').get(v.key) as
+      { status: string; measuredAt: number } | undefined;
+    return back?.status === v.status && back?.measuredAt === now;
+  } catch { return false; }
+}
+
+/** Read a shared verdict. `null` on a miss OR a throw — both send the caller to a real run. */
+export function getBaseGateVerdict(key: string): BaseGateVerdictRow | null {
+  try {
+    const raw = openDb().prepare('SELECT * FROM base_gate_verdict WHERE key=?').get(key) as
+      BaseGateVerdictRow | undefined;
+    return raw ?? null;
+  } catch { return null; }
+}
+
+/** Atomically take one serve slot on a stored FAIL (CAS in SQL, so two concurrent consumers
+ *  can never both take the last slot). True ⇒ the caller may serve the stored fail; false ⇒
+ *  budget exhausted (or the row is gone / a pass / a throw) — re-measure instead. */
+export function takeBaseGateFailServe(key: string, maxServes: number): boolean {
+  try {
+    return openDb().prepare(
+      `UPDATE base_gate_verdict SET failServeCount = failServeCount + 1
+       WHERE key=? AND status='fail' AND failServeCount < ?`,
+    ).run(key, maxServes).changes > 0;
+  } catch { return false; }
+}
+
+/** Delete every shared verdict for a base sha (the invalidate_base_gate path). By sha ALONE,
+ *  not project+sha: epic_base_gate rows store the TRACKING project while verdict rows store
+ *  the target project, and the two diverge on tracked-external repos — a sha collision across
+ *  projects is negligible and over-deleting is the safe direction (extra re-measure, never a
+ *  skipped gate). Best-effort: 0 on throw, so the verb's per-epic clear still succeeds. */
+export function deleteBaseGateVerdictsForBase(baseSha: string): number {
+  try {
+    return openDb().prepare('DELETE FROM base_gate_verdict WHERE baseSha=?').run(baseSha).changes;
+  } catch { return 0; }
 }
 
 // --- Conductor wake gate: last-probed lane signature (epic_probe_signature) --------------
