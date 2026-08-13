@@ -36,7 +36,7 @@ describe('InboxPreview', () => {
     vi.clearAllMocks();
   });
 
-  it('clicking an envelope row previews it without any import call', async () => {
+  it('clicking an envelope row opens the VIEWER without any import call', async () => {
     const mockEnvelope: InboxEnvelope = {
       schemaVersion: 1,
       envelopeId: 'env-1',
@@ -82,14 +82,14 @@ describe('InboxPreview', () => {
     fireEvent.click(screen.getByTestId('inbox-row-env-1'));
 
     // Assert preview is shown
-    expect(screen.getByTestId('inbox-preview')).toBeDefined();
-    expect(screen.getByTestId('inbox-preview-content')).toBeDefined();
-    expect(screen.getByTestId('inbox-preview-content').textContent).toContain('PREVIEW BODY TEXT');
-    expect(screen.getByTestId('inbox-preview').textContent).toContain('alice@example.com');
+    expect(screen.getByTestId('inbox-viewer')).toBeDefined();
+    expect(screen.getByTestId('inbox-viewer-content')).toBeDefined();
+    expect(screen.getByTestId('inbox-viewer-content').textContent).toContain('PREVIEW BODY TEXT');
+    expect(screen.getByTestId('inbox-viewer').textContent).toContain('alice@example.com');
 
     // Assert history note is shown
-    expect(screen.getByTestId('inbox-preview-history-note')).toBeDefined();
-    expect(screen.getByTestId('inbox-preview-history-note').textContent).toContain('3 versions');
+    expect(screen.getByTestId('inbox-viewer-history-note')).toBeDefined();
+    expect(screen.getByTestId('inbox-viewer-history-note').textContent).toContain('3 versions');
 
     // Assert no fetch calls were made
     expect(fetchSpy.mock.calls).toEqual([]);
@@ -136,10 +136,10 @@ describe('InboxPreview', () => {
 
     // First click: open preview
     fireEvent.click(screen.getByTestId('inbox-row-env-1'));
-    expect(screen.getByTestId('inbox-preview')).toBeDefined();
+    expect(screen.getByTestId('inbox-viewer')).toBeDefined();
 
     // Second click: close preview
     fireEvent.click(screen.getByTestId('inbox-row-env-1'));
-    expect(screen.queryByTestId('inbox-preview')).toBeNull();
+    expect(screen.queryByTestId('inbox-viewer')).toBeNull();
   });
 });

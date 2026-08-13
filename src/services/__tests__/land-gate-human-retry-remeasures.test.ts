@@ -370,4 +370,88 @@ describe('land-gate-human-retry-remeasures', () => {
     // Assert floor was re-invoked because skipCache: true overrides caching regardless of actor
     expect(floorInvocationCount).toBe(1);
   });
+
+  it('a cached FAIL whose failing set is now fully quarantined is re-measured, not served', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'land-gate-quarantine-invalidates-cache-'));
+
+    const fixedSha = 'deadbeef0123456789abcdef0123456789abcd';
+    const baseSha = 'deadbeef3333333333333333333333333333333';
+
+    const mockDeclaration: GateDeclaration = {
+      kind: 'declared',
+      cfg: {
+        tests: [{ match: new RegExp('^src/'), command: 'bun test {file}', mode: 'per-file' }],
+        floors: [{ match: new RegExp('^src/'), command: 'bun run test:floor' }],
+      },
+      manifestPath: '.collab/project.json',
+    };
+
+    const floorOutput = `1 file(s) FAILED:
+
+──────── src/services/flaky.test.ts ────────
+ × flaked under load 523ms
+`;
+    const spawnCalls: string[] = [];
+    const mockSpawn: GateSpawn = async (cwd, command) => {
+      spawnCalls.push(command);
+      if (command.includes('tsc')) return { ran: true, code: 0, output: 'OK' };
+      if (command.includes('test:floor')) return { ran: true, code: 1, output: floorOutput };
+      return { ran: true, code: 0, output: 'PASS' };
+    };
+    const mockGit = (cwd: string, args: string[]) => {
+      if (args[0] === 'diff') return { code: 0, stdout: 'src/services/foo.ts\n' };
+      if (args[0] === 'merge-base') return { code: 0, stdout: `${baseSha}\n` };
+      return { code: 1, stdout: '' };
+    };
+    const baseOpts = {
+      project: tmpDir,
+      repo: tmpDir,
+      epicId: 'test-epic-quar-cache',
+      epicBranch: 'collab/epic/testq',
+      epicWorktreeCwd: tmpDir,
+      decl: mockDeclaration,
+      spawn: mockSpawn,
+      snapshot: { epicTipSha: fixedSha, baseSha },
+      git: mockGit,
+      fs: { exists: () => true, symlink: () => {} },
+    };
+
+    // First run (no quarantine): floor fails, FAIL is cached.
+    await runEpicLandGate({ ...baseOpts, actor: { kind: 'human' }, skipCache: true, quarantineLookup: () => [] });
+    expect(getEpicLandGate('test-epic-quar-cache', fixedSha, baseSha)?.status).toBe('fail');
+    spawnCalls.length = 0;
+
+    // Second run as a NON-human actor with the failing file now quarantined: the cached
+    // fail predates the quarantine row, so the gate must re-measure instead of serving it.
+    const retried = await runEpicLandGate({
+      ...baseOpts,
+      actor: { kind: 'daemon', level: 'auto' },
+      quarantineLookup: () => [
+        {
+          project: tmpDir,
+          test: 'src/services/flaky.test.ts',
+          quarantinedAtSha: 'manual',
+          evidence: { runs: 0, passRuns: 0, failRuns: 0 },
+          ttlExpiresAt: Date.now() + 86_400_000,
+          seededFrom: 'manual',
+          createdAt: Date.now(),
+        },
+      ],
+    });
+
+    // Re-measured (floor re-invoked) and downgraded to pass via the quarantined-only path.
+    expect(spawnCalls.filter((c) => c.includes('test:floor')).length).toBe(1);
+    expect(retried.status).toBe('pass');
+    expect(retried.quarantinedOnlyFailures).toEqual(['src/services/flaky.test.ts']);
+
+    // A cached fail NOT covered by quarantine is still served untouched.
+    spawnCalls.length = 0;
+    const uncovered = await runEpicLandGate({
+      ...baseOpts,
+      actor: { kind: 'daemon', level: 'auto' },
+      quarantineLookup: () => [],
+    });
+    expect(spawnCalls.filter((c) => c.includes('test:floor')).length).toBe(0);
+    expect(uncovered.status).toBe('pass'); // second run's downgraded pass is now the cached row
+  });
 });

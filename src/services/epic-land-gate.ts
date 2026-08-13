@@ -387,7 +387,23 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     const cached = getEpicLandGate(o.epicId, epicTipSha, baseSha);
     if (cached && cached.result) {
       const result = JSON.parse(cached.result) as EpicLandGateResult;
-      return { ...result, epicTipSha, baseSha };
+      // A cached FAIL is only as fresh as the quarantine set it was measured against:
+      // quarantining the failing tests and re-landing is a designed recovery, and serving
+      // the stale fail here made it unreachable (observed 2026-08-13, epic 81654ff3 —
+      // re-land settled in 25s on a fail that predated the quarantine rows). If every
+      // cached failing path is now quarantine-covered, drop the cache and re-measure.
+      const cachedFloorFailing = result.status === 'fail' ? (result.floor?.failing ?? []) : [];
+      const nowQuarantined =
+        cachedFloorFailing.length > 0 &&
+        (() => {
+          const rows = lookupQuarantine(o.project).map((q) => q.test);
+          return cachedFloorFailing.every((fp) =>
+            floorFailureIsQuarantined(fp, rows, result.floor?.output ?? '', o.project),
+          );
+        })();
+      if (!nowQuarantined) {
+        return { ...result, epicTipSha, baseSha };
+      }
     }
   }
 

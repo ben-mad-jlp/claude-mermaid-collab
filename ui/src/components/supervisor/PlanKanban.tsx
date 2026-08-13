@@ -23,7 +23,7 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
-import { isBucketEpicUI, bucketTypeOfTodo, TRIAGE_TAGS, BUCKET_LANE_LABEL, BUCKET_TYPE_ORDER, type BucketType, type TriageTag } from '@/lib/bucketRegistry';
+import { isBucketEpicUI, workRequestTypeOfTodo, FRICTION_LAYERS, type WorkRequestType, type FrictionLayer } from '@/lib/workRequestRegistry';
 import { criterionTagFor } from '@/lib/criterionTag';
 
 export interface PlanKanbanProps {
@@ -60,6 +60,13 @@ const BUCKET_CARD: Record<FunnelKey, string> = {
 const DROPPED_CARD = 'border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 opacity-60';
 
 const TERMINAL = new Set(['done', 'dropped']);
+
+/** Legacy lane order/labels for the triage section (preserves inbox in rendering).
+ *  The new WORK_REQUEST_VIEW_ORDER/WORK_REQUEST_VIEW_LABEL are for a future leaf. */
+const LEGACY_TRIAGE_LANES: readonly { type: WorkRequestType; label: string }[] = [
+  { type: 'inbox', label: 'Inbox' },
+  { type: 'bugfix', label: 'Bugfix inbox' },
+];
 
 /**
  * Transitive-dependents count per todo (the bottleneck weight): how many todos
@@ -268,11 +275,11 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
 
   const triageLanes = useMemo(() => {
     const h = buildTodoHierarchy(todos);
-    const byType = new Map<BucketType, SessionTodo[]>();
+    const byType = new Map<WorkRequestType, SessionTodo[]>();
     for (const epicId of h.epicIds) {
       const epic = h.byId.get(epicId)!;
       if (epic.status === 'dropped' || !isBucketEpicUI(epic)) continue;
-      const type = bucketTypeOfTodo(epic);
+      const type = workRequestTypeOfTodo(epic);
       if (!type) continue;
       const kids = (h.childrenByEpic.get(epicId) ?? []).filter((t) => !TERMINAL.has(t.status));
       byType.set(type, [...(byType.get(type) ?? []), ...kids]);
@@ -281,12 +288,12 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       const wa = waveMap.get(a.id) ?? 0, wb = waveMap.get(b.id) ?? 0;
       return wa !== wb ? wa - wb : (a.order ?? 0) - (b.order ?? 0);
     };
-    return BUCKET_TYPE_ORDER
-      .filter((t) => byType.has(t))
-      .map((t) => ({ type: t, label: BUCKET_LANE_LABEL[t], items: byType.get(t)!.slice().sort(byWaveOrder) }));
+    return LEGACY_TRIAGE_LANES
+      .filter((t) => byType.has(t.type))
+      .map((t) => ({ type: t.type, label: t.label, items: byType.get(t.type)!.slice().sort(byWaveOrder) }));
   }, [todos, waveMap]);
 
-  const [triageFilter, setTriageFilter] = useState<TriageTag | 'all'>('all');
+  const [triageFilter, setTriageFilter] = useState<FrictionLayer | 'all'>('all');
 
   const visibleLanes = useMemo(
     () =>
@@ -455,7 +462,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
               >
                 all
               </button>
-              {TRIAGE_TAGS.map((tag) => (
+              {FRICTION_LAYERS.map((tag) => (
                 <button
                   key={tag}
                   type="button"
@@ -479,7 +486,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   </header>
                   <div className="flex flex-wrap gap-1.5 p-1.5">
                     {lane.items
-                      .filter((t) => triageFilter === 'all' || t.triageTag === triageFilter)
+                      .filter((t) => triageFilter === 'all' || t.frictionLayer === triageFilter)
                       .map((t) => (
                         <div key={t.id} className="space-y-1 w-56">
                           <PlanCard todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={undefined} />
