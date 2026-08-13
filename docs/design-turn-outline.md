@@ -57,10 +57,12 @@ channel, the Bridge reply affordance is DISABLED for it (no fallback — the tmu
 nudge has been REMOVED from the system and is not an option). The same channel
 later carries artifact-inbox arrivals and conductor cards.
 
-**D7 — Zen renders the same store.** `update_zen_summary` today synthesizes an
-approximation of "where things stand"; the outline IS that, agent-authored and
-exact. Zen shows the top one-two levels of the same stored row (needs-you pinned),
-Bridge shows the full depth. One store, two views.
+**D7 — Zen renders the same store, FULL tree, expandable.** `update_zen_summary`
+today synthesizes an approximation of "where things stand"; the outline IS that,
+agent-authored and exact. Zen shows the complete tree (collapsed to the top level
+by default, needs-you pinned) and lets the human expand to any depth — same data
+and same interaction as the Bridge, differing only in chrome. One store, two full
+views.
 
 ## Format (v1)
 
@@ -94,7 +96,7 @@ watched-session store, Bridge tree rendering machinery, WS broadcast. New pieces
   session has no channel — no other delivery path exists).
 - Channel server (reply direction): a small MCP channel the plugin registers;
   :9002 route forwards Bridge replies to it.
-- Zen: render top levels of the same row.
+- Zen: render the full tree of the same row, collapsed by default, expandable.
 
 ## Test spec
 
