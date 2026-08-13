@@ -638,6 +638,8 @@ export async function surfaceEpicLand(
       isEpicLandedInGit: typeof isEpicLandedInGit;
       isEpicTreeIdenticalToTrunk: typeof isEpicTreeIdenticalToTrunk;
     };
+    /** Injectable land call for the read-only auto-land path (tests). */
+    landEpicFn?: typeof landEpic;
   } = {},
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
@@ -688,6 +690,33 @@ export async function surfaceEpicLand(
       ]);
       const nothingToMerge = gitStatus === 'landed' || treeStatus === 'identical';
       if (nothingToMerge) {
+        // READ-ONLY AUTO-LAND (human-decided 2026-08-13): an epic whose tree is identical
+        // to trunk but is NOT yet merged carries no content decision — a human land click
+        // would only acknowledge that nothing changed. Land it here through the same gated
+        // landEpic path (which re-derives the proof behind the mutex) and leave the card as
+        // a RECORD. An already-merged epic (gitStatus 'landed') stays suppressed as before —
+        // convergeObservedMerge stamps it. On a land failure the card stays open, which is
+        // strictly more visible than the old silent stranding.
+        if (gitStatus !== 'landed' && treeStatus === 'identical') {
+          const cond = landCondition('epic-ready-to-land', [epicId.slice(0, 8), epicBranch, 'read-only']);
+          const { escalation } = createEscalation({
+            project,
+            session,
+            todoId: epicId,
+            kind: 'epic-ready-to-land',
+            audience: 'human',
+            questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)}) rolled up READ-ONLY: tree identical to master, nothing to decide. Auto-landing to close the epic — this card is a record, not a request.`,
+            conditionKey: cond.conditionKey,
+            conditionTuple: cond.conditionTuple,
+          });
+          if (escalation?.id) {
+            const doLand = opts.landEpicFn ?? landEpic;
+            const outcome = await doLand(project, escalation.id).catch((err) => ({ landed: false, reason: err instanceof Error ? err.message : String(err) }) as Awaited<ReturnType<typeof landEpic>>);
+            const stamped = await stampLandLeafOnMerge(project, epicId, opts.landLeafId, outcome.landed);
+            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, repo, landSurface: 'read-only-auto-land', landed: outcome.landed, reason: outcome.reason, stamped }) });
+          }
+          continue;
+        }
         recordSupervisorAudit({
           kind: 'reconcile',
           project,
