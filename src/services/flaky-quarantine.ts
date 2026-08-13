@@ -166,6 +166,26 @@ export function setQuarantinePromotionHook(fn: QuarantinePromotionHook): void {
   promotionHook = fn;
 }
 
+/** A quarantine row is renewed if it still classifies as flaky, or announced as expired. */
+export interface QuarantineExpiryEvent {
+  project: string;
+  test: string;
+  quarantinedAtSha: string;
+  evidence: TestQuarantineRow['evidence'];
+  ttlExpiresAt: number;
+}
+
+type QuarantineExpiryHook = (e: QuarantineExpiryEvent) => void | Promise<void>;
+let expiryHook: QuarantineExpiryHook = () => {};
+
+/** Set a callback to be invoked when a lapsing quarantine record expires without renewal. */
+export function setQuarantineExpiryHook(fn: QuarantineExpiryHook): void {
+  expiryHook = fn;
+}
+
+/** A row is lapsing once its TTL is within this window of `now` (or already past). */
+export const QUARANTINE_RENEWAL_WINDOW_MS = 60 * 60_000;
+
 /**
  * Close a quarantine record and mark its todo as done when all recent observations
  * for that test are passing (green-only window). Idempotent per test: if the todo
@@ -299,4 +319,77 @@ export function promoteQuarantineCandidates(
   }
 
   return candidates;
+}
+
+/**
+ * Renew-or-announce sweep over lapsing quarantine rows (TTL within
+ * QUARANTINE_RENEWAL_WINDOW_MS of `now`, or already past). A row that still classifies as
+ * flaky against fresh observations is renewed with re-measured evidence; a manifest-seeded
+ * row is never renewed (its non-renewing contract, seedManifestBaseline); everything else,
+ * once genuinely past its TTL, is announced via the expiry hook. The row itself is never
+ * deleted — `activeQuarantine` already stops matching it once ttlExpiresAt passes.
+ *
+ * Best-effort per row: errors are caught and logged, never stopping the loop.
+ */
+export async function sweepExpiringQuarantine(
+  project: string,
+  now: number = Date.now(),
+  deps?: {
+    listTestQuarantine?: typeof listTestQuarantine;
+    listTestObservations?: typeof listTestObservations;
+    upsertQuarantine?: typeof upsertQuarantine;
+    expiryHook?: QuarantineExpiryHook;
+    renewalWindowMs?: number;
+    ttlMs?: number;
+  },
+): Promise<void> {
+  const listTestQuarantineFn = deps?.listTestQuarantine ?? listTestQuarantine;
+  const listTestObservationsFn = deps?.listTestObservations ?? listTestObservations;
+  const upsertQuarantineFn = deps?.upsertQuarantine ?? upsertQuarantine;
+  const expiryHookFn = deps?.expiryHook ?? expiryHook;
+  const renewalWindowMs = deps?.renewalWindowMs ?? QUARANTINE_RENEWAL_WINDOW_MS;
+  const ttlMs = deps?.ttlMs ?? DEFAULT_TTL_MS;
+
+  const records = listTestQuarantineFn(project);
+
+  for (const r of records) {
+    try {
+      if (r.ttlExpiresAt > now + renewalWindowMs) continue; // not lapsing yet
+
+      if (r.seededFrom !== 'manifest') {
+        const obs = listTestObservationsFn(project, r.test, r.createdAt);
+        const candidates = classifyFlakyCandidates(obs, now, { ttlMs });
+        const c = candidates.find((cand) => cand.test === r.test);
+        if (c) {
+          upsertQuarantineFn(
+            {
+              project,
+              test: r.test,
+              quarantinedAtSha: c.quarantinedAtSha,
+              evidence: c.evidence,
+              ttlExpiresAt: c.ttlExpiresAt,
+              seededFrom: r.seededFrom,
+            },
+            now,
+          );
+          continue;
+        }
+      }
+
+      if (r.ttlExpiresAt <= now) {
+        await expiryHookFn({
+          project,
+          test: r.test,
+          quarantinedAtSha: r.quarantinedAtSha,
+          evidence: r.evidence,
+          ttlExpiresAt: r.ttlExpiresAt,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[flaky-quarantine] sweepExpiringQuarantine: ${project}: failed to process test "${r.test}":`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 }

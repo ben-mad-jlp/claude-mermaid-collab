@@ -16,7 +16,7 @@ import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer.js';
-import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen } from './flaky-quarantine';
+import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen, sweepExpiringQuarantine } from './flaky-quarantine';
 import { pruneBaseGateTestRuns } from './worker-ledger';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
@@ -1210,6 +1210,7 @@ export async function resolveBaseGreen(io: {
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
     await closeQuarantineOnGreen(io.targetProject, io.now?.());
+    await sweepExpiringQuarantine(io.targetProject, io.now?.() ?? Date.now());
     // Retention on the observation table it just read. The sweep existed since it was written
     // and had ZERO callers — the table grew ~500k rows/day unbounded (1.86M measured
     // 2026-08-11) while every quarantine pass scanned it. Self-throttled internally.
