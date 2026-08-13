@@ -55,7 +55,7 @@ import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { collectDiffRisk, routeReviewDepth, type ReviewDepth, type DiffRisk } from './review-depth-router';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget, proposeContested, awaitContestedDecision } from './split-proposal';
 import { extractGateFailingFiles, gateFailureSignature } from './gate-base-attribution';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature, countLeafNodes } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestSuccessfulNodeOutput, getLeafResume, clearLeafResume, getEpicBaseGate, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, restoreEditableBlueprint, leafSpecSignature, countLeafNodes, invalidateEpicBaseGate, deleteBaseGateVerdictsForBase, recordBaseGateTestRuns, type EpicBaseGateRow } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import { resolveFreshBaseRedCard } from './base-red-card';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
@@ -2976,6 +2976,65 @@ export async function runLeaf(
             : 'own-work-already-committed';
           recordOutcome(outcome, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
           return finishWith({ outcome, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+        }
+        // EMPTY DIFF ON A BASE-REPAIR EPIC IS PROOF THE BASE IS GREEN (established false-red
+        // tell — see base-red-card's isBranchDiffEmpty probe): the daemon spawned this leaf to
+        // green a red base lane, and the implement node looked and found NOTHING to fix. That
+        // zero-file diff is a fresh MEASUREMENT that the cached red was a flake — parking it
+        // as empty-diff-spec-demands-changes discards the expensive discovery, leaves the
+        // stale red verdicts starving the epic, and records no flake evidence. Instead:
+        // (1) read the cached red (baseSha + failing fingerprints) while clearing the epic's
+        //     epic_base_gate row, (2) delete the shared verdict rows for that baseSha,
+        // (3) record a GREEN observation for each previously-failing fingerprint at that sha
+        //     (pass-and-fail-at-same-sha is exactly the flake signal the quarantine promoter
+        //     reads), (4) leave a forensic ledger row, then (5) settle through the NORMAL
+        //     completion gate — which re-measures the now-uncached base: green ⇒ honest
+        //     accept; red again ⇒ the base-red park below handles it (and that re-red is
+        //     evidence the red is real). Ledger writes are best-effort (telemetry never
+        //     breaks the run); anything unexpected FAILS CLOSED into the legacy
+        //     escalate+park below.
+        if (baseRepairEpic) {
+          let cachedRed: EpicBaseGateRow | null = null;
+          try {
+            cachedRed = invalidateEpicBaseGate(epicId).row;
+          } catch { cachedRed = null; } // unreadable/unclearable cache ⇒ fall through to the legacy park
+          if (cachedRed && cachedRed.status === 'fail' && cachedRed.baseSha) {
+            const redBaseSha = cachedRed.baseSha;
+            const failingByLane = Object.entries(cachedRed.baselineFailures ?? {})
+              .filter((e): e is [string, string[]] => Array.isArray(e[1]) && e[1].length > 0);
+            const clearedFailing = failingByLane.flatMap(([, fps]) => fps);
+            try { deleteBaseGateVerdictsForBase(redBaseSha); } catch { /* best-effort */ }
+            try {
+              for (const [lane, fps] of failingByLane) {
+                recordBaseGateTestRuns({
+                  project: leaf.targetProject ?? project, baseSha: redBaseSha, lane,
+                  ranTests: fps, failingTests: [], scope: 'base',
+                });
+              }
+            } catch { /* best-effort */ }
+            console.warn(`[leaf-executor] empty-diff-repair-base-green: base-repair leaf ${leaf.id.slice(0, 8)} produced a zero-file diff against red base ${redBaseSha.slice(0, 8)} — invalidated the cached red (+shared verdicts), recorded green observations for ${clearedFailing.length} fingerprint(s), settling through the completion gate`);
+            try {
+              deps.recordNode({
+                project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+                nodeKind: 'empty-diff-repair-base-green', nodesSpent: 0, verdict: 'pass',
+                outcomeDetail: JSON.stringify({ reason: 'empty-diff-repair-base-green', baseSha: redBaseSha, clearedFailing, declaredFiles }),
+                outputText:
+                  `empty-diff-repair-base-green: this leaf belongs to a base-repair epic (baseRepair=1) and its implement node produced a zero-file diff vs the epic base — it went looking for the cached red (${clearedFailing.join(', ') || 'no parsed fingerprints'}) at base ${redBaseSha} and found nothing to fix, which is proof the red was a flake. ` +
+                  `Invalidated the epic's cached base-gate row and the shared verdict rows for that baseSha, recorded a green observation per previously-failing fingerprint (flake evidence for the quarantine promoter), and settling through the normal completion gate: its re-measure of the now-uncached base is the honest arbiter (green ⇒ accept; red again ⇒ the base-red park, evidence the red is real).`,
+              });
+            } catch { /* telemetry — never break the run */ }
+            const gate = await deps.complete(project, leaf.id, 'accepted');
+            if (gate.baseRed) {
+              return parkBlocked(`epic-base-red: ${gate.baseRed.command}\n${gate.baseRed.failingFiles.join(', ')}`, null, gate.baseRed);
+            }
+            const effective = gate.effective ?? 'accepted';
+            const outcome: LeafRunResult['outcome'] = effective;
+            const reason = effective === 'pending' ? 'gate-pending'
+              : effective === 'rejected' ? 'gate-rejected'
+              : 'empty-diff-repair-base-green';
+            recordOutcome(outcome, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
+            return finishWith({ outcome, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+          }
         }
         // THREE causes, most-common FIRST. (1) is the 2026-07-24 build123d class: the node
         // `cd`s out of the lane worktree to the MAIN checkout named by the leaf's tracking
