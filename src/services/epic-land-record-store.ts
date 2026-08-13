@@ -60,7 +60,10 @@ CREATE TABLE IF NOT EXISTS epic_land_attempt (
   reason TEXT,
   landPath TEXT,
   session TEXT,
-  mergeSha TEXT
+  mergeSha TEXT,
+  typecheckCommand TEXT,
+  typecheckExitCode INTEGER,
+  typecheckFirstError TEXT
 );
 `;
 
@@ -86,6 +89,9 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'epic_land_record', 'postLandStatusClean', 'INTEGER');
   addColumnIfMissing(db, 'epic_land_record', 'postLandResidue', 'TEXT');
   addColumnIfMissing(db, 'epic_land_record', 'landPath', 'TEXT');
+  addColumnIfMissing(db, 'epic_land_attempt', 'typecheckCommand', 'TEXT');
+  addColumnIfMissing(db, 'epic_land_attempt', 'typecheckExitCode', 'INTEGER');
+  addColumnIfMissing(db, 'epic_land_attempt', 'typecheckFirstError', 'TEXT');
   dbCache.set(root, db);
   return db;
 }
@@ -430,6 +436,9 @@ export interface EpicLandAttempt {
   landPath: string | null;
   session: string | null;
   mergeSha: string | null;
+  typecheckCommand: string | null;
+  typecheckExitCode: number | null;
+  typecheckFirstError: string | null;
 }
 
 /** Record a land attempt outcome. Never throws — wraps the insert in a total try/catch.
@@ -444,13 +453,16 @@ export function recordLandAttempt(
     landPath?: string | null;
     session?: string | null;
     mergeSha?: string | null;
+    typecheckCommand?: string | null;
+    typecheckExitCode?: number | null;
+    typecheckFirstError?: string | null;
   },
 ): void {
   try {
     const db = openDb(project);
     db.query(
-      `INSERT INTO epic_land_attempt (project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO epic_land_attempt (project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha, typecheckCommand, typecheckExitCode, typecheckFirstError)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       project,
       a.epicId,
@@ -460,6 +472,9 @@ export function recordLandAttempt(
       a.landPath ?? null,
       a.session ?? null,
       a.mergeSha ?? null,
+      a.typecheckCommand ?? null,
+      a.typecheckExitCode ?? null,
+      a.typecheckFirstError ?? null,
     );
   } catch (err) {
     // Best-effort friction and audit on insert failure, never rethrow.
@@ -491,7 +506,7 @@ export function listEpicLandAttempts(project: string, epicId: string): EpicLandA
   try {
     const db = openDb(project);
     const rows = db.query(
-      `SELECT id, project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha
+      `SELECT id, project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha, typecheckCommand, typecheckExitCode, typecheckFirstError
        FROM epic_land_attempt
        WHERE project = ? AND epicId = ?
        ORDER BY attemptAt ASC`,
@@ -508,7 +523,7 @@ export function getLastEpicLandAttempt(project: string, epicId: string): EpicLan
   try {
     const db = openDb(project);
     const row = db.query(
-      `SELECT id, project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha
+      `SELECT id, project, epicId, attemptAt, outcome, reason, landPath, session, mergeSha, typecheckCommand, typecheckExitCode, typecheckFirstError
        FROM epic_land_attempt
        WHERE project = ? AND epicId = ?
        ORDER BY attemptAt DESC
