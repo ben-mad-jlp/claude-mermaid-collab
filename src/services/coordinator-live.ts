@@ -2057,8 +2057,8 @@ async function coordinatorReapDeadWorkers(
   const wlDeps: WorkerLivenessDeps = {
     listTodos,
     getTodo,
-    reclaimClaim,
-    reclaimOrphan,
+    reclaimClaim: (p, id, hp, expectToken) => reclaimClaim(p, id, hp, { expectToken }),
+    reclaimOrphan: (p, id, hp, expectToken) => reclaimOrphan(p, id, hp, { expectToken }),
     leafHadProgress: () => leafHadProgress,
     isRunLive,
     isLeafInflightLive,
