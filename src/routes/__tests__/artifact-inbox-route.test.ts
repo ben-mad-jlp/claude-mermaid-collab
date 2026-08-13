@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { initializeWebSocketHandler } from '../../services/ws-handler-manager.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'artifact-inbox-route-'));
 process.env.MERMAID_ARTIFACT_INBOX_DIR = dir;
@@ -162,5 +163,67 @@ describe('POST /api/artifact-inbox', () => {
     });
     const res4 = checkAuth(req4, url, '192.168.1.50');
     expect(res4).toBeNull();
+  });
+});
+
+describe('POST /api/artifact-inbox broadcast', () => {
+  const sent: unknown[] = [];
+
+  beforeAll(() => {
+    initializeWebSocketHandler({
+      broadcast: (m: unknown) => {
+        sent.push(m);
+      },
+    } as unknown as Parameters<typeof initializeWebSocketHandler>[0]);
+  });
+
+  afterAll(() => {
+    initializeWebSocketHandler(
+      null as unknown as Parameters<typeof initializeWebSocketHandler>[0]
+    );
+  });
+
+  it('broadcasts artifact_inbox_updated once on an accepted POST and not on a rejected POST', async () => {
+    // Positive case: valid envelope
+    const validBody = {
+      schemaVersion: 1,
+      from: {
+        serverOwner: 'test-user',
+        session: 'test-session',
+      },
+      artifact: {
+        type: 'document' as const,
+        name: 'broadcast-test.md',
+        content: 'Test content',
+      },
+    };
+
+    const validRes = await post(validBody);
+    expect(validRes.status).toBeGreaterThanOrEqual(200);
+    expect(validRes.status).toBeLessThan(300);
+    expect(sent.length).toBe(1);
+    expect(sent[0]).toEqual({ type: 'artifact_inbox_updated' });
+
+    // Reset for negative case
+    sent.length = 0;
+
+    // Negative case: oversize envelope
+    const largeContent = 'x'.repeat(10 * 1024 * 1024 + 100);
+    const oversizeBody = {
+      schemaVersion: 1,
+      from: {},
+      artifact: {
+        type: 'document' as const,
+        name: 'large-broadcast-test.md',
+        content: largeContent,
+      },
+    };
+
+    const oversizeRes = await post(oversizeBody);
+    expect(oversizeRes.status).toBe(413);
+    expect(
+      sent.filter((m) => (m as { type?: string }).type === 'artifact_inbox_updated')
+        .length
+    ).toBe(0);
   });
 });
