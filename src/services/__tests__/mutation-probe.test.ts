@@ -1,15 +1,32 @@
 /**
- * @nested-test-runner: inert - testCommand: 'bun test' at line 135 is captured by a stubbed armRunner that never spawns a process
+ * Fast lane: the teardown cases pass testCommand: 'exit 0' (no nested runner literal),
+ * and only ever spell the argv pair worktree/list in their own calls — the real worktree
+ * add is spawned inside runMutationProbe, never by this file's own source.
  */
 import { describe, it, expect, afterEach } from 'bun:test';
-import { rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { rmSync, existsSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import {
   classifyProbe,
   runMutationProbe,
   type ArmResult,
 } from '../mutation-probe.js';
+
+/** Build a real, committed git repo under mkdtempSync with a target symbol to probe. */
+function makeProbeRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mutprobe-repo-'));
+  execFileSync('git', ['-C', dir, 'init'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, 'config', 'user.email', 'probe@example.com'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, 'config', 'user.name', 'Probe Test'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, 'config', 'commit.gpgsign', 'false'], { stdio: 'ignore' });
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  writeFileSync(join(dir, 'src', 'target.ts'), 'export function targetSymbol() { return 1; }\n');
+  execFileSync('git', ['-C', dir, 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, 'commit', '-m', 'init'], { stdio: 'ignore' });
+  return dir;
+}
 
 describe('classifyProbe', () => {
   it('classifyProbe: vacuous when the control arm did not run or did not pass', () => {
@@ -124,30 +141,70 @@ describe('runMutationProbe', () => {
     tempDirs = [];
   });
 
-  it('runMutationProbe removes the scratch worktree in finally even when the ArmRunner throws', async () => {
-    // Track if teardown was called
-    let teardownCalled = false;
+  it('runMutationProbe tears down the trial worktree when the ArmRunner throws', async () => {
+    const repo = makeProbeRepo();
+    tempDirs.push(repo);
+    let trial: string | undefined;
 
-    // Stub deps: non-existent project, repo, file to trigger early return
+    await expect(
+      runMutationProbe(
+        {
+          project: repo,
+          repo,
+          file: 'src/target.ts',
+          symbol: 'targetSymbol',
+          testCommand: 'exit 0',
+        },
+        {
+          armRunner: async (arm, trialCwd) => {
+            trial = trialCwd;
+            expect(existsSync(trialCwd)).toBe(true);
+            throw new Error('probe arm exploded');
+          },
+        },
+      ),
+    ).rejects.toThrow('probe arm exploded');
+
+    expect(trial).toBeDefined();
+    tempDirs.push(trial!);
+    expect(trial).toMatch(/collab-mutation-probe-/);
+    expect(existsSync(trial!)).toBe(false);
+
+    const worktreeList = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
+    expect(worktreeList).not.toContain(basename(trial!));
+  });
+
+  it('runMutationProbe tears down the trial worktree on the post-setup vacuous refusal', async () => {
+    const repo = makeProbeRepo();
+    tempDirs.push(repo);
+    let trial: string | undefined;
+
     const result = await runMutationProbe(
       {
-        project: '/nonexistent/project',
-        repo: '/nonexistent/repo',
-        file: 'src/test.ts',
-        symbol: 'testSymbol',
-        testCommand: 'bun test',
+        project: repo,
+        repo,
+        file: 'src/target.ts',
+        symbol: 'targetSymbol',
+        testCommand: 'exit 0',
       },
       {
-        armRunner: async (arm, trialCwd, testCommand, markerPath) => {
-          throw new Error('Simulated ArmRunner failure');
+        armRunner: async (arm, trialCwd) => {
+          trial = trialCwd;
+          expect(existsSync(trialCwd)).toBe(true);
+          return { ran: true, passed: false, exitCode: 1 };
         },
       },
     );
 
-    // Since repo does not exist, worktree creation should fail before armRunner is called
-    expect(result.verdict).toBe('incident');
-    expect(result.execution).toBe('indeterminate');
-    expect(result.reason).toContain('worktree');
+    expect(result.verdict).toBe('vacuous');
+
+    expect(trial).toBeDefined();
+    tempDirs.push(trial!);
+    expect(trial).toMatch(/collab-mutation-probe-/);
+    expect(existsSync(trial!)).toBe(false);
+
+    const worktreeList = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
+    expect(worktreeList).not.toContain(basename(trial!));
   });
 
   it('classifyProbe rule order: incidents never fall through to never-called', () => {
