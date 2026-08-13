@@ -197,6 +197,8 @@ export const QUARANTINE_RENEWAL_WINDOW_MS = 60 * 60_000;
  * @param now Current timestamp (injectable for testing)
  * @param deps Overrideable dependencies for testing
  */
+export const MIN_GREEN_OBSERVATIONS_TO_CLOSE = 3;
+
 export async function closeQuarantineOnGreen(
   project: string,
   now: number = Date.now(),
@@ -230,7 +232,12 @@ export async function closeQuarantineOnGreen(
         ? listObservationsFn(project, r.createdAt).filter((o) => o.test === r.test)
         : listTestObservationsFn(project, r.test, r.createdAt);
 
-      if (testObs.length > 0 && !testObs.some((o) => o.failed)) {
+      // MIN_GREEN_OBSERVATIONS_TO_CLOSE: one lucky green must never un-quarantine an
+      // INTERMITTENT flake — that is the only kind of test quarantine exists for.
+      // MEASURED 2026-08-13: file-path rows seeded at 12:11 were closed by the first
+      // green gate and the same files redded the next gate at 12:41, so quarantine
+      // provided zero protection. Closing now requires a consistent green streak.
+      if (testObs.length >= MIN_GREEN_OBSERVATIONS_TO_CLOSE && !testObs.some((o) => o.failed)) {
         removeTestQuarantineFn(project, r.test);
 
         const resolvedTestFile = resolveTestFileFn(project, r.test);

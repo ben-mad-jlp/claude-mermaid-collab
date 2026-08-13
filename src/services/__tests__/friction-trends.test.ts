@@ -20,6 +20,7 @@ function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; r
     supersededBy: null,
     createdAt: partial.createdAt ?? '2026-06-11T00:00:00.000Z',
     ...partial,
+    signature: partial.signature ?? null,
   };
 }
 
