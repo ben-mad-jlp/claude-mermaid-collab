@@ -120,6 +120,14 @@ export function instrumentDatabase<T extends DatabaseLike>(db: T, opts: LatencyG
   };
 
   const wrapStatement = (stmt: StatementLike, sql: string): StatementLike => {
+    // bun:sqlite's query() returns a CACHED statement per sql string. Without this marker,
+    // every query(sql) call stacks another timing layer onto the same cached statement's
+    // methods — the chain grows one frame per call until hot statements burn CPU walking
+    // it and eventually throw "Maximum call stack size exceeded" (observed killing every
+    // conductor pass after ~2 days of uptime).
+    const marked = stmt as StatementLike & { __latencyWrapped?: boolean };
+    if (marked.__latencyWrapped) return stmt;
+    marked.__latencyWrapped = true;
     for (const m of ['run', 'get', 'all', 'values'] as const) {
       const orig = stmt[m];
       if (typeof orig === 'function') stmt[m] = timed(sql, orig.bind(stmt)) as never;

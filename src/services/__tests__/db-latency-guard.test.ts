@@ -143,3 +143,21 @@ describe('the budget itself', () => {
     expect(DEFAULT_QUERY_BUDGET_MS).toBeLessThan(1000);
   });
 });
+
+describe('repeated query() calls on a cached statement', () => {
+  it('does not stack a new timing layer per call', () => {
+    const db = seeded();
+    instrumentDatabase(db, { budgetMs: 100, now: fakeClock(1), onSlow: () => {} });
+
+    // bun:sqlite caches the statement per sql string; before the wrap-once marker each
+    // query() call re-wrapped the same cached statement, so hot statements grew an
+    // unbounded closure chain and hot paths died with "Maximum call stack size exceeded".
+    const first = db.query('SELECT COUNT(*) c FROM t');
+    const firstGet = first.get;
+    for (let i = 0; i < 20000; i++) db.query('SELECT COUNT(*) c FROM t');
+    const again = db.query('SELECT COUNT(*) c FROM t');
+
+    expect(again.get).toBe(firstGet); // same wrapper, not 20k layers deep
+    expect((again.get as () => unknown)()).toBeTruthy(); // and it still executes
+  });
+});
