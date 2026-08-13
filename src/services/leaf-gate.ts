@@ -8,6 +8,7 @@
  * repo-specific string.
  */
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { isQuarantined } from './quarantine.js';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
@@ -624,6 +625,17 @@ export const GATE_WARDEN_PERL =
   'alarm(shift @ARGV); my $rc = system(@ARGV); ' +
   'exit($rc == -1 ? 127 : ($rc & 127) ? 128 + ($rc & 127) : $rc >> 8);';
 
+export const DEFAULT_TASKPOLICY_PATH = '/usr/sbin/taskpolicy';
+
+/** Resolve the absolute path to taskpolicy on darwin, honouring MERMAID_TASKPOLICY_PATH
+ *  override. Returns null if the path does not exist, allowing graceful skip of the QoS layer.
+ *  No caching — the env override must be honoured per-call for tests. */
+export function taskpolicyPath(): string | null {
+  const override = process.env.MERMAID_TASKPOLICY_PATH;
+  const path = override && override.trim() ? override.trim() : DEFAULT_TASKPOLICY_PATH;
+  return existsSync(path) ? path : null;
+}
+
 export function gateSpawnArgv(
   command: string,
   niceness: number = gateNiceness(),
@@ -646,8 +658,10 @@ export function gateSpawnArgv(
   // sidecar's health responses anyway (read as "daemon died" in the UI). taskpolicy's
   // utility band is an actual QoS demotion the scheduler honours; it inherits to the
   // whole child tree. Utility (not background): background also throttles I/O so hard
-  // that gate wall-clocks blow their own timeouts.
-  if (platform === 'darwin') argv = ['taskpolicy', '-c', 'utility', ...argv];
+  // that gate wall-clocks blow their own timeouts. Absolute path required (bugfix
+  // 7dc5f49a): bare name + stripped PATH ⇒ {ran:false}.
+  const tp = platform === 'darwin' ? taskpolicyPath() : null;
+  if (tp) argv = [tp, '-c', 'utility', ...argv];
   return argv;
 }
 
