@@ -70,7 +70,7 @@ A fenced block the agent emits as (the tail of) its final message. Plain-text
 readable in the terminal, mechanically parseable:
 
 ````text
-```outline
+```outline v1
 ▸ Top-level point in one line
   ▸ Full sentence(s) of explanation — the prose that would have been the paragraph.
     ▸ Evidence, ids, file:line — the deepest detail.
@@ -97,6 +97,45 @@ watched-session store, Bridge tree rendering machinery, WS broadcast. New pieces
 - Channel server (reply direction): a small MCP channel the plugin registers;
   :9002 route forwards Bridge replies to it.
 - Zen: render the full tree of the same row, collapsed by default, expandable.
+
+
+## Blind spots (watcher + grok adversarial pass, 2026-08-12)
+
+Decisions still OWED before build:
+- **B1 Autonomous sessions:** "latest-only because the session pauses" holds ONLY
+  for interactive sessions; daemon/conductor sessions terminate turns continuously,
+  making their stream lossy by design. v1 scopes to interactive watched sessions;
+  autonomous handling is an explicit later decision, not a default.
+- **B2 needs-you unification:** escalation cards auto-reap; outline nodes persist to
+  the next turn. Rule: a needs-you node REFERENCES an escalation id when one exists,
+  and the renderer greys it once that card resolves. Never duplicated state.
+
+Security constraints (grok's pass; several are real):
+- **S1 Outlines exfiltrate context by construction** — full-content trees carry
+  whatever the turn discussed (keys, tool output). v1: size cap with explicit
+  truncation markers; a redaction pass is OUT of scope but the store is loopback-
+  local and zen must NOT sync rows off-box.
+- **S2 The reply route is privileged input injection** — an unauthenticated local
+  POST that puts words INTO a session. The route enforces the server's bearer auth
+  semantics (no loopback exemption for THIS route), tags replies with provenance
+  (`[bridge-reply user@host]`), and the UI shows sent-state per outline.
+- **S3 Session-key spoofing** — nothing binds the Stop-hook POST to the session it
+  claims. v1 mitigation: the hook includes the session's registered claudeSessionId
+  and the route drops rows for unregistered (project, session) pairs; full binding
+  is future work.
+- **S4 Render inert** — node text renders as plain text only (no markdown, links,
+  or actionable markup); needs-you pinning elevates VISIBILITY only, never actions.
+  The agent controls this surface; the UI must not let it phrase buttons.
+- **S5 Tree validation** — parser enforces max depth (12) and max nodes (500);
+  over-limit input degrades to flat truncated list, never crashes the renderer.
+- **S6 Durability** — the store survives server restart (file/db-backed like every
+  other collab store, not in-memory).
+- Discounted from grok's list: cryptographic tree-to-transcript binding and hash
+  chains — over-engineered for a loopback trust domain; the turn id + timestamp
+  shown in the UI lets a human spot-check against the transcript.
+
+Also: stale-outline marking (an outline older than the session's last activity
+renders greyed with its age), and format carries a version (```outline v1).
 
 ## Test spec
 
