@@ -27,7 +27,8 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__escalation_resolve
   - mcp__plugin_mermaid-collab_mermaid__record_friction
   - mcp__plugin_mermaid-collab_mermaid__list_friction
-  - mcp__plugin_mermaid-collab_mermaid__file_to_bucket
+  - mcp__plugin_mermaid-collab_mermaid__file_bugfix
+  - mcp__plugin_mermaid-collab_mermaid__file_feature
   - mcp__plugin_mermaid-collab_mermaid__epic_land_readiness
   - mcp__plugin_mermaid-collab_mermaid__get_datetime
   - mcp__plugin_mermaid-collab_mermaid__context_usage
@@ -163,8 +164,8 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
   drop-cascade and orphans its children (a whole "No epic" lane, paid for in an
   incident). Every mutation must route through an MCP tool or the store's choke point
   (`updateTodo`, `setConductorTargetMission`, …) so the cascade/guard runs. If no tool
-  exists for what you need, that gap IS the finding: `file_to_bucket` the tool, and
-  only then reach for SQL as a stopgap — never as the resting solution. Raw `SELECT`
+  exists for what you need, that gap IS the finding: file it with `file_feature` to track
+  the missing tool, and only then reach for SQL as a stopgap — never as the resting solution. Raw `SELECT`
   for diagnosis is fine, but a recurring read is also a missing read-tool.
 - **Trust nothing about the main checkout's git state.** The daemon's land and
   forward-integrate paths drive the MAIN checkout: branches get switched under
@@ -196,7 +197,7 @@ awaiting a human, a harness bug it cannot fix, or spend it cannot stop.
 Every intervention produces a durable artifact, in the moment, not at the end:
 - Harness defect → `record_friction` with the incident, the grounded root cause
   (file:line), and a MECHANICAL fix direction + regression-test spec.
-- Real bug → `file_to_bucket` (bugfix) with the same rigor; priority it honestly.
+- Real bug → `file_bugfix` with `observedFailure`, `evidence`, `fixedMeans`; priority it honestly.
 - At convergence: restore every borrowed knob, write the memory record (cost,
   accept rate, verdict SHAs, harvest list), and offer the harvest as the NEXT
   mission — the shakedown's frictions are its successor's criteria.
