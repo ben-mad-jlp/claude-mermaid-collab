@@ -8,7 +8,6 @@ import {
   ArtifactKind,
   type ArtifactEnvelope,
 } from '../services/artifact-inbox-store.js';
-import { adoptArtifact, dismissArtifact } from '../mcp/tools/artifact-inbox.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import {
   listAllSubscriptions,
@@ -183,6 +182,9 @@ export async function handleArtifactInboxAPI(
       }
       if (!body.project || !body.session) return jsonError('project and session are required', 400);
       try {
+        // Lazy import: the MCP tool chain pulls in session-tools/config; loading it at
+        // module scope broadens dispatch's import graph and breaks narrow test mocks.
+        const { adoptArtifact } = await import('../mcp/tools/artifact-inbox.js');
         const result = JSON.parse(await adoptArtifact(envelopeId, body.project, body.session, body.name));
         try { getWebSocketHandler()?.broadcast({ type: 'artifact_inbox_updated' }); } catch { /* never fails the adopt */ }
         return Response.json(result, { status: 200 });
@@ -193,6 +195,7 @@ export async function handleArtifactInboxAPI(
 
     if (action === 'dismiss' && req.method === 'POST') {
       try {
+        const { dismissArtifact } = await import('../mcp/tools/artifact-inbox.js');
         const result = JSON.parse(await dismissArtifact(envelopeId));
         try { getWebSocketHandler()?.broadcast({ type: 'artifact_inbox_updated' }); } catch { /* never fails the dismiss */ }
         return Response.json(result, { status: 200 });
