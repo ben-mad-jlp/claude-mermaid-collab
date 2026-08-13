@@ -162,4 +162,80 @@ describe('resolveBaseGreen quarantine downgrade', () => {
     const quarantined = listTestQuarantine(targetProject).map((q) => q.test);
     expect(quarantined).toContain('suite > flip test');
   });
+
+  it('case-title quarantine row covers a file-path failure with an ordinal prefix', async () => {
+    const project = '/downgrade-f';
+    const targetProject = '/downgrade-f-target';
+    const now = Date.now();
+    const caseTitle = 'watchdog kill escalates SIGTERM → SIGKILL';
+    upsertQuarantine({
+      project: targetProject,
+      test: caseTitle,
+      quarantinedAtSha: 'abc123',
+      evidence: { runs: 5, passRuns: 3, failRuns: 2 },
+      ttlExpiresAt: now + DEFAULT_TTL_MS,
+      seededFrom: null,
+    }, now);
+
+    const runGate = async (): Promise<LeafGateResult> => ({
+      status: 'fail',
+      output: 'FAIL (500/600) src/services/__tests__/server-supervisor-term-grace.test.ts',
+      reasons: [],
+      declared: true,
+      baselineFailures: { baseTest: ['(500/600) src/services/__tests__/server-supervisor-term-grace.test.ts'] },
+    });
+
+    const resolveTestFile = (project: string, test: string) => {
+      if (test === caseTitle) {
+        return 'src/services/__tests__/server-supervisor-term-grace.test.ts';
+      }
+      return null;
+    };
+
+    const r = await resolveBaseGreen({
+      epicId: 'epic-f', project, targetProject, epicBaseSha: 'sha-f', gateCfg: cfg,
+      ensureEpicWorktree, runGate, now: () => now, resolveTestFile,
+    });
+
+    expect(r?.status).toBe('pass');
+    expect(r?.quarantinedOnlyFailures).toEqual(['(500/600) src/services/__tests__/server-supervisor-term-grace.test.ts']);
+  });
+
+  it('case title resolving to a different file leaves the gate failing', async () => {
+    const project = '/downgrade-g';
+    const targetProject = '/downgrade-g-target';
+    const now = Date.now();
+    const caseTitle = 'watchdog kill escalates SIGTERM → SIGKILL';
+    upsertQuarantine({
+      project: targetProject,
+      test: caseTitle,
+      quarantinedAtSha: 'abc123',
+      evidence: { runs: 5, passRuns: 3, failRuns: 2 },
+      ttlExpiresAt: now + DEFAULT_TTL_MS,
+      seededFrom: null,
+    }, now);
+
+    const runGate = async (): Promise<LeafGateResult> => ({
+      status: 'fail',
+      output: 'FAIL (500/600) src/services/__tests__/server-supervisor-term-grace.test.ts',
+      reasons: [],
+      declared: true,
+      baselineFailures: { baseTest: ['(500/600) src/services/__tests__/server-supervisor-term-grace.test.ts'] },
+    });
+
+    const resolveTestFile = (project: string, test: string) => {
+      if (test === caseTitle) {
+        return 'src/services/__tests__/different-file.test.ts';
+      }
+      return null;
+    };
+
+    const r = await resolveBaseGreen({
+      epicId: 'epic-g', project, targetProject, epicBaseSha: 'sha-g', gateCfg: cfg,
+      ensureEpicWorktree, runGate, now: () => now, resolveTestFile,
+    });
+
+    expect(r?.status).toBe('fail');
+    expect(r?.quarantinedOnlyFailures).toBeUndefined();
+  });
 });
