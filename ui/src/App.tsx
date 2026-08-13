@@ -94,13 +94,45 @@ import { DiveLayoutGroup } from '@/components/stream/DiveTransition';
  * Error Boundary Component
  * Catches errors in child components and displays fallback UI
  */
+/** sessionStorage key for the consecutive-boot-crash counter. sessionStorage (not
+ *  localStorage) on purpose: it survives reloads of THIS window but not a fresh app
+ *  launch, so a healthy launch always starts at zero. */
+export const BOOT_CRASH_COUNT_KEY = 'mc.bootCrashCount.v1';
+
+/** Persisted keys that are pure REBUILDABLE CACHE of server state. Safe to drop on a
+ *  crash loop; the app refetches them. Deliberately excludes user preferences and
+ *  layout (ui-preferences, panel/tree state). Incident 2026-08-13: a stale
+ *  `session-current` pointing at an unregistered project crashed every boot — the
+ *  boundary offered only a reload that reloaded straight back into the same crash. */
+export const REBUILDABLE_CACHE_KEYS = [
+  'session-current',
+  'supervisor-projects',
+  'supervisor-supervised',
+  'supervisor-todos-by-project.v2',
+  'supervisor-escalations',
+  'supervisor-requirements-by-project',
+  'session-subscriptions',
+  'session-subscriptions-order',
+];
+
+/** On a repeat crash, drop the rebuildable caches so the next reload boots from
+ *  server truth instead of the poisoned snapshot. Returns true when it cleared. */
+export function selfHealFromCrashLoop(storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> = sessionStorage, appStorage: Pick<Storage, 'removeItem'> = localStorage): boolean {
+  const count = Number(storage.getItem(BOOT_CRASH_COUNT_KEY) ?? '0') + 1;
+  storage.setItem(BOOT_CRASH_COUNT_KEY, String(count));
+  if (count < 2) return false; // first crash: plain reload gets a chance
+  for (const k of REBUILDABLE_CACHE_KEYS) appStorage.removeItem(k);
+  storage.setItem(BOOT_CRASH_COUNT_KEY, '0');
+  return true;
+}
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; error: Error | null }
+  { hasError: boolean; error: Error | null; healed: boolean }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, healed: false };
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -109,6 +141,15 @@ class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('App Error:', error, errorInfo);
+    // Crash-loop self-heal: a render error this early usually means poisoned
+    // persisted state (the reload button would loop forever). Second consecutive
+    // crash ⇒ drop the rebuildable caches and reload automatically.
+    try {
+      if (selfHealFromCrashLoop()) {
+        this.setState({ healed: true });
+        setTimeout(() => window.location.reload(), 300);
+      }
+    } catch { /* storage unavailable — keep the manual fallback UI */ }
   }
 
   render() {
@@ -120,7 +161,9 @@ class ErrorBoundary extends React.Component<
               Something went wrong
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              {this.state.error?.message || 'An unexpected error occurred'}
+              {this.state.healed
+                ? 'Recovering: cached state cleared, reloading…'
+                : this.state.error?.message || 'An unexpected error occurred'}
             </p>
             <button
               onClick={() => window.location.reload()}
@@ -141,6 +184,12 @@ class ErrorBoundary extends React.Component<
  * Main App Component
  */
 const App: React.FC = () => {
+  // A successful mount zeroes the boot-crash counter so the self-heal in
+  // ErrorBoundary only ever fires on CONSECUTIVE boot crashes.
+  React.useEffect(() => {
+    try { sessionStorage.setItem(BOOT_CRASH_COUNT_KEY, '0'); } catch { /* fine */ }
+  }, []);
+
   // Mobile detection
   const isMobile = useIsMobile();
 
