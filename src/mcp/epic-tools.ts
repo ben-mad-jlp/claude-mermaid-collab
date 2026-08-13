@@ -97,8 +97,10 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
             const job = createJob(project, { kind: 'land-epic', targetId });
             markJobRunning(project, job.id);
 
-            // Kick off the background continuation without awaiting it
-            void landEpic(project, escalationId || epicId!, { allowDirty }).then((result) => {
+            // Kick off the background continuation without awaiting it.
+            // actor must reach landEpic: the gate only skips its cached verdict for human
+            // actors, and dropping it here downgraded every human land to a cache-trusting one.
+            void landEpic(project, escalationId || epicId!, { allowDirty, actor }).then((result) => {
               getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
               const trailer = landedByTrailer(actor);
               const payload = result.reason === 'dirty-tree'
