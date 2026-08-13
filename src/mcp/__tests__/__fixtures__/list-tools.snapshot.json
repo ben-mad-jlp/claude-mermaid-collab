@@ -7002,7 +7002,7 @@
     },
     {
       "name": "create_epic",
-      "description": "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
+      "description": "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox/Feature requests — those are quick-capture only, created via file_bugfix/file_feature). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7149,64 +7149,6 @@
       }
     },
     {
-      "name": "file_to_bucket",
-      "description": "Quick-capture: file a leaf under the Inbox or Bugfix inbox bucket epic (auto-created if missing). For unplanned thoughts/bugs that don't yet warrant a full epic — re-home later via promote_to_epic.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": "string"
-          },
-          "session": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "bucket": {
-            "type": "string",
-            "enum": [
-              "inbox",
-              "bugfix"
-            ]
-          },
-          "description": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "number",
-            "enum": [
-              0,
-              1,
-              2,
-              3,
-              4
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "backlog",
-              "planned"
-            ]
-          },
-          "link": {
-            "type": "object",
-            "properties": {
-              "blueprintId": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "required": [
-          "project",
-          "session",
-          "title"
-        ]
-      }
-    },
-    {
       "name": "file_finding",
       "description": "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green. A second filing against the same failureIdentity does not create a new leaf or finding row — it bumps recurrenceCount on the existing finding and returns the existing leaf with recurrence:true in the response.",
       "inputSchema": {
@@ -7330,6 +7272,78 @@
         },
         "required": [
           "project"
+        ]
+      }
+    },
+    {
+      "name": "file_bugfix",
+      "description": "File a typed bugfix report. Creates a leaf under the Bugfix bucket epic (auto-created if missing) with structured metadata (observed failure, evidence anchor, fixed means). Required fields: project, session, observedFailure, evidence, fixedMeans. The validator refuses filings with codes no-failure-shape (observedFailure lacks failure keywords), no-named-anchor (evidence has no path:line or identifier), or no-falsifiable-predicate (fixedMeans lacks measurable assertion). A refusal writes ZERO rows and returns error code bugfix-filing-refused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "observedFailure": {
+            "type": "string",
+            "description": "Description of the concrete symptom or error observed."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Grounding anchor: a file path:line, identifier, or hash reference."
+          },
+          "fixedMeans": {
+            "type": "string",
+            "description": "Measurable assertion of what was fixed."
+          },
+          "title": {
+            "type": "string",
+            "description": "Leaf title (defaults to observedFailure)."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "observedFailure",
+          "evidence",
+          "fixedMeans"
+        ]
+      }
+    },
+    {
+      "name": "file_feature",
+      "description": "File a typed feature request. Creates a leaf under the Feature requests bucket epic (auto-created if missing) with a user-visible outcome statement. Required fields: project, session, outcome. The validator refuses filings with code no-user-visible-outcome (outcome lacks both a surface term and an action verb). A refusal writes ZERO rows and returns error code feature-filing-refused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "What the user can now see or do (must name a surface like \"operator\", \"card\", \"panel\" and an action like \"sees\", \"shows\", \"displays\")."
+          },
+          "title": {
+            "type": "string",
+            "description": "Leaf title (defaults to outcome)."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "outcome"
         ]
       }
     },

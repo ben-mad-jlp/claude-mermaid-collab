@@ -24,7 +24,7 @@ test('tool defs are handler-less (dispatch is centralized)', () => {
   for (const def of WORKGRAPH_TOOL_DEFS) {
     expect((def as Record<string, unknown>).handler).toBeUndefined();
   }
-  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_explore', 'file_finding', 'file_to_bucket', 'inspect_workgraph']);
+  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_bugfix', 'file_explore', 'file_feature', 'file_finding', 'inspect_workgraph']);
 });
 
 async function call(name: string, args: Record<string, unknown>): Promise<any> {
@@ -148,6 +148,60 @@ describe('file_to_bucket', () => {
     const bugfixParent = getTodo(project, bugfix.leaf.id)!.parentId!;
     expect(bugfixParent).not.toBe(inboxParent);
     expect(getTodo(project, bugfixParent)!.bucketType).toBe('bugfix');
+  });
+});
+
+describe('file_bugfix / file_feature', () => {
+  test('valid bugfix filing lands under a bucketType === bugfix parent', async () => {
+    const res = await call('file_bugfix', {
+      observedFailure: 'the API throws a 500 error',
+      evidence: 'src/routes/api.ts:142',
+      fixedMeans: 'must return a 200 on success',
+    });
+    const leaf = getTodo(project, res.leaf.id)!;
+    const parent = getTodo(project, leaf.parentId!)!;
+    expect(parent.bucketType).toBe('bugfix');
+    expect(leaf.kind).toBe('leaf');
+  });
+
+  test('valid feature filing lands under a DISTINCT bucketType === feature parent', async () => {
+    const bugfixRes = await call('file_bugfix', {
+      observedFailure: 'the API throws a 500 error',
+      evidence: 'src/routes/api.ts:142',
+      fixedMeans: 'must return a 200 on success',
+    });
+    const featureRes = await call('file_feature', {
+      outcome: 'operator can see a live dashboard of all missions',
+    });
+    const bugfixParent = getTodo(project, bugfixRes.leaf.id)!.parentId!;
+    const featureParent = getTodo(project, featureRes.leaf.id)!.parentId!;
+    expect(bugfixParent).not.toBe(featureParent);
+    expect(getTodo(project, bugfixParent)!.bucketType).toBe('bugfix');
+    expect(getTodo(project, featureParent)!.bucketType).toBe('feature');
+  });
+
+  test('bugfix filing with no-failure-shape refusal writes no row and returns error code', async () => {
+    const beforeCount = listTodos(project).length;
+    await expect(
+      call('file_bugfix', {
+        observedFailure: 'it is odd',
+        evidence: 'src/routes/api.ts:142',
+        fixedMeans: 'must return a 200 on success',
+      }),
+    ).rejects.toThrow(/bugfix-filing-refused/);
+    const afterCount = listTodos(project).length;
+    expect(afterCount).toBe(beforeCount);
+  });
+
+  test('feature filing with no-user-visible-outcome refusal writes no row and returns error code', async () => {
+    const beforeCount = listTodos(project).length;
+    await expect(
+      call('file_feature', {
+        outcome: 'internal optimization',
+      }),
+    ).rejects.toThrow(/feature-filing-refused/);
+    const afterCount = listTodos(project).length;
+    expect(afterCount).toBe(beforeCount);
   });
 });
 
