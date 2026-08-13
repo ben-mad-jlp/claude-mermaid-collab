@@ -1,11 +1,28 @@
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { defineConfig } from 'electron-vite';
+
+// Resolve the git HEAD sha at config evaluation time for stamping the main build.
+// Falls back to 'unknown' on error (git-less tarball builds must still compile).
+let mainBuildSha = 'unknown';
+let mainBuiltAt = 'unknown';
+try {
+  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim();
+  if (sha) mainBuildSha = sha;
+  mainBuiltAt = new Date().toISOString();
+} catch {
+  // Silence: git unavailable, repo not initialized, or other transient error.
+}
 
 // Phase 0.1 — minimal electron-vite config: main / preload / renderer roots.
 // Renderer is a placeholder for now; later phases load the collab UI from the
 // supervised Bun sidecar instead.
 export default defineConfig({
   main: {
+    define: {
+      __MC_MAIN_BUILD_SHA__: JSON.stringify(mainBuildSha),
+      __MC_MAIN_BUILT_AT__: JSON.stringify(mainBuiltAt),
+    },
     resolve: {
       // ws statically `require()`s its optional natives (bufferutil /
       // utf-8-validate). The production build replaces them with empty stubs,
