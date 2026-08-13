@@ -18,6 +18,7 @@ import {
   classifyServingEpicReachability,
   assertServingEpicModulesReachable,
   isScannableSourcePath,
+  _resetPathAliasCache,
 } from '../module-reachability.js';
 import { getTodo, _closeProject } from '../todo-store.js';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store.js';
@@ -45,6 +46,7 @@ describe('module-reachability', () => {
 
   afterEach(() => {
     _closeProject(project);
+    _resetPathAliasCache();
     rmSync(project, { recursive: true, force: true });
   });
 
@@ -413,5 +415,169 @@ describe('module-reachability', () => {
 
     expect(result.indeterminate).toBe(true);
     expect(result.unreachable).toHaveLength(0);
+  });
+
+  it('a ui/src module imported only via the @/ alias from a non-test file is reachable', async () => {
+    // Setup: initial commit on master
+    writeFileSync(join(project, 'initial.txt'), 'initial content\n');
+    execFileSync('git', ['add', 'initial.txt'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: project });
+
+    // Create tsconfig.json in ui/ with @/* -> src/* mapping
+    mkdirSync(join(project, 'ui'), { recursive: true });
+    writeFileSync(
+      join(project, 'ui', 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            baseUrl: '.',
+            paths: {
+              '@/*': ['src/*'],
+              '@components/*': ['src/components/*'],
+              '@hooks/*': ['src/hooks/*'],
+              '@stores/*': ['src/stores/*'],
+              '@lib/*': ['src/lib/*'],
+              '@types/*': ['src/types/*'],
+              '@fixtures/*': ['src/__fixtures__/*'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    execFileSync('git', ['add', 'ui/tsconfig.json'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'add ui tsconfig'], { cwd: project });
+
+    // Create scratch branch
+    execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
+
+    // Add a module at ui/src/lib/aliasTarget.ts
+    mkdirSync(join(project, 'ui', 'src', 'lib'), { recursive: true });
+    writeFileSync(
+      join(project, 'ui', 'src', 'lib', 'aliasTarget.ts'),
+      'export function aliasTarget() { return 42; }\n',
+    );
+
+    // Add a non-test importer using the @/ alias
+    mkdirSync(join(project, 'ui', 'src', 'components'), { recursive: true });
+    writeFileSync(
+      join(project, 'ui', 'src', 'components', 'AliasImporter.tsx'),
+      "import { aliasTarget } from '@/lib/aliasTarget';\nexport function Component() { return aliasTarget(); }\n",
+    );
+
+    execFileSync(
+      'git',
+      [
+        'add',
+        'ui/src/lib/aliasTarget.ts',
+        'ui/src/components/AliasImporter.tsx',
+      ],
+      { cwd: project },
+    );
+    execFileSync('git', ['commit', '-m', 'add alias importer'], { cwd: project });
+
+    // Back to master, merge
+    execFileSync('git', ['checkout', 'master'], { cwd: project });
+    execFileSync('git', ['merge', '--no-ff', 'scratch', '-m', 'merge'], {
+      cwd: project,
+    });
+    const mergeSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: project })
+      .toString('utf8')
+      .trim();
+
+    // Classify reachability
+    const result = await classifyServingEpicReachability({
+      repoRoot: project,
+      landShas: [mergeSha],
+    });
+
+    // aliasTarget.ts should NOT be in unreachable (it's imported via @/lib/aliasTarget)
+    expect(result.scanned).toContain('ui/src/lib/aliasTarget.ts');
+    expect(result.unreachable).not.toContain('ui/src/lib/aliasTarget.ts');
+  });
+
+  it('a ui/src module with zero importers is still reported unreachable under alias resolution', async () => {
+    // Setup: initial commit on master
+    writeFileSync(join(project, 'initial.txt'), 'initial content\n');
+    execFileSync('git', ['add', 'initial.txt'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: project });
+
+    // Create tsconfig.json in ui/ with @/* -> src/* mapping
+    mkdirSync(join(project, 'ui'), { recursive: true });
+    writeFileSync(
+      join(project, 'ui', 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            baseUrl: '.',
+            paths: {
+              '@/*': ['src/*'],
+              '@lib/*': ['src/lib/*'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    execFileSync('git', ['add', 'ui/tsconfig.json'], { cwd: project });
+    execFileSync('git', ['commit', '-m', 'add ui tsconfig'], { cwd: project });
+
+    // Create scratch branch
+    execFileSync('git', ['checkout', '-b', 'scratch'], { cwd: project });
+
+    // Add two modules: one with an importer (via alias), one without
+    mkdirSync(join(project, 'ui', 'src', 'lib'), { recursive: true });
+    writeFileSync(
+      join(project, 'ui', 'src', 'lib', 'aliasTarget.ts'),
+      'export function aliasTarget() { return 1; }\n',
+    );
+    writeFileSync(
+      join(project, 'ui', 'src', 'lib', 'orphanTarget.ts'),
+      'export function orphanTarget() { return 2; }\n',
+    );
+
+    // Add an importer for aliasTarget only
+    mkdirSync(join(project, 'ui', 'src', 'components'), { recursive: true });
+    writeFileSync(
+      join(project, 'ui', 'src', 'components', 'AliasImporter.tsx'),
+      "import { aliasTarget } from '@/lib/aliasTarget';\nexport function Component() { return aliasTarget(); }\n",
+    );
+
+    execFileSync(
+      'git',
+      [
+        'add',
+        'ui/src/lib/aliasTarget.ts',
+        'ui/src/lib/orphanTarget.ts',
+        'ui/src/components/AliasImporter.tsx',
+      ],
+      { cwd: project },
+    );
+    execFileSync('git', ['commit', '-m', 'add alias and orphan'], { cwd: project });
+
+    // Back to master, merge
+    execFileSync('git', ['checkout', 'master'], { cwd: project });
+    execFileSync('git', ['merge', '--no-ff', 'scratch', '-m', 'merge'], {
+      cwd: project,
+    });
+    const mergeSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: project })
+      .toString('utf8')
+      .trim();
+
+    // Classify reachability
+    const result = await classifyServingEpicReachability({
+      repoRoot: project,
+      landShas: [mergeSha],
+    });
+
+    // aliasTarget.ts should NOT be unreachable (imported via alias)
+    expect(result.scanned).toContain('ui/src/lib/aliasTarget.ts');
+    expect(result.unreachable).not.toContain('ui/src/lib/aliasTarget.ts');
+
+    // orphanTarget.ts should still be unreachable (zero importers)
+    expect(result.scanned).toContain('ui/src/lib/orphanTarget.ts');
+    expect(result.unreachable).toContain('ui/src/lib/orphanTarget.ts');
   });
 });
