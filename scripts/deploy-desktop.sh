@@ -18,6 +18,7 @@
 #   bash scripts/deploy-desktop.sh            # full build + deploy
 #   bash scripts/deploy-desktop.sh --no-build # deploy the already-built artifacts
 #   bash scripts/deploy-desktop.sh --no-asar  # deploy without packing a fresh app.asar
+#   bash scripts/deploy-desktop.sh --no-verify # skip build verification (escape hatch only)
 #
 # Env overrides:
 #   APP_PATH   default "/Applications/Mermaid Collab.app"
@@ -32,11 +33,13 @@ PORT="${MC_PORT:-9002}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-45}"
 DO_BUILD=1
 DO_ASAR=1
+DO_VERIFY=1
 HOT_SWAP=0
 for arg in "$@"; do
   case "$arg" in
     --no-build) DO_BUILD=0 ;;
     --no-asar) DO_ASAR=0 ;;
+    --no-verify) DO_VERIFY=0 ;;
     # Phase-2 (49e3c1f6): after swapping the binary, ask Electron main to restart
     # ONLY the sidecar child (app window survives) instead of pkill+relaunch.
     # Falls back to the full relaunch if the control call fails.
@@ -273,11 +276,24 @@ if ! served_owner_ok; then
   write_status false "$MODE" "$SIDECAR_PID" true "port :$PORT still owned by a shadow after deploy — cosmetic"
   die "port :$PORT is owned by a non-app process (shadow) — deploy is cosmetic; kill it and re-deploy"
 fi
-SERVED="$(curl -s "http://localhost:$PORT/" 2>/dev/null | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
-if [ -n "$SERVED" ] && [ -f "$RES/ui/dist/assets/$SERVED" ]; then
-  UI_OK="UI bundle $SERVED matches deployed dist"
+
+# Run the post-deploy build verification probe (unless --no-verify was passed).
+# The probe checks that the deployed build matches the manifest (git HEAD, asar hash, UI bundle).
+VERIFY_OUT=""
+VERIFY_RC=0
+if [ "$DO_VERIFY" = 1 ]; then
+  set +e
+  VERIFY_OUT="$(APP_PATH="$APP_PATH" MC_PORT="$PORT" bun "$REPO/scripts/verify-deployed-build.ts" 2>&1)"
+  VERIFY_RC=$?
+  set -e
+  if [ "$VERIFY_RC" != 0 ]; then
+    write_status false "$MODE" "$SIDECAR_PID" false "build verification failed"
+    die "build verification failed: $VERIFY_OUT"
+  fi
+  UI_OK="$VERIFY_OUT"
 else
-  UI_OK="WARNING: served bundle '$SERVED' not found in deployed dist"
+  log "verification skipped (--no-verify)"
+  UI_OK="verification skipped"
 fi
 
 write_status true "$MODE" "$SIDECAR_PID" false "$UI_OK"
