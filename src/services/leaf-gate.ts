@@ -1189,6 +1189,12 @@ export function isCacheableBaseGateStatus(
  *  actually run the base gate and record the result. Extracted so the policy is
  *  unit-testable without a live worktree/git (see `defaultEpicBaseProbe` in
  *  conductor-infra-arm.ts for the sibling seam). */
+async function maintainQuarantineExpiry(project: string, now: number | undefined): Promise<void> {
+  try {
+    await sweepExpiringQuarantine(project, now ?? Date.now());
+  } catch { /* best-effort: a sweep failure must never break or delay a gate verdict */ }
+}
+
 export async function resolveBaseGreen(io: {
   epicId: string;
   project: string;
@@ -1202,6 +1208,7 @@ export async function resolveBaseGreen(io: {
 }): Promise<(LeafGateResult & { fresh: boolean }) | null> {
   const { epicId, project, epicBaseSha, gateCfg } = io;
   if (!gateCfg) return null; // absent → abstain (unchanged)
+  await maintainQuarantineExpiry(io.targetProject, io.now?.());
   const cached = getEpicBaseGate(epicId, epicBaseSha);
   if (cached && shouldHonourCachedBaseGate(cached, io.now?.()) === 'honour') {
     return {
@@ -1224,7 +1231,6 @@ export async function resolveBaseGreen(io: {
   try {
     promoteQuarantineCandidates(io.targetProject, io.now?.());
     await closeQuarantineOnGreen(io.targetProject, io.now?.());
-    await sweepExpiringQuarantine(io.targetProject, io.now?.() ?? Date.now());
     // Retention on the observation table it just read. The sweep existed since it was written
     // and had ZERO callers — the table grew ~500k rows/day unbounded (1.86M measured
     // 2026-08-11) while every quarantine pass scanned it. Self-throttled internally.
