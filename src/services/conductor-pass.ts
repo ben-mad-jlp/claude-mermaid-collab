@@ -474,15 +474,24 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // is exactly one active mission to resolve here. listMissions self-heals terminal-active rows, so a
   // converged mission can never survive this filter; mission.status/awaitingApprovalSince carry the
   // authoritative derived status.
-  const actionable = listMissions(project).filter((m) =>
+  // Cheap list to SELECT, full facts ONCE for the selection: with facts defaulted on,
+  // every conductor pass paid collectMissionStatusFacts (ledger scans, land records,
+  // git spawns) for EVERY mission and then drove exactly one. MEASURED 2026-08-12
+  // 21:50-21:56 CDT: recurring 100%-CPU health blackouts with listMissions internals
+  // dominating the hot stacks. The exclusion filter below reads only stored/terminal
+  // states, which the cheap path derives identically; the DRIVEN mission still gets
+  // the full facts-derived status via the single getMission call.
+  const actionable = listMissions(project, { withFacts: false }).filter((m) =>
     m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
     !['unapproved', 'abandoned', 'converged', 'closed'].includes(m.mission.status));
   if (actionable.length === 0) return { ran: false, reason: 'no-actionable-mission' };
   // If >1 survive (should not happen — one active mission per project is the invariant), drive the
   // first in listMissions order. The pin, its total order, and its advisory are all retired.
   const selected = actionable[0];
+  const selectedRow = getMission(project, selected.mission.todoId);
+  if (!selectedRow) return { ran: false, reason: 'no-actionable-mission' };
   const target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } =
-    { summary: selected, row: selected.mission };
+    { summary: selected, row: selectedRow };
   const missionId = target.row.todoId;
   const status = target.row.status!;
   const session = 'conductor';

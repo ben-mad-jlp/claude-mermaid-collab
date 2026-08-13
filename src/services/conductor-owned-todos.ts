@@ -16,7 +16,7 @@ export interface ConductorOwnedTodosDeps {
   getConductorEnabled: (project: string) => boolean;
   getConductorLastPass: (project: string) => ConductorLastPass | null;
   listTodos: (project: string, filter?: TodoFilter) => Todo[];
-  listMissions: (project: string) => MissionSummary[];
+  listMissions: (project: string, opts?: { withFacts?: boolean }) => MissionSummary[];
 }
 
 /**
@@ -53,7 +53,7 @@ export function selectConductorOwnedTodoIds(
 
   // (3) Resolve missionId: the project's single active non-terminal mission.
   const candidates = deps
-    .listMissions(project)
+    .listMissions(project, { withFacts: false })
     .filter((m) => m.mission.active && !isMissionTerminal(m.mission));
   // Zero or >1 candidates → ambiguous or none.
   if (candidates.length !== 1) {
