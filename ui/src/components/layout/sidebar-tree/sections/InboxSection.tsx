@@ -55,9 +55,11 @@ function renderEnvelopeRow(
   onAdopt: (e: InboxEnvelope) => void,
   onDismiss: (e: InboxEnvelope) => void
 ): React.ReactElement {
-  const sender = envelope.from.serverOwner ?? envelope.from.baseUrl ?? 'unknown';
+  // Belt-and-braces on top of normalizeEnvelope: a single malformed row must
+  // degrade to placeholders, never throw and take the whole sidebar down.
+  const sender = envelope.from?.serverOwner ?? envelope.from?.baseUrl ?? 'unknown';
   const time = formatReceived(envelope.receivedAt);
-  const glyph = getArtifactTypeGlyph(envelope.artifact.type);
+  const glyph = getArtifactTypeGlyph(envelope.artifact?.type);
 
   return (
     <div
@@ -70,7 +72,7 @@ function renderEnvelopeRow(
       className="flex items-center gap-2 py-1.5 px-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 select-none cursor-pointer"
     >
       <span className="flex-shrink-0">{glyph}</span>
-      <span className="flex-grow truncate font-medium">{envelope.artifact.name}</span>
+      <span className="flex-grow truncate font-medium">{envelope.artifact?.name ?? "(unnamed)"}</span>
       <span className="flex-shrink-0 text-gray-500 dark:text-gray-400 italic">
         {sender}
       </span>
