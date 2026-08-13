@@ -66,6 +66,16 @@ export interface FrictionFilter {
    *  keep surfacing as evidence. friction is a primary input to mission-forge's survey step, so
    *  an un-excluded wrong note silently biases every future survey that touches it. */
   includeRetracted?: boolean;
+  /** Filter by retryReason (exact match). */
+  retryReason?: string;
+  /** Inclusive lower bound on createdAt. Compared lexicographically as ISO-8601 UTC text
+   *  (≥) because createdAt is written by nowIso() as fixed-width UTC. */
+  since?: string;
+  /** Maximum number of rows to return. Ignored by countFriction. */
+  limit?: number;
+  /** Offset into the result set; requires limit. If offset is set without limit,
+   *  SQL will use LIMIT -1 (sqlite's "no bound" sentinel). */
+  offset?: number;
 }
 
 const DDL = `
@@ -219,19 +229,63 @@ export function recordFrictionOnce(
   });
 }
 
-/** Query friction notes, newest first. Filter by todoId / session / layer — e.g.
- *  `listFriction(project, { layer: 'domain' })` answers "which todos hit
- *  domain-layer friction and why" without opening any worker transcript. */
-export function listFriction(project: string, filter: FrictionFilter = {}): FrictionNote[] {
-  const db = openDb(project);
+/** Build the WHERE clause and params for a FrictionFilter. Returns an object with
+ *  `where` (either '' or ' WHERE ...') and `params` ((string | number)[] to accommodate
+ *  numbers from LIMIT/OFFSET, though this helper returns only strings). Used by both
+ *  listFriction and countFriction. */
+function buildFrictionWhere(filter: FrictionFilter): { where: string; params: (string | number)[] } {
   const where: string[] = [];
-  const params: string[] = [];
+  const params: (string | number)[] = [];
   if (filter.todoId) { where.push('todoId = ?'); params.push(filter.todoId); }
   if (filter.session) { where.push('session = ?'); params.push(filter.session); }
   if (filter.layer) { where.push('layer = ?'); params.push(filter.layer); }
+  if (filter.retryReason) { where.push('retryReason = ?'); params.push(filter.retryReason); }
+  if (filter.since) { where.push('createdAt >= ?'); params.push(filter.since); }
   if (!filter.includeRetracted) where.push('retractedAt IS NULL');
-  const sql = `SELECT * FROM friction_notes${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC, rowid DESC`;
-  return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
+  return {
+    where: where.length ? ' WHERE ' + where.join(' AND ') : '',
+    params,
+  };
+}
+
+/** Query friction notes, newest first. Filter by todoId / session / layer / retryReason / since — e.g.
+ *  `listFriction(project, { layer: 'domain' })` answers "which todos hit
+ *  domain-layer friction and why" without opening any worker transcript.
+ *
+ *  NOTE: No default limit is applied at the store layer. Callers that need the full
+ *  result set (friction-trends.ts, profile-draft.ts, hasFrictionNote) depend on
+ *  receiving every matching row. A default LIMIT here would silently truncate those
+ *  callers' results. Pagination bounds belong at the MCP tool layer. */
+export function listFriction(project: string, filter: FrictionFilter = {}): FrictionNote[] {
+  const db = openDb(project);
+  const { where, params } = buildFrictionWhere(filter);
+  const sql = `SELECT * FROM friction_notes${where} ORDER BY createdAt DESC, rowid DESC`;
+  let sql_with_pagination = sql;
+  let params_with_pagination: (string | number)[] = params;
+
+  if (filter.limit !== undefined || filter.offset !== undefined) {
+    const offset = filter.offset ?? 0;
+    if (filter.limit !== undefined) {
+      sql_with_pagination = `${sql} LIMIT ? OFFSET ?`;
+      params_with_pagination = [...params, filter.limit, offset];
+    } else {
+      // offset without limit: use sqlite's "no bound" sentinel LIMIT -1
+      sql_with_pagination = `${sql} LIMIT -1 OFFSET ?`;
+      params_with_pagination = [...params, offset];
+    }
+  }
+
+  return (db.prepare(sql_with_pagination).all(...(params_with_pagination as any)) as any[]).map(rowToNote);
+}
+
+/** Count the number of friction notes matching a filter, ignoring limit/offset.
+ *  Mirrors listFriction's style: unlocked read. Returns the matching row count. */
+export function countFriction(project: string, filter: FrictionFilter = {}): number {
+  const db = openDb(project);
+  const { where, params } = buildFrictionWhere(filter);
+  const sql = `SELECT COUNT(*) AS n FROM friction_notes${where}`;
+  const result = db.prepare(sql).get(...(params as any)) as { n: number } | undefined;
+  return result?.n ?? 0;
 }
 
 /**
