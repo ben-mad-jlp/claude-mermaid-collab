@@ -61,7 +61,7 @@ function tokenize(text: string | undefined): string[] {
  * Check for identifier-shaped tokens: dotted notation (a.b.c), camelCase (myVar), or snake_case (my_var).
  * Also matches path:line format (any/path/file:123) and hash/golden references.
  */
-function hasNamedAnchor(oracle: string): boolean {
+export function hasNamedAnchor(oracle: string): boolean {
   const lower = oracle.toLowerCase();
 
   // Check for dotted notation: word.word or word.word.word, etc.
