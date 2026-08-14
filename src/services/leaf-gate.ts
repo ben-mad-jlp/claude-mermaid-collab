@@ -1251,6 +1251,11 @@ export function demoteVagueBaseRed(r: LeafGateResult): LeafGateResult {
   if ((r.output ?? '').includes(GATE_HARD_TIMEOUT_MARKER)) {
     return { ...r, status: 'error', reasons: ['gate died at the hard timeout — a killed run measured nothing, not a base fact', ...r.reasons] };
   }
+  // Specific diagnosis outranks the generic vague-red demotion: dep-optimizer corruption
+  // demotes here (inside the coalescer closure) so the shared-verdict write skips it too.
+  if (isDepOptimizerCorruption(r.output)) {
+    return { ...r, status: 'error', reasons: ['dep-optimizer cache corruption (stale vitest/vite deps cache), not a base defect', ...r.reasons] };
+  }
   if (namedBaseRedFailures(r).length === 0) {
     return { ...r, status: 'error', reasons: ['gate red names zero failing tests — vague red, an incident, not a citable base fact', ...r.reasons] };
   }
