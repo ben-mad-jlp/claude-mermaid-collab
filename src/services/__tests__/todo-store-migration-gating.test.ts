@@ -7,7 +7,7 @@ import {
   createTodo,
   openDb,
   _closeProject,
-  TODO_EXPLORE_SPEC_V11,
+  TODO_BUGFIX_SPEC_V12,
 } from '../todo-store';
 
 // Every handle here comes from openDb — the store's consolidated `.collab/collab.db`. The probe
@@ -160,6 +160,6 @@ describe('Migration gating — idempotence and convergence', () => {
     // historical one. Adding a migration without moving this assertion reds the base
     // gate for every epic project-wide, so this pins the latest constant deliberately.
     const versionResult = freshDb.query(`PRAGMA user_version`).get() as any;
-    expect(versionResult.user_version).toBe(TODO_EXPLORE_SPEC_V11);
+    expect(versionResult.user_version).toBe(TODO_BUGFIX_SPEC_V12);
   });
 });

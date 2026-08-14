@@ -25,6 +25,7 @@ import { runQuarantinedSpec } from '../services/quarantine-runner.js';
 import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } from '../services/finding-store.js';
 import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
 import { validateBugfixFiling, validateFeatureFiling, BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
+import type { BugfixSpec } from '../services/bugfix-spec.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
@@ -350,6 +351,7 @@ export interface FileToBucketOpts {
   priority?: 0 | 1 | 2 | 3 | 4;
   status?: Extract<TodoStatus, 'backlog' | 'planned'>;
   link?: TodoLink;
+  bugfixSpec?: BugfixSpec | null;
 }
 
 /**
@@ -373,6 +375,7 @@ export async function fileToBucketLeaf(
     description: opts.description,
     priority: opts.priority,
     status: opts.status ?? 'backlog',
+    bugfixSpec: opts.bugfixSpec ?? null,
   });
 
   // Post-condition: verify the bucket parent is not terminal after filing the leaf.
@@ -765,6 +768,7 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         title: args.title ?? observedFailure,
         bucket: 'bugfix',
         description: args.description ?? `Failure: ${observedFailure}\nEvidence: ${evidence}\nFixed: ${fixedMeans}`,
+        bugfixSpec: { observedFailure, evidence, fixedMeans },
       });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
