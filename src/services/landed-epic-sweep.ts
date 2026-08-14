@@ -47,7 +47,7 @@ export interface LandedEpicSweepResult {
 
 export async function reconcileLandedEpics(
   project: string,
-  opts: { probe?: GitProbe; baseRef?: string; now?: () => string; listBranches?: BranchLister; treeDelta?: (project: string, epicId: string, deps?: { runGit?: unknown; trunk?: string }) => Promise<'identical' | 'differs' | 'indeterminate'> } = {},
+  opts: { probe?: GitProbe; baseRef?: string; now?: () => string; listBranches?: BranchLister; treeDelta?: (project: string, epicId: string, deps?: { runGit?: unknown; trunk?: string }) => Promise<'identical' | 'differs' | 'indeterminate'>; todos?: Todo[] } = {},
 ): Promise<LandedEpicSweepResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
@@ -56,8 +56,10 @@ export async function reconcileLandedEpics(
   // their exact semantics (their probe already answers exists:false for free).
   const listBranches =
     opts.listBranches ?? (opts.probe ? undefined : () => makeBranchGcRunner(project).listEpicBranches());
-  const missions = listMissions(project, { withFacts: false }).filter((m) => m.mission.status === 'converged' || m.mission.status === 'closed');
-  const todos = listTodos(project, { includeCompleted: true });
+  // 7a: `opts.todos` is the composed pass's shared snapshot (see runLandedEpicSweep);
+  // it also feeds listMissions' enumeration. Absent ⇒ self-read, callers unchanged.
+  const todos = opts.todos ?? listTodos(project, { includeCompleted: true });
+  const missions = listMissions(project, { withFacts: false, allTodos: todos }).filter((m) => m.mission.status === 'converged' || m.mission.status === 'closed');
 
   const missionEpicIds = new Set<string>();
   for (const m of missions) {
@@ -115,14 +117,15 @@ export interface TerminalizeLandedEpicsResult {
 
 export async function terminalizeLandedEpics(
   project: string,
-  opts: { probe?: GitProbe; baseRef?: string; landCommit?: typeof getEpicLandCommit; trunk?: string } = {},
+  opts: { probe?: GitProbe; baseRef?: string; landCommit?: typeof getEpicLandCommit; trunk?: string; todos?: Todo[] } = {},
 ): Promise<TerminalizeLandedEpicsResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const baseRef = opts.baseRef ?? (await getWorktreeManager(project).detectBaseBranch().catch(() => 'master'));
   const landCommit = opts.landCommit ?? getEpicLandCommit;
   const trunk = opts.trunk ?? baseRef;
 
-  const todos = listTodos(project, { includeCompleted: true });
+  // 7a: shared-snapshot seam (see runLandedEpicSweep). Absent ⇒ self-read.
+  const todos = opts.todos ?? listTodos(project, { includeCompleted: true });
   const terminalized: string[] = [];
   const droppedChildren: string[] = [];
   const survivorChildren: string[] = [];
@@ -290,7 +293,7 @@ function appendRecoveryLog(project: string, branch: string, tipSha: string, when
  */
 export async function gcEpicBranches(
   project: string,
-  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister; rescue?: (branch: string) => Promise<unknown>; removeEpicWorktree?: (epicId: string) => Promise<void> } = {},
+  opts: { probe?: GitProbe; runner?: BranchGcRunner; baseRef?: string; now?: () => string; listBranches?: BranchLister; rescue?: (branch: string) => Promise<unknown>; removeEpicWorktree?: (epicId: string) => Promise<void>; todos?: Todo[] } = {},
 ): Promise<GcEpicBranchesResult> {
   const probe = opts.probe ?? makeGitProbe(project);
   const runner = opts.runner ?? makeBranchGcRunner(project);
@@ -305,7 +308,12 @@ export async function gcEpicBranches(
   // real branch count, not todo count. Injected-probe tests keep exact old semantics.
   const listBranches = opts.listBranches ?? (opts.probe ? undefined : () => runner.listEpicBranches());
 
-  const todos = listTodos(project, { includeCompleted: true });
+  // 7a: shared-snapshot seam (see runLandedEpicSweep). Absent ⇒ self-read. Staleness
+  // across the composed pass's earlier halves fails SAFE here: an epic those halves just
+  // completed/stamped reads non-terminal/unstamped in a stale view, and both the
+  // live-epic guard and the baseRepair no-stamp check respond by SKIPPING/FLAGGING —
+  // deferring GC one pass, never deleting speculatively.
+  const todos = opts.todos ?? listTodos(project, { includeCompleted: true });
   const baseRepairIds = new Set(todos.filter((t) => t.baseRepair === 1 && isEpic(t)).map((t) => t.id));
   // Epics a land path actually STAMPED. `status: done` is not evidence of landing — an epic
   // whose land failed can still be terminal — so the baseRepair ahead-exemption below keys on
@@ -399,13 +407,20 @@ export async function reapTerminalMissionEpics(
   opts: {
     teardown?: (wm: ReturnType<typeof getWorktreeManager>, epicId: string, targetProject: string, ctx: { epicBranch: string }) => Promise<void>;
     wm?: ReturnType<typeof getWorktreeManager>;
+    todos?: Todo[];
   } = {},
 ): Promise<ReapTerminalMissionEpicsResult> {
   const teardown = opts.teardown ?? teardownEpic;
   const wm = opts.wm ?? getWorktreeManager(project);
 
-  const missions = listMissions(project, { includeArchived: true, withFacts: false });
-  const todos = listTodos(project, { includeCompleted: true });
+  // 7a: shared-snapshot seam (see runLandedEpicSweep). Absent ⇒ self-read. Staleness
+  // across earlier halves fails SAFE: children they just completed/dropped read
+  // in-flight in a stale view, so the in-flight guard SKIPS the epic — deferral, not
+  // a wrong teardown. Epics they land-stamped are re-checked via hasLandStamp on the
+  // same rows those halves mutated only through completeTodo/stamp writes the guards
+  // treat conservatively.
+  const missions = listMissions(project, { includeArchived: true, withFacts: false, allTodos: opts.todos });
+  const todos = opts.todos ?? listTodos(project, { includeCompleted: true });
 
   const reaped: string[] = [];
   let skipped = 0;
@@ -499,6 +514,12 @@ export async function runLandedEpicSweep(
     probe?: GitProbe;
     runner?: BranchGcRunner;
     baseRef?: string;
+    /** Audit item 7a: the orchestrator tick's shared per-project todos snapshot
+     *  (`listTodos(project, { includeCompleted: true })`). Feeds the FIRST (terminalize)
+     *  half directly; the composed pass then re-reads ONCE only if terminalize actually
+     *  wrote, and shares that one array across reconcile/gc/reap. Absent ⇒ each half
+     *  self-reads as before — external callers unchanged. */
+    todosSnapshot?: Todo[];
   } = {},
 ): Promise<RunLandedEpicSweepResult> {
   const now = opts.now ?? Date.now();
@@ -507,14 +528,27 @@ export async function runLandedEpicSweep(
   }
   const doYield = opts.yieldFn ?? yieldToLoop;
 
-  const terminalize = await terminalizeLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
+  // 7a: ONE todos snapshot for the whole composed pass instead of four independent
+  // full-table reads. terminalize (the only half that runs before any of this pass's
+  // writes) consumes the tick snapshot as-is; if it MUTATED (completed epics / dropped
+  // children) the snapshot is refreshed exactly once so the later halves see
+  // post-terminalize state. reconcile's own writes (completing [LAND] leaves,
+  // re-stamping already-stamped epics) are deliberately NOT re-read for gc/reap —
+  // staleness there fails SAFE (skip/flag, self-healing next pass; see the comments at
+  // each half's `opts.todos` seam). When the caller passes no snapshot, each half
+  // self-reads fresh exactly as before.
+  let sharedTodos = opts.todosSnapshot;
+  const terminalize = await terminalizeLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef, todos: sharedTodos });
+  if (sharedTodos !== undefined && (terminalize.terminalized.length > 0 || terminalize.droppedChildren.length > 0)) {
+    sharedTodos = listTodos(project, { includeCompleted: true }); // refresh once — terminalize wrote
+  }
   await doYield();
-  const reconcile = await reconcileLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef });
+  const reconcile = await reconcileLandedEpics(project, { probe: opts.probe, baseRef: opts.baseRef, todos: sharedTodos });
   await doYield();
-  const gc = await gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef });
+  const gc = await gcEpicBranches(project, { probe: opts.probe, runner: opts.runner, baseRef: opts.baseRef, todos: sharedTodos });
 
   await doYield();
-  const reap = await reapTerminalMissionEpics(project, {});
+  const reap = await reapTerminalMissionEpics(project, { todos: sharedTodos });
 
   await doYield();
   let promoted: string[] = [];

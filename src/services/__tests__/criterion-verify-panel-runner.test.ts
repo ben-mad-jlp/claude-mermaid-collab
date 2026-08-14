@@ -75,7 +75,10 @@ describe('runCriterionVerifyPanel', () => {
     expect(invokeSpy.calls).toBe(3);
   });
 
-  test('a per-lens watchdog timeout resolves to HOLD', async () => {
+  test('per-lens watchdog timeouts count as not-met — a timed-out majority resolves to HOLD', async () => {
+    // (Was: 2 PASS + 1 timeout ⇒ HOLD, under the runner's old extra unanimity AND. Under
+    // the one shared strict-majority rule that array now passes, so this test pins the
+    // still-holding case: a majority of timed-out lenses.)
     const { criterion } = await setupMissionWithCriterion();
 
     const invokeCallCount = { count: 0 };
@@ -83,8 +86,8 @@ describe('runCriterionVerifyPanel', () => {
 
     const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
       invokeCallCount.count++;
-      // First two lenses PASS, third times out (ok=false)
-      if (invokeCallCount.count < 3) {
+      // First lens PASSes, second and third time out (ok=false)
+      if (invokeCallCount.count < 2) {
         return {
           ok: true,
           exitCode: 0,
@@ -127,7 +130,10 @@ describe('runCriterionVerifyPanel', () => {
     }
   });
 
-  test('a 2-1 split resolves to HOLD, never auto-pass', async () => {
+  test('a 2-1 split resolves by strict-majority to met — the same answer the tool boundary gives', async () => {
+    // (Was: 'a 2-1 split resolves to HOLD, never auto-pass' — the runner ANDed a unanimity
+    // requirement on top of joinPanelVerdicts, so this exact array graded met:false here
+    // while set_mission_criterion graded it met:true. One join rule now: strict-majority.)
     const { criterion } = await setupMissionWithCriterion();
 
     const invokeCallCount = { count: 0 };
@@ -166,13 +172,14 @@ describe('runCriterionVerifyPanel', () => {
       recordVerdict: mockRecord,
     });
 
-    expect(result.hold).toBe(true);
-    expect(result.met).toBe(false);
+    expect(result.hold).toBeUndefined();
+    expect(result.met).toBe(true);
+    expect(result.outcome).toBe('pass');
     expect(result.invocations).toBe(3);
     expect(recordedVerdicts).toBeTruthy();
     if (recordedVerdicts) {
       const metCount = recordedVerdicts.filter((v: PanelVerdict) => v.met).length;
-      expect(metCount).toBe(2); // 2 PASS
+      expect(metCount).toBe(2); // 2 PASS — the dissenting lens stays visible in the verdicts
     }
   });
 

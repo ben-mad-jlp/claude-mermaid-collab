@@ -145,13 +145,16 @@ export async function runCriterionVerifyPanel(
     causes.push(parsed === 'error' ? 'infra' : parsed === 'not-met' ? 'genuine-not-met' : 'met');
   }
 
-  // 5. Join verdicts with unanimity check
+  // 5. Join verdicts — ONE rule, shared with the set_mission_criterion tool boundary:
+  // strict-majority via joinPanelVerdicts. (An extra unanimity AND used to live here,
+  // which made this door grade the same 2-of-3 verdict array met:false while the tool
+  // boundary graded it met:true. The shipped public contract is strict-majority, so the
+  // runner now takes met from the shared join and nothing else.)
   const join = joinPanelVerdicts(verdicts);
-  const unanimousMet = verdicts.every((v) => v.met);
-  const met = join.met && unanimousMet;
+  const met = join.met;
 
   const outcome: 'pass' | 'dissent' | 'infra-degraded' =
-    unanimousMet ? 'pass'
+    met ? 'pass'
     : causes.some((c) => c === 'genuine-not-met') ? 'dissent'
     : causes.every((c) => c === 'infra') ? 'infra-degraded'
     : 'dissent';
@@ -180,7 +183,7 @@ export async function runCriterionVerifyPanel(
   const shaLabel = currentHeadSha ?? 'unknown-sha';
   const evidence =
     outcome === 'pass'
-      ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${lenses.length} distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
+      ? `Auto-panel PASS at ${shaLabel} — strict-majority met (${verdicts.filter((v) => v.met).length}/${lenses.length}) across distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
       : outcome === 'infra-degraded'
         ? `Auto-panel HOLD (infra-degraded — no lens produced a parseable verdict; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
         : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
