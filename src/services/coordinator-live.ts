@@ -3,7 +3,7 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, clearEpicLandedAt, bumpRetryCountIfOwned, decrementRetryCountIfOwned } from './todo-store';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
-import { findBlockedSplits, type BlockedSplit } from './claimability';
+import { findBlockedSplits, type BlockedSplit, claimReason } from './claimability';
 import { DEFAULT_ORPHAN_GRACE_MS, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { reapDeadWorkers as reapDeadWorkersImpl, type WorkerLivenessDeps } from './worker-liveness';
 import { MAX_REDISPATCH, STRANDED_REOPEN_CAP } from './harness-caps';
@@ -1345,6 +1345,12 @@ export interface ClaimSuppressionReport {
   blocked: boolean;
 }
 
+/** The suppression reason a bucket-planning leaf reports. Named (never silent) so
+ *  daemon_status / the claim-suppression report says exactly why nothing is claiming —
+ *  a lever whose effect you cannot see on the board is how wedges happen. */
+export const BUCKET_PLANNING_SUPPRESSION_REASON =
+  "bucket-planning: parented under a bucket epic — planning-only, never auto-run; re-home to a real epic to run";
+
 export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
   const level = getOrchestratorLevel(project);
   const ready = listReadyTodos(project);
@@ -1353,13 +1359,15 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   // and the childrenIndex built from it is threaded into isHeadlessLeaf/
   // headlessExclusionReason below instead of each re-querying per candidate.
   const allTodosSnapshot = listTodos(project, { includeCompleted: true });
+  const byId = new Map(allTodosSnapshot.map((t) => [t.id, t]));
+  const bucketPlanningSuppressed = allTodosSnapshot.filter((t) => !isEpic(t) && !isMission(t) && claimReason(t, byId) === 'bucket-planning').map((t) => ({ todoId: t.id, title: displayTitle(t), reason: BUCKET_PLANNING_SUPPRESSION_REASON }));
   const childrenIndex = buildChildrenIndex(allTodosSnapshot);
   const blockedSplits = findBlockedSplits(allTodosSnapshot);
   const pendingSplitProposals = listOpenSplitProposals(project);
   const blocked = blockedSplits.length > 0 || pendingSplitProposals.length > 0;
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
   if (overDailyBudget(project)) {
-    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [], blockedSplits, pendingSplitProposals, blocked };
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: [...mk('over-daily-budget'), ...bucketPlanningSuppressed], claimableIds: [], blockedSplits, pendingSplitProposals, blocked };
   }
   // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
   const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
@@ -1387,7 +1395,7 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
     ready: ready.length,
     claimable: claimable.length,
     projectGate,
-    suppressed,
+    suppressed: [...suppressed, ...bucketPlanningSuppressed],
     claimableIds: claimable.map((t) => t.id),
     blockedSplits,
     pendingSplitProposals,
