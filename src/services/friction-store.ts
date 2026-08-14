@@ -489,6 +489,16 @@ const TRIAGE_ACTIONED_PREFIX = 'triage:actioned:';
 const triageActionedKey = (layer: FrictionLayer, retryReason: string) =>
   `${TRIAGE_ACTIONED_PREFIX}${layer}:${retryReason}`;
 
+/** Provenance stamped on a triage-auto-filed todo. Persisted in the friction store
+ *  (not a todo column) so it is queryable and scannable for sweep purposes. */
+export interface TriageProvenance {
+  todoId: string;
+  /** ISO timestamp when the todo was filed, optional for backward compat. */
+  filedAt?: string;
+  /** ISO timestamp of the newest note that triggered the filing, optional for backward compat. */
+  newestNoteAt?: string;
+}
+
 /** True iff a todo has already been filed for this (layer, reason) — DF3 dedup.
  *  Permanent marker (MVP): once actioned, never re-filed. Future enhancement:
  *  re-arm when the count grows materially after the prior todo is resolved. */
@@ -497,11 +507,69 @@ export function isReasonActioned(project: string, layer: FrictionLayer, retryRea
 }
 
 /** Mark a (layer, reason) actioned by recording the filed todo id as the state
- *  (the marker doubles as a back-pointer to the todo). Serialized via withLock. */
+ *  (the marker doubles as a back-pointer to the todo). When `meta` is provided, stores
+ *  JSON with provenance (filedAt/newestNoteAt); otherwise stores the bare todoId for
+ *  backward compat. Serialized via withLock. */
 export function markReasonActioned(
   project: string, layer: FrictionLayer, retryReason: string, todoId: string,
+  meta?: { filedAt?: string; newestNoteAt?: string },
 ): Promise<void> {
-  return setWatchState(project, triageActionedKey(layer, retryReason), todoId);
+  const state = meta ? JSON.stringify({ todoId, ...meta }) : todoId;
+  return setWatchState(project, triageActionedKey(layer, retryReason), state);
+}
+
+/** Read the provenance for a single (layer, reason) actioned marker, or null if never
+ *  actioned. Parses JSON if the stored state is an object; tolerates legacy bare-string
+ *  todoId for backward compat. Never throws. Unlocked read. */
+export function getReasonActionedProvenance(
+  project: string, layer: FrictionLayer, retryReason: string,
+): TriageProvenance | null {
+  const state = getWatchState(project, triageActionedKey(layer, retryReason));
+  if (!state) return null;
+  try {
+    const parsed = JSON.parse(state) as unknown;
+    if (typeof parsed === 'object' && parsed !== null && 'todoId' in parsed) {
+      return parsed as TriageProvenance;
+    }
+  } catch {
+    // Ignore JSON parse errors; fall through to legacy case
+  }
+  // Legacy bare-string todoId
+  return { todoId: state };
+}
+
+/** Enumerate all triage:actioned: markers with layer and retryReason decoded from
+ *  the key. Returns entries with provenance (parsed or default). Unlocked read. */
+export function listTriageActionedProvenance(
+  project: string,
+): Array<TriageProvenance & { layer: FrictionLayer; retryReason: string }> {
+  return listWatchStateByPrefix(project, TRIAGE_ACTIONED_PREFIX).map((row) => {
+    // Key format: triage:actioned:<layer>:<retryReason>
+    // Split on first ':' after prefix to get layer and reason separately
+    const keyWithoutPrefix = row.signalKey.slice(TRIAGE_ACTIONED_PREFIX.length);
+    const firstColonIdx = keyWithoutPrefix.indexOf(':');
+    if (firstColonIdx === -1) {
+      // Malformed key; skip it
+      return null as unknown as ReturnType<typeof listTriageActionedProvenance>[number];
+    }
+    const layer = keyWithoutPrefix.slice(0, firstColonIdx) as FrictionLayer;
+    const retryReason = keyWithoutPrefix.slice(firstColonIdx + 1);
+
+    // Parse the state (JSON or legacy bare todoId)
+    let provenance: TriageProvenance;
+    try {
+      const parsed = JSON.parse(row.state) as unknown;
+      if (typeof parsed === 'object' && parsed !== null && 'todoId' in parsed) {
+        provenance = parsed as TriageProvenance;
+      } else {
+        provenance = { todoId: row.state };
+      }
+    } catch {
+      provenance = { todoId: row.state };
+    }
+
+    return { ...provenance, layer, retryReason };
+  }).filter((x): x is ReturnType<typeof listTriageActionedProvenance>[number] => x !== null);
 }
 
 /** Scan durable watch-state for every key under `prefix` (used by the intake pass to
