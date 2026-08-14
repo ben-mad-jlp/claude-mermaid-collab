@@ -24,6 +24,7 @@ import { makeClaimProject } from '../__fixtures__/claim-project';
 import { listFriction, recordFrictionOnce, _closeProject as _closeFrictionProject } from '../friction-store';
 import { recordEpicLand } from '../epic-land-record-store';
 import { recordStatus } from '../session-status-store';
+import { harnessTimeoutMs } from '../../testing/test-timeout-budget';
 
 const REAP_GRACE_MS = 5 * 60_000;
 const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -142,7 +143,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     expect(existsSync(laneDir)).toBe(false); // moved out of baseDir
     const q = report.quarantined.find((x) => x.path === laneDir);
     expect(q && existsSync(q.trashDir)).toBe(true); // present under trash (reversible)
-  });
+  }, harnessTimeoutMs());
 
   it('case 2: dirty orphan → flagged, not removed', async () => {
     const wm = getWorktreeManager(repo);
@@ -165,7 +166,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     expect(dirtyRefusal).toBeTruthy();
     expect(dirtyRefusal!.reason).toBe('orphan-dirty');
     expect(dirtyRefusal!.sample.length).toBeGreaterThan(0);
-  });
+  }, harnessTimeoutMs());
 
   it('case 3: locked orphan → flagged, not removed', async () => {
     const wm = getWorktreeManager(repo);
@@ -186,7 +187,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     const lockedRefusal = report.refused.find((r) => r.path === laneDir);
     expect(lockedRefusal).toBeTruthy();
     expect(lockedRefusal!.reason).toBe('orphan-locked');
-  });
+  }, harnessTimeoutMs());
 
   it('case 4: leaf-exec-* worktree → handled by existing path, not orphan class', async () => {
     const wm = getWorktreeManager(repo);
@@ -219,7 +220,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     if (refusalForDir) {
       expect(refusalForDir.reason).not.toMatch(/^orphan-/);
     }
-  });
+  }, harnessTimeoutMs());
 
   it('case 5: non-terminal epic worktree → silently skipped, not removed', async () => {
     const wm = getWorktreeManager(repo);
@@ -249,7 +250,7 @@ describe('gcLeafWorktrees — orphan non-leaf/lane worktree GC', () => {
     // Verify it was silently skipped (no refused entry).
     const refusalForDir = report.refused.find((r) => r.path === epicDir);
     expect(refusalForDir).toBeFalsy();
-  });
+  }, harnessTimeoutMs());
 });
 
 describe('gcLeafWorktrees — landed-epic worktree collection (record-verified fast path)', () => {
@@ -305,7 +306,7 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
     const q = report.quarantined.find((x) => x.path === epicDir);
     expect(q && existsSync(q.trashDir)).toBe(true);
     expect(q && existsSync(join(q.trashDir, 'manifest.json'))).toBe(true);
-  });
+  }, harnessTimeoutMs());
 
   it('case 2: land-record present but worktree HEAD has drifted (extra commit past epicTipSha) → KEPT', async () => {
     const { epicId, epicDir } = await makeDoneEpicWorktree();
@@ -322,7 +323,7 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
 
     expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
     expect(existsSync(epicDir)).toBe(true);
-  });
+  }, harnessTimeoutMs());
 
   it('case 3: land-record matches but worktree has an uncommitted tracked change → KEPT', async () => {
     const { epicId, epicDir } = await makeDoneEpicWorktree();
@@ -336,7 +337,7 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
 
     expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
     expect(existsSync(epicDir)).toBe(true);
-  });
+  }, harnessTimeoutMs());
 
   it('case 4: land-record matches but a live process cwd is under the dir → KEPT', async () => {
     const { epicId, epicDir } = await makeDoneEpicWorktree();
@@ -359,7 +360,7 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
     } finally {
       proc.kill();
     }
-  });
+  }, harnessTimeoutMs());
 
   it('case 5: no land-record for this epic → falls through to the age-gated path, KEPT', async () => {
     const { epicDir } = await makeDoneEpicWorktree();
@@ -369,7 +370,7 @@ describe('gcLeafWorktrees — landed-epic worktree collection (record-verified f
 
     expect(report.quarantined.map((q) => q.path)).not.toContain(epicDir);
     expect(existsSync(epicDir)).toBe(true);
-  });
+  }, harnessTimeoutMs());
 });
 
 describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session)', () => {
@@ -417,7 +418,7 @@ describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session
     // Stale WorktreeInfo record is gone too (quarantineMove's deleteRecord side effect).
     const records = await wm.list();
     expect(records.some((r) => r.sessionId === sessionId)).toBe(false);
-  });
+  }, harnessTimeoutMs());
 
   it('case 2: live session (fresh heartbeat) → KEPT, silently bound-skipped', async () => {
     const sessionId = 'pool-lane-live';
@@ -432,7 +433,7 @@ describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session
     expect(existsSync(dir)).toBe(true);
     const refusal = report.refused.find((r) => r.path === dir);
     expect(refusal).toBeFalsy(); // still a SILENT skip, not a flagged refusal
-  });
+  }, harnessTimeoutMs());
 
   it('case 3: dead session but dir < 7 days old → KEPT (age floor not met)', async () => {
     const sessionId = 'pool-lane-dead-young';
@@ -447,7 +448,7 @@ describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session
 
     expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
     expect(existsSync(dir)).toBe(true);
-  });
+  }, harnessTimeoutMs());
 
   it('case 4: dead session, old, but dirty (uncommitted tracked change) → KEPT', async () => {
     const sessionId = 'pool-lane-dead-dirty';
@@ -461,7 +462,7 @@ describe('gcLeafWorktrees — dead pool-lane reclamation (bound-but-dead session
 
     expect(report.quarantined.map((q) => q.path)).not.toContain(dir);
     expect(existsSync(dir)).toBe(true);
-  });
+  }, harnessTimeoutMs());
 });
 
 describe('landEpic teardown friction dedup (part 2: un-swallow removeEpic failure)', () => {
@@ -543,7 +544,7 @@ describe('isReclaimable', () => {
 
     const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
     expect(result).toBe(false);
-  });
+  }, harnessTimeoutMs());
 
   it('locked (.git/worktrees/<name>/locked marker) → false', async () => {
     const dir = await makeWorktree('wt-locked', 'b-locked');
@@ -552,7 +553,7 @@ describe('isReclaimable', () => {
 
     const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
     expect(result).toBe(false);
-  });
+  }, harnessTimeoutMs());
 
   it('live inflight claim → false', async () => {
     const dir = await makeWorktree('wt-inflight', 'b-inflight');
@@ -568,7 +569,7 @@ describe('isReclaimable', () => {
     } finally {
       clearLeafInflight(leafId);
     }
-  });
+  }, harnessTimeoutMs());
 
   it('live process cwd under the dir → false', async () => {
     const dir = await makeWorktree('wt-livecwd', 'b-livecwd');
@@ -587,7 +588,7 @@ describe('isReclaimable', () => {
     } finally {
       proc.kill();
     }
-  });
+  }, harnessTimeoutMs());
 
   it('in-progress git state (MERGE_HEAD marker) → false', async () => {
     const dir = await makeWorktree('wt-merging', 'b-merging');
@@ -599,14 +600,14 @@ describe('isReclaimable', () => {
 
     const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
     expect(result).toBe(false);
-  });
+  }, harnessTimeoutMs());
 
   it('too young (fresh worktree, no backdate) → false', async () => {
     const dir = await makeWorktree('wt-young', 'b-young');
 
     const result = await isReclaimable({ dir, baseDir, leafTodoId: null, now: Date.now() });
     expect(result).toBe(false);
-  });
+  }, harnessTimeoutMs());
 
   it('all guards pass (clean, old, unlocked, no inflight, no live cwd, no in-progress git) → true', async () => {
     const dir = await makeWorktree('wt-clean', 'b-clean');
@@ -614,7 +615,7 @@ describe('isReclaimable', () => {
 
     const result = await isReclaimable({ dir, baseDir, leafTodoId: 'no-such-leaf', now: Date.now() });
     expect(result).toBe(true);
-  });
+  }, harnessTimeoutMs());
 });
 
 describe('MEASURED: full reaper+GC pass over a worktree set', () => {
@@ -736,7 +737,7 @@ describe('MEASURED: full reaper+GC pass over a worktree set', () => {
     // path that no longer exists).
     expect(existsSync(reclaimableDir)).toBe(false);
     expect(existsSync(prunableDir)).toBe(false);
-  });
+  }, harnessTimeoutMs());
 
   it('multi-class set: landed-epic + dead-pool-lane + guarded-survivor across two full passes', async () => {
     const wm = getWorktreeManager(repo);
@@ -817,5 +818,5 @@ describe('MEASURED: full reaper+GC pass over a worktree set', () => {
       listFriction(repo, { layer: 'operational' })
         .filter((n) => n.retryReason === 'orphan-dirty' && (n.detail ?? '').includes(guardedDir)).length,
     ).toBe(1);
-  });
+  }, harnessTimeoutMs());
 });
