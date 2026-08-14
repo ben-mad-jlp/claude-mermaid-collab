@@ -17,6 +17,7 @@ import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
+import { memoizedTsc } from './tsc-memo';
 import { planImpactedBaseGate, narrowBaseGateConfig, type ImpactedBaseGateOpts } from './base-gate-impacted.js';
 import { activeQuarantine, runQuarantineCeremonies } from './flaky-quarantine';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
@@ -1136,7 +1137,13 @@ export async function runBaseGate(
 
   for (const lane of lanes) {
     const laneCwd = lane.cwd ? join(cwd, lane.cwd) : cwd;
-    const r = await spawn(laneCwd, lane.command);
+    // Typecheck lanes consult the durable tree-keyed verdict (tsc-memo.ts): a clean tree
+    // already measured by ANY runner (steward tscClean, land gate, another epic's base
+    // gate, test-backend's desktop preamble) is served without a spawn. Test lanes never
+    // route through it — only typechecks are pure functions of the tree.
+    const r = lane.kind === 'typecheck'
+      ? await memoizedTsc(laneCwd, lane.command, { runner: spawn })
+      : await spawn(laneCwd, lane.command);
     if (!r.ran) {
       // A lane that COULD NOT RUN is an incident — unchanged semantics: return immediately,
       // no blob (an error is never cached).
