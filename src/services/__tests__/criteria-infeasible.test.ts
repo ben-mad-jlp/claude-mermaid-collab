@@ -1,3 +1,9 @@
+/**
+ * @nested-test-runner: inert - fixture STRINGS name test runners ("bun test", "cargo test",
+ *   "pytest") because that is what namesDaemonProvableProof recognises; nothing is executed.
+ * @serial-test-lane: inert - fixture strings name git commands for the git-fact proof method;
+ *   no git process is ever spawned. Every test here is a pure function call.
+ */
 import { test, expect } from 'bun:test';
 import {
   classifyCriterion,
