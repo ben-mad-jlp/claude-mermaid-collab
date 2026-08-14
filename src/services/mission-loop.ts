@@ -31,6 +31,7 @@ import {
   type RepairTodoState,
 } from './mission-stall.ts';
 import { getLatestBaseGateVerdictForBase, latestLedgerTsForEpics } from './worker-ledger.ts';
+import { isClaimable } from './claimability';
 import { listTodos } from './todo-store.ts';
 import { execFileSync } from 'node:child_process';
 import {
@@ -286,9 +287,11 @@ function resolveTrunkSha(project: string): string | null {
  *  unclaimable (filed in a state the daemon never schedules — the incident class). */
 function readRepairTodoState(project: string): RepairTodoState {
   try {
-    const repairs = listTodos(project).filter((t) => (t.baseRepair ?? 0) !== 0);
+    const all = listTodos(project);
+    const repairs = all.filter((t) => (t.baseRepair ?? 0) !== 0);
     if (repairs.length === 0) return 'absent';
-    return repairs.some((t) => t.status === 'ready') ? 'claimable' : 'unclaimable';
+    const byId = new Map(all.map((t) => [t.id, t]));
+    return repairs.some((t) => isClaimable(t, byId)) ? 'claimable' : 'unclaimable';
   } catch { return 'absent'; }
 }
 
