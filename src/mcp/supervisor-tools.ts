@@ -189,7 +189,7 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             // optionId branch: call decideEscalation with raw id and let it handle id resolution
             if (optionId !== undefined) {
               const { decideEscalation } = await import('../services/escalation-decide.js');
-              const result = decideEscalation(id, { optionId, note: note ?? null, decidedBy: 'human' });
+              const result = await decideEscalation(id, { optionId, note: note ?? null, decidedBy: 'human' });
               if (result.ok === false) {
                 return JSON.stringify(result, null, 2);
               }

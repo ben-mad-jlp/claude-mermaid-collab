@@ -7,6 +7,7 @@ import {
   type EscalationDecision,
 } from './supervisor-store.ts';
 import { applyRebetDecision, OVER_BUDGET_REBET_KIND } from './mission-budget-gate.ts';
+import { REPAIR_MISSION_APPROVAL_KIND } from './repair-mission-pass.ts';
 import { getWebSocketHandler } from './ws-handler-manager.ts';
 
 /**
@@ -28,10 +29,10 @@ export type DecideEscalationResult =
  * @param input - { optionId?, note?, decidedBy? }
  * @returns typed result: success with decision + escalation, or typed failure
  */
-export function decideEscalation(
+export async function decideEscalation(
   id: string,
   input: { optionId?: string | null; note?: string | null; decidedBy?: string },
-): DecideEscalationResult {
+): Promise<DecideEscalationResult> {
   // Resolve short id to full id BEFORE any read/write.
   // Try exact match first (cheap); if not found, try short-id resolution.
   let fullId = id;
@@ -103,6 +104,20 @@ export function decideEscalation(
     } catch (e) {
       console.warn(
         `[rebet] budget raise failed for mission ${esc.todoId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  // Repair-mission approval: approve or dismiss the forged mission.
+  // Fail-open: an apply fault must never lose the human's recorded decision.
+  if (esc.kind === REPAIR_MISSION_APPROVAL_KIND && esc.todoId) {
+    try {
+      const { applyRepairApprovalDecision } = await import('./repair-mission-pass.js');
+      await applyRepairApprovalDecision(esc.project, esc.todoId, optionId ?? null,
+        { actor: `human:repair-approval-card:${fullId}` });
+    } catch (e) {
+      console.warn(
+        `[repair-approval] apply failed for mission ${esc.todoId}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
