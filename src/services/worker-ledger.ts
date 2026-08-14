@@ -1156,6 +1156,33 @@ export function deleteBaseGateVerdictsForBase(baseSha: string): number {
   } catch { return 0; }
 }
 
+/** Latest shared verdict measured at one base sha — the trunk read for the red-trunk
+ *  silence alarm (mission-stall.ts sweepRedTrunkSilence). Newest `measuredAt` wins when
+ *  several keys (lanes/quarantine hashes) share the sha. `null` on a miss OR a throw —
+ *  absence of a measurement is never treated as a verdict. */
+export function getLatestBaseGateVerdictForBase(baseSha: string): BaseGateVerdictRow | null {
+  try {
+    const raw = openDb().prepare(
+      'SELECT * FROM base_gate_verdict WHERE baseSha=? ORDER BY measuredAt DESC LIMIT 1',
+    ).get(baseSha) as BaseGateVerdictRow | undefined;
+    return raw ?? null;
+  } catch { return null; }
+}
+
+/** Most recent worker-ledger row timestamp (ms) across any of `epicIds` — dispatch recency
+ *  for the red-trunk silence alarm ("has ANY baseRepair epic seen a dispatch lately?").
+ *  `null` when the set is empty, nothing matched, or on throw. */
+export function latestLedgerTsForEpics(epicIds: string[]): number | null {
+  if (epicIds.length === 0) return null;
+  try {
+    const placeholders = epicIds.map(() => '?').join(',');
+    const row = openDb().prepare(
+      `SELECT MAX(ts) AS ts FROM worker_ledger WHERE epicId IN (${placeholders})`,
+    ).get(...epicIds) as { ts: number | null } | undefined;
+    return row?.ts ?? null;
+  } catch { return null; }
+}
+
 // --- Durable tsc verdict (tsc_verdict): one typecheck measurement, all runners consult ---
 
 /** One durable typecheck verdict. `key` = hash(command, treeSha, cwdKind) — see the DDL
