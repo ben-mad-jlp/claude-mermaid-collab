@@ -35,7 +35,7 @@ import { raiseBaseRepairEpic, reapSettledBaseRepairEpics, reapRecoveredLaneBaseR
 import { resolveGateDeclaration, runBaseGate, defaultGateSpawn, type LeafGateConfig, type LeafGateResult } from './leaf-gate.js';
 import type { ImpactedBaseGateOpts } from './base-gate-impacted.js';
 import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
-import { activeQuarantine } from './flaky-quarantine.js';
+import { activeQuarantine, runQuarantineCeremonies } from './flaky-quarantine.js';
 import { loadManifestSource } from '../config/project-manifest.js';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
@@ -223,6 +223,12 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
           } : {}),
         },
       );
+      // The probe path settles fresh gate results too, so it must advance quarantine
+      // bookkeeping the same way the executor path does — same single entry point, and the
+      // shared per-project throttle inside dedupes when both paths fire close together.
+      try {
+        await runQuarantineCeremonies(targetProject, now?.());
+      } catch { /* best-effort: bookkeeping must never degrade the probe verdict */ }
       const { isCacheableBaseGateStatus } = await import('./leaf-executor.js');
       if (isCacheableBaseGateStatus(r.status)) {
         recordEpicBaseGate({

@@ -1,36 +1,44 @@
 /**
- * Proves the quarantine expiry sweep is reached on the HONOURED-cache branch of
- * resolveBaseGreen, not only on a cache miss / fresh gate run. Before the fix a project
- * answering entirely from the epic_base_gate cache never reached
- * sweepExpiringQuarantine, so a past-TTL row could lapse with no recorded outcome.
+ * Proves the quarantine expiry sweep is still REACHABLE from resolveBaseGreen — now via the
+ * single runQuarantineCeremonies entry point that fires after a FRESH gate run settles.
+ *
+ * History: this file originally pinned the opposite — a sweep BEFORE the cache read, so even
+ * a fully-cached project announced expiries. That pre-cache call made every cached hit pay a
+ * quarantine-store read (audit item 6), so the sweep moved behind the per-project ceremony
+ * throttle AFTER the cache check. Safe because activeQuarantine's own TTL filter already
+ * stops expired rows from matching (the sweep only renews/announces, never gates
+ * correctness), and the conductor probe path now fires the same entry point, so a
+ * cache-honouring executor no longer strands the bookkeeping. The cached-hit zero-cost pin
+ * lives in quarantine-ceremony-clock.test.ts.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { resolveBaseGreen } from '../leaf-gate';
-import { setQuarantineExpiryHook, type QuarantineExpiryEvent } from '../flaky-quarantine';
+import { setQuarantineExpiryHook, _resetCeremonyThrottle, type QuarantineExpiryEvent } from '../flaky-quarantine';
 import {
-  recordEpicBaseGate,
   listTestQuarantine,
   writeTestQuarantine,
   removeTestQuarantine,
 } from '../worker-ledger';
 
 const PROJECT = `/tmp/quarantine-reach-${process.pid}`;
-const EPIC_ID = 'reach-epic';
-const BASE_SHA = 'sha-reach';
+const EPIC_ID = `reach-epic-${process.pid}`;
+const BASE_SHA = `sha-reach-${process.pid}`;
 const NOW = Date.now();
 
 beforeEach(() => {
   for (const r of listTestQuarantine(PROJECT)) removeTestQuarantine(PROJECT, r.test);
   setQuarantineExpiryHook(() => {});
+  _resetCeremonyThrottle();
 });
 
 afterEach(() => {
   for (const r of listTestQuarantine(PROJECT)) removeTestQuarantine(PROJECT, r.test);
   setQuarantineExpiryHook(() => {});
+  _resetCeremonyThrottle();
 });
 
-describe('resolveBaseGreen honoured-cache path', () => {
-  it('sweeps an expired quarantine row on the honoured cached base-gate path', async () => {
+describe('resolveBaseGreen fresh-gate path', () => {
+  it('sweeps an expired quarantine row after a fresh (uncached) gate run settles', async () => {
     const createdAt = NOW - 2 * 60 * 60_000;
     writeTestQuarantine(
       {
@@ -44,23 +52,8 @@ describe('resolveBaseGreen honoured-cache path', () => {
       createdAt,
     );
 
-    recordEpicBaseGate(
-      {
-        epicId: EPIC_ID,
-        project: PROJECT,
-        baseSha: BASE_SHA,
-        status: 'pass',
-        command: 'echo ok',
-        output: '',
-      },
-      NOW - 60_000,
-    );
-
     const events: QuarantineExpiryEvent[] = [];
     setQuarantineExpiryHook((e) => { events.push(e); });
-
-    let ensureWorktreeCalled = false;
-    let runGateCalled = false;
 
     const result = await resolveBaseGreen({
       epicId: EPIC_ID,
@@ -68,19 +61,19 @@ describe('resolveBaseGreen honoured-cache path', () => {
       targetProject: PROJECT,
       epicBaseSha: BASE_SHA,
       gateCfg: { command: 'echo ok' } as any,
-      ensureEpicWorktree: async () => { ensureWorktreeCalled = true; return { path: '/tmp/unused' }; },
-      runGate: async () => { runGateCalled = true; return { status: 'pass', output: '', reasons: [], declared: true } as any; },
+      ensureEpicWorktree: async () => ({ path: '/tmp/unused' }),
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true } as any),
       now: () => NOW,
     });
 
-    expect(ensureWorktreeCalled).toBe(false);
-    expect(runGateCalled).toBe(false);
     expect(result?.status).toBe('pass');
-    expect(result?.fresh).toBe(false);
+    expect(result?.fresh).toBe(true);
 
     expect(events.length).toBe(1);
     expect(events[0].test).toBe('lapsed.test');
 
+    // The sweep announces, it never deletes — the row stays (activeQuarantine's TTL filter
+    // is what stops it matching).
     const row = listTestQuarantine(PROJECT).find((r) => r.test === 'lapsed.test');
     expect(row).toBeDefined();
   });
