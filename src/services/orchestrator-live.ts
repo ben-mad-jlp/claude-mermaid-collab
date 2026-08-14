@@ -25,7 +25,7 @@ import { runConductorPass } from './conductor-pass.js';
 import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick, shouldRunNotificationTick } from './session-notification-tick.js';
 import { runFrictionWatchPass, shouldRunFrictionWatchPass } from './friction-watch.js';
-import { runFrictionTriagePass, shouldRunFrictionTriagePass } from './friction-triage.js';
+import { runFrictionTriagePass, shouldRunFrictionTriagePass, sweepStaleAutoFiledGaps } from './friction-triage.js';
 import { runMissionIntakePass, shouldRunMissionIntakePass } from './mission-intake.js';
 import { runRepairForgePass, shouldRunRepairForgePass } from './repair-mission-pass.js';
 import { runRepairVerifyFilerPass, shouldRunRepairVerifyFilerPass } from './repair-verify-filer.js';
@@ -350,6 +350,10 @@ export interface TickDeps {
    *  FRICTION_TRIAGE_INTERVAL_MS per project (it used to run on EVERY tick and every
    *  250ms-debounced kick with no gate). Default: shouldRunFrictionTriagePass. */
   shouldRunFrictionTriage?: (project: string) => boolean;
+  /** Stale gap-todo sweep: close auto-filed friction todos whose reason recorded no note
+   *  after the stored newestNoteAt timestamp. Runs after friction-triage under the same
+   *  throttle gate. Default: sweepStaleAutoFiledGaps. */
+  sweepStaleGaps?: (project: string) => Promise<unknown>;
   /** Token-leak alarm: read the burn gauge and raise a deduped escalation when a non-build LLM
    *  source exceeds its call ceiling with no accepted work. Runs for every WATCHED project regardless
    *  of level (observability isn't gated on building). Default: runBurnWatchPass. */
@@ -442,6 +446,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunFrictionWatch = deps.shouldRunFrictionWatch ?? shouldRunFrictionWatchPass;
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
   const shouldRunFrictionTriage = deps.shouldRunFrictionTriage ?? shouldRunFrictionTriagePass;
+  const sweepStaleGaps = deps.sweepStaleGaps ?? sweepStaleAutoFiledGaps;
   const burnWatch = deps.burnWatch ?? runBurnWatchPass;
   const shouldRunBurnWatch = deps.shouldRunBurnWatch ?? shouldRunBurnWatchPass;
   const missionIntake = deps.missionIntake ?? ((p: string, snap?: Todo[]) => runMissionIntakePass(p, { todosSnapshot: snap }));
@@ -575,6 +580,18 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         if (res && typeof res === 'object' && ((res as { filed?: number }).filed ?? 0) > 0) invalidateSnapshot();
       } catch (err) {
         console.warn(`[orchestrator] friction-triage failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+
+      // Stale gap-todo sweep: close auto-filed friction todos whose reason recorded
+      // no note after the stored newestNoteAt. Runs under the same friction-triage
+      // throttle gate (no second throttle). Fail-open.
+      try {
+        currentPhase = `${project}:friction-sweep`;
+        const res = await withPassTimeout(sweepStaleGaps(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-sweep`);
+        if (res && typeof res === 'object' && ((res as { swept?: number }).swept ?? 0) > 0) invalidateSnapshot();
+      } catch (err) {
+        console.warn(`[orchestrator] friction-sweep failed for ${project}:`, err);
         invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
