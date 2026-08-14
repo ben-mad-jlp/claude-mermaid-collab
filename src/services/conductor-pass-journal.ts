@@ -57,6 +57,14 @@ export interface ConductorPassJournalRow {
    *  row fixtures that predate it keep compiling — a row object without the key means exactly
    *  what a null means: nobody forced this pass. */
   forced?: boolean | null;
+  /** Number of conductor nodes spawned and run on this pass. 0 for debounced/early-returns,
+   *  1 for a pass that ran the node. null on legacy rows predating the column. */
+  nodesSpent?: number | null;
+  /** Per-arm watermark: JSON.stringify'd object keying which arms' admission keys were last
+   *  executed. null on legacy rows or passes that took no arms. */
+  armWatermark?: string | null;
+  /** Classification of this pass outcome (quiet/stuck). null on legacy rows or early returns. */
+  outcomeClass?: string | null;
 }
 
 /** Hard cap on the persisted pass summary. This is a SUMMARY, not a transcript: the full node
@@ -90,7 +98,12 @@ CREATE TABLE IF NOT EXISTS conductor_pass (
   outcome TEXT,
   ran INTEGER,
   failCounted INTEGER,
-  carried TEXT
+  carried TEXT,
+  summary TEXT,
+  forced INTEGER,
+  nodesSpent INTEGER,
+  armWatermark TEXT,
+  outcomeClass TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conductor_pass_lookup ON conductor_pass (project, missionId, startedAt);
 `;
@@ -118,6 +131,12 @@ function openDb(): Database {
   // Additive + NULLABLE, same idiom: legacy rows read back as forced:null, which is correct for
   // them (no kick existed when they were written).
   addColumnIfMissing(db, 'conductor_pass', 'forced', 'forced INTEGER');
+  // Additive + NULLABLE: legacy rows read back as nodesSpent:null.
+  addColumnIfMissing(db, 'conductor_pass', 'nodesSpent', 'nodesSpent INTEGER');
+  // Additive + NULLABLE: legacy rows read back as armWatermark:null.
+  addColumnIfMissing(db, 'conductor_pass', 'armWatermark', 'armWatermark TEXT');
+  // Additive + NULLABLE: legacy rows read back as outcomeClass:null.
+  addColumnIfMissing(db, 'conductor_pass', 'outcomeClass', 'outcomeClass TEXT');
   return db;
 }
 
@@ -146,21 +165,29 @@ export function openPassRow(project: string, missionId: string | null, startedAt
 
 type JsonPatchKey = 'criteriaActed' | 'filed' | 'declined' | 'carried';
 const JSON_PATCH_KEYS: JsonPatchKey[] = ['criteriaActed', 'filed', 'declined', 'carried'];
-type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm';
-const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm'];
+type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm' | 'armWatermark' | 'outcomeClass';
+const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm', 'armWatermark', 'outcomeClass'];
 type BoolPatchKey = 'failCounted' | 'forced';
 const BOOL_PATCH_KEYS: BoolPatchKey[] = ['failCounted', 'forced'];
 /** Free-text keys clamped on write (never stored raw — see CONDUCTOR_PASS_SUMMARY_MAX_CHARS). */
 type TextPatchKey = 'summary';
 const TEXT_PATCH_KEYS: TextPatchKey[] = ['summary'];
+type NumericPatchKey = 'nodesSpent';
+const NUMERIC_PATCH_KEYS: NumericPatchKey[] = ['nodesSpent'];
 
-function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey | TextPatchKey>>): {
+function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey | TextPatchKey | NumericPatchKey>>): {
   clauses: string[];
   values: (string | number | null)[];
 } {
   const clauses: string[] = [];
   const values: (string | number | null)[] = [];
   for (const key of SCALAR_PATCH_KEYS) {
+    if (patch[key] !== undefined) {
+      clauses.push(`${key}=?`);
+      values.push(patch[key] ?? null);
+    }
+  }
+  for (const key of NUMERIC_PATCH_KEYS) {
     if (patch[key] !== undefined) {
       clauses.push(`${key}=?`);
       values.push(patch[key] ?? null);
@@ -192,7 +219,7 @@ function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPat
  *  still shows its partial progress. Returns whether a row was updated, false on throw. */
 export function appendPassProgress(
   id: string,
-  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey | TextPatchKey>>,
+  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey | TextPatchKey | NumericPatchKey>>,
 ): boolean {
   try {
     const { clauses, values } = buildProgressSet(patch);
@@ -265,6 +292,9 @@ function rowFromRaw(r: any): ConductorPassJournalRow {
     carried: r.carried == null ? null : parseJsonValue(r.carried) as ConductorPassJournalRow['carried'],
     summary: r.summary ?? null,
     forced: r.forced == null ? null : r.forced === 1,
+    nodesSpent: r.nodesSpent ?? null,
+    armWatermark: r.armWatermark ?? null,
+    outcomeClass: r.outcomeClass ?? null,
   };
 }
 
@@ -350,6 +380,32 @@ export function listConductorPassesPage(
   opts?: ConductorPassListOpts,
 ): { rows: ConductorPassJournalRow[]; total: number } {
   return { rows: listConductorPasses(project, opts), total: countConductorPasses(project, opts) };
+}
+
+/** Retrieve the durable per-arm last-execution watermark from the newest conductor pass
+ *  that has the armWatermark field populated. Returns null if no watermark is found or if
+ *  parsing fails. The watermark is a durable "since that arm last executed" record, per-mission. */
+export function latestArmWatermark(
+  project: string,
+  missionId: string,
+  arm: 'verify-panel' | 'land',
+): string | null {
+  try {
+    const rows = listConductorPasses(project, { missionId });
+    for (const row of rows) {
+      if (row.armWatermark == null) continue;
+      try {
+        const parsed = JSON.parse(row.armWatermark) as Record<string, string | undefined>;
+        const key = parsed[arm];
+        if (key) return key;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /** Derive the contiguous run of node-failed passes for (project, missionId, serveFp),
