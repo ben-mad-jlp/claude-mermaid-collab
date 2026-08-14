@@ -342,7 +342,8 @@ export async function handleMissionTool(name: string, args: any): Promise<string
             throw new Error(`High-stakes criterion (trigger=${trigger}) requires ≥2 panel verdicts (lenses: ${VERIFY_LENSES.join(', ')}); received ${verdictCount}`);
           }
 
-          // Join the panel verdicts by strict-majority vote.
+          // Join the panel verdicts by strict-majority vote — joinPanelVerdicts is the ONE
+          // join rule, shared with the auto-panel runner; neither door adds its own logic.
           const join = joinPanelVerdicts(panelVerdictsArr as PanelVerdict[]);
           recordedMet = join.met;
 
