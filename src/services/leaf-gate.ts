@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { isQuarantined } from './quarantine.js';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
+import { classifyTscOutput } from './tsc-infra-degraded';
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
@@ -147,6 +148,11 @@ export interface LeafGateResult {
    *  further impacted run (isFullSuiteAnchorVerdict). Reporting/marker only — never affects
    *  pass/fail/error semantics. */
   impactedBase?: { anchor: string; ran: number; candidates: number };
+  /** Base-gate only: set when a typecheck lane exited non-zero but every diagnostic it
+   *  emitted was a dependency-resolution/cascade code (classifyTscOutput ⇒ 'infra-degraded')
+   *  — node_modules missing/half-linked, not a base fact. Rides an `status:'error'` result
+   *  only; consumers use it to RELEASE rather than park. */
+  infraDegraded?: boolean;
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -1154,6 +1160,16 @@ export async function runBaseGate(
         output: r.output,
         reasons: [`gate could not run: ${lane.command}`],
         declared: true,
+      };
+    }
+    if (r.code !== 0 && lane.kind === 'typecheck' && classifyTscOutput(r.output) === 'infra-degraded') {
+      return {
+        status: 'error', command: lane.command, output: r.output, declared: true,
+        infraDegraded: true,
+        reasons: [
+          'infra-degraded: typecheck reported only dependency-resolution diagnostics (TS2307/TS7016/TS2503/TS7006) — node_modules missing, not a base fact',
+          lastLines(r.output, 20),
+        ],
       };
     }
     let fingerprints = lane.kind === 'typecheck'
