@@ -7208,7 +7208,7 @@
     },
     {
       "name": "file_explore",
-      "description": "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+      "description": "File an explore-node investigation request as a leaf under the rolling 'Explore runs' epic. The leaf is dispatchable immediately (no re-homing required). `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7243,8 +7243,10 @@
             "type": "string",
             "enum": [
               "backlog",
-              "planned"
-            ]
+              "planned",
+              "ready"
+            ],
+            "description": "Leaf status: 'backlog' (unplanned), 'planned' (planned but unapproved), or 'ready' (approved, dispatchable — default)."
           }
         },
         "required": [
