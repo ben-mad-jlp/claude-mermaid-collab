@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { autoFileExploreFindings, exploreFindingSignature } from '../explore-finding-filer.js';
 import { listTodos } from '../todo-store.js';
 import { ensureBucket } from '../bucket-registry.js';
@@ -10,7 +11,7 @@ import { type Finding } from '../finding-store.js';
 let project: string;
 
 beforeEach(() => {
-  project = mkdtempSync(join('/var/folders/df/46_3zwkn7vb9p8sv93r1qqz40000gn/T', 'explore-finding-filer-test-'));
+  project = mkdtempSync(join(tmpdir(), 'explore-finding-filer-test-'));
 });
 
 afterEach(() => {
