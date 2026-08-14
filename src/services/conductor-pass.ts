@@ -44,7 +44,7 @@ import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './c
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { isRolledBackReplanGap } from './mission-status-predicates.js';
-import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
+import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, CONDUCTOR_PASS_SUMMARY_MAX_CHARS, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
 
@@ -256,7 +256,55 @@ export function buildConductorPrompt(project: string, missionId: string, mission
     `Serve the \`discover\`/\`verify\` gaps enumerated in WAKE CONTEXT above, at most ${CONDUCTOR_SERVE_BATCH_MAX} per pass. If more are listed as CARRIED, leave them for the next pass — do not try to serve them now. If nothing is`,
     'actionable (all building, or converged), say so and stop — do not invent work. Keep the mission\'s',
     'ACTIVE CONSTRAINTS (injected into your builders) intact; do not re-litigate locked decisions.',
+    '',
+    `END YOUR FINAL MESSAGE with exactly one line beginning with the literal label \`${CONDUCTOR_SUMMARY_LABEL}\`,`,
+    'in 1-3 sentences: what you concluded this pass and why you did (or did NOT) file anything. If you',
+    'filed nothing, that line is the ONLY record of your reasoning — say what you found and what stopped',
+    'you. Keep it under 500 characters.',
   ].join('\n');
+}
+
+/** The label the conductor node is asked to prefix its one-line pass summary with. Mirrors how the
+ *  review node emits a labelled verdict line: a parseable marker inside an otherwise free-form final
+ *  message, so the journal can lift the conclusion without storing a transcript. */
+export const CONDUCTOR_SUMMARY_LABEL = 'REASONING SUMMARY:';
+
+/**
+ * Lift the pass summary out of a conductor node's final message.
+ *
+ * Precedence:
+ *  1. The LAST `REASONING SUMMARY:` line the node emitted (it is asked to end with one) — the
+ *     node's own account of the pass.
+ *  2. Fallback for a node that ignored the label: the TAIL of the final message, where a node's
+ *     conclusion lives (the same reason verdict parsers scan from the end).
+ *  3. A node that ran but produced NO final message at all: a factual marker naming the exit
+ *     conditions. Not a fabricated summary — it is the honest statement that an expensive node
+ *     returned nothing, which is itself the diagnosis (mission 949dda42).
+ *
+ * Clamped to CONDUCTOR_PASS_SUMMARY_MAX_CHARS by the journal on write.
+ */
+export function extractPassSummary(
+  text: string | null | undefined,
+  meta?: { exitCode?: number; timedOut?: boolean },
+): string {
+  const t = (text ?? '').trim();
+  if (t.length > 0) {
+    const lines = t.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const idx = lines[i].indexOf(CONDUCTOR_SUMMARY_LABEL);
+      if (idx >= 0) {
+        const body = lines[i].slice(idx + CONDUCTOR_SUMMARY_LABEL.length).trim();
+        if (body.length > 0) return body;
+      }
+    }
+    // No label — keep the TAIL, not the head: the head restates context, the tail is the conclusion.
+    return t.length <= CONDUCTOR_PASS_SUMMARY_MAX_CHARS ? t : t.slice(t.length - CONDUCTOR_PASS_SUMMARY_MAX_CHARS);
+  }
+  const bits = [
+    meta?.exitCode == null ? null : `exitCode=${meta.exitCode}`,
+    meta?.timedOut == null ? null : `timedOut=${meta.timedOut}`,
+  ].filter((b): b is string => b !== null);
+  return `(node ran but produced no final message${bits.length > 0 ? `; ${bits.join(', ')}` : ''})`;
 }
 
 export interface ConductorPassDeps {
@@ -1118,6 +1166,14 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     ledgerTodoId: missionId,
     ledgerSession: session,
   });
+
+  // REASONING CAPTURE. A node RAN — so whatever this pass concluded exists, and this is the only
+  // place it can be preserved. Written BEFORE the productive-pass guard so it lands on every
+  // outcome below, including the two that look inert and were previously undiagnosable: a pass
+  // that declined to act, and an empty conduct (ran=1, filed:[]). Fail-open like every other
+  // journal write. (The node's FULL final message is separately persisted to
+  // worker_ledger.outputText at the invoke boundary; this is the short account.)
+  note(journalRowId, { summary: extractPassSummary(res.text, { exitCode: res.exitCode, timedOut: res.timedOut }) });
 
   // PRODUCTIVE-PASS GUARD. A pass is a SUCCESS only if it actually moved the mission: the node
   // returned ok AND either there were no 'discover' gaps to serve this pass (a verify/land/building

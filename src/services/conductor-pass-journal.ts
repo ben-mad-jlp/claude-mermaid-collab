@@ -38,6 +38,29 @@ export interface ConductorPassJournalRow {
    *  CONDUCTOR_SERVE_BATCH_MAX) rather than acting on this tick — null when nothing was
    *  carried (or on legacy rows predating this column). */
   carried: { verify: string[]; serve: string[]; count: number } | null;
+  /** SHORT node-authored account of what this pass concluded and why — the only surface on which
+   *  the conductor's REASONING survives the pass. Structure (arm/filed/declined) says what moved;
+   *  this says why nothing did. Load-bearing exactly on the rows that look inert: a `declined`
+   *  pass, and an empty conduct (`ran=1` with `filed: []`) — the shape that wedged mission
+   *  949dda42 (253s of Opus, 15.9k output tokens, filed NOTHING, no record of what it decided).
+   *  Capped at {@link CONDUCTOR_PASS_SUMMARY_MAX_CHARS}. null when no node ran on this pass
+   *  (a debounced early return has no reasoning to record) or on legacy rows predating the
+   *  column — it is never fabricated. */
+  summary: string | null;
+}
+
+/** Hard cap on the persisted pass summary. This is a SUMMARY, not a transcript: the full node
+ *  output already lives in `worker_ledger.outputText`, and the journal is read on every
+ *  `list_conductor_passes` call. Truncated defensively on write. */
+export const CONDUCTOR_PASS_SUMMARY_MAX_CHARS = 600;
+
+/** Clamp an arbitrary node-authored string to the journal's summary bound. Returns null for
+ *  null/undefined/blank input so an absent summary stays honestly absent. */
+export function clampPassSummary(text: string | null | undefined): string | null {
+  if (text == null) return null;
+  const t = text.trim();
+  if (t.length === 0) return null;
+  return t.length <= CONDUCTOR_PASS_SUMMARY_MAX_CHARS ? t : t.slice(0, CONDUCTOR_PASS_SUMMARY_MAX_CHARS);
 }
 
 const DDL = `
@@ -79,6 +102,9 @@ function openDb(): Database {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
   addColumnIfMissing(db, 'conductor_pass', 'carried', 'carried TEXT');
+  // Additive + NULLABLE: legacy rows written before the conductor recorded its reasoning read
+  // back as summary:null, which is the correct answer for them (nothing was captured).
+  addColumnIfMissing(db, 'conductor_pass', 'summary', 'summary TEXT');
   return db;
 }
 
@@ -111,8 +137,11 @@ type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm';
 const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm'];
 type BoolPatchKey = 'failCounted';
 const BOOL_PATCH_KEYS: BoolPatchKey[] = ['failCounted'];
+/** Free-text keys clamped on write (never stored raw — see CONDUCTOR_PASS_SUMMARY_MAX_CHARS). */
+type TextPatchKey = 'summary';
+const TEXT_PATCH_KEYS: TextPatchKey[] = ['summary'];
 
-function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey>>): {
+function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey | TextPatchKey>>): {
   clauses: string[];
   values: (string | number | null)[];
 } {
@@ -131,6 +160,12 @@ function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPat
       values.push(v == null ? null : v ? 1 : 0);
     }
   }
+  for (const key of TEXT_PATCH_KEYS) {
+    if (patch[key] !== undefined) {
+      clauses.push(`${key}=?`);
+      values.push(clampPassSummary(patch[key]));
+    }
+  }
   for (const key of JSON_PATCH_KEYS) {
     if (patch[key] !== undefined) {
       clauses.push(`${key}=?`);
@@ -144,7 +179,7 @@ function buildProgressSet(patch: Partial<Pick<ConductorPassJournalRow, ScalarPat
  *  still shows its partial progress. Returns whether a row was updated, false on throw. */
 export function appendPassProgress(
   id: string,
-  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey>>,
+  patch: Partial<Pick<ConductorPassJournalRow, ScalarPatchKey | JsonPatchKey | BoolPatchKey | TextPatchKey>>,
 ): boolean {
   try {
     const { clauses, values } = buildProgressSet(patch);
@@ -215,6 +250,7 @@ function rowFromRaw(r: any): ConductorPassJournalRow {
     ran: r.ran == null ? null : r.ran === 1,
     failCounted: r.failCounted == null ? null : r.failCounted === 1,
     carried: r.carried == null ? null : parseJsonValue(r.carried) as ConductorPassJournalRow['carried'],
+    summary: r.summary ?? null,
   };
 }
 
