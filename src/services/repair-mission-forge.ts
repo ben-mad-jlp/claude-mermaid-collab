@@ -110,6 +110,68 @@ export function selectRepairBatch(
 }
 
 /**
+ * Determine which trigger (size or age) caused selectRepairBatch to succeed.
+ *
+ * Returns 'size' if eligible.length >= k, 'age' if an eligible item is older
+ * than ageMs, or null if neither. Size is checked first and wins when both
+ * predicates hold. NaN dates never satisfy the age predicate.
+ *
+ * Reproduces the same eligibility filter and predicate order as selectRepairBatch
+ * for the purpose of naming the trigger on approval cards and audit records.
+ */
+export function repairBatchTrigger(
+  requests: RepairRequest[],
+  opts: { k: number; ageMs: number; now: number },
+): 'size' | 'age' | null {
+  const k = opts.k;
+  const ageMs = opts.ageMs;
+  const now = opts.now;
+
+  // Map and filter: only requests with recoverable specs (mirrors selectRepairBatch :73-78).
+  const eligible: RepairBatchItem[] = [];
+  for (const request of requests) {
+    const spec = readBugfixSpec(request);
+    if (spec !== null) {
+      eligible.push({ request, spec });
+    }
+  }
+
+  // Empty set never forges (mirrors :81).
+  if (eligible.length === 0) return null;
+
+  // Stable sort: by createdAt ascending, then by id ascending (mirrors :85-95).
+  eligible.sort((a, b) => {
+    const aTime = Date.parse(a.request.createdAt);
+    const bTime = Date.parse(b.request.createdAt);
+    const aTimeSafe = isNaN(aTime) ? Infinity : aTime;
+    const bTimeSafe = isNaN(bTime) ? Infinity : bTime;
+
+    if (aTimeSafe !== bTimeSafe) {
+      return aTimeSafe - bTimeSafe;
+    }
+    return a.request.id.localeCompare(b.request.id);
+  });
+
+  // Size wins when both predicates hold (mirrors :98-106).
+  if (eligible.length >= k) {
+    return 'size';
+  }
+
+  // Age trigger: any item older than ageMs (mirrors :100-104).
+  if (
+    eligible.some((item) => {
+      const time = Date.parse(item.request.createdAt);
+      if (isNaN(time)) return false;
+      return now - time > ageMs;
+    })
+  ) {
+    return 'age';
+  }
+
+  return null;
+}
+
+/**
  * Build a repair mission spec from a batch of requests.
  *
  * Throws if batch is empty or null.
