@@ -27,6 +27,7 @@ import type { Todo } from './todo-store';
 import type { Finding } from './finding-store';
 import { splitLeafInto, getTodo } from './todo-store';
 import { findBySourceLeafId } from './finding-store';
+import { autoFileExploreFindings } from './explore-finding-filer';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { type OrchestrationNodeKind, ORCHESTRATION_NODE_KINDS } from './node-kinds';
 import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
@@ -637,6 +638,14 @@ export interface LeafExecutorDeps {
    *  makeLeafExecutorDeps; tests inject a stub. Consumed via `?? findBySourceLeafId`
    *  at the leaf-explore.ts call site, never `?.` — an unwired dep must not fail open. */
   findingsForLeaf?: (project: string, leafId: string) => Promise<Finding[]>;
+  /** Explore terminal filing seam: auto-file exploration findings as bugfix todos
+   *  (explore-finding-filer.autoFileExploreFindings). Default wired to the real filer in
+   *  makeLeafExecutorDeps; tests inject a stub. Consumed via `?.` in leaf-explore.ts
+   *  after a successful report write — fail-open only (rejecting filer does not park). */
+  fileExploreFindings?: (
+    project: string,
+    ctx: { leaf: Todo; reportPath: string; report: string; findings: Finding[] },
+  ) => Promise<unknown>;
   /** L3 verify command-gate seam (epic f5c7fc46 e9ce8693): run a {@link VerifyGateConfig.command}
    *  shell gate (e.g. `pytest -q`) in the worktree. `ran:false` ⇒ the command could not execute
    *  (spawn error / missing tool) → INFRA failure → park blocked; `ran:true, ok:false` ⇒ the gate
@@ -3971,6 +3980,7 @@ export async function makeLeafExecutorDeps(
       await fs.writeFile(full, content, 'utf8');
     },
     findingsForLeaf: findBySourceLeafId,
+    fileExploreFindings: autoFileExploreFindings,
     // L3 command-gate (epic f5c7fc46): run the config's shell gate in the worktree. A spawn
     // failure (missing tool) ⇒ ran:false (infra → block); a non-zero exit ⇒ ran:true/ok:false
     // (a finding). Output is captured (stdout+stderr) for the report.
