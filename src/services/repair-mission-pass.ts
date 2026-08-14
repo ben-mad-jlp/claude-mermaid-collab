@@ -12,10 +12,10 @@
 
 import { REPAIR_FORGE_SESSION, isAutoForgedRepairMission, REPAIR_BATCH_K, REPAIR_AGE_MS, REPAIR_BUDGET_USD, selectRepairBatch, buildRepairMissionSpec, type RepairRequest, type RepairBatchItem } from './repair-mission-forge.js';
 import { ensureBucket } from './bucket-registry.js';
-import { isBucketItem } from './bucket-consumption.js';
+import { isBucketItem, reopenConsumedFor, consumerDelivered } from './bucket-consumption.js';
 import { listTodos, getTodo, type Todo } from './todo-store.js';
-import { listMissions, listCriteria, isMissionTerminal, type MissionSummary } from './mission-store.js';
-import { forgeMission, type ForgeMissionInput } from '../mcp/tools/mission-forge.js';
+import { listMissions, listCriteria, isMissionTerminal, getMission, setMissionAbandoned, type MissionSummary } from './mission-store.js';
+import { forgeMission, approveMissionAndConstitution, type ForgeMissionInput } from '../mcp/tools/mission-forge.js';
 import { createEscalation, type EscalationOption } from './supervisor-store.js';
 import { getConfig } from './config-service.js';
 
@@ -174,4 +174,74 @@ export async function runRepairForgePass(
     },
     reason: 'forged',
   };
+}
+
+export type RepairApprovalOutcome =
+  | { applied: 'approved'; missionId: string; approvedConstraints: number }
+  | { applied: 'dismissed'; missionId: string; reopened: string[] }
+  | { applied: 'noop'; reason: string };
+
+export interface RepairApprovalDeps {
+  getMission?: typeof getMission;
+  approveMission?: (project: string, missionId: string, approvedBy: string) => Promise<{ approvedConstraints: Array<{ id: string }> }>;
+  setMissionAbandoned?: typeof setMissionAbandoned;
+  reopenConsumedFor?: (project: string, consumerId: string) => string[];
+  consumerDelivered?: (project: string, consumerId: string) => boolean;
+  now?: number;
+  actor?: string;
+}
+
+export async function applyRepairApprovalDecision(
+  project: string,
+  missionId: string,
+  optionId: string | null,
+  deps: RepairApprovalDeps = {},
+): Promise<RepairApprovalOutcome> {
+  const getMissionFn = deps.getMission ?? getMission;
+  const now = deps.now ?? Date.now();
+  const actor = deps.actor ?? 'human:repair-approval-card';
+
+  // Unknown/absent optionId → noop
+  if (!optionId) {
+    return { applied: 'noop', reason: `no option selected for mission ${missionId}` };
+  }
+
+  // Check mission exists
+  const mission = getMissionFn(project, missionId);
+  if (!mission) {
+    return { applied: 'noop', reason: `mission not found: ${missionId}` };
+  }
+
+  // Approve branch
+  if (optionId === 'approve') {
+    const approveFn = deps.approveMission ?? approveMissionAndConstitution;
+    const result = await approveFn(project, missionId, actor);
+    return {
+      applied: 'approved',
+      missionId,
+      approvedConstraints: result.approvedConstraints.length,
+    };
+  }
+
+  // Dismiss branch
+  if (optionId === 'dismiss') {
+    const reopenFn = deps.reopenConsumedFor ?? reopenConsumedFor;
+    const deliveredFn = deps.consumerDelivered ?? consumerDelivered;
+    const abandonFn = deps.setMissionAbandoned ?? setMissionAbandoned;
+
+    let reopened: string[] = [];
+    if (!deliveredFn(project, missionId)) {
+      reopened = reopenFn(project, missionId);
+    }
+
+    await abandonFn(project, missionId, now);
+
+    return {
+      applied: 'dismissed',
+      missionId,
+      reopened,
+    };
+  }
+
+  return { applied: 'noop', reason: `unknown option: ${optionId}` };
 }
