@@ -11,7 +11,8 @@
  * MERMAID_SUPERVISOR_DIR, bun:sqlite). Runs via `bun test`.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -23,11 +24,12 @@ import {
 } from '../base-gate-impacted';
 import {
   ensureTrunkAnchor, resetTrunkAnchorThrottle, TRUNK_ANCHOR_FAIL_RETRY_MS,
+  defaultMakeTrunkWorktree,
   type EnsureTrunkAnchorOpts,
 } from '../trunk-anchor';
 import type { GateSpawn, LeafGateConfig, LeafGateResult, GateDeclaration } from '../leaf-gate';
 import type { FloorPlan } from '../impacted-tests';
-import type { GitRunner } from '../trunk-ref';
+import { defaultGitRunner, type GitRunner } from '../trunk-ref';
 
 const PROJECT = '/proj';
 const TRUNK_SHA = 'aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111'; // M
@@ -301,5 +303,49 @@ describe('degraded inputs never throw', () => {
     expect(r.ran).toBe(false);
     expect(r.anchored).toBe(false);
     expect(getBaseGateVerdict(VKEY())).toBeNull();
+  });
+});
+
+describe('defaultMakeTrunkWorktree', () => {
+  function git(cwd: string, ...args: string[]): string {
+    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  }
+
+  /** Committed repo WITH a desktop/ subdir (so the detached checkout has a target dir to
+   *  symlink into) and real, UNTRACKED node_modules at both the root and desktop/. */
+  function makeSubdirRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'trunk-anchor-subdir-repo-'));
+    git(dir, 'init', '-q', '-b', 'master');
+    git(dir, 'config', 'user.email', 't@t.t');
+    git(dir, 'config', 'user.name', 't');
+    writeFileSync(join(dir, 'root.txt'), 'root\n');
+    mkdirSync(join(dir, 'desktop'), { recursive: true });
+    writeFileSync(join(dir, 'desktop', 'package.json'), '{}\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'base');
+    mkdirSync(join(dir, 'node_modules'), { recursive: true });
+    mkdirSync(join(dir, 'desktop', 'node_modules'), { recursive: true });
+    return dir;
+  }
+
+  let repoDir: string;
+  let result: { path: string; cleanup: () => Promise<void> } | null = null;
+
+  afterEach(async () => {
+    if (result) { await result.cleanup(); result = null; }
+    if (repoDir) rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('symlinks node_modules for every direct subdirectory that has one, even with no declared desktop lane cwd', async () => {
+    repoDir = makeSubdirRepo();
+    const headSha = git(repoDir, 'rev-parse', 'HEAD');
+    const cfg: LeafGateConfig = {
+      typecheck: 'npx tsc --noEmit',
+      suites: [{ match: /^src\//, command: 'x' }],
+    };
+    result = await defaultMakeTrunkWorktree(repoDir, headSha, cfg, defaultGitRunner);
+    expect(result).not.toBeNull();
+    expect(existsSync(join(result!.path, 'desktop', 'node_modules'))).toBe(true);
+    expect(existsSync(join(result!.path, 'node_modules'))).toBe(true);
   });
 });
