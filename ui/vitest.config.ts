@@ -3,8 +3,10 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { resolveVitestCacheDir } from '../src/services/vitest-cache-dir.ts';
 
+const VITEST_CACHE_DIR = resolveVitestCacheDir(path.resolve(__dirname, '..'));
+
 export default defineConfig({
-  cacheDir: resolveVitestCacheDir(path.resolve(__dirname, '..')),
+  cacheDir: VITEST_CACHE_DIR,
   plugins: [react()],
   server: {
     fs: {
@@ -25,6 +27,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // vitest 0.34's VitestOptimizer overrides viteConfig.cacheDir with test.cache.dir.
+    // Set it here to the per-worktree cache so concurrent vitest runs do not corrupt each other's deps.
+    cache: { dir: VITEST_CACHE_DIR },
     server: {
       deps: {
         // `src/` is TS source outside the ui/ root; it must be transformed, not externalized.
