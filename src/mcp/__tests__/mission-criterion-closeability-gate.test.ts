@@ -73,8 +73,8 @@ describe('mission criterion closeability gate', () => {
 
     const added = await callMissionTool('add_mission_criterion', {
       todoId: created.node.id,
-      text: 'npx tsc --noEmit reports 0 errors',
+      text: 'npx tsc --noEmit produces typecheck-report.json with an errorCount of 0',
     });
-    expect(added.criterion.text).toBe('npx tsc --noEmit reports 0 errors');
+    expect(added.criterion.text).toBe('npx tsc --noEmit produces typecheck-report.json with an errorCount of 0');
   });
 });
