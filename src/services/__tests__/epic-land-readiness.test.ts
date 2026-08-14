@@ -8,6 +8,7 @@ import {
   isGateTodo,
   parseDupOfLanded,
   parseAdopted,
+  reachVerdict,
   type CommitProbe,
   type CommitProbeResult,
 } from '../epic-land-readiness';
@@ -360,6 +361,61 @@ describe('buildLandReadiness', () => {
     expect(report.findings.map((f) => f.todoId)).toEqual(['a_first', 'm_middle', 'z_last']);
   });
 
+  test('onTrunk alone counts as landed — zero findings, blocking:false', async () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
+    const report = await buildLandReadiness(
+      [epic, work],
+      'e1',
+      probeFrom({ w1: { onEpicTip: [], onTrunk: ['abc123'], anyRef: ['abc123'] } }),
+      '',
+      undefined,
+      'master',
+    );
+    expect(report.findings).toHaveLength(0);
+    expect(report.checked).toBe(1);
+    expect(report.blocking).toBe(false);
+  });
+
+  test('no epic tip and no trunk hit still files stranded', async () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
+    const report = await buildLandReadiness(
+      [epic, work],
+      'e1',
+      probeFrom({ w1: { onEpicTip: [], onTrunk: undefined, anyRef: ['deadbeef'] } }),
+      '',
+      undefined,
+      'master',
+    );
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toEqual(
+      expect.objectContaining({
+        todoId: 'w1',
+        kind: 'stranded',
+        strayShas: ['deadbeef'],
+      }),
+    );
+    expect(report.findings[0].reason).toContain('absent from collab/epic/e1 and master');
+    expect(report.blocking).toBe(true);
+  });
+
+  test('duplicate commits keyed on onEpicTip only — union refs do not create false duplicates', async () => {
+    const epic = todo({ id: 'e1', title: '[EPIC] test', status: 'done' });
+    const work = todo({ id: 'w1', title: 'work', parentId: 'e1', acceptanceStatus: 'accepted' });
+    const report = await buildLandReadiness(
+      [epic, work],
+      'e1',
+      probeFrom({ w1: { onEpicTip: ['abc123', 'def456'], onTrunk: ['abc123'], anyRef: ['abc123', 'def456'] } }),
+      '',
+      undefined,
+      'master',
+    );
+    expect(report.findings).toHaveLength(0);
+    expect(report.duplicateCommits).toHaveLength(0);
+    expect(report.blocking).toBe(false);
+  });
+
   test('regression fixture: epic 45e2fb60 (2026-07-09) — 2 findings, 6 exemptions', async () => {
     // Epic 45e2fb60, measured 2026-07-09: accepts/done descendants split as
     // 2 findings (missing) + 6 exemptions + others not in scope.
@@ -477,6 +533,36 @@ describe('buildLandReadiness', () => {
     expect(childCounts).toEqual([3, 9, 9, 19, 27]);
 
     expect(report.blocking).toBe(true);
+  });
+});
+
+describe('reachVerdict — union/abstain logic', () => {
+  test('any code 0 returns true (reachable)', () => {
+    expect(reachVerdict([0])).toBe(true);
+    expect(reachVerdict([1, 0])).toBe(true);
+    expect(reachVerdict([128, 0])).toBe(true);
+  });
+
+  test('all non-zero returns false (no proof of reachability)', () => {
+    expect(reachVerdict([1])).toBe(false);
+    expect(reachVerdict([1, 1])).toBe(false);
+    expect(reachVerdict([128])).toBe(false);
+  });
+
+  test('abstain on 128: epic missing ref returns false when trunk also fails', () => {
+    expect(reachVerdict([128, 1])).toBe(false);
+  });
+
+  test('abstain on 128: epic missing ref but trunk has proof returns true', () => {
+    expect(reachVerdict([128, 0])).toBe(true);
+  });
+
+  test('abstain on 128: trunk missing ref but epic has proof returns true', () => {
+    expect(reachVerdict([0, 128])).toBe(true);
+  });
+
+  test('both refs unresolvable returns false (fail safe)', () => {
+    expect(reachVerdict([128, 128])).toBe(false);
   });
 });
 
