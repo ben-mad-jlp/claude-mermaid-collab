@@ -43,7 +43,7 @@ import { ORCHESTRATION_NODE_PROFILE } from './node-kinds.js';
 import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './criterion-approach-store.js';
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
-import { isRolledBackReplanGap } from './mission-status-predicates.js';
+import { isRolledBackReplanGap, isFileableServeGap } from './mission-status-predicates.js';
 import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, countConsecutiveEmptyConducts, latestProductivePassFp, listConductorPasses, CONDUCTOR_PASS_SUMMARY_MAX_CHARS, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { consumeConductorKick } from './conductor-kick.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
@@ -679,6 +679,13 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const servingEpicsByComp: Map<string, string[]> = new Map();
   const epicTargetProjectById: Map<string, string | null> = new Map();
   const servingEpicNicknameById: Map<string, string | null> = new Map();
+  /** Per criterion: is ANY serving epic todo still OPEN (neither done nor dropped)? This is the
+   *  one fact servingEpicState cannot carry — a done-but-not-proving epic still reads state
+   *  'open' — and it is exactly what separates the 2026-07-23 statically-red OPEN epic (nothing
+   *  to file) from the 949dda42 closed-epic gap (a new epic is genuinely needed). Consumed only
+   *  by isFileableServeGap below. Absent ⇒ read as TRUE (see hasFileableGap): the safe direction
+   *  on a store fault is "an epic already covers it", i.e. debounce, not spend. */
+  const hasOpenServingEpicByComp: Map<string, boolean> = new Map();
   try {
     const allTodos = (deps.listTodos ?? listTodos)(project, { includeCompleted: true });
     for (const c of criteriaWithActions) {
@@ -686,6 +693,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
         (t) => t.parentId === missionId && t.kind === 'epic' && todoServesCriterion(t, c.id),
       );
       servingEpicsByComp.set(c.id, matching.map((t) => t.id));
+      hasOpenServingEpicByComp.set(c.id, matching.some((t) => t.status !== 'done' && t.status !== 'dropped'));
       for (const t of matching) {
         epicTargetProjectById.set(t.id, t.targetProject);
         servingEpicNicknameById.set(t.id, t.nickname ?? null);
@@ -986,7 +994,17 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const serveFp = buildServeSignature({ status, actions, hardCardIds });
   const fp = buildPassSignature(serveFp, landCardIds);
   note(journalRowId, { serveFp });
-  const productivePass = latestProductivePassFp(project, missionId);
+  // IS THERE ANYTHING THIS PASS COULD HAVE FILED? An empty conduct is only suspicious when the
+  // answer is yes. A pass whose every discover criterion already has an OPEN serving epic — however
+  // inert, however statically base-red — files nothing CORRECTLY: a second epic for a gap that is
+  // already assigned is duplicate spend. Re-arming on THAT is the 2026-07-23 self-excitation
+  // (expected 1 node, got 20), and a cap only bounds it at 2 instead of 20; the fix is not to
+  // re-arm at all. When instead every serving epic is CLOSED (949dda42: done + landed in git but
+  // not proving the criterion, so it still derives `discover`), a new epic IS needed and filing
+  // nothing is a failure. Both the anchor refusal and the cap below hang off this one fact.
+  const hasFileableGap = criteriaWithActions.some((c) =>
+    isFileableServeGap(c, hasOpenServingEpicByComp.get(c.id) ?? true));
+  const productivePass = latestProductivePassFp(project, missionId, { emptyConductAnchors: !hasFileableGap });
   const lastKey = productivePass?.passFp ?? null;
   const selfKey = productivePass?.selfFp ?? null;
   // Detect a rolled-back replan gap: a discover criterion where the serving epic was dropped.
@@ -1016,8 +1034,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // and, at the cap, the conductor stops re-arming and raises exactly ONE deduped card naming the
   // mission, what the criteria actually looked like, and the fact that the node ran and filed
   // nothing. A productive pass — or any change to serveFp — resets the run to 0.
-  // Checked BEFORE the debounce so a KICK cannot bypass it.
-  const emptyConducts = countConsecutiveEmptyConducts(project, missionId, serveFp, journalRowId);
+  // Checked BEFORE the debounce so a KICK cannot bypass it. Gated on hasFileableGap for the same
+  // reason the anchor refusal is: with nothing fileable there is no re-arm to bound, so counting
+  // (and eventually carding) empty conducts on a correctly-quiet pass would be pure noise.
+  const emptyConducts = hasFileableGap
+    ? countConsecutiveEmptyConducts(project, missionId, serveFp, journalRowId)
+    : 0;
   if (emptyConducts >= CONDUCTOR_EMPTY_CONDUCT_CAP) {
     let raised = 0;
     try {
@@ -1348,13 +1370,14 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   }
 
   // FAIL-COUNTED ON AN EMPTY CONDUCT. `productive` here can be true while the pass moved nothing:
-  // `servedAGap` is satisfied vacuously when there were no `discover` gaps to serve, so a node
-  // that burned four minutes on a verify/building state and filed nothing still exits 'conducted'.
+  // `servedAGap` is satisfied by a serving epic that already existed (949dda42's closed-but-still-
+  // serving epics), so a node that burned four minutes and filed nothing still exits 'conducted'.
   // That IS a real node making no progress, which is exactly what failCounted documents — record
-  // it truthfully instead of leaving the row's most diagnostic field null. The bounded re-arm is
-  // driven by countConsecutiveEmptyConducts (which reads filed/carried), not by this flag; this is
-  // the honest label, not the counter.
-  const emptyConduct = productive && filedRefs.length === 0 &&
+  // it truthfully instead of leaving the row's most diagnostic field null. Gated on hasFileableGap
+  // like everything else here: with nothing fileable, filing nothing is the CORRECT outcome and
+  // labelling it a failed attempt would be a lie. The bounded re-arm is driven by
+  // countConsecutiveEmptyConducts (which reads filed/carried), not by this flag.
+  const emptyConduct = productive && hasFileableGap && filedRefs.length === 0 &&
     carriedVerifyIds.length + carriedServeIds.length === 0;
   if (emptyConduct) note(journalRowId, { failCounted: true });
   // A transient fault — rate cap / connectivity-unreachable / auth+stdin faultKind (all reported
