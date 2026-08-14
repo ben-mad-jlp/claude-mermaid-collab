@@ -41,6 +41,7 @@ import { runMissionIntakePass } from '../mission-intake';
 import { runArchivalSweep, _resetArchivalSweepThrottle } from '../archival-sweep';
 import { runLandedEpicSweep, terminalizeLandedEpics } from '../landed-epic-sweep';
 import { upsertMission, _resetMissionDbCache } from '../mission-store';
+import { _closeLedgerDb } from '../worker-ledger';
 import { _closeDb as supervisorCloseDb } from '../supervisor-store';
 import { _closeDb as orchestratorConfigCloseDb } from '../orchestrator-config';
 import type { FrictionLayer } from '../friction-store';
@@ -65,6 +66,8 @@ afterAll(() => {
   supervisorCloseDb();
   orchestratorConfigCloseDb(); // drop the cached handle before supDir is removed — a
   // stale open handle into a deleted dir poisons later test files with SQLITE_IOERR
+  _closeLedgerDb(); // worker-ledger's singleton binds to MERMAID_SUPERVISOR_DIR at first
+  // open — leaving it cached makes the NEXT test file in a batch read THIS file's ledger
   rmSync(supDir, { recursive: true, force: true });
   rmSync(dataDir, { recursive: true, force: true });
   rmSync(todoBase, { recursive: true, force: true });
