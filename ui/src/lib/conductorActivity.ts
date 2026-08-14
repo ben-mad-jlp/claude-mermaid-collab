@@ -63,6 +63,53 @@ export async function kickConductor(
   }
 }
 
+export type AutoFixLevel = 'off' | 'on';
+
+/** Read the per-project AUTOFIX level (the third operator lever: it gates the daemon's
+ *  repair-forge pass). DEFAULT 'on' — a failed/absent read resolves to 'on' so the UI
+ *  never claims the forge is held when the backend says nothing. Never throws. */
+export async function fetchAutoFixLevel(
+  project: string,
+): Promise<{ ok: boolean; level: AutoFixLevel; error?: string }> {
+  try {
+    const response = await fetch(`/api/autofix/level?project=${encodeURIComponent(project)}`);
+    if (!response.ok) return { ok: false, level: 'on', error: `autofix read failed (${response.status})` };
+    const data = (await response.json()) as { level?: string };
+    return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
+  } catch {
+    return { ok: false, level: 'on', error: 'autofix read failed' };
+  }
+}
+
+/** POST a new per-project AUTOFIX level. Resolves (never throws) so the caller can render
+ *  the failure inline; the resolved `level` is the server's stored value. */
+export async function setAutoFixLevel(
+  project: string,
+  level: AutoFixLevel,
+): Promise<{ ok: boolean; level?: AutoFixLevel; error?: string }> {
+  try {
+    const response = await fetch('/api/autofix/level', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, level }),
+    });
+    if (!response.ok) {
+      let message = `autofix failed (${response.status})`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data?.error) message = data.error;
+      } catch {
+        /* keep the status-code message */
+      }
+      return { ok: false, error: message };
+    }
+    const data = (await response.json()) as { level?: string };
+    return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
+  } catch {
+    return { ok: false, error: 'autofix failed' };
+  }
+}
+
 export interface ConductorPassChip { kind: string; id: string; label: string }
 export interface FormattedConductorPass { sentence: string; chips: ConductorPassChip[] }
 

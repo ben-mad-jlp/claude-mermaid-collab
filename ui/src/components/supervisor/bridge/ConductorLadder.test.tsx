@@ -274,3 +274,132 @@ describe('ConductorLadder — kick', () => {
     expect(kicks).toEqual([]);
   });
 });
+
+/**
+ * AUTOFIX — the THIRD operator lever, beside the conductor stops and the kick. It holds the
+ * daemon's repair-forge pass (the only pass that spends nodes without a human asking).
+ * Default 'on': the forge runs today, so this is an explicit opt-OUT.
+ */
+describe('ConductorLadder — AutoFix switch', () => {
+  /** Conductor GET answers `enabled`; the AutoFix GET answers `level`; the AutoFix POST is
+   *  answered by `postResponse`. Returns every AutoFix POST body seen. */
+  function mockWithAutoFix(opts: {
+    enabled?: boolean;
+    autoFix?: string;
+    postResponse?: (body: any) => Promise<any>;
+  }) {
+    const posts: any[] = [];
+    global.fetch = vi.fn((url: any, init?: any) => {
+      if (String(url).includes('/api/autofix/level')) {
+        if (init?.method === 'POST') {
+          const body = JSON.parse(init.body);
+          posts.push(body);
+          return (opts.postResponse ?? (() =>
+            Promise.resolve({ ok: true, json: () => Promise.resolve({ level: body.level }) })))(body);
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: opts.autoFix ?? 'on' }) });
+      }
+      if (init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      }
+      if (String(url).includes('/api/orchestrator/level')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: 'on' }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ enabled: opts.enabled ?? true }) });
+    }) as any;
+    return posts;
+  }
+
+  it('renders the CURRENT level read on mount (off)', async () => {
+    mockWithAutoFix({ autoFix: 'off' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-level')).toBe('off'),
+    );
+    expect(screen.getByTestId('autofix-level').textContent).toContain('off');
+  });
+
+  it('renders ON when the server reports on', async () => {
+    mockWithAutoFix({ autoFix: 'on' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-level')).toBe('on'),
+    );
+    expect(screen.getByTestId('autofix-level').textContent).toContain('on');
+  });
+
+  it('POSTs the FLIPPED level on click and adopts the server value', async () => {
+    const posts = mockWithAutoFix({ autoFix: 'on' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-level')).toBe('on'),
+    );
+
+    fireEvent.click(screen.getByTestId('autofix-toggle'));
+
+    await waitFor(() => expect(posts.length).toBe(1));
+    expect(posts).toEqual([{ project: '/abs/p', level: 'off' }]);
+    await waitFor(() =>
+      expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-level')).toBe('off'),
+    );
+  });
+
+  it('DISABLES the control while the write is in flight, then re-enables it', async () => {
+    let release: ((v: any) => void) | null = null;
+    const posts = mockWithAutoFix({
+      autoFix: 'on',
+      postResponse: () => new Promise((resolve) => { release = resolve; }),
+    });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect((screen.getByTestId('autofix-toggle') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByTestId('autofix-toggle'));
+    await waitFor(() =>
+      expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-busy')).toBe('true'),
+    );
+    expect((screen.getByTestId('autofix-toggle') as HTMLButtonElement).disabled).toBe(true);
+
+    // A second click while in flight must not queue another write.
+    fireEvent.click(screen.getByTestId('autofix-toggle'));
+    expect(posts.length).toBe(1);
+
+    release!({ ok: true, json: () => Promise.resolve({ level: 'off' }) });
+    await waitFor(() =>
+      expect((screen.getByTestId('autofix-toggle') as HTMLButtonElement).disabled).toBe(false),
+    );
+  });
+
+  it('surfaces a FAILED write inline, using the server message, and does not flip the level', async () => {
+    mockWithAutoFix({
+      autoFix: 'on',
+      postResponse: () =>
+        Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: 'level must be one of: off, on' }) }),
+    });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-level')).toBe('on'),
+    );
+
+    fireEvent.click(screen.getByTestId('autofix-toggle'));
+
+    await waitFor(() => expect(screen.getByTestId('autofix-error')).toBeTruthy());
+    expect(screen.getByTestId('autofix-error').textContent).toContain('level must be one of: off, on');
+    // The switch still reads what the server actually holds — a failed write never flips it.
+    expect(screen.getByTestId('autofix-toggle').getAttribute('data-autofix-level')).toBe('on');
+  });
+
+  it('surfaces a NETWORK failure inline rather than throwing', async () => {
+    mockWithAutoFix({ autoFix: 'on', postResponse: () => Promise.reject(new Error('offline')) });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect((screen.getByTestId('autofix-toggle') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByTestId('autofix-toggle'));
+
+    await waitFor(() => expect(screen.getByTestId('autofix-error')).toBeTruthy());
+    expect(screen.getByTestId('autofix-error').textContent).toContain('autofix failed');
+  });
+});

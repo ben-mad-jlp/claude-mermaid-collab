@@ -35,6 +35,29 @@ export type LegacyOrchestratorLevel = 'auto' | 'build' | 'nudge' | 'propose' | '
 
 export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'on'];
 
+/** AutoFix — the third operator lever, beside the daemon (orchestrator level) and the
+ *  conductor toggle. It gates exactly ONE thing: the daemon's repair-forge pass
+ *  (runRepairForgePass), the one pass that spends nodes without a human asking — it
+ *  batches typed bugfix work requests, forges a repair mission, consumes the requests
+ *  and raises an approval card.
+ *
+ *  It deliberately does NOT gate the explore-finding auto-filer or record_friction:
+ *  recording a finding is harmless, losing one is not.
+ *
+ *  off — the daemon never forges a repair mission for this project.
+ *  on  — the forge runs exactly as it does today.
+ */
+export type AutoFixLevel = 'off' | 'on';
+
+export const AUTOFIX_LEVELS: AutoFixLevel[] = ['off', 'on'];
+
+/** DEFAULT IS 'on'. The repair forge runs today for every watched project, so an absent
+ *  or unrecognised stored value MUST read back as 'on' — this switch is an explicit
+ *  operator opt-OUT, never a silent behaviour change for projects that never touch it.
+ *  Legacy rows (written before the autoFixLevel column existed) read NULL → 'on' with
+ *  no migration step. */
+export const AUTOFIX_DEFAULT: AutoFixLevel = 'on';
+
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
   on: 1,
@@ -102,6 +125,10 @@ function openDb(): Database {
   // (fall through to the env/config knob, then 'claude'). Per-kind overrides on
   // node_profile_override take precedence over this project default.
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN nodeProvider TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project AUTOFIX switch — gates the daemon's repair-forge pass
+  // (the only pass that spends nodes unasked). NULL = AUTOFIX_DEFAULT ('on'), so every
+  // legacy row keeps today's behaviour without a migration step.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN autoFixLevel TEXT'); } catch { /* already present */ }
   // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
   // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
   db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
@@ -306,6 +333,43 @@ export function setProjectEffort(project: string, effort: EffortLevel | null): v
     `INSERT INTO orchestrator_config (project, level, effortOverride, updatedAt) VALUES (?, 'on', ?, ?)
      ON CONFLICT(project) DO UPDATE SET effortOverride = excluded.effortOverride, updatedAt = excluded.updatedAt`,
   ).run(project, value, Date.now());
+}
+
+// --- Per-project AUTOFIX switch (gates the daemon's repair-forge pass) ---
+
+/** The persisted AutoFix level for a project.
+ *
+ *  DEFAULT IS 'on': the repair forge runs today, so a project with no row — and a legacy
+ *  row written before the autoFixLevel column existed (NULL) — must read back as 'on'.
+ *  Only an explicit stored 'off' turns the forge off. Anything unrecognised also reads
+ *  as the default rather than silently disabling autonomy. */
+export function getAutoFixLevel(project: string): AutoFixLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT autoFixLevel FROM orchestrator_config WHERE project = ?')
+    .get(project) as { autoFixLevel: string | null } | undefined;
+  return row?.autoFixLevel === 'off' ? 'off' : AUTOFIX_DEFAULT;
+}
+
+/** Persist the AutoFix level for a project. An unrecognised value clamps to the
+ *  AUTOFIX_DEFAULT ('on') — never to 'off'. Transient project paths are refused like
+ *  every other durable setter here. */
+export function setAutoFixLevel(project: string, level: AutoFixLevel): void {
+  if (refuseTransient(project)) return;
+  const safe: AutoFixLevel = level === 'off' ? 'off' : AUTOFIX_DEFAULT;
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, autoFixLevel, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET autoFixLevel = excluded.autoFixLevel, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}
+
+/** Convenience predicate for the daemon dispatch site: is the repair forge allowed to run
+ *  for this project? MUST be evaluated BEFORE shouldRunRepairForgePass in the && chain —
+ *  that throttle gate is NOT pure (it stamps the last-run clock as a side effect), so
+ *  checking it first would burn the throttle clock even with AutoFix off. */
+export function isAutoFixEnabled(project: string): boolean {
+  return getAutoFixLevel(project) !== 'off';
 }
 
 // --- Per-(project, node-kind) model + effort overrides (leaf-executor claude nodes) ---

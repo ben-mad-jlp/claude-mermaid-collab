@@ -13,6 +13,8 @@ import {
   setOrchestratorLevel,
   setNodeProfileOverride,
   setProjectPoolSize,
+  setAutoFixLevel,
+  getAutoFixLevel,
   _closeDb,
 } from '../orchestrator-config';
 
@@ -86,6 +88,20 @@ describe('orchestrator-config transient-path guard', () => {
 
     expect(countRows('orchestrator_config', project)).toBe(1);
     expect(countRows('node_profile_override', project)).toBe(1);
+  });
+
+  it('setAutoFixLevel refuses transient paths and writes normally for a real path', () => {
+    const transientProject = `/tmp/junk-proj-autofix-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setAutoFixLevel(transientProject, 'off');
+    expect(countRows('orchestrator_config', transientProject)).toBe(0);
+    // Nothing was stored, so the read falls through to the 'on' default — a refused
+    // write must never read back as a successful hold.
+    expect(getAutoFixLevel(transientProject)).toBe('on');
+
+    const realProject = '/Users/benmaderazo/Code/claude-mermaid-collab-autofix-check';
+    setAutoFixLevel(realProject, 'off');
+    expect(countRows('orchestrator_config', realProject)).toBe(1);
+    expect(getAutoFixLevel(realProject)).toBe('off');
   });
 
   it('setProjectPoolSize refuses transient paths and writes normally for a real path', () => {

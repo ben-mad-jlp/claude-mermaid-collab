@@ -17,7 +17,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig, isAutoFixEnabled } from './orchestrator-config.js';
 import { listWatchedProjects } from './supervisor-store.js';
 import { recordAutoAction } from './auto-action-audit.js';
 import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped } from './coordinator-live.js';
@@ -373,6 +373,11 @@ export interface TickDeps {
   /** Throttle gate for repair-forge: at most once per REPAIR_FORGE_INTERVAL_MS per project.
    *  Default: shouldRunRepairForgePass. */
   shouldRunRepairForge?: (project: string) => boolean;
+  /** Per-project AUTOFIX switch (the third operator lever). False ⇒ the repair-forge pass
+   *  is skipped entirely for this project. Evaluated BEFORE shouldRunRepairForge — that
+   *  gate stamps the throttle clock as a side effect, so an off switch must never reach
+   *  it. Default: isAutoFixEnabled. */
+  isAutoFixEnabled?: (project: string) => boolean;
   /** Auto-file verify explores for converged repair missions: scans repair missions for
    *  MET criteria with named anchors and files one explore leaf per criterion (deduped).
    *  No LLM; deterministic filing only. Runs for WATCHED projects. Default:
@@ -438,6 +443,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunMissionIntake = deps.shouldRunMissionIntake ?? shouldRunMissionIntakePass;
   const repairForge = deps.repairForge ?? ((p: string, snap?: Todo[]) => runRepairForgePass(p, { todosSnapshot: snap }));
   const shouldRunRepairForge = deps.shouldRunRepairForge ?? shouldRunRepairForgePass;
+  const autoFixEnabled = deps.isAutoFixEnabled ?? isAutoFixEnabled;
   const repairVerifyFiler = deps.repairVerifyFiler ?? ((p: string, snap?: Todo[]) => runRepairVerifyFilerPass(p, { todosSnapshot: snap }));
   const shouldRunRepairVerifyFiler = deps.shouldRunRepairVerifyFiler ?? shouldRunRepairVerifyFilerPass;
   const recycle = deps.recycle ?? runContextRecyclePass;
@@ -606,7 +612,12 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // project. No LLM; bounded. Auto-forged missions are inactive + unapproved until a human
     // approves them. Runs for every WATCHED project. Throttled off the every-tick cadence
     // (at most once per REPAIR_FORGE_INTERVAL_MS/project).
-    if (watched.has(project) && shouldRunRepairForge(project)) {
+    // ORDERING IS LOAD-BEARING: autoFixEnabled(project) MUST come before
+    // shouldRunRepairForge(project). The latter is NOT pure — it stamps the per-project
+    // throttle clock as a side effect — so evaluating it first would burn the forge's
+    // 5-minute clock on every tick even with AutoFix off, silently rate-limiting the
+    // forge for 5 minutes after the operator flips the switch back on.
+    if (watched.has(project) && autoFixEnabled(project) && shouldRunRepairForge(project)) {
       try {
         currentPhase = `${project}:repair-forge`;
         const res = await withPassTimeout(repairForge(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:repair-forge`);

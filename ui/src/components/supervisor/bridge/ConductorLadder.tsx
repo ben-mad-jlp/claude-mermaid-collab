@@ -9,7 +9,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useConductorEnabled, apiGet } from './useConductorEnabled';
-import { kickConductor } from '@/lib/conductorActivity';
+import { kickConductor, fetchAutoFixLevel, setAutoFixLevel, type AutoFixLevel } from '@/lib/conductorActivity';
 
 type ConductorLevel = 'off' | 'on';
 const LEVELS: ConductorLevel[] = ['off', 'on'];
@@ -105,6 +105,37 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
     setKicking(false);
   }, [kicking, project]);
 
+  // AUTOFIX — the THIRD operator lever, beside the daemon (orchestrator level) and the
+  // conductor toggle. It holds exactly one thing: the daemon's repair-forge pass, which is
+  // the only pass that spends nodes without a human asking (it batches typed bugfix work
+  // requests, forges a repair mission and raises an approval card). Findings/friction are
+  // deliberately NOT gated — recording them is harmless, losing them is not. Default 'on'
+  // (the forge runs today; this is an explicit opt-out).
+  const [autoFix, setAutoFix] = useState<AutoFixLevel | null>(null);
+  const [autoFixBusy, setAutoFixBusy] = useState(false);
+  const [autoFixError, setAutoFixError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    void fetchAutoFixLevel(project).then((r) => {
+      if (cancelled) return;
+      setAutoFix(r.level);
+      if (!r.ok) setAutoFixError(r.error ?? 'autofix read failed');
+    });
+    return () => { cancelled = true; };
+  }, [project]);
+
+  const handleAutoFix = useCallback(async () => {
+    if (autoFixBusy || !project || autoFix === null) return;
+    const next: AutoFixLevel = autoFix === 'on' ? 'off' : 'on';
+    setAutoFixBusy(true);
+    setAutoFixError(null);
+    const r = await setAutoFixLevel(project, next);
+    if (r.ok) setAutoFix(r.level ?? next);
+    else setAutoFixError(r.error ?? 'autofix failed');
+    setAutoFixBusy(false);
+  }, [autoFixBusy, project, autoFix]);
+
   const daemonOff = daemonOn === false;
   const containerTitle = daemonOff
     ? 'Conductor requires the daemon on — it directs the daemon (files epics for it to build & land), so it does nothing while the daemon is off.'
@@ -175,6 +206,45 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
         </svg>
       </button>
+      {/* AUTOFIX — a wrench in the same stroked 24-viewBox style as the kick bolt. One click
+          flips the switch; while off, the daemon never forges a repair mission for this
+          project (findings are still recorded — only the FORGE is held). */}
+      <button
+        type="button"
+        data-testid="autofix-toggle"
+        data-autofix-level={autoFix ?? 'unknown'}
+        data-autofix-busy={String(autoFixBusy)}
+        disabled={autoFixBusy || autoFix === null}
+        aria-label={`AutoFix ${autoFix ?? 'loading'} — toggle automatic repair-mission forging`}
+        onClick={() => { void handleAutoFix(); }}
+        title={
+          autoFixError
+            ? autoFixError
+            : autoFix === 'off'
+              ? 'AutoFix off — the daemon will NOT forge repair missions from batched bugfix requests. Findings are still recorded. Click to turn on.'
+              : 'AutoFix on — the daemon batches bugfix requests and forges a repair mission for approval. Click to hold it.'
+        }
+        className={`px-1.5 py-0.5 flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 border-l border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 ${
+          autoFixError ? 'text-danger-500' : autoFix === 'off' ? 'text-gray-400 dark:text-gray-500' : 'text-success-600 dark:text-success-500'
+        } ${autoFixBusy ? 'animate-pulse' : ''}`}
+      >
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3z" />
+          <path d="M14.7 6.3 18 3l3 3-3.3 3.3" />
+        </svg>
+        <span data-testid="autofix-level">AutoFix {autoFix ?? '…'}</span>
+      </button>
+      {/* Failure surfaces INLINE (no modal) so a refused/failed write can never read as a
+          silent success on the switch itself. */}
+      {autoFixError && (
+        <span
+          data-testid="autofix-error"
+          role="status"
+          className="shrink-0 px-1.5 py-0.5 whitespace-nowrap border-l border-gray-300 dark:border-gray-600 text-danger-500"
+        >
+          {autoFixError}
+        </span>
+      )}
       {/* Last-pass readout: proves the conductor is actually running (not just switched on). */}
       {enabled && (
         <span
