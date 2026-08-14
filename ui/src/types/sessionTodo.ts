@@ -1,5 +1,5 @@
 import type { TodoKind } from '@/lib/todoKind';
-import type { FrictionLayer, WorkRequestType } from '@/lib/workRequestRegistry';
+import type { WorkRequestType } from '@/lib/workRequestRegistry';
 
 // Mirrors the backend unified work-graph (src/services/todo-store.ts).
 // `planned`/`ready`/`dropped` are work-graph states the Planner/Coordinator use.
@@ -74,6 +74,4 @@ export interface SessionTodo {
   landedAt?: string | null;
   /** Mission→criterion edge this epic serves (server column, mirrors servesCriterionIds). */
   servesCriterionIds?: string[];
-  /** Friction-layer classification of a bucket item (server column, R2). */
-  frictionLayer?: FrictionLayer | null;
 }

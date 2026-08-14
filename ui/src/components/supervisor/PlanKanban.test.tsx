@@ -187,32 +187,25 @@ describe('PlanKanban', () => {
     expect(screen.getByTestId('work-request-view-feature')).toBeInTheDocument();
   });
 
-  it('renders a friction-layer tag only for items carrying a frictionLayer', () => {
+  // The friction-layer filter tabs and per-item chip were removed: nothing in src/ ever set
+  // `frictionLayer` (it was never a todos column), so the three layer tabs always filtered to
+  // zero and the chip never rendered. The tests that covered them set the field on the FIXTURE,
+  // which is why a permanently-dead control stayed green. This asserts the removal instead.
+  it('work-request lanes show every item, with no friction-layer filter or chip', () => {
     const todos = [
       todo({ id: 'EXPLORE', kind: 'epic', bucketType: 'explore' }),
-      todo({ id: 'e1', status: 'ready', parentId: 'EXPLORE', frictionLayer: 'domain' }),
+      todo({ id: 'e1', status: 'ready', parentId: 'EXPLORE' }),
       todo({ id: 'e2', status: 'ready', parentId: 'EXPLORE' }),
-    ];
-    render(<PlanKanban todos={todos} showCompleted={false} />);
-    const chips = screen.getAllByTestId('friction-layer-tag');
-    expect(chips).toHaveLength(1);
-    expect(chips[0]).toHaveAttribute('data-friction-layer', 'domain');
-    expect(chips[0]).toHaveTextContent('domain');
-  });
-
-  it('frictionLayer filter narrows work-request view items', () => {
-    const todos = [
-      todo({ id: 'EXPLORE', kind: 'epic', bucketType: 'explore' }),
-      todo({ id: 'e1', status: 'ready', parentId: 'EXPLORE', frictionLayer: 'domain' }),
-      todo({ id: 'e2', status: 'ready', parentId: 'EXPLORE', frictionLayer: 'operational' }),
     ];
     render(<PlanKanban todos={todos} showCompleted={false} />);
     const exploreLane = screen.getByTestId('work-request-view-explore');
     expect(within(exploreLane).getByText('e1')).toBeInTheDocument();
     expect(within(exploreLane).getByText('e2')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('friction-filter-domain'));
-    expect(within(exploreLane).getByText('e1')).toBeInTheDocument();
-    expect(within(exploreLane).queryByText('e2')).toBeNull();
+    expect(screen.queryByTestId('friction-layer-tag')).toBeNull();
+    expect(screen.queryByTestId('friction-filter-all')).toBeNull();
+    for (const tag of ['domain', 'orchestration', 'operational']) {
+      expect(screen.queryByTestId(`friction-filter-${tag}`)).toBeNull();
+    }
   });
 
   it('renders promote-to-epic affordance disabled by default', () => {
