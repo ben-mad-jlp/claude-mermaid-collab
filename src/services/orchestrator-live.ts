@@ -26,6 +26,7 @@ import { runNotificationTick, shouldRunNotificationTick } from './session-notifi
 import { runFrictionWatchPass, shouldRunFrictionWatchPass } from './friction-watch.js';
 import { runFrictionTriagePass, shouldRunFrictionTriagePass } from './friction-triage.js';
 import { runMissionIntakePass, shouldRunMissionIntakePass } from './mission-intake.js';
+import { runRepairForgePass, shouldRunRepairForgePass } from './repair-mission-pass.js';
 import { listTodos, type Todo } from './todo-store.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
@@ -362,6 +363,14 @@ export interface TickDeps {
    *  MISSION_INTAKE_INTERVAL_MS per project (it used to run on EVERY tick and every
    *  250ms-debounced kick with no gate). Default: shouldRunMissionIntakePass. */
   shouldRunMissionIntake?: (project: string) => boolean;
+  /** Deterministic repair-mission forge pass: selects a batch of open bugfix requests and
+   *  forges an UNAPPROVED repair mission when the bar is met (size/age). Cap: at most one
+   *  open repair mission per project. Self-gates on the per-project toggle (if any); runs
+   *  for WATCHED projects. Default: runRepairForgePass. */
+  repairForge?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
+  /** Throttle gate for repair-forge: at most once per REPAIR_FORGE_INTERVAL_MS per project.
+   *  Default: shouldRunRepairForgePass. */
+  shouldRunRepairForge?: (project: string) => boolean;
   /** Context-auto-recycle driver: checkpoint→clear→collab a low-context watched
    *  session (gated by per-project contextRecycleMode). Runs for every WATCHED
    *  project regardless of level, like notify. Default: runContextRecyclePass. */
@@ -417,6 +426,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunBurnWatch = deps.shouldRunBurnWatch ?? shouldRunBurnWatchPass;
   const missionIntake = deps.missionIntake ?? ((p: string, snap?: Todo[]) => runMissionIntakePass(p, { todosSnapshot: snap }));
   const shouldRunMissionIntake = deps.shouldRunMissionIntake ?? shouldRunMissionIntakePass;
+  const repairForge = deps.repairForge ?? ((p: string, snap?: Todo[]) => runRepairForgePass(p, { todosSnapshot: snap }));
+  const shouldRunRepairForge = deps.shouldRunRepairForge ?? shouldRunRepairForgePass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? ((p: string, snap?: Todo[]) => runMissionLoopPass(p, { todosSnapshot: snap }));
   const shouldRunMissionLoop = deps.shouldRunMissionLoop ?? shouldRunMissionLoopPass;
@@ -574,6 +585,24 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         if (res && typeof res === 'object' && (res as { drafted?: unknown }).drafted != null) invalidateSnapshot();
       } catch (err) {
         console.warn(`[orchestrator] mission-intake failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+    }
+
+    // Repair-mission forge pass: deterministic batch selection over open bugfix-bucket leaves,
+    // forges an UNAPPROVED repair mission when the bar is met. Cap: one open repair mission per
+    // project. No LLM; bounded. Auto-forged missions are inactive + unapproved until a human
+    // approves them. Runs for every WATCHED project. Throttled off the every-tick cadence
+    // (at most once per REPAIR_FORGE_INTERVAL_MS/project).
+    if (watched.has(project) && shouldRunRepairForge(project)) {
+      try {
+        currentPhase = `${project}:repair-forge`;
+        const res = await withPassTimeout(repairForge(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:repair-forge`);
+        // Invalidate only when a mission was actually forged (a new node exists) —
+        // the cap/no-batch no-op must not force later consumers into a re-read.
+        if (res && typeof res === 'object' && (res as { forged?: unknown }).forged != null) invalidateSnapshot();
+      } catch (err) {
+        console.warn(`[orchestrator] repair-forge failed for ${project}:`, err);
         invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
