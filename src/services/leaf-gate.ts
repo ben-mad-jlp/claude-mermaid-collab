@@ -15,8 +15,9 @@ import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FIL
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
-import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
-import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
+import { recordEpicBaseGate, getEpicBaseGate, getBaseGateVerdict, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
+import { baseGateKey, runBaseGateShared, quarantineSetHash, sharedVerdictKey, BASE_GATE_FAIL_VERDICT_TTL_MS } from './base-gate-coalescer.js';
+import { extractGateFailingFiles } from './gate-base-attribution';
 import { memoizedTsc } from './tsc-memo';
 import { planImpactedBaseGate, narrowBaseGateConfig, type ImpactedBaseGateOpts } from './base-gate-impacted.js';
 import { activeQuarantine, runQuarantineCeremonies } from './flaky-quarantine';
@@ -1221,6 +1222,99 @@ export function isCacheableBaseGateStatus(
   return status !== 'error';
 }
 
+/** Marker the perl timeout warden writes (stderr, folded into `output`) when it group-KILLs
+ *  a gate run at the hard wall-clock cap — see {@link GATE_WARDEN_PERL}. */
+export const GATE_HARD_TIMEOUT_MARKER = 'gate hard-timeout';
+
+/** The failing-test names a base-red actually cites: parsed from the output first, falling
+ *  back to the fail-lane fingerprints recorded in `baselineFailures` (normalized — the
+ *  positional "(N/M) " prefix is a run artifact, never identity). */
+function namedBaseRedFailures(r: Pick<LeafGateResult, 'output' | 'baselineFailures'>): string[] {
+  const fromOutput = extractGateFailingFiles(r.output ?? '');
+  if (fromOutput.length > 0) return fromOutput;
+  const union = new Set<string>();
+  for (const fps of Object.values(r.baselineFailures ?? {})) {
+    for (const fp of fps) union.add(normalizeGateFingerprint(fp));
+  }
+  return [...union];
+}
+
+/** ADVISORY BASE GATE (2026-08-14): the gate can no longer STORE a vague red. A 'fail' that
+ *  died of the warden's hard-timeout group-KILL, or whose run names ZERO failing tests, is
+ *  an INCIDENT (contention, OOM, runner death) — not a fact about the base. Stored as
+ *  'fail' it would hold every sibling leaf for the FAIL TTL with nothing actionable to
+ *  repair; demoted to 'error' it is never persisted (recordEpicBaseGate and the coalescer's
+ *  verdict write both skip 'error') and never serves as a hold. Real reds — named failing
+ *  tests — pass through untouched. */
+export function demoteVagueBaseRed(r: LeafGateResult): LeafGateResult {
+  if (r.status !== 'fail') return r;
+  if ((r.output ?? '').includes(GATE_HARD_TIMEOUT_MARKER)) {
+    return { ...r, status: 'error', reasons: ['gate died at the hard timeout — a killed run measured nothing, not a base fact', ...r.reasons] };
+  }
+  if (namedBaseRedFailures(r).length === 0) {
+    return { ...r, status: 'error', reasons: ['gate red names zero failing tests — vague red, an incident, not a citable base fact', ...r.reasons] };
+  }
+  return r;
+}
+
+/** ADVISORY BASE GATE dispatch consult (2026-08-14): a STORED-verdict-only read — never a
+ *  live run, never an await on one (serial 10–20min base gates starved every leaf on the
+ *  box all morning, and empirically almost every base-red is a flake; the LAND gate is the
+ *  real correctness wall). Read order mirrors {@link resolveBaseGreen}: the epic's own
+ *  cached row first (honoured via shouldHonourCachedBaseGate — so a FIRST red still never
+ *  holds), then the durable shared verdict for the same (project, baseSha, lanes,
+ *  quarantine) key.
+ *
+ *  HOLD rule — only a RECENT REAL red holds: status 'fail', younger than
+ *  BASE_GATE_FAIL_VERDICT_TTL_MS, AND naming at least one failing test. Anything else
+ *  (no row, stale, vague, pending, error — never stored anyway) is a MISS: the caller
+ *  releases the leaf and kicks a background measurement through the coalescer. */
+export function consultStoredBaseGreen(io: {
+  epicId: string;
+  targetProject: string;
+  epicBaseSha: string | null | undefined;
+  gateCfg: LeafGateConfig | null;
+  now?: () => number;
+}): (LeafGateResult & { fresh: boolean }) | null {
+  const { epicId, targetProject, epicBaseSha, gateCfg } = io;
+  if (!gateCfg) return null; // absent → abstain (unchanged)
+  const nowMs = io.now?.() ?? Date.now();
+  const holdableFail = (r: Pick<LeafGateResult, 'output' | 'baselineFailures'>, measuredAt: number): boolean =>
+    nowMs - measuredAt <= BASE_GATE_FAIL_VERDICT_TTL_MS && namedBaseRedFailures(r).length > 0;
+
+  const cached = getEpicBaseGate(epicId, epicBaseSha);
+  if (cached && shouldHonourCachedBaseGate(cached, nowMs) === 'honour') {
+    if (cached.status === 'pass'
+      || holdableFail({ output: cached.output ?? '', baselineFailures: cached.baselineFailures ?? undefined }, cached.checkedAt)) {
+      return {
+        status: cached.status,
+        command: cached.command ?? undefined,
+        output: cached.output ?? '',
+        reasons: [],
+        declared: true,
+        baselineFailures: cached.baselineFailures ?? undefined,
+        fresh: false,
+      };
+    }
+    // Honoured-but-stale/vague fail: a MISS for dispatch, never a hold.
+  }
+  if (epicBaseSha) {
+    const qHash = quarantineSetHash(activeQuarantine(targetProject, io.now?.()).map((q) => q.test));
+    const stored = getBaseGateVerdict(sharedVerdictKey(baseGateKey(targetProject, epicBaseSha, gateCfg), qHash));
+    if (stored) {
+      let replay: LeafGateResult | null = null;
+      try {
+        const parsed = stored.resultJson == null ? null : JSON.parse(stored.resultJson) as LeafGateResult;
+        if (parsed && typeof parsed === 'object' && parsed.status === stored.status) replay = parsed;
+      } catch { /* corrupt row reads as a MISS */ }
+      if (replay && (stored.status === 'pass' || holdableFail(replay, stored.measuredAt))) {
+        return { ...replay, fresh: false };
+      }
+    }
+  }
+  return null;
+}
+
 /** Injectable core of `ensureBaseGreen`: read the epic_base_gate cache, honour it via
  *  {@link shouldHonourCachedBaseGate} (a cached `pass` is terminal for its sha; a cached
  *  `fail` is re-verified until the attempt/TTL bounds are exhausted), and otherwise
@@ -1261,9 +1355,12 @@ export async function resolveBaseGreen(io: {
   const qHash = quarantineSetHash(activeQuarantine(io.targetProject, io.now?.()).map((q) => q.test));
   const r = await runBaseGateShared(
     baseGateKey(io.targetProject, epicBaseSha, gateCfg),
+    // demoteVagueBaseRed INSIDE the closure, so the coalescer's shared-verdict write sees
+    // the demoted 'error' (which it never stores) — a vague red must not be persisted for
+    // siblings any more than for this epic's own row below.
     () => io.runGate(wt.path, epicBaseSha
       ? { project: io.targetProject, baseSha: epicBaseSha, quarantineHash: qHash }
-      : undefined),
+      : undefined).then(demoteVagueBaseRed),
     {
       project: io.targetProject,
       // Recorded so listInflightBaseGates() can name the epics waiting on this run —
