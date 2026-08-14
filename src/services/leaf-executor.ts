@@ -85,6 +85,7 @@ import { runExplorePipeline } from './leaf-explore';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
 import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
+import { planCriteriaDispositions, applyCriteriaRepair, rewriteRequests, vacuousParkReason } from './blueprint-criteria-splice';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
@@ -891,6 +892,7 @@ import type { LeafNodeKind, LeafNodeGroup, BallotPromptRequirement } from './lea
 import {
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
+  buildCriterionRewritePrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
   NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey,
@@ -898,6 +900,7 @@ import {
 
 export {
   buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
+  buildCriterionRewritePrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
@@ -2648,19 +2651,21 @@ export async function runLeaf(
     const citationExistsAtBase = (p: string, l: number) =>
       resolvedBaseCitations.get(`${p}:${l}`) ?? false;
 
+    // SEAM: one citability gate-eval row (replay corpus). Reads the LIVE blueprintBody, so it
+    // always records the text the verdict it carries was computed from. Telemetry — never throws.
+    const evalCitability = async (verdict: string, reasons: string) => {
+      try {
+        await deps.recordGateEval?.(project, {
+          gate: 'citability', leafId: leaf.id, inputText: blueprintBody,
+          changeSet: declaredForCriteria, verdict, reasons,
+        });
+      } catch { /* replay corpus is telemetry — never break the run */ }
+    };
+
     await prewarmBaseCitations(blueprintBody);
     let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria, { testOnly: criteriaTestOnly, citationExistsAtBase });
     if (!smallTier) {
-      try {
-        await deps.recordGateEval?.(project, {
-          gate: 'citability',
-          leafId: leaf.id,
-          inputText: blueprintBody,
-          changeSet: declaredForCriteria,
-          verdict: citability.status,
-          reasons: citability.reasons.join('; '),
-        });
-      } catch { /* replay corpus is telemetry — never break the run */ }
+      await evalCitability(citability.status, citability.reasons.join('; '));
       // Phase 2 (typed-contract gating): when the flag is ON AND the leaf has a valid,
       // non-underspecified typed contract that COVERS citability (≥1 mechanically-citable
       // requirement: symbol-present / named-test / threshold), an 'uncitable' PROSE verdict is
@@ -2673,68 +2678,60 @@ export async function runLeaf(
         leafContract !== null &&
         contractCoversCitability(leafContract);
       if (citability.status === 'uncitable' && typedCitabilityAdvisory) {
-        try {
-          await deps.recordGateEval?.(project, {
-            gate: 'citability',
-            leafId: leaf.id,
-            inputText: blueprintBody,
-            changeSet: declaredForCriteria,
-            verdict: 'advisory-typed-contract',
-            reasons: `typed-contract covers citability (leafKind=${leafContract!.leafKind}); prose-uncitable treated as advisory: ${citability.reasons.join('; ')}`,
-          });
-        } catch { /* replay corpus is telemetry — never break the run */ }
+        await evalCitability(
+          'advisory-typed-contract',
+          `typed-contract covers citability (leafKind=${leafContract!.leafKind}); prose-uncitable treated as advisory: ${citability.reasons.join('; ')}`,
+        );
       }
       if (citability.status === 'uncitable' && !typedCitabilityAdvisory) {
-        // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
-        // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
-        const repairSpec = {
-          ...buildSpec('blueprint', cwd),
-          prompt: buildCriteriaRepairPrompt(leaf, blueprintBody, citability),
-        };
-        const repair = await runNode('blueprint', repairSpec);
-        if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
-        if (repair.rateLimited) return pausedResult('blueprint', repair);
-        if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-        if (repair.ok) {
-          const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
-          const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';
-          const reManifest = parseSizeManifest(reText, repair.text);
-          // Rebind manifest/blueprintBody to the revised blueprint for downstream use
-          if (reText && reText.trim()) manifestText = reText;
-          if (reManifest) manifest = reManifest;
-          blueprintBody = reBody;
-          // Re-persist the repaired blueprint (best-effort, same try/catch)
-          if (reText && reManifest) {
-            try {
-              await deps.persistBlueprint?.({
-                project,
-                leaf,
-                attempt: state.attempt,
-                manifest: reManifest,
-                blueprintMd: reText,
-              });
-            } catch {
-              /* persistence is durable-telemetry — never break the run */
-            }
-          }
-          // Re-validate the repaired criteria
-          const redeclaredForCriteria = reManifest
-            ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
-            : [];
-          const redeclaredTestOnly = redeclaredForCriteria.length > 0 && redeclaredForCriteria.every(isTestFilePath);
-          await prewarmBaseCitations(reBody);
-          citability = validateCriteriaCitability(reBody, redeclaredForCriteria, { testOnly: redeclaredTestOnly, citationExistsAtBase });
-          try {
-            await deps.recordGateEval?.(project, {
-              gate: 'citability',
-              leafId: leaf.id,
-              inputText: reBody,
-              changeSet: redeclaredForCriteria,
-              verdict: citability.status,
-              reasons: citability.reasons.join('; '),
-            });
-          } catch { /* replay corpus is telemetry — never break the run */ }
+        // REPAIR ONCE, ROUTED ON THE OFFENCE KIND (blueprint-criteria-splice.ts carries the full
+        // rationale). command-result offenders are spliced OUT for ZERO nodes (the mechanical gate
+        // already runs them); absence / out-of-diff offenders get ONE node asked for ONLY the
+        // replacement sentence. Both are LINE SPLICES: every other criterion and the trailing json
+        // fence stay byte-identical, so `manifest`/`declaredForCriteria` are still valid below.
+        // FLOOR GUARD: zero surviving criteria proves nothing and passes everything ⇒ splice
+        // NOTHING and park it as a spec defect for a human.
+        const plan = planCriteriaDispositions(blueprintBody, citability.offenders);
+        if (plan.vacuous) {
+          const vacuousReason = vacuousParkReason(plan, citability.reasons);
+          await evalCitability('vacuous-after-disposition', vacuousReason);
+          try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+          try { clearLeafBlueprint(leaf.id); } catch { /* cache clear is best-effort */ }
+          return parkBlocked(vacuousReason);
         }
+
+        // TARGETED REWRITE — ONE node covering every absence/out-of-diff offender. The node writes
+        // nothing: its reply IS the answer (one numbered line per offender).
+        let rewriteReply = '';
+        if (plan.rewrites.length > 0) {
+          const repair = await runNode('blueprint', {
+            ...buildSpec('blueprint', cwd),
+            prompt: buildCriterionRewritePrompt(leaf, rewriteRequests(plan)),
+          });
+          if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
+          if (repair.rateLimited) return pausedResult('blueprint', repair);
+          if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+          if (repair.ok) rewriteReply = repair.text ?? repair.stdout ?? '';
+        }
+
+        const spliced = applyCriteriaRepair(blueprintBody, plan, rewriteReply);
+        if (spliced.changed) {
+          blueprintBody = spliced.md;
+          manifestText = spliced.md;
+          // Write the spliced blueprint back so implement/review read the repaired criteria.
+          try { await deps.writeArtifact?.(cwd, blueprintPath(leaf), spliced.md); } catch { /* best-effort */ }
+          if (manifest) {
+            try {
+              await deps.persistBlueprint?.({ project, leaf, attempt: state.attempt, manifest, blueprintMd: spliced.md });
+            } catch { /* persistence is durable-telemetry — never break the run */ }
+          }
+        }
+
+        // Re-validate ONCE against the SAME declared change-set (the manifest fence is untouched).
+        await prewarmBaseCitations(blueprintBody);
+        citability = validateCriteriaCitability(blueprintBody, declaredForCriteria, { testOnly: criteriaTestOnly, citationExistsAtBase });
+        await evalCitability(citability.status, `disposition-routed repair: ${spliced.deleted} deleted, ${spliced.rewritten} rewritten, ${plan.rewrites.length > 0 ? 1 : 0} node; ${citability.reasons.join('; ')}`);
+
         const bpShadow = deps.gateShadowMode?.(project) ?? false;
         if (citability.status === 'uncitable' && !bpShadow) {
           try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
