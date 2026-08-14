@@ -3,7 +3,7 @@
  * Tests the runExplorePipeline and its dispatch wiring in runLeaf.
  */
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -431,5 +431,27 @@ describe('explore pipeline', () => {
     expect(res.outcome).toBe('accepted');
     expect(spies.mergeCalls).toBe(1);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+});
+
+describe('explore filer production default (regression)', () => {
+  it('makeLeafExecutorDeps binds fileExploreFindings to the real autoFileExploreFindings', () => {
+    const src = readFileSync(join(import.meta.dir, '..', 'leaf-executor.ts'), 'utf8');
+
+    // Assert the import exists: autoFileExploreFindings imported from './explore-finding-filer'
+    const importPattern = /import\s*{[^}]*autoFileExploreFindings[^}]*}\s*from\s*['"]\.\/explore-finding-filer['"]/;
+    expect(importPattern.test(src)).toBe(true);
+
+    // Find the factory function start and slice from there to the end
+    const factoryMarker = 'export async function makeLeafExecutorDeps(';
+    const idx = src.indexOf(factoryMarker);
+    expect(idx).toBeGreaterThan(-1);
+
+    const factoryBody = src.slice(idx);
+
+    // Assert the binding line exists in the factory body: fileExploreFindings: autoFileExploreFindings,
+    // Anchored on : + identifier + , or newline to forbid wrapper forms
+    const bindingPattern = /\bfileExploreFindings\s*:\s*autoFileExploreFindings\b/;
+    expect(bindingPattern.test(factoryBody)).toBe(true);
   });
 });
