@@ -31,13 +31,18 @@
  *
  * FAIL-OPEN: any git or ledger error just runs the check — the memo is plumbing, and
  * plumbing must never block a gate. A runner result with ran:false (spawn failure,
- * missing compiler) is an incident, not a tree fact, and is never recorded.
+ * missing compiler) is an incident, not a tree fact, and is never recorded. Similarly,
+ * a fail whose diagnostics are exclusively dependency-resolution/cascade codes
+ * (TS2307/TS7016/TS2503/TS7006) is a fact about a missing node_modules, not about the
+ * tree, and is never recorded — serving such a red would poison steward-proof, the land
+ * gate, land-typecheck-floor, and scripts/test-backend.ts for TSC_FAIL_TTL_MS.
  */
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { getTscVerdict, recordTscVerdict } from './worker-ledger';
+import { classifyTscOutput } from './tsc-infra-degraded';
 
 /** How long a stored FAIL may be served before it must be re-measured. */
 export const TSC_FAIL_TTL_MS = 10 * 60 * 1000;
@@ -164,7 +169,8 @@ export async function memoizedTsc(
   }
 
   const r = await runner(cwd, command);
-  if (key && r.ran) {
+  const infraDegradedFail = (r.code ?? 0) !== 0 && classifyTscOutput(r.output) === 'infra-degraded';
+  if (key && r.ran && !infraDegradedFail) {
     try {
       recordTscVerdict(
         {
