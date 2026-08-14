@@ -291,8 +291,15 @@ export interface CreateTodoInput {
    *  only bucket epics (Inbox/Bugfix inbox), root epics, and missions stay roots.
    *  Check `kind`, not nullness of `parentId`. */
   inbox?: boolean;
-  /** Internal escape hatch for the few legit top-level non-epic creates (data
-   *  migration, the readiness-gate dependency primitive). Skips the orphan guard. */
+  /** Auto-home a parentless LEAF create under the named bucket (find-or-create via
+   *  bucket-registry.ensureBucket). The sanctioned alternative to ParentlessLeafError:
+   *  a caller with no epic in hand names a bucket instead of filing an unclaimable
+   *  orphan. Ignored when parentId is supplied and for epic/mission creates. */
+  bucket?: BucketType;
+  /** Internal escape hatch for the few legit top-level non-epic creates (the
+   *  readiness-gate dependency primitive; leaf FIXTURES under bun test). Skips the
+   *  orphan guard for non-leaf kinds; for kind:'leaf' it is REFUSED outside the test
+   *  runner (see ParentlessLeafError) — pass `bucket` to auto-home instead. */
   allowOrphan?: boolean;
   /** Mission homing for a `kind:'epic'` create (§4d). Omitted → the epic is parented
    *  to the caller's ACTIVE mission BY DEFAULT. `null` → force a root epic (opt-out).
@@ -333,7 +340,7 @@ export interface CreateTodoInput {
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
  *  inbox/allowOrphan. Carries a `code` so HTTP/MCP callers can map it to a 4xx. */
 export class OrphanTodoError extends Error {
-  readonly code = 'orphan-todo';
+  readonly code: string = 'orphan-todo';
   constructor(title: string) {
     super(
       `Every work todo must belong to an epic — refusing to create "${title}" with no epic. ` +
@@ -343,6 +350,38 @@ export class OrphanTodoError extends Error {
     );
     this.name = 'OrphanTodoError';
   }
+}
+
+/** PARENTLESS-LEAF GUARD (incident b053b529, 2026-08-14): a `kind:'leaf'` row with no
+ *  parent is permanently UNCLAIMABLE — the daemon's claim set only reaches leaves homed
+ *  under an epic/bucket, so a parentless leaf sits invisible forever. Creating one is
+ *  therefore refused at the store choke point, `allowOrphan` included. Auto-homing is the
+ *  sanctioned alternative: pass `bucket:'inbox'|'bugfix'|...` (or `inbox:true`) and the
+ *  leaf is homed under that bucket instead of throwing.
+ *
+ *  Grandfathered READS/UPDATES are unaffected: the guard fires only on CREATE writes.
+ *  Test fixtures: under `bun test` (NODE_ENV=test) `allowOrphan:true` still mints a bare
+ *  leaf so the ~250 existing store-machinery fixtures keep working; tests that exercise
+ *  the guard itself set MERMAID_ENFORCE_PARENTLESS_LEAF=1 to get production behaviour.
+ *  Subclasses OrphanTodoError so existing instanceof/`code` consumers keep matching
+ *  (`code` stays 'orphan-todo'; the guard's identity is the name + message prefix). */
+export class ParentlessLeafError extends OrphanTodoError {
+  constructor(title: string) {
+    super(title);
+    this.name = 'ParentlessLeafError';
+    this.message =
+      `parentless-leaf-refused: a leaf must be homed under an epic or bucket — refusing to ` +
+      `create "${title}" with no parentId. Pass parentId=<epic id>, or bucket:'inbox'|'bugfix'|` +
+      `'feature'|'explore' (auto-homes under that bucket), or inbox:true.`;
+  }
+}
+
+/** Production enforcement switch for {@link ParentlessLeafError}. Enforced everywhere
+ *  except under the test runner's fixture hatch (NODE_ENV=test), which
+ *  MERMAID_ENFORCE_PARENTLESS_LEAF=1 overrides back to enforced. */
+function parentlessLeafFixtureAllowed(): boolean {
+  if (process.env.MERMAID_ENFORCE_PARENTLESS_LEAF === '1') return false;
+  return process.env.NODE_ENV === 'test';
 }
 
 /** Thrown by resolveTodoParent when a bucket epic create attempts to mint a second bucket
@@ -2111,7 +2150,18 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
     return await resolveActiveMissionId(project);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
-  if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
+  // PARENTLESS-LEAF GUARD (b053b529): a leaf with no parent is unclaimable forever.
+  // A named bucket auto-homes; `allowOrphan` no longer exempts leaves in production.
+  if (kindOfInput(input) === 'leaf') {
+    if (input.bucket) return await ensureBucket(project, input.bucket);
+    if (input.allowOrphan) {
+      if (!parentlessLeafFixtureAllowed()) throw new ParentlessLeafError(input.title);
+      return null; // bun-test fixture hatch only
+    }
+    if (!input.inbox) throw new ParentlessLeafError(input.title);
+    return await ensureBucket(project, 'inbox');
+  }
+  if (input.allowOrphan) return null;                // internal escape hatch (gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
   // inbox:true → home under the Inbox epic (find-or-create). The ONLY auto-home, and explicit.
   // Compare via stripLabel so this matches both the pre-strip row (`[EPIC] Inbox`)

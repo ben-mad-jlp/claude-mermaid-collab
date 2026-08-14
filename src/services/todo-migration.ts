@@ -66,9 +66,11 @@ export async function migrateProject(project: string): Promise<{ migrated: numbe
         // on a default. If a legacy title happens to start with '[EPIC]' etc, that's an
         // opaque topic tag from before roles existed — it still imports as a leaf.
         kind: 'leaf',
-        // Legacy import predates every-todo-needs-an-epic — preserve structure verbatim,
-        // never reject/auto-home during migration.
-        allowOrphan: true,
+        // Legacy import predates every-todo-needs-an-epic. A migration must never
+        // reject, but it must not mint parentless leaves either (parentless-leaf-refused
+        // guard, incident b053b529): home every legacy checklist item under the Inbox
+        // bucket so imported rows stay visible and consumable.
+        bucket: 'inbox',
         link: old.link ?? null,
       });
       legacyMap[old.id] = created.id;
