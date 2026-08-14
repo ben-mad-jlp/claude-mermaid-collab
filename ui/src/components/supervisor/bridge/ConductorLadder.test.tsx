@@ -154,3 +154,123 @@ describe('ConductorLadder', () => {
     expect(post).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The operator KICK — the lightning bolt beside the on/off stops. One click arms exactly ONE
+ * forced conductor pass (POST /api/conductor/kick); the flag is consumed by the pass that uses
+ * it, so the control is a trigger, not a mode.
+ */
+describe('ConductorLadder — kick', () => {
+  /** Conductor GET answers `enabled`, orchestrator GET answers `level`, and the kick POST is
+   *  answered by `kickResponse`. Returns every kick POST body seen. */
+  function mockWithKick(opts: { enabled: boolean; level?: string; kickResponse?: () => Promise<any> }) {
+    const kicks: any[] = [];
+    global.fetch = vi.fn((url: any, init?: any) => {
+      if (String(url).includes('/api/conductor/kick')) {
+        kicks.push(JSON.parse(init.body));
+        return (opts.kickResponse ?? (() => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })))();
+      }
+      if (init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, enabled: opts.enabled }) });
+      }
+      if (String(url).includes('/api/orchestrator/level')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: opts.level ?? 'drive' }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ enabled: opts.enabled }) });
+    }) as any;
+    return kicks;
+  }
+
+  it('POSTs the kick for this project and reports success on the control', async () => {
+    const kicks = mockWithKick({ enabled: true });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByTestId('conductor-kick'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conductor-kick').getAttribute('data-kick-state')).toBe('ok');
+    });
+    expect(kicks).toEqual([{ project: '/abs/p' }]);
+    expect(screen.getByTestId('conductor-kick').getAttribute('title')).toContain('kick armed');
+  });
+
+  it('locks the control while the kick is in flight, then re-enables it', async () => {
+    let release: (v: any) => void = () => {};
+    mockWithKick({ enabled: true, kickResponse: () => new Promise((res) => { release = res; }) });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByTestId('conductor-kick'));
+    await waitFor(() => {
+      expect(screen.getByTestId('conductor-kick').getAttribute('data-kick-state')).toBe('busy');
+    });
+    expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(true);
+
+    release({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    await waitFor(() =>
+      expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(false),
+    );
+  });
+
+  it('reports a FAILED kick on the control, using the server message', async () => {
+    mockWithKick({
+      enabled: true,
+      kickResponse: () =>
+        Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: 'project is required' }) }),
+    });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByTestId('conductor-kick'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conductor-kick').getAttribute('data-kick-state')).toBe('error');
+    });
+    expect(screen.getByTestId('conductor-kick').getAttribute('title')).toBe('project is required');
+    expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('reports a network failure rather than throwing', async () => {
+    mockWithKick({ enabled: true, kickResponse: () => Promise.reject(new Error('offline')) });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByTestId('conductor-kick'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conductor-kick').getAttribute('data-kick-state')).toBe('error');
+    });
+    expect(screen.getByTestId('conductor-kick').getAttribute('title')).toContain('kick failed');
+  });
+
+  it('is disabled while the conductor is OFF — there is no pass to force', async () => {
+    const kicks = mockWithKick({ enabled: false });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('conductor-ladder').getAttribute('data-enabled')).toBe('false'),
+    );
+    expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('conductor-kick'));
+    expect(kicks).toEqual([]);
+  });
+
+  it('is disabled while the DAEMON is off — the conductor has nothing to drive', async () => {
+    const kicks = mockWithKick({ enabled: true, level: 'off' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('conductor-ladder').getAttribute('data-daemon-off')).toBe('true'),
+    );
+    expect((screen.getByTestId('conductor-kick') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('conductor-kick'));
+    expect(kicks).toEqual([]);
+  });
+});

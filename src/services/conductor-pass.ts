@@ -22,7 +22,7 @@ import {
   resetCriterionAttemptCounters,
   type MissionRecheck,
 } from './mission-store.js';
-import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP } from './harness-caps.js';
+import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP, CONDUCTOR_EMPTY_CONDUCT_CAP } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
@@ -44,7 +44,8 @@ import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './c
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { isRolledBackReplanGap } from './mission-status-predicates.js';
-import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, latestProductivePassFp, listConductorPasses, CONDUCTOR_PASS_SUMMARY_MAX_CHARS, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
+import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, countConsecutiveEmptyConducts, latestProductivePassFp, listConductorPasses, CONDUCTOR_PASS_SUMMARY_MAX_CHARS, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
+import { consumeConductorKick } from './conductor-kick.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
 
@@ -205,6 +206,21 @@ export function buildServeCapDiagnosis(input: {
   ].join('\n');
 }
 
+/** Render the SHAPE of a mission's derived criterion actions as one human phrase
+ *  ("3 criteria at discover, 1 blocked"). Pure. Used by the empty-conduct card so the human
+ *  reading it can see WHAT the conductor was looking at when it filed nothing — the fact the
+ *  949dda42 journal had (criteriaActed) and no surface ever showed. Actions are rendered
+ *  highest-count-first, ties broken alphabetically, so the phrase is deterministic. */
+export function summariseCriteriaActions(criteria: Array<{ action: string }>): string {
+  if (criteria.length === 0) return 'no criteria';
+  const counts = new Map<string, number>();
+  for (const c of criteria) counts.set(c.action, (counts.get(c.action) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .map(([action, n]) => `${n} criteri${n === 1 ? 'on' : 'a'} at ${action}`)
+    .join(', ');
+}
+
 /** Build the conductor NODE prompt: a self-contained distillation of the /conductor skill for ONE
  *  pass against ONE mission. References nothing in skills/.
  *
@@ -347,7 +363,7 @@ export interface ConductorPassDeps {
 
 export interface ConductorPassResult {
   ran: boolean;
-  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped' | 'awaiting-observation-wait';
+  reason: 'conductor-disabled' | 'daemon-off' | 'no-actionable-mission' | 'target-not-actionable' | 'target-cleared' | 'building-wait' | 'criteria-blocked' | 'criteria-escalated' | 'debounced' | 'conducted' | 'node-failed' | 'infra-leaf-reset' | 'redecomposed' | 'over-budget-rebet' | 'pass-ran' | 'pass-error' | 'verify-paneled' | 'card-triaged' | 'landed' | 'conductor-timeouts-capped' | 'conductor-empty-conducts-capped' | 'awaiting-observation-wait';
   /** How many serve-cap escalations this pass raised (0 unless a criterion hit the cap). */
   escalationsRaised?: number;
   /** Criteria at the cap whose ladder is not yet exhausted, so no card was raised this pass. */
@@ -372,6 +388,11 @@ export interface ConductorPassResult {
   modelUsed?: string;
   /** Consecutive conductor-node timeouts in a row on the same unchanged serve-state. */
   timeoutKills?: number;
+  /** Consecutive EMPTY CONDUCTS in a row on the same unchanged serve-state (a real node ran,
+   *  exited ok, and filed/carried nothing). */
+  emptyConducts?: number;
+  /** True when an operator KICK forced this pass through the fingerprint debounce. */
+  forced?: boolean;
 }
 
 /** The SETTLED conductor-pass reasons that mean the mission is stuck on a HUMAN — the pass
@@ -384,7 +405,21 @@ export interface ConductorPassResult {
  *  so it always backs a needs-you status). Single source of truth, shared by conductorStatusLine
  *  and the /conductor-running route. */
 export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null | undefined): boolean {
-  return reason === 'criteria-escalated' || reason === 'over-budget-rebet' || reason === 'conductor-timeouts-capped';
+  return reason === 'criteria-escalated' || reason === 'over-budget-rebet' ||
+    reason === 'conductor-timeouts-capped' || reason === 'conductor-empty-conducts-capped';
+}
+
+/** The kind stamped on an EMPTY-CONDUCT-cap escalation: the conductor ran a real node on this
+ *  serve-state CONDUCTOR_EMPTY_CONDUCT_CAP times in a row and filed nothing each time. One card
+ *  per (mission, serve-state) — see emptyConductConditionKey. */
+export const CONDUCTOR_EMPTY_CONDUCTS_CAPPED_KIND = 'conductor-empty-conducts-capped';
+
+/** Durable identity for the empty-conduct card. Keyed on the mission AND the serve-state: a
+ *  mission that moves to a genuinely different serve-state and empties out AGAIN is a new fact
+ *  and deserves a new card, while repeated ticks on the SAME stuck state bump one card in place
+ *  instead of flooding. */
+export function emptyConductConditionKey(missionId: string, serveFp: string): string {
+  return `conductor-empty-conducts:${missionId}:${serveFp}`;
 }
 
 /** SHORT (<=60 char) human status line for a SETTLED conductor pass — what the pass DID this run,
@@ -392,7 +427,7 @@ export function conductorNeedsHuman(reason: ConductorPassResult['reason'] | null
  *  test covers every reason value. Set at the end of each pass in runConductorPass. */
 export function conductorStatusLine(
   reason: ConductorPassResult['reason'],
-  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed' | 'cardsParked' | 'timeoutKills'> = {},
+  counts: Pick<ConductorPassResult, 'escalationsRaised' | 'serveCapDeferred' | 'infraResets' | 'infraCards' | 'redecomposed' | 'cardsParked' | 'timeoutKills' | 'emptyConducts'> = {},
 ): string {
   const n = (x?: number): number => x ?? 0;
   // Plain-language status shown in the Bridge conductor line. Keep these HUMAN-READABLE — an
@@ -415,6 +450,7 @@ export function conductorStatusLine(
     case 'over-budget-rebet': return 'over budget — needs you';
     case 'node-failed': return counts.timeoutKills ? `killed ${n(counts.timeoutKills)}x — retrying` : 'hit an error — retrying';
     case 'conductor-timeouts-capped': return `killed ${n(counts.timeoutKills)}x — needs you`;
+    case 'conductor-empty-conducts-capped': return `ran ${n(counts.emptyConducts)}x, filed nothing — needs you`;
     case 'pass-error': return 'hit an error';
     case 'no-actionable-mission': return 'no active mission';
     case 'target-not-actionable': return "mission can't run yet";
@@ -960,11 +996,62 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // tick otherwise, causing unbounded self-excitation (2026-07-23 incident: expected 1 node, got 20).
   // The 'none' arm stays bounded by CONDUCTOR_SERVE_RETRY_CAP.
   const hasRolledBackGap = criteriaWithActions.some((c) => isRolledBackReplanGap(c));
+
+  // OPERATOR KICK (one-shot). Consumed HERE and ALWAYS — every pass that reaches this line takes
+  // any pending kick off the shelf, whether or not it turns out to need it. Consuming
+  // unconditionally is what makes the flag structurally un-sticky: there is no path on which a
+  // kick survives a pass. It buys this pass an EVALUATION past the fingerprint debounce and
+  // nothing else — the empty-conduct cap below, the serve-retry cap, the timeout cap and the
+  // conductor-disabled / daemon-off gates at the top of this function all still apply.
+  const forced = (() => {
+    try { return consumeConductorKick(project, missionId); } catch { return false; }
+  })();
+  if (forced) note(journalRowId, { forced: true });
+
+  // EMPTY-CONDUCT CAP (bounded re-arm). An EMPTY CONDUCT — a pass that ran a real node, exited
+  // ok, and filed/carried NOTHING — no longer anchors the debounce (latestProductivePassFp
+  // returns null on one), so the next tick re-arms instead of debouncing forever. That fix alone
+  // would re-spin a ~4-minute Opus node every 30s indefinitely, which is the unbounded
+  // self-excitation the comment above warns about. So the run is counted on this exact serveFp
+  // and, at the cap, the conductor stops re-arming and raises exactly ONE deduped card naming the
+  // mission, what the criteria actually looked like, and the fact that the node ran and filed
+  // nothing. A productive pass — or any change to serveFp — resets the run to 0.
+  // Checked BEFORE the debounce so a KICK cannot bypass it.
+  const emptyConducts = countConsecutiveEmptyConducts(project, missionId, serveFp, journalRowId);
+  if (emptyConducts >= CONDUCTOR_EMPTY_CONDUCT_CAP) {
+    let raised = 0;
+    try {
+      const shape = summariseCriteriaActions(criteriaWithActions);
+      const res = (deps.createEscalation ?? createEscalation)({
+        project, session, kind: CONDUCTOR_EMPTY_CONDUCTS_CAPPED_KIND, todoId: missionId,
+        operatorGated: true, audience: 'human',
+        conditionKey: emptyConductConditionKey(missionId, serveFp),
+        conditionTuple: ['conductor-empty-conducts', missionId, serveFp],
+        questionText: `Mission "${target.summary.node.title ?? missionId}" — the conductor node ` +
+          `RAN ${emptyConducts} times in a row on the same serve-state and filed NOTHING each ` +
+          `time (no epic, no leaf, no card, nothing carried). It saw ${shape}. The conductor ` +
+          `will not re-invoke on this state: an expensive node that keeps concluding there is ` +
+          `nothing to do, while criteria are still unmet, is a spec/grounding problem it cannot ` +
+          `fix by re-reading. Inspect the criteria above (their wording may be unservable, or ` +
+          `the work may already be done and just unverified) and rescope, verify, or drop them.`,
+      });
+      if (res && res.isNew) {
+        raised = 1;
+        filedRefs.push({ kind: 'card', id: res.escalation.id, title: `empty conducts: ${target.summary.node.title ?? missionId}` });
+      }
+    } catch { /* fail-open — the cap itself must never throw */ }
+    return done({
+      ran: false, reason: 'conductor-empty-conducts-capped', missionId,
+      escalationsRaised: escalationsRaised + raised, serveCapDeferred, closeOutsMinted,
+      emptyConducts, forced,
+    });
+  }
+
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
   // a self-echo, not a wake-up.
-  if (!hasRolledBackGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId });
+  if (!forced && !hasRolledBackGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId, forced });
   // The fail-retry counter is derived from the journal's contiguous run of node-failed passes on
   // this exact serveFp (excluding this pass's own in-flight row), not from a hand-rolled
   // `${serveFp}|fail:N` string parse on the mission column. Bounded, not a permanent wedge — and
@@ -973,7 +1060,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // re-arm (a new card is new information), still bounded by CONDUCTOR_SERVE_RETRY_CAP per distinct
   // card set.
   const priorFails = countConsecutiveFailedPasses(project, missionId, serveFp, journalRowId);
-  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId });
+  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId, forced });
 
   // Distinct bounded loop-breaker for CONSECUTIVE node timeouts on this unchanged serve-state
   // (see CONDUCTOR_TIMEOUT_RECUR_CAP). A serve-state that structurally can't be processed
@@ -993,7 +1080,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           `likely needs a smaller/cheaper serve-state or human investigation.`,
       });
     } catch { /* fail-open — the cap itself must not throw */ }
-    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, timeoutKills: timeoutRecurrence });
+    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, timeoutKills: timeoutRecurrence, forced });
   }
 
   // No servable gap and no land card to drive: nothing for the node to do. A capped
@@ -1235,6 +1322,41 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       (c) => discoverIdsBefore.includes(c.id) && c.servingEpicState !== 'none',
     );
   const productive = res.ok && servedAGap;
+
+  // WHAT THE NODE ITSELF FILED. Every other write site on this pass pushes its own filedRef, but
+  // the epics the NODE files (via plan_mission_criterion / create_epic, over MCP, in another
+  // process) had no site at all — so a genuinely productive conduct still journaled `filed: []`,
+  // making it byte-indistinguishable from an EMPTY CONDUCT. That ambiguity is why the 949dda42
+  // row could not be read: `filed: []` meant both "served three criteria" and "did nothing".
+  // Recompute the serving epics for the gaps this pass presented and record the ones that were
+  // not there before it ran. Fail-open: a store throw degrades to today's (empty) refs.
+  try {
+    const allTodos = discoverIdsBefore.length > 0
+      ? (deps.listTodos ?? listTodos)(project, { includeCompleted: true })
+      : [];
+    for (const id of discoverIdsBefore) {
+      const before = new Set(servingEpicsByComp.get(id) ?? []);
+      for (const t of allTodos) {
+        if (t.parentId !== missionId || t.kind !== 'epic') continue;
+        if (before.has(t.id) || !todoServesCriterion(t, id)) continue;
+        if (filedRefs.some((r) => r.kind === 'epic' && r.id === t.id)) continue;
+        filedRefs.push({ kind: 'epic', id: t.id, title: `served: ${t.title ?? id}` });
+      }
+    }
+  } catch {
+    /* fail-open — a missing filedRef must never sink a pass */
+  }
+
+  // FAIL-COUNTED ON AN EMPTY CONDUCT. `productive` here can be true while the pass moved nothing:
+  // `servedAGap` is satisfied vacuously when there were no `discover` gaps to serve, so a node
+  // that burned four minutes on a verify/building state and filed nothing still exits 'conducted'.
+  // That IS a real node making no progress, which is exactly what failCounted documents — record
+  // it truthfully instead of leaving the row's most diagnostic field null. The bounded re-arm is
+  // driven by countConsecutiveEmptyConducts (which reads filed/carried), not by this flag; this is
+  // the honest label, not the counter.
+  const emptyConduct = productive && filedRefs.length === 0 &&
+    carriedVerifyIds.length + carriedServeIds.length === 0;
+  if (emptyConduct) note(journalRowId, { failCounted: true });
   // A transient fault — rate cap / connectivity-unreachable / auth+stdin faultKind (all reported
   // as rateLimited), spawn or auth-halt startFailure, or a node timedOut (start-window or
   // wall-clock kill) — was never a real attempt at the serve-state, so it must not consume the
@@ -1282,5 +1404,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     stampConductorRun(project, missionId, serveFp);
     note(journalRowId, { failCounted: true });
   }
-  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised, timeoutKills });
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised, timeoutKills, forced });
 }

@@ -591,6 +591,11 @@ export type ConductorPassReason =
   // consecutive timeouts on this MISSION's unchanged serve-state (not a criterion) — a card
   // was raised naming the serve-state; the conductor will not re-invoke until it changes.
   | 'conductor-timeouts-capped'
+  // The pass STOPPED short-circuit before invoking the node: CONDUCTOR_EMPTY_CONDUCT_CAP
+  // consecutive EMPTY CONDUCTS on this mission's unchanged serve-state (a real node ran, exited
+  // ok, and filed/carried NOTHING each time — mission 949dda42). A card was raised naming the
+  // mission and what its criteria looked like; the conductor will not re-invoke on this state.
+  | 'conductor-empty-conducts-capped'
   // The mission's only actionable criteria are shipped but awaiting live observation — the pass
   // returns without spending a node (nothing to serve until the observation window closes).
   | 'awaiting-observation-wait';

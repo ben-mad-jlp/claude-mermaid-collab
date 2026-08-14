@@ -30,6 +30,37 @@ export interface ConductorPassRow {
   /** Node-authored "what I concluded and why" for this pass (<=600 chars). Optional so rows
    *  written before the column existed read back as absent rather than empty. */
   summary?: string | null;
+  /** True when an OPERATOR kick forced this pass past the fingerprint debounce. Optional so
+   *  rows written before the column existed read back as absent rather than false. */
+  forced?: boolean | null;
+}
+
+/** POST the one-shot conductor kick. Resolves to the server's verdict; a non-2xx or a network
+ *  fault RESOLVES (never throws) so the caller can render a failure line instead of exploding. */
+export async function kickConductor(
+  project: string,
+  missionId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetch('/api/conductor/kick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, missionId }),
+    });
+    if (!response.ok) {
+      let message = `kick failed (${response.status})`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data?.error) message = data.error;
+      } catch {
+        /* keep the status-code message */
+      }
+      return { ok: false, error: message };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'kick failed' };
+  }
 }
 
 export interface ConductorPassChip { kind: string; id: string; label: string }

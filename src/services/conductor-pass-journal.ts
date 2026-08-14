@@ -29,10 +29,12 @@ export interface ConductorPassJournalRow {
   declined: Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }>;
   outcome: string | null;
   ran: boolean | null;
-  /** Whether a 'node-failed' outcome on this row is a genuine, countable attempt (a real node
-   *  ran and made no progress) vs a transient fault (rateLimited/startFailure/timedOut) that
-   *  must never consume the bounded retry counter. null on rows where the distinction doesn't
-   *  apply (debounced/productive/etc.). */
+  /** Whether the node spend on this row is a genuine, countable attempt (a real node ran and
+   *  made no progress) vs a transient fault (rateLimited/startFailure/timedOut) that must never
+   *  consume a bounded retry counter. Set on a 'node-failed' outcome, and ALSO set true on an
+   *  EMPTY CONDUCT (see {@link isEmptyConductRow}) — a pass that ran a real node, exited ok, and
+   *  moved nothing IS a countable no-progress attempt, and saying so is the whole point of the
+   *  field. null on rows where the distinction doesn't apply (debounced / productive / etc.). */
   failCounted: boolean | null;
   /** Criterion ids this pass deferred past its batch cap (CONDUCTOR_VERIFY_BATCH_MAX /
    *  CONDUCTOR_SERVE_BATCH_MAX) rather than acting on this tick — null when nothing was
@@ -47,6 +49,14 @@ export interface ConductorPassJournalRow {
    *  (a debounced early return has no reasoning to record) or on legacy rows predating the
    *  column — it is never fabricated. */
   summary: string | null;
+  /** True when an OPERATOR forced this pass through the fingerprint debounce (the one-shot kick,
+   *  POST /api/conductor/kick). The journal is the only place the WHY of an otherwise-inexplicable
+   *  pass survives: without it a kicked pass is indistinguishable from a spontaneous one in
+   *  `list_conductor_passes` and the activity panel. null on every ordinary pass and on legacy
+   *  rows predating the column. Optional in the TYPE (not just nullable) so the many hand-built
+   *  row fixtures that predate it keep compiling — a row object without the key means exactly
+   *  what a null means: nobody forced this pass. */
+  forced?: boolean | null;
 }
 
 /** Hard cap on the persisted pass summary. This is a SUMMARY, not a transcript: the full node
@@ -105,6 +115,9 @@ function openDb(): Database {
   // Additive + NULLABLE: legacy rows written before the conductor recorded its reasoning read
   // back as summary:null, which is the correct answer for them (nothing was captured).
   addColumnIfMissing(db, 'conductor_pass', 'summary', 'summary TEXT');
+  // Additive + NULLABLE, same idiom: legacy rows read back as forced:null, which is correct for
+  // them (no kick existed when they were written).
+  addColumnIfMissing(db, 'conductor_pass', 'forced', 'forced INTEGER');
   return db;
 }
 
@@ -135,8 +148,8 @@ type JsonPatchKey = 'criteriaActed' | 'filed' | 'declined' | 'carried';
 const JSON_PATCH_KEYS: JsonPatchKey[] = ['criteriaActed', 'filed', 'declined', 'carried'];
 type ScalarPatchKey = 'missionId' | 'serveFp' | 'passFp' | 'selfFp' | 'arm';
 const SCALAR_PATCH_KEYS: ScalarPatchKey[] = ['missionId', 'serveFp', 'passFp', 'selfFp', 'arm'];
-type BoolPatchKey = 'failCounted';
-const BOOL_PATCH_KEYS: BoolPatchKey[] = ['failCounted'];
+type BoolPatchKey = 'failCounted' | 'forced';
+const BOOL_PATCH_KEYS: BoolPatchKey[] = ['failCounted', 'forced'];
 /** Free-text keys clamped on write (never stored raw — see CONDUCTOR_PASS_SUMMARY_MAX_CHARS). */
 type TextPatchKey = 'summary';
 const TEXT_PATCH_KEYS: TextPatchKey[] = ['summary'];
@@ -251,6 +264,7 @@ function rowFromRaw(r: any): ConductorPassJournalRow {
     failCounted: r.failCounted == null ? null : r.failCounted === 1,
     carried: r.carried == null ? null : parseJsonValue(r.carried) as ConductorPassJournalRow['carried'],
     summary: r.summary ?? null,
+    forced: r.forced == null ? null : r.forced === 1,
   };
 }
 
@@ -367,9 +381,39 @@ export function countConsecutiveFailedPasses(
   }
 }
 
-/** Return the most recent finalized, productive (outcome:'conducted', ran:true) pass's
- *  fingerprints, walking newest-first and skipping any other row. Returns null on throw
- *  or if no such row exists. */
+/**
+ * An EMPTY CONDUCT: the pass RAN a real conductor node and the node exited as a success
+ * (`ran === true`, `outcome === 'conducted'`) — but it filed NOTHING and carried NOTHING.
+ *
+ * This is the shape that wedged mission 949dda42 (2026-08-14): 253 seconds of Opus, 15,921
+ * output tokens, exit 0, `filed: []`, `carried: {count: 0}`, and three criteria left sitting at
+ * `discover`. Structurally it is INDISTINGUISHABLE from a successful conduct — which is exactly
+ * why it has to be named: an empty conduct is a no-progress attempt wearing a success's clothes,
+ * and treating it as a success is what locks a mission forever (see latestProductivePassFp).
+ *
+ * `carried: null` (the common case — nothing was deferred) reads as count 0, deliberately: a
+ * pass that deferred nothing carried nothing.
+ */
+export function isEmptyConductRow(
+  row: Pick<ConductorPassJournalRow, 'ran' | 'outcome' | 'filed' | 'carried'>,
+): boolean {
+  if (row.ran !== true || row.outcome !== 'conducted') return false;
+  return filedRefsOf(row).length === 0 && (row.carried?.count ?? 0) === 0;
+}
+
+/**
+ * Return the fingerprints of the pass the debounce may anchor on: the most recent finalized,
+ * productive (outcome:'conducted', ran:true) pass — walking newest-first and skipping any
+ * other row. Returns null on throw or if no such row exists.
+ *
+ * An EMPTY CONDUCT (isEmptyConductRow) is NOT such a pass, and it does not merely get skipped:
+ * hitting one STOPS the walk and returns null. Skipping it would fall back to an OLDER
+ * productive pass, and if that older pass's fingerprint happens to equal the current one the
+ * mission debounces forever again — the exact wedge. "The last thing the conductor did on this
+ * mission moved nothing" means there is no valid anchor, so the next pass re-arms. The re-arm is
+ * bounded by CONDUCTOR_EMPTY_CONDUCT_CAP at the call site; this function only tells the truth
+ * about whether an anchor exists.
+ */
 export function latestProductivePassFp(
   project: string,
   missionId: string,
@@ -377,12 +421,47 @@ export function latestProductivePassFp(
   try {
     const rows = listConductorPasses(project, { missionId });
     for (const row of rows) {
-      if (row.endedAt !== null && row.outcome === 'conducted' && row.ran === true) {
-        return { passFp: row.passFp, selfFp: row.selfFp };
-      }
+      if (row.endedAt === null) continue;
+      if (row.outcome !== 'conducted' || row.ran !== true) continue;
+      if (isEmptyConductRow(row)) return null;
+      return { passFp: row.passFp, selfFp: row.selfFp };
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Derive the contiguous run of EMPTY CONDUCTS for (project, missionId, serveFp), walking
+ * newest-first and stopping at the first row that breaks the run. Returns 0 on throw.
+ *
+ * Deliberately the same SHAPE as countConsecutiveFailedPasses: same walk, same serveFp break,
+ * same "a row that never spent a node is transparent" skip. It is a separate counter for the
+ * same reason CONDUCTOR_TIMEOUT_RECUR_CAP is: an empty conduct is a distinct fact about the
+ * serve-state (a real node looked at it and had nothing to do) from a node FAILURE, and must
+ * not consume — or be reset by — the other counter.
+ */
+export function countConsecutiveEmptyConducts(
+  project: string,
+  missionId: string,
+  serveFp: string,
+  excludeId?: string | null,
+): number {
+  try {
+    const rows = listConductorPasses(project, { missionId });
+    let count = 0;
+    for (const row of rows) {
+      if (row.id === excludeId) continue;
+      if (row.endedAt === null) break;
+      if (row.serveFp !== serveFp) break;
+      // No node spent this tick (debounced early return, cap fail-open arm) ⇒ transparent.
+      if (row.ran !== true) continue;
+      if (!isEmptyConductRow(row)) break; // a productive pass (or any other arm) resets the run
+      count++;
+    }
+    return count;
+  } catch {
+    return 0;
   }
 }

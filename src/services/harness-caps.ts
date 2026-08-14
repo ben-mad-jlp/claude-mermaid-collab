@@ -48,6 +48,26 @@ export const EPIC_CHURN_REJECT_THRESHOLD = 2;
  *  Origin: src/services/conductor-pass.ts (runConductorPass fail-retry counter). */
 export const CONDUCTOR_SERVE_RETRY_CAP = 3;
 
+/** How many CONSECUTIVE EMPTY CONDUCTS the conductor may spend on ONE unchanged serve-state
+ *  before it stops re-arming and cards a human once.
+ *
+ *  An EMPTY CONDUCT is a pass that RAN a conductor node (ran=1, outcome 'conducted') and filed
+ *  NOTHING and carried NOTHING. Such a pass is no longer allowed to become the debounce anchor
+ *  (see latestProductivePassFp) — otherwise the world fingerprint never moves, the conductor is
+ *  the only actor that could move it, and the mission is locked forever (mission 949dda42,
+ *  2026-08-14: 253s of Opus, 15.9k output tokens, filed nothing, then every pass for 10 minutes
+ *  returned 'debounced' with three criteria still at `discover`).
+ *
+ *  Un-anchoring ALONE would re-spin a ~4-minute Opus node every 30s forever — exactly the
+ *  unbounded self-excitation the rolled-back-gap comment in conductor-pass.ts warns about
+ *  (2026-07-23: "expected 1 node, got 20"). So the re-arm is BOUNDED here: 2 consecutive empty
+ *  conducts on the same serveFp is enough to prove "the node saw this state and had nothing" —
+ *  one to observe it, one to confirm it was not a one-off — after which the pass stops re-arming
+ *  and raises exactly one deduped card. A productive pass, or any change to serveFp, resets the
+ *  run to 0. Override with CONDUCTOR_EMPTY_CONDUCT_CAP (default 2).
+ *  Origin: src/services/conductor-pass.ts (runConductorPassInner empty-conduct guard). */
+export const CONDUCTOR_EMPTY_CONDUCT_CAP = Math.max(1, Number(process.env.CONDUCTOR_EMPTY_CONDUCT_CAP) || 2);
+
 /** How many attempts a carded leaf may accumulate before the card-triage arm parks it
  *  deterministically instead of letting the conductor re-dispatch it again. Replaces the
  *  same `attempts >= 3` threshold previously spelled out in the conductor's own prompt
