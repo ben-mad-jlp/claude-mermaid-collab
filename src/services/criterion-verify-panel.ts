@@ -102,10 +102,15 @@ Reply with your reasoning, then end your response with EXACTLY one final line an
 Do not wrap the VERDICT line in backticks, quotes, or a code fence.`;
 }
 
-/** Join panel verdicts using strict-majority vote: met = countMet * 2 > verdicts.length.
+/** THE one panel join rule — strict-majority vote: met = countMet * 2 > verdicts.length.
+ *  Both doors — the auto-panel runner (criterion-verify-panel-runner.ts) and the tool
+ *  boundary (set_mission_criterion in mission-tools.ts) — MUST take their met from this
+ *  function and nothing else, so the same verdict array grades identically everywhere.
+ *  (The runner used to AND an extra unanimity requirement on top of this result, so a
+ *  2-of-3 array graded met:false through the runner but met:true through the tool.)
  *  Empty input ⇒ fail-closed { met: false, split: true }.
- *  Unanimous met ⇒ { met: true }.
- *  Any non-met lens ⇒ { met: false, split: true, dissent: "<lens1>: <reason1>; <lens2>: <reason2>" }. */
+ *  Majority met ⇒ { met: true } (any dissenting lens stays visible in the verdicts array).
+ *  Majority not met ⇒ { met: false, split: true, dissent: "<lens1>: <reason1>; <lens2>: <reason2>" }. */
 export function joinPanelVerdicts(verdicts: PanelVerdict[]): PanelJoin {
   if (verdicts.length === 0) {
     return { met: false, split: true, dissent: 'no verdicts received' };
