@@ -899,6 +899,16 @@ export interface Oi1LandWorktree {
   epicHeadSha(epicId: string): Promise<string | null>;
 }
 
+// Worktree interface for the accept-time ancestor gate, extending Oi1LandWorktree with
+// the four members the gate probes (commitOnIntegration, epicBranchName, isGitRepoPublic,
+// resolveIntegrationRef). WorktreeManager satisfies it structurally.
+export interface Oi1AncestorWorktree extends Oi1LandWorktree {
+  isGitRepoPublic(): Promise<boolean>;
+  resolveIntegrationRef(): Promise<string | null>;
+  commitOnIntegration(epicId: string, todoId: string, ref: string): Promise<boolean | null>;
+  epicBranchName(epicId: string): string;
+}
+
 // Optional dependency bag for step 2, with fail-closed floor and post-land hooks.
 export interface Oi1LandDeps {
   typecheckFloor?: (o: { repo: string; epicWorktreeCwd: string }) => Promise<LandTypecheckProof>;
@@ -923,6 +933,8 @@ export interface Oi1LandDeps {
     masterSha?: string | null;
     baseRef?: string;
   }) => Promise<void>;
+  wm?: Oi1AncestorWorktree;
+  authority?: (project: string, epicId: string, todos: Todo[]) => boolean;
 }
 
 /**
@@ -1079,6 +1091,42 @@ export async function oi1ReconcileLandStep(args: {
   return { landConflict };
 }
 
+// --- OI-1: union reachability probe (accept-time ancestor gate helper) -----------
+// Two-arm reachability check: a leaf's commit is reachable if it appears in EITHER
+// the trunk (ARM A, integration ref) OR the epic accumulation branch (ARM B).
+// Rationale: mirrors bp1FilterStrandedFoundations (lines 1212–1224) — work on the
+// epic branch is legitimately unseen from trunk until it lands. Only both-false
+// (stranded from both surfaces) triggers a reversal.
+export async function oi1UnionReachable(
+  wm: Oi1AncestorWorktree,
+  epicId: string,
+  todoId: string,
+  intRef: string,
+): Promise<{
+  reachableTrunk: boolean | null;
+  reachableEpic: boolean | null;
+  epicBranch: string;
+  verdict: 'reachable' | 'unreachable' | 'indeterminate';
+}> {
+  const epicBranch = wm.epicBranchName(epicId);
+  // ARM A: probe trunk (integration ref).
+  const reachableTrunk = await wm.commitOnIntegration(epicId, todoId, intRef).catch(() => null);
+  // ARM B: probe epic accumulation branch.
+  const reachableEpic = await wm.commitOnIntegration(epicId, todoId, epicBranch).catch(() => null);
+
+  // Verdict: reachable if EITHER arm is true; unreachable only if BOTH are false.
+  let verdict: 'reachable' | 'unreachable' | 'indeterminate';
+  if (reachableTrunk === true || reachableEpic === true) {
+    verdict = 'reachable';
+  } else if (reachableTrunk === false && reachableEpic === false) {
+    verdict = 'unreachable';
+  } else {
+    verdict = 'indeterminate'; // a null + false pair → accept.
+  }
+
+  return { reachableTrunk, reachableEpic, epicBranch, verdict };
+}
+
 // --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate -----------------------------
 // Close the stranded-acceptance class: `accepted` must imply `reachable from the
 // integration branch`, so accepted work can never silently fail to ship. This runs
@@ -1113,12 +1161,13 @@ export async function acceptTimeAncestorGate(
   // closing the silent-strand class. Empty/hallucinated completions are STILL caught by
   // resolveCompletion's work-committed re-verify, so skipping here is safe.
   const allTodos = listTodos(project, { includeCompleted: true });
-  if (!epicAutoLandAuthority(project, epicId, allTodos)) {
+  const authority = deps?.authority ?? epicAutoLandAuthority;
+  if (!authority(project, epicId, allTodos)) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-not-autoland-authorized' }) });
     return true;
   }
   const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
-  const wm = getWorktreeManager(targetProject);
+  const wm = deps?.wm ?? getWorktreeManager(targetProject);
   if (!(await wm.isGitRepoPublic())) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-non-git' }) });
     return true; // fail-safe: not a git repo → today's behaviour.
@@ -1130,15 +1179,20 @@ export async function acceptTimeAncestorGate(
   }
 
   // 1. first probe.
-  let reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
-  if (reachable === null) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-accept' }) });
+  const probeResult = await oi1UnionReachable(wm as Oi1AncestorWorktree, epicId, todoId, intRef);
+  if (probeResult.verdict === 'indeterminate') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: probeResult.epicBranch, reachableTrunk: probeResult.reachableTrunk, reachableEpic: probeResult.reachableEpic, oi1: 'indeterminate-accept' }) });
     return true; // fail-safe: indeterminate (no commit / git error) → accept.
   }
-  if (reachable === true) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-accept' }) });
-    await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
-    return true;
+  if (probeResult.verdict === 'reachable') {
+    // Only stamp if the commit is on the integration ref (ARM A = true).
+    // If only ARM B (epic branch) is true, the epic still needs to be landed by the reconcile step.
+    if (probeResult.reachableTrunk === true) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: probeResult.epicBranch, reachableTrunk: probeResult.reachableTrunk, reachableEpic: probeResult.reachableEpic, oi1: 'reachable-accept' }) });
+      await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
+      return true;
+    }
+    // ARM B (epic) is true but ARM A (trunk) is false/null — pass through to reconcile.
   }
 
   // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
@@ -1146,14 +1200,14 @@ export async function acceptTimeAncestorGate(
   const { landConflict } = await oi1ReconcileLandStep({ project, todoId, epicId, intRef, session, targetProject, wm, deps });
 
   // 3. re-probe after the reconcile attempt.
-  reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
-  if (reachable === true) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-after-land' }) });
+  const reprobeResult = await oi1UnionReachable(wm as Oi1AncestorWorktree, epicId, todoId, intRef);
+  if (reprobeResult.verdict === 'reachable') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: reprobeResult.epicBranch, reachableTrunk: reprobeResult.reachableTrunk, reachableEpic: reprobeResult.reachableEpic, oi1: 'reachable-after-land' }) });
     await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
     return true;
   }
-  if (reachable === null) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-after-land-accept' }) });
+  if (reprobeResult.verdict === 'indeterminate') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: reprobeResult.epicBranch, reachableTrunk: reprobeResult.reachableTrunk, reachableEpic: reprobeResult.reachableEpic, oi1: 'indeterminate-after-land-accept' }) });
     return true; // fail-safe.
   }
 
@@ -1174,7 +1228,7 @@ export async function acceptTimeAncestorGate(
   // reopenStrandedAccept resets the leaf to `ready` (actionable) and raises an
   // escalation; we annotate the reason as integration-unreachable (counted above).
   await reopenStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session);
-  recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reversed-not-on-integration' }) });
+  recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: reprobeResult.epicBranch, reachableTrunk: reprobeResult.reachableTrunk, reachableEpic: reprobeResult.reachableEpic, oi1: 'reversed-not-on-integration' }) });
   return false;
 }
 
