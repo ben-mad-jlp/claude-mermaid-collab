@@ -240,15 +240,25 @@ export const ConductorActivityPanel: React.FC<{
                     </span>
                   )}
                 </div>
-                <div className="text-2xs text-gray-700 dark:text-gray-200">
-                  {rawMode ? formatted.sentence : humanizeIds(formatted.sentence, nicknames)}
-                </div>
-                {summary && (
-                  <div
-                    data-testid="conductor-pass-summary"
-                    className="text-3xs text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words mt-0.5"
-                  >
-                    {rawMode ? summary : humanizeIds(summary, nicknames)}
+                {/* The node's own REASONING leads. The mechanical sentence (which epic served
+                    which criterion) is derivable from the chips below and is demoted to support.
+                    A pass with no summary — e.g. one debounced without running a node — falls
+                    back to the sentence as its lead so a row is never headed by nothing. */}
+                {summary ? (
+                  <>
+                    <div
+                      data-testid="conductor-pass-summary"
+                      className="text-2xs text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words"
+                    >
+                      {rawMode ? summary : humanizeIds(summary, nicknames)}
+                    </div>
+                    <div data-testid="conductor-pass-sentence" className="text-3xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {rawMode ? formatted.sentence : humanizeIds(formatted.sentence, nicknames)}
+                    </div>
+                  </>
+                ) : (
+                  <div data-testid="conductor-pass-sentence" className="text-2xs text-gray-700 dark:text-gray-200">
+                    {rawMode ? formatted.sentence : humanizeIds(formatted.sentence, nicknames)}
                   </div>
                 )}
                 <div className="text-3xs text-gray-500">

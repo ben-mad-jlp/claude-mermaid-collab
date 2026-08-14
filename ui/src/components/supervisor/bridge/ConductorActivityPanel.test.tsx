@@ -253,25 +253,29 @@ describe('ConductorActivityPanel', () => {
       ) as any;
     }
 
-    it('renders the summary as secondary text under the sentence', async () => {
+    it('leads with the summary and demotes the mechanical sentence beneath it', async () => {
       mockRows([{ ...ROW_A, summary: 'Served crit-1 because the epic was the only unblocked path.' }]);
 
       render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
 
       const summary = await screen.findByTestId('conductor-pass-summary');
       expect(summary.textContent).toContain('the only unblocked path');
-      // Secondary, not primary: the one-line sentence is still its own element.
-      const entry = screen.getByTestId('conductor-pass-entry');
-      expect(entry.textContent).toContain('Mission mission-aaa');
+      // The node's reasoning is the HERO: it precedes the mechanical sentence in the DOM,
+      // and the sentence is still present as supporting detail.
+      const sentence = screen.getByTestId('conductor-pass-sentence');
+      expect(sentence.textContent).toContain('Mission mission-aaa');
+      expect(summary.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it('renders NO summary element at all for a row without one', async () => {
+    it('falls back to the sentence as the lead when a pass has no summary', async () => {
       mockRows([ROW_A]);
 
       render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
 
       await screen.findByTestId('conductor-pass-entry');
       expect(screen.queryByTestId('conductor-pass-summary')).toBeNull();
+      // A row is never headed by nothing: the sentence takes the lead slot.
+      expect(screen.getByTestId('conductor-pass-sentence').textContent).toContain('Mission mission-aaa');
     });
 
     it('renders no summary element for an explicitly null or whitespace-only summary', async () => {
