@@ -96,6 +96,13 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
 
   const candidates = trendsFn(project).recurring
     .filter((r) => r.count >= threshold)
+    .filter((r) => {
+      if (r.defectClass === 'success-signal') {
+        console.info(`[friction-triage] ${project}: skipping success-signal reason "${r.retryReason}" (layer: ${r.layer})`);
+        return false;
+      }
+      return true;
+    })
     .filter((r) => !isActioned(project, r.layer, r.retryReason))
     .sort((a, b) => b.count - a.count);
 

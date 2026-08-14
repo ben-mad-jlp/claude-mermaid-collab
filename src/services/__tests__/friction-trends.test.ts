@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { FrictionNote } from '../friction-store';
 import { recordFriction, _closeProject } from '../friction-store';
 import { summarizeFrictionTrends, frictionTrends } from '../friction-trends';
+import type { FrictionDefectClass } from '../friction-defect-class';
 
 let seq = 0;
 function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; retryReason: string }): FrictionNote {
@@ -19,6 +20,7 @@ function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; r
     retractedReason: null,
     supersededBy: null,
     createdAt: partial.createdAt ?? '2026-06-11T00:00:00.000Z',
+    defectClass: partial.defectClass ?? null,
     ...partial,
     signature: partial.signature ?? null,
   };
@@ -61,10 +63,15 @@ describe('summarizeFrictionTrends', () => {
       note({ layer: 'domain', retryReason: 'flaky-test' }),
       note({ layer: 'domain', retryReason: 'one-off' }),
     ]);
-    expect(r.recurring).toEqual([
-      { layer: 'orchestration', retryReason: 'tmux-accumulation', count: 3 },
-      { layer: 'domain', retryReason: 'flaky-test', count: 2 },
-    ]);
+    expect(r.recurring.length).toBe(2);
+    expect(r.recurring[0].layer).toBe('orchestration');
+    expect(r.recurring[0].retryReason).toBe('tmux-accumulation');
+    expect(r.recurring[0].count).toBe(3);
+    expect(r.recurring[0].defectClass).toBe(null);
+    expect(r.recurring[1].layer).toBe('domain');
+    expect(r.recurring[1].retryReason).toBe('flaky-test');
+    expect(r.recurring[1].count).toBe(2);
+    expect(r.recurring[1].defectClass).toBe(null);
   });
 
   test('null sessions are excluded from a reason\'s session list', () => {
@@ -89,6 +96,28 @@ describe('summarizeFrictionTrends', () => {
     expect(op.reasons[0].count).toBe(2);
     // appears in recurring (count > 1)
     expect(r.recurring.some((x) => x.layer === 'operational' && x.retryReason === 'stale-shadow-server')).toBe(true);
+  });
+
+  test('recurring entries carry the newest non-null defectClass', () => {
+    const r = summarizeFrictionTrends([
+      note({ layer: 'domain', retryReason: 'flaky-test', createdAt: '2026-06-11T01:00:00.000Z', defectClass: 'defect' }),
+      note({ layer: 'domain', retryReason: 'flaky-test', createdAt: '2026-06-11T02:00:00.000Z', defectClass: 'success-signal' }),
+      note({ layer: 'domain', retryReason: 'flaky-test', createdAt: '2026-06-11T00:30:00.000Z', defectClass: null }),
+    ]);
+    const recurring = r.recurring[0];
+    expect(recurring.retryReason).toBe('flaky-test');
+    expect(recurring.defectClass).toBe('success-signal'); // newest non-null class
+    expect(recurring.count).toBe(3);
+  });
+
+  test('recurring entries with all-null defectClass report null', () => {
+    const r = summarizeFrictionTrends([
+      note({ layer: 'domain', retryReason: 'mystery-error', defectClass: null }),
+      note({ layer: 'domain', retryReason: 'mystery-error', defectClass: null }),
+    ]);
+    const recurring = r.recurring[0];
+    expect(recurring.retryReason).toBe('mystery-error');
+    expect(recurring.defectClass).toBe(null);
   });
 });
 
