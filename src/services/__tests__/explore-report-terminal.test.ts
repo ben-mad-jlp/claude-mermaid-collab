@@ -107,12 +107,14 @@ interface Spies {
   removeCalls: string[];
   nodeRows: Array<any>;
   writeArtifactCalls: Array<{ path: string; content: string }>;
+  fileExploreCalls: Array<{ project: string; reportPath: string; findings: Finding[] }>;
 }
 
 /** Build a deps object for explore testing, with configurable explore node results. */
 function makeExploreDeps(opts: {
   exploreText?: string; // The explore node's output text
   findings?: Finding[]; // Stubbed findings for the gate
+  fileExploreFindings?: (project: string, ctx: { leaf: any; reportPath: string; report: string; findings: Finding[] }) => Promise<unknown>; // Optional override
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -123,6 +125,7 @@ function makeExploreDeps(opts: {
     removeCalls: [],
     nodeRows: [],
     writeArtifactCalls: [],
+    fileExploreCalls: [],
   };
 
   const deps: LeafExecutorDeps = {
@@ -190,6 +193,9 @@ function makeExploreDeps(opts: {
       spies.writeArtifactCalls.push({ path: relPath, content });
     },
     findingsForLeaf: async () => opts.findings ?? [],
+    fileExploreFindings: opts.fileExploreFindings ?? (async (project, ctx) => {
+      spies.fileExploreCalls.push({ project, reportPath: ctx.reportPath, findings: ctx.findings });
+    }),
   };
 
   return { deps, spies };
@@ -359,5 +365,71 @@ describe('explore pipeline', () => {
 
     // Both should reach finalizeReportLeaf with 'pass' verdict
     // (verified by accepted outcome + merged + completed)
+  });
+
+  it('FINDINGS=1 report invokes fileExploreFindings once with the report path and rows', async () => {
+    const leaf = makeLeaf();
+    const { deps, spies } = makeExploreDeps({
+      exploreText: '## Findings\n\n- Test finding\n\nEXPLORE-REPORT: FINDINGS=1',
+      findings: [{
+        id: 'finding-1',
+        todoId: 'todo-1',
+        sourceLeafId: leaf.id,
+        violatedClaim: 'Test claim',
+        implicatedFiles: ['a.ts'],
+        ruledOut: [],
+        reproPath: '__quarantine__/test.test.ts',
+        failureIdentity: null,
+        surface: null,
+        recurrenceCount: 1,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      }],
+    });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.fileExploreCalls.length).toBe(1);
+    expect(spies.fileExploreCalls[0].reportPath).toBe(`docs/explore/${leaf.id}.report.md`);
+    expect(spies.fileExploreCalls[0].findings.length).toBe(1);
+    expect(spies.mergeCalls).toBe(1);
+  });
+
+  it('FINDINGS=0 report does not invoke fileExploreFindings', async () => {
+    const { deps, spies } = makeExploreDeps({
+      exploreText: 'EXPLORE-REPORT: FINDINGS=0',
+      findings: [],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.fileExploreCalls.length).toBe(0);
+    expect(spies.mergeCalls).toBe(1);
+  });
+
+  it('a rejecting fileExploreFindings still returns the pass outcome (fail-open)', async () => {
+    const leaf = makeLeaf();
+    const { deps, spies } = makeExploreDeps({
+      exploreText: '## Findings\n\n- Test finding\n\nEXPLORE-REPORT: FINDINGS=1',
+      findings: [{
+        id: 'finding-1',
+        todoId: 'todo-1',
+        sourceLeafId: leaf.id,
+        violatedClaim: 'Test claim',
+        implicatedFiles: ['a.ts'],
+        ruledOut: [],
+        reproPath: '__quarantine__/test.test.ts',
+        failureIdentity: null,
+        surface: null,
+        recurrenceCount: 1,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      }],
+      fileExploreFindings: async () => {
+        throw new Error('Filing failed');
+      },
+    });
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
   });
 });
