@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { handleWorkgraphTool } from '../workgraph-tools';
 import { fileExploreRequest, ExploreOracleRefusedError } from '../workgraph-tools';
 import { getTodo, listTodos, deriveTodoViews, _closeProject } from '../../services/todo-store';
+import { claimReason, derivedStatus } from '../../services/claimability';
 import { EXPLORE_STOPWORDS } from '../../services/explore-request';
 
 let project: string;
@@ -42,14 +43,14 @@ describe('file_explore', () => {
         }),
       ).rejects.toThrow(ExploreOracleRefusedError);
 
-      // Verify no rows were written and no bucket was created
+      // Verify no rows were written and no Explore runs epic was created
       const afterCount = listTodos(project, { includeCompleted: true }).length;
       expect(afterCount).toBe(beforeCount);
 
-      const hasExploreBucket = listTodos(project, { includeCompleted: true }).some(
-        (t) => t.isBucket && t.bucketType === 'explore',
+      const hasExploreRunsEpic = listTodos(project, { includeCompleted: true }).some(
+        (t) => t.kind === 'epic' && /explore runs/i.test(t.title),
       );
-      expect(hasExploreBucket).toBe(false);
+      expect(hasExploreRunsEpic).toBe(false);
     }
   });
 
@@ -186,12 +187,14 @@ describe('file_explore', () => {
     expect(retrieved.exploreSpec!.not).toBe(not);
     expect(retrieved.exploreSpec!.reach).toBe(reach);
 
-    // Verify parent is the explore bucket
+    // Verify parent is the non-bucket Explore runs epic
     const parentId = retrieved.parentId;
     expect(parentId).toBeTruthy();
     const parent = getTodo(project, parentId!)!;
-    expect(parent.isBucket).toBe(true);
-    expect(parent.bucketType).toBe('explore');
+    expect(parent.bucketType).toBeNull();
+    expect(parent.isBucket).toBe(false);
+    expect(parent.title).toMatch(/Explore runs/i);
+    expect(parent.parentId).toBeNull(); // Root epic
 
     // Verify deriveTodoViews carries the spec
     const views = deriveTodoViews(project, [retrieved]);
@@ -224,5 +227,29 @@ describe('file_explore', () => {
     const views = deriveTodoViews(project, [retrieved]);
     expect(views[0].exploreSpec!.not).toBeNull();
     expect(views[0].exploreSpec!.reach).toBeNull();
+  });
+
+  test('a filed explore read back from the store is claimable and derives ready', async () => {
+    const result = await fileExploreRequest(project, S, {
+      scope: 'testScope',
+      target: 'testTarget',
+      oracle: 'testOracle must pass',
+    });
+
+    const leaf = result.leaf;
+    const retrieved = getTodo(project, leaf.id)!;
+    expect(retrieved).toBeTruthy();
+
+    // Build the byId map for claimability check
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const byId = new Map(allTodos.map((t) => [t.id, t]));
+
+    // Verify claimability: should be 'claimable' (no blockers)
+    const claim = claimReason(retrieved, byId);
+    expect(claim).toBe('claimable');
+
+    // Verify derivedStatus: should be 'ready' (approved and no dependencies)
+    const status = derivedStatus(retrieved, byId);
+    expect(status).toBe('ready');
   });
 });
