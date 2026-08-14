@@ -26,9 +26,16 @@ import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } fr
 import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
 import { validateBugfixFiling, validateFeatureFiling, BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
 import type { BugfixSpec } from '../services/bugfix-spec.js';
+import { EXPLORE_QUEUE_MAX, recordAutoAction } from '../services/auto-action-audit.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+}
+
+/** Get the first line of a string, trimmed, truncated to ~200 chars. */
+function firstLine(text: string, maxLen: number = 200): string {
+  const line = text.split('\n')[0]?.trim() ?? '';
+  return line.length > maxLen ? line.slice(0, maxLen) + '…' : line;
 }
 
 /** Thrown by createEpicWithLandLeaf when a mission-homed epic declares no
@@ -93,6 +100,19 @@ export class ExploreOracleRefusedError extends Error {
   }
 }
 
+/** Thrown by fileExploreRequest when the live explore queue has reached capacity,
+ *  before any leaf row is written. */
+export class ExploreQueueFullError extends Error {
+  readonly code = 'explore-queue-full';
+  constructor(liveCount: number, cap: number) {
+    super(
+      `file_explore: explore queue is full — ${liveCount} live explores >= EXPLORE_QUEUE_MAX ${cap}. ` +
+      `Wait for an existing 'Explore runs' epic leaf to complete before filing another.`,
+    );
+    this.name = 'ExploreQueueFullError';
+  }
+}
+
 /** Returns `err.code` for any typed workgraph error, else undefined. */
 export function workgraphErrorCode(err: unknown): string | undefined {
   if (
@@ -100,6 +120,7 @@ export function workgraphErrorCode(err: unknown): string | undefined {
     || err instanceof MissingTargetProjectError
     || err instanceof DuplicateOfDoneLeafError
     || err instanceof ExploreOracleRefusedError
+    || err instanceof ExploreQueueFullError
     || err instanceof BugfixFilingRefusedError
     || err instanceof FeatureFilingRefusedError
   ) {
@@ -511,6 +532,26 @@ export async function fileExploreRequest(
   if (refusal !== null) throw new ExploreOracleRefusedError(refusal);
 
   const parentId = await ensureExploreRunEpic(project);
+
+  // Cap check: count live explores under the epic before creating a new one.
+  const live = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === parentId && t.type === 'explore' && t.status !== 'done' && t.status !== 'dropped',
+  );
+  if (live.length >= EXPLORE_QUEUE_MAX) {
+    try {
+      recordAutoAction({
+        project,
+        session,
+        action: 'explore-dispatch',
+        outcome: 'capped',
+        reason: `explore-queue-full: ${live.length} live explores >= EXPLORE_QUEUE_MAX ${EXPLORE_QUEUE_MAX}`,
+      });
+    } catch (err) {
+      console.warn('recordAutoAction failed on capped path:', err);
+    }
+    throw new ExploreQueueFullError(live.length, EXPLORE_QUEUE_MAX);
+  }
+
   const leaf = await addSessionTodo(project, session, opts.title ?? opts.oracle, undefined, {
     kind: 'leaf',
     parentId,
@@ -519,6 +560,25 @@ export async function fileExploreRequest(
     status: opts.status ?? 'ready',
     exploreSpec: { scope: opts.scope, target: opts.target, oracle: opts.oracle, not: opts.not ?? null, reach: opts.reach ?? null },
   });
+
+  // Success-path audit: record the dispatch with details.
+  try {
+    recordAutoAction({
+      project,
+      session,
+      action: 'explore-dispatch',
+      outcome: 'performed',
+      reason: `filed-by:${session} — ${firstLine(opts.oracle)}`,
+      detail: {
+        leafId: leaf.id,
+        session,
+        target: opts.target,
+        queueDepth: live.length + 1,
+      },
+    });
+  } catch (err) {
+    console.warn('recordAutoAction failed on success path:', err);
+  }
 
   return { leaf, warnings };
 }
