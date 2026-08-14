@@ -70,6 +70,7 @@ import { baseGateKey, runBaseGateShared } from './base-gate-coalescer';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
+import { probeDepTrees, requiredDepRoots } from './dep-tree-guard.js';
 export { parseVerdict, parseVerifyGate, parseSizeManifest, joinReviewReports, VERIFY_GATE_MCP_SERVER, verbMcpTool, VERIFY_GATE_MCP_TOOL, resolveVerifyGate };
 export type {
   LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict, LeafSizeManifest, ReviewLens, VerifyGateConfig,
@@ -4210,7 +4211,8 @@ export async function makeLeafExecutorDeps(
         runGate: (p, impacted) => runBaseGate(p, gateCfg, defaultGateSpawn,
           epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined,
           { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
-          impacted),
+          impacted,
+          { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }),
       });
     },
     // G2 base-red re-probe: how many commits the epic branch is behind trunk.
@@ -4240,7 +4242,8 @@ export async function makeLeafExecutorDeps(
           runGate: (p, impacted) => runBaseGate(p, gateCfg, defaultGateSpawn,
             newSha ? { project: targetProject, baseSha: newSha } : undefined,
             { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
-            impacted),
+            impacted,
+            { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }),
         });
       } catch { return null; }
     },
@@ -4248,7 +4251,7 @@ export async function makeLeafExecutorDeps(
     // Through the coalescer (single-flight + concurrency cap) but WITHOUT a verdict scope:
     // an explicit re-measure answered from the stored verdict would be a lie — the caller
     // asked for a fresh run precisely because the cached picture is suspect.
-    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }), { project: targetProject, epicId }); } catch { return null; } },
+    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }, undefined, { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }), { project: targetProject, epicId }); } catch { return null; } },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
     // WorktreeManager so the git plumbing lives in one place.
