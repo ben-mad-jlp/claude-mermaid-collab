@@ -17,6 +17,9 @@ import { listTodos, type Todo } from './todo-store.js';
 import { fileExploreRequest, ExploreOracleRefusedError } from '../mcp/workgraph-tools.js';
 import { hasNamedAnchor } from './explore-request.js';
 import { getConfig } from './config-service.js';
+import { recordAutoAction, MAX_VERIFY_EXPLORES_PER_PASS } from './auto-action-audit.js';
+
+export { MAX_VERIFY_EXPLORES_PER_PASS };
 
 export const REPAIR_VERIFY_FILER_INTERVAL_MS = 300_000; // 5 min
 
@@ -122,12 +125,15 @@ export interface RepairVerifyFilerDeps {
   fileExplore?: (project: string, session: string, opts: { scope: string; target: string; oracle: string; description: string }) => Promise<{ leaf: Todo }>;
   /** Injectable clock for deterministic tests. Default: Date.now. */
   now?: number;
+  /** Record auto-action audit events. Default: recordAutoAction. */
+  recordAutoAction?: (input: Parameters<typeof recordAutoAction>[0]) => void;
 }
 
 export interface RepairVerifyFilerResult {
   filed: string[];
   skipped: number;
   missionsScanned: number;
+  cappedAt?: number;
 }
 
 /**
@@ -149,12 +155,23 @@ export async function runRepairVerifyFilerPass(
     }));
   });
   const fileExploreFn = deps.fileExplore ?? fileExploreRequest;
+  const recordAutoActionFn = deps.recordAutoAction ?? recordAutoAction;
 
   const allTodos = deps.todosSnapshot ?? listTodosFn(project);
 
   const filed: string[] = [];
   let skipped = 0;
   let missionsScanned = 0;
+  let cappedAt: number | undefined;
+
+  // Fail-open helper: wrap audit writes so an audit failure cannot sink the pass.
+  const safeAudit = (input: Parameters<typeof recordAutoAction>[0]): void => {
+    try {
+      recordAutoActionFn(input);
+    } catch {
+      // Audit is fail-open; ignore any error.
+    }
+  };
 
   // Read all missions and filter for converged auto-forged repair missions.
   const missions = listMissionsFn(project, allTodos);
@@ -164,7 +181,7 @@ export async function runRepairVerifyFilerPass(
       isAutoForgedRepairMission({ ownerSession: m.ownerSession }),
   );
 
-  for (const mission of convergedRepairMissions) {
+  missions: for (const mission of convergedRepairMissions) {
     missionsScanned++;
     const missionTitle = mission.node.title ?? `Repair mission ${mission.node.id.slice(0, 8)}`;
 
@@ -176,7 +193,24 @@ export async function runRepairVerifyFilerPass(
       (c) => c.met === true && c.status !== 'dropped',
     );
 
-    for (const criterion of metCriteria) {
+    for (let i = 0; i < metCriteria.length; i++) {
+      const criterion = metCriteria[i]!;
+
+      // Check pass-wide cap: if we've already filed at MAX_VERIFY_EXPLORES_PER_PASS,
+      // count remaining criteria as skipped and break.
+      if (filed.length >= MAX_VERIFY_EXPLORES_PER_PASS) {
+        const remaining = metCriteria.length - i;
+        skipped += remaining;
+        cappedAt = filed.length;
+        safeAudit({
+          project,
+          action: 'verify-explore',
+          outcome: 'capped',
+          reason: `per-pass-cap: reached MAX_VERIFY_EXPLORES_PER_PASS ${MAX_VERIFY_EXPLORES_PER_PASS}, ${remaining} criteria left unfiled`,
+        });
+        break missions;
+      }
+
       // Skip if there's already an explore with this criterion's tag.
       const tag = `criterion:${criterion.id}`;
       const existingExplore = allTodos.find(
@@ -208,19 +242,36 @@ export async function runRepairVerifyFilerPass(
           description: `${tag} — ${criterion.text}`,
         });
         filed.push(result.leaf.id);
+        safeAudit({
+          project,
+          action: 'verify-explore',
+          outcome: 'performed',
+          reason: `verify MET criterion ${criterion.id} of converged repair mission ${mission.node.id}`,
+          detail: {
+            leafId: result.leaf.id,
+            criterionId: criterion.id,
+            missionId: mission.node.id,
+          },
+        });
       } catch (err) {
         // Catch and count all filing errors — never sink the pass.
-        if (err instanceof ExploreOracleRefusedError) {
-          console.warn(`[repair-verify-filer] oracle refused for criterion ${criterion.id.slice(0, 8)}:`, err.message);
-        } else {
-          console.warn(`[repair-verify-filer] filing failed for criterion ${criterion.id.slice(0, 8)}:`, err);
-        }
+        const message = err instanceof Error ? err.message : String(err);
+        const reason = err instanceof ExploreOracleRefusedError
+          ? `oracle-refused: ${err.message}`
+          : `filing-failed: ${message}`;
+        safeAudit({
+          project,
+          action: 'verify-explore',
+          outcome: 'refused',
+          reason,
+          detail: { criterionId: criterion.id },
+        });
         skipped++;
       }
     }
   }
 
-  return { filed, skipped, missionsScanned };
+  return { filed, skipped, missionsScanned, cappedAt };
 }
 
 // Re-export listCriteria for convenience
