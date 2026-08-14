@@ -10,13 +10,14 @@
  * never overlapping auto-forged work on the same account).
  */
 
-import { REPAIR_FORGE_SESSION, isAutoForgedRepairMission, REPAIR_BATCH_K, REPAIR_AGE_MS, REPAIR_BUDGET_USD, selectRepairBatch, buildRepairMissionSpec, type RepairRequest, type RepairBatchItem } from './repair-mission-forge.js';
+import { REPAIR_FORGE_SESSION, isAutoForgedRepairMission, REPAIR_BATCH_K, REPAIR_AGE_MS, REPAIR_BUDGET_USD, selectRepairBatch, repairBatchTrigger, buildRepairMissionSpec, type RepairRequest, type RepairBatchItem } from './repair-mission-forge.js';
 import { ensureBucket } from './bucket-registry.js';
 import { isBucketItem, reopenConsumedFor, consumerDelivered } from './bucket-consumption.js';
 import { listTodos, getTodo, type Todo } from './todo-store.js';
 import { listMissions, listCriteria, isMissionTerminal, getMission, setMissionAbandoned, type MissionSummary } from './mission-store.js';
 import { forgeMission, approveMissionAndConstitution, type ForgeMissionInput } from '../mcp/tools/mission-forge.js';
 import { createEscalation, type EscalationOption } from './supervisor-store.js';
+import { recordAutoAction } from './auto-action-audit.js';
 import { getConfig } from './config-service.js';
 
 export const REPAIR_MISSION_APPROVAL_KIND = 'repair-mission-approval';
@@ -60,6 +61,8 @@ export interface RepairForgeDeps {
   forge?: (project: string, input: ForgeMissionInput) => Promise<{ missionId: string }>;
   /** Create an escalation card. Default: createEscalation. Must be injectable for tests (throws on tmp paths). */
   createEscalation?: (input: Parameters<typeof createEscalation>[0]) => ReturnType<typeof createEscalation>;
+  /** Record auto-action audit events. Default: recordAutoAction. */
+  recordAutoAction?: (input: Parameters<typeof recordAutoAction>[0]) => void;
   /** Batch size threshold. Default: REPAIR_BATCH_K or REPAIR_FORGE_THRESHOLD env. */
   threshold?: number;
   /** Age trigger in milliseconds. Default: REPAIR_AGE_MS. */
@@ -87,9 +90,19 @@ export async function runRepairForgePass(
   const listMissionsFn = deps.listMissions ?? ((p: string, allTodos?: Todo[]) => listMissions(p, { allTodos }));
   const forgeFn = deps.forge ?? ((p: string, i: ForgeMissionInput) => forgeMission(p, i));
   const createEscalationFn = deps.createEscalation ?? createEscalation;
+  const recordAutoActionFn = deps.recordAutoAction ?? recordAutoAction;
   const threshold = deps.threshold ?? (Number(getConfig('REPAIR_FORGE_THRESHOLD', '') || 0) || REPAIR_BATCH_K);
   const ageMs = deps.ageMs ?? REPAIR_AGE_MS;
   const now = deps.now ?? Date.now();
+
+  // Audit helper: fail-open wrapper for recordAutoActionFn.
+  const safeAudit = (input: Parameters<typeof recordAutoAction>[0]): void => {
+    try {
+      recordAutoActionFn(input);
+    } catch (err) {
+      // Audit failure is non-fatal; never change the result or throw.
+    }
+  };
 
   // One snapshot feeds every read below — the orchestrator tick threads its shared
   // snapshot in (audit 7a); standalone callers fall back to one fresh scan. The
@@ -99,10 +112,16 @@ export async function runRepairForgePass(
   // STEP 1: CAP FIRST — check for an already-open repair mission (mutation-probe target).
   // If any mission is non-terminal AND auto-forged, refuse.
   const missions = listMissionsFn(project, allTodos);
-  const hasOpenRepairMission = missions.some(
+  const openMission = missions.find(
     (m) => !isMissionTerminal(m.mission) && isAutoForgedRepairMission({ ownerSession: m.ownerSession }),
   );
-  if (hasOpenRepairMission) {
+  if (openMission) {
+    safeAudit({
+      project,
+      action: 'mission-forge',
+      outcome: 'capped',
+      reason: `repair-mission-open: mission ${openMission.node.id} is still open`,
+    });
     return { forged: null, reason: 'repair-mission-open' };
   }
 
@@ -133,6 +152,21 @@ export async function runRepairForgePass(
     return { forged: null, reason: 'no-batch' };
   }
 
+  // Determine the trigger (size or age) for naming on the card and audit record.
+  const trigger = repairBatchTrigger(requests, { k: threshold, ageMs, now }) ?? 'size';
+
+  // Build the trigger suffix for the card text.
+  let triggerSuffix = '';
+  if (trigger === 'size') {
+    triggerSuffix = ` triggered by size (${batch.length} >= k=${threshold})`;
+  } else if (trigger === 'age') {
+    // batch[0] is the oldest (sorted ascending); compute its age in hours.
+    const oldestTime = Date.parse(batch[0].request.createdAt);
+    const ageHours = isNaN(oldestTime) ? 0 : Math.round((now - oldestTime) / (3600 * 1000));
+    const ageMsHours = Math.round(ageMs / (3600 * 1000));
+    triggerSuffix = ` triggered by age (oldest ${ageHours}h > ${ageMsHours}h)`;
+  }
+
   // STEP 4: Build the repair mission spec and forge (with unapproved + inactive).
   const spec = buildRepairMissionSpec(batch);
   const forgeInput: ForgeMissionInput = {
@@ -158,11 +192,24 @@ export async function runRepairForgePass(
     operatorGated: true,
     todoId: missionId,
     conditionKey: `repair-forge:${missionId}`,
-    questionText: `Approve auto-forged repair mission: ${batch.length} bugfix${batch.length === 1 ? '' : 'es'}, ${spec.budgetUsd} USD budget.`,
+    questionText: `Approve auto-forged repair mission: ${batch.length} bugfix${batch.length === 1 ? '' : 'es'}, ${spec.budgetUsd} USD budget.${triggerSuffix}`,
     options: [
       { id: 'approve', label: 'Approve & activate', detail: 'Ratify the mission and drive it.' },
       { id: 'dismiss', label: 'Dismiss', detail: 'Close the mission without acting on it.' },
     ],
+  });
+
+  // Emit performed audit row with trigger, batch size, and budget details.
+  safeAudit({
+    project,
+    action: 'mission-forge',
+    outcome: 'performed',
+    reason: `trigger=${trigger}; batch=${batch.length}; budget=${spec.budgetUsd}`,
+    detail: {
+      missionId,
+      consumed: spec.consumesTodoIds,
+      criteriaCount: spec.criteria.length,
+    },
   });
 
   return {
