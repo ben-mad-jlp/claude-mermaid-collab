@@ -267,8 +267,23 @@ export function filedRefsOf(row: Pick<ConductorPassJournalRow, 'filed'>): Conduc
   );
 }
 
-/** List conductor passes for a project, newest-first. Returns [] on throw. */
-export function listConductorPasses(project: string, opts?: { missionId?: string; limit?: number }): ConductorPassJournalRow[] {
+export interface ConductorPassListOpts {
+  missionId?: string;
+  limit?: number;
+  /** Rows to skip, newest-first, before `limit` applies. Purely additive: omitting it is
+   *  byte-identical to the pre-pagination behaviour. */
+  offset?: number;
+}
+
+/**
+ * List conductor passes for a project, newest-first. Returns [] on throw.
+ *
+ * The signature is deliberately unchanged (array return, optional opts) — `src/mcp/system-tools.ts`
+ * (`list_conductor_passes`), `conductor-pass-liveness.ts` and `countConsecutiveFailedPasses`
+ * consume the array directly. Pagination is ADDITIVE: `opts.offset` here, plus a sibling
+ * `listConductorPassesPage` for callers that also need the filter's total.
+ */
+export function listConductorPasses(project: string, opts?: ConductorPassListOpts): ConductorPassJournalRow[] {
   try {
     const d = openDb();
     let sql = `SELECT * FROM conductor_pass WHERE project=?`;
@@ -281,12 +296,46 @@ export function listConductorPasses(project: string, opts?: { missionId?: string
     if (opts?.limit !== undefined) {
       sql += ` LIMIT ?`;
       params.push(opts.limit);
+    } else if (opts?.offset !== undefined) {
+      // SQLite accepts OFFSET only as a suffix of LIMIT; -1 means "no limit".
+      sql += ` LIMIT -1`;
+    }
+    if (opts?.offset !== undefined) {
+      sql += ` OFFSET ?`;
+      params.push(opts.offset);
     }
     const rows = d.query(sql).all(...params) as Array<any>;
     return rows.map(rowFromRaw);
   } catch {
     return [];
   }
+}
+
+/** Total conductor passes matching the same (project, missionId) filter `listConductorPasses`
+ *  applies — i.e. ignoring limit/offset. Returns 0 on throw. */
+export function countConductorPasses(project: string, opts?: { missionId?: string }): number {
+  try {
+    const d = openDb();
+    let sql = `SELECT COUNT(*) AS n FROM conductor_pass WHERE project=?`;
+    const params: (string | number)[] = [project];
+    if (opts?.missionId !== undefined) {
+      sql += ` AND missionId=?`;
+      params.push(opts.missionId);
+    }
+    const row = d.query(sql).get(...params) as { n: number } | null;
+    return row?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** One page of conductor passes plus the total for the same filter, for paginating surfaces.
+ *  Degrades to `{ rows: [], total: 0 }` on throw. */
+export function listConductorPassesPage(
+  project: string,
+  opts?: ConductorPassListOpts,
+): { rows: ConductorPassJournalRow[]; total: number } {
+  return { rows: listConductorPasses(project, opts), total: countConductorPasses(project, opts) };
 }
 
 /** Derive the contiguous run of node-failed passes for (project, missionId, serveFp),

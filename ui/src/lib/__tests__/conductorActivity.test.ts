@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { formatConductorPass, type ConductorPassRow } from '../conductorActivity';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  formatConductorPass,
+  fetchConductorJournalWithNicknames,
+  groupConductorPasses,
+  type ConductorPassRow,
+} from '../conductorActivity';
 import { formatConductorPass as serverFormatConductorPass } from '@server/services/conductor-pass-format.ts';
 
 function mkRow(over: Partial<ConductorPassRow> = {}): ConductorPassRow {
@@ -18,6 +23,77 @@ function mkRow(over: Partial<ConductorPassRow> = {}): ConductorPassRow {
     ...over,
   };
 }
+
+describe('ConductorPassRow.summary', () => {
+  it('carries a node-authored summary through the row type', () => {
+    const row = mkRow({ summary: 'Declined to re-plan: the epic is built but unlanded.' });
+    expect(row.summary).toBe('Declined to re-plan: the epic is built but unlanded.');
+  });
+
+  it('groups split when two otherwise-identical passes carry different summaries', () => {
+    const rows = [
+      mkRow({ id: 'p1', startedAt: 300, summary: 'Held: base gate is red.' }),
+      mkRow({ id: 'p2', startedAt: 200, summary: 'Held: nothing was ready to serve.' }),
+      mkRow({ id: 'p3', startedAt: 100, summary: 'Held: nothing was ready to serve.' }),
+    ];
+    const groups = groupConductorPasses(rows, 1_000);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].count).toBe(1);
+    expect(groups[1].count).toBe(2);
+  });
+
+  it('summary-less rows still collapse exactly as before', () => {
+    const rows = [mkRow({ id: 'p1', startedAt: 300 }), mkRow({ id: 'p2', startedAt: 200 })];
+    expect(groupConductorPasses(rows, 1_000)).toHaveLength(1);
+  });
+});
+
+describe('fetchConductorJournalWithNicknames pagination', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends limit and offset in the query and returns the server total', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ rows: [mkRow()], nicknames: { a: 'b' }, total: 137 }),
+    });
+    global.fetch = fetchMock as any;
+
+    const result = await fetchConductorJournalWithNicknames('/proj', { limit: 25, offset: 50 });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain('limit=25');
+    expect(url).toContain('offset=50');
+    expect(result.total).toBe(137);
+    expect(result.nicknames).toEqual({ a: 'b' });
+  });
+
+  it('omits offset from the query when it is not supplied', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ rows: [], nicknames: {}, total: 0 }),
+    });
+    global.fetch = fetchMock as any;
+
+    await fetchConductorJournalWithNicknames('/proj');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('offset=');
+  });
+
+  it('falls back to the received row count when the response omits total', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ rows: [mkRow({ id: 'a' }), mkRow({ id: 'b' })] }),
+    }) as any;
+
+    expect((await fetchConductorJournalWithNicknames('/proj')).total).toBe(2);
+  });
+
+  it('degrades to zero rows and zero total on a failed response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false }) as any;
+    expect(await fetchConductorJournalWithNicknames('/proj')).toEqual({ rows: [], nicknames: {}, total: 0 });
+  });
+});
 
 describe('formatConductorPass', () => {
   it('typed-filed row includes filed clause and chip', () => {
