@@ -74,3 +74,58 @@ export async function ensureExploreRunEpic(project: string): Promise<string> {
     throw e;
   }
 }
+
+// --- EXPLORER SWITCH: dispatch-time hold (filing/promotion is never gated) ------------
+
+/** The minimum shape the explore-hold predicates need from a todo row. Structural so this
+ *  module stays free of the todo-store import cycle. */
+export interface ExploreGateTodo {
+  id: string;
+  title?: string | null;
+  kind?: string | null;
+  status?: string | null;
+  parentId?: string | null;
+}
+
+/** Ids of every LIVE 'Explore runs' epic in a snapshot. Mirrors ensureExploreRunEpic's own
+ *  liveness rule (matching title, non-terminal) so the hold covers exactly the epic that
+ *  promote-on-file homes explores into — and nothing else. */
+export function exploreRunEpicIds(allTodos: ExploreGateTodo[]): Set<string> {
+  const ids = new Set<string>();
+  for (const t of allTodos) {
+    // Column-only, compared directly rather than through kindOf(): this runs over a WHOLE
+    // snapshot and kindOf throws on any row with a missing kind — a claim-time filter must
+    // never be the thing that explodes.
+    if (t.kind !== 'epic') continue;
+    if (stripLabel(t.title ?? '').toLowerCase() !== EXPLORE_RUN_EPIC_TITLE.toLowerCase()) continue;
+    if (t.status === 'done' || t.status === 'dropped') continue;
+    ids.add(t.id);
+  }
+  return ids;
+}
+
+/** Is this leaf homed under a live 'Explore runs' epic? ONLY these are held by the
+ *  Explorer switch — every other leaf kind is untouched. */
+export function isExploreRunLeaf(todo: ExploreGateTodo, exploreEpicIds: Set<string>): boolean {
+  return todo.parentId != null && exploreEpicIds.has(todo.parentId);
+}
+
+/** The suppression reason a held explore leaf reports. Named (never silent) so
+ *  daemon_status / the claim-suppression report says exactly why nothing is claiming —
+ *  a lever whose effect you cannot see on the board is how wedges happen. */
+export const EXPLORER_OFF_SUPPRESSION_REASON =
+  "explorer-off: held under the 'Explore runs' epic — the Explorer switch is off (filed + promoted, not dispatched; flip it on to drain the queue)";
+
+/** Claim-time FILTER: with the Explorer switch off, drop leaves homed under a live
+ *  'Explore runs' epic. Pure — no status write, nothing is lost; the leaves stay ready
+ *  and claim on a later tick once the switch is back on. */
+export function filterExplorerHeld<T extends ExploreGateTodo>(
+  todos: T[],
+  allTodos: ExploreGateTodo[],
+  explorerEnabled: boolean,
+): T[] {
+  if (explorerEnabled) return todos;
+  const epicIds = exploreRunEpicIds(allTodos);
+  if (epicIds.size === 0) return todos;
+  return todos.filter((t) => !isExploreRunLeaf(t, epicIds));
+}

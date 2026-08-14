@@ -497,7 +497,13 @@ const server = Bun.serve<WsData>({
       if (res) return res;
     }
 
-    if (url.pathname.startsWith('/api/orchestrator')) {
+    // /api/autofix and /api/explorer are served by the orchestrator route table — both are
+    // sibling levers of the daemon level and share its store (orchestrator_config).
+    if (
+      url.pathname.startsWith('/api/orchestrator')
+      || url.pathname.startsWith('/api/autofix')
+      || url.pathname.startsWith('/api/explorer')
+    ) {
       const res = await handleOrchestratorRoutes(req, url);
       if (res) return res;
     }
