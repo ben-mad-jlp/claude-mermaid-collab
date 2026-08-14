@@ -1,13 +1,21 @@
 // Unit test for the daemon_status MCP tool's conductor timeout-kill surfacing
 // in src/mcp/system-tools.ts. Isolates the supervisor-store DB via
 // MERMAID_SUPERVISOR_DIR before import.
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const dir = mkdtempSync(join(tmpdir(), 'system-tools-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
+
+import * as coordLive from '../../services/coordinator-live.js';
+let suppressionStub: any = undefined;
+import { mock } from 'bun:test';
+mock.module('../../services/coordinator-live.js', () => ({
+  ...coordLive,
+  diagnoseClaimSuppression: async () => suppressionStub,
+}));
 
 import { handleSystemTool } from '../system-tools.js';
 import { addWatchedProject, setConductorLastPass, _closeDb } from '../../services/supervisor-store.js';
@@ -94,5 +102,86 @@ describe('list_conductor_passes', () => {
     const capped = JSON.parse((await handleSystemTool('list_conductor_passes', { project, limit: 1 }))!);
     expect(capped).toHaveLength(1);
     expect(capped[0].startedAt).toBe(3000);
+  });
+});
+
+describe('daemon_status bucket-planning suppression', () => {
+  afterEach(() => {
+    suppressionStub = undefined;
+  });
+
+  it('daemon_status reports idle when the only suppression is bucket-planning', async () => {
+    // Clear any prior conductor-last-pass so needs-attention cannot mask idle
+    setConductorLastPass(PROJECT, {
+      missionId: 'm1',
+      reason: 'conducted',
+      tickAt: Date.now(),
+      status: 'ok',
+    });
+
+    suppressionStub = {
+      level: 'on',
+      ready: 0,
+      claimable: 0,
+      projectGate: null,
+      suppressed: [
+        { todoId: 'todo1', title: 'Bucket-planned leaf', reason: coordLive.BUCKET_PLANNING_SUPPRESSION_REASON },
+      ],
+      claimableIds: [],
+      blockedSplits: [],
+      pendingSplitProposals: [],
+      blocked: false,
+    };
+
+    const result = await handleSystemTool('daemon_status', { project: PROJECT });
+    const parsed = JSON.parse(result!);
+    expect(parsed.state).toBe('idle');
+    // Verify the response still carries the unfiltered suppressed list
+    expect(parsed.claimSuppression.suppressed).toHaveLength(1);
+    expect(parsed.claimSuppression.suppressed[0].reason).toBe(coordLive.BUCKET_PLANNING_SUPPRESSION_REASON);
+  });
+
+  it('daemon_status reports claimable when bucket-planning suppression coexists with a claimable leaf', async () => {
+    suppressionStub = {
+      level: 'on',
+      ready: 1,
+      claimable: 1,
+      projectGate: null,
+      suppressed: [
+        { todoId: 'todo1', title: 'Bucket-planned leaf', reason: coordLive.BUCKET_PLANNING_SUPPRESSION_REASON },
+      ],
+      claimableIds: ['claimable-todo1'],
+      blockedSplits: [],
+      pendingSplitProposals: [],
+      blocked: false,
+    };
+
+    const result = await handleSystemTool('daemon_status', { project: PROJECT });
+    const parsed = JSON.parse(result!);
+    expect(parsed.state).toBe('claimable');
+    expect(parsed.claimSuppression.suppressed).toHaveLength(1);
+  });
+
+  it('daemon_status still reports claims-suppressed for a genuine non-bucket suppression', async () => {
+    suppressionStub = {
+      level: 'on',
+      ready: 2,
+      claimable: 0,
+      projectGate: null,
+      suppressed: [
+        { todoId: 'todo1', title: 'Bucket-planned leaf', reason: coordLive.BUCKET_PLANNING_SUPPRESSION_REASON },
+        { todoId: 'todo2', title: 'Probe-down leaf', reason: 'probe-down: tcp://127.0.0.1:8082' },
+      ],
+      claimableIds: [],
+      blockedSplits: [],
+      pendingSplitProposals: [],
+      blocked: false,
+    };
+
+    const result = await handleSystemTool('daemon_status', { project: PROJECT });
+    const parsed = JSON.parse(result!);
+    expect(parsed.state).toBe('claims-suppressed');
+    // Verify both entries still in the payload
+    expect(parsed.claimSuppression.suppressed).toHaveLength(2);
   });
 });
