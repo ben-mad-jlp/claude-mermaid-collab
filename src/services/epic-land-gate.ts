@@ -8,6 +8,17 @@
  * and "no untested commits land to master" — the goal of FBPE P7. It runs the SAME
  * test commands on the epic-diff spec set that the leaves themselves ran per-file,
  * but here: a full epic-wide sweep, baseline-compared, and never auto-bypassed.
+ *
+ * VERDICT SPINE (audit item 1 / O1): the durable shared layer `base_gate_verdict`
+ * (worker-ledger.ts, keyed by what was measured — project + sha + lane signature +
+ * quarantine hash, see base-gate-coalescer.ts) is the cross-gate spine. The regression
+ * floor here both CONSUMES it (a stored FULL-SUITE PASS at the epic tip short-circuits
+ * the floor — the worst duplicate was tipSha == baseSha, where the base gate had just
+ * greened the exact tree the floor was about to re-measure) and FEEDS it (a full-suite
+ * floor PASS is persisted under the tip's key so subsequent base gates, anchor lookups
+ * and sibling lands consume it). `epic_base_gate` and `epic_land_gate` deliberately
+ * REMAIN as per-consumer bookkeeping views — folding them into the spine is a later,
+ * riskier migration, not this change.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, symlinkSync } from 'node:fs';
@@ -22,7 +33,10 @@ import type { GateDeclaration } from './leaf-gate';
 import { resolveGateDeclaration } from './leaf-gate';
 import { loadManifestSource } from '../config/project-manifest';
 import { defaultGateSpawn } from './leaf-gate';
-import { recordEpicLandGate, getEpicLandGate, listObservations } from './worker-ledger';
+import { recordEpicLandGate, getEpicLandGate, listObservations, getBaseGateVerdict, recordBaseGateVerdict } from './worker-ledger';
+import type { BaseGateVerdictRow } from './worker-ledger';
+import { baseGateKey, sharedVerdictKey, quarantineSetHash } from './base-gate-coalescer';
+import { isFullSuiteAnchorVerdict } from './base-gate-impacted';
 import { activeQuarantine } from './flaky-quarantine';
 import type { TestQuarantineRow } from './worker-ledger';
 import { runLandTypecheckFloor } from './land-typecheck-floor';
@@ -59,9 +73,10 @@ export interface EpicLandGateResult {
   baseSha: string | null;
   sweep?: SourceGuardSweepResult;
   floor?: { command: string; status: 'pass' | 'fail' | 'error'; failing: string[]; output?: string };
-  /** Which floor strategy ran: an impacted subset or the full suite. Absent when the
-   *  declaration has no floor lanes. */
-  floorMode?: 'impacted' | 'full';
+  /** Which floor strategy ran: an impacted subset, the full suite, or 'spine' — the floor
+   *  was skipped entirely because the verdict spine (base_gate_verdict) held a full-suite
+   *  PASS for the epic tip. Absent when the declaration has no floor lanes. */
+  floorMode?: 'impacted' | 'full' | 'spine';
   /** How many test files the impacted floor ran (impacted mode only). */
   floorImpactedCount?: number;
   quarantinedOnlyFailures?: string[];
@@ -159,6 +174,12 @@ export interface EpicLandGateOpts {
   /** Injectable impacted-floor planner (tests). Defaults to planImpactedFloor over the
    *  epic worktree's real filesystem. */
   floorPlanner?: (o: { repoRoot: string; changedFiles: string[] }) => FloorPlan;
+  /** Injectable verdict-spine store (tests). Defaults to the worker ledger's
+   *  getBaseGateVerdict / recordBaseGateVerdict over `base_gate_verdict`. */
+  verdictStore?: {
+    get: (key: string) => BaseGateVerdictRow | null;
+    record: (v: Omit<BaseGateVerdictRow, 'measuredAt' | 'failServeCount'>, now?: number) => boolean;
+  };
 }
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -268,7 +289,7 @@ const FLOOR_FILES_CAPABLE_RE = /scripts\/test-backend(\.ts)?\b/;
 
 interface RegressionFloorRun {
   floor: EpicLandGateResult['floor'] | undefined;
-  mode?: 'impacted' | 'full';
+  mode?: 'impacted' | 'full' | 'spine';
   impactedCount?: number;
   /** One reasons-line documenting what the impacted path ran or why it fell back. */
   note?: string;
@@ -441,6 +462,12 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     if (baseRes.code === 0) baseSha = baseRes.stdout.trim();
   }
 
+  // A HUMAN actor bypasses THIS per-epic cache: human-retry protection exists so an
+  // explicit retry never gets answered with a possibly-stale stored land VERDICT. It does
+  // NOT bypass the verdict-spine consult further down — a spine PASS is a *measurement* of
+  // the exact tree at the epic tip (typically minutes old, made by the base gate), not a
+  // stale verdict, and re-running the full suite on the same tree is not what human-retry
+  // protection is for. `skipCache` (an explicit fresh-measure request) bypasses BOTH.
   if (!o.skipCache && o.actor?.kind !== 'human') {
     const cached = getEpicLandGate(o.epicId, epicTipSha, baseSha);
     if (cached && cached.result) {
@@ -556,14 +583,68 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   // result as `inherited` so the land is reported inheritedRed rather than blocked.
   let floorInherited: LandGateUnit[] = [];
 
-  // --- regression floor ---
-  const floorRun = await runRegressionFloor({
-    epicWorktreeCwd: o.epicWorktreeCwd,
-    floors: cfg.floors,
-    changedFiles,
-    spawn,
-    planner: o.floorPlanner,
-  });
+  // --- regression floor (spine-aware) ---
+  // Verdict-spine key for the EPIC TIP: byte-identical to what the base gate's write path
+  // produces for the same tree — same `baseGateKey` (project + sha + the lane sequence
+  // derived from the SAME resolved cfg shape) extended with the same quarantine-set hash.
+  // Any drift between the two sides makes every lookup a permanent miss, so both sides
+  // build the key through the shared helpers, never by hand.
+  const spineStore = o.verdictStore ?? { get: getBaseGateVerdict, record: recordBaseGateVerdict };
+  const spineQHash = quarantineSetHash(lookupQuarantine(o.project).map((q) => q.test));
+  const spineKey = epicTipSha ? sharedVerdictKey(baseGateKey(o.project, epicTipSha, cfg), spineQHash) : null;
+
+  // CONSUME: a stored FULL-SUITE PASS at the tip means the exact tree the floor would
+  // measure is already proven green (worst case O1: tipSha == baseSha, the base gate just
+  // ran the identical suite). Only a PASS short-circuits — a stored FAIL is never consumed
+  // here, because the land gate's regression/inherited partition needs the fresh failing
+  // detail. An impacted-measured PASS is refused (isFullSuiteAnchorVerdict) — it proves a
+  // subset, not the floor. `skipCache` bypasses the consult: an explicit fresh measure
+  // must actually measure (mirrors explicit re-measures staying out of the shared layer in
+  // base-gate-coalescer.ts). A human actor does NOT bypass it — see the cache consult above.
+  let spineConsumed: BaseGateVerdictRow | null = null;
+  if (spineKey && !o.skipCache && cfg.floors && cfg.floors.length > 0) {
+    const stored = spineStore.get(spineKey);
+    if (stored && stored.status === 'pass' && isFullSuiteAnchorVerdict(stored)) {
+      spineConsumed = stored;
+    }
+  }
+
+  const floorRun: RegressionFloorRun = spineConsumed
+    ? {
+        floor: { command: `spine: base_gate_verdict full-suite PASS at ${epicTipSha}`, status: 'pass', failing: [] },
+        mode: 'spine',
+        note: `verdict spine: consumed full-suite PASS for tip ${String(epicTipSha).slice(0, 8)} (measuredAt=${new Date(spineConsumed.measuredAt).toISOString()}) — floor not spawned`,
+      }
+    : await runRegressionFloor({
+        epicWorktreeCwd: o.epicWorktreeCwd,
+        floors: cfg.floors,
+        changedFiles,
+        spawn,
+        planner: o.floorPlanner,
+      });
+
+  // FEED: a floor that actually RAN the full suite and passed is a full-suite measurement
+  // of the tip's tree — persist it into the spine so subsequent base gates, anchor lookups
+  // (isFullSuiteAnchorVerdict: no `impactedBase` marker ⇒ anchor-eligible) and sibling
+  // lands consume it instead of re-running. Impacted floor results are NOT stored: they
+  // prove a subset and would need the impacted marker to refuse anchor duty — storing them
+  // buys little (the next consumer needs full-suite proof), so we skip them entirely.
+  // FAILs are not stored either: the floor's failing set is partitioned below and a fail
+  // row here would add a serve-budget surface this path never reads.
+  if (!spineConsumed && !o.skipCache && spineKey && epicTipSha
+    && floorRun.mode === 'full' && floorRun.floor?.status === 'pass') {
+    spineStore.record({
+      key: spineKey,
+      project: o.project,
+      baseSha: epicTipSha,
+      status: 'pass',
+      resultJson: JSON.stringify({
+        status: 'pass', output: '', declared: true,
+        reasons: [`measured by land-gate regression floor (full suite) for epic ${o.epicId} at ${epicTipSha}`],
+      }),
+      quarantineHash: spineQHash,
+    });
+  }
   const floor = floorRun.floor;
   // Spread into every result built after this point so the record shows which floor
   // strategy ran and what the impacted path dropped.
