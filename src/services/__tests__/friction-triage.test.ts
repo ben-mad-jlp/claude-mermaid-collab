@@ -7,6 +7,7 @@ import { runFrictionTriagePass, type FrictionTriageDeps } from '../friction-tria
 import type { FrictionLayer } from '../friction-store';
 import { _closeProject } from '../friction-store';
 import type { Todo, CreateTodoInput } from '../todo-store';
+import type { FrictionDefectClass } from '../friction-defect-class';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -22,7 +23,7 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true });
 });
 
-type TrendItem = { layer: FrictionLayer; retryReason: string; count: number };
+type TrendItem = { layer: FrictionLayer; retryReason: string; count: number; lastAt?: string; defectClass?: FrictionDefectClass | null };
 
 function makeTodo(overrides: Partial<Todo> = {}): Todo {
   return {
@@ -93,7 +94,13 @@ function makeDeps(
       total: trends.length,
       considered: trends.length,
       byLayer: [],
-      recurring: trends,
+      recurring: trends.map((t) => ({
+        layer: t.layer,
+        retryReason: t.retryReason,
+        count: t.count,
+        lastAt: t.lastAt ?? new Date().toISOString(),
+        defectClass: t.defectClass ?? null,
+      })),
     }),
     listTodos: () => todos,
     createTodo: async (_p: string, input: CreateTodoInput) => {
@@ -207,8 +214,8 @@ describe('friction-triage: ensure-bucket and triageTag', () => {
         considered: 2,
         byLayer: [],
         recurring: [
-          { layer: 'domain' as FrictionLayer, retryReason: 'domain-issue', count: 4 },
-          { layer: 'orchestration' as FrictionLayer, retryReason: 'orchestration-issue', count: 3 },
+          { layer: 'domain' as FrictionLayer, retryReason: 'domain-issue', count: 4, lastAt: new Date().toISOString(), defectClass: null },
+          { layer: 'orchestration' as FrictionLayer, retryReason: 'orchestration-issue', count: 3, lastAt: new Date().toISOString(), defectClass: null },
         ],
       }),
       listTodos: () => todos,
@@ -351,8 +358,8 @@ describe('friction-triage: fail-open', () => {
         considered: 2,
         byLayer: [],
         recurring: [
-          { layer: 'domain' as FrictionLayer, retryReason: 'bad-one', count: 5 },
-          { layer: 'domain' as FrictionLayer, retryReason: 'good-one', count: 4 },
+          { layer: 'domain' as FrictionLayer, retryReason: 'bad-one', count: 5, lastAt: new Date().toISOString(), defectClass: null },
+          { layer: 'domain' as FrictionLayer, retryReason: 'good-one', count: 4, lastAt: new Date().toISOString(), defectClass: null },
         ],
       }),
       listTodos: () => todos,
@@ -401,8 +408,8 @@ describe('friction-triage: V6 triageTag + bugfix-bucket integration', () => {
         considered: 2,
         byLayer: [],
         recurring: [
-          { layer: 'domain' as FrictionLayer, retryReason: 'domain-issue', count: 4 },
-          { layer: 'orchestration' as FrictionLayer, retryReason: 'orchestration-issue', count: 3 },
+          { layer: 'domain' as FrictionLayer, retryReason: 'domain-issue', count: 4, lastAt: new Date().toISOString(), defectClass: null },
+          { layer: 'orchestration' as FrictionLayer, retryReason: 'orchestration-issue', count: 3, lastAt: new Date().toISOString(), defectClass: null },
         ],
       }),
       // Use real listTodos, createTodo, ensureBucket
@@ -446,7 +453,7 @@ describe('friction-triage: real-store dedup (integration)', () => {
         total: 1,
         considered: 1,
         byLayer: [],
-        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'missing-model', count: 4 }],
+        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'missing-model', count: 4, lastAt: new Date().toISOString(), defectClass: null }],
       }),
       listTodos: () => todos,
       createTodo: async (_p, input) => {
@@ -475,7 +482,7 @@ describe('friction-triage: real-store dedup (integration)', () => {
         total: 1,
         considered: 1,
         byLayer: [],
-        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'missing-model-reopen', count: 5 }],
+        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'missing-model-reopen', count: 5, lastAt: new Date().toISOString(), defectClass: null }],
       }),
       listTodos: () => todos,
       createTodo: async (_p, input) => {
@@ -494,5 +501,50 @@ describe('friction-triage: real-store dedup (integration)', () => {
 
     await runFrictionTriagePass(project, deps);
     expect(todos.filter((t) => t.parentId != null).length).toBe(1); // still only 1
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Defect class gating (DF3 gap filer)
+// ---------------------------------------------------------------------------
+
+describe('friction-triage: defect class gating', () => {
+  it('files nothing and never calls createTodo when the recurring reason is classed success-signal', async () => {
+    const { deps, created } = makeDeps([
+      { layer: 'domain', retryReason: 'quarantine-deflaked', count: 5, defectClass: 'success-signal' },
+    ], [], { threshold: 3 });
+
+    const result = await runFrictionTriagePass(project, deps);
+    expect(result.filed).toBe(0);
+    expect(created.length).toBe(0);
+  });
+
+  it('files exactly one todo when the recurring reason is classed defect at threshold', async () => {
+    const { deps, created } = makeDeps([
+      { layer: 'domain', retryReason: 'missing-model', count: 3, defectClass: 'defect' },
+    ], [], { threshold: 3 });
+
+    const result = await runFrictionTriagePass(project, deps);
+    expect(result.filed).toBe(1);
+    const filedTodos = created.filter((c) => c.input.parentId != null);
+    expect(filedTodos.length).toBe(1);
+    expect(filedTodos[0].input.title).toContain('missing-model');
+  });
+
+  it('files nothing on a second pass over the same defect reason', async () => {
+    const actionedKeys = new Map<string, string>();
+    const { deps, created } = makeDeps([
+      { layer: 'domain', retryReason: 'missing-model', count: 3, defectClass: 'defect' },
+    ], [], { actionedKeys });
+
+    // First pass: file the defect
+    await runFrictionTriagePass(project, deps);
+    const afterFirstPass = created.filter((c) => c.input.parentId != null).length;
+    expect(afterFirstPass).toBe(1);
+
+    // Second pass: marker is set, nothing new files
+    await runFrictionTriagePass(project, deps);
+    const afterSecondPass = created.filter((c) => c.input.parentId != null).length;
+    expect(afterSecondPass).toBe(1);
   });
 });

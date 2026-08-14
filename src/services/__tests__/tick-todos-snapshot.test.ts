@@ -186,7 +186,7 @@ describe('parity — each threaded pass without a snapshot behaves identically (
   it('runMissionIntakePass: the snapshot feeds the dedup surface identically to a self-read', async () => {
     const trends = {
       total: 9, considered: 9,
-      byLayer: [{ layer: 'domain' as FrictionLayer, count: 9, reasons: [{ retryReason: 'flaky-gate', count: 9, sessions: ['a', 'b', 'c'], lastAt: new Date().toISOString() }] }],
+      byLayer: [{ layer: 'domain' as FrictionLayer, count: 9, reasons: [{ retryReason: 'flaky-gate', count: 9, sessions: ['a', 'b', 'c'], lastAt: new Date().toISOString(), defectClass: 'defect' as const }] }],
       recurring: [],
     };
     const results: unknown[] = [];
