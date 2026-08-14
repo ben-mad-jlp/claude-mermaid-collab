@@ -78,7 +78,9 @@ function realForgeDep(calls: IntakeCandidate[] = []): MissionIntakeDeps['forge']
     const spec = {
       title: `Fix recurring ${candidate.retryReason}`,
       description: `From cluster ${candidate.sig}`,
-      criteria: [`the ${candidate.retryReason} friction no longer recurs`, 'a regression test proves it'],
+      // Citable phrasing: mission criteria are gated at the write choke point
+      // (assertMissionCriterionCitable), and "… no longer recurs" is a bare ABSENCE.
+      criteria: [`the ${candidate.retryReason} seam carries a guard that refuses the recurring input`, 'a regression test proves it'],
       constraints: [{ rule: 'fix the root cause, not the symptom', rationale: 'anti-whack-a-mole' }],
     };
     const res = await forgeMissionFromDocAndWait(

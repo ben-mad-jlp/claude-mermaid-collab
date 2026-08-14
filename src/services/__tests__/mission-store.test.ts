@@ -238,7 +238,12 @@ describe('mission-store: criteria', () => {
     expect(deriveCriterionAction(crit({ status: 'dropped' }))).not.toBe('discover');
   });
 
-  test('a mission with 6 met + 1 dropped criterion converges, and the rollup reports met/total/dropped', async () => {
+  // Updated by FIX 3 ("Provable Criteria"): a mission carrying a DROP still STOPS, but it no
+  // longer reports a CLEAN convergence — dropping used to be arithmetically indistinguishable
+  // from satisfying (total counts only ACTIVE criteria). The terminal state is now named:
+  // convergedWithDrops / terminalReason 'converged-with-drops'. Terminality is deliberately
+  // unchanged (stopped stays true) so honesty never becomes a wedge.
+  test('a mission with 6 met + 1 dropped criterion STOPS as converged-with-drops (not a clean convergence)', async () => {
     const id = await makeMissionNode('[MISSION] dropped-aware convergence');
     upsertMission(project, id);
     for (let i = 0; i < 6; i++) {
@@ -250,7 +255,10 @@ describe('mission-store: criteria', () => {
 
     const rollup = getMissionRollup(project, id);
     expect(rollup.capability).toEqual({ met: 6, total: 6, dropped: 1 });
-    expect(rollup.converged).toBe(true);
+    expect(rollup.converged).toBe(false);
+    expect(rollup.convergedWithDrops).toBe(true);
+    expect(rollup.terminalReason).toBe('converged-with-drops');
+    expect(rollup.stopped).toBe(true); // anti-wedge: still terminal, the loop still stops
     // Convergence auto-closes the mission, and 'closed' outranks 'converged' in the terminal
     // prefix — so assert the capability derivation itself, with the terminal prefix cleared.
     const facts = collectMissionStatusFacts(project, getMission(project, id)!);
