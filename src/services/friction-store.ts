@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { computeFrictionSignature } from './friction-signature';
+import { classifyFrictionReason, type FrictionDefectClass } from './friction-defect-class';
 
 /**
  * Per-PROJECT friction-signal store (SEAM·collab — friction persistence).
@@ -43,6 +44,9 @@ export interface FrictionNote {
   /** Stable signature computed from reason + salient detail tokens (invariant across
    *  cosmetic differences like ids, paths, timestamps). Null for pre-migration rows. */
   signature: string | null;
+  /** Classification of the friction as a defect or success-signal. Null only for rows
+   *  a backfill has not yet reached. */
+  defectClass: FrictionDefectClass | null;
   /** ISO timestamp a retraction was recorded, or null while the note stands. A retracted
    *  note is WRONG, not merely handled — see retractFriction. */
   retractedAt: string | null;
@@ -60,6 +64,10 @@ export interface RecordFrictionInput {
   layer: FrictionLayer;
   retryReason: string;
   detail?: string | null;
+  /** Optional in-process override for defectClass. If not provided, the class is
+   *  computed by classifyFrictionReason. This field is for internal use only and
+   *  is not exposed as an MCP/tool parameter. */
+  defectClass?: FrictionDefectClass;
 }
 
 export interface FrictionFilter {
@@ -92,6 +100,7 @@ CREATE TABLE IF NOT EXISTS friction_notes (
   retryReason TEXT NOT NULL,
   detail TEXT,
   signature TEXT,
+  defectClass TEXT,
   createdAt TEXT NOT NULL,
   retractedAt TEXT,
   retractedReason TEXT,
@@ -133,10 +142,39 @@ function openDb(project: string): Database {
     })();
   }
 
-  // Migration: retraction and signature columns are additive — add them to any pre-existing table.
+  // Migration: retraction, signature, and defectClass columns are additive — add them to any pre-existing table.
   const have = new Set((db.prepare(`PRAGMA table_info(friction_notes)`).all() as Array<{ name: string }>).map((c) => c.name));
-  for (const [col, ddl] of [['retractedAt', 'TEXT'], ['retractedReason', 'TEXT'], ['supersededBy', 'TEXT'], ['signature', 'TEXT']] as const) {
+  for (const [col, ddl] of [['retractedAt', 'TEXT'], ['retractedReason', 'TEXT'], ['supersededBy', 'TEXT'], ['signature', 'TEXT'], ['defectClass', 'TEXT']] as const) {
     if (!have.has(col)) db.exec(`ALTER TABLE friction_notes ADD COLUMN ${col} ${ddl}`);
+  }
+
+  // Backfill defectClass on rows where it is NULL. One-shot, idempotent, guarded by a marker.
+  try {
+    const marker = '__migration:defectClass-backfill:v1';
+    const markerRow = db.prepare(
+      `SELECT state FROM friction_watch_state WHERE signalKey = ?`
+    ).get(marker) as { state?: string } | undefined;
+
+    if (!markerRow) {
+      // Fetch all distinct retryReasons where defectClass is NULL and classify each.
+      const distinctReasons = db.prepare(
+        `SELECT DISTINCT retryReason FROM friction_notes WHERE defectClass IS NULL`
+      ).all() as Array<{ retryReason: string }>;
+
+      for (const row of distinctReasons) {
+        const defectClass = classifyFrictionReason(row.retryReason);
+        db.prepare(
+          `UPDATE friction_notes SET defectClass = ? WHERE defectClass IS NULL AND retryReason = ?`
+        ).run(defectClass, row.retryReason);
+      }
+
+      // Mark the backfill complete so it doesn't re-run.
+      db.prepare(
+        `INSERT OR REPLACE INTO friction_watch_state (signalKey, state, updatedAt) VALUES (?,?,?)`
+      ).run(marker, 'done', new Date().toISOString());
+    }
+  } catch {
+    // Ignore backfill failures — they must never make openDb throw and take the daemon's friction path down.
   }
 
   // Create the signature index if it doesn't exist (deferred from DDL to avoid trying to index non-existent column).
@@ -182,6 +220,7 @@ function rowToNote(row: any): FrictionNote {
     retryReason: row.retryReason,
     detail: row.detail ?? null,
     signature: row.signature ?? null,
+    defectClass: (row.defectClass ?? null) as FrictionDefectClass | null,
     createdAt: row.createdAt,
     retractedAt: row.retractedAt ?? null,
     retractedReason: row.retractedReason ?? null,
@@ -200,10 +239,11 @@ function insertNoteUnlocked(db: Database, input: RecordFrictionInput, signature:
   const id = crypto.randomUUID();
   const ts = nowIso();
   const attempt = input.attempt ?? 1;
+  const defectClass = input.defectClass ?? classifyFrictionReason(input.retryReason, input.detail);
   db.prepare(
-    `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, signature, createdAt)
-     VALUES (?,?,?,?,?,?,?,?,?)`
-  ).run(id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, signature, ts);
+    `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, signature, defectClass, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).run(id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, signature, defectClass, ts);
   return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
 }
 
@@ -223,7 +263,7 @@ export function recordFriction(project: string, input: RecordFrictionInput): Pro
  *  this sqlite file — can never both win. Requires an EXACT `detail` (not a substring probe
  *  like hasFrictionNote's detailIncludes) because the caller's dedup key must be fully
  *  reproducible SQL-side. Returns true iff this call inserted a NEW row.
- *  The signature is computed and persisted but NOT part of the dedup predicate —
+ *  The signature and defectClass are computed and persisted but NOT part of the dedup predicate —
  *  the WHERE NOT EXISTS key stays (layer, retryReason, detail) exactly. */
 export function recordFrictionOnce(
   project: string,
@@ -239,14 +279,15 @@ export function recordFrictionOnce(
     const ts = nowIso();
     const attempt = input.attempt ?? 1;
     const signature = computeFrictionSignature(input.retryReason, input.detail);
+    const defectClass = input.defectClass ?? classifyFrictionReason(input.retryReason, input.detail);
     const result = db.prepare(
-      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, signature, createdAt)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, signature, defectClass, createdAt)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE NOT EXISTS (
          SELECT 1 FROM friction_notes WHERE layer = ? AND retryReason = ? AND detail = ?
        )`
     ).run(
-      id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail, signature, ts,
+      id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail, signature, defectClass, ts,
       input.layer, input.retryReason, input.detail,
     );
     return result.changes > 0;
