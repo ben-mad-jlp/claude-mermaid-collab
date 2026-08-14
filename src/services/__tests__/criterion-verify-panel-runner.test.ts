@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -511,5 +511,152 @@ describe('runCriterionVerifyPanel', () => {
 
     expect(result.met).toBe(false);
     expect(result.hold).toBe(true);
+  });
+
+  it('a mixed panel cites only the genuine dissenting lens', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const invokeCallCount = { count: 0 };
+    let recordedVerdicts: PanelVerdict[] | undefined;
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
+      invokeCallCount.count++;
+      // First PASS, second FAIL, third timeout (infra)
+      if (invokeCallCount.count === 1) {
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: 'VERDICT: PASS',
+          durationMs: 1000,
+          rateLimited: false,
+          authMode: 'subscription',
+        };
+      }
+      if (invokeCallCount.count === 2) {
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: 'VERDICT: FAIL — evidence not found',
+          durationMs: 1000,
+          rateLimited: false,
+          authMode: 'subscription',
+        };
+      }
+      // Timeout response (infra)
+      return {
+        ok: false,
+        exitCode: 137,
+        stdout: '',
+        durationMs: 10 * 60 * 1000,
+        rateLimited: false,
+        authMode: 'subscription',
+        timedOut: true,
+      };
+    };
+
+    const mockRecord = async (
+      _p: string,
+      _cid: string,
+      pv: PanelVerdict[],
+    ): Promise<string | null> => {
+      recordedVerdicts = pv;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    // Parseable count = 2, required majority = 2, so arm (b) is taken
+    expect(result.met).toBe(false);
+    expect(result.outcome).toBe('dissent');
+    expect(result.hold).toBe(true);
+    expect(result.dissent).toBeDefined();
+    // Only the FAIL lens (index 1, 'regression-red-when-neutered') should be in dissent
+    expect(result.dissent).toContain('regression-red-when-neutered');
+    expect(result.dissent).not.toContain('holds-at-head');
+    expect(result.dissent).not.toContain('node failed');
+    // All three verdicts (including the timeout) are recorded
+    expect(recordedVerdicts).toHaveLength(3);
+  });
+
+  it('no infra-exclusion combination raises met above the full parseable panel', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    // All 27 combinations of ['pass', 'fail', 'infra']^3
+    type State = 'pass' | 'fail' | 'infra';
+    const states: State[] = ['pass', 'fail', 'infra'];
+    const combinations: State[][] = [];
+    for (const a of states) {
+      for (const b of states) {
+        for (const c of states) {
+          combinations.push([a, b, c]);
+        }
+      }
+    }
+
+    for (const combination of combinations) {
+      const invokeCallCount = { count: 0 };
+
+      const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
+        const state = combination[invokeCallCount.count];
+        invokeCallCount.count++;
+
+        if (state === 'pass') {
+          return {
+            ok: true,
+            exitCode: 0,
+            stdout: 'VERDICT: PASS',
+            durationMs: 1000,
+            rateLimited: false,
+            authMode: 'subscription',
+          };
+        }
+        if (state === 'fail') {
+          return {
+            ok: true,
+            exitCode: 0,
+            stdout: 'VERDICT: FAIL — evidence not found',
+            durationMs: 1000,
+            rateLimited: false,
+            authMode: 'subscription',
+          };
+        }
+        // infra: timeout
+        return {
+          ok: false,
+          exitCode: 137,
+          stdout: '',
+          durationMs: 10 * 60 * 1000,
+          rateLimited: false,
+          authMode: 'subscription',
+          timedOut: true,
+        };
+      };
+
+      const mockRecord = async (): Promise<string | null> => null;
+
+      const result = await runCriterionVerifyPanel(project, criterion.id, {
+        invoke: mockInvoke,
+        recordVerdict: mockRecord,
+      });
+
+      // Oracle: compute expected met based on parseable subset
+      const parseable = combination.filter((s) => s !== 'infra');
+      const parseablePass = parseable.filter((s) => s === 'pass').length;
+      const parseableFail = parseable.filter((s) => s === 'fail').length;
+      const expectedMet =
+        parseable.length >= 2 && parseablePass * 2 > parseable.length;
+
+      // Assert met matches oracle
+      expect(result.met).toBe(expectedMet);
+
+      // If below-majority, outcome must be infra-degraded
+      if (parseable.length < 2) {
+        expect(result.outcome).toBe('infra-degraded');
+        expect(result.hold).toBe(true);
+      }
+    }
   });
 });
