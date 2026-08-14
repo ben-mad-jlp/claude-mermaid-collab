@@ -409,11 +409,16 @@ export async function runInfraRejectionArm(
         baseRedCandidates.push({ ...c, verdict });
       }
 
-      // Base-repair epic: raised only when a known lane stays red (verdict !== 'pass')
-      // and the cause is actually infrastructure (not mis-homed).
+      // Base-repair epic: raised whenever the lane stays provably red (verdict 'fail')
+      // and the cause is actually infrastructure (not mis-homed) — INCLUDING an unknown
+      // lane signature. The unknown-signature case is exactly the master/trunk base-red
+      // (incident b053b529): with no mechanical repair epic on offer, a red master used to
+      // yield only a human card, and hand-filed repair work ended up as an unclaimable
+      // parentless leaf. raiseBaseRepairEpic dedupes on the (targetProject, trunkRef)
+      // lane key, not the signature, so an unknown signature never forks duplicates.
       if (c.cause !== 'mis-homed-target' && verdict === 'fail') {
         const sig = signatureByEpic.get(c.epicId);
-        if (sig && sig !== UNKNOWN_LANE_SIGNATURE) {
+        {
           try {
             let trunkRef = 'master';
             try {
@@ -427,7 +432,7 @@ export async function runInfraRejectionArm(
               session,
               epicId: c.epicId,
               targetProject,
-              laneSignature: sig,
+              laneSignature: sig ?? UNKNOWN_LANE_SIGNATURE,
               trunkRef,
               cause: c.cause,
               reasonTail: c.reason,

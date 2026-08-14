@@ -852,7 +852,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       try {
         const id = decodeURIComponent(decideMatch[1]);
         const { optionId, note } = (await req.json()) as { optionId?: string; note?: string };
-        const result = decideEscalation(id, { optionId, note });
+        const result = await decideEscalation(id, { optionId, note });
         if (!result.ok) {
           const status = result.reason === 'not-found' ? 404 : 400;
           return jsonError(result.message, status);

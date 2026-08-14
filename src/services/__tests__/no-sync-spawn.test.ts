@@ -33,6 +33,13 @@ const SYNC_SPAWN = /\b(?:spawnSync|execSync|execFileSync)\b/g;
  * included), after comment stripping. reason documents the exemption.
  */
 const ALLOWLIST: Record<string, { count: number; reason: string }> = {
+  'services/mission-loop.ts': {
+    count: 2,
+    reason:
+      'Red-trunk silence sweep (never-again batch fix 3): one execFileSync import + one ' +
+      '`git rev-parse HEAD` — a sub-second local-ref read, and the whole pass is throttled ' +
+      'to once per MISSION_LOOP_INTERVAL_MS (2.5 min) per project, so it never rides the tick.',
+  },
   'services/impacted-tests.ts': {
     count: 2,
     reason:
