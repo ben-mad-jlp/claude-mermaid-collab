@@ -26,8 +26,13 @@ import {
   buildStallCardText,
   clearMissionStall,
   noteMissionLoopReason,
+  sweepRedTrunkSilence,
   type MissionLoopReasonBase,
+  type RepairTodoState,
 } from './mission-stall.ts';
+import { getLatestBaseGateVerdictForBase, latestLedgerTsForEpics } from './worker-ledger.ts';
+import { listTodos } from './todo-store.ts';
+import { execFileSync } from 'node:child_process';
 import {
   evaluateMissionStall,
   missionStallConditionKey,
@@ -252,6 +257,77 @@ export interface MissionLoopDeps {
   resolveStallEscalation?: (project: string, conditionKey: string) => void;
   /** Test seam: override project-scoped target resolution. Defaults to resolveNudgeTarget. */
   resolveTarget?: (project: string) => string;
+  /** Test seam: override the red-trunk silence sweep (mission-stall.ts). Defaults to
+   *  runRedTrunkSilenceSweep, which resolves the trunk sha + real ledger/todo readers. */
+  redTrunkSweep?: (project: string, now: number) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Red-trunk silence alarm wiring (2026-08-14: master red 7h+, zero escalations).
+// The pure sweep lives in mission-stall.ts; THIS is the deps-assembly shell — same
+// split as evaluateMissionStall / collectMissionStallFacts above.
+// ---------------------------------------------------------------------------
+
+/** The trunk sha this project's shared verdicts are keyed on: HEAD of the MAIN checkout
+ *  (main-checkout invariant — the main root sits on trunk). Null when the project is not
+ *  a resolvable git root (fail-open: no alarm, never a broken pass). */
+function resolveTrunkSha(project: string): string | null {
+  try {
+    const sha = execFileSync('git', ['-C', project, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch { return null; }
+}
+
+/** Live state of the trunk's repair filing, from the work-graph: absent (nothing filed),
+ *  claimable (a baseRepair todo is 'ready' — the daemon could dispatch it), else
+ *  unclaimable (filed in a state the daemon never schedules — the incident class). */
+function readRepairTodoState(project: string): RepairTodoState {
+  try {
+    const repairs = listTodos(project).filter((t) => (t.baseRepair ?? 0) !== 0);
+    if (repairs.length === 0) return 'absent';
+    return repairs.some((t) => t.status === 'ready') ? 'claimable' : 'unclaimable';
+  } catch { return 'absent'; }
+}
+
+/** Default red-trunk sweep: real trunk sha + real worker-ledger/todo/escalation deps. */
+function runRedTrunkSilenceSweep(project: string, now: number): void {
+  const trunkSha = resolveTrunkSha(project);
+  if (!trunkSha) return;
+  sweepRedTrunkSilence(project, trunkSha, {
+    now: () => now,
+    readTrunkVerdict: (sha) => {
+      const row = getLatestBaseGateVerdictForBase(sha);
+      return row
+        ? { status: row.status, baseSha: row.baseSha, resultJson: row.resultJson, measuredAt: row.measuredAt }
+        : null;
+    },
+    lastBaseRepairDispatchAt: () => {
+      try {
+        const epicIds = listTodos(project)
+          .filter((t) => (t.baseRepair ?? 0) !== 0)
+          .map((t) => t.id);
+        return latestLedgerTsForEpics(epicIds);
+      } catch { return null; }
+    },
+    repairTodoState: () => readRepairTodoState(project),
+    escalate: (card) => {
+      createEscalation({
+        project,
+        session: 'mission-loop',
+        kind: card.kind,
+        questionText: card.questionText,
+        operatorGated: true,
+        audience: 'human',
+        conditionKey: card.conditionKey,
+        conditionTuple: card.conditionTuple,
+        timeoutMs: card.timeoutMs,
+      });
+    },
+    resolveOpenCard: (conditionKey) => resolveStallEscalation(project, conditionKey),
+  });
 }
 
 /**
@@ -472,6 +548,11 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
   const resolveTarget = deps.resolveTarget ?? resolveNudgeTarget;
 
   const result: MissionLoopResult = { project, nudged: [], skipped: 0, stalled: [], overBudget: [] };
+
+  // Red-trunk silence alarm: project-level (mission-INDEPENDENT — the 2026-08-14 incident
+  // had a red trunk and an unschedulable repair with no mission arm watching). Runs once
+  // per pass, before the mission walk; fail-open — the alarm must never break the pass.
+  try { (deps.redTrunkSweep ?? runRedTrunkSilenceSweep)(project, now); } catch { /* fail-open */ }
 
   let missions: MissionSummary[];
   try { missions = list(project); } catch { return result; }
