@@ -55,7 +55,7 @@ export interface RepairForgeDeps {
   /** Check if a todo is a bucket item. Default: isBucketItem. */
   isBucketItem?: (project: string, todoId: string) => boolean;
   /** List missions in a project. Default: listMissions. */
-  listMissions?: (project: string) => MissionSummary[];
+  listMissions?: (project: string, allTodos?: Todo[]) => MissionSummary[];
   /** Forge a mission from input spec. Default: forgeMission. */
   forge?: (project: string, input: ForgeMissionInput) => Promise<{ missionId: string }>;
   /** Create an escalation card. Default: createEscalation. Must be injectable for tests (throws on tmp paths). */
@@ -84,16 +84,21 @@ export async function runRepairForgePass(
   const listTodosFn = deps.listTodos ?? listTodos;
   const ensureBucketFn = deps.ensureBucket ?? ensureBucket;
   const isBucketItemFn = deps.isBucketItem ?? isBucketItem;
-  const listMissionsFn = deps.listMissions ?? ((p: string) => listMissions(p));
+  const listMissionsFn = deps.listMissions ?? ((p: string, allTodos?: Todo[]) => listMissions(p, { allTodos }));
   const forgeFn = deps.forge ?? ((p: string, i: ForgeMissionInput) => forgeMission(p, i));
   const createEscalationFn = deps.createEscalation ?? createEscalation;
   const threshold = deps.threshold ?? (Number(getConfig('REPAIR_FORGE_THRESHOLD', '') || 0) || REPAIR_BATCH_K);
   const ageMs = deps.ageMs ?? REPAIR_AGE_MS;
   const now = deps.now ?? Date.now();
 
+  // One snapshot feeds every read below — the orchestrator tick threads its shared
+  // snapshot in (audit 7a); standalone callers fall back to one fresh scan. The
+  // tick-todos-snapshot counting test pins that this pass adds ZERO extra scans.
+  const allTodos = deps.todosSnapshot ?? listTodosFn(project);
+
   // STEP 1: CAP FIRST — check for an already-open repair mission (mutation-probe target).
   // If any mission is non-terminal AND auto-forged, refuse.
-  const missions = listMissionsFn(project);
+  const missions = listMissionsFn(project, allTodos);
   const hasOpenRepairMission = missions.some(
     (m) => !isMissionTerminal(m.mission) && isAutoForgedRepairMission({ ownerSession: m.ownerSession }),
   );
@@ -101,9 +106,14 @@ export async function runRepairForgePass(
     return { forged: null, reason: 'repair-mission-open' };
   }
 
-  // STEP 2: Resolve the bugfix bucket and collect open bucket items.
-  const bucketId = await ensureBucketFn(project, 'bugfix');
-  const allTodos = deps.todosSnapshot ?? listTodosFn(project);
+  // STEP 2: Resolve the bugfix bucket from the snapshot (ensureBucket does its own
+  // full-table scans — only pay them on the miss/creation path, where fresh reads are
+  // the point).
+  const bucketFromSnapshot = allTodos.find(
+    (t) => (t as { isBucket?: boolean | number }).isBucket && t.bucketType === 'bugfix'
+      && t.status !== 'done' && t.status !== 'dropped',
+  );
+  const bucketId = bucketFromSnapshot?.id ?? (await ensureBucketFn(project, 'bugfix'));
   const openBugfixLeaves = allTodos.filter(
     (t) => t.parentId === bucketId && t.status !== 'done' && t.status !== 'dropped' && isBucketItemFn(project, t.id),
   );
