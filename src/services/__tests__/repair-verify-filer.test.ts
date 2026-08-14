@@ -8,6 +8,8 @@ import {
 } from '../repair-verify-filer';
 import type { RepairVerifyFilerDeps, RepairVerifyFilerResult } from '../repair-verify-filer';
 import type { Todo } from '../todo-store';
+import { ExploreOracleRefusedError } from '../../mcp/workgraph-tools';
+import { MAX_VERIFY_EXPLORES_PER_PASS } from '../auto-action-audit';
 
 describe('repair-verify-filer', () => {
   beforeEach(() => {
@@ -293,6 +295,94 @@ describe('repair-verify-filer', () => {
       expect(result.filed).toHaveLength(0);
       expect(result.skipped).toBe(0);
       expect(callCount).toBe(0);
+    });
+
+    it('caps verify-explore filings per pass at MAX_VERIFY_EXPLORES_PER_PASS and records one capped audit row', async () => {
+      const auditRows: Array<Record<string, unknown>> = [];
+      let fileCallCount = 0;
+
+      const deps: RepairVerifyFilerDeps = {
+        listTodos: () => [],
+        listMissions: () => [
+          {
+            node: { id: 'mission1', title: 'Repair: fix' },
+            mission: { status: 'converged' },
+            ownerSession: '__auto_repair_forge__',
+          } as any,
+        ],
+        listCriteria: () => [
+          { id: 'crit_1', text: 'myFunc1 should work', met: true, status: 'active' },
+          { id: 'crit_2', text: 'myFunc2 should work', met: true, status: 'active' },
+          { id: 'crit_3', text: 'myFunc3 should work', met: true, status: 'active' },
+          { id: 'crit_4', text: 'myFunc4 should work', met: true, status: 'active' },
+        ],
+        fileExplore: async (project, session, opts) => {
+          fileCallCount++;
+          return { leaf: { id: `leaf_${fileCallCount}` } as Todo };
+        },
+        recordAutoAction: (input) => {
+          auditRows.push(input);
+        },
+      };
+
+      const result = await runRepairVerifyFilerPass('project', deps);
+
+      // Should file up to MAX_VERIFY_EXPLORES_PER_PASS explores.
+      expect(result.filed).toHaveLength(MAX_VERIFY_EXPLORES_PER_PASS);
+      expect(result.cappedAt).toBe(MAX_VERIFY_EXPLORES_PER_PASS);
+      expect(fileCallCount).toBe(MAX_VERIFY_EXPLORES_PER_PASS);
+
+      // Remaining criteria should be counted as skipped.
+      const remaining = 4 - MAX_VERIFY_EXPLORES_PER_PASS;
+      expect(result.skipped).toBe(remaining);
+
+      // Should have exactly one capped audit row.
+      const cappedRows = auditRows.filter((r) => r.outcome === 'capped');
+      expect(cappedRows).toHaveLength(1);
+      const cappedRow = cappedRows[0];
+      expect(cappedRow.action).toBe('verify-explore');
+      expect(cappedRow.outcome).toBe('capped');
+      expect(String(cappedRow.reason)).toContain('per-pass-cap');
+      expect(String(cappedRow.reason)).toContain(String(remaining));
+    });
+
+    it('records a refused audit row when fileExplore rejects with ExploreOracleRefusedError', async () => {
+      const auditRows: Array<Record<string, unknown>> = [];
+
+      const deps: RepairVerifyFilerDeps = {
+        listTodos: () => [],
+        listMissions: () => [
+          {
+            node: { id: 'mission1', title: 'Repair: fix' },
+            mission: { status: 'converged' },
+            ownerSession: '__auto_repair_forge__',
+          } as any,
+        ],
+        listCriteria: () => [
+          { id: 'crit_1', text: 'myFunc should work', met: true, status: 'active' },
+        ],
+        fileExplore: async () => {
+          throw new ExploreOracleRefusedError('oracle is not falsifiable');
+        },
+        recordAutoAction: (input) => {
+          auditRows.push(input);
+        },
+      };
+
+      const result = await runRepairVerifyFilerPass('project', deps);
+
+      // Should not have filed anything.
+      expect(result.filed).toHaveLength(0);
+      expect(result.skipped).toBe(1);
+
+      // Should have exactly one refused audit row with oracle-refused reason.
+      const refusedRows = auditRows.filter((r) => r.outcome === 'refused');
+      expect(refusedRows).toHaveLength(1);
+      const refusedRow = refusedRows[0];
+      expect(refusedRow.action).toBe('verify-explore');
+      expect(refusedRow.outcome).toBe('refused');
+      expect(String(refusedRow.reason)).toContain('oracle-refused');
+      expect(String(refusedRow.reason)).toContain('oracle is not falsifiable');
     });
   });
 });

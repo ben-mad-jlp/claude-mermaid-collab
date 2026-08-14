@@ -19,6 +19,7 @@
 import { existsSync } from 'node:fs';
 import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig } from './orchestrator-config.js';
 import { listWatchedProjects } from './supervisor-store.js';
+import { recordAutoAction } from './auto-action-audit.js';
 import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped } from './coordinator-live.js';
 import { runConductorPass } from './conductor-pass.js';
 import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
@@ -630,6 +631,17 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         // the no-op pass must not force later consumers into a re-read.
         if (res && typeof res === 'object' && ((res as { filed?: string[] }).filed ?? []).length > 0) invalidateSnapshot();
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        try {
+          recordAutoAction({
+            project,
+            action: 'verify-explore',
+            outcome: 'refused',
+            reason: `repair-verify-filer-pass-failed for ${project}: ${message}`,
+          });
+        } catch {
+          // Audit is fail-open; ignore any error.
+        }
         console.warn(`[orchestrator] repair-verify-filer failed for ${project}:`, err);
         invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
