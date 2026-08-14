@@ -145,29 +145,37 @@ export async function runCriterionVerifyPanel(
     causes.push(parsed === 'error' ? 'infra' : parsed === 'not-met' ? 'genuine-not-met' : 'met');
   }
 
-  // 5. Join verdicts — ONE rule, shared with the set_mission_criterion tool boundary:
-  // strict-majority via joinPanelVerdicts. (An extra unanimity AND used to live here,
-  // which made this door grade the same 2-of-3 verdict array met:false while the tool
-  // boundary graded it met:true. The shipped public contract is strict-majority, so the
-  // runner now takes met from the shared join and nothing else.)
-  const join = joinPanelVerdicts(verdicts);
-  const met = join.met;
+  // 5. Join verdicts — filter infra lenses and check majority coverage.
+  // Infra lenses (timeouts, parse failures) cannot cast a vote, so the majority is computed
+  // over the parseable subset only. If coverage is below majority, return infra-degraded hold.
+  // Otherwise, join over parseable lenses only via the shared strict-majority rule.
+  const parseableVerdicts = verdicts.filter((_, i) => causes[i] !== 'infra');
+  const requiredMajority = Math.floor(lenses.length / 2) + 1;
 
-  const outcome: 'pass' | 'dissent' | 'infra-degraded' =
-    met ? 'pass'
-    : causes.some((c) => c === 'genuine-not-met') ? 'dissent'
-    : causes.every((c) => c === 'infra') ? 'infra-degraded'
-    : 'dissent';
-
+  let met: boolean;
+  let outcome: 'pass' | 'dissent' | 'infra-degraded';
   let dissent: string | undefined;
   let hold = false;
 
-  if (!met) {
+  if (parseableVerdicts.length < requiredMajority) {
+    // Below-majority coverage: infra-degraded hold, no grading.
+    met = false;
     hold = true;
-    dissent = join.dissent || verdicts
+    outcome = 'infra-degraded';
+    const notMetParseable = parseableVerdicts
       .filter((v) => !v.met)
       .map((v) => `${v.lens}: ${v.reason}`)
       .join('; ');
+    dissent = notMetParseable || undefined;
+  } else {
+    // Sufficient coverage: join over parseable set only.
+    const join = joinPanelVerdicts(parseableVerdicts);
+    met = join.met;
+    outcome = met ? 'pass' : 'dissent';
+    if (!met) {
+      hold = true;
+      dissent = join.dissent;
+    }
   }
 
   // 6. Record the verdict — ALWAYS with a non-null evidence string and the criterion's
@@ -185,7 +193,7 @@ export async function runCriterionVerifyPanel(
     outcome === 'pass'
       ? `Auto-panel PASS at ${shaLabel} — strict-majority met (${verdicts.filter((v) => v.met).length}/${lenses.length}) across distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
       : outcome === 'infra-degraded'
-        ? `Auto-panel HOLD (infra-degraded — no lens produced a parseable verdict; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
+        ? `Auto-panel HOLD (infra-degraded — only ${parseableVerdicts.length}/${lenses.length} lenses produced a parseable verdict, below the required majority of ${requiredMajority}; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
         : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
   const evidencePaths = criterion.evidencePaths ?? [];
 
