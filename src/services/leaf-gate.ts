@@ -1087,9 +1087,9 @@ export async function runBaseGate(
   // base carries a stored FULL-SUITE green in the shared-verdict layer, only the impacted
   // set of the diff M..base needs to run — the anchor already proves the rest. Any doubt
   // (no anchor, planner fallback trigger, git failure) runs the full suite exactly as
-  // before. Safety net: the daemon's continuous master base gate still runs the FULL suite
-  // on trunk, so anchor greens keep being produced and an impacted miss self-surfaces
-  // there. See base-gate-impacted.ts.
+  // before. Safety net: ensureTrunkAnchor (trunk-anchor.ts) produces full-suite trunk
+  // greens — after every land and lazily on anchor-miss — so anchors keep being produced
+  // and an impacted miss self-surfaces on the next full run. See base-gate-impacted.ts.
   let effCfg = cfg;
   let impactedMeta: LeafGateResult['impactedBase'];
   let impactedNote: string | undefined;
