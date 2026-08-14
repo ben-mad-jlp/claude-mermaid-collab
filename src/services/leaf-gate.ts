@@ -636,6 +636,8 @@ export const GATE_WARDEN_PERL =
 
 export const DEFAULT_TASKPOLICY_PATH = '/usr/sbin/taskpolicy';
 
+export const GATE_SPAWN_ERROR_MARKER = 'gate-spawn-error';
+
 /** Resolve the absolute path to taskpolicy on darwin, honouring MERMAID_TASKPOLICY_PATH
  *  override. Returns null if the path does not exist, allowing graceful skip of the QoS layer.
  *  No caching — the env override must be honoured per-call for tests. */
@@ -643,6 +645,28 @@ export function taskpolicyPath(): string | null {
   const override = process.env.MERMAID_TASKPOLICY_PATH;
   const path = override && override.trim() ? override.trim() : DEFAULT_TASKPOLICY_PATH;
   return existsSync(path) ? path : null;
+}
+
+/** Format a harness-thrown error from defaultGateSpawn into a self-identifying output line.
+ *  Returns a ≤5 line string with the marker, error class name, original message verbatim,
+ *  capped stack (first 3 frames), and the failing command. Never throws. */
+export function formatGateSpawnError(cwd: string, command: string, e: unknown): string {
+  const className = e instanceof Error ? e.constructor.name : 'NonError';
+  const message = e instanceof Error ? (e.message ?? String(e)) : String(e);
+  const lines: string[] = [];
+
+  lines.push(`${GATE_SPAWN_ERROR_MARKER}: ${className}: ${message} (harness threw inside defaultGateSpawn; cwd=${cwd})`);
+
+  if (e instanceof Error && e.stack) {
+    const stackLines = e.stack.split('\n').slice(1, 4);
+    for (const line of stackLines) {
+      if (lines.length < 4) lines.push(line);
+    }
+  }
+
+  lines.push(command);
+
+  return lines.join('\n');
 }
 
 export function gateSpawnArgv(
@@ -742,7 +766,7 @@ export const defaultGateSpawn: GateSpawn = async (cwd, command) => {
     // branch above catches it — stderr carries the "gate hard-timeout" marker.
     return { ran: true, code, output: `${stdout}${stderr}` };
   } catch (e) {
-    return { ran: false, code: -1, output: e instanceof Error ? (e.message ?? String(e)) : String(e) };
+    return { ran: false, code: -1, output: formatGateSpawnError(cwd, command, e) };
   } finally {
     releaseGateSlot();
   }
