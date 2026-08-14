@@ -11,9 +11,10 @@
  * it CANNOT see falls back to the full suite via `planImpactedFloor`'s triggers. What the
  * graph does not see: runtime `readFileSync` of config/fixture paths (no import edge) and
  * process-level coupling (env vars, shared SQLite). The infra-path trigger catches the
- * known dangerous ones (scripts/, shared helpers/fixtures, the preloaded tripwire); the
- * daemon's continuous master base gate — which still runs the FULL suite — is the safety
- * net for the rest: an impacted-set miss self-surfaces there on the next base run.
+ * known dangerous ones (scripts/, shared helpers/fixtures, the preloaded tripwire);
+ * `ensureTrunkAnchor` (trunk-anchor.ts) — the capped, coalesced FULL-suite gate at the
+ * trunk sha, fired after every land and on every anchor miss — is the safety net for the
+ * rest: an impacted-set miss self-surfaces there on the next full trunk run.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
