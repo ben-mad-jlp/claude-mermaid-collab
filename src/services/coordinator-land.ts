@@ -1507,6 +1507,15 @@ export async function landEpic(
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
       await refreshProjectDigestOnLand(targetProject);
+      // Master just moved — fire-and-forget the FULL-SUITE trunk anchor so the impacted
+      // base/land gates have a green anchor at the new sha instead of every epic base
+      // paying full price until one happens to coincide (trunk-anchor.ts). Capped +
+      // coalesced inside ensureTrunkAnchor; must never block or fail a completed land.
+      try {
+        void import('./trunk-anchor.js')
+          .then((m) => m.ensureTrunkAnchor(targetProject))
+          .catch(() => { /* advisory */ });
+      } catch { /* advisory */ }
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
       threw = true;

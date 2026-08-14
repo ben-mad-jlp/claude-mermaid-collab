@@ -13,10 +13,11 @@
  * full-suite, a failed git probe, or any planner trigger. The impacted path is an
  * optimization, never a correctness relaxation.
  *
- * SAFETY NET: the daemon's continuous master base gate still runs the FULL suite on trunk,
- * so full-suite green anchors keep being produced and any test the static import graph
- * misses self-surfaces there on the next trunk run — an impacted miss is a delayed signal,
- * never a lost one.
+ * SAFETY NET: `ensureTrunkAnchor` (trunk-anchor.ts) is the real anchor producer — a capped,
+ * coalesced FULL-suite gate at the current trunk sha, fired after every successful land and
+ * lazily on every anchor-lookup miss below. Full-suite green anchors keep being produced,
+ * and any test the static import graph misses self-surfaces on that next full trunk run —
+ * an impacted miss is a delayed signal, never a lost one.
  */
 import type { LeafGateConfig, LeafGateResult } from './leaf-gate.js';
 import { planImpactedFloor, type FloorPlan } from './impacted-tests';
@@ -42,6 +43,10 @@ export interface ImpactedBaseGateOpts {
   planner?: (p: { repoRoot: string; changedFiles: string[] }) => FloorPlan;
   /** Injectable anchor-verdict lookup (tests). Defaults to worker-ledger getBaseGateVerdict. */
   getVerdict?: (key: string) => BaseGateVerdictRow | null;
+  /** Injectable anchor producer, fired (fire-and-forget) on an anchor-lookup MISS so the
+   *  anchor exists for the NEXT asker. Defaults to trunk-anchor.ts's ensureTrunkAnchor,
+   *  loaded lazily (dynamic import) to keep the module graph acyclic. */
+  ensureAnchor?: (project: string) => Promise<unknown> | void;
 }
 
 export type ImpactedBaseGatePlan =
@@ -65,6 +70,17 @@ export function isFullSuiteAnchorVerdict(row: BaseGateVerdictRow): boolean {
 }
 
 const short = (sha: string): string => sha.slice(0, 8);
+
+/** Fire-and-forget the anchor producer on an anchor-lookup MISS. The CURRENT gate still
+ *  runs full (that is correct — nothing to anchor on yet); this just makes sure the anchor
+ *  exists for the next asker instead of waiting for luck. Never throws, never blocks. */
+function fireEnsureAnchor(opts: ImpactedBaseGateOpts): void {
+  try {
+    const fire = opts.ensureAnchor
+      ?? ((p: string) => import('./trunk-anchor.js').then((m) => { void m.ensureTrunkAnchor(p); }));
+    void Promise.resolve(fire(opts.project)).catch(() => { /* fire-and-forget */ });
+  } catch { /* fire-and-forget */ }
+}
 
 /**
  * Decide impacted vs full for one base-gate run of base sha B in worktree `cwd`.
@@ -100,9 +116,11 @@ export async function planImpactedBaseGate(
     const key = sharedVerdictKey(baseGateKey(opts.project, anchor, cfg), opts.quarantineHash);
     const stored = getVerdict(key);
     if (!stored || stored.status !== 'pass') {
+      fireEnsureAnchor(opts);
       return full(`no green anchor for trunk ${short(anchor)}`);
     }
     if (!isFullSuiteAnchorVerdict(stored)) {
+      fireEnsureAnchor(opts);
       return full(`anchor ${short(anchor)} verdict is not a full-suite green (impacted or unprovable) — anchors must be full-suite`);
     }
 

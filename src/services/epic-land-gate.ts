@@ -286,9 +286,10 @@ async function runRegressionFloor(o: {
   }
 
   // Impacted-set narrowing applies ONLY here — the land-gate floor. The leaf and base
-  // gates keep their full behavior, and the daemon's continuous master base gate still
-  // runs the FULL suite: any test the static import graph misses self-surfaces there on
-  // the next base run, so an impacted miss is a delayed signal, never a lost one.
+  // gates keep their full behavior, and `ensureTrunkAnchor` (trunk-anchor.ts) runs the
+  // FULL suite at the trunk sha after every land (capped + coalesced): any test the
+  // static import graph misses self-surfaces there on the next full trunk run, so an
+  // impacted miss is a delayed signal, never a lost one.
   let plan: FloorPlan;
   const anyCapable = o.floors.some((l) => FLOOR_FILES_CAPABLE_RE.test(l.command));
   if (!anyCapable) {
