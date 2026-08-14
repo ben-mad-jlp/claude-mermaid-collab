@@ -65,7 +65,7 @@ import { allocateLeafScratch, reapLeafScratch, leafScratchFor } from './leaf-scr
 import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
-import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
+import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, consultStoredBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
@@ -684,6 +684,12 @@ export interface LeafExecutorDeps {
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
   ensureBaseGreen?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
+  /** ADVISORY BASE GATE (2026-08-14): synchronous STORED-verdict consult for dispatch —
+   *  never a live run. When wired, dispatch prefers this over awaiting `ensureBaseGreen`;
+   *  a MISS (null) releases the leaf immediately and `ensureBaseGreen` is kicked off
+   *  fire-and-forget through the coalescer so the verdict exists for the next asker.
+   *  Unwired ⇒ legacy behaviour (await `ensureBaseGreen`). */
+  consultBaseVerdict?: () => (LeafGateResult & { fresh: boolean }) | null;
   /** G2 base-red re-probe: how many commits the epic branch is behind trunk. Used to decide
    *  whether a forward-integrate + re-probe is worth attempting before parking. Unwired ⇒
    *  undefined ⇒ treated as 0 (never behind) ⇒ no re-probe attempted. */
@@ -2184,7 +2190,26 @@ export async function runLeaf(
   // ZERO leaves of any shape and spends ZERO nodes (nodesSpent stays 0 in the terminal
   // record). Cached once per epic (deps.ensureBaseGreen) — this call is cheap on every
   // leaf after the first.
-  const base = await deps.ensureBaseGreen?.();
+  //
+  // ADVISORY (2026-08-14): when `consultBaseVerdict` is wired, dispatch reads the STORED
+  // verdict only — it never awaits a live 10–20min gate run (2026-08-14: three leaves
+  // starved all morning behind serial gates, and empirically almost every base-red is a
+  // flake; the LAND gate is the real correctness wall). A stored pass or NO verdict
+  // releases the leaf immediately; a miss ALSO kicks the measurement off in the
+  // background through the coalescer (single-flight, capped) so the next asker has a
+  // verdict to consult. Only a recent real red (fail, within the FAIL freshness cap,
+  // naming failing tests — enforced inside consultStoredBaseGreen) holds.
+  let base: (LeafGateResult & { fresh: boolean }) | null | undefined;
+  if (deps.consultBaseVerdict) {
+    base = deps.consultBaseVerdict();
+    if (!base && deps.ensureBaseGreen) {
+      void deps.ensureBaseGreen().catch((e) => {
+        console.log(`[leaf-executor] background base-gate measure failed (advisory — leaf already released): ${e instanceof Error ? e.message : String(e)}`);
+      });
+    }
+  } else {
+    base = await deps.ensureBaseGreen?.();
+  }
   // BASE-REPAIR EXEMPTION (bug 65345589): an epic whose PURPOSE is greening a red base
   // lane is otherwise deadlocked by this very hold — its leaves ARE the fix for the lane
   // that holds them (observed: sixth-drain epic 6560e5e1 'Green the ^ui/ vitest lane',
@@ -4160,6 +4185,13 @@ export async function makeLeafExecutorDeps(
     // cached `fail` is re-verified (bounded by shouldHonourCachedBaseGate's attempt/TTL
     // policy) rather than pinning the epic red forever on one contention/flake red.
     // `fresh:true` only on a call that actually executed the commands.
+    // ADVISORY dispatch consult: stored verdict only (epic row + shared base_gate_verdict),
+    // zero live runs. A gate CONFIG error still surfaces (and parks) exactly as before.
+    consultBaseVerdict: () => {
+      const early = gateResultForDeclaration(gateDecl);
+      if (early) return { ...early, fresh: true };
+      return consultStoredBaseGreen({ epicId, targetProject, epicBaseSha, gateCfg });
+    },
     ensureBaseGreen: async () => {
       const early = gateResultForDeclaration(gateDecl);
       if (early) return { ...early, fresh: true }; // escalate once; never cache a config error as a base fact

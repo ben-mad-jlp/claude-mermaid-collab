@@ -87,6 +87,9 @@ const LAND_REASON_CLASSES: Record<string, LandReasonClass> = {
   'no-active-mission': 'not-ready',
   'foreign-mission': 'not-ready',
   'land-not-ready': 'not-ready',
+  // Behind-trunk with no file overlap: the merge result is unmeasured — same class of
+  // condition as a stale build base (repair-forge incident, 2026-08-14).
+  'behind-trunk-fi-first': 'stale-base',
 };
 
 /** Collapse a free-text land failure string to a `LandReasonClass`. Handles the two
@@ -1033,16 +1036,23 @@ async function runStewardPrecheck(
   return { ok: true, epic, epicChildIds, measurements };
 }
 
-async function checkStaleness(
+/** Test seam for checkStaleness — lets tests stub the revalidate (FI + re-gate) step. */
+export interface StalenessStageDeps {
+  revalidate?: (targetProject: string, epicId: string) => Promise<RevalidateResult>;
+}
+
+export async function checkStaleness(
   wm: ReturnType<typeof getWorktreeManager>,
   targetProject: string,
   epicId: string,
   epicBranch: string,
   ctx: { project: string; session: string; escalationId: string | null; todoId: string },
+  stageDeps?: StalenessStageDeps,
 ): Promise<{ ok: boolean } | LandEpicOutcome> {
+  const revalidate = stageDeps?.revalidate ?? ((p: string, e: string) => revalidateStaleEpic(p, e));
   const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
   if (staleness?.stale) {
-    const rev = await revalidateStaleEpic(targetProject, epicId);
+    const rev = await revalidate(targetProject, epicId);
     if (!rev.ok) {
       const failReason = `stale-build-base:${rev.reason}`;
       const detail =
@@ -1070,6 +1080,53 @@ async function checkStaleness(
       return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
     }
     recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
+    return { ok: true };
+  }
+
+  // Behind-trunk ⇒ FI first, REGARDLESS of file overlap (repair-forge incident,
+  // 2026-08-14): two branches can each be green while their MERGE is red — a semantic
+  // conflict needs no overlapping paths. The overlap-based stale-build-base check above
+  // stays as the cheaper early tripwire; this closes the no-overlap gap. If the epic
+  // branch is behind trunk by ANY commits, refuse to land the unmeasured merge:
+  // forward-integrate trunk into the epic branch (--no-ff, never rebase) and re-gate,
+  // so the proof stage that follows measures the post-FI tree — which IS the merge
+  // result. A conflicted FI aborts untouched and raises the existing human-rebase
+  // escalation; master unmoved.
+  const behind =
+    staleness != null ? staleness.commitsAhead : await wm.epicBehindBase(epicId).catch(() => 0);
+  if (behind > 0) {
+    const rev = await revalidate(targetProject, epicId);
+    if (!rev.ok) {
+      const failReason = 'behind-trunk-fi-first';
+      const detail =
+        rev.reason === 'forward-integrate-conflict'
+          ? `re-integration hit a merge conflict (${rev.conflictedPaths.join(', ') || 'unknown'})`
+          : rev.reason === 'revalidation-gate-failed'
+            ? `the re-run gate FAILED:\n${rev.output}`
+            : rev.reason;
+      const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'behind-trunk']);
+      createEscalation({
+        project: ctx.project,
+        session: ctx.session,
+        todoId: ctx.todoId,
+        kind: 'assumption-invalidated',
+        audience: 'human',
+        conditionKey: cond.conditionKey,
+        conditionTuple: cond.conditionTuple,
+        questionText:
+          `Land blocked — epic ${epicBranch} is ${behind} commit(s) behind trunk and must be ` +
+          `forward-integrated before landing (the merge result is otherwise unmeasured, even with ` +
+          `no overlapping files). ${detail}. Master is UNTOUCHED — merge master into ${epicBranch}, ` +
+          `resolve/fix, re-gate, then re-land.`,
+      });
+      recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'refused', reason: failReason, behind, revReason: rev.reason }) });
+      return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
+    }
+    // FI clean + gate green: continue the land in the SAME job against the new epic tip.
+    // The proof stage snapshots the tip AFTER this stage, so the gate measures the
+    // post-FI tree; any steward measurements threaded from the precheck were pinned to
+    // the pre-FI shas and are invalidated by the sha-match guard in landReadiness.
+    recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'forward-integrated', reason: 'behind-trunk-fi-first', behind }) });
   }
   return { ok: true };
 }

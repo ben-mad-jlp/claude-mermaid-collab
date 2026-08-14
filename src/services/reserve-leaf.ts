@@ -226,8 +226,12 @@ export async function reserveLeaf(
     servesCriterionId: old.servesCriterionId,
     servesCriterionIds: old.servesCriterionIds.length > 0 ? old.servesCriterionIds : null,
     // A leaf under an approved epic is already parented; allowOrphan keeps the create
-    // from tripping the every-todo-needs-an-epic guard when parentId is unexpectedly null.
+    // from tripping the every-todo-needs-an-epic guard for non-leaf kinds. A LEAF whose
+    // parentId is unexpectedly null must NOT be re-minted parentless (parentless-leaf-refused,
+    // incident b053b529 — a parentless leaf is permanently unclaimable): home the fresh
+    // clone under the bugfix bucket instead so it stays visible and consumable.
     allowOrphan: true,
+    bucket: old.parentId == null && (old.kind ?? 'leaf') === 'leaf' ? 'bugfix' : undefined,
     // Preserve readiness: if the poisoned leaf was approved, the fresh clone should be
     // claimable by the daemon too (else the re-served work strands unapproved).
     status: old.approvedAt != null ? 'ready' : undefined,

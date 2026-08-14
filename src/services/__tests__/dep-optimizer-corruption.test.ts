@@ -110,9 +110,13 @@ describe('resolveBaseGreen with dep-optimizer corruption', () => {
     const epicBaseSha = 'sha-dep-opt-b';
     const now = Date.now();
 
+    // Advisory-gate contract (2026-08-14): a 'fail' must NAME a failing test to stay a
+    // fail — a nameless red demotes to 'error' (vague red, not a citable base fact). This
+    // fixture's unrelated assertion failure therefore cites its file, as a real run would.
     const runGate = async (): Promise<LeafGateResult> => ({
       status: 'fail',
-      output: `expect(x).toBe(y)
+      output: `FAIL src/unrelated.test.ts
+expect(x).toBe(y)
 Expected: foo
 Received: bar`,
       reasons: [],
