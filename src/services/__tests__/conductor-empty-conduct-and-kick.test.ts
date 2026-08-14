@@ -55,14 +55,15 @@ import { addWatchedProject, setConductorEnabled, listOpenEscalations } from '../
 import { _resetMissionDbCache, listCriteria, listCriteriaWithActions } from '../mission-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 import { forgeMission } from '../../mcp/tools/mission-forge';
-import { createTodo, updateTodo } from '../todo-store';
+import { createTodo, updateTodo, listTodos } from '../todo-store';
+import { isFileableServeGap, isRolledBackReplanGap } from '../mission-status-predicates';
 
 let project: string;
 let invokeCalls: number;
 
-/** The EMPTY-CONDUCT node: exits ok, files nothing. On a mission whose only gap is a `verify`
- *  there are no `discover` ids to serve, so the productive-pass guard is satisfied VACUOUSLY and
- *  the pass journals 'conducted' — the 949dda42 shape exactly. */
+/** The EMPTY-CONDUCT node: exits ok, files nothing. On the fixture below the productive-pass
+ *  guard is satisfied by a serving epic that ALREADY existed, so the pass still journals
+ *  'conducted' — the 949dda42 shape exactly. */
 const emptyConductInvoke = async () => {
   invokeCalls++;
   return { ok: true, rateLimited: false, text: 'REASONING SUMMARY: looked, found nothing to do' } as any;
@@ -78,11 +79,22 @@ beforeEach(() => {
   _resetConductorKicks();
 });
 
-/** Approved+active mission whose single criterion derives action 'verify' (one LANDED serving
- *  epic that did real work, no verdict yet). Its serve-state is STABLE across ticks: nothing the
- *  pass does changes the derived actions, which is what lets a run of empty conducts accumulate
- *  on ONE unchanged serveFp. */
-async function forgeVerifyOnlyMission() {
+/**
+ * THE LIVE WEDGE SHAPE (949dda42). An approved+active mission with ONE criterion that derives
+ * `discover` while its only serving epic is CLOSED: the epic todo is `done`, but its proof leaf
+ * was dropped, so the epic does not PROVE the criterion and servingEpicState stays 'open'.
+ *
+ * Every part of that matters:
+ *  - action `discover` + a serving epic in the set ⇒ the pass's `servedAGap` guard is satisfied by
+ *    an epic that already existed, so a node that files nothing still exits 'conducted'. That is
+ *    what makes an EMPTY CONDUCT possible at all.
+ *  - the serving epic todo is CLOSED ⇒ the gap is FILEABLE (isFileableServeGap), so filing nothing
+ *    is a genuine failure and the pass must re-arm. Contrast forgeOpenEpicGapMission below, which
+ *    differs in exactly one field (the epic stays open) and must NOT re-arm.
+ *  - the serve-state is STABLE across ticks: nothing a no-op pass does changes the derived
+ *    actions, which is what lets a run of empty conducts accumulate on ONE unchanged serveFp.
+ */
+async function forgeClosedEpicGapMission() {
   const forged = await forgeMission(project, {
     session: 's1',
     title: 'Empty-conduct mission',
@@ -90,14 +102,42 @@ async function forgeVerifyOnlyMission() {
   });
   const crit = listCriteria(project, forged.missionId)[0];
   const epic = await createTodo(project, {
-    ownerSession: 's1', title: '[EPIC] serve (landed)', kind: 'epic',
+    ownerSession: 's1', title: '[EPIC] serve (closed, unproven)', kind: 'epic',
     parentId: forged.missionId, servesCriterionIds: [crit.id],
   });
   const leaf = await createTodo(project, {
     ownerSession: 's1', title: 'proof leaf', parentId: epic.id, servesCriterionIds: [crit.id],
   });
-  await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
-  await updateTodo(project, epic.id, { status: 'done' });
+  await updateTodo(project, leaf.id, { status: 'dropped' }); // never delivered ⇒ proves nothing
+  await updateTodo(project, epic.id, { status: 'done' });    // ⇒ CLOSED ⇒ a new epic is needed
+  _resetMissionDbCache(project);
+  return { forged, crit };
+}
+
+/**
+ * THE 2026-07-23 SHAPE. Identical to forgeClosedEpicGapMission in every derived fact the
+ * fingerprint sees — action `discover`, servingEpicState 'open', not live — EXCEPT that the
+ * serving epic todo is still OPEN (a statically base-red epic with a rejected leaf). Nothing is
+ * fileable, so a pass that files nothing is CORRECT and must settle into the debounce after ONE
+ * node. This is the boundary the empty-conduct re-arm must not cross.
+ */
+async function forgeOpenEpicGapMission() {
+  const forged = await forgeMission(project, {
+    session: 's1',
+    title: 'Statically-red mission',
+    criteria: ['the landed change still holds at HEAD'],
+  });
+  const crit = listCriteria(project, forged.missionId)[0];
+  const epic = await createTodo(project, {
+    ownerSession: 's1', title: '[EPIC] serve (open, base-red)', kind: 'epic',
+    parentId: forged.missionId, servesCriterionIds: [crit.id],
+  });
+  const leaf = await createTodo(project, {
+    ownerSession: 's1', title: 'rejected leaf', parentId: epic.id, status: 'ready',
+    servesCriterionIds: [crit.id],
+  });
+  await updateTodo(project, leaf.id, { acceptanceStatus: 'rejected' }); // epic stays OPEN
+  _resetMissionDbCache(project);
   return { forged, crit };
 }
 
@@ -166,9 +206,12 @@ describe('the journal refuses an empty conduct as the debounce anchor', () => {
     return id;
   }
 
+  const FILEABLE = { emptyConductAnchors: false };
+
   test('a productive pass IS the anchor (unchanged behaviour)', () => {
     seed({ startedAt: 1000, filed: [{ kind: 'epic', id: 'e1', title: 'served' }] });
     expect(latestProductivePassFp(project, MISSION)).toEqual({ passFp: 'FP', selfFp: 'SELF' });
+    expect(latestProductivePassFp(project, MISSION, FILEABLE)).toEqual({ passFp: 'FP', selfFp: 'SELF' });
   });
 
   test('RETROACTIVE HEAL: an empty conduct in front of an older productive pass yields NO anchor', () => {
@@ -177,14 +220,24 @@ describe('the journal refuses an empty conduct as the debounce anchor', () => {
     // walk STOPS: "the last thing the conductor did moved nothing" ⇒ there is no anchor.
     seed({ startedAt: 1000, filed: [{ kind: 'epic', id: 'e1', title: 'served' }] });
     seed({ startedAt: 2000, filed: [] });
-    expect(latestProductivePassFp(project, MISSION)).toBeNull();
+    expect(latestProductivePassFp(project, MISSION, FILEABLE)).toBeNull();
+  });
+
+  test('DEFAULT: an empty conduct still anchors when the caller has nothing fileable', () => {
+    // The 2026-07-23 direction. The default must be the SAFE one: a caller that does not opt in
+    // gets today's behaviour and never re-spins a node against a statically-red open epic.
+    seed({ startedAt: 1000, filed: [{ kind: 'epic', id: 'e1', title: 'served' }] });
+    seed({ startedAt: 2000, filed: [], passFp: 'EMPTY-FP', selfFp: 'EMPTY-SELF' });
+    expect(latestProductivePassFp(project, MISSION)).toEqual({ passFp: 'EMPTY-FP', selfFp: 'EMPTY-SELF' });
+    expect(latestProductivePassFp(project, MISSION, { emptyConductAnchors: true }))
+      .toEqual({ passFp: 'EMPTY-FP', selfFp: 'EMPTY-SELF' });
   });
 
   test('debounced/failed rows in between are transparent — they are not anchors either', () => {
     seed({ startedAt: 1000, filed: [{ kind: 'epic', id: 'e1', title: 'served' }] });
     seed({ startedAt: 2000, outcome: 'debounced', ran: false, passFp: 'OTHER' });
     seed({ startedAt: 3000, outcome: 'node-failed', passFp: 'OTHER' });
-    expect(latestProductivePassFp(project, MISSION)).toEqual({ passFp: 'FP', selfFp: 'SELF' });
+    expect(latestProductivePassFp(project, MISSION, FILEABLE)).toEqual({ passFp: 'FP', selfFp: 'SELF' });
   });
 
   test('countConsecutiveEmptyConducts walks the contiguous run on ONE serveFp', () => {
@@ -208,7 +261,7 @@ describe('an empty conduct does not satisfy the debounce', () => {
   test('RETROACTIVE HEAL: a journal that ALREADY holds a poisoned anchor re-arms on the next pass', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
 
     // Pass 1 leaves exactly the row a wedged mission is sitting on right now:
     // ran, outcome 'conducted', filed [] , carried 0 — and its passFp IS the current world fp.
@@ -230,7 +283,7 @@ describe('an empty conduct does not satisfy the debounce', () => {
   test('a pass that FILED something still anchors the debounce (unchanged behaviour)', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
 
     await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
     expect(invokeCalls).toBe(1);
@@ -246,7 +299,7 @@ describe('an empty conduct does not satisfy the debounce', () => {
   test('the empty conduct records failCounted TRUTHFULLY (a real node ran and moved nothing)', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
     await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
     expect(newestRanRow(forged.missionId).failCounted).toBe(true);
   });
@@ -256,7 +309,7 @@ describe('BOUNDED: the re-arm stops at CONDUCTOR_EMPTY_CONDUCT_CAP', () => {
   test('N consecutive empty conducts stop the re-arm and raise exactly ONE deduped card', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
 
     for (let i = 0; i < CONDUCTOR_EMPTY_CONDUCT_CAP; i++) {
       const r = await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
@@ -278,7 +331,7 @@ describe('BOUNDED: the re-arm stops at CONDUCTOR_EMPTY_CONDUCT_CAP', () => {
     expect(cardsAfterFirst[0].todoId).toBe(forged.missionId);
     expect(cardsAfterFirst[0].questionText).toContain('Empty-conduct mission');
     expect(cardsAfterFirst[0].questionText).toContain('filed NOTHING');
-    expect(cardsAfterFirst[0].questionText).toContain('1 criterion at verify');
+    expect(cardsAfterFirst[0].questionText).toContain('1 criterion at discover');
 
     // Five more ticks: still capped, still ONE card (deduped by conditionKey), still no node.
     for (let i = 0; i < 5; i++) {
@@ -294,7 +347,7 @@ describe('BOUNDED: the re-arm stops at CONDUCTOR_EMPTY_CONDUCT_CAP', () => {
   test('a PRODUCTIVE pass in between resets the counter', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
 
     await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
     expect(invokeCalls).toBe(1);
@@ -373,7 +426,7 @@ describe('the KICK forces exactly one pass past the debounce', () => {
   async function wedgeWithDebounceStreak(streak: number) {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
     await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
     markRowProductive(newestRanRow(forged.missionId));
     for (let i = 0; i < streak; i++) {
@@ -424,7 +477,7 @@ describe('the KICK forces exactly one pass past the debounce', () => {
   test('a kick does NOT bypass conductor-disabled', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
     setConductorEnabled(project, false);
     requestConductorKick(project, forged.missionId);
 
@@ -436,7 +489,7 @@ describe('the KICK forces exactly one pass past the debounce', () => {
   test('a kick does NOT bypass daemon-off', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
     setOrchestratorLevel(project, 'off');
     requestConductorKick(project, forged.missionId);
 
@@ -448,7 +501,7 @@ describe('the KICK forces exactly one pass past the debounce', () => {
   test('a kick does NOT bypass the empty-conduct cap', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    const { forged } = await forgeClosedEpicGapMission();
     for (let i = 0; i < CONDUCTOR_EMPTY_CONDUCT_CAP; i++) {
       await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
     }
@@ -484,13 +537,104 @@ describe('the KICK forces exactly one pass past the debounce', () => {
   });
 });
 
-describe('premise checks (so a green suite cannot be vacuous)', () => {
-  test('the fixture mission really derives a single VERIFY criterion and no discover gap', async () => {
+/**
+ * THE BOUNDARY. An empty conduct is suspicious ONLY when the pass had something it could have
+ * filed. This is the distinction the first cut of this change got wrong: it re-armed on ANY empty
+ * conduct, which bought a statically-red base TWO nodes where the 2026-07-23 incident allows
+ * exactly ONE. The two fixtures below differ in a single field — whether the serving epic todo is
+ * still open — and must land on opposite sides.
+ */
+describe('BOUNDARY: an empty conduct only re-arms when something was FILEABLE', () => {
+  test('OPEN serving epic (2026-07-23): nothing fileable ⇒ ONE node, then debounce forever', async () => {
     addWatchedProject(project);
     setConductorEnabled(project, true);
-    const { forged } = await forgeVerifyOnlyMission();
+    await forgeOpenEpicGapMission();
+
+    const first = await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
+    expect(first.ran).toBe(true);
+    expect(invokeCalls).toBe(1);
+
+    // Twenty ticks — the length of the original incident. The node budget must not move.
+    for (let i = 0; i < 20; i++) {
+      const r = await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
+      expect(r.ran).toBe(false);
+      expect(r.reason).toBe('debounced');
+    }
+    expect(invokeCalls).toBe(1);
+    // …and no empty-conduct card either: filing nothing here was CORRECT, not a failure.
+    expect(
+      listOpenEscalations().filter((e) => e.project === project && e.kind === CONDUCTOR_EMPTY_CONDUCTS_CAPPED_KIND),
+    ).toHaveLength(0);
+  });
+
+  test('CLOSED serving epic (949dda42): a new epic is needed ⇒ re-arm, bounded by the cap', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    await forgeClosedEpicGapMission();
+
+    for (let i = 0; i < CONDUCTOR_EMPTY_CONDUCT_CAP; i++) {
+      const r = await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
+      expect(r.ran).toBe(true);
+    }
+    expect(invokeCalls).toBe(CONDUCTOR_EMPTY_CONDUCT_CAP);
+    // Bounded: past the cap it stops, exactly like the OPEN case, just N nodes later.
+    for (let i = 0; i < 20; i++) {
+      const r = await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
+      expect(r.reason).toBe('conductor-empty-conducts-capped');
+    }
+    expect(invokeCalls).toBe(CONDUCTOR_EMPTY_CONDUCT_CAP);
+  });
+
+  test('the OPEN case still records failCounted honestly — it was not a failed attempt', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged } = await forgeOpenEpicGapMission();
+    await runConductorPass(project, { invoke: emptyConductInvoke, verifyPanelArm: noPanel });
+    expect(newestRanRow(forged.missionId).failCounted).toBeNull();
+  });
+
+  test('isFileableServeGap: only a discover gap with no OPEN serving epic is fileable', () => {
+    const discover = { action: 'discover', servingEpicLive: false };
+    expect(isFileableServeGap(discover, false)).toBe(true);   // closed / absent ⇒ file a new epic
+    expect(isFileableServeGap(discover, true)).toBe(false);   // an open epic already covers it
+    expect(isFileableServeGap({ action: 'verify', servingEpicLive: false }, false)).toBe(false);
+    expect(isFileableServeGap({ action: 'building', servingEpicLive: false }, false)).toBe(false);
+    expect(isFileableServeGap({ ...discover, servingEpicLive: true }, false)).toBe(false);
+    // The rolled-back gap ('none' — no serving epic at all) is the strict subset.
+    const rolledBack = { action: 'discover', servingEpicState: 'none' as const, servingEpicLive: false };
+    expect(isRolledBackReplanGap(rolledBack)).toBe(true);
+    expect(isFileableServeGap(rolledBack, false)).toBe(true);
+  });
+});
+
+describe('premise checks (so a green suite cannot be vacuous)', () => {
+  test('the CLOSED fixture is the live-wedge shape: discover, state open, epic todo done', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged } = await forgeClosedEpicGapMission();
     const actions = listCriteriaWithActions(project, forged.missionId);
     expect(actions).toHaveLength(1);
-    expect(actions[0].action).toBe('verify');
+    expect(actions[0].action).toBe('discover');
+    // servingEpicState says "an epic exists"…
+    expect(actions[0].servingEpicState).toBe('open');
+    expect(actions[0].servingEpicLive).toBe(false);
+    // …while the epic TODO says "and it is dead". That gap is the whole distinction.
+    const epics = listTodos(project, { includeCompleted: true })
+      .filter((t) => t.parentId === forged.missionId && t.kind === 'epic');
+    expect(epics).toHaveLength(1);
+    expect(epics[0].status).toBe('done');
+  });
+
+  test('the OPEN fixture differs in EXACTLY that one field', async () => {
+    addWatchedProject(project);
+    setConductorEnabled(project, true);
+    const { forged } = await forgeOpenEpicGapMission();
+    const actions = listCriteriaWithActions(project, forged.missionId);
+    expect(actions[0].action).toBe('discover');
+    expect(actions[0].servingEpicState).toBe('open');
+    expect(actions[0].servingEpicLive).toBe(false);
+    const epics = listTodos(project, { includeCompleted: true })
+      .filter((t) => t.parentId === forged.missionId && t.kind === 'epic');
+    expect(epics[0].status === 'done' || epics[0].status === 'dropped').toBe(false);
   });
 });

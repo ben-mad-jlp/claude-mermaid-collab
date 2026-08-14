@@ -406,24 +406,35 @@ export function isEmptyConductRow(
  * productive (outcome:'conducted', ran:true) pass — walking newest-first and skipping any
  * other row. Returns null on throw or if no such row exists.
  *
- * An EMPTY CONDUCT (isEmptyConductRow) is NOT such a pass, and it does not merely get skipped:
- * hitting one STOPS the walk and returns null. Skipping it would fall back to an OLDER
- * productive pass, and if that older pass's fingerprint happens to equal the current one the
- * mission debounces forever again — the exact wedge. "The last thing the conductor did on this
- * mission moved nothing" means there is no valid anchor, so the next pass re-arms. The re-arm is
- * bounded by CONDUCTOR_EMPTY_CONDUCT_CAP at the call site; this function only tells the truth
- * about whether an anchor exists.
+ * An EMPTY CONDUCT (isEmptyConductRow) is NOT such a pass — but ONLY when the caller says this
+ * pass had something it could have FILED (`emptyConductAnchors: false`). Then hitting one STOPS
+ * the walk and returns null: skipping it would fall back to an OLDER productive pass, and if that
+ * older pass's fingerprint happens to equal the current one the mission debounces forever again —
+ * the exact wedge. "The last thing the conductor did on this mission moved nothing" means there
+ * is no valid anchor, so the next pass re-arms.
+ *
+ * DEFAULT `emptyConductAnchors: true` — an empty conduct anchors, exactly as it always did. The
+ * caller (conductor-pass.ts) flips it only when a FILEABLE gap exists (isFileableServeGap),
+ * because a pass with nothing fileable — every discover criterion already has an OPEN serving
+ * epic, however inert or base-red — files nothing CORRECTLY and must settle into the fingerprint
+ * debounce after ONE node (the 2026-07-23 self-excitation incident). The default is deliberately
+ * the SAFE direction: a caller that forgets the distinction debounces rather than re-spins nodes.
+ *
+ * The re-arm is bounded by CONDUCTOR_EMPTY_CONDUCT_CAP at the call site; this function only tells
+ * the truth about whether an anchor exists.
  */
 export function latestProductivePassFp(
   project: string,
   missionId: string,
+  opts?: { emptyConductAnchors?: boolean },
 ): { passFp: string | null; selfFp: string | null } | null {
+  const emptyConductAnchors = opts?.emptyConductAnchors ?? true;
   try {
     const rows = listConductorPasses(project, { missionId });
     for (const row of rows) {
       if (row.endedAt === null) continue;
       if (row.outcome !== 'conducted' || row.ran !== true) continue;
-      if (isEmptyConductRow(row)) return null;
+      if (!emptyConductAnchors && isEmptyConductRow(row)) return null;
       return { passFp: row.passFp, selfFp: row.selfFp };
     }
     return null;
