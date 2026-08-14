@@ -36,6 +36,9 @@ export interface MissionStallFacts {
    *  remains unchanged and byte-identical. Union of escalate-action ids, discover-stuck ids,
    *  and verify-owed ids, computed by the caller. */
   stuckCriterionIds?: string[];
+  /** Optional: the verify-owed subset of stuckCriterionIds, carried so the raise site can
+   *  rebuild the same conditionKey the facts builder used. */
+  verifyOwedCriterionIds?: string[];
 }
 
 /**
