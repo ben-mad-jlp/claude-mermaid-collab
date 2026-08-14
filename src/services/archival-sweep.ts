@@ -9,7 +9,7 @@
  * (invariant-check.ts).
  */
 
-import { listTodosChunked, archiveTodosByIds } from './todo-store.js';
+import { listTodosChunked, archiveTodosByIds, type Todo } from './todo-store.js';
 import { listMissions, archiveMissionsByTodoIds } from './mission-store.js';
 import { yieldToLoop } from './loop-yield.js';
 
@@ -73,6 +73,14 @@ export async function runArchivalSweep(
     chunkSize?: number;
     yieldFn?: () => Promise<void>;
     force?: boolean;
+    /** Audit item 7a: the orchestrator tick's shared per-project todos snapshot
+     *  (`listTodos(project, { includeCompleted: true })` — hot rows only, archived
+     *  excluded, exactly the set this sweep wants). When provided, the sweep skips its
+     *  own chunked table read. Absent ⇒ chunked self-read — external callers unchanged.
+     *  ACCEPTED STALENESS: the tick invalidates its snapshot after mutating passes
+     *  (build/reconcile), so this sees post-mutation state; and the retention cutoff is
+     *  7 DAYS, so a row whose terminal state changed mid-tick cannot newly qualify. */
+    todosSnapshot?: Todo[];
   } = {},
 ): Promise<ArchivalSweepResult> {
   const now = opts.now ?? Date.now();
@@ -91,11 +99,11 @@ export async function runArchivalSweep(
   // TODOS: keyset-paged + yielding (todo-store.ts listTodosChunked), same call shape as
   // assertClaimInvariantsAsync (invariant-check.ts). includeArchived:false is the
   // default but stated explicitly — never re-archive an already-archived row.
-  const todos = await listTodosChunked(
+  const todos = opts.todosSnapshot ?? (await listTodosChunked(
     project,
     { includeCompleted: true, includeArchived: false },
     { pageSize: chunkSize, yieldFn: doYield },
-  );
+  ));
   let todosArchived = 0;
   let batch: string[] = [];
   for (const t of todos) {
@@ -114,7 +122,9 @@ export async function runArchivalSweep(
   // MISSIONS: the mission table is small (one row per mission, not per todo) — a single
   // listMissions call (already hot-only by default) is the same cost class as the
   // existing mission-loop pass; no chunking needed.
-  const missions = listMissions(project, { includeArchived: false, withFacts: false });
+  // 7a: the snapshot (when present) also feeds listMissions' enumeration, saving its
+  // internal full-table read. Shape-identical: listMissions self-reads the same filter.
+  const missions = listMissions(project, { includeArchived: false, withFacts: false, allTodos: opts.todosSnapshot });
   const staleMissionTodoIds = missions
     .filter(
       (m) =>

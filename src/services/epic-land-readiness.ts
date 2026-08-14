@@ -427,8 +427,19 @@ export function makeReachProbe(project: string, epicBranch: string): ReachProbe 
   };
 }
 
+/** Test seam: counts real presence sweeps (getEpicLandReadiness invocations) so the
+ *  measure-once tests can prove ONE sweep per landEpic call (audit O5). Deliberately a
+ *  counter, NOT a cache — per-call threading in coordinator-land is the dedupe; a cache
+ *  here would go stale against store rows that move independently of git shas. */
+export const _presenceSweepCounter = { count: 0 };
+/** Test seam: reset the presence-sweep counter. */
+export function _resetPresenceSweepCounter(): void {
+  _presenceSweepCounter.count = 0;
+}
+
 /** DB-backed wrapper: load the project's work-graph and report land readiness. */
 export async function getEpicLandReadiness(project: string, epicId: string): Promise<LandReadinessReport> {
+  _presenceSweepCounter.count++;
   const todos = listTodos(project, { includeCompleted: true });
   const epicBranch = epicBranchName(epicId);
   return buildLandReadiness(

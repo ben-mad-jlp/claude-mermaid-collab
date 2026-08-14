@@ -33,6 +33,13 @@ const SYNC_SPAWN = /\b(?:spawnSync|execSync|execFileSync)\b/g;
  * included), after comment stripping. reason documents the exemption.
  */
 const ALLOWLIST: Record<string, { count: number; reason: string }> = {
+  'services/impacted-tests.ts': {
+    count: 2,
+    reason:
+      'Graph-memo identity probe: one execFileSync import + one call running `git rev-parse ' +
+      'HEAD^{tree}` / `git status --porcelain` — sub-second local-object reads, bounded well ' +
+      'under 45s, and memoized per tree so a warm plan spawns nothing at all.',
+  },
   'services/hotpath-profiler.ts': {
     count: 7,
     reason:

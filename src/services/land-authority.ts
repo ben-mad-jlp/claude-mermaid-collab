@@ -81,6 +81,37 @@ export interface LandAuthorityVerdict extends LandReadinessVerdict {
   trailer: string;
 }
 
+/**
+ * Measurements the steward precheck already took, threaded into `landReadiness` so a
+ * single `landEpic` call measures ONCE (audit O4/O5/O6 — one land paid double: tsc +
+ * dry-merge re-proved, the G9 presence sweep re-swept, and open-children re-asked over
+ * the same snapshot). Consumption is strictly guarded: the proofs are trusted ONLY when
+ * `probedAtShas` still equals the `snapshot` shas at readiness time — if the trunk or
+ * the epic tip moved between the steward stage and the proof stage, every step falls
+ * back to a fresh probe. Absent (every external caller today), behavior is
+ * byte-identical to the unthreaded path.
+ *
+ * This is per-call threading, NOT a cache: `getEpicLandReadiness` gains no memo here —
+ * a cache on the presence sweep has staleness risk (store rows move independently of
+ * git shas) that the audit did not price.
+ */
+export interface ThreadedStewardMeasurements {
+  /** The steward's re-derived tsc + dry-merge verdicts, pinned to the shas they were
+   *  probed at (trunk head + epic tip). */
+  stewardProof?: {
+    tscClean: boolean;
+    mergeClean: boolean;
+    probedAtShas: { master: string; epicTip: string };
+  };
+  /** The steward's G9 presence sweep result (full report, not just findings). */
+  presence?: LandReadinessReport;
+  /** True when the steward already verified the epic's children against the same todo
+   *  snapshot this readiness call receives; skips the duplicate mid-pipeline read. The
+   *  post-proof FRESH open-children re-check at merge time is unaffected (it reads a
+   *  new store snapshot and always runs). */
+  childrenChecked?: boolean;
+}
+
 /** Injected probes for testing */
 export interface LandProbes {
   presence?: (project: string, epicId: string) => LandReadinessReport | Promise<LandReadinessReport>;
@@ -383,7 +414,7 @@ async function resolveEpicWorktreeCwd(project: string, epicId: string): Promise<
 export async function landReadiness(
   project: string,
   epicId: string,
-  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor },
+  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor } & ThreadedStewardMeasurements,
 ): Promise<LandReadinessVerdict> {
   const probes = opts?.probes ?? {};
   const allTodos = opts?.todos ?? (probes.todos ? probes.todos(project) : listTodos(project, { includeCompleted: true }));
@@ -394,24 +425,44 @@ export async function landReadiness(
   let gate: EpicLandGateResult | null = null;
   let presence: LandReadinessReport = { project, epicId, epicBranch, blocking: false, findings: [], exemptions: [], duplicateCommits: [], checked: 0 };
 
-  // Step 1: Check [LAND] leaf dependencies
-  const depBlocker = checkLandDeps(allTodos, epicId);
-  if (depBlocker) {
-    blockers.push(depBlocker);
-  }
+  // Threaded steward measurements (audit O4/O5/O6): trust the steward's proofs ONLY when
+  // the shas it probed at still equal this call's snapshot shas. A moved trunk or epic
+  // tip (e.g. a stale-base forward-integration between stages) invalidates ALL of them —
+  // never consume a stale proof. No snapshot ⇒ nothing to compare against ⇒ re-probe.
+  const stewardProof = opts?.stewardProof;
+  const stewardShasMatch = !!(
+    stewardProof &&
+    opts?.snapshot &&
+    stewardProof.probedAtShas.master === opts.snapshot.baseSha &&
+    stewardProof.probedAtShas.epicTip === opts.snapshot.epicTipSha
+  );
 
-  const openChildrenBlocker = checkOpenChildren(allTodos, epicId);
-  if (openChildrenBlocker) {
-    blockers.push(openChildrenBlocker);
+  // Step 1: Check [LAND] leaf dependencies + open children — skipped only when the
+  // steward already asked over the same snapshot AND the shas held (the post-proof
+  // fresh re-check at merge time in coordinator-land still always runs).
+  let depBlocker: LandBlocker | null = null;
+  if (!(opts?.childrenChecked && stewardShasMatch)) {
+    depBlocker = checkLandDeps(allTodos, epicId);
+    if (depBlocker) {
+      blockers.push(depBlocker);
+    }
+
+    const openChildrenBlocker = checkOpenChildren(allTodos, epicId);
+    if (openChildrenBlocker) {
+      blockers.push(openChildrenBlocker);
+    }
   }
 
   // Resolve the epic worktree cwd for merge and tsc probes
   const cwdProbe = probes.worktreeCwd ?? resolveEpicWorktreeCwd;
   const epicWorktreeCwd = await cwdProbe(project, epicId);
 
-  // Step 2: Check merge and tsc
+  // Step 2: Check merge and tsc — consume the steward's measurement when the shas held;
+  // otherwise probe fresh (byte-identical to the unthreaded path).
   const mergeProbe = probes.merge || ((p, b, w) => defaultMergeProbe(p, b, w));
-  const mergeResult = await mergeProbe(project, epicBranch, epicWorktreeCwd);
+  const mergeResult = stewardShasMatch
+    ? { tscClean: stewardProof!.tscClean, mergeClean: stewardProof!.mergeClean }
+    : await mergeProbe(project, epicBranch, epicWorktreeCwd);
 
   if (!mergeResult.tscClean) {
     blockers.push({
@@ -427,9 +478,13 @@ export async function landReadiness(
     });
   }
 
-  // Step 3: Check presence (G9)
-  const presenceProbe = probes.presence || ((p, e) => getEpicLandReadiness(p, e));
-  presence = await presenceProbe(project, epicId);
+  // Step 3: Check presence (G9) — consume the steward's sweep when the shas held.
+  if (opts?.presence && stewardShasMatch) {
+    presence = opts.presence;
+  } else {
+    const presenceProbe = probes.presence || ((p, e) => getEpicLandReadiness(p, e));
+    presence = await presenceProbe(project, epicId);
+  }
 
   if (presence.blocking) {
     const orphaned = presence.findings.filter((f) => f.kind === 'orphaned-proof').length;

@@ -26,7 +26,8 @@ import { type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor } from './land-authority';
+import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor, type ThreadedStewardMeasurements } from './land-authority';
+import { getEpicLandReadiness, type LandReadinessReport } from './epic-land-readiness';
 import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -257,6 +258,9 @@ async function deriveEpicLandProof(a: {
   epicWorktreeCwd: string;
   snapshot?: { baseSha: string; epicTipSha: string };
   actor?: LandActor;
+  /** Steward-stage measurements to consume instead of re-probing (audit O4/O5/O6);
+   *  landReadiness only trusts them while the probed-at shas still match `snapshot`. */
+  measurements?: ThreadedStewardMeasurements;
 }): Promise<LandProof> {
   const notRun: EpicLandGateResult = {
     status: 'error',
@@ -277,6 +281,7 @@ async function deriveEpicLandProof(a: {
     probes: { worktreeCwd: () => a.epicWorktreeCwd },
     snapshot: a.snapshot,
     actor: a.actor,
+    ...(a.measurements ?? {}),
   });
   const gate = readiness.gate ?? notRun;
 
@@ -949,11 +954,35 @@ async function runStewardPrecheck(
   targetProject: string,
   todosAtProofTime: Todo[],
   ctx: { escalationId: string | null; session: string },
-): Promise<{ ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] } | LandEpicOutcome> {
+): Promise<{ ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[]; measurements?: ThreadedStewardMeasurements } | LandEpicOutcome> {
   const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
   const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
   const wm = getWorktreeManager(targetProject);
   const epic = await wm.ensureEpic(epicId).catch(() => null);
+  const epicCwd = epic?.path ?? targetProject;
+
+  // Measure-once threading (audit O4/O5/O6): pin the shas the steward is about to probe
+  // at (trunk head + epic tip), the SAME way runProofStage snapshots them, so the proof
+  // stage can verify nothing moved before consuming these measurements instead of
+  // re-running tsc, the dry-merge worktree trial, and the G9 presence sweep.
+  const resolveShas = async (): Promise<{ master: string; epicTip: string } | null> => {
+    try {
+      const trunkRef = await wm.detectBaseBranch().catch(() => 'master');
+      const master = (await execFileAsync('git', ['-C', targetProject, 'rev-parse', trunkRef], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+      const epicTip = (await execFileAsync('git', ['-C', epicCwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+      return master && epicTip ? { master, epicTip } : null;
+    } catch {
+      return null; // sha capture is best-effort — absent shas just means no threading
+    }
+  };
+  const shasBefore = await resolveShas();
+
+  // Capture the FULL presence report the steward's G9 check computes (realRunners'
+  // default discards everything but the findings), so the proof stage can consume it.
+  // Only when the sweep target is the same repo landReadiness will sweep (the steward
+  // sweeps ctx.project; landReadiness sweeps the target repo) — otherwise leave the
+  // default runner in place and let the proof stage re-probe.
+  let presenceReport: LandReadinessReport | null = null;
   const verdict = await validateStewardProof(
     'land_epic',
     { kind: 'epic-landable', epicId, epicBranch },
@@ -965,15 +994,43 @@ async function runStewardPrecheck(
         return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
       },
       epicChildIds,
-      epicWorktreeCwd: epic?.path ?? targetProject,
+      epicWorktreeCwd: epicCwd,
       masterCwd: targetProject,
+      ...(project === targetProject
+        ? {
+            runners: {
+              unlandedLeaves: async (p: string, e: string) => {
+                try {
+                  presenceReport = await getEpicLandReadiness(p, e);
+                  return presenceReport.findings;
+                } catch {
+                  return []; // mirror realRunners.unlandedLeaves' catch-to-empty
+                }
+              },
+            },
+          }
+        : {}),
     },
   );
   if (!verdict.ok) {
     recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'rejected', reason: verdict.reason }) });
     return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
   }
-  return { ok: true, epic, epicChildIds };
+
+  // A green steward verdict re-derived children-done, tsc-clean, merge-clean, and the
+  // presence sweep from ground truth. Thread them forward ONLY if the shas did not move
+  // while the steward was probing (a mid-probe trunk/tip move makes the pair of shas an
+  // unreliable pin — safer to let the proof stage measure fresh).
+  const shasAfter = await resolveShas();
+  const measurements: ThreadedStewardMeasurements | undefined =
+    shasBefore && shasAfter && shasBefore.master === shasAfter.master && shasBefore.epicTip === shasAfter.epicTip
+      ? {
+          stewardProof: { tscClean: true, mergeClean: true, probedAtShas: shasAfter },
+          ...(presenceReport ? { presence: presenceReport } : {}),
+          childrenChecked: true,
+        }
+      : undefined;
+  return { ok: true, epic, epicChildIds, measurements };
 }
 
 async function checkStaleness(
@@ -1025,6 +1082,7 @@ async function runProofStage(
   todosAtProofTime: Todo[],
   epic: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null,
   ctx: { escalationId: string | null; session: string; todoId: string; actor?: LandActor },
+  measurements?: ThreadedStewardMeasurements,
 ): Promise<{ ok: boolean; proof?: LandProof } | LandEpicOutcome> {
   const wm = getWorktreeManager(targetProject);
 
@@ -1049,6 +1107,7 @@ async function runProofStage(
     epicWorktreeCwd: epic?.path ?? targetProject,
     snapshot,
     actor: ctx.actor,
+    measurements,
   });
   if (!proof.ok) {
     const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
@@ -1447,9 +1506,10 @@ export async function landEpic(
         const outcome = stewardResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
-      const stewardOk = stewardResult as { ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] };
+      const stewardOk = stewardResult as { ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[]; measurements?: ThreadedStewardMeasurements };
       const epic = stewardOk.epic ?? null;
       const epicChildIds = stewardOk.epicChildIds ?? [];
+      const stewardMeasurements = stewardOk.measurements;
 
       const stalenessResult = await deps.checkStaleness(wm, targetProject, epicId, epicBranch, ctx);
       if (!stalenessResult.ok) {
@@ -1457,7 +1517,7 @@ export async function landEpic(
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
-      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor });
+      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor }, stewardMeasurements);
       if (!proofResult.ok) {
         const outcome = proofResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
@@ -1507,6 +1567,15 @@ export async function landEpic(
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
       await refreshProjectDigestOnLand(targetProject);
+      // Master just moved — fire-and-forget the FULL-SUITE trunk anchor so the impacted
+      // base/land gates have a green anchor at the new sha instead of every epic base
+      // paying full price until one happens to coincide (trunk-anchor.ts). Capped +
+      // coalesced inside ensureTrunkAnchor; must never block or fail a completed land.
+      try {
+        void import('./trunk-anchor.js')
+          .then((m) => m.ensureTrunkAnchor(targetProject))
+          .catch(() => { /* advisory */ });
+      } catch { /* advisory */ }
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
       threw = true;

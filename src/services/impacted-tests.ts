@@ -11,11 +11,13 @@
  * it CANNOT see falls back to the full suite via `planImpactedFloor`'s triggers. What the
  * graph does not see: runtime `readFileSync` of config/fixture paths (no import edge) and
  * process-level coupling (env vars, shared SQLite). The infra-path trigger catches the
- * known dangerous ones (scripts/, shared helpers/fixtures, the preloaded tripwire); the
- * daemon's continuous master base gate — which still runs the FULL suite — is the safety
- * net for the rest: an impacted-set miss self-surfaces there on the next base run.
+ * known dangerous ones (scripts/, shared helpers/fixtures, the preloaded tripwire);
+ * `ensureTrunkAnchor` (trunk-anchor.ts) — the capped, coalesced FULL-suite gate at the
+ * trunk sha, fired after every land and on every anchor miss — is the safety net for the
+ * rest: an impacted-set miss self-surfaces there on the next full trunk run.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { QUARANTINE_SEGMENT } from './quarantine';
 
@@ -57,6 +59,95 @@ export const FLOOR_INFRA_RES: RegExp[] = [
 
 const TEST_FILE_RE = /\.test\.tsx?$/;
 const SOURCE_FILE_RE = /\.tsx?$/;
+
+// ---------------------------------------------------------------------------
+// Tree-keyed import-graph memo (audit item 10). Before this, EVERY planImpactedFloor
+// call — per land-gate floor run, per base-gate run, per planner invocation — re-walked
+// src/ + desktop/src with readdirSync + readFileSync to rebuild the same import graph.
+// The graph is a pure function of the checked-out tree, so we key the memo on
+// (repoRoot, `git rev-parse HEAD^{tree}`) and ONLY when `git status --porcelain` is
+// empty: a clean worktree's file contents ARE its tree sha. Dirty tree or any git
+// error ⇒ no key ⇒ build fresh and never cache (fail-open). Epic worktrees each have
+// their OWN HEAD/tree, and the probe runs with cwd=repoRoot, so per-worktree trees
+// key naturally to distinct entries.
+// ---------------------------------------------------------------------------
+
+export interface ImpactedGraphDeps {
+  /** Run git in repoRoot, return stdout; throw on failure. Injectable for tests. */
+  gitExec?: (repoRoot: string, args: string[]) => string;
+}
+
+interface ImportGraph {
+  /** reverse edges: target file -> files that import it */
+  importers: Map<string, Set<string>>;
+  nodes: Set<string>;
+}
+
+interface GraphMemoEntry {
+  treeSha: string;
+  graph: ImportGraph | null;
+  candidates: string[] | null;
+}
+
+/** Bounded LRU: a daemon touches only a handful of roots (main repo + live epic worktrees). */
+export const IMPACTED_GRAPH_MEMO_MAX = 4;
+const graphMemo = new Map<string, GraphMemoEntry>();
+const sweepStats = { graphBuilds: 0, candidateWalks: 0 };
+
+/** Test seam: how many full filesystem sweeps (graph builds / candidate walks) ran. */
+export function _impactedSweepStats(): { graphBuilds: number; candidateWalks: number } {
+  return { ...sweepStats };
+}
+
+/** Test seam: drop all memo entries and zero the sweep counters. */
+export function _resetImpactedGraphMemo(): void {
+  graphMemo.clear();
+  sweepStats.graphBuilds = 0;
+  sweepStats.candidateWalks = 0;
+}
+
+function defaultGitExec(repoRoot: string, args: string[]): string {
+  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+/** HEAD's tree sha iff the worktree is porcelain-clean; null (⇒ no caching) otherwise. */
+function cleanTreeSha(repoRoot: string, deps?: ImpactedGraphDeps): string | null {
+  const git = deps?.gitExec ?? defaultGitExec;
+  try {
+    if (git(repoRoot, ['status', '--porcelain']).trim() !== '') return null;
+    const sha = git(repoRoot, ['rev-parse', 'HEAD^{tree}']).trim();
+    return /^[0-9a-f]{40,64}$/i.test(sha) ? sha : null;
+  } catch {
+    return null; // fail-open: build fresh, never cache
+  }
+}
+
+function memoLookup(repoRoot: string, treeSha: string | null): GraphMemoEntry | null {
+  if (treeSha === null) return null;
+  const e = graphMemo.get(repoRoot);
+  if (!e || e.treeSha !== treeSha) return null;
+  graphMemo.delete(repoRoot); // LRU touch
+  graphMemo.set(repoRoot, e);
+  return e;
+}
+
+function memoStore(
+  repoRoot: string,
+  treeSha: string | null,
+  patch: Partial<Pick<GraphMemoEntry, 'graph' | 'candidates'>>,
+): void {
+  if (treeSha === null) return; // dirty/unknown tree — never cache
+  let e = graphMemo.get(repoRoot);
+  if (!e || e.treeSha !== treeSha) e = { treeSha, graph: null, candidates: null };
+  else graphMemo.delete(repoRoot);
+  Object.assign(e, patch);
+  graphMemo.set(repoRoot, e);
+  while (graphMemo.size > IMPACTED_GRAPH_MEMO_MAX) {
+    const oldest = graphMemo.keys().next().value;
+    if (oldest === undefined) break;
+    graphMemo.delete(oldest);
+  }
+}
 
 /** Import/require/dynamic-import specifier extraction. Over-matching (specifiers inside
  *  comments or strings) is safe here — it only ADDS edges, which only ADDS tests. */
@@ -121,32 +212,40 @@ function resolveSpecifier(fromFileAbs: string, spec: string): string | null {
  * Reverse-reachability over the static import graph: every candidate test that transitively
  * depends on ANY changed file, plus every changed file that is itself a candidate test.
  */
-export function computeImpactedTests(opts: ImpactedTestsOpts): ImpactedTestsResult {
-  let sources: string[];
-  try {
-    sources = walkSources(opts.repoRoot);
-  } catch (e) {
-    return { ok: false, reason: `impacted-tests: source walk failed: ${(e as Error).message}` };
-  }
-
-  // reverse edges: target file -> files that import it
-  const importers = new Map<string, Set<string>>();
-  const nodes = new Set<string>(sources);
-  try {
-    for (const file of sources) {
-      const src = readFileSync(file, 'utf8');
-      for (const spec of extractSpecifiers(src)) {
-        const target = resolveSpecifier(file, spec);
-        if (!target) continue;
-        nodes.add(target);
-        let set = importers.get(target);
-        if (!set) importers.set(target, (set = new Set()));
-        set.add(file);
-      }
+export function computeImpactedTests(opts: ImpactedTestsOpts, deps?: ImpactedGraphDeps): ImpactedTestsResult {
+  const treeSha = cleanTreeSha(opts.repoRoot, deps);
+  let graph = memoLookup(opts.repoRoot, treeSha)?.graph ?? null;
+  if (!graph) {
+    let sources: string[];
+    try {
+      sources = walkSources(opts.repoRoot);
+    } catch (e) {
+      return { ok: false, reason: `impacted-tests: source walk failed: ${(e as Error).message}` };
     }
-  } catch (e) {
-    return { ok: false, reason: `impacted-tests: graph build failed: ${(e as Error).message}` };
+    sweepStats.graphBuilds++;
+
+    // reverse edges: target file -> files that import it
+    const importers = new Map<string, Set<string>>();
+    const nodes = new Set<string>(sources);
+    try {
+      for (const file of sources) {
+        const src = readFileSync(file, 'utf8');
+        for (const spec of extractSpecifiers(src)) {
+          const target = resolveSpecifier(file, spec);
+          if (!target) continue;
+          nodes.add(target);
+          let set = importers.get(target);
+          if (!set) importers.set(target, (set = new Set()));
+          set.add(file);
+        }
+      }
+    } catch (e) {
+      return { ok: false, reason: `impacted-tests: graph build failed: ${(e as Error).message}` };
+    }
+    graph = { importers, nodes };
+    memoStore(opts.repoRoot, treeSha, { graph });
   }
+  const { importers, nodes } = graph;
 
   const changedAbs = opts.changedFiles.map((p) => resolve(opts.repoRoot, p));
   // Only .ts/.tsx changes MUST be graph nodes — a changed source file the graph never saw
@@ -175,7 +274,11 @@ export function computeImpactedTests(opts: ImpactedTestsOpts): ImpactedTestsResu
 
 /** Default floor candidates: the same file set `scripts/test-backend.ts` collects — every
  *  *.test.ts(x) under src/ and desktop/src that imports bun:test, quarantine excluded. */
-export function collectFloorCandidates(repoRoot: string): string[] {
+export function collectFloorCandidates(repoRoot: string, deps?: ImpactedGraphDeps): string[] {
+  const treeSha = cleanTreeSha(repoRoot, deps);
+  const cached = memoLookup(repoRoot, treeSha)?.candidates ?? null;
+  if (cached) return [...cached];
+  sweepStats.candidateWalks++;
   const roots = [join(repoRoot, 'src'), join(repoRoot, 'desktop', 'src')];
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -201,7 +304,9 @@ export function collectFloorCandidates(repoRoot: string): string[] {
   };
   for (const r of roots) walk(r);
   const prefix = repoRoot.endsWith('/') ? repoRoot : `${repoRoot}/`;
-  return out.map((p) => (p.startsWith(prefix) ? p.slice(prefix.length) : p)).sort();
+  const result = out.map((p) => (p.startsWith(prefix) ? p.slice(prefix.length) : p)).sort();
+  memoStore(repoRoot, treeSha, { candidates: [...result] });
+  return result;
 }
 
 /**
@@ -212,10 +317,12 @@ export function planImpactedFloor(opts: {
   repoRoot: string;
   changedFiles: string[];
   candidateTests?: string[];
+  /** Injectable git seam for the tree-keyed graph memo (tests). */
+  deps?: ImpactedGraphDeps;
 }): FloorPlan {
   let candidates: string[];
   try {
-    candidates = opts.candidateTests ?? collectFloorCandidates(opts.repoRoot);
+    candidates = opts.candidateTests ?? collectFloorCandidates(opts.repoRoot, opts.deps);
   } catch (e) {
     return { mode: 'full', candidateCount: 0, trigger: `candidate collection failed: ${(e as Error).message}` };
   }
@@ -224,11 +331,14 @@ export function planImpactedFloor(opts: {
   const infra = opts.changedFiles.find((p) => FLOOR_INFRA_RES.some((re) => re.test(p)));
   if (infra) return full(`infra path changed: ${infra}`);
 
-  const impacted = computeImpactedTests({
-    repoRoot: opts.repoRoot,
-    changedFiles: opts.changedFiles,
-    candidateTests: candidates,
-  });
+  const impacted = computeImpactedTests(
+    {
+      repoRoot: opts.repoRoot,
+      changedFiles: opts.changedFiles,
+      candidateTests: candidates,
+    },
+    opts.deps,
+  );
   if (!impacted.ok) return full(impacted.reason);
   if (impacted.unresolvedChanged.length > 0) {
     return full(`changed file(s) not resolvable into the import graph: ${impacted.unresolvedChanged.join(', ')}`);

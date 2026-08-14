@@ -25,6 +25,43 @@ import { ensureBucket } from './bucket-registry.ts';
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_FILE_CAP = 5;
 
+// ---------------------------------------------------------------------------
+// Throttle (audit item 7b / E7): keep the friction-triage pass OFF the every-tick
+// (~30s + every 250ms-debounced kick) cadence.
+//
+// The pass previously ran UNTHROTTLED for every watched project on every tick AND
+// every kicked tick: each run pays a frictionTrends rollup scan plus (when anything
+// is filed) an ensureBucket todos lookup. Filing a 'planned' todo is planner-paced
+// work — a human promotes it to ready — so sub-minute freshness buys nothing.
+// Same proven gate shape as mission-loop's MISSION_LOOP_INTERVAL_MS /
+// shouldRunMissionLoopPass (mission-loop.ts) with the same injectable clock + reset
+// test hooks. Matches its 150s neighbors (reconcile, mission-loop).
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between friction-triage passes for a single project. */
+export const FRICTION_TRIAGE_INTERVAL_MS = 150_000; // 2.5 min
+
+const lastFrictionTriageMs = new Map<string, number>();
+
+/**
+ * Throttle gate for runFrictionTriagePass. Returns true (and records `now` as the last
+ * run) when the pass is due for `project`; false while a previous run is within
+ * FRICTION_TRIAGE_INTERVAL_MS. First call for a project always runs. `now` is injectable
+ * for deterministic tests.
+ */
+export function shouldRunFrictionTriagePass(project: string, now: number = Date.now()): boolean {
+  const last = lastFrictionTriageMs.get(project);
+  if (last !== undefined && now - last < FRICTION_TRIAGE_INTERVAL_MS) return false;
+  lastFrictionTriageMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project throttle clock (all projects, or one). */
+export function _resetFrictionTriageThrottle(project?: string): void {
+  if (project === undefined) lastFrictionTriageMs.clear();
+  else lastFrictionTriageMs.delete(project);
+}
+
 interface LayerRoute { category: 'bug' | 'gap'; }
 const LAYER_ROUTE: Record<FrictionLayer, LayerRoute> = {
   domain:        { category: 'bug' },
@@ -43,7 +80,11 @@ export interface FrictionTriageDeps {
   cap?: number;
 }
 
-export async function runFrictionTriagePass(project: string, deps: FrictionTriageDeps = {}): Promise<void> {
+/** Result of one triage pass — `filed` lets the orchestrator tick invalidate its shared
+ *  todos snapshot ONLY when this pass actually created rows (audit item 7a). */
+export interface FrictionTriageResult { filed: number }
+
+export async function runFrictionTriagePass(project: string, deps: FrictionTriageDeps = {}): Promise<FrictionTriageResult> {
   const trendsFn      = deps.trends      ?? ((p: string) => frictionTrends(p));
   const listTodosFn   = deps.listTodos   ?? ((p: string) => listTodos(p));
   const createTodoFn  = deps.createTodo  ?? createTodo;
@@ -58,13 +99,14 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
     .filter((r) => !isActioned(project, r.layer, r.retryReason))
     .sort((a, b) => b.count - a.count);
 
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) return { filed: 0 };
 
   const batch = candidates.slice(0, cap);
   if (candidates.length > cap) {
     console.info(`[friction-triage] ${project}: ${candidates.length} unactioned recurring reasons, filing ${cap} this tick (cap)`);
   }
 
+  let filedCount = 0;
   for (const r of batch) {
     try {
       const route = LAYER_ROUTE[r.layer];
@@ -87,9 +129,11 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
         triageTag,
       });
       await markActioned(project, r.layer, r.retryReason, filed.id);
+      filedCount++;
     } catch (err) {
       // Per-reason fail-open: one bad file never aborts the rest of the batch.
       console.warn(`[friction-triage] ${project}: failed to file for "${r.retryReason}":`, err instanceof Error ? err.message : err);
     }
   }
+  return { filed: filedCount };
 }

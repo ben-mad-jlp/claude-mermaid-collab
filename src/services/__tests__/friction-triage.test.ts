@@ -371,7 +371,10 @@ describe('friction-triage: fail-open', () => {
       cap: 5,
     };
 
-    await expect(runFrictionTriagePass(project, deps)).resolves.toBeUndefined();
+    // The pass now reports how many rows it filed (audit item 7a: the orchestrator
+    // invalidates its shared todos snapshot only when filed > 0). bad-one threw, so
+    // exactly ONE (good-one) was filed.
+    await expect(runFrictionTriagePass(project, deps)).resolves.toEqual({ filed: 1 });
 
     // The good-one should still be filed
     const goodFiled = actionedCalls.find((c) => c.reason === 'good-one');

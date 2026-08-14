@@ -32,7 +32,7 @@ import {
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
-import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren, reviveTerminalBuckets } from './todo-store.ts';
+import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren, reviveTerminalBuckets, type Todo } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
 import { claimReason, danglingDeps, resolveDepId, hasTerminalEpicAncestor } from './claimability.ts';
@@ -139,12 +139,28 @@ export async function runReconcilePass(project: string): Promise<void> {
   const now = Date.now();
 
   // -------------------------------------------------------------------------
+  // THE ONE ESCALATION-TABLE READ (audit item 8): this snapshot is the single
+  // `listOpenEscalations()` sweep for the whole pass. Steps 1 (stale-reaper),
+  // 3i (dangling-deps auto-close), 3j (dep-strand auto-close) and 4
+  // (verified-done) are PHASES over it — each re-reads a row's CURRENT status
+  // via the cheap keyed `getEscalation(id)` check exactly once before writing,
+  // so a row an earlier phase (or a concurrent actor) already resolved is never
+  // double-written, while the three duplicate full-table reads are gone.
+  // Escalations CREATED mid-pass (3, 3i, 3j card phases) are deliberately not
+  // re-enumerated: a just-created card cannot be stale/moot in the same pass,
+  // and createEscalation's keyed dedup owns its identity.
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
   // 1. STALE ESCALATIONS: auto-close open escalations older than the stale window
   // -------------------------------------------------------------------------
   const openEscalations = listOpenEscalations().filter((e) => e.project === project);
 
   for (const esc of openEscalations) {
     try {
+      // Phase discipline (item 8): skip a row that is no longer open (defensive —
+      // step 1 is the first phase, but the snapshot-then-recheck shape is uniform).
+      if (getEscalation(esc.id)?.status !== 'open') continue;
       // BP0 stranded-accept SUMMARY cards are durable + throttled (re-created at
       // most once/hour). Aging one out after the ~60s stale window would close it
       // seconds after creation and the throttle would block re-creation for an
@@ -475,9 +491,28 @@ export async function runReconcilePass(project: string): Promise<void> {
   // resolves (edge fixed) OR the todo itself goes terminal, the card is moot.
   // -------------------------------------------------------------------------
   await yieldToLoop();
+  // Audit item 7: ONE full-table todos read shared by the dangling-dep sweep (3i,
+  // read-only) and the dep-strand sweep's phase 1 (3j, mutating but idempotent —
+  // settleDupOfLanded's own completedBy guard makes iterating a point-in-time list
+  // safe). 3j re-reads fresh ONLY after phase 1 actually found settle candidates,
+  // preserving its "card phase never sees stale held state" freshness contract.
+  let strandTodos: Todo[] = [];
+  let strandById = new Map<string, Todo>();
+  let strandReadOk = false;
   try {
-    const allTodos = listTodos(project, { includeCompleted: true });
-    const byId = new Map(allTodos.map((t) => [t.id, t]));
+    strandTodos = listTodos(project, { includeCompleted: true });
+    strandById = new Map(strandTodos.map((t) => [t.id, t]));
+    strandReadOk = true;
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] shared todos read failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+  try {
+    if (!strandReadOk) throw new Error('shared todos read failed — skipping dangling-dep sweep');
+    const allTodos = strandTodos;
+    const byId = strandById;
 
     for (const t of allTodos) {
       if (t.status === 'done' || t.status === 'dropped') continue;
@@ -504,8 +539,9 @@ export async function runReconcilePass(project: string): Promise<void> {
 
     // Auto-close: a 'dangling-deps' card whose todo has since gone terminal, or whose
     // dependsOn no longer has ANY dangling id (the edge was fixed / the ambiguity
-    // resolved), is moot.
-    const openDangling = listOpenEscalations().filter((e) => e.project === project && e.kind === DANGLING_DEPS_KIND);
+    // resolved), is moot. PHASE over the pass-top escalation snapshot (item 8) — the
+    // per-row getEscalation status re-check below preserves freshness before writing.
+    const openDangling = openEscalations.filter((e) => e.kind === DANGLING_DEPS_KIND);
     for (const esc of openDangling) {
       try {
         if (!esc.todoId) continue;
@@ -570,11 +606,18 @@ export async function runReconcilePass(project: string): Promise<void> {
   await yieldToLoop();
   try {
     // Phase 1 — HELD-DUP SELF-SETTLE (mutating; must run BEFORE the card phases).
-    for (const t of listTodos(project, { includeCompleted: true })) {
+    // Iterates the SHARED read from 3i (item 7): the candidate filter (held
+    // `dup-of-landed:<sha8>`, non-terminal) is stable within the pass, and
+    // settleDupOfLanded is idempotent via its own completedBy guard, so a
+    // point-in-time list is safe to walk.
+    let settleCandidates = 0;
+    const phase1Todos = strandReadOk ? strandTodos : listTodos(project, { includeCompleted: true });
+    for (const t of phase1Todos) {
       if (t.status === 'done' || t.status === 'dropped') continue;
       if (typeof t.heldReason !== 'string' || !t.heldReason.startsWith(`${DUP_OF_LANDED}:`)) continue;
       const sha8 = t.heldReason.split(':')[1];
       if (!sha8) continue; // tokenless hold — no landed proof to settle against; phase 3 cards it
+      settleCandidates++;
       try {
         await settleDupOfLanded(project, t.id, {
           landedCommit: sha8,
@@ -589,9 +632,16 @@ export async function runReconcilePass(project: string): Promise<void> {
       }
     }
 
-    // Phase 2 — re-read AFTER settling so the card phase never sees stale held state.
-    const allTodos = listTodos(project, { includeCompleted: true });
-    const byId = new Map(allTodos.map((t) => [t.id, t]));
+    // Phase 2 — the card phase must never see stale held state, so re-read AFTER
+    // settling — but ONLY when phase 1 actually had candidates to settle (item 7:
+    // with zero candidates nothing was mutated and the shared read is still exact,
+    // so the second full-table scan is skipped).
+    const allTodos = settleCandidates > 0 || !strandReadOk
+      ? listTodos(project, { includeCompleted: true })
+      : strandTodos;
+    const byId = settleCandidates > 0 || !strandReadOk
+      ? new Map(allTodos.map((t) => [t.id, t]))
+      : strandById;
 
     // Cheap pre-filter: the exact set of todo ids that some non-terminal todo's
     // `dependsOn` resolves to (same resolveDepId logic dependentsOf/claimability use).
@@ -653,8 +703,10 @@ export async function runReconcilePass(project: string): Promise<void> {
       }
     }
 
-    // Phase 4 — AUTO-CLOSE (mirrors 3i's dangling-deps auto-close).
-    const openStrand = listOpenEscalations().filter((e) => e.project === project && e.kind === DEP_STRAND_DECISION_KIND);
+    // Phase 4 — AUTO-CLOSE (mirrors 3i's dangling-deps auto-close). PHASE over the
+    // pass-top escalation snapshot (item 8) — the per-row getEscalation status
+    // re-check below preserves freshness before writing.
+    const openStrand = openEscalations.filter((e) => e.kind === DEP_STRAND_DECISION_KIND);
     for (const esc of openStrand) {
       try {
         if (!esc.todoId) continue;
